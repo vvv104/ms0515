@@ -692,9 +692,15 @@ bool board_step_frame(ms0515_board_t *board)
             kbd_counter = 0;
             kbd_tick(&board->kbd);
 
-            /* Check keyboard interrupt — vector 0130, priority 5 */
+            /* Check keyboard interrupt — vector 0130, priority 5.
+             * The real i8251 drives an active-high level signal, not
+             * an edge.  We must assert when IRQ is active and clear
+             * when it deasserts, so a latched-but-unserviced interrupt
+             * is cancelled once the CPU reads the data register. */
             if (board->kbd.irq)
                 cpu_interrupt(&board->cpu, 5, 0130);
+            else
+                cpu_clear_interrupt(&board->cpu, 5);
         }
 
         /* FDC tick (for future rotational timing) */

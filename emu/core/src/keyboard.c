@@ -210,6 +210,9 @@ uint8_t kbd_read(ms0515_keyboard_t *kbd, int reg)
 
 void kbd_push_scancode(ms0515_keyboard_t *kbd, uint8_t scancode)
 {
+    /* If FIFO was empty, the first byte needs baud-rate delay too */
+    if (fifo_empty(kbd) && !kbd->rx_ready && kbd->rx_delay == 0)
+        kbd->rx_delay = 8;
     fifo_push(kbd, scancode);
 }
 
@@ -236,11 +239,15 @@ void kbd_tick(ms0515_keyboard_t *kbd)
      * by choosing how often to call kbd_tick().
      */
     if (!kbd->rx_ready && !fifo_empty(kbd)) {
-        kbd->rx_data  = fifo_pop(kbd);
-        kbd->rx_ready = true;
-
-        /* Check for overrun — if previous data wasn't read */
-        /* (Already cleared by reading, so this path means rapid input) */
+        /* Model baud-rate delay: at 4800 baud with 11 bits/frame,
+         * one byte takes ~8 kbd_ticks to arrive over the serial link. */
+        if (kbd->rx_delay > 0) {
+            kbd->rx_delay--;
+        } else {
+            kbd->rx_data  = fifo_pop(kbd);
+            kbd->rx_ready = true;
+            kbd->rx_delay = 8;  /* Next byte will also take 8 ticks */
+        }
     }
 
     update_status(kbd);

@@ -71,6 +71,13 @@ typedef struct ms0515_keyboard {
     int      fifo_tail;
     int      fifo_count;
 
+    /* Serial transfer timing — models the real baud rate delay.
+     * At 4800 baud with 11 bits/frame, one byte takes ~2.3 ms.
+     * kbd_tick is called every KBD_TICK_DIVIDER*TIMER_DIVIDER CPU
+     * cycles (~2048 cycles at 7.5 MHz ≈ 273 µs), so we need ~8 ticks
+     * per byte to match the real serial rate. */
+    int      rx_delay;          /* Ticks remaining before next FIFO→rx      */
+
     /* Interrupt request output */
     bool     irq;               /* True when IRQ should be asserted         */
 

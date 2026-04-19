@@ -11,6 +11,7 @@ Three-layer emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - Write original code based on architecture knowledge, do not copy from reference projects.
 - **Never commit or push** without explicit user permission.
 - **Test-driven development**: after designing the interface, write unit tests first, then implement. Run tests at each stage.
+- **Revert failed attempts**: always roll back changes from unsuccessful approaches to avoid accumulating dead code and clutter.
 
 ## Project structure
 ```
