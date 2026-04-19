@@ -1,0 +1,26 @@
+# MS0515 Emulator Project
+
+## Architecture
+Three-layer emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
+- **Core** (`emu/core/`) — Pure C11, zero OS deps. Fully implemented and verified.
+- **Lib** (`emu/lib/`) — C++ wrapper: Emulator, Debugger, Disassembler, GDB RSP.
+- **Frontend** (`emu/frontend/`) — C++ SDL2 + ImGui.
+
+## Key rules
+- All code, comments, and documentation must be in **English only**.
+- Write original code based on architecture knowledge, do not copy from reference projects.
+- **Never commit or push** without explicit user permission.
+- **Test-driven development**: after designing the interface, write unit tests first, then implement. Run tests at each stage.
+
+## Project structure
+```
+emu/                — emulator source code and build files
+  core/src/         — cpu.c, cpu_ops.c, memory.c, timer.c, keyboard.c, floppy.c, board.c
+  core/include/     — ms0515/*.h headers
+  lib/              — C++ wrapper (Emulator, Debugger, Disassembler, GdbStub)
+  frontend/         — SDL2 + ImGui application
+  assets/           — runtime resources (ROM files, keyboard layout)
+docs/               — architecture and subsystem documentation
+tools/              — utility scripts (disassembler, disk tools)
+reference/          — external references and links
+```

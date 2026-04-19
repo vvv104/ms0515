@@ -1,0 +1,193 @@
+# MS7004 on-screen keyboard — VISUAL layout template
+#
+# Draws the keyboard the way it looks on the real MS7004.
+# Scancodes, SDL mapping, keyboard logic are NOT touched — they live in
+# main.cpp / Keymap.cpp and already work with the physical keyboard.
+#
+# This file describes ONLY visuals:
+#   - rows / blocks and their order,
+#   - number of keys per row and their left-to-right order,
+#   - width of each key,
+#   - label printed on the cap.
+#
+# Line format:       <width>    <label>
+#   width: 1.0 = one base key unit. Decimals for wider keys.
+#   label: cap text. Use \n to split onto two lines of the cap.
+#          Text BEFORE \n is painted on the UPPER half of the cap,
+#          text AFTER \n is painted on the LOWER half — exactly as on
+#          the real MS7004 keycap.
+#
+#          Conventions on the physical MS7004 keycaps:
+#            - Digit keys: top = digit (default/unshifted), bottom = shift-symbol.
+#              e.g. "4\n¤"  means 4 is the base glyph, ¤ is Shift+4.
+#            - Letter keys: top = Russian letter, bottom = Latin letter.
+#              Latin is the DEFAULT mode; pressing РУС/ЛАТ switches to
+#              Russian mode (this toggle is already implemented in the
+#              emulator's keyboard logic).
+#            - Modifier keys: top = Russian abbreviation (ВР, СУ, КЛТ, КМП),
+#              bottom = English name (Shift, Ctrl, Caps, Compose).
+#          Use "_" for a cosmetic gap (no cap drawn).
+#          Use "=" as the first char of the label to mark the key as
+#          "drawn but NOT wired to emulator logic" (render dimmer, no
+#          scancode sent on click). Example:  1    =ПФ1\nPF1
+#
+# Section headers name visual blocks. Blocks are rendered in this layout:
+#
+#     [fn]                                                            (top strip)
+#     [row1] [row2] [row3] [row4] [row5]   [edit1] [arr_up]  [num_r1]
+#                                          [edit2]           [num_r2]
+#                                                 [arr_btm]  [num_r3]
+#                                                            [num_r4]
+#                                                            [num_r5]
+#
+# Blocks [edit*], [arr_*], [num_*] render to the right of the main
+# typewriter block. Numpad renders to the right of the arrow cluster.
+#
+# ---------------------------------------------------------------------------
+
+[fn]
+# Top function strip. Real MS7004 has four F11..F14 keys on the right.
+1       Ф1
+1       Ф2
+1       Ф3
+1       Ф4
+1       Ф5
+1       _
+1       Ф6
+1       Ф7
+1       Ф8
+1       Ф9
+1       Ф10
+1       _
+1       Ф11
+1       Ф12
+1       Ф13
+1       Ф14
+1       _
+1       ПМ
+1       _
+1       ИСП
+1       _
+1       Ф17
+1       Ф18
+1       Ф19
+1       Ф20
+
+[row1]
+# Digits row.
+1       {\n|
+1       ;\n+
+1       1\n!
+1       2\n"
+1       3\n#
+1       4\n¤
+1       5\n%
+1       6\n&
+1       7\n'
+1       8\n(
+1       9\n)
+1       0
+1       -\n=
+1       }\n↖
+1       ""
+1       ЗБ
+1       _
+1       НТ
+1       ВСТ
+1       УДАЛ
+1       _
+1       ПФ1
+1       ПФ2
+1       ПФ3
+1       ПФ4
+
+[row2]
+# First letter row. Row is shifted right by half a key unit relative to row1.
+0.5     _
+1       ТАБ
+1       Й\nJ
+1       Ц\nC
+1       У\nU
+1       К\nK
+1       Е\nE
+1       Н\nN
+1       Г\nG
+1       Ш\n[
+1       Щ\n]
+1       З\nZ
+1       Х\nH
+1       :\n*
+1       ~
+1       ВК
+1.5     _
+1       ВЫБР
+1       ПРЕД\nКАДР
+1       СЛЕД\nКАДР
+1       _
+1       7
+1       8
+1       9
+1       ,
+
+
+[row3]
+# Home row.
+1       СУ
+1       ФКС
+1       Ф\nF
+1       Ы\nY
+1       В\nW
+1       А\nA
+1       П\nP
+1       Р\nR
+1       О\nO
+1       Л\nL
+1       Д\nD
+1       Ж\nV
+1       Э\n\
+1       .\n>
+1       Ъ
+3       _
+1       ↑
+2       _
+1       4
+1       5
+1       6
+1       -
+
+[row4]
+# Bottom letter row, Shift on both sides.
+0.5     _
+1       ВР
+1       РУС\nЛАТ
+1       Я\nQ
+1       Ч\n¬
+1       С\nS
+1       М\nM
+1       И\nI
+1       Т\nT
+1       Ь\nX
+1       Б\nB
+1       Ю\n@
+1       ,\n<
+1       /\n?
+1       "_"
+1       ВР
+1.5     _
+1       ←
+1       ↓
+1       →
+1       _
+1       1
+1       2
+1       3
+1       .
+
+[row5]
+# Modifier + space row.
+2.5     _
+1       КМП
+9       ""
+8.5     _
+2       0
+2       ВВОД

@@ -1,0 +1,34 @@
+# Build output
+build/
+out/
+package/
+cmake-build-*/
+*.obj
+*.o
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# Conan
+CMakeUserPresets.json
+
+
+
+# Python
+__pycache__/
+
+# Editor / IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Claude Code local settings
+.claude/
