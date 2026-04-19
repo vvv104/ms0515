@@ -88,6 +88,7 @@ void Audio::endFrame(int totalCycles)
     SDL_QueueAudio(device_, buf.data(), numSamples * sizeof(int16_t));
 }
 
+
 void Audio::shutdown()
 {
     if (device_ != 0) {

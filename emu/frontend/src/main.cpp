@@ -489,9 +489,14 @@ int main(int argc, char **argv)
     uint32_t emuFramesSinceReset = 0;
     uint32_t hostMsAtStart       = SDL_GetTicks();
     uint32_t hostMsAtLastReset   = hostMsAtStart;
+    /* Speed control — decouple emulation rate from monitor VSync. */
+    float    targetSpeed         = 100.0f;  /* percent, 20–500 */
+    float    emuTimeAccumMs      = 0.0f;    /* accumulated emu time to run */
+    uint32_t lastTickMs          = SDL_GetTicks();
+    constexpr float kFrameMs     = 20.0f;   /* one emulated frame = 20 ms */
     /* FPS / speed tracking — sliding 1-second window. */
     uint32_t fpsWindowStartMs    = hostMsAtStart;
-    uint32_t fpsWindowFrames     = 0;
+    uint32_t emuFramesInWindow   = 0;
     float    fpsDisplay          = 0.0f;
     float    speedDisplay        = 0.0f;
     bool     showDebugger  = config.showDebugger;
@@ -504,6 +509,7 @@ int main(int argc, char **argv)
     bool     prevShowScreen = !showScreen;
     ms0515_frontend::OnScreenKeyboard osk;
     osk.loadLayout();
+    bool     audioOn       = true;  /* user-togglable audio mute */
     bool     ramDiskOn     = true;  /* enableRamDisk() above */
     std::string mountedFd[4];
     for (int i = 0; i < 4; ++i) mountedFd[i] = cli.fdPath[i];
@@ -530,29 +536,48 @@ int main(int argc, char **argv)
         /* Advance ms7004 auto-repeat timer. */
         emu.keyTick(SDL_GetTicks());
 
+        /* Run emulated frames based on real elapsed time × speed factor. */
         if (running) {
-            audio.beginFrame();
-            bool ok = emu.stepFrame();
-            audio.endFrame(emu.board().frame_cycle_pos);
-            if (!ok) {
-                running = false;  /* CPU halted — drop into debugger */
+            uint32_t nowTick = SDL_GetTicks();
+            float realDeltaMs = static_cast<float>(nowTick - lastTickMs);
+            /* Clamp large deltas (e.g. after window drag or breakpoint) to
+             * avoid burst-catching-up hundreds of frames at once. */
+            if (realDeltaMs > 200.0f) realDeltaMs = 200.0f;
+            emuTimeAccumMs += realDeltaMs * (targetSpeed / 100.0f);
+            lastTickMs = nowTick;
+
+            bool audioEnabled = audioOn && (targetSpeed == 100.0f);
+            while (emuTimeAccumMs >= kFrameMs && running) {
+                if (audioEnabled) audio.beginFrame();
+                bool ok = emu.stepFrame();
+                if (audioEnabled) audio.endFrame(emu.board().frame_cycle_pos);
+                if (!ok) {
+                    running = false;
+                    emuTimeAccumMs = 0.0f;
+                    break;
+                }
+                emuTimeAccumMs -= kFrameMs;
+                ++emuFramesSinceReset;
+                ++emuFramesInWindow;
             }
-            ++emuFramesSinceReset;
-            /* Update screen reader every 10 frames (~5 Hz at 50 Hz refresh) */
+            /* Update screen reader ~5 Hz regardless of emu speed. */
             if (frameCounter % 10 == 0)
                 screenReader.update({emu.vram(), MEM_VRAM_SIZE}, emu.isHires());
+        } else {
+            lastTickMs = SDL_GetTicks();
+            emuTimeAccumMs = 0.0f;
         }
 
-        /* Sliding 1-second FPS/speed window. */
-        ++fpsWindowFrames;
+        /* Sliding 1-second speed measurement window. */
         uint32_t nowMs = SDL_GetTicks();
         uint32_t winMs = nowMs - fpsWindowStartMs;
         if (winMs >= 1000) {
-            fpsDisplay       = fpsWindowFrames * 1000.0f / (float)winMs;
-            /* Target is 50 Hz (one emulated frame = 20 ms of VM time). */
-            speedDisplay     = running ? (fpsDisplay / 50.0f * 100.0f) : 0.0f;
-            fpsWindowFrames  = 0;
-            fpsWindowStartMs = nowMs;
+            /* Actual emulated frames per second → actual speed %. */
+            float emuFps = emuFramesInWindow * 1000.0f / static_cast<float>(winMs);
+            fpsDisplay   = emuFps;
+            speedDisplay = emuFps / 50.0f * 100.0f;
+            emuFramesInWindow = 0;
+            fpsWindowStartMs  = nowMs;
         }
 
         if (cli.maxFrames > 0 && (int)frameCounter >= cli.maxFrames) {
@@ -639,6 +664,28 @@ int main(int argc, char **argv)
                 }
                 if (ImGui::MenuItem(running ? "Pause" : "Resume")) {
                     running = !running;
+                }
+                if (ImGui::BeginMenu(std::format("Speed: {:.0f}%", targetSpeed).c_str())) {
+                    constexpr float presets[] = {20, 50, 100, 200, 500};
+                    for (float p : presets) {
+                        auto label = std::format("{:.0f}%", p);
+                        if (ImGui::MenuItem(label.c_str(), nullptr,
+                                            targetSpeed == p)) {
+                            targetSpeed = p;
+                            emuTimeAccumMs = 0.0f;
+                        }
+                    }
+                    ImGui::Separator();
+                    ImGui::SetNextItemWidth(120.0f);
+                    if (ImGui::SliderFloat("##speed", &targetSpeed,
+                                           20.0f, 500.0f, "%.0f%%")) {
+                        emuTimeAccumMs = 0.0f;
+                    }
+                    ImGui::EndMenu();
+                }
+                bool speedIs100 = (targetSpeed == 100.0f);
+                if (ImGui::MenuItem("Audio", nullptr, audioOn, speedIs100)) {
+                    audioOn = !audioOn;
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Save State...")) {
@@ -809,11 +856,10 @@ int main(int argc, char **argv)
                              running     ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f) :
                                            ImVec4(0.8f, 0.8f, 0.8f, 1.0f);
                 ImGui::TextColored(col, "%s", state);
-                ImGui::SameLine();
-                ImGui::Text("PC=%06o", (unsigned)cpu.r[7]);
                 ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
 
-                ImGui::Text("%.0f fps  %.0f%%", fpsDisplay, speedDisplay);
+                ImGui::Text("%.0f%%/%.0f%%  %.0f fps",
+                            speedDisplay, targetSpeed, fpsDisplay);
                 ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
 
                 uint32_t hostS = (SDL_GetTicks() - hostMsAtStart) / 1000;

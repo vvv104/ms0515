@@ -43,6 +43,7 @@ public:
      * `totalCycles` is the frame length in CPU cycles. */
     void endFrame(int totalCycles);
 
+
     void shutdown();
 
 private:
