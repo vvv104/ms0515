@@ -222,8 +222,9 @@ static void cmd_read(ms0515_floppy_t *fdc)
 
     /* First byte is ready — set DRQ */
     fdc->data_reg = fdc->buffer[fdc->buf_pos++];
-    fdc->drq      = true;
-    fdc->status   = FDC_ST_BUSY | FDC_ST_INDEX;  /* DRQ bit in Type II */
+    fdc->drq       = true;
+    fdc->drq_timer = 240;
+    fdc->status    = FDC_ST_BUSY | FDC_ST_INDEX;  /* DRQ bit in Type II */
 }
 
 static void cmd_write(ms0515_floppy_t *fdc)
@@ -247,8 +248,9 @@ static void cmd_write(ms0515_floppy_t *fdc)
     fdc->buf_pos = 0;
     fdc->buf_len = FDC_SECTOR_SIZE;
 
-    fdc->drq    = true;
-    fdc->status = FDC_ST_BUSY | FDC_ST_INDEX;
+    fdc->drq       = true;
+    fdc->drq_timer = 240;
+    fdc->status    = FDC_ST_BUSY | FDC_ST_INDEX;
 }
 
 static void cmd_force_interrupt(ms0515_floppy_t *fdc)
@@ -359,6 +361,7 @@ void fdc_write(ms0515_floppy_t *fdc, int reg, uint8_t value)
             finish_command_now(fdc);
         fdc->command = value;
         fdc->intrq   = false;
+        fdc->drq     = false;  /* New command always clears DRQ */
 
         /* Decode command from upper nibble */
         switch (value & 0xF0) {
@@ -469,12 +472,26 @@ void fdc_write(ms0515_floppy_t *fdc, int reg, uint8_t value)
 
                 if (fdc->buf_pos >= FDC_SECTOR_SIZE) {
                     /* Sector complete — write to disk */
-                    if (!write_sector(fdc))
+                    if (!write_sector(fdc)) {
                         fdc->status |= FDC_ST_SEEK_ERROR;
-
-                    finish_command(fdc);
+                        finish_command(fdc);
+                    } else if (fdc->command & 0x10) {
+                        /* Multi-sector: advance to next sector */
+                        fdc->sector_reg++;
+                        if (fdc->sector_reg > FDC_SECTORS) {
+                            finish_command(fdc);
+                        } else {
+                            memset(fdc->buffer, 0, FDC_SECTOR_SIZE);
+                            fdc->buf_pos = 0;
+                            fdc->drq = true;
+                            fdc->drq_timer = 240;
+                        }
+                    } else {
+                        finish_command(fdc);
+                    }
                 } else {
                     fdc->drq = true;
+                    fdc->drq_timer = 240;
                 }
             }
         }
@@ -525,8 +542,23 @@ uint8_t fdc_read(ms0515_floppy_t *fdc, int reg)
             if (fdc->buf_pos < fdc->buf_len) {
                 fdc->data_reg = fdc->buffer[fdc->buf_pos++];
                 fdc->drq = true;
+                fdc->drq_timer = 240;
+            } else if (fdc->command & 0x10) {
+                /* Multi-sector mode (bit 4): auto-advance to next sector */
+                fdc->sector_reg++;
+                if (fdc->sector_reg > FDC_SECTORS) {
+                    /* Past last sector on track — command ends */
+                    finish_command(fdc);
+                } else if (!read_sector(fdc)) {
+                    fdc->status = FDC_ST_BUSY | FDC_ST_SEEK_ERROR;
+                    finish_command(fdc);
+                } else {
+                    fdc->data_reg = fdc->buffer[fdc->buf_pos++];
+                    fdc->drq = true;
+                    fdc->drq_timer = 240;
+                }
             } else {
-                /* Last latched byte has just been consumed */
+                /* Single-sector mode — command done */
                 finish_command(fdc);
             }
         }
@@ -551,5 +583,30 @@ void fdc_tick(ms0515_floppy_t *fdc)
             fdc->busy_delay--;
         if (fdc->busy_delay == 0)
             finish_command_now(fdc);
+    }
+
+    /*
+     * Lost Data auto-advance.  In real WD1793 hardware, if the CPU
+     * doesn't read the data register within ~32µs of DRQ being asserted,
+     * the controller sets the Lost Data flag and advances to the next
+     * byte (or finishes the command).  Without this, an incomplete sector
+     * read leaves the FDC stuck in BUSY+DRQ state forever.
+     *
+     * At 7.5 MHz, 32µs ≈ 240 CPU cycles.  fdc_tick is called every CPU
+     * cycle, so we count down from 240.
+     */
+    if (fdc->drq && fdc->busy && (fdc->command & 0xE0) == CMD_READ_SECTOR) {
+        if (fdc->drq_timer > 0) {
+            fdc->drq_timer--;
+        } else {
+            fdc->status |= FDC_ST_TRACK0;  /* Bit 2 = Lost Data in Type II */
+            if (fdc->buf_pos < fdc->buf_len) {
+                fdc->data_reg = fdc->buffer[fdc->buf_pos++];
+                fdc->drq_timer = 240;  /* Reset timer for next byte */
+            } else {
+                fdc->drq = false;
+                finish_command(fdc);
+            }
+        }
     }
 }

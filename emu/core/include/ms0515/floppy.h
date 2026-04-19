@@ -119,6 +119,12 @@ typedef struct ms0515_floppy {
      * edge of BUSY. */
     bool     pending_finish;
     int      busy_delay;
+
+    /* Lost Data timer — counts CPU cycles since DRQ was asserted without
+     * the CPU reading the data register.  When this exceeds the byte
+     * transfer time (~32µs ≈ 240 CPU cycles at 7.5 MHz), the byte is
+     * considered lost and the controller auto-advances. */
+    int      drq_timer;
 } ms0515_floppy_t;
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
