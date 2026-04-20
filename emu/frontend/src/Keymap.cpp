@@ -104,7 +104,7 @@ ms7004_key_t sdlToMs7004(SDL_Scancode phys, bool rusMode)
     case SDL_SCANCODE_LSHIFT:   return MS7004_KEY_SHIFT_L;
     case SDL_SCANCODE_RSHIFT:   return MS7004_KEY_SHIFT_R;
     case SDL_SCANCODE_LCTRL:    return MS7004_KEY_CTRL;
-    case SDL_SCANCODE_RCTRL:    return MS7004_KEY_CTRL;
+    /* RCTRL is reserved as the host-mode toggle key (PhysicalKeyboard) */
     case SDL_SCANCODE_CAPSLOCK: return MS7004_KEY_CAPS;
     case SDL_SCANCODE_LALT:     return MS7004_KEY_COMPOSE;
     case SDL_SCANCODE_RALT:     return MS7004_KEY_RUSLAT;

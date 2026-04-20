@@ -85,11 +85,13 @@ struct Config {
     std::string romPath;
     bool showKeyboard = false;
     bool showDebugger = false;
+    bool hostMode     = false;
 
     bool isDefault() const {
         for (int i = 0; i < 4; ++i)
             if (!fdPath[i].empty()) return false;
-        if (!romPath.empty() || showKeyboard || showDebugger) return false;
+        if (!romPath.empty() || showKeyboard || showDebugger || hostMode)
+            return false;
         return true;
     }
 };
@@ -121,6 +123,7 @@ Config loadConfig()
         else if (key == "rom") cfg.romPath = val;
         else if (key == "show_keyboard") cfg.showKeyboard = (val == "true");
         else if (key == "show_debugger") cfg.showDebugger = (val == "true");
+        else if (key == "host_mode")     cfg.hostMode     = (val == "true");
     }
     return cfg;
 }
@@ -144,6 +147,7 @@ void saveConfig(const Config &cfg)
         f << "rom: \"" << cfg.romPath << "\"\n";
     if (cfg.showKeyboard) f << "show_keyboard: true\n";
     if (cfg.showDebugger) f << "show_debugger: true\n";
+    if (cfg.hostMode)     f << "host_mode: true\n";
 }
 
 /* Search a handful of likely locations for the default ROM.  The working
@@ -521,6 +525,7 @@ int main(int argc, char **argv)
     });
 
     ms0515_frontend::PhysicalKeyboard physKbd;
+    physKbd.setHostMode(config.hostMode);
 
     bool     running       = true;  /* emulator is running (not paused) */
     bool     quit          = false;
@@ -564,11 +569,7 @@ int main(int argc, char **argv)
             } else if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
                 physKbd.handleEvent(ev, emu, io.WantCaptureKeyboard);
 
-                /* F10: debugger step (only while paused). */
-                if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
-                    if (ev.key.keysym.sym == SDLK_F10 && !running)
-                        dbg.stepInstruction();
-                }
+                /* Host-mode hotkeys will be handled here in the future. */
             }
         }
 
@@ -931,6 +932,12 @@ int main(int argc, char **argv)
                             emuS  / 3600, (emuS  / 60) % 60, emuS  % 60);
                 ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
 
+                /* Host mode indicator — keyboard disconnected from emulator */
+                if (physKbd.hostMode()) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "HOST");
+                    ImGui::SameLine();
+                }
+
                 auto modCol = [](bool on) {
                     return on ? ImVec4(1.0f, 1.0f, 0.4f, 1.0f)
                               : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
@@ -984,6 +991,7 @@ int main(int argc, char **argv)
     /* ── Save config on exit ──────────────────────────────────────────── */
     config.showKeyboard = showKeyboard;
     config.showDebugger = showDebugger;
+    config.hostMode     = physKbd.hostMode();
     saveConfig(config);
 
     /* ── Shutdown ───────────────────────────────────────────────────────── */

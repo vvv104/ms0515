@@ -48,6 +48,20 @@ bool PhysicalKeyboard::handleEvent(const SDL_Event &ev,
 
     SDL_Scancode phys = ev.key.keysym.scancode;
 
+    /* Right Ctrl toggles host mode (keyboard disconnected from emulator).
+     * When host mode is active, all other keys are suppressed. */
+    if (phys == SDL_SCANCODE_RCTRL) {
+        if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
+            hostMode_ = !hostMode_;
+            if (hostMode_)
+                emu.keyReleaseAll();
+        }
+        return true;
+    }
+
+    if (hostMode_)
+        return true;   /* swallow everything while in host mode */
+
     if (ev.type == SDL_KEYDOWN) {
         if (ev.key.repeat)
             return true;   /* suppress SDL auto-repeat */

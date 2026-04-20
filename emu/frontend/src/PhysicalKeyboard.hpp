@@ -40,7 +40,13 @@ public:
     bool handleEvent(const SDL_Event &ev, ms0515::Emulator &emu,
                      bool wantCapture);
 
+    /* Host mode: when active, physical keyboard events are NOT forwarded
+     * to the emulator.  Toggled by Right Ctrl. */
+    bool hostMode() const { return hostMode_; }
+    void setHostMode(bool m) { hostMode_ = m; }
+
 private:
+    bool hostMode_ = false;
     /* SDL scancode → ms7004_key_t that was pressed.  Used on key-up
      * to release the correct key even if RUS/LAT mode changed. */
     std::unordered_map<int, int> physToMs7004_;
