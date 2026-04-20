@@ -82,13 +82,14 @@ std::string configPath()
 /* Minimal YAML parser — only handles top-level "key: value" lines. */
 struct Config {
     std::string fdPath[4];
+    std::string romPath;
     bool showKeyboard = false;
     bool showDebugger = false;
 
     bool isDefault() const {
         for (int i = 0; i < 4; ++i)
             if (!fdPath[i].empty()) return false;
-        if (showKeyboard || showDebugger) return false;
+        if (!romPath.empty() || showKeyboard || showDebugger) return false;
         return true;
     }
 };
@@ -117,6 +118,7 @@ Config loadConfig()
         else if (key == "fd1") cfg.fdPath[1] = val;
         else if (key == "fd2") cfg.fdPath[2] = val;
         else if (key == "fd3") cfg.fdPath[3] = val;
+        else if (key == "rom") cfg.romPath = val;
         else if (key == "show_keyboard") cfg.showKeyboard = (val == "true");
         else if (key == "show_debugger") cfg.showDebugger = (val == "true");
     }
@@ -138,6 +140,8 @@ void saveConfig(const Config &cfg)
         if (!cfg.fdPath[i].empty())
             f << "fd" << i << ": \"" << cfg.fdPath[i] << "\"\n";
     }
+    if (!cfg.romPath.empty())
+        f << "rom: \"" << cfg.romPath << "\"\n";
     if (cfg.showKeyboard) f << "show_keyboard: true\n";
     if (cfg.showDebugger) f << "show_debugger: true\n";
 }
@@ -175,6 +179,37 @@ std::string findDefaultRom()
         }
     }
     return {};
+}
+
+/* Discover all .rom files in assets/rom/ directories relative to the
+ * executable and the current working directory. */
+std::vector<std::string> discoverRoms()
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    std::vector<fs::path> roots;
+    if (char *base = SDL_GetBasePath()) {
+        roots.emplace_back(base);
+        SDL_free(base);
+    }
+    roots.emplace_back(fs::current_path(ec));
+
+    std::vector<std::string> result;
+    for (const auto &root : roots) {
+        fs::path romDir = root / "assets" / "rom";
+        if (!fs::is_directory(romDir, ec)) continue;
+        for (const auto &entry : fs::directory_iterator(romDir, ec)) {
+            if (!entry.is_regular_file(ec)) continue;
+            if (entry.path().extension() != ".rom") continue;
+            std::string path = entry.path().lexically_normal().string();
+            /* Avoid duplicates when exe dir == cwd. */
+            if (std::find(result.begin(), result.end(), path) == result.end())
+                result.push_back(path);
+        }
+    }
+    std::sort(result.begin(), result.end());
+    return result;
 }
 
 CliArgs parseArgs(int argc, char **argv)
@@ -325,10 +360,11 @@ int main(int argc, char **argv)
             cli.fdPath[i] = config.fdPath[i];
     }
 
-    /* Resolve the ROM path. */
-    if (cli.romPath.empty()) {
+    /* Resolve the ROM path: CLI > config > auto-detect. */
+    if (cli.romPath.empty() && !config.romPath.empty())
+        cli.romPath = config.romPath;
+    if (cli.romPath.empty())
         cli.romPath = findDefaultRom();
-    }
 
     const int scale            = 1;
     const int winWidthNoDbg    = ms0515_frontend::kScreenWidth  * scale + 20;
@@ -418,15 +454,18 @@ int main(int argc, char **argv)
 
     /* ── Emulator + debugger ───────────────────────────────────────────── */
     ms0515::Emulator emu;
+    std::string      currentRomPath = cli.romPath;
     std::string      romStatus;
-    if (cli.romPath.empty()) {
+    auto availableRoms = discoverRoms();
+
+    if (currentRomPath.empty()) {
         romStatus = "ROM: <not found — pass --rom <path>>";
         std::fprintf(stderr, "%s\n", romStatus.c_str());
-    } else if (!emu.loadRomFile(cli.romPath)) {
-        romStatus = "ROM: FAILED to load '" + cli.romPath + "'";
+    } else if (!emu.loadRomFile(currentRomPath)) {
+        romStatus = "ROM: FAILED to load '" + currentRomPath + "'";
         std::fprintf(stderr, "%s\n", romStatus.c_str());
     } else {
-        romStatus = "ROM: " + cli.romPath;
+        romStatus = "ROM: " + currentRomPath;
     }
     for (int i = 0; i < 4; ++i) {
         if (cli.fdPath[i].empty()) continue;
@@ -662,6 +701,28 @@ int main(int argc, char **argv)
                     emuFramesSinceReset = 0;
                     hostMsAtLastReset   = SDL_GetTicks();
                 }
+                if (ImGui::BeginMenu("ROM")) {
+                    for (const auto &romPath : availableRoms) {
+                        std::string label =
+                            std::filesystem::path(romPath).filename().string();
+                        bool selected = (romPath == currentRomPath);
+                        if (ImGui::MenuItem(label.c_str(), nullptr, selected)) {
+                            if (!selected && emu.loadRomFile(romPath)) {
+                                currentRomPath = romPath;
+                                romStatus = "ROM: " + currentRomPath;
+                                config.romPath = currentRomPath;
+                                saveConfig(config);
+                                dbg.reset();
+                                emuFramesSinceReset = 0;
+                                hostMsAtLastReset   = SDL_GetTicks();
+                            }
+                        }
+                    }
+                    if (availableRoms.empty())
+                        ImGui::MenuItem("(no ROMs found)", nullptr, false, false);
+                    ImGui::EndMenu();
+                }
+                ImGui::Separator();
                 if (ImGui::MenuItem(running ? "Pause" : "Resume")) {
                     running = !running;
                 }
