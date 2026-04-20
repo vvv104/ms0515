@@ -42,6 +42,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -148,6 +149,41 @@ void saveConfig(const Config &cfg)
     if (cfg.showKeyboard) f << "show_keyboard: true\n";
     if (cfg.showDebugger) f << "show_debugger: true\n";
     if (cfg.hostMode)     f << "host_mode: true\n";
+}
+
+/* Save a screenshot of the emulator framebuffer as BMP.
+ * Returns the file path on success, empty string on failure. */
+std::string saveScreenshot(const ms0515_frontend::Video &video,
+                           const std::string &path)
+{
+    std::string outPath = path;
+    if (outPath.empty()) {
+        /* Auto-generate filename with timestamp in the exe directory. */
+        std::time_t t = std::time(nullptr);
+        std::tm tm;
+#ifdef _WIN32
+        localtime_s(&tm, &t);
+#else
+        localtime_r(&t, &tm);
+#endif
+        char buf[64];
+        std::strftime(buf, sizeof(buf), "ms0515_%Y-%m-%d_%H%M%S.bmp", &tm);
+        outPath = getExeDir() + buf;
+    }
+    SDL_Surface *surf = SDL_CreateRGBSurfaceFrom(
+        const_cast<uint32_t *>(video.pixels()),
+        ms0515_frontend::kScreenWidth,
+        ms0515_frontend::kScreenHeight,
+        32, ms0515_frontend::kScreenWidth * 4,
+        0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
+    if (!surf)
+        return {};
+    int rc = SDL_SaveBMP(surf, outPath.c_str());
+    SDL_FreeSurface(surf);
+    if (rc != 0)
+        return {};
+    std::fprintf(stderr, "Screenshot saved: %s\n", outPath.c_str());
+    return outPath;
 }
 
 /* Search a handful of likely locations for the default ROM.  The working
@@ -529,6 +565,7 @@ int main(int argc, char **argv)
 
     bool     running       = true;  /* emulator is running (not paused) */
     bool     quit          = false;
+    bool     wantScreenshot = false;
     uint32_t frameCounter  = 0;     /* monotonic, drives flash attribute */
     uint32_t emuFramesSinceReset = 0;
     uint32_t hostMsAtStart       = SDL_GetTicks();
@@ -630,21 +667,14 @@ int main(int argc, char **argv)
         SDL_UpdateTexture(frameTex, nullptr, video.pixels(),
                           ms0515_frontend::kScreenWidth * 4);
 
-        /* Save screenshot if requested */
+        /* Save screenshot if requested (CLI or interactive). */
         if (!cli.screenshotPath.empty() &&
             (int)frameCounter == (cli.screenshotFrame > 0 ? cli.screenshotFrame : cli.maxFrames)) {
-            SDL_Surface *surf = SDL_CreateRGBSurfaceFrom(
-                (void *)video.pixels(),
-                ms0515_frontend::kScreenWidth,
-                ms0515_frontend::kScreenHeight,
-                32, ms0515_frontend::kScreenWidth * 4,
-                0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
-            if (surf) {
-                SDL_SaveBMP(surf, cli.screenshotPath.c_str());
-                SDL_FreeSurface(surf);
-                std::fprintf(stderr, "Screenshot saved: %s (frame %u)\n",
-                             cli.screenshotPath.c_str(), frameCounter);
-            }
+            saveScreenshot(video, cli.screenshotPath);
+        }
+        if (wantScreenshot) {
+            saveScreenshot(video, {});
+            wantScreenshot = false;
         }
 
         /* ── ImGui frame ───────────────────────────────────────────── */
@@ -689,6 +719,10 @@ int main(int argc, char **argv)
                         config.fdPath[i].clear();
                         saveConfig(config);
                     }
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Screenshot")) {
+                    wantScreenshot = true;
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit", "Alt+F4")) {
