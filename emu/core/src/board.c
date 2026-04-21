@@ -411,11 +411,10 @@ void board_reset(ms0515_board_t *board)
     board->reg_c = 0;
     board->ppi_control = 0;
 
-    /* Reset memory dispatcher to power-on state: all primary banks,
-     * VRAM window disabled.  Without this, the ROM boot code operates
-     * on stale bank mapping left by the OS (e.g. VRAM window overlaid
-     * on low addresses), causing writes to hit VRAM instead of RAM. */
-    board->mem.dispatcher   = 0x007F;
+    /* PPI reset clears all output latches → dispatcher = 0.
+     * The ROM boot code is responsible for setting up bank mapping
+     * before accessing RAM. */
+    board->mem.dispatcher   = 0x0000;
     board->mem.rom_extended = false;
 
     board->hires_mode   = false;
@@ -425,12 +424,6 @@ void board_reset(ms0515_board_t *board)
 
     board->timer_counter = TIMER_DIVIDER;
     board->frame_counter = get_frame_cycles(board);
-
-    /* Propagate initial reg_a so the FDC knows which drive/motor is
-     * selected.  Without this, fdc_select is never called and the
-     * FDC reports NOT_READY forever, jamming the BIOS poll loop at
-     * 163724 after the D command. */
-    apply_reg_a(board);
 
     /* Reset CPU last — it reads the boot vector from memory */
     cpu_reset(&board->cpu);

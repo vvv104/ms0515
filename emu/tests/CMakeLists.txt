@@ -14,6 +14,7 @@ add_executable(ms0515_tests
     test_ramdisk.cpp
     test_ms7004.cpp
     test_board.cpp
+    test_boot.cpp
     test_disassembler.cpp
 )
 
