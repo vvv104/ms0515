@@ -8,6 +8,12 @@ find_package(doctest REQUIRED)
 add_executable(ms0515_tests
     test_main.cpp
     test_cpu.cpp
+    test_memory.cpp
+    test_timer.cpp
+    test_keyboard.cpp
+    test_ramdisk.cpp
+    test_ms7004.cpp
+    test_board.cpp
     test_disassembler.cpp
 )
 
