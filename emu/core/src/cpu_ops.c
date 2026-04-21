@@ -328,11 +328,25 @@ static void op_reset(ms0515_cpu_t *cpu)
 
 /* ── RTI — Return from Interrupt ──────────────────────────────────────────── */
 
+/*
+ * On the KR1807VM1 (DEC T-11 / PDP-11/03 family), RTI and RTT are
+ * identical: both pop PC and PSW from the stack and inhibit the T-bit
+ * trap for one instruction.  This differs from later PDP-11 models
+ * (PDP-11/34, /40, /44, /70) where RTI checks the T-bit immediately.
+ *
+ * The MS0515 uses the KR1807VM1, so RTI must inhibit the T-trap.
+ * This matters when code accidentally executes RTI (e.g. JSR to an
+ * address where the word 000002 is data, not an instruction) — the
+ * restored PSW may have T=1, and without inhibition, the emulator
+ * would fire an unexpected BPT trap that crashes the guest.
+ */
 static void op_rti(ms0515_cpu_t *cpu)
 {
     uint16_t from = cpu->r[CPU_REG_PC];
     cpu->r[CPU_REG_PC] = pop(cpu);
     cpu->psw            = pop(cpu);
+    /* KR1807VM1: RTI inhibits T-bit trap, same as RTT */
+    cpu->irq_tbit = false;
     if (cpu->board->trace && (cpu->r[CPU_REG_PC] < 002000 ||
         (cpu->r[CPU_REG_PC] >= 0157000 && cpu->r[CPU_REG_PC] < 0160000)))
         fprintf(cpu->board->trace,
@@ -341,8 +355,12 @@ static void op_rti(ms0515_cpu_t *cpu)
                 (unsigned)cpu->psw);
 }
 
-/* ── RTT — Return from Trap (same as RTI but inhibits T-bit trap) ─────── */
+/* ── RTT — Return from Trap ──────────────────────────────────────────────── */
 
+/*
+ * On the KR1807VM1, RTT is identical to RTI — both inhibit the T-bit
+ * trap for one instruction after restoring PSW.
+ */
 static void op_rtt(ms0515_cpu_t *cpu)
 {
     uint16_t from = cpu->r[CPU_REG_PC];

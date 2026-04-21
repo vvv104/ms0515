@@ -214,20 +214,11 @@ static uint8_t read_reg_b(ms0515_board_t *board)
     val |= (board->dip_refresh & 0x03) << 3;
 
     /* Bit 7: Tape data input.
-     * On real hardware with no tape drive, this pin floats and reads as a
-     * constant level.  However, some OS-level code (e.g. OMEGA's device
-     * scanner) polls this bit and can hang if it never sees transitions.
-     * Use a 16-bit LFSR to produce pseudo-random edges so such code
-     * quickly gives up or returns with a failed read. */
-    {
-        uint16_t lfsr = board->tape_bit_counter;
-        if (lfsr == 0) lfsr = 0xACE1u;
-        uint16_t bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 1u;
-        lfsr = (lfsr >> 1) | (bit << 15);
-        board->tape_bit_counter = lfsr;
-        if (lfsr & 1)
-            val |= 0x80;
-    }
+     * On real hardware with no cassette recorder connected, this pin
+     * reads a constant level (no edge transitions).  The ROM's tape
+     * routine uses R3 as a countdown timer and exits after ~65535
+     * iterations when no transitions are detected — this is the
+     * hardware's built-in timeout for absent tape drives. */
 
     return val;
 }
@@ -241,8 +232,13 @@ static uint8_t io_read_byte(ms0515_board_t *board, uint16_t offset)
         return (uint8_t)(board->mem.dispatcher & 0xFF);
 
     /* Keyboard */
-    if (offset == IO_KBD_DATA_R)
-        return kbd_read(&board->kbd, 0);
+    if (offset == IO_KBD_DATA_R) {
+        uint8_t v = kbd_read(&board->kbd, 0);
+        if (board->trace)
+            fprintf(board->trace, "KBD  RX   PC=%06o data=%03o (0x%02x)\n",
+                    board->cpu.r[7], v, v);
+        return v;
+    }
     if (offset == IO_KBD_STATUS)
         return kbd_read(&board->kbd, 1);
 
@@ -305,10 +301,16 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
 
     /* Keyboard */
     if (offset == IO_KBD_DATA_W || offset == IO_KBD_DATA_R) {
+        if (board->trace)
+            fprintf(board->trace, "KBD  TX   PC=%06o data=%03o (0x%02x)\n",
+                    board->cpu.r[7], value, value);
         kbd_write(&board->kbd, 0, value);
         return;
     }
     if (offset == IO_KBD_CMD || offset == IO_KBD_STATUS) {
+        if (board->trace)
+            fprintf(board->trace, "KBD  CMD  PC=%06o val=%03o (0x%02x) step=%d\n",
+                    board->cpu.r[7], value, value, board->kbd.init_step);
         kbd_write(&board->kbd, 1, value);
         return;
     }

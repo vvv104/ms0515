@@ -142,8 +142,8 @@ typedef struct ms0515_board {
     /* Expansion RAM disk (EX0:) — see ramdisk.h for full documentation */
     ms0515_ramdisk_t ramdisk;
 
-    /* Tape interface — LFSR for pseudo-random bit 7 in RegB */
-    uint32_t tape_bit_counter;
+    /* Tape interface (bit 7 of RegB reads constant 0 — no recorder) */
+    uint32_t tape_bit_counter;     /* reserved (snapshot compat) */
 
     /* Optional I/O trace log (NULL = disabled) */
     FILE *trace;
