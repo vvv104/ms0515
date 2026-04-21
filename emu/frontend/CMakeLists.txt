@@ -4,6 +4,7 @@
 
 find_package(SDL2 REQUIRED)
 find_package(imgui REQUIRED)
+find_package(stb REQUIRED)
 
 # ImGui backend sources live in the Conan package cache under res/bindings/.
 # The variable imgui_PACKAGE_FOLDER_RELEASE is set by Conan's CMakeDeps.
@@ -38,6 +39,7 @@ target_link_libraries(ms0515
     PRIVATE ms0515_lib
     PRIVATE SDL2::SDL2 SDL2::SDL2main
     PRIVATE imgui::imgui
+    PRIVATE stb::stb
 )
 
 # ── Package output ──────────────────────────────────────────────────────────

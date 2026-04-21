@@ -37,6 +37,9 @@
 #include "ScreenReader.hpp"
 #include "Video.hpp"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
 #include <algorithm>
 #include <charconv>
 #include <cstdio>
@@ -150,7 +153,7 @@ void saveConfig(const Config &cfg)
     if (cfg.hostMode)     f << "host_mode: true\n";
 }
 
-/* Save a screenshot of the emulator framebuffer as BMP.
+/* Save a screenshot of the emulator framebuffer as PNG.
  * Returns the file path on success, empty string on failure. */
 std::string saveScreenshot(const ms0515_frontend::Video &video,
                            const std::string &path)
@@ -166,20 +169,16 @@ std::string saveScreenshot(const ms0515_frontend::Video &video,
         localtime_r(&t, &tm);
 #endif
         char buf[64];
-        std::strftime(buf, sizeof(buf), "ms0515_%Y-%m-%d_%H%M%S.bmp", &tm);
+        std::strftime(buf, sizeof(buf), "ms0515_%Y-%m-%d_%H%M%S.png", &tm);
         outPath = getExeDir() + buf;
     }
-    SDL_Surface *surf = SDL_CreateRGBSurfaceFrom(
-        const_cast<uint32_t *>(video.pixels()),
-        ms0515_frontend::kScreenWidth,
-        ms0515_frontend::kScreenHeight,
-        32, ms0515_frontend::kScreenWidth * 4,
-        0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
-    if (!surf)
-        return {};
-    int rc = SDL_SaveBMP(surf, outPath.c_str());
-    SDL_FreeSurface(surf);
-    if (rc != 0)
+    int rc = stbi_write_png(outPath.c_str(),
+                            ms0515_frontend::kScreenWidth,
+                            ms0515_frontend::kScreenHeight,
+                            4,  /* RGBA */
+                            video.pixels(),
+                            ms0515_frontend::kScreenWidth * 4);
+    if (!rc)
         return {};
     std::fprintf(stderr, "Screenshot saved: %s\n", outPath.c_str());
     return outPath;

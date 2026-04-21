@@ -13,6 +13,7 @@ Three-layer emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Test-driven development**: after designing the interface, write unit tests first, then implement. Run tests at each stage.
 - **Revert failed attempts**: always roll back changes from unsuccessful approaches to avoid accumulating dead code and clutter.
 - **Zero compiler warnings**: all code must compile without warnings. Use modern C++ idioms and features (C++20/23) in lib and frontend layers.
+- **No vendored third-party sources**: never store external source files in the repo. All dependencies must be managed through Conan.
 
 ## Project structure
 ```
