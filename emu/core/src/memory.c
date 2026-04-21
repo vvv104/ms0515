@@ -109,15 +109,15 @@ mem_translation_t mem_translate(const ms0515_memory_t *mem, uint16_t address)
 
     /* 4. RAM — determine bank and primary/extended selection */
     {
-        int bank = address >> 13;             /* address / 8192 → bank 0–7 */
+        uint32_t bank = address >> 13;           /* address / 8192 → bank 0–7 */
         uint16_t offset_in_bank = address & (MEM_BANK_SIZE - 1);
 
         /* Check dispatcher bit for this bank (1 = primary, 0 = extended) */
         bool primary = (mem->dispatcher & (1 << bank)) != 0;
-        int phys_bank = primary ? bank : (bank + MEM_BANK_COUNT);
+        uint32_t phys_bank = primary ? bank : (bank + MEM_BANK_COUNT);
 
         result.type   = ADDR_TYPE_RAM;
-        result.offset = (uint32_t)phys_bank * MEM_BANK_SIZE + offset_in_bank;
+        result.offset = phys_bank * MEM_BANK_SIZE + offset_in_bank;
         return result;
     }
 }

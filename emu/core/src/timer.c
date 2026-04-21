@@ -127,12 +127,12 @@ void timer_write(ms0515_timer_t *timer, int reg, uint8_t value)
 {
     if (reg == 3) {
         /* Control word register */
-        int ch_num = (value >> 6) & 3;
+        uint8_t ch_num = (value >> 6) & 3;
         if (ch_num == 3)
             return;  /* Read-back command (8254 only), ignore on 8253 */
 
         timer_channel_t *ch = &timer->ch[ch_num];
-        int rw = (value >> 4) & 3;
+        uint8_t rw = (value >> 4) & 3;
 
         if (rw == 0) {
             /* Counter latch command: snapshot current count */

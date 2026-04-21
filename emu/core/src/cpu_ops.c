@@ -162,7 +162,7 @@ static uint16_t get_word_addr(ms0515_cpu_t *cpu, int mode, int reg)
 static uint16_t get_byte_addr(ms0515_cpu_t *cpu, int mode, int reg)
 {
     uint16_t addr;
-    int step = (reg >= 6) ? 2 : 1;
+    uint16_t step = (reg >= 6) ? 2 : 1;
 
     switch (mode) {
     case 0:
@@ -281,11 +281,6 @@ static uint16_t pop(ms0515_cpu_t *cpu)
 
 static void op_unknown(ms0515_cpu_t *cpu)
 {
-    if (cpu->board->trace)
-        fprintf(cpu->board->trace,
-                "RESV unknown insn=%06o PC=%06o\n",
-                (unsigned)cpu->instruction,
-                (unsigned)cpu->r[CPU_REG_PC]);
     cpu->irq_reserved = true;
 }
 
@@ -301,10 +296,6 @@ static void op_nop(ms0515_cpu_t *cpu)
 static void op_halt(ms0515_cpu_t *cpu)
 {
     cpu->halted = true;
-    if (cpu->board->trace)
-        fprintf(cpu->board->trace,
-                "HALT PC=%06o PSW=%06o\n",
-                (unsigned)cpu->r[CPU_REG_PC], (unsigned)cpu->psw);
 }
 
 /* ── WAIT ─────────────────────────────────────────────────────────────────── */
@@ -342,17 +333,10 @@ static void op_reset(ms0515_cpu_t *cpu)
  */
 static void op_rti(ms0515_cpu_t *cpu)
 {
-    uint16_t from = cpu->r[CPU_REG_PC];
     cpu->r[CPU_REG_PC] = pop(cpu);
     cpu->psw            = pop(cpu);
     /* KR1807VM1: RTI inhibits T-bit trap, same as RTT */
     cpu->irq_tbit = false;
-    if (cpu->board->trace && (cpu->r[CPU_REG_PC] < 002000 ||
-        (cpu->r[CPU_REG_PC] >= 0157000 && cpu->r[CPU_REG_PC] < 0160000)))
-        fprintf(cpu->board->trace,
-                "RTI  from=%06o -> PC=%06o PSW=%06o\n",
-                (unsigned)from, (unsigned)cpu->r[CPU_REG_PC],
-                (unsigned)cpu->psw);
 }
 
 /* ── RTT — Return from Trap ──────────────────────────────────────────────── */
@@ -363,17 +347,10 @@ static void op_rti(ms0515_cpu_t *cpu)
  */
 static void op_rtt(ms0515_cpu_t *cpu)
 {
-    uint16_t from = cpu->r[CPU_REG_PC];
     cpu->r[CPU_REG_PC] = pop(cpu);
     cpu->psw            = pop(cpu);
     /* RTT inhibits the T-bit trap for the next instruction */
     cpu->irq_tbit = false;
-    if (cpu->board->trace && (cpu->r[CPU_REG_PC] < 002000 ||
-        (cpu->r[CPU_REG_PC] >= 0157000 && cpu->r[CPU_REG_PC] < 0160000)))
-        fprintf(cpu->board->trace,
-                "RTT  from=%06o -> PC=%06o PSW=%06o\n",
-                (unsigned)from, (unsigned)cpu->r[CPU_REG_PC],
-                (unsigned)cpu->psw);
 }
 
 /* ── BPT — Breakpoint Trap ────────────────────────────────────────────────── */
@@ -419,9 +396,6 @@ static void op_trap(ms0515_cpu_t *cpu)
  */
 static void op_mfpt(ms0515_cpu_t *cpu)
 {
-    if (cpu->board->trace)
-        fprintf(cpu->board->trace,
-                "RESV mfpt PC=%06o\n", (unsigned)cpu->r[CPU_REG_PC]);
     cpu->irq_reserved = true;
 }
 
@@ -1154,11 +1128,6 @@ static void op_jmp(ms0515_cpu_t *cpu)
 
     if (mode == 0) {
         /* JMP Rn is illegal */
-        if (cpu->board->trace)
-            fprintf(cpu->board->trace,
-                    "RESV jmp-reg insn=%06o PC=%06o\n",
-                    (unsigned)cpu->instruction,
-                    (unsigned)cpu->r[CPU_REG_PC]);
         cpu->irq_reserved = true;
         return;
     }
@@ -1177,11 +1146,6 @@ static void op_jsr(ms0515_cpu_t *cpu)
 
     if (mode == 0) {
         /* JSR Rn, Rn is illegal */
-        if (cpu->board->trace)
-            fprintf(cpu->board->trace,
-                    "RESV jsr-reg insn=%06o PC=%06o\n",
-                    (unsigned)cpu->instruction,
-                    (unsigned)cpu->r[CPU_REG_PC]);
         cpu->irq_reserved = true;
         return;
     }

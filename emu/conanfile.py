@@ -18,20 +18,27 @@ class Ms0515Recipe(ConanFile):
     settings    = "os", "arch", "compiler", "build_type"
     generators  = "CMakeDeps", "CMakeToolchain"
 
+    options = {
+        "trace": [True, False],
+    }
+    default_options = {
+        "sdl/*:shared": False,
+        "trace": False,
+    }
+
     requires = (
         "sdl/2.30.7",
         "imgui/1.91.5",
         "doctest/2.4.11",
     )
 
-    default_options = {
-        "sdl/*:shared": False,
-    }
-
     def layout(self):
         cmake_layout(self)
 
     def build(self):
         cmake = CMake(self)
-        cmake.configure(variables={"MS0515_BUILD_TESTS": "ON"})
+        variables = {"MS0515_BUILD_TESTS": "ON"}
+        if self.options.trace:
+            variables["MS0515_TRACE"] = "ON"
+        cmake.configure(variables=variables)
         cmake.build()

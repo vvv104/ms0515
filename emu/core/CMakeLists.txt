@@ -13,6 +13,7 @@ add_library(ms0515_core STATIC
     src/ms7004.c
     src/floppy.c
     src/ramdisk.c
+    src/trace.c
     src/snapshot.c
 )
 

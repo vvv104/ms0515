@@ -32,15 +32,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ── Trace helper ────────────────────────────────────────────────────────── */
-
-static void trace(const ms0515_ramdisk_t *rd, const char *op,
-                  uint16_t addr, uint8_t value)
-{
-    if (!rd->trace) return;
-    fprintf(rd->trace, "%s addr=%06o val=%03o\n", op, addr, value);
-}
-
 /* ── Address computation ─────────────────────────────────────────────────── */
 
 /*
@@ -95,7 +86,7 @@ static void ppi_set_control(ms0515_ramdisk_t *rd, uint8_t value)
         rd->counter = 0;
     } else {
         /* Bit set/reset on Port C */
-        int bit = (value >> 1) & 7;
+        uint8_t bit = (value >> 1) & 7;
         if (value & 1)
             rd->ppi_c |= (uint8_t)(1 << bit);
         else
@@ -110,7 +101,6 @@ void ramdisk_init(ms0515_ramdisk_t *rd)
     memset(rd, 0, sizeof(*rd));
     rd->enabled = false;
     rd->ram     = NULL;
-    rd->trace   = NULL;
 }
 
 void ramdisk_enable(ms0515_ramdisk_t *rd)
@@ -183,23 +173,14 @@ bool ramdisk_handles(uint16_t offset)
 uint8_t ramdisk_read(ms0515_ramdisk_t *rd, uint16_t offset)
 {
     /* PPI read ports */
-    if (offset == RAMDISK_IO_PPI_RD_A) {
-        uint8_t val = rd->port_a_input ? rd->ppi_a : rd->ppi_a;
-        trace(rd, "RD  EX.PPI.A   ", 0177510, val);
-        return val;
-    }
-    if (offset == RAMDISK_IO_PPI_RD_B) {
-        trace(rd, "RD  EX.PPI.B   ", 0177512, rd->ppi_b);
+    if (offset == RAMDISK_IO_PPI_RD_A)
+        return rd->ppi_a;
+    if (offset == RAMDISK_IO_PPI_RD_B)
         return rd->ppi_b;
-    }
-    if (offset == RAMDISK_IO_PPI_RD_C) {
-        trace(rd, "RD  EX.PPI.C   ", 0177514, rd->ppi_c);
+    if (offset == RAMDISK_IO_PPI_RD_C)
         return rd->ppi_c;
-    }
-    if (offset == RAMDISK_IO_PPI_RD_CTRL) {
-        trace(rd, "RD  EX.PPI.Ctrl", 0177516, rd->ppi_ctrl);
+    if (offset == RAMDISK_IO_PPI_RD_CTRL)
         return rd->ppi_ctrl;
-    }
 
     /* Data port — read byte from DRAM and auto-increment counter.
      * 0177550 and its mirror 0177570 behave identically. */
@@ -211,8 +192,6 @@ uint8_t ramdisk_read(ms0515_ramdisk_t *rd, uint16_t offset)
             val = rd->ram[addr];
             rd->counter++;  /* uint8_t wraps at 256 naturally */
         }
-        uint16_t ioaddr = (offset >= RAMDISK_IO_DATA_ALIAS) ? 0177570 : 0177550;
-        trace(rd, "RD  EX.Data    ", ioaddr, val);
         return val;
     }
 
@@ -223,12 +202,10 @@ void ramdisk_write(ms0515_ramdisk_t *rd, uint16_t offset, uint8_t value)
 {
     /* PPI write ports */
     if (offset == RAMDISK_IO_PPI_WR_A) {
-        trace(rd, "WR  EX.PPI.A   ", 0177530, value);
         rd->ppi_a = value;
         return;
     }
     if (offset == RAMDISK_IO_PPI_WR_B) {
-        trace(rd, "WR  EX.PPI.B   ", 0177532, value);
         rd->ppi_b = value;
         /*
          * Bit 5 (СБРОС): reset the MA00-MA07 counter to 0.
@@ -242,12 +219,10 @@ void ramdisk_write(ms0515_ramdisk_t *rd, uint16_t offset, uint8_t value)
         return;
     }
     if (offset == RAMDISK_IO_PPI_WR_C) {
-        trace(rd, "WR  EX.PPI.C   ", 0177534, value);
         rd->ppi_c = value;
         return;
     }
     if (offset == RAMDISK_IO_PPI_WR_CTRL) {
-        trace(rd, "WR  EX.PPI.Ctrl", 0177536, value);
         ppi_set_control(rd, value);
         return;
     }
@@ -262,8 +237,6 @@ void ramdisk_write(ms0515_ramdisk_t *rd, uint16_t offset, uint8_t value)
             rd->ram[addr] = value;
             rd->counter++;  /* uint8_t wraps at 256 naturally */
         }
-        uint16_t ioaddr = (offset >= RAMDISK_IO_DATA_ALIAS) ? 0177570 : 0177550;
-        trace(rd, "WR  EX.Data    ", ioaddr, value);
         return;
     }
 }

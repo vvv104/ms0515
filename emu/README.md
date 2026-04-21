@@ -100,7 +100,6 @@ cd package
 |--------|-------------|
 | `--rom <path>` | ROM image (default: `assets/rom/ms0515-roma.rom`) |
 | `--fd0` .. `--fd3 <path>` | Mount floppy disk image to drive 0..3 |
-| `--trace <path>` | Write CPU execution trace to file |
 | `--screen-dump <path>` | Dump VRAM text (`stderr` / `stdout` accepted) |
 
 Disks can also be mounted at runtime via the **File** menu.

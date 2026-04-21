@@ -1,3 +1,4 @@
+#define _CRT_SECURE_NO_WARNINGS
 /*
  * main.cpp — MS0515 emulator frontend (SDL2 + Dear ImGui).
  *
@@ -11,7 +12,6 @@
  *          [--fd2 <path>] [--fd3 <path>]
  *          [--disk <path> [--drive N]]     (legacy, maps to --fdN)
  *          [--screen-dump stderr|stdout|<path>]
- *          [--trace stderr|<path>]
  *
  * FD0..FD3 are the four logical floppy units addressable via bits 1:0
  * of System Register A.  Each disk image represents one side of a
@@ -55,7 +55,6 @@ namespace {
 struct CliArgs {
     std::string romPath;
     std::string fdPath[4];     /* FD0..FD3 */
-    std::string tracePath;
     std::string screenDumpPath; /* --screen-dump: VRAM text output */
     std::string screenshotPath;
     int         maxFrames = 0;      /* 0 = run forever */
@@ -269,8 +268,6 @@ CliArgs parseArgs(int argc, char **argv)
             legacyDisk = argv[++i];
         } else if (a == "--drive" && i + 1 < argc) {
             legacyDrive = std::atoi(argv[++i]);
-        } else if (a == "--trace" && i + 1 < argc) {
-            out.tracePath = argv[++i];
         } else if (a == "--frames" && i + 1 < argc) {
             out.maxFrames = std::atoi(argv[++i]);
         } else if (a == "--screen-dump" && i + 1 < argc) {
@@ -459,9 +456,7 @@ int main(int argc, char **argv)
             0,
         };
         for (const auto &path : ms0515_frontend::systemFontCandidates()) {
-            FILE *f = std::fopen(path.c_str(), "rb");
-            if (f) {
-                std::fclose(f);
+            if (std::filesystem::exists(path)) {
                 io.Fonts->AddFontFromFileTTF(path.c_str(), 15.0f,
                                              &cfg, rangesMain);
                 break;
@@ -478,9 +473,7 @@ int main(int argc, char **argv)
             0,
         };
         for (const auto &path : ms0515_frontend::symbolFontCandidates()) {
-            FILE *fs = std::fopen(path.c_str(), "rb");
-            if (fs) {
-                std::fclose(fs);
+            if (std::filesystem::exists(path)) {
                 io.Fonts->AddFontFromFileTTF(path.c_str(), 15.0f,
                                              &sym, rangesSym);
                 break;
@@ -520,12 +513,6 @@ int main(int argc, char **argv)
     saveConfig(config);
     /* Enable the 512 KB RAM disk expansion board (EX0:). */
     emu.enableRamDisk();
-    if (!cli.tracePath.empty()) {
-        if (!board_trace_open(&emu.board(), cli.tracePath.c_str())) {
-            std::fprintf(stderr, "warning: failed to open trace '%s'\n",
-                         cli.tracePath.c_str());
-        }
-    }
 
     emu.reset();
 
@@ -1029,7 +1016,6 @@ int main(int argc, char **argv)
     saveConfig(config);
 
     /* ── Shutdown ───────────────────────────────────────────────────────── */
-    board_trace_close(&emu.board());
     if (screenDumpFile && screenDumpFile != stderr && screenDumpFile != stdout)
         std::fclose(screenDumpFile);
     audio.shutdown();

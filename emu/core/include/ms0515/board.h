@@ -68,7 +68,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdio.h>
 
 #include "cpu.h"
 #include "memory.h"
@@ -76,6 +75,7 @@
 #include "keyboard.h"
 #include "floppy.h"
 #include "ramdisk.h"
+#include "trace.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -145,8 +145,8 @@ typedef struct ms0515_board {
     /* Tape interface (bit 7 of RegB reads constant 0 — no recorder) */
     uint32_t tape_bit_counter;     /* reserved (snapshot compat) */
 
-    /* Optional I/O trace log (NULL = disabled) */
-    FILE *trace;
+    /* I/O trace (see trace.h for zero-cost macros) */
+    ms0515_trace_t trace;
 } ms0515_board_t;
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
@@ -228,14 +228,17 @@ bool           board_is_hires(const ms0515_board_t *board);
 uint8_t        board_get_border_color(const ms0515_board_t *board);
 
 /*
- * board_trace_open — Start an I/O trace log.
+ * board_set_trace_callback — Enable or disable I/O tracing.
  *
- * Writes one line per I/O register access in the ranges of interest
- * (system registers A/B/C and FDC), plus FDC command decodes.  Pass
- * NULL path to stop tracing.  Returns true if the file was opened.
+ * When `cb` is non-NULL, trace macros (BOARD_TRACE) deliver formatted
+ * lines to the callback.  Pass NULL to disable tracing.
  */
-bool board_trace_open(ms0515_board_t *board, const char *path);
-void board_trace_close(ms0515_board_t *board);
+void board_set_trace_callback(ms0515_board_t *board,
+                              ms0515_trace_cb_t cb, void *userdata);
+
+/* Convenience macros: trace through the board's embedded trace context. */
+#define BOARD_TRACE(board, ...)      TRACE(&(board)->trace, __VA_ARGS__)
+#define BOARD_TRACE_ACTIVE(board)    TRACE_ACTIVE(&(board)->trace)
 
 #ifdef __cplusplus
 }

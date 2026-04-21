@@ -138,59 +138,6 @@ static void apply_reg_c(ms0515_board_t *board)
     update_sound(board);
 }
 
-/* ── I/O trace log ───────────────────────────────────────────────────────── */
-
-static const char *fdc_cmd_name(uint8_t cmd)
-{
-    switch (cmd & 0xF0) {
-    case 0x00: return "RESTORE";
-    case 0x10: return "SEEK";
-    case 0x20: case 0x30: return "STEP";
-    case 0x40: case 0x50: return "STEP_IN";
-    case 0x60: case 0x70: return "STEP_OUT";
-    case 0x80: case 0x90: return "READ_SECTOR";
-    case 0xA0: case 0xB0: return "WRITE_SECTOR";
-    case 0xC0: return "READ_ADDRESS";
-    case 0xD0: return "FORCE_INT";
-    case 0xE0: return "READ_TRACK";
-    case 0xF0: return "WRITE_TRACK";
-    default:   return "???";
-    }
-}
-
-static void trace_io(ms0515_board_t *board, const char *op,
-                     uint16_t addr, uint8_t value, uint8_t extra)
-{
-    if (!board->trace) return;
-
-    /* Suppress runs of identical accesses (typical busy-wait loops on
-     * the FDC status register) — emit one line, then a "(repeated N)"
-     * summary when the run breaks.  Keeps the log readable and the
-     * file I/O cost out of the CPU step path. */
-    static uint16_t last_pc;
-    static uint16_t last_addr;
-    static uint8_t  last_val;
-    static const char *last_op;
-    static unsigned long repeat;
-
-    uint16_t pc = board->cpu.r[7];
-    if (op == last_op && pc == last_pc && addr == last_addr && value == last_val) {
-        repeat++;
-        return;
-    }
-    if (repeat) {
-        fprintf(board->trace, "    (x%lu)\n", repeat + 1);
-        repeat = 0;
-    }
-    last_op = op; last_pc = pc; last_addr = addr; last_val = value;
-
-    fprintf(board->trace, "%s PC=%06o addr=%06o val=%03o",
-            op, pc, (unsigned)addr, (unsigned)value);
-    if (extra)
-        fprintf(board->trace, " %s", fdc_cmd_name(value));
-    fputc('\n', board->trace);
-}
-
 static uint8_t read_reg_b(ms0515_board_t *board)
 {
     uint8_t val = 0;
@@ -232,13 +179,8 @@ static uint8_t io_read_byte(ms0515_board_t *board, uint16_t offset)
         return (uint8_t)(board->mem.dispatcher & 0xFF);
 
     /* Keyboard */
-    if (offset == IO_KBD_DATA_R) {
-        uint8_t v = kbd_read(&board->kbd, 0);
-        if (board->trace)
-            fprintf(board->trace, "KBD  RX   PC=%06o data=%03o (0x%02x)\n",
-                    board->cpu.r[7], v, v);
-        return v;
-    }
+    if (offset == IO_KBD_DATA_R)
+        return kbd_read(&board->kbd, 0);
     if (offset == IO_KBD_STATUS)
         return kbd_read(&board->kbd, 1);
 
@@ -249,29 +191,17 @@ static uint8_t io_read_byte(ms0515_board_t *board, uint16_t offset)
     }
 
     /* System registers */
-    if (offset == IO_REG_A) {
-        uint8_t v = board->reg_a;
-        trace_io(board, "RD  RegA ", 0177600, v, 0);
-        return v;
-    }
-    if (offset == IO_REG_B) {
-        uint8_t v = read_reg_b(board);
-        trace_io(board, "RD  RegB ", 0177602, v, 0);
-        return v;
-    }
+    if (offset == IO_REG_A)
+        return board->reg_a;
+    if (offset == IO_REG_B)
+        return read_reg_b(board);
     if (offset == IO_REG_C)
         return board->reg_c;
 
     /* FDC registers */
     if (offset >= IO_FDC_BASE && offset <= IO_FDC_BASE + 0x06) {
         int reg = (offset - IO_FDC_BASE) >> 1;
-        uint8_t v = fdc_read(&board->fdc, reg);
-        static const char *names[] = {
-            "RD  FDC.Stat ", "RD  FDC.Trk  ",
-            "RD  FDC.Sec  ", "RD  FDC.Data "
-        };
-        trace_io(board, names[reg], 0177640 + reg*2, v, 0);
-        return v;
+        return fdc_read(&board->fdc, reg);
     }
 
     /* Expansion RAM disk (EX0:) */
@@ -289,9 +219,6 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     if (offset <= 0x1F) {
         uint16_t old = board->mem.dispatcher;
         board->mem.dispatcher = (board->mem.dispatcher & 0xFF00) | value;
-        if (board->trace)
-            fprintf(board->trace, "WR  Disp.B PC=%06o val=%03o disp=%06o\n",
-                    board->cpu.r[7], value, board->mem.dispatcher);
         /* Bit 8: monitor interrupt — edge-triggered on any transition.
          * Per NS4 tech desc: writing 1 initiates interrupt request. */
         if ((board->mem.dispatcher ^ old) & MEM_DISP_MON_IRQ)
@@ -301,16 +228,10 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
 
     /* Keyboard */
     if (offset == IO_KBD_DATA_W || offset == IO_KBD_DATA_R) {
-        if (board->trace)
-            fprintf(board->trace, "KBD  TX   PC=%06o data=%03o (0x%02x)\n",
-                    board->cpu.r[7], value, value);
         kbd_write(&board->kbd, 0, value);
         return;
     }
     if (offset == IO_KBD_CMD || offset == IO_KBD_STATUS) {
-        if (board->trace)
-            fprintf(board->trace, "KBD  CMD  PC=%06o val=%03o (0x%02x) step=%d\n",
-                    board->cpu.r[7], value, value, board->kbd.init_step);
         kbd_write(&board->kbd, 1, value);
         return;
     }
@@ -325,7 +246,6 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     /* System registers */
     if (offset == IO_REG_A) {
         board->reg_a = value;
-        trace_io(board, "WR  RegA ", 0177600, value, 0);
         apply_reg_a(board);
         return;
     }
@@ -351,11 +271,6 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     /* FDC registers */
     if (offset >= IO_FDC_BASE && offset <= IO_FDC_BASE + 0x06) {
         int reg = (offset - IO_FDC_BASE) >> 1;
-        static const char *names[] = {
-            "WR  FDC.Cmd  ", "WR  FDC.Trk  ",
-            "WR  FDC.Sec  ", "WR  FDC.Data "
-        };
-        trace_io(board, names[reg], 0177640 + reg*2, value, reg == 0 ? 1 : 0);
         fdc_write(&board->fdc, reg, value);
         return;
     }
@@ -398,9 +313,6 @@ static void io_write_word(ms0515_board_t *board, uint16_t offset, uint16_t value
     if (offset <= 0x1F) {
         uint16_t old = board->mem.dispatcher;
         board->mem.dispatcher = value;
-        if (board->trace)
-            fprintf(board->trace, "WR  Disp   PC=%06o val=%06o\n",
-                    board->cpu.r[7], value);
         /* Bit 8: monitor interrupt — edge-triggered on any transition. */
         if ((value ^ old) & MEM_DISP_MON_IRQ)
             cpu_interrupt(&board->cpu, 2, 064);
@@ -418,31 +330,9 @@ uint16_t board_read_word(ms0515_board_t *board, uint16_t address)
     mem_translation_t tr = mem_translate(&board->mem, address);
 
     if (tr.type == ADDR_TYPE_IO)
-        return io_read_word(board, tr.offset);
+        return io_read_word(board, (uint16_t)tr.offset);
 
     return mem_read_word(&board->mem, tr);
-}
-
-static void trace_mem_write(ms0515_board_t *board, uint16_t address,
-                            uint32_t value, int is_word,
-                            mem_translation_t tr)
-{
-    if (!board->trace) return;
-    /* Two watch windows cover the points where disk1/disk2 halt. */
-    int in_win = (address < 01000) ||
-                 (address >= 0012000 && address < 0013000) ||
-                 (address >= 0157000 && address < 0160000);
-    if (!in_win) return;
-    const char *kind = tr.type == ADDR_TYPE_RAM  ? "RAM"
-                     : tr.type == ADDR_TYPE_VRAM ? "VRAM"
-                     : tr.type == ADDR_TYPE_ROM  ? "ROM"
-                     : "???";
-    fprintf(board->trace,
-            "WR  Mem.%s PC=%06o addr=%06o val=%0*o disp=%06o phys=%08x\n",
-            is_word ? "W" : "B",
-            board->cpu.r[7], address,
-            is_word ? 6 : 3, (unsigned)value,
-            board->mem.dispatcher, tr.offset);
 }
 
 void board_write_word(ms0515_board_t *board, uint16_t address, uint16_t value)
@@ -450,11 +340,10 @@ void board_write_word(ms0515_board_t *board, uint16_t address, uint16_t value)
     mem_translation_t tr = mem_translate(&board->mem, address);
 
     if (tr.type == ADDR_TYPE_IO) {
-        io_write_word(board, tr.offset, value);
+        io_write_word(board, (uint16_t)tr.offset, value);
         return;
     }
 
-    trace_mem_write(board, address, value, 1, tr);
     mem_write_word(&board->mem, tr, value);
 }
 
@@ -463,7 +352,7 @@ uint8_t board_read_byte(ms0515_board_t *board, uint16_t address)
     mem_translation_t tr = mem_translate(&board->mem, address);
 
     if (tr.type == ADDR_TYPE_IO)
-        return io_read_byte(board, tr.offset);
+        return io_read_byte(board, (uint16_t)tr.offset);
 
     return mem_read_byte(&board->mem, tr);
 }
@@ -473,11 +362,10 @@ void board_write_byte(ms0515_board_t *board, uint16_t address, uint8_t value)
     mem_translation_t tr = mem_translate(&board->mem, address);
 
     if (tr.type == ADDR_TYPE_IO) {
-        io_write_byte(board, tr.offset, value);
+        io_write_byte(board, (uint16_t)tr.offset, value);
         return;
     }
 
-    trace_mem_write(board, address, value, 0, tr);
     mem_write_byte(&board->mem, tr, value);
 }
 
@@ -503,8 +391,6 @@ void board_init(ms0515_board_t *board)
 void board_ramdisk_enable(ms0515_board_t *board)
 {
     ramdisk_enable(&board->ramdisk);
-    /* Share the board trace log with the ramdisk module */
-    board->ramdisk.trace = board->trace;
 }
 
 void board_ramdisk_free(ms0515_board_t *board)
@@ -548,104 +434,6 @@ void board_reset(ms0515_board_t *board)
 
     /* Reset CPU last — it reads the boot vector from memory */
     cpu_reset(&board->cpu);
-}
-
-bool board_trace_open(ms0515_board_t *board, const char *path)
-{
-    board_trace_close(board);
-    if (!path) return false;
-    board->trace = fopen(path, "w");
-    if (!board->trace) return false;
-    /* MSVCRT doesn't honor _IOLBF for files — force unbuffered so every
-     * line is on disk even if the process is killed or crashes. */
-    setvbuf(board->trace, NULL, _IONBF, 0);
-    board->ramdisk.trace = board->trace;
-    return true;
-}
-
-void board_trace_close(ms0515_board_t *board)
-{
-    if (board->trace) {
-        /* Dump a final CPU + video snapshot so post-mortem analysis can
-         * see where execution landed even when no I/O was happening. */
-        const ms0515_cpu_t *c = &board->cpu;
-        fprintf(board->trace,
-                "END  PC=%06o  SP=%06o  PSW=%06o  %s\n",
-                c->r[7], c->r[6], c->psw,
-                c->halted  ? "HALTED" :
-                c->waiting ? "WAIT"   : "running");
-        fprintf(board->trace,
-                "     R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o\n",
-                c->r[0], c->r[1], c->r[2], c->r[3], c->r[4], c->r[5]);
-        fprintf(board->trace,
-                "     RegA=%03o RegC=%03o hires=%d border=%o disp=%06o\n",
-                board->reg_a, board->reg_c,
-                board->hires_mode ? 1 : 0, board->border_color,
-                board->mem.dispatcher);
-        /* Dump the low 64 bytes (vectors + primary bootstrap head) so we
-         * can see what the FDC transfer actually landed in RAM. */
-        fprintf(board->trace, "     low RAM 0..77:\n");
-        for (int row = 0; row < 4; ++row) {
-            fprintf(board->trace, "      %03o:", row * 16);
-            for (int col = 0; col < 8; ++col) {
-                mem_translation_t tr =
-                    mem_translate(&board->mem, (uint16_t)(row * 16 + col * 2));
-                fprintf(board->trace, " %06o", mem_read_word(&board->mem, tr));
-            }
-            fprintf(board->trace, "\n");
-        }
-        /* Also dump 8 words around PC for post-mortem. */
-        fprintf(board->trace, "     RAM around PC:\n");
-        uint16_t pc_base = (uint16_t)(c->r[7] & ~0xF);
-        for (int row = 0; row < 16; ++row) {
-            uint16_t a = pc_base + row * 16 - 0x40;
-            fprintf(board->trace, "      %06o:", a);
-            for (int col = 0; col < 8; ++col) {
-                mem_translation_t tr =
-                    mem_translate(&board->mem, (uint16_t)(a + col * 2));
-                fprintf(board->trace, " %06o", mem_read_word(&board->mem, tr));
-            }
-            fprintf(board->trace, "\n");
-        }
-        /* Stack dump (top 32 words) to see how we got here. */
-        fprintf(board->trace, "     stack top:\n");
-        for (int row = 0; row < 4; ++row) {
-            uint16_t a = (uint16_t)(c->r[6] + row * 16);
-            fprintf(board->trace, "      %06o:", a);
-            for (int col = 0; col < 8; ++col) {
-                mem_translation_t tr =
-                    mem_translate(&board->mem, (uint16_t)(a + col * 2));
-                fprintf(board->trace, " %06o", mem_read_word(&board->mem, tr));
-            }
-            fprintf(board->trace, "\n");
-        }
-        /* Mihin handler region 146700..147100 (JSR-to-157404 origin). */
-        fprintf(board->trace, "     region 146700..147100:\n");
-        for (int row = 0; row < 8; ++row) {
-            uint16_t a = (uint16_t)(0146700 + row * 16);
-            fprintf(board->trace, "      %06o:", a);
-            for (int col = 0; col < 8; ++col) {
-                mem_translation_t tr =
-                    mem_translate(&board->mem, (uint16_t)(a + col * 2));
-                fprintf(board->trace, " %06o", mem_read_word(&board->mem, tr));
-            }
-            fprintf(board->trace, "\n");
-        }
-        /* Timer IRQ handler region (Mihin-specific halt neighborhood). */
-        fprintf(board->trace, "     region 151200..151400:\n");
-        for (int row = 0; row < 8; ++row) {
-            uint16_t a = (uint16_t)(0151200 + row * 16);
-            fprintf(board->trace, "      %06o:", a);
-            for (int col = 0; col < 8; ++col) {
-                mem_translation_t tr =
-                    mem_translate(&board->mem, (uint16_t)(a + col * 2));
-                fprintf(board->trace, " %06o", mem_read_word(&board->mem, tr));
-            }
-            fprintf(board->trace, "\n");
-        }
-        fclose(board->trace);
-        board->trace = NULL;
-    }
 }
 
 void board_load_rom(ms0515_board_t *board, const uint8_t *data, uint32_t size)
@@ -734,11 +522,6 @@ void board_step_cpu(ms0515_board_t *board)
 
 void board_key_event(ms0515_board_t *board, uint8_t scancode)
 {
-    if (board->trace)
-        fprintf(board->trace, "KEY    scancode=%03o (0x%02x) fifo=%d rxen=%d\n",
-                scancode, scancode, board->kbd.fifo_count,
-                (board->kbd.command & 0x04) ? 1 : 0);
-
     kbd_push_scancode(&board->kbd, scancode);
 }
 
@@ -749,6 +532,13 @@ void board_set_sound_callback(ms0515_board_t *board,
 {
     board->sound_cb   = cb;
     board->cb_userdata = userdata;
+}
+
+void board_set_trace_callback(ms0515_board_t *board,
+                              ms0515_trace_cb_t cb, void *userdata)
+{
+    board->trace.cb       = cb;
+    board->trace.userdata = userdata;
 }
 
 void board_set_serial_callbacks(ms0515_board_t *board,

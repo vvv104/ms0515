@@ -56,18 +56,12 @@ static uint16_t cpu_pop(ms0515_cpu_t *cpu)
  */
 static void cpu_service_interrupt(ms0515_cpu_t *cpu, uint16_t vector)
 {
-    uint16_t old_pc = cpu->r[CPU_REG_PC];
     cpu_push(cpu, cpu->psw);
     cpu_push(cpu, cpu->r[CPU_REG_PC]);
     cpu->r[CPU_REG_PC] = board_read_word(cpu->board, vector);
     cpu->psw            = board_read_word(cpu->board, vector + 2);
     cpu->waiting = false;
     cpu->halted  = false;
-    if (cpu->board->trace)
-        fprintf(cpu->board->trace,
-                "IRQ vec=%06o from PC=%06o -> PC=%06o PSW=%06o\n",
-                (unsigned)vector, (unsigned)old_pc,
-                (unsigned)cpu->r[CPU_REG_PC], (unsigned)cpu->psw);
 }
 
 /*

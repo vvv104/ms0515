@@ -64,7 +64,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -115,9 +114,6 @@ typedef struct ms0515_ramdisk {
 
     /* DRAM backing store */
     uint8_t *ram;               /* 512 KB (malloc'd, NULL if not allocated) */
-
-    /* Optional trace log (shared with board) */
-    FILE    *trace;
 } ms0515_ramdisk_t;
 
 /* ── Public API ──────────────────────────────────────────────────────────── */

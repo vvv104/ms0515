@@ -177,12 +177,12 @@ static void cmd_seek(ms0515_floppy_t *fdc)
     fdc_drive_t *drv = current_drive(fdc);
 
     /* The data register holds the desired track number */
-    int target = fdc->data_reg;
+    uint8_t target = fdc->data_reg;
     if (target >= FDC_TRACKS)
         target = FDC_TRACKS - 1;
 
     drv->track     = target;
-    fdc->track_reg = (uint8_t)target;
+    fdc->track_reg = target;
 
     update_type1_status(fdc);
     finish_command(fdc);
