@@ -255,10 +255,16 @@ but the ROM firmware always sends it as a standalone single-byte command.
 | 043    | 2XX    | 0x23 0xXX  | Sound enabled (+ volume)     |
 | 033    | 2XX    | 0x1B 0xXX  | Keyclick enabled (+ volume)  |
 
-**LED control (2-byte):**
+**LED control (2-byte, mode + mask):**
 
-The first byte is a mask selecting LEDs (bits 0–3 of byte OR'd with
-0o200), the second byte is the action (0o023 = ON, 0o021 = OFF):
+The first byte is the mode (0o023 = ON, 0o021 = OFF), the second byte
+is a mask selecting LEDs (bits 0–3 of byte OR'd with 0o200).  The ROM's
+CALL 177042 sends R3 low byte first: e.g. R3=0x8413 → sends 0x13 (ON),
+then 0x84 (CapsLock).
+
+When no valid mask follows (second byte outside 0o200–0o217), the mode
+byte acts as a standalone Latin indicator command: 0o021 = Latin
+indicator ON, 0o023 = Latin indicator OFF.
 
 | Mask bit | LED indicator    | Mask byte (oct) |
 |----------|------------------|-----------------|

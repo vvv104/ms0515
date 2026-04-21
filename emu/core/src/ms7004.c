@@ -386,10 +386,13 @@ void ms7004_tick(ms7004_t *kbd, uint32_t now_ms)
  *   0o043 (0x23) + 0o2XX         Sound enabled (second byte = volume)
  *   0o033 (0x1B) + 0o2XX         Keyclick enabled (second byte = volume)
  *
- * LED control (2-byte, mask + action):
- *   mask byte 0o201–0o217: bits 0–3 select LEDs
+ * LED control (2-byte, mode + mask):
+ *   mode byte: 0o023 (0x13) = ON, 0o021 (0x11) = OFF
+ *   mask byte 0o200–0o217: bits 0–3 select LEDs
  *     bit 0 = Wait, bit 1 = Compose, bit 2 = CapsLock, bit 3 = Hold
- *   action byte: 0o023 = ON, 0o021 = OFF
+ *   The ROM sends mode first, then mask (CALL 177042 sends R3 lo byte
+ *   first).  When no valid mask follows, 0x11/0x13 act as standalone
+ *   Latin indicator ON/OFF commands.
  */
 
 /*
@@ -412,12 +415,29 @@ static bool cmd_second_byte(ms7004_t *kbd, uint8_t first, uint8_t second)
         kbd->click_enabled = true;
         return true;
 
-    /* LED control: mask byte, then 0x13 (ON) or 0x11 (OFF) */
-    case 0x81:  /* Wait */
-    case 0x82:  /* Compose */
-    case 0x84:  /* CapsLock */
-        if (second == 0x13 || second == 0x11)
+    /* LED control: mode byte first (0x11=OFF, 0x13=ON), then mask byte.
+     * The ROM's CALL 177042 sends mode first, mask second (e.g. R3=0x8413
+     * → sends 0x13 then 0x84 for CapsLock LED ON).
+     * If the second byte is not a valid LED mask, the mode byte acts as
+     * a standalone Latin indicator command (0x11=ON, 0x13=OFF), and the
+     * second byte is re-processed as a new command (return false). */
+    case 0x11:  /* LED OFF mode / Latin indicator ON */
+        if (second >= 0x80 && second <= 0x8F) {
+            /* Valid LED mask — turn off selected LEDs (bits 0-3).
+             * We don't track individual LED state, just accept. */
             return true;
+        }
+        /* No valid mask — apply standalone Latin indicator ON. */
+        kbd->latin_indicator = true;
+        return false;
+
+    case 0x13:  /* LED ON mode / Latin indicator OFF */
+        if (second >= 0x80 && second <= 0x8F) {
+            /* Valid LED mask — turn on selected LEDs. */
+            return true;
+        }
+        /* No valid mask — apply standalone Latin indicator OFF. */
+        kbd->latin_indicator = false;
         return false;
 
     default:
@@ -482,9 +502,14 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
         /* fprintf(stderr, "[KBD] auto-repeat DISABLED\n"); */
         return;
 
-    /* ── Latin indicator ON ──────────────────────────────────────── */
+    /* ── LED mode / Latin indicator (2-byte prefix) ────────────────
+     * 0x11 = LED OFF mode (+ mask) or Latin indicator ON (standalone)
+     * 0x13 = LED ON mode (+ mask) or Latin indicator OFF (standalone)
+     * The ROM sends mode first, then mask (e.g. CapsLock ON = 0x13, 0x84).
+     * If no valid mask follows, the command acts as Latin indicator. */
     case 0x11:  /* 0o021 */
-        kbd->latin_indicator = true;
+    case 0x13:  /* 0o023 */
+        kbd->cmd_pending = byte;
         return;
 
     /* ── Data output control ─────────────────────────────────────── */
@@ -514,13 +539,6 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
     /* ── 2-byte command prefixes ─────────────────────────────────── */
     case 0x23:  /* 0o043 — sound enable + volume */
     case 0x1B:  /* 0o033 — keyclick enable + volume */
-        kbd->cmd_pending = byte;
-        return;
-
-    /* ── LED control (2-byte prefix: mask, then 0o023=ON / 0o021=OFF) ── */
-    case 0x81:  /* 0o201 — Wait */
-    case 0x82:  /* 0o202 — Compose */
-    case 0x84:  /* 0o204 — CapsLock */
         kbd->cmd_pending = byte;
         return;
 
