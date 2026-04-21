@@ -20,3 +20,20 @@
   and then to LAT again.
 - **Likely cause**: The RUSLAT toggle scancode or its timing is being
   misinterpreted by the keyboard driver as a control character sequence.
+
+## TODO: FDC synchronous command execution (busy delay hack)
+
+- **File**: `emu/core/src/floppy.c`, `finish_command()`
+- **Symptom**: Without an artificial `busy_delay = 4` ticks after command
+  completion, the BIOS poll loop (write command → wait BUSY=1 → wait
+  BUSY=0) never sees BUSY rise and hangs forever.
+- **Root cause**: All FDC commands execute synchronously in a single call
+  to `fdc_write()`.  The real WD1793 takes milliseconds: Type I commands
+  3–30 ms depending on step rate (r1r0 bits), Type II commands ~200 ms
+  per disk revolution at 300 RPM.
+- **Proper fix**: Implement a state machine in `fdc_tick()`.  Commands
+  transition the FDC into states like `SEEKING`, `READING`, `WRITING`;
+  the tick function counts down real timing delays and advances the FSM.
+  BUSY is held naturally for the duration of the command.  Step rate
+  should be derived from the command's r1r0 bits (6/12/20/30 ms at
+  7.5 MHz = 45000/90000/150000/225000 ticks).
