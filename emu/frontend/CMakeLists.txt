@@ -49,10 +49,13 @@ set(PACKAGE_DIR "${CMAKE_SOURCE_DIR}/package")
 add_custom_command(TARGET ms0515 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}/assets/rom"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}/assets/keyboard"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}/assets/disks"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ms0515>" "${PACKAGE_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/assets/rom" "${PACKAGE_DIR}/assets/rom"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/assets/keyboard" "${PACKAGE_DIR}/assets/keyboard"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/assets/disks" "${PACKAGE_DIR}/assets/disks"
     COMMENT "Packaging ms0515 into ${PACKAGE_DIR}"
 )

@@ -22,8 +22,8 @@ emu/                — emulator source code and build files
   core/include/     — ms0515/*.h headers
   lib/              — C++ wrapper (Emulator, Debugger, Disassembler, GdbStub)
   frontend/         — SDL2 + ImGui application
-  assets/           — runtime resources (ROM files, keyboard layout)
+  assets/           — runtime resources (ROM files, keyboard layout, disk images)
 docs/               — architecture and subsystem documentation
+  kb/              — knowledge base (references, verification, known issues)
 tools/              — utility scripts (disassembler, disk tools)
-reference/          — external references and links
 ```

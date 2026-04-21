@@ -20,6 +20,10 @@ add_executable(ms0515_tests
 
 target_compile_features(ms0515_tests PRIVATE cxx_std_23)
 
+target_compile_definitions(ms0515_tests PRIVATE
+    ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+)
+
 target_link_libraries(ms0515_tests
     PRIVATE
         ms0515_lib
