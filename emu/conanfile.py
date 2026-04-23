@@ -23,6 +23,12 @@ class Ms0515Recipe(ConanFile):
     }
     default_options = {
         "sdl/*:shared": False,
+        # Linux SDL2 backends: keep only ALSA for sound.  Disabling pulse
+        # removes pulseaudio + openssl + libxml2 + libcap + a dozen audio
+        # codec deps (flac/opus/mpg123/…) that the emulator never uses.
+        # Disabling libunwind saves another chunky transitive build.
+        "sdl/*:pulse":     False,
+        "sdl/*:libunwind": False,
         "trace": False,
     }
 
