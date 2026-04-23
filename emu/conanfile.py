@@ -31,6 +31,7 @@ class Ms0515Recipe(ConanFile):
         "imgui/1.91.5",
         "doctest/2.4.11",
         "stb/cci.20240213",
+        "spdlog/1.14.1",
     )
 
     def layout(self):

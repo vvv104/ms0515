@@ -12,6 +12,7 @@
  *          [--fd2 <path>] [--fd3 <path>]
  *          [--disk <path> [--drive N]]     (legacy, maps to --fdN)
  *          [--screen-dump stderr|stdout|<path>]
+ *          [--trace <path>]                (async I/O trace log)
  *
  * FD0..FD3 are the four logical floppy units addressable via bits 1:0
  * of System Register A.  Each disk image represents one side of a
@@ -35,6 +36,7 @@
 #include "PhysicalKeyboard.hpp"
 #include "Platform.hpp"
 #include "ScreenReader.hpp"
+#include "TraceLog.hpp"
 #include "Video.hpp"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -60,6 +62,7 @@ struct CliArgs {
     std::string fdPath[4];     /* FD0..FD3 */
     std::string screenDumpPath; /* --screen-dump: VRAM text output */
     std::string screenshotPath;
+    std::string tracePath;      /* --trace: async I/O trace log path */
     int         maxFrames = 0;      /* 0 = run forever */
     int         screenshotFrame = 0; /* frame number to take screenshot */
 };
@@ -275,6 +278,8 @@ CliArgs parseArgs(int argc, char **argv)
             out.screenshotPath = argv[++i];
         } else if (a == "--screenshot-frame" && i + 1 < argc) {
             out.screenshotFrame = std::atoi(argv[++i]);
+        } else if (a == "--trace" && i + 1 < argc) {
+            out.tracePath = argv[++i];
         } else {
             std::fprintf(stderr, "warning: unknown argument '%s'\n", a.c_str());
         }
@@ -512,6 +517,18 @@ int main(int argc, char **argv)
     saveConfig(config);
     /* Enable the 512 KB RAM disk expansion board (EX0:). */
     emu.enableRamDisk();
+
+    /* ── Trace logger (optional, --trace <path>) ────────────────────────── */
+    ms0515_frontend::TraceLog traceLog;
+    if (!cli.tracePath.empty()) {
+        if (traceLog.open(cli.tracePath)) {
+            board_set_trace_callback(&emu.board(),
+                                     &ms0515_frontend::TraceLog::traceCallback,
+                                     &traceLog);
+            std::fprintf(stderr, "trace: logging to '%s'\n",
+                         cli.tracePath.c_str());
+        }
+    }
 
     emu.reset();
 
@@ -1018,6 +1035,7 @@ int main(int argc, char **argv)
     if (screenDumpFile && screenDumpFile != stderr && screenDumpFile != stdout)
         std::fclose(screenDumpFile);
     audio.shutdown();
+    traceLog.close();
 
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();

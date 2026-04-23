@@ -219,6 +219,8 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     if (offset <= 0x1F) {
         uint16_t old = board->mem.dispatcher;
         board->mem.dispatcher = (board->mem.dispatcher & 0xFF00) | value;
+        BOARD_TRACE(board, "disp byte: %06o -> %06o  PC=%06o",
+                    old, board->mem.dispatcher, board->cpu.instruction_pc);
         /* Bit 8: monitor interrupt — edge-triggered on any transition.
          * Per NS4 tech desc: writing 1 initiates interrupt request. */
         if ((board->mem.dispatcher ^ old) & MEM_DISP_MON_IRQ)
@@ -246,6 +248,13 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     /* System registers */
     if (offset == IO_REG_A) {
         board->reg_a = value;
+        BOARD_TRACE(board, "reg_a: %03o  drive=%d motor=%d side=%d rom_ext=%d  PC=%06o",
+                    value,
+                    value & 3,
+                    !(value & 4),
+                    (value & 8) ? 0 : 1,
+                    (value & 0x80) != 0,
+                    board->cpu.instruction_pc);
         apply_reg_a(board);
         return;
     }
@@ -271,6 +280,14 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     /* FDC registers */
     if (offset >= IO_FDC_BASE && offset <= IO_FDC_BASE + 0x06) {
         int reg = (offset - IO_FDC_BASE) >> 1;
+        static const char *FDC_REG_NAMES[] = {"cmd", "track", "sector", "data"};
+        BOARD_TRACE(board,
+                    "fdc write %s=%03o unit=%d trk=%d sec=%d  PC=%06o",
+                    FDC_REG_NAMES[reg & 3], value,
+                    board->fdc.selected,
+                    board->fdc.drives[board->fdc.selected].track,
+                    board->fdc.sector_reg,
+                    board->cpu.instruction_pc);
         fdc_write(&board->fdc, reg, value);
         return;
     }

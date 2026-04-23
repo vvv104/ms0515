@@ -56,9 +56,13 @@ static uint16_t cpu_pop(ms0515_cpu_t *cpu)
  */
 static void cpu_service_interrupt(ms0515_cpu_t *cpu, uint16_t vector)
 {
+    uint16_t new_pc = board_read_word(cpu->board, vector);
+    BOARD_TRACE(cpu->board,
+                "trap vec=%03o -> PC=%06o  from PC=%06o instr=%06o",
+                vector, new_pc, cpu->instruction_pc, cpu->instruction);
     cpu_push(cpu, cpu->psw);
     cpu_push(cpu, cpu->r[CPU_REG_PC]);
-    cpu->r[CPU_REG_PC] = board_read_word(cpu->board, vector);
+    cpu->r[CPU_REG_PC] = new_pc;
     cpu->psw            = board_read_word(cpu->board, vector + 2);
     cpu->waiting = false;
     cpu->halted  = false;

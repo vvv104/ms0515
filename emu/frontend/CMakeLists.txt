@@ -5,6 +5,7 @@
 find_package(SDL2 REQUIRED)
 find_package(imgui REQUIRED)
 find_package(stb REQUIRED)
+find_package(spdlog REQUIRED)
 
 # ImGui backend sources live in the Conan package cache under res/bindings/.
 # The variable imgui_PACKAGE_FOLDER_RELEASE is set by Conan's CMakeDeps.
@@ -25,6 +26,7 @@ add_executable(ms0515 WIN32
     src/Keymap.cpp
     src/PhysicalKeyboard.cpp
     src/OnScreenKeyboard.cpp
+    src/TraceLog.cpp
     ${PLATFORM_SRC}
     ${IMGUI_BACKENDS_DIR}/imgui_impl_sdl2.cpp
     ${IMGUI_BACKENDS_DIR}/imgui_impl_sdlrenderer2.cpp
@@ -40,6 +42,7 @@ target_link_libraries(ms0515
     PRIVATE SDL2::SDL2 SDL2::SDL2main
     PRIVATE imgui::imgui
     PRIVATE stb::stb
+    PRIVATE spdlog::spdlog
 )
 
 # ── Package output ──────────────────────────────────────────────────────────

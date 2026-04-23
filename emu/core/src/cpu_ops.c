@@ -295,6 +295,7 @@ static void op_nop(ms0515_cpu_t *cpu)
 
 static void op_halt(ms0515_cpu_t *cpu)
 {
+    BOARD_TRACE(cpu->board, "HALT @ PC=%06o", cpu->instruction_pc);
     cpu->halted = true;
 }
 
