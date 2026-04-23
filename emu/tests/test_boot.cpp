@@ -63,6 +63,16 @@ static std::vector<std::string> discoverFiles(const std::string &dir,
  * documented.  See also: assets/KNOWN_ISSUES.md */
 static const std::set<std::pair<std::string, std::string>> kKnownBad = {
     {"ms0515-roma-original.rom", "omega-lang.dsk"},
+    /* rodionov.dsk is copy-protected and needs rodionov2.dsk on FD2 plus
+     * the patched ms0515-roma.rom.  The boot matrix mounts only FD0, so
+     * every ROM × rodionov*.dsk combination halts or tight-loops here.
+     * See docs/kb/KNOWN_ISSUES.md. */
+    {"ms0515-roma.rom",          "rodionov.dsk"},
+    {"ms0515-roma-original.rom", "rodionov.dsk"},
+    {"ms0515-romb.rom",          "rodionov.dsk"},
+    {"ms0515-roma.rom",          "rodionov2.dsk"},
+    {"ms0515-roma-original.rom", "rodionov2.dsk"},
+    {"ms0515-romb.rom",          "rodionov2.dsk"},
 };
 
 static bool isKnownBad(const std::string &rom, const std::string &disk)
