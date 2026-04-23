@@ -12,9 +12,7 @@ TEST_SUITE("Board") {
 
 /* I/O addresses (octal, as the PDP-11 sees them) */
 static constexpr uint16_t IO_DISPATCHER = 0177400;
-static constexpr uint16_t IO_KBD_DATA   = 0177440;
 static constexpr uint16_t IO_KBD_STATUS = 0177442;
-static constexpr uint16_t IO_TIMER_R0   = 0177500;
 static constexpr uint16_t IO_TIMER_W0   = 0177520;
 static constexpr uint16_t IO_TIMER_CTRL = 0177526;
 static constexpr uint16_t IO_REG_A      = 0177600;

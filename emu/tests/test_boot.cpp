@@ -14,6 +14,7 @@
  */
 
 #include <doctest/doctest.h>
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <set>

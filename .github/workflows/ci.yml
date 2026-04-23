@@ -49,16 +49,6 @@ jobs:
           restore-keys: |
             conan-${{ matrix.os }}-${{ matrix.compiler }}-
 
-      - name: Install Linux SDL2 system deps
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxinerama-dev \
-            libxcursor-dev libxi-dev libxss-dev libxkbcommon-dev libwayland-dev \
-            libasound2-dev libpulse-dev libsndio-dev libsamplerate0-dev \
-            libjack-jackd2-dev pkg-config
-
       - name: Install GCC 13
         if: matrix.cc == 'gcc-13'
         run: sudo apt-get install -y gcc-13 g++-13
@@ -83,14 +73,22 @@ jobs:
             sed -i -e 's/^compiler\.version=.*/compiler.version=${{ matrix.conan_compiler_version }}/' "$PROFILE"
           fi
 
-          # Windows: force Ninja generator (README requirement)
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            {
-              echo ""
-              echo "[conf]"
+          # [conf] section: platform-specific knobs
+          {
+            echo ""
+            echo "[conf]"
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              # README requirement: Ninja generator on Windows
               echo "tools.cmake.cmaketoolchain:generator=Ninja"
-            } >> "$PROFILE"
-          fi
+            fi
+            if [ "${{ runner.os }}" = "Linux" ]; then
+              # Let Conan install xorg/wayland/audio apt packages it needs
+              # (the xorg/system Conan recipe alone pulls ~40 libs that are
+              # easier to delegate than to track by hand).
+              echo "tools.system.package_manager:mode=install"
+              echo "tools.system.package_manager:sudo=True"
+            fi
+          } >> "$PROFILE"
 
           echo "=== Conan profile ==="
           cat "$PROFILE"
