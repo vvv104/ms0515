@@ -961,7 +961,7 @@ int main(int argc, char **argv)
                             speedDisplay, targetSpeed, fpsDisplay);
                 ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
 
-                uint32_t hostS = (SDL_GetTicks() - hostMsAtStart) / 1000;
+                uint32_t hostS = (SDL_GetTicks() - hostMsAtLastReset) / 1000;
                 uint32_t emuMs = emuFramesSinceReset * 20;  /* 50 Hz frame */
                 uint32_t emuS  = emuMs / 1000;
                 ImGui::Text("host %02u:%02u:%02u  emu %02u:%02u:%02u",

@@ -189,12 +189,6 @@ const NumpadLabel *findNumpad(const std::string &lbl)
     return nullptr;
 }
 
-bool isModifierKey(ms7004_key_t k)
-{
-    return k == MS7004_KEY_SHIFT_L || k == MS7004_KEY_SHIFT_R
-        || k == MS7004_KEY_CTRL    || k == MS7004_KEY_COMPOSE;
-}
-
 /* Mode-dependent letter classification.  In ЛАТ mode, only the 26 keys
  * with dual Latin+Cyrillic letter labels count as "letters" for ФКС/ВР
  * purposes.  In РУС mode, the symbol-on-letter keys (Ш/[ Щ/] Э/\ Ч/¬

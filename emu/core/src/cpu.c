@@ -42,16 +42,6 @@ static void cpu_push(ms0515_cpu_t *cpu, uint16_t value)
 }
 
 /*
- * Pop a word from the stack: read word at SP, then SP += 2.
- */
-static uint16_t cpu_pop(ms0515_cpu_t *cpu)
-{
-    uint16_t val = board_read_word(cpu->board, cpu->r[CPU_REG_SP]);
-    cpu->r[CPU_REG_SP] += 2;
-    return val;
-}
-
-/*
  * Service an interrupt: push PSW and PC, load new PC and PSW from vector.
  */
 static void cpu_service_interrupt(ms0515_cpu_t *cpu, uint16_t vector)

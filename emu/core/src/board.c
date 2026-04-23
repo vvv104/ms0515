@@ -280,6 +280,7 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     /* FDC registers */
     if (offset >= IO_FDC_BASE && offset <= IO_FDC_BASE + 0x06) {
         int reg = (offset - IO_FDC_BASE) >> 1;
+#ifdef MS0515_TRACE
         static const char *FDC_REG_NAMES[] = {"cmd", "track", "sector", "data"};
         BOARD_TRACE(board,
                     "fdc write %s=%03o unit=%d trk=%d sec=%d  PC=%06o",
@@ -288,6 +289,7 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
                     board->fdc.drives[board->fdc.selected].track,
                     board->fdc.sector_reg,
                     board->cpu.instruction_pc);
+#endif
         fdc_write(&board->fdc, reg, value);
         return;
     }

@@ -5,8 +5,8 @@
  * successfully: no HALT, no tight loop, VRAM populated, peripherals
  * initialised.
  *
- * ROMs are discovered from ASSETS_DIR/rom/*.rom, disks from
- * ASSETS_DIR/disks/*.dsk.  Adding a new ROM or disk image to the
+ * ROMs are discovered from ASSETS_DIR/rom (.rom files); disks from
+ * ASSETS_DIR/disks (.dsk files).  Adding a new ROM or disk image to the
  * corresponding directory automatically creates new test cases.
  *
  * These are integration tests that exercise the entire stack:
