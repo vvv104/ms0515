@@ -1,0 +1,30 @@
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+ PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+ FILEFLAGSMASK  0x3fL
+ FILEFLAGS      0x0L
+ FILEOS         0x40004L       /* VOS_NT_WINDOWS32 */
+ FILETYPE       0x1L           /* VFT_APP */
+ FILESUBTYPE    0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"       /* English (US), Unicode */
+        BEGIN
+            VALUE "CompanyName",      "vvv104"
+            VALUE "FileDescription",  "Elektronika MS 0515 Emulator"
+            VALUE "FileVersion",      "@PROJECT_VERSION@"
+            VALUE "InternalName",     "ms0515"
+            VALUE "LegalCopyright",   "\xA9 2026 Vladimir Voronkov"
+            VALUE "OriginalFilename", "ms0515.exe"
+            VALUE "ProductName",      "MS0515 Emulator"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0
+    END
+END

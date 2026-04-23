@@ -18,6 +18,19 @@ else()
     set(PLATFORM_SRC src/Platform_unix.cpp)
 endif()
 
+# Windows version resource: embeds VERSIONINFO (Publisher, FileVersion,
+# ProductVersion, etc.) so the SmartScreen dialog and Explorer's
+# Properties → Details pane show real metadata instead of
+# "Unknown publisher".  Version comes from the top-level project() call.
+if(WIN32)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/version.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/version.rc"
+        @ONLY
+    )
+    set(VERSION_RC "${CMAKE_CURRENT_BINARY_DIR}/version.rc")
+endif()
+
 add_executable(ms0515 WIN32
     src/main.cpp
     src/Audio.cpp
@@ -30,6 +43,7 @@ add_executable(ms0515 WIN32
     ${PLATFORM_SRC}
     ${IMGUI_BACKENDS_DIR}/imgui_impl_sdl2.cpp
     ${IMGUI_BACKENDS_DIR}/imgui_impl_sdlrenderer2.cpp
+    ${VERSION_RC}
 )
 
 target_include_directories(ms0515 PRIVATE
