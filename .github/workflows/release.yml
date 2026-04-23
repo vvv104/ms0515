@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+            archive_ext: tar.gz
+          - os: windows-latest
+            platform: windows-x64
+            archive_ext: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Conan
+        run: pip install "conan>=2.0" ninja
+
+      - name: Install GCC 13 (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y gcc-13 g++-13
+
+      - name: Configure Conan profile
+        shell: bash
+        run: |
+          conan profile detect --force
+          PROFILE=~/.conan2/profiles/default
+          sed -i.bak -e 's/^compiler.cppstd=.*/compiler.cppstd=23/' "$PROFILE"
+
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sed -i -e 's/^compiler=.*/compiler=gcc/' "$PROFILE"
+            sed -i -e 's/^compiler\.version=.*/compiler.version=13/' "$PROFILE"
+          fi
+
+          {
+            echo ""
+            echo "[conf]"
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              echo "tools.cmake.cmaketoolchain:generator=Ninja"
+            fi
+            if [ "${{ runner.os }}" = "Linux" ]; then
+              echo "tools.system.package_manager:mode=install"
+              echo "tools.system.package_manager:sudo=True"
+            fi
+          } >> "$PROFILE"
+
+      - name: Build
+        shell: bash
+        working-directory: emu
+        env:
+          CC: ${{ runner.os == 'Linux' && 'gcc-13' || '' }}
+          CXX: ${{ runner.os == 'Linux' && 'g++-13' || '' }}
+        run: conan build . --build=missing
+
+      - name: Pack artifact
+        shell: bash
+        working-directory: emu
+        run: |
+          NAME=ms0515-${{ github.ref_name }}-${{ matrix.platform }}
+
+          # Strip runtime-generated files that shouldn't ship
+          rm -f package/ms0515.yaml
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            (cd package && 7z a -tzip "../${NAME}.zip" .)
+          else
+            tar -C package -czf "${NAME}.tar.gz" .
+          fi
+
+          ls -la "${NAME}".*
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: emu/ms0515-${{ github.ref_name }}-${{ matrix.platform }}.${{ matrix.archive_ext }}
+          draft: true
+          generate_release_notes: true
