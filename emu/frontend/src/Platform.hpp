@@ -20,14 +20,25 @@ namespace ms0515_frontend {
  * Call early in main(), before any output. */
 void platformInit();
 
-/* Open a native file-picker dialog.  Returns the chosen path,
- * or an empty string if cancelled. */
-std::string openFileDialog(SDL_Window *owner, const char *title);
+/* What kind of file the dialog is picking — selects the filter and
+ * (together with initialDir) the default starting folder. */
+enum class FileDialogKind { Disk, Rom, State };
 
-/* Open a native save-file dialog.  Returns the chosen path,
- * or an empty string if cancelled. */
+/* Open a native file-picker dialog.  initialDir, if non-empty, is used
+ * as the starting folder; pass an empty string to let the platform
+ * decide (Windows' own MRU).  Returns the chosen path, or an empty
+ * string if cancelled. */
+std::string openFileDialog(SDL_Window *owner, const char *title,
+                           FileDialogKind kind,
+                           const std::string &initialDir);
+
+/* Open a native save-file dialog.  Same initialDir semantics as the
+ * open variant.  Returns the chosen path, or an empty string if
+ * cancelled. */
 std::string saveFileDialog(SDL_Window *owner, const char *title,
-                           const char *defaultName);
+                           const char *defaultName,
+                           FileDialogKind kind,
+                           const std::string &initialDir);
 
 /* System font paths for Cyrillic+Latin rendering. */
 std::vector<std::string> systemFontCandidates();

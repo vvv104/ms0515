@@ -13,14 +13,18 @@ void platformInit()
     /* No special init needed on Unix. */
 }
 
-std::string openFileDialog(SDL_Window * /*owner*/, const char * /*title*/)
+std::string openFileDialog(SDL_Window * /*owner*/, const char * /*title*/,
+                           FileDialogKind /*kind*/,
+                           const std::string & /*initialDir*/)
 {
     /* No native file dialog — disks can be mounted via CLI args. */
     return {};
 }
 
 std::string saveFileDialog(SDL_Window * /*owner*/, const char * /*title*/,
-                           const char * /*defaultName*/)
+                           const char * /*defaultName*/,
+                           FileDialogKind /*kind*/,
+                           const std::string & /*initialDir*/)
 {
     /* No native file dialog on Unix yet. */
     return {};

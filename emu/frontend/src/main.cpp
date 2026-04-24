@@ -92,11 +92,20 @@ struct Config {
     bool showKeyboard = false;
     bool showDebugger = false;
     bool hostMode     = false;
+    /* Last directory used for each kind of file dialog — remembered
+     * across sessions so the user doesn't repeatedly navigate to the
+     * same folder. */
+    std::string lastDirDisk;
+    std::string lastDirRom;
+    std::string lastDirState;
 
     bool isDefault() const {
         for (int i = 0; i < 4; ++i)
             if (!fdPath[i].empty()) return false;
         if (!romPath.empty() || showKeyboard || showDebugger || hostMode)
+            return false;
+        if (!lastDirDisk.empty() || !lastDirRom.empty() ||
+            !lastDirState.empty())
             return false;
         return true;
     }
@@ -130,6 +139,9 @@ Config loadConfig()
         else if (key == "show_keyboard") cfg.showKeyboard = (val == "true");
         else if (key == "show_debugger") cfg.showDebugger = (val == "true");
         else if (key == "host_mode")     cfg.hostMode     = (val == "true");
+        else if (key == "last_dir_disk")  cfg.lastDirDisk  = val;
+        else if (key == "last_dir_rom")   cfg.lastDirRom   = val;
+        else if (key == "last_dir_state") cfg.lastDirState = val;
     }
     return cfg;
 }
@@ -154,6 +166,50 @@ void saveConfig(const Config &cfg)
     if (cfg.showKeyboard) f << "show_keyboard: true\n";
     if (cfg.showDebugger) f << "show_debugger: true\n";
     if (cfg.hostMode)     f << "host_mode: true\n";
+    if (!cfg.lastDirDisk.empty())
+        f << "last_dir_disk: \""  << cfg.lastDirDisk  << "\"\n";
+    if (!cfg.lastDirRom.empty())
+        f << "last_dir_rom: \""   << cfg.lastDirRom   << "\"\n";
+    if (!cfg.lastDirState.empty())
+        f << "last_dir_state: \"" << cfg.lastDirState << "\"\n";
+}
+
+/* Starting folder for a file dialog of the given kind: the remembered
+ * last-used dir if present, otherwise a sensible default next to the
+ * executable (assets/disks for Disk, assets/rom for Rom, exe root for
+ * State). */
+std::string initialDirFor(ms0515_frontend::FileDialogKind kind,
+                          const Config &cfg)
+{
+    using K = ms0515_frontend::FileDialogKind;
+    const std::string &last =
+        kind == K::Disk  ? cfg.lastDirDisk  :
+        kind == K::Rom   ? cfg.lastDirRom   : cfg.lastDirState;
+    if (!last.empty()) return last;
+    std::string base = getExeDir();           /* has trailing separator */
+    switch (kind) {
+    case K::Disk:  return base + "assets/disks";
+    case K::Rom:   return base + "assets/rom";
+    case K::State: return base;
+    }
+    return base;
+}
+
+/* Update the cached last-used dir for `kind` to the parent folder of
+ * `chosenPath` and persist the Config.  Called after every successful
+ * file-dialog selection. */
+void rememberDirFor(Config &cfg, ms0515_frontend::FileDialogKind kind,
+                    const std::string &chosenPath)
+{
+    std::string dir = std::filesystem::path(chosenPath).parent_path().string();
+    if (dir.empty()) return;
+    using K = ms0515_frontend::FileDialogKind;
+    switch (kind) {
+    case K::Disk:  cfg.lastDirDisk  = dir; break;
+    case K::Rom:   cfg.lastDirRom   = dir; break;
+    case K::State: cfg.lastDirState = dir; break;
+    }
+    saveConfig(cfg);
 }
 
 /* Save a screenshot of the emulator framebuffer as PNG.
@@ -690,37 +746,39 @@ int main(int argc, char **argv)
             menuBarHeight = (int)ImGui::GetWindowSize().y;
             if (ImGui::BeginMenu("File")) {
                 for (int i = 0; i < 4; ++i) {
-                    std::string label;
-                    if (mountedFd[i].empty())
-                        label = std::format("Mount FD{}...", i);
-                    else
-                        label = std::format("Mount FD{}...  [{}]", i,
-                                            mountedFd[i]);
-                    if (ImGui::MenuItem(label.c_str())) {
-                        auto title = std::format("Select image for FD{}", i);
-                        std::string p = ms0515_frontend::openFileDialog(window, title.c_str());
-                        if (!p.empty()) {
-                            if (emu.mountDisk(i, p)) {
-                                mountedFd[i] = p;
-                                config.fdPath[i] = p;
-                                saveConfig(config);
-                            } else {
-                                std::fprintf(stderr,
-                                    "error: failed to mount '%s' on FD%d\n",
-                                    p.c_str(), i);
+                    bool mounted = !mountedFd[i].empty();
+                    std::string leafName = mounted
+                        ? std::filesystem::path(mountedFd[i]).filename().string()
+                        : std::string{"(empty)"};
+                    auto label = std::format("FD{}  [{}]", i, leafName);
+                    if (ImGui::BeginMenu(label.c_str())) {
+                        if (ImGui::MenuItem("Mount...")) {
+                            auto title = std::format("Select image for FD{}", i);
+                            std::string p = ms0515_frontend::openFileDialog(
+                                window, title.c_str(),
+                                ms0515_frontend::FileDialogKind::Disk,
+                                initialDirFor(ms0515_frontend::FileDialogKind::Disk,
+                                              config));
+                            if (!p.empty()) {
+                                if (emu.mountDisk(i, p)) {
+                                    mountedFd[i] = p;
+                                    config.fdPath[i] = p;
+                                    rememberDirFor(config,
+                                        ms0515_frontend::FileDialogKind::Disk, p);
+                                } else {
+                                    std::fprintf(stderr,
+                                        "error: failed to mount '%s' on FD%d\n",
+                                        p.c_str(), i);
+                                }
                             }
                         }
-                    }
-                }
-                ImGui::Separator();
-                for (int i = 0; i < 4; ++i) {
-                    auto label = std::format("Unmount FD{}", i);
-                    if (ImGui::MenuItem(label.c_str(), nullptr, false,
-                                        !mountedFd[i].empty())) {
-                        emu.unmountDisk(i);
-                        mountedFd[i].clear();
-                        config.fdPath[i].clear();
-                        saveConfig(config);
+                        if (ImGui::MenuItem("Unmount", nullptr, false, mounted)) {
+                            emu.unmountDisk(i);
+                            mountedFd[i].clear();
+                            config.fdPath[i].clear();
+                            saveConfig(config);
+                        }
+                        ImGui::EndMenu();
                     }
                 }
                 ImGui::Separator();
@@ -758,6 +816,26 @@ int main(int argc, char **argv)
                     }
                     if (availableRoms.empty())
                         ImGui::MenuItem("(no ROMs found)", nullptr, false, false);
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Browse...")) {
+                        std::string p = ms0515_frontend::openFileDialog(
+                            window, "Select ROM",
+                            ms0515_frontend::FileDialogKind::Rom,
+                            initialDirFor(ms0515_frontend::FileDialogKind::Rom,
+                                          config));
+                        if (!p.empty() && p != currentRomPath &&
+                            emu.loadRomFile(p))
+                        {
+                            currentRomPath = p;
+                            romStatus = "ROM: " + currentRomPath;
+                            config.romPath = currentRomPath;
+                            rememberDirFor(config,
+                                ms0515_frontend::FileDialogKind::Rom, p);
+                            dbg.reset();
+                            emuFramesSinceReset = 0;
+                            hostMsAtLastReset   = SDL_GetTicks();
+                        }
+                    }
                     ImGui::EndMenu();
                 }
                 ImGui::Separator();
@@ -791,11 +869,18 @@ int main(int argc, char **argv)
                     bool wasRunning = running;
                     running = false;
                     std::string path = ms0515_frontend::saveFileDialog(
-                        window, "Save State", "state.ms0515");
+                        window, "Save State", "state.ms0515",
+                        ms0515_frontend::FileDialogKind::State,
+                        initialDirFor(ms0515_frontend::FileDialogKind::State,
+                                      config));
                     if (!path.empty()) {
-                        if (auto r = emu.saveState(path); !r)
+                        if (auto r = emu.saveState(path); !r) {
                             std::fprintf(stderr, "Save state failed: %s\n",
                                          r.error().c_str());
+                        } else {
+                            rememberDirFor(config,
+                                ms0515_frontend::FileDialogKind::State, path);
+                        }
                     }
                     running = wasRunning;
                 }
@@ -803,8 +888,13 @@ int main(int argc, char **argv)
                     bool wasRunning = running;
                     running = false;
                     std::string path = ms0515_frontend::openFileDialog(
-                        window, "Load State");
+                        window, "Load State",
+                        ms0515_frontend::FileDialogKind::State,
+                        initialDirFor(ms0515_frontend::FileDialogKind::State,
+                                      config));
                     if (!path.empty()) {
+                        rememberDirFor(config,
+                            ms0515_frontend::FileDialogKind::State, path);
                         if (auto r = emu.loadState(path); !r) {
                             std::fprintf(stderr, "Load state failed: %s\n",
                                          r.error().c_str());
