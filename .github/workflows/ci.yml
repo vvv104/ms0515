@@ -73,6 +73,13 @@ jobs:
             sed -i -e 's/^compiler\.version=.*/compiler.version=${{ matrix.conan_compiler_version }}/' "$PROFILE"
           fi
 
+          # Windows: link the MSVC C/C++ runtime statically.  Makes the
+          # binary self-contained so end-users don't need the VC++
+          # Redistributable installed.  Adds ~300 KB to the exe.
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            sed -i -e 's/^compiler\.runtime=.*/compiler.runtime=static/' "$PROFILE"
+          fi
+
           # [conf] section: platform-specific knobs
           {
             echo ""

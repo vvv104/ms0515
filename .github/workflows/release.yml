@@ -48,6 +48,12 @@ jobs:
             sed -i -e 's/^compiler\.version=.*/compiler.version=13/' "$PROFILE"
           fi
 
+          # Windows: static MSVC runtime → self-contained binary, no
+          # VCRedist needed on user machines.  +300 KB to the exe.
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            sed -i -e 's/^compiler\.runtime=.*/compiler.runtime=static/' "$PROFILE"
+          fi
+
           {
             echo ""
             echo "[conf]"
