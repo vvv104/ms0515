@@ -88,6 +88,24 @@ typedef struct {
     int      track;             /* Current track position (0–79)            */
 } fdc_drive_t;
 
+/* ── Asynchronous command state machine ──────────────────────────────────── */
+
+/*
+ * The FDC runs commands asynchronously: fdc_write() only latches the
+ * command and arms the state machine; fdc_tick() advances it by the
+ * supplied cycle count and performs disk I/O when the appropriate
+ * phase is reached.  This keeps BUSY asserted for realistic durations
+ * (head-stepping, sector search, per-byte data transfer) so the CPU
+ * runs in parallel with disk operations the way real hardware allows.
+ */
+typedef enum {
+    FDC_STATE_IDLE = 0,
+    FDC_STATE_TYPE1_STEP,    /* Head stepping; cycles_remaining = until next pulse  */
+    FDC_STATE_TYPE2_SEARCH,  /* Type II command-to-first-DRQ delay (sector search) */
+    FDC_STATE_TYPE2_DATA,    /* Type II per-byte transfer; one byte per BYTE_CYCLES */
+    FDC_STATE_FINISH,        /* BUSY held briefly before INTRQ asserts             */
+} fdc_state_t;
+
 /* ── FDC state ────────────────────────────────────────────────────────────── */
 
 typedef struct ms0515_floppy {
@@ -111,20 +129,14 @@ typedef struct ms0515_floppy {
     int      buf_pos;           /* Current position within buffer           */
     int      buf_len;           /* Number of valid bytes in buffer          */
 
-    /* Deferred-finish state — real hardware keeps BUSY set for at least
-     * one sampling period after a command is issued.  The BIOS polls the
-     * status register waiting for BUSY to go high, then low.  Type I
-     * commands complete synchronously in fdc_write(); we delay the
-     * finish by a few fdc_tick() calls so the CPU observes the rising
-     * edge of BUSY. */
-    bool     pending_finish;
-    int      busy_delay;
-
-    /* Lost Data timer — counts CPU cycles since DRQ was asserted without
-     * the CPU reading the data register.  When this exceeds the byte
-     * transfer time (~32µs ≈ 240 CPU cycles at 7.5 MHz), the byte is
-     * considered lost and the controller auto-advances. */
-    int      drq_timer;
+    /* State machine bookkeeping */
+    fdc_state_t state;             /* current phase                          */
+    int         cycles_remaining;  /* until next state transition            */
+    int         step_pulses_left;  /* Type I: remaining step pulses          */
+    int         step_direction;    /* -1 or +1 (last commanded direction)    */
+    int         step_rate_cycles;  /* armed at command latch (cmd bits 1:0)  */
+    int         settle_cycles;     /* head settle delay (h flag in Type I)   */
+    uint8_t     next_status;       /* status to apply at FINISH expiry       */
 } ms0515_floppy_t;
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
@@ -169,11 +181,13 @@ void    fdc_write(ms0515_floppy_t *fdc, int reg, uint8_t value);
 uint8_t fdc_read(ms0515_floppy_t *fdc, int reg);
 
 /*
- * fdc_tick — Advance FDC state by one step.
+ * fdc_tick — Advance the FDC state machine by `cycles` CPU cycles.
  *
- * Called periodically to process ongoing commands (seek, read, write).
+ * Called by the board after every CPU instruction.  Drives head stepping,
+ * sector search latency, per-byte data transfer pacing, and command-end
+ * INTRQ assertion.
  */
-void    fdc_tick(ms0515_floppy_t *fdc);
+void    fdc_tick(ms0515_floppy_t *fdc, int cycles);
 
 #ifdef __cplusplus
 }

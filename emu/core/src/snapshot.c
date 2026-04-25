@@ -22,7 +22,15 @@
 #include <stdlib.h>
 
 #define SNAP_MAGIC      "MS05"
-#define SNAP_VERSION    1
+/*
+ * Format version history:
+ *   1 — initial release
+ *   2 — async FDC: replaces pending_finish/busy_delay with state-machine
+ *       fields (state, cycles_remaining, step_pulses_left, ...).  v1
+ *       snapshots still load — read_fdc detects the shorter chunk and
+ *       defaults the new fields to FDC_STATE_IDLE.
+ */
+#define SNAP_VERSION    2
 
 /* ── I/O helpers ─────────────────────────────────────────────────────────── */
 
@@ -307,10 +315,13 @@ static bool read_kbd(snap_io_t *f, ms0515_keyboard_t *kbd)
 /* ── FDC chunk ───────────────────────────────────────────────────────────── */
 
 /* Per-drive: track(4) + read_only(1) + motor_on(1) = 6 bytes
- * FDC core: selected(4) + 5 regs + 3 flags + 512 buf + 2*4 pos/len
- *         + pending_finish(1) + busy_delay(4) = 533
- * Total: 533 + 4*6 = 557 */
-#define FDC_CHUNK_SIZE (4 + 5 + 3 + FDC_SECTOR_SIZE + 2*4 + 1 + 4 + 4*6)
+ * FDC core (common): selected(4) + 5 regs + 3 flags + 512 buf + 2*4 pos/len
+ *                  = 532
+ * v2 trailer:        state(4) + cycles_remaining(4) + step_pulses_left(4)
+ *                  + step_direction(4) + step_rate_cycles(4) + settle_cycles(4)
+ *                  + next_status(1) = 25
+ * Total: 532 + 4*6 + 25 = 581 */
+#define FDC_CHUNK_SIZE (4 + 5 + 3 + FDC_SECTOR_SIZE + 2*4 + 4*6 + 6*4 + 1)
 
 static bool write_fdc(snap_io_t *f, const ms0515_floppy_t *fdc)
 {
@@ -326,18 +337,40 @@ static bool write_fdc(snap_io_t *f, const ms0515_floppy_t *fdc)
     if (!write_bytes(f, fdc->buffer, FDC_SECTOR_SIZE)) return false;
     if (!write_i32(f, fdc->buf_pos)) return false;
     if (!write_i32(f, fdc->buf_len)) return false;
-    if (!write_bool(f, fdc->pending_finish)) return false;
-    if (!write_i32(f, fdc->busy_delay)) return false;
     for (int i = 0; i < FDC_LOGICAL_UNITS; i++) {
         if (!write_i32(f, fdc->drives[i].track)) return false;
         if (!write_bool(f, fdc->drives[i].read_only)) return false;
         if (!write_bool(f, fdc->drives[i].motor_on)) return false;
     }
+    /* State machine (v2 fields) */
+    if (!write_i32(f, (int32_t)fdc->state)) return false;
+    if (!write_i32(f, fdc->cycles_remaining)) return false;
+    if (!write_i32(f, fdc->step_pulses_left)) return false;
+    if (!write_i32(f, fdc->step_direction)) return false;
+    if (!write_i32(f, fdc->step_rate_cycles)) return false;
+    if (!write_i32(f, fdc->settle_cycles)) return false;
+    if (!write_u8(f, fdc->next_status)) return false;
     return true;
 }
 
-static bool read_fdc(snap_io_t *f, ms0515_floppy_t *fdc)
+/*
+ * read_fdc — load FDC chunk.
+ *
+ * `chunk_size` lets us detect the v1 layout, which had two extra
+ * synchronous-finish fields (pending_finish, busy_delay) instead of
+ * the state-machine fields.  Drives array is the same in both layouts,
+ * so we read up to and including drives, then either consume the v1
+ * trailer (and synthesize an IDLE state machine) or read the v2
+ * trailer.
+ *
+ * v1 trailer layout (after drives): bool pending_finish, i32 busy_delay
+ * v2 trailer layout (after drives): i32 state, i32 cycles_remaining,
+ *   i32 step_pulses_left, i32 step_direction, i32 step_rate_cycles,
+ *   i32 settle_cycles, u8 next_status
+ */
+static bool read_fdc(snap_io_t *f, ms0515_floppy_t *fdc, uint32_t chunk_size)
 {
+    /* Header common to both versions */
     if (!read_i32(f, &fdc->selected)) return false;
     if (!read_u8(f, &fdc->status)) return false;
     if (!read_u8(f, &fdc->command)) return false;
@@ -350,13 +383,69 @@ static bool read_fdc(snap_io_t *f, ms0515_floppy_t *fdc)
     if (!read_bytes(f, fdc->buffer, FDC_SECTOR_SIZE)) return false;
     if (!read_i32(f, &fdc->buf_pos)) return false;
     if (!read_i32(f, &fdc->buf_len)) return false;
-    if (!read_bool(f, &fdc->pending_finish)) return false;
-    if (!read_i32(f, &fdc->busy_delay)) return false;
+
+    /* Detect v1: drives come AFTER the two trailing sync-finish fields.
+     * Compute expected byte size of the rest in each layout. */
+    const uint32_t common_size  = 4 + 5 + 3 + FDC_SECTOR_SIZE + 4 + 4;
+    const uint32_t drives_size  = (uint32_t)FDC_LOGICAL_UNITS * (4 + 1 + 1);
+    const uint32_t v1_trailer   = 1 + 4;                /* bool + i32 */
+    const uint32_t v2_trailer   = 4*6 + 1;              /* 6 i32 + u8 */
+    const uint32_t v1_total     = common_size + drives_size + v1_trailer;
+    const uint32_t v2_total     = common_size + drives_size + v2_trailer;
+
+    bool legacy_v1;
+    if (chunk_size == v1_total)
+        legacy_v1 = true;
+    else if (chunk_size == v2_total)
+        legacy_v1 = false;
+    else
+        /* Unknown size — fall back to v2 layout (most likely) and let
+         * any deserialization error surface naturally. */
+        legacy_v1 = false;
+
+    if (legacy_v1) {
+        bool pending_finish;
+        int32_t busy_delay;
+        if (!read_bool(f, &pending_finish)) return false;
+        if (!read_i32(f, &busy_delay)) return false;
+        for (int i = 0; i < FDC_LOGICAL_UNITS; i++) {
+            if (!read_i32(f, &fdc->drives[i].track)) return false;
+            if (!read_bool(f, &fdc->drives[i].read_only)) return false;
+            if (!read_bool(f, &fdc->drives[i].motor_on)) return false;
+        }
+        /* Synthesize an idle state machine.  If a v1 snapshot was taken
+         * mid-command, we lose that command — acceptable: the OS will
+         * see a sudden BUSY=0 / INTRQ=0 and either retry or proceed.
+         * pending_finish/busy_delay are intentionally discarded. */
+        fdc->state            = FDC_STATE_IDLE;
+        fdc->cycles_remaining = 0;
+        fdc->step_pulses_left = 0;
+        fdc->step_direction   = 1;
+        fdc->step_rate_cycles = 45000;
+        fdc->settle_cycles    = 0;
+        fdc->next_status      = 0;
+        if (pending_finish || busy_delay > 0) {
+            fdc->busy   = false;
+            fdc->intrq  = true;
+            fdc->status &= ~FDC_ST_BUSY;
+        }
+        return true;
+    }
+
     for (int i = 0; i < FDC_LOGICAL_UNITS; i++) {
         if (!read_i32(f, &fdc->drives[i].track)) return false;
         if (!read_bool(f, &fdc->drives[i].read_only)) return false;
         if (!read_bool(f, &fdc->drives[i].motor_on)) return false;
     }
+    int32_t s32;
+    if (!read_i32(f, &s32)) return false;
+    fdc->state = (fdc_state_t)s32;
+    if (!read_i32(f, &fdc->cycles_remaining)) return false;
+    if (!read_i32(f, &fdc->step_pulses_left)) return false;
+    if (!read_i32(f, &fdc->step_direction)) return false;
+    if (!read_i32(f, &fdc->step_rate_cycles)) return false;
+    if (!read_i32(f, &fdc->settle_cycles)) return false;
+    if (!read_u8(f, &fdc->next_status)) return false;
     return true;
 }
 
@@ -759,7 +848,7 @@ snap_error_t snap_load(ms0515_board_t *board,
             if (!read_kbd(in, &board->kbd)) return SNAP_ERR_CORRUPT;
             got_kbd = true;
         } else if (memcmp(id, "FDC\0", 4) == 0) {
-            if (!read_fdc(in, &board->fdc)) return SNAP_ERR_CORRUPT;
+            if (!read_fdc(in, &board->fdc, chunk_size)) return SNAP_ERR_CORRUPT;
             got_fdc = true;
         } else if (memcmp(id, "BRD\0", 4) == 0) {
             if (!read_brd(in, board)) return SNAP_ERR_CORRUPT;

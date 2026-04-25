@@ -539,8 +539,8 @@ bool board_step_frame(ms0515_board_t *board)
                 cpu_clear_interrupt(&board->cpu, 5);
         }
 
-        /* FDC tick (for future rotational timing) */
-        fdc_tick(&board->fdc);
+        /* Advance the FDC state machine by the cycles of this instruction. */
+        fdc_tick(&board->fdc, c);
     }
 
     /*
