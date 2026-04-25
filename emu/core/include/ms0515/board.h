@@ -169,6 +169,20 @@ typedef struct ms0515_board {
      * size accordingly. */
     uint16_t read_watch_addr;
     uint16_t read_watch_len;
+
+    /* Spontaneous-reset detector.
+     *
+     * Set when the CPU fetches an instruction at the cold-start vector
+     * (0172000) after having previously fetched elsewhere — i.e., the
+     * machine just ran POST again without the user pressing Reset.
+     * `reset_first_seen` arms the detector after the initial cold boot;
+     * `unexpected_reset` is the latched event flag the frontend polls
+     * to decide whether to auto-snapshot.
+     *
+     * Both fields are cleared by board_reset(), so user-initiated
+     * resets do not produce a false detection. */
+    bool reset_first_seen;
+    bool unexpected_reset;
 } ms0515_board_t;
 
 /* ── Public API ───────────────────────────────────────────────────────────── */

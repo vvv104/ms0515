@@ -116,6 +116,12 @@ struct Config {
     /* Same, but for reads (MEMR events). */
     int         historyReadWatchAddr = 0;
     int         historyReadWatchLen  = 0;
+    /* When true, the frontend writes a timestamped snapshot every time
+     * the CPU spontaneously re-enters POST (fetch at 0172000 after the
+     * initial cold boot).  Useful for catching rare reboots while
+     * playing — by the time the user notices, the snapshot is already
+     * on disk with the event ring intact. */
+    bool        autoSnapOnReset = false;
 
     bool isDefault() const {
         for (int i = 0; i < 4; ++i)
@@ -129,6 +135,7 @@ struct Config {
         if (historyWatchAddr != 0 || historyWatchLen != 0) return false;
         if (historyReadWatchAddr != 0 || historyReadWatchLen != 0)
             return false;
+        if (autoSnapOnReset) return false;
         return true;
     }
 };
@@ -195,6 +202,9 @@ Config loadConfig()
         else if (key == "history_read_watch_len") {
             cfg.historyReadWatchLen = parseNumber(val);
         }
+        else if (key == "auto_snap_on_reset") {
+            cfg.autoSnapOnReset = (val == "true");
+        }
     }
     return cfg;
 }
@@ -237,6 +247,7 @@ void saveConfig(const Config &cfg)
           << cfg.historyReadWatchAddr << std::dec << "\n";
         f << "history_read_watch_len: "   << cfg.historyReadWatchLen << "\n";
     }
+    if (cfg.autoSnapOnReset) f << "auto_snap_on_reset: true\n";
 }
 
 /* Starting folder for a file dialog of the given kind: the remembered
@@ -275,6 +286,23 @@ void rememberDirFor(Config &cfg, ms0515_frontend::FileDialogKind kind,
     case K::State: cfg.lastDirState = dir; break;
     }
     saveConfig(cfg);
+}
+
+/* Build a path next to the executable with a timestamped filename:
+ *   <exeDir>/<prefix>_YYYY-MM-DD_HHMMSS<ext>
+ * Used by the screenshot tool and the auto-snapshot-on-reset feature. */
+std::string timestampedPath(std::string_view prefix, std::string_view ext)
+{
+    std::time_t t = std::time(nullptr);
+    std::tm tm;
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[64];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d_%H%M%S", &tm);
+    return getExeDir() + std::string{prefix} + "_" + buf + std::string{ext};
 }
 
 /* Save a screenshot of the emulator framebuffer as PNG.
@@ -771,6 +799,26 @@ int main(int argc, char **argv)
                 if (audioEnabled) audio.beginFrame();
                 bool ok = emu.stepFrame();
                 if (audioEnabled) audio.endFrame(emu.board().frame_cycle_pos);
+
+                /* Auto-snapshot the moment the CPU spontaneously re-enters
+                 * POST.  Always clear the latch so the next event is
+                 * caught afresh; only write the file if the user has
+                 * enabled the feature. */
+                if (emu.board().unexpected_reset) {
+                    emu.board().unexpected_reset = false;
+                    if (config.autoSnapOnReset) {
+                        std::string p = timestampedPath("state_post", ".ms0515");
+                        if (auto r = emu.saveState(p); !r) {
+                            std::fprintf(stderr,
+                                "Auto-snapshot on POST failed: %s\n",
+                                r.error().c_str());
+                        } else {
+                            std::fprintf(stderr,
+                                "Auto-snapshot on POST: %s\n", p.c_str());
+                        }
+                    }
+                }
+
                 if (!ok) {
                     running = false;
                     emuTimeAccumMs = 0.0f;
@@ -960,6 +1008,11 @@ int main(int argc, char **argv)
                     audioOn = !audioOn;
                 }
                 ImGui::Separator();
+                if (ImGui::MenuItem("Auto-snapshot on POST entry",
+                                    nullptr, config.autoSnapOnReset)) {
+                    config.autoSnapOnReset = !config.autoSnapOnReset;
+                    saveConfig(config);
+                }
                 if (ImGui::MenuItem("Save State...")) {
                     bool wasRunning = running;
                     running = false;

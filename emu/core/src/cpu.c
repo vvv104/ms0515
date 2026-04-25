@@ -230,6 +230,18 @@ int cpu_step(ms0515_cpu_t *cpu)
     /* Save T-bit state before execution (checked after instruction) */
     bool tbit_was_set = (cpu->psw & CPU_PSW_T) != 0;
 
+    /*
+     * Spontaneous-reset detection.  A fetch at the cold-start vector
+     * after the initial cold boot means the machine effectively rebooted
+     * itself (game JMPed to ROM, watchdog, etc.) — the frontend uses
+     * this to take an automatic post-mortem snapshot.
+     */
+    if (cpu->r[CPU_REG_PC] == 0172000) {
+        if (cpu->board->reset_first_seen)
+            cpu->board->unexpected_reset = true;
+        cpu->board->reset_first_seen = true;
+    }
+
     /* Fetch instruction */
     cpu->instruction_pc = cpu->r[CPU_REG_PC];
     cpu->instruction    = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);

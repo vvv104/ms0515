@@ -477,6 +477,14 @@ void board_reset(ms0515_board_t *board)
     board->timer_counter = TIMER_DIVIDER;
     board->frame_counter = get_frame_cycles(board);
 
+    /* Re-arm the spontaneous-reset detector — clearing both flags here
+     * means a user-initiated reset is not reported as unexpected.  The
+     * very next cold-start fetch sets reset_first_seen, and only a
+     * subsequent fetch at 0172000 (e.g., game JMPs there) latches
+     * unexpected_reset. */
+    board->reset_first_seen = false;
+    board->unexpected_reset = false;
+
     /* Reset CPU last — it reads the boot vector from memory */
     cpu_reset(&board->cpu);
 }
