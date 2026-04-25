@@ -106,14 +106,22 @@ void ScreenReader::buildFont(std::span<const uint8_t> rom)
 
     const auto romSize = rom.size();
 
-    /* Register glyphs from the main font: codes 0x20–0x7F (ASCII) */
+    /*
+     * Register glyphs from the main font (codes 0x20–0x7F).  Use
+     * insert-if-absent so EARLIER codes win on a glyph collision —
+     * this is critical because the ROM stores identical pixel
+     * patterns for several pairs (e.g. '@' 0x40 and '`' 0x60), and
+     * we want the printable ASCII letter / symbol to be the canonical
+     * lookup result rather than the backtick that happens to share
+     * the bitmap.
+     */
     for (int code = 0x20; code < 0x80; ++code) {
         int off = kMainFontFileOff + (code - 0x20) * 8;
         if (off + 8 > static_cast<int>(romSize))
             break;
         uint64_t key = glyphKey(rom.data() + off);
         if (key != 0 || code == 0x20)
-            glyphMap_[key] = static_cast<uint8_t>(code);
+            glyphMap_.emplace(key, static_cast<uint8_t>(code));
     }
 
     /*
@@ -134,6 +142,11 @@ void ScreenReader::buildFont(std::span<const uint8_t> rom)
      * 64 Cyrillic glyphs at indices 0–63, mapping KOI-8 codes 0xC0–0xFF
      * to alt font index (code & 0x7F) - 0x40.
      */
+    /*
+     * Add Cyrillic codes only for patterns the main font did not
+     * already claim — keeps printable ASCII as the canonical answer
+     * for ambiguous glyphs (e.g. '_' 0x5F vs Ъ 0xFF, identical 8x8).
+     */
     for (int code = 0xC0; code <= 0xFF; ++code) {
         int glyph_idx = (code & 0x7F) - 0x40;
         int off = kAltFontFileOff + glyph_idx * 8;
@@ -141,7 +154,7 @@ void ScreenReader::buildFont(std::span<const uint8_t> rom)
             continue;
         uint64_t key = glyphKey(rom.data() + off);
         if (key != 0)
-            glyphMap_[key] = static_cast<uint8_t>(code);
+            glyphMap_.emplace(key, static_cast<uint8_t>(code));
     }
 }
 

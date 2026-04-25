@@ -235,11 +235,14 @@ TEST_CASE("CAPS toggle flips on press, release is no-op") {
     /* Toggle keys don't participate in held_count */
     CHECK(kbd.held_count == 0);
 
-    /* Scancode should have been emitted */
-    uint8_t buf[4];
-    int n = drain_fifo(&uart, buf, 4);
-    REQUIRE(n == 1);
-    CHECK(buf[0] == ms7004_scancode(MS7004_KEY_CAPS));
+    /*
+     * No scancode is emitted on a ФКС tap — the model intercepts the
+     * toggle and applies the case-flip locally per the cap-spec rules
+     * (see `effective_shift` in ms7004.c).  The OS therefore never
+     * sees SC_CAPS, which prevents it from double-applying the toggle
+     * (its own CapsLock semantics differ from what the cap demands).
+     */
+    CHECK(uart.fifo_count == 0);
 
     /* Release — no-op, no ALL-UP */
     ms7004_key(&kbd, MS7004_KEY_CAPS, false);

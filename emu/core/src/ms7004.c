@@ -230,6 +230,75 @@ static bool key_valid(ms7004_key_t k)
     return k > MS7004_KEY_NONE && k < MS7004_KEY__COUNT;
 }
 
+/*
+ * Symbol-on-letter keys whose Latin slot is a single non-letter glyph
+ * (Ш/[, Щ/], Э/\, Ч/¬).  In LAT mode the cap shows only one symbol —
+ * Shift has no second glyph to switch to and must NOT change the
+ * output.  Real MS7004-era keyboards predate the IBM-style `[`/`{`,
+ * `]`/`}`, `\`/`|` pairings, so applying typewriter shift to these
+ * positions is anachronistic.
+ */
+static bool is_shift_immune_in_lat(ms7004_key_t k)
+{
+    return k == MS7004_KEY_LBRACKET     /* Ш / [ */
+        || k == MS7004_KEY_RBRACKET     /* Щ / ] */
+        || k == MS7004_KEY_BACKSLASH    /* Э / \ */
+        || k == MS7004_KEY_CHE;         /* Ч / ¬ */
+}
+
+/*
+ * Letter-keys whose case is toggled by Shift / ФКС.  In LAT mode the
+ * 26 Latin alphabet positions are letters; ШЩЧЭЮЪ are symbol-on-letter
+ * positions (their Latin slot is a single glyph and Shift must not
+ * change it).  In RUS mode all 32 letter positions are letters,
+ * including ШЩЧЭЮЪ.
+ */
+static bool is_letter_key(ms7004_key_t k, bool rus_mode)
+{
+    switch (k) {
+    case MS7004_KEY_A: case MS7004_KEY_B: case MS7004_KEY_C:
+    case MS7004_KEY_D: case MS7004_KEY_E: case MS7004_KEY_F:
+    case MS7004_KEY_G: case MS7004_KEY_H: case MS7004_KEY_I:
+    case MS7004_KEY_J: case MS7004_KEY_K: case MS7004_KEY_L:
+    case MS7004_KEY_M: case MS7004_KEY_N: case MS7004_KEY_O:
+    case MS7004_KEY_P: case MS7004_KEY_Q: case MS7004_KEY_R:
+    case MS7004_KEY_S: case MS7004_KEY_T: case MS7004_KEY_U:
+    case MS7004_KEY_V: case MS7004_KEY_W: case MS7004_KEY_X:
+    case MS7004_KEY_Y: case MS7004_KEY_Z:
+        return true;
+    case MS7004_KEY_LBRACKET:   /* Ш / [ */
+    case MS7004_KEY_RBRACKET:   /* Щ / ] */
+    case MS7004_KEY_BACKSLASH:  /* Э / \ */
+    case MS7004_KEY_CHE:        /* Ч / ¬ */
+    case MS7004_KEY_AT:         /* Ю / @ */
+    case MS7004_KEY_HARDSIGN:   /* Ъ     */
+        return rus_mode;
+    default:
+        return false;
+    }
+}
+
+/*
+ * What shift state the OS should see for `key`, given which physical
+ * Shift key is held and the latched ФКС state.  Per the cap-spec
+ * rules:
+ *   - Letter keys: physical Shift XOR ФКС (each independently inverts
+ *     case; together they cancel back to default).
+ *   - Symbol-on-letter keys in LAT (ШЩЭЧ → [ ] \ ¬): always unshifted
+ *     — the cap has only one Latin glyph.
+ *   - Everything else (digits, punctuation, function keys): physical
+ *     Shift only; ФКС has no effect on them.
+ */
+static bool effective_shift(const ms7004_t *kbd, ms7004_key_t key,
+                            bool shift_held)
+{
+    if (!kbd->ruslat_on && is_shift_immune_in_lat(key))
+        return false;
+    if (is_letter_key(key, kbd->ruslat_on))
+        return shift_held ^ kbd->caps_on;
+    return shift_held;
+}
+
 /* ── Downstream emission ──────────────────────────────────────────────── */
 
 static void emit(ms7004_t *kbd, uint8_t sc)
@@ -268,24 +337,71 @@ void ms7004_key(ms7004_t *kbd, ms7004_key_t key, bool down)
         if (kbd->held[key]) return;   /* already pressed, ignore */
 
         if (is_toggle(key)) {
-            /* Toggle keys: emit once, flip internal flag.  They do not
-             * participate in held_count — the real firmware latches
-             * the state and does not emit a release code. */
-            emit(kbd, kScancode[key]);
-            if (key == MS7004_KEY_CAPS)   kbd->caps_on   = !kbd->caps_on;
-            if (key == MS7004_KEY_RUSLAT) kbd->ruslat_on = !kbd->ruslat_on;
+            /*
+             * Toggle keys flip an internal flag and do not participate
+             * in held_count — the real firmware latches the state and
+             * does not emit a release code.
+             *
+             * РУС/ЛАТ scancode is forwarded to the OS so its keyboard
+             * driver flips its own letter-mode state.  ФКС is NOT
+             * forwarded — we apply CapsLock locally via the
+             * `effective_shift` wrapper around every key emission so
+             * ФКС reliably follows the cap-spec rules (letters only,
+             * cancels with Shift, no effect on digits/symbols /
+             * shift-immune positions).  Letting the OS see SC_CAPS as
+             * well would double-apply the case toggle.
+             */
+            if (key == MS7004_KEY_CAPS) {
+                kbd->caps_on = !kbd->caps_on;
+            } else if (key == MS7004_KEY_RUSLAT) {
+                kbd->ruslat_on = !kbd->ruslat_on;
+                emit(kbd, kScancode[key]);
+            }
             return;
         }
 
         /* Both modifiers and regular keys: mark held, emit make code. */
         kbd->held[key] = 1;
         kbd->held_count++;
-        emit(kbd, kScancode[key]);
 
-        /* Track whether a modifier was held during this session — used
-         * below to decide whether to emit ALL-UP on full release. */
-        if (is_modifier(key))
+        /*
+         * Bring the OS's view of Shift in line with what the cap-spec
+         * says this key should produce.  See `effective_shift` for the
+         * three cases (case-toggleable letter, shift-immune symbol,
+         * everything else).  When the effective state differs from the
+         * physical Shift state we sandwich the key between ALL-UP and
+         * SC_SHIFT to flip the OS's view for this one keypress.
+         *
+         * Modifier keys (Shift/Ctrl/Compose) emit their own make code
+         * and never need wrapping — they ARE the state that other
+         * keys reference.
+         */
+        if (is_modifier(key)) {
+            emit(kbd, kScancode[key]);
             kbd->modifier_in_session = true;
+        } else {
+            const bool shift_held = kbd->held[MS7004_KEY_SHIFT_L]
+                                 || kbd->held[MS7004_KEY_SHIFT_R];
+            const bool want_shift = effective_shift(kbd, key, shift_held);
+
+            if (want_shift == shift_held) {
+                emit(kbd, kScancode[key]);
+            } else if (want_shift) {
+                /* Need shift but physical Shift not held — synthesise
+                 * a one-shot make + ALL-UP so only this key sees it. */
+                emit(kbd, SC_SHIFT);
+                emit(kbd, kScancode[key]);
+                emit(kbd, SC_ALLUP);
+            } else {
+                /* Don't need shift but physical Shift is held — clear
+                 * the OS's shift latch for this key, then re-emit
+                 * SC_SHIFT to restore the latch for whatever comes
+                 * next. */
+                emit(kbd, SC_ALLUP);
+                emit(kbd, kScancode[key]);
+                emit(kbd, SC_SHIFT);
+            }
+        }
 
         /* Auto-repeat tracks the most recent regular keypress.  A
          * modifier going down cancels the pending repeat (matches
