@@ -878,6 +878,13 @@ int main(int argc, char **argv)
             if (ImGui::BeginMenu("Machine")) {
                 if (ImGui::MenuItem("Reset")) {
                     dbg.reset();
+                    /* If the emulator paused itself because the CPU
+                     * halted, Reset must also clear the paused state —
+                     * otherwise the user resets but stepFrame never
+                     * runs again and the screen stays frozen on the
+                     * pre-reset VRAM contents. */
+                    running = true;
+                    emuTimeAccumMs = 0.0f;
                     emuFramesSinceReset = 0;
                     hostMsAtLastReset   = SDL_GetTicks();
                 }
@@ -893,6 +900,8 @@ int main(int argc, char **argv)
                                 config.romPath = currentRomPath;
                                 saveConfig(config);
                                 dbg.reset();
+                                running = true;
+                                emuTimeAccumMs = 0.0f;
                                 emuFramesSinceReset = 0;
                                 hostMsAtLastReset   = SDL_GetTicks();
                             }
@@ -916,6 +925,8 @@ int main(int argc, char **argv)
                             rememberDirFor(config,
                                 ms0515_frontend::FileDialogKind::Rom, p);
                             dbg.reset();
+                            running = true;
+                            emuTimeAccumMs = 0.0f;
                             emuFramesSinceReset = 0;
                             hostMsAtLastReset   = SDL_GetTicks();
                         }
