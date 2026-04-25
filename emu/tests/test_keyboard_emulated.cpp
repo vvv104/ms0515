@@ -45,11 +45,13 @@ namespace fs = std::filesystem;
 namespace {
 
 /*
- * Test matrix: every keystroke scenario runs across the (ROM × disk)
- * combinations below.  Both ROMs are exercised because they carry
- * slightly different patches and we want them to produce identical
- * user-visible behaviour.  The disk side is held to OSA for now —
- * Omega will be added once the ROM-B path proves stable.
+ * Test matrix: every keystroke scenario runs across all four
+ * (ROM × disk) combinations.  Both ROMs are exercised because they
+ * carry slightly different patches and we want them to produce
+ * identical user-visible behaviour.  Both OSes (OSA and Omega) are
+ * exercised because the cap-spec is meant to hold regardless of the
+ * monitor's keyboard handler — divergences should surface as failed
+ * expectations rather than be quietly hidden.
  */
 struct TestConfig {
     const char *rom;       /* path to the .rom file                  */
@@ -60,8 +62,12 @@ struct TestConfig {
 constexpr TestConfig kConfigs[] = {
     {ASSETS_DIR "/rom/ms0515-roma.rom", ASSETS_DIR "/disks/kbtest_osa.dsk",
      "ROM-A + OSA"},
+    {ASSETS_DIR "/rom/ms0515-roma.rom", ASSETS_DIR "/disks/kbtest_omega.dsk",
+     "ROM-A + Omega"},
     {ASSETS_DIR "/rom/ms0515-romb.rom", ASSETS_DIR "/disks/kbtest_osa.dsk",
      "ROM-B + OSA"},
+    {ASSETS_DIR "/rom/ms0515-romb.rom", ASSETS_DIR "/disks/kbtest_omega.dsk",
+     "ROM-B + Omega"},
 };
 
 /* Boot is bounded by frames so a stuck OS does not freeze the test
@@ -141,42 +147,36 @@ static int findPromptRow(const ms0515::ScreenReader::Snapshot &snap)
 
 /*
  * Spin frames until the OS reaches the dot prompt and the prompt
- * row has been stable for `stableFrames` frames in a row.  Returns
- * the detected prompt row (≥ 0) on success, or -1 on timeout.
+ * row index has been the same for `stableFrames` frames in a row.
+ * Returns the detected prompt row (≥ 0) on success, or -1 on timeout.
+ *
+ * The stability check is on the row INDEX, not the row text — the
+ * row contents may change after the prompt appears (an unrendered
+ * cursor glyph drops in or out, transient indicators come and go),
+ * so a byte-exact text comparison can keep resetting the counter
+ * even though we are clearly at the prompt.  As long as
+ * `findPromptRow` keeps returning the same row, the prompt is
+ * present.
  */
 [[nodiscard]]
 static int bootToPrompt(ms0515::Emulator &emu, ms0515::ScreenReader &sr,
                         int stableFrames = 20)
 {
-    /*
-     * Only require the prompt row itself to stay still — cursors and
-     * status indicators on other lines (Omega flickers a glyph in
-     * the line below the prompt) keep flipping the full-screen hash
-     * forever otherwise.
-     */
-    std::string prevRow;
-    int stable = 0;
-    int promptRow = -1;
+    int prevRow = -1;
+    int stable  = 0;
 
     for (int frame = 0; frame < kBootFramesMax; ++frame) {
         (void)emu.stepFrame();
-        auto cur = readScreen(emu, sr);
+        const auto cur = readScreen(emu, sr);
+        const int curRow = findPromptRow(cur);
 
-        promptRow = findPromptRow(cur);
-        const bool atPrompt = (promptRow >= 0);
-
-        if (atPrompt) {
-            std::string curRow = cur.row(promptRow);
-            if (curRow == prevRow) ++stable;
-            else                   stable = 0;
-            prevRow = std::move(curRow);
+        if (curRow >= 0 && curRow == prevRow) {
+            if (++stable >= stableFrames)
+                return curRow;
         } else {
             stable = 0;
-            prevRow.clear();
         }
-
-        if (atPrompt && stable >= stableFrames)
-            return promptRow;
+        prevRow = curRow;
     }
     return -1;
 }
