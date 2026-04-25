@@ -1,13 +1,13 @@
 /*
- * ScreenReader.cpp — VRAM text extraction for console output.
+ * ScreenReader.cpp — VRAM text extraction.
  */
 
-#include "ScreenReader.hpp"
+#include <ms0515/ScreenReader.hpp>
 #include <ms0515/Emulator.hpp>
 #include <algorithm>
 #include <cstring>
 
-namespace ms0515_frontend {
+namespace ms0515 {
 
 /* ── KOI-8R to Unicode mapping for codes 0x80–0xFF ──────────────────────── */
 
@@ -211,4 +211,36 @@ void ScreenReader::dumpScreen(const uint8_t *screen, int cols)
     std::fflush(out_);
 }
 
-} /* namespace ms0515_frontend */
+/* ── Pure read (no streaming, no side effects) ──────────────────────────── */
+
+ScreenReader::Snapshot ScreenReader::readScreen(std::span<const uint8_t> vram,
+                                                bool hires) const
+{
+    Snapshot snap;
+    snap.cols = hires ? kHiresCols : kLoresCols;
+    snap.cells.fill(0x20);
+
+    for (int row = 0; row < kRows; ++row) {
+        for (int col = 0; col < snap.cols; ++col) {
+            uint64_t key = hires
+                ? readCell(vram, col, row, 80)
+                : readCellLores(vram, col, row);
+            snap.cells[row * kHiresCols + col] = lookup(key);
+        }
+    }
+    return snap;
+}
+
+std::string ScreenReader::Snapshot::row(int r) const
+{
+    if (r < 0 || r >= kRows) return {};
+    std::string s;
+    s.reserve(static_cast<size_t>(cols));
+    for (int c = 0; c < cols; ++c)
+        s.push_back(static_cast<char>(cells[r * kHiresCols + c]));
+    while (!s.empty() && static_cast<uint8_t>(s.back()) == 0x20)
+        s.pop_back();
+    return s;
+}
+
+} /* namespace ms0515 */

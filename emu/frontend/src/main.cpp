@@ -37,7 +37,7 @@
 #include "OnScreenKeyboard.hpp"
 #include "PhysicalKeyboard.hpp"
 #include "Platform.hpp"
-#include "ScreenReader.hpp"
+#include <ms0515/ScreenReader.hpp>
 #include "Video.hpp"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -704,7 +704,7 @@ int main(int argc, char **argv)
     ms0515_frontend::Video video;
 
     /* ── Screen reader (VRAM → text output, optional) ───────────────────── */
-    ms0515_frontend::ScreenReader screenReader;
+    ms0515::ScreenReader screenReader;
     screenReader.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
     FILE *screenDumpFile = nullptr;
     if (!cli.screenDumpPath.empty()) {

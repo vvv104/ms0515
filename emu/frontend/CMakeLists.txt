@@ -34,7 +34,6 @@ add_executable(ms0515 WIN32
     src/main.cpp
     src/Audio.cpp
     src/Video.cpp
-    src/ScreenReader.cpp
     src/Keymap.cpp
     src/PhysicalKeyboard.cpp
     src/OnScreenKeyboard.cpp

@@ -42,7 +42,9 @@ static const std::string kRomDir    = kAssetsDir + "/rom";
 static const std::string kDiskDir   = kAssetsDir + "/disks";
 
 /* Collect all files matching an extension in a directory.
- * Returns filenames sorted alphabetically for stable ordering. */
+ * Returns filenames sorted alphabetically for stable ordering.
+ * Files starting with "kbtest_" are reserved for the keyboard-emulation
+ * test (which prepares its own boot state) and are skipped here. */
 static std::vector<std::string> discoverFiles(const std::string &dir,
                                               const std::string &ext)
 {
@@ -50,8 +52,12 @@ static std::vector<std::string> discoverFiles(const std::string &dir,
     if (!fs::is_directory(dir))
         return result;
     for (const auto &entry : fs::directory_iterator(dir)) {
-        if (entry.is_regular_file() && entry.path().extension() == ext)
-            result.push_back(entry.path().filename().string());
+        if (!entry.is_regular_file() || entry.path().extension() != ext)
+            continue;
+        const std::string name = entry.path().filename().string();
+        if (name.starts_with("kbtest_"))
+            continue;
+        result.push_back(name);
     }
     std::sort(result.begin(), result.end());
     return result;
