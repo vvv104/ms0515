@@ -119,19 +119,83 @@
   `BR +3` run and candidate patch runs, then correlating the
   differing offsets back to the writing PC.
 
-## TODO: FDC synchronous command execution (busy delay hack)
+## ROM monitor `D` command with no disk attached — silent BIOS spin
 
-- **File**: `emu/core/src/floppy.c`, `finish_command()`
-- **Symptom**: Without an artificial `busy_delay = 4` ticks after command
-  completion, the BIOS poll loop (write command → wait BUSY=1 → wait
-  BUSY=0) never sees BUSY rise and hangs forever.
-- **Root cause**: All FDC commands execute synchronously in a single call
-  to `fdc_write()`.  The real WD1793 takes milliseconds: Type I commands
-  3–30 ms depending on step rate (r1r0 bits), Type II commands ~200 ms
-  per disk revolution at 300 RPM.
-- **Proper fix**: Implement a state machine in `fdc_tick()`.  Commands
-  transition the FDC into states like `SEEKING`, `READING`, `WRITING`;
-  the tick function counts down real timing delays and advances the FSM.
-  BUSY is held naturally for the duration of the command.  Step rate
-  should be derived from the command's r1r0 bits (6/12/20/30 ms at
-  7.5 MHz = 45000/90000/150000/225000 ticks).
+- **Scenario**: From the ROM monitor prompt, press `D` to boot from FD0
+  without any disk image mounted to that drive.
+- **Symptom**: Emulator appears frozen.  CPU spins in
+  ```
+  163720: MOV #177640, R4
+  163724: BITB #0o200, (R4)    ; test NOT_READY (bit 7) of FDC status
+  163730: BNE 163724           ; loop while NOT_READY
+  ```
+  at priority 7, no interrupts can break it.  Not a HALT —
+  `cpu.halted=false`.
+- **Real-hardware behaviour**: pressing `D` without a disk evidently
+  produced *some* response on the user's real machine — likely a
+  short error indication (text or beep) before / instead of the
+  silent poll loop.  Our ROM image (CRC `0x81c627ac`) and FDC model
+  produce only the silent spin: `drive_ready()` keeps `NOT_READY`
+  asserted as long as `image == NULL`, so the loop never exits.
+- **Once a disk is mounted (via the File menu) the spin breaks
+  immediately** — `drive_ready()` flips, `NOT_READY` clears, BIOS
+  continues.  So the loop is effectively "wait for media".
+- **What's in the ROM**: the image contains Cyrillic strings
+  "ОШИБКА" / "ЗАГРУЗКИ" at logical `0o177332/0o177341` and
+  "НГМД готов" at `0o177344`, but the silent-spin path at `0o163724`
+  doesn't reference them — those messages cover different failure
+  modes (bad sector, unbootable disk).  Real hardware probably also
+  spins silently when no media is present; the user's recollection of
+  "the machine reacted to closing the latch" is consistent with our
+  current behaviour: mounting a disk while the spin is active flips
+  `drive_ready()` and lets BIOS continue.
+- **Possible improvements** (regardless of root cause):
+  1. Surface a hint in the menu bar after the CPU has spent ~1 s in
+     this loop ("FD0 not ready — Reset or mount a disk").
+  2. Auto-pause and offer a mount dialog.
+  3. Investigate the ROM string table for an unused error message.
+
+## On-screen keyboard: physical Shift + OSK click sends wrong character for ШЩЧЭ
+
+- **Scenario**: On-screen keyboard visible.  Latin mode (РУС/ЛАТ).
+  Press *and hold physical Shift* on the host keyboard, then *click*
+  one of the OSK keys Ш, Щ, Ч, Э (their Latin equivalents are
+  `[`, `]`, `;`, `'` etc).
+- **Symptom**: Wrong character — produces the *shifted* Latin variant
+  (`{`, `}`, `:`, `"`).  The same OSK key works correctly when:
+  - clicked alone (no Shift) → unshifted Latin character
+  - clicked together with the OSK's own ВР button instead of physical
+    Shift → unshifted Latin character (correct)
+  - the key Ю — works correctly in all combinations.
+- **Likely cause**: The OSK click path doesn't intercept the physical
+  Shift state correctly: the host's Shift is already in the held set
+  when the OSK click emits the regular scancode, so OS sees
+  Shift+key.  But for some reason Ю escapes this path while ШЩЧЭ don't
+  — likely a per-key emission difference in `OnScreenKeyboard.cpp`.
+- **Investigation hints**: compare the key-emission path for Ю vs. one
+  of ШЩЧЭ; check whether one releases the host Shift before sending
+  and the other doesn't.
+
+## TODO: automated keyboard regression tests
+
+- **Why**: The smart-ALL-UP fix (modifier-aware) caught a real bug
+  (random POST reboots in SABOT2, manual-D halt in Mihin) but each
+  iteration required full manual verification — start emulator, boot
+  several OSes, type, switch RUS/LAT, hold Shift, observe.  That cycle
+  is slow and skips coverage easily.
+- **Goal**: a headless test that runs a boot, feeds a scripted scancode
+  sequence into the keyboard, and asserts on observable state
+  (screen text via `ScreenReader`, register values, no spurious POST
+  re-entry).
+- **Sketch**:
+  - Extend `tests/test_boot.cpp`: after each ROM × disk pair boots
+    successfully, fire a small scenario:
+    1. press a regular key, release → expect no ALL-UP, no POST re-entry
+    2. press Shift, press letter, release both → expect ALL-UP exactly
+       once, no reboot, screen got upper-case
+    3. type "DIR\r" in RT-11/OSA → expect directory listing on screen
+  - Reuse `ms0515_frontend::ScreenReader` from the frontend tests to
+    sample VRAM text without needing SDL/ImGui.
+  - Drive scancodes via `ms7004_key()` directly (bypass SDL).
+- **Cost**: small per-test runtime, biggest risk is flakiness from
+  timing assumptions — frame counts must be generous.

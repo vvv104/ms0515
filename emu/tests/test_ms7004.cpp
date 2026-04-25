@@ -95,7 +95,7 @@ TEST_CASE("well-known scancodes match expected values") {
 
 /* ── Regular key press/release ───────────────────────────────────────────── */
 
-TEST_CASE("regular key press emits scancode, release emits ALL-UP") {
+TEST_CASE("regular key press emits scancode, release without modifier emits no ALL-UP") {
     auto uart = make_uart();
     auto kbd  = make_kbd(&uart);
 
@@ -107,11 +107,11 @@ TEST_CASE("regular key press emits scancode, release emits ALL-UP") {
     REQUIRE(n == 1);
     CHECK(buf[0] == expected_sc);
 
-    /* Release — should emit ALL-UP */
+    /* Release — pure-regular session, NO ALL-UP (sidesteps a host-side
+     * R0-leak bug that crashes some games when ALL-UP fires often). */
     ms7004_key(&kbd, MS7004_KEY_A, false);
     n = drain_fifo(&uart, buf, 8);
-    REQUIRE(n == 1);
-    CHECK(buf[0] == SC_ALLUP);
+    CHECK(n == 0);
 }
 
 TEST_CASE("double press is idempotent") {
@@ -130,16 +130,72 @@ TEST_CASE("double release is idempotent") {
     auto uart = make_uart();
     auto kbd  = make_kbd(&uart);
 
-    ms7004_key(&kbd, MS7004_KEY_A, true);
+    /* Use Shift so we get a deterministic ALL-UP on full release. */
+    ms7004_key(&kbd, MS7004_KEY_SHIFT_L, true);
     drain_fifo(&uart, nullptr, 0);  /* consume make code */
     kbd_flush_fifo(&uart);
 
-    ms7004_key(&kbd, MS7004_KEY_A, false);
-    ms7004_key(&kbd, MS7004_KEY_A, false);  /* duplicate — no-op */
+    ms7004_key(&kbd, MS7004_KEY_SHIFT_L, false);
+    ms7004_key(&kbd, MS7004_KEY_SHIFT_L, false);  /* duplicate — no-op */
 
     uint8_t buf[8];
     int n = drain_fifo(&uart, buf, 8);
     CHECK(n == 1);  /* only one ALL-UP */
+    CHECK(buf[0] == SC_ALLUP);
+}
+
+/* Modifier release (after press alone) emits ALL-UP. */
+TEST_CASE("modifier press/release emits ALL-UP") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+
+    ms7004_key(&kbd, MS7004_KEY_SHIFT_L, true);
+    kbd_flush_fifo(&uart);
+
+    ms7004_key(&kbd, MS7004_KEY_SHIFT_L, false);
+
+    uint8_t buf[8];
+    int n = drain_fifo(&uart, buf, 8);
+    REQUIRE(n == 1);
+    CHECK(buf[0] == SC_ALLUP);
+}
+
+/* Modifier+letter session emits ALL-UP on full release.  Confirms the
+ * "sticky Shift" path stays unbroken even though modifier-free sessions
+ * no longer emit ALL-UP. */
+TEST_CASE("Shift+letter session emits ALL-UP after both released") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+
+    ms7004_key(&kbd, MS7004_KEY_SHIFT_L, true);
+    ms7004_key(&kbd, MS7004_KEY_A, true);
+    ms7004_key(&kbd, MS7004_KEY_A, false);
+    ms7004_key(&kbd, MS7004_KEY_SHIFT_L, false);
+
+    /* Drain everything and check the LAST byte is ALL-UP. */
+    uint8_t buf[8];
+    int n = drain_fifo(&uart, buf, 8);
+    REQUIRE(n >= 1);
+    CHECK(buf[n - 1] == SC_ALLUP);
+}
+
+/* After a modifier-bearing session ends with ALL-UP, a fresh
+ * modifier-free session should NOT emit a second ALL-UP. */
+TEST_CASE("session flag resets after ALL-UP — next regular keypress is silent") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+
+    ms7004_key(&kbd, MS7004_KEY_SHIFT_L, true);
+    ms7004_key(&kbd, MS7004_KEY_SHIFT_L, false);  /* emits ALL-UP */
+    kbd_flush_fifo(&uart);
+
+    ms7004_key(&kbd, MS7004_KEY_A, true);
+    ms7004_key(&kbd, MS7004_KEY_A, false);
+
+    uint8_t buf[8];
+    int n = drain_fifo(&uart, buf, 8);
+    REQUIRE(n == 1);
+    CHECK(buf[0] == ms7004_scancode(MS7004_KEY_A));
 }
 
 /* ── Held modifier + regular key: ALL-UP on last release ─────────────────── */
@@ -233,7 +289,7 @@ TEST_CASE("ms7004_is_held returns false for invalid keys") {
 
 /* ── release_all ─────────────────────────────────────────────────────────── */
 
-TEST_CASE("ms7004_release_all releases everything and emits ALL-UP") {
+TEST_CASE("ms7004_release_all with modifier in session emits ALL-UP") {
     auto uart = make_uart();
     auto kbd  = make_kbd(&uart);
 
@@ -252,6 +308,20 @@ TEST_CASE("ms7004_release_all releases everything and emits ALL-UP") {
     int n = drain_fifo(&uart, buf, 4);
     REQUIRE(n == 1);
     CHECK(buf[0] == SC_ALLUP);
+}
+
+TEST_CASE("ms7004_release_all without modifier emits no ALL-UP") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+
+    ms7004_key(&kbd, MS7004_KEY_A, true);
+    ms7004_key(&kbd, MS7004_KEY_B, true);
+    kbd_flush_fifo(&uart);
+
+    ms7004_release_all(&kbd);
+
+    CHECK(kbd.held_count == 0);
+    CHECK(uart.fifo_count == 0);
 }
 
 TEST_CASE("ms7004_release_all with no held keys emits nothing") {

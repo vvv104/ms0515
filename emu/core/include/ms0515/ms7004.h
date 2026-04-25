@@ -176,9 +176,15 @@ typedef struct ms7004 {
     uint8_t  held[MS7004_KEY__COUNT];
 
     /* Total number of held keys — both modifiers and regular.  ALL-UP
-     * (0o263) is emitted only when this transitions from non-zero
-     * back to zero. */
+     * (0o263) is emitted when this transitions from non-zero back to
+     * zero, *but only if a modifier was held during the session*.
+     * Modifier-free key presses do not produce ALL-UP — emitting it
+     * unconditionally exposes a host-side bug where ROM kbd routines
+     * leave R0 untouched on byte 0o263 and the OS's interrupt handler
+     * then leaks R0 from interrupted code (hits e.g. random reboots
+     * in SABOT2, vec-130 halt in Mihin manual-D). */
     int      held_count;
+    bool     modifier_in_session;    /* set on modifier press, cleared on ALL-UP */
 
     /* Toggle state, latched inside the keyboard firmware. */
     bool     caps_on;

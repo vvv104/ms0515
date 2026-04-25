@@ -282,6 +282,11 @@ void ms7004_key(ms7004_t *kbd, ms7004_key_t key, bool down)
         kbd->held_count++;
         emit(kbd, kScancode[key]);
 
+        /* Track whether a modifier was held during this session — used
+         * below to decide whether to emit ALL-UP on full release. */
+        if (is_modifier(key))
+            kbd->modifier_in_session = true;
+
         /* Auto-repeat tracks the most recent regular keypress.  A
          * modifier going down cancels the pending repeat (matches
          * LK201: repeat only while the last non-modifier is held
@@ -326,11 +331,19 @@ void ms7004_key(ms7004_t *kbd, ms7004_key_t key, bool down)
         }
     }
 
-    /* ALL-UP is emitted only when the LAST held key (modifier OR
-     * regular) is released — matches LK201 behaviour the boot ROM
-     * depends on. */
-    if (kbd->held_count == 0)
-        emit(kbd, SC_ALLUP);
+    /* ALL-UP is emitted when the last held key is released — but only
+     * if a modifier was held during the session.  Pure regular-key
+     * traffic (numpad, letters in games) does NOT produce ALL-UP, which
+     * sidesteps a host-side bug present in some ROMs/games where the
+     * kbd handler leaves R0 untouched on byte 0o263 and the OS's vec-130
+     * ISR then leaks R0 from interrupted code (random POST reboot in
+     * SABOT2, halt at PC=0o157406 on Mihin manual-D).  Modifier release
+     * still produces ALL-UP so the OS can clear its sticky-Shift state. */
+    if (kbd->held_count == 0) {
+        if (kbd->modifier_in_session)
+            emit(kbd, SC_ALLUP);
+        kbd->modifier_in_session = false;
+    }
 }
 
 void ms7004_release_all(ms7004_t *kbd)
@@ -342,7 +355,9 @@ void ms7004_release_all(ms7004_t *kbd)
     kbd->held_count    = 0;
     kbd->repeat_key    = MS7004_KEY_NONE;
     kbd->key_stack_top = 0;
-    if (any) emit(kbd, SC_ALLUP);
+    if (any && kbd->modifier_in_session)
+        emit(kbd, SC_ALLUP);
+    kbd->modifier_in_session = false;
 }
 
 /* ── Time tick / auto-repeat ──────────────────────────────────────────── */
