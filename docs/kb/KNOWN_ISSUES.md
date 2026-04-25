@@ -155,6 +155,37 @@
   2. Auto-pause and offer a mount dialog.
   3. Investigate the ROM string table for an unused error message.
 
+## `type STARTS.COM` in Mihin OS-16SJ corrupts the disk image
+
+- **Reproduction**: Boot Mihin OS, run `TYPE STARTS.COM` (a binary `.COM`
+  file).  System prints a few bytes then halts at PC=`0o144032` (zero
+  memory) after RTI from `0o151240` pops a corrupted stack frame.
+- **Side effect**: tracks 2-8 of `mihin.dsk` end up overwritten with
+  zeros — about 26 KB of damage out of a 410 KB image.  The OS-level
+  loader subsequently fails to boot from this corrupted image until
+  the disk is restored from `emu/assets/disks/mihin.dsk` (or a backup).
+- **What we know**:
+  - Our `write_sector()` only runs when the CPU has issued `WRITE_SECTOR`
+    (cmd 0xA0/0xB0) — the FDC cannot write to disk on its own, so the
+    writes did originate from OS code.
+  - Event ring captures ~300 byte writes at PC=`0o157060` (the OS write
+    loop), but the WRITE_SECTOR command bytes themselves were already
+    rotated out of the ring by the time the snapshot triggered.
+- **Likely cause** (unverified): OS-16SJ's TYPE command opens the file
+  read-write and flushes dirty buffer pages on close; on a binary file
+  it may flush uninitialised (zero-filled) buffer pages back to disk,
+  corrupting unrelated tracks.
+- **Mitigations**:
+  - Restore `package/assets/disks/mihin.dsk` from `emu/assets/disks/`
+    after an incident (`cp` or `Copy-Item`).
+  - Consider adding a "read-only mount by default" frontend setting,
+    or a "snapshot the disk on mount" feature that keeps the original
+    pristine.
+- **Investigation hint**: re-run with `history_size: 262144` and
+  *no* read/write watchpoints in the yaml — this preserves earlier
+  events long enough to catch the actual `WRITE_SECTOR` command issued
+  by the OS before the data-write storm rotates them out.
+
 ## On-screen keyboard: physical Shift + OSK click sends wrong character for ШЩЧЭ
 
 - **Scenario**: On-screen keyboard visible.  Latin mode (РУС/ЛАТ).
