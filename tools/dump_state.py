@@ -183,7 +183,8 @@ def dump_state(path):
                     data  = rec[12:12+dlen]
                     events.append((cycle, pc, kind, data))
                 kinds = {1: 'REG_A', 2: 'DISP', 3: 'FDC',
-                         4: 'TRAP',  5: 'HALT', 6: 'MEMW', 7: 'MEMR'}
+                         4: 'TRAP',  5: 'HALT', 6: 'MEMW', 7: 'MEMR',
+                         8: 'PSW'}
                 fdc_regs = {0: 'cmd', 1: 'track', 2: 'sector', 3: 'data'}
                 for i in range(count):
                     idx = (start + i) % cap
@@ -211,6 +212,8 @@ def dump_state(path):
                             detail = f"@{addr:06o} {op} {val:06o} (word)"
                         else:
                             detail = f"@{addr:06o} {op} {data[2]:03o} (byte)"
+                    elif kind == 8 and len(data) >= 2:        # PSW priority
+                        detail = f"prio {data[1]} -> {data[0]}"
                     else:
                         detail = ''
                     print(f"  cycle={cycle:<10} PC={pc:06o}  "

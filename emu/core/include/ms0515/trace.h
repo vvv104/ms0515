@@ -40,6 +40,10 @@ typedef enum {
     MS0515_EVT_MEMR  = 7,   /* read from a watched memory range; same
                              * payload layout as MEMW (value is what
                              * was returned to the CPU)                 */
+    MS0515_EVT_PSW   = 8,   /* PSW priority field (bits 7-5) changed
+                             * between cpu_step entry and exit;
+                             * data[0] = new priority (0..7)
+                             * data[1] = previous priority             */
 } ms0515_event_kind_t;
 
 /* 16-byte event record.  Stored directly in the ring's backing array

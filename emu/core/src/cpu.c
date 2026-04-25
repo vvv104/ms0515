@@ -209,10 +209,18 @@ int cpu_step(ms0515_cpu_t *cpu)
     if (cpu->halted)
         return 0;
 
+    int prev_prio = cpu_get_priority(cpu);
+
     /* If waiting (WAIT instruction), only check interrupts */
     if (cpu->waiting) {
-        if (cpu_check_interrupts(cpu))
+        if (cpu_check_interrupts(cpu)) {
+            int now_prio = cpu_get_priority(cpu);
+            if (now_prio != prev_prio) {
+                uint8_t pl[2] = { (uint8_t)now_prio, (uint8_t)prev_prio };
+                BOARD_EVT(cpu->board, MS0515_EVT_PSW, pl, 2);
+            }
             return 1;
+        }
         return 0;
     }
 
@@ -234,6 +242,12 @@ int cpu_step(ms0515_cpu_t *cpu)
     /* If T-bit was set before this instruction, queue a trap */
     if (tbit_was_set)
         cpu->irq_tbit = true;
+
+    int now_prio = cpu_get_priority(cpu);
+    if (now_prio != prev_prio) {
+        uint8_t pl[2] = { (uint8_t)now_prio, (uint8_t)prev_prio };
+        BOARD_EVT(cpu->board, MS0515_EVT_PSW, pl, 2);
+    }
 
     return cpu->cycles;
 }
