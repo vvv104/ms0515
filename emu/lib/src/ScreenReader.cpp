@@ -94,15 +94,71 @@ void ScreenReader::putKoi8Char(FILE *f, uint8_t koi8)
     }
 }
 
+/*
+ * Find the file offset of an 8-byte glyph bitmap in the ROM by visual
+ * shape (i.e. an exact bitmap-pattern match — same visible pixels is
+ * the only thing that matters; we don't care which character code the
+ * ROM stores at that position).  Returns -1 if the anchor is not
+ * present in the ROM.
+ *
+ * The anchors below are the canonical ROM-A glyphs for two characters
+ * whose shape is visually distinctive enough that a chance collision
+ * with unrelated data is vanishingly unlikely:
+ *
+ *   - main font anchor: KOI-8 '0' (0x30) — the digit zero, an oval
+ *     that no surrounding code/data table happens to encode;
+ *   - alt font anchor:  KOI-8 'А' uppercase (0xE1, alt index 33) —
+ *     the Cyrillic capital A, a wide pyramid shape.
+ *
+ * Since each anchor lives at a fixed offset *within* its font table
+ * (kAnchorMainCode-0x20 glyphs into the main font, kAnchorAltIndex
+ * glyphs into the alt font), once we locate the anchor's bytes in
+ * the ROM we subtract that offset to find the table base.  This
+ * frees the screen reader from assuming any specific ROM revision —
+ * different MS0515 ROM-A/ROM-B builds shift the font tables but
+ * keep the glyph shapes identical.
+ */
+static int findFontBase(std::span<const uint8_t> rom,
+                        const uint8_t (&anchor)[8],
+                        int anchorIndex)
+{
+    if (rom.size() < 8) return -1;
+    const auto end = rom.size() - 8;
+    for (size_t off = 0; off <= end; ++off) {
+        if (std::memcmp(rom.data() + off, anchor, 8) == 0) {
+            const int base = static_cast<int>(off) - anchorIndex * 8;
+            if (base >= 0)
+                return base;
+        }
+    }
+    return -1;
+}
+
 void ScreenReader::buildFont(std::span<const uint8_t> rom)
 {
     glyphMap_.clear();
 
-    /* Main font at ROM address 167336 octal.
-     * ROM file covers 140000–177777, so offset = 167336 - 140000 = 27336 octal. */
-    static constexpr int kMainFontFileOff = 0'27336;  /* octal literal */
-    /* Alt font at 170736 octal → offset 30736 octal. */
-    static constexpr int kAltFontFileOff  = 0'30736;
+    /*
+     * Main-font anchor: the visual shape of '0' (KOI-8 0x30).  Glyphs
+     * are 8 bytes tall, one byte per row, MSB = leftmost pixel.
+     */
+    static constexpr uint8_t kAnchorZero[8] = {
+        0x00, 0x3C, 0x46, 0x4A, 0x52, 0x62, 0x3C, 0x00,
+    };
+    /*
+     * Alt-font anchor: the visual shape of 'А' (KOI-8 0xE1).  Lives
+     * at alt index 33 (= (0xE1 & 0x7F) - 0x40).
+     */
+    static constexpr uint8_t kAnchorCyrA[8] = {
+        0x30, 0x78, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0x00,
+    };
+    static constexpr int kAnchorMainCode  = 0x30;
+    static constexpr int kAnchorAltIndex  = 33;
+
+    const int kMainFontFileOff = findFontBase(rom, kAnchorZero,
+                                              kAnchorMainCode - 0x20);
+    const int kAltFontFileOff  = findFontBase(rom, kAnchorCyrA,
+                                              kAnchorAltIndex);
 
     const auto romSize = rom.size();
 
@@ -115,13 +171,15 @@ void ScreenReader::buildFont(std::span<const uint8_t> rom)
      * lookup result rather than the backtick that happens to share
      * the bitmap.
      */
-    for (int code = 0x20; code < 0x80; ++code) {
-        int off = kMainFontFileOff + (code - 0x20) * 8;
-        if (off + 8 > static_cast<int>(romSize))
-            break;
-        uint64_t key = glyphKey(rom.data() + off);
-        if (key != 0 || code == 0x20)
-            glyphMap_.emplace(key, static_cast<uint8_t>(code));
+    if (kMainFontFileOff >= 0) {
+        for (int code = 0x20; code < 0x80; ++code) {
+            int off = kMainFontFileOff + (code - 0x20) * 8;
+            if (off + 8 > static_cast<int>(romSize))
+                break;
+            uint64_t key = glyphKey(rom.data() + off);
+            if (key != 0 || code == 0x20)
+                glyphMap_.emplace(key, static_cast<uint8_t>(code));
+        }
     }
 
     /*
@@ -147,14 +205,16 @@ void ScreenReader::buildFont(std::span<const uint8_t> rom)
      * already claim — keeps printable ASCII as the canonical answer
      * for ambiguous glyphs (e.g. '_' 0x5F vs Ъ 0xFF, identical 8x8).
      */
-    for (int code = 0xC0; code <= 0xFF; ++code) {
-        int glyph_idx = (code & 0x7F) - 0x40;
-        int off = kAltFontFileOff + glyph_idx * 8;
-        if (off < 0 || off + 8 > static_cast<int>(romSize))
-            continue;
-        uint64_t key = glyphKey(rom.data() + off);
-        if (key != 0)
-            glyphMap_.emplace(key, static_cast<uint8_t>(code));
+    if (kAltFontFileOff >= 0) {
+        for (int code = 0xC0; code <= 0xFF; ++code) {
+            int glyph_idx = (code & 0x7F) - 0x40;
+            int off = kAltFontFileOff + glyph_idx * 8;
+            if (off < 0 || off + 8 > static_cast<int>(romSize))
+                continue;
+            uint64_t key = glyphKey(rom.data() + off);
+            if (key != 0)
+                glyphMap_.emplace(key, static_cast<uint8_t>(code));
+        }
     }
 }
 

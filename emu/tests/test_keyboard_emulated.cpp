@@ -11,17 +11,15 @@
  * Tests target the MS7004 hardware emulation specifically — the
  * SDL/OSK input layers above `ms7004_key()` are out of scope.
  *
- * Reference disk: `assets/disks/kbtest_osa.dsk` — an OSA (RT-11)
- * image that boots straight to the dot prompt with echo enabled.
+ * Every scenario is replayed across the 4 (ROM × disk) combinations
+ * defined in `kConfigs` below — both ROM revisions and both supported
+ * Soviet RT-11 derivatives (OSA and Омега).  The cap-spec must hold
+ * for every one of them; a divergence shows up as a failed SUBCASE
+ * named after the offending combination.
  *
- * After a successful boot the screen looks roughly like this
- * (pixels rendered as KOI-8 codes by ScreenReader):
- *
- *     row 0:  "          НГМД готов, идет загрузка операционной системы ..."
- *     row 1:  ""
- *     row 2:  "ОСА    Версия 1.0"
- *     row 3:  ""
- *     row 4:  ".[cursor]"          ← prompt (a single '.' on the line)
+ * Reference disks: `assets/disks/kbtest_osa.dsk` and
+ * `assets/disks/kbtest_omega.dsk` — both boot straight to the dot
+ * prompt with echo enabled.
  */
 
 #include <doctest/doctest.h>
@@ -46,12 +44,29 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char *kRomFile  = ASSETS_DIR "/rom/ms0515-roma.rom";
-constexpr const char *kDiskFile = ASSETS_DIR "/disks/kbtest_osa.dsk";
+/*
+ * Test matrix: every keystroke scenario runs across the (ROM × disk)
+ * combinations below.  Both ROMs are exercised because they carry
+ * slightly different patches and we want them to produce identical
+ * user-visible behaviour.  The disk side is held to OSA for now —
+ * Omega will be added once the ROM-B path proves stable.
+ */
+struct TestConfig {
+    const char *rom;       /* path to the .rom file                  */
+    const char *disk;      /* path to the kbtest_*.dsk image         */
+    const char *name;      /* short label used as the doctest subcase name */
+};
+
+constexpr TestConfig kConfigs[] = {
+    {ASSETS_DIR "/rom/ms0515-roma.rom", ASSETS_DIR "/disks/kbtest_osa.dsk",
+     "ROM-A + OSA"},
+    {ASSETS_DIR "/rom/ms0515-romb.rom", ASSETS_DIR "/disks/kbtest_osa.dsk",
+     "ROM-B + OSA"},
+};
 
 /* Boot is bounded by frames so a stuck OS does not freeze the test
- * suite.  Real-time, 600 frames at 50 Hz = 12 emulated seconds; OSA
- * comfortably reaches the dot prompt well before that. */
+ * suite.  Real-time, 600 frames at 50 Hz = 12 emulated seconds; the
+ * test images comfortably reach the dot prompt well before that. */
 constexpr int kBootFramesMax = 600;
 
 /* Frames to wait after each key press for the OS to echo. */
@@ -107,36 +122,63 @@ static ms0515::ScreenReader::Snapshot readScreen(const ms0515::Emulator &emu,
 }
 
 /*
- * Spin frames until OSA reaches the dot prompt: row 4 (0-indexed)
- * starts with '.' AND the screen has been stable for `stableFrames`
- * frames in a row.  Returns true if reached within `kBootFramesMax`.
+ * Locate the dot-prompt row dynamically — different RT-11 variants
+ * (OSA at row 4, Omega at row 5, others elsewhere) settle the
+ * prompt on different lines depending on how much boot banner the
+ * monitor printed.  Pick the LAST row whose first non-blank glyph
+ * is '.', which is where the user's input cursor sits.
  */
 [[nodiscard]]
-static bool bootToPrompt(ms0515::Emulator &emu, ms0515::ScreenReader &sr,
-                         int stableFrames = 20)
+static int findPromptRow(const ms0515::ScreenReader::Snapshot &snap)
 {
-    constexpr int kPromptRow = 4;
-    auto prev = readScreen(emu, sr);
+    for (int r = ms0515::ScreenReader::kRows - 1; r >= 0; --r) {
+        const std::string row = snap.row(r);
+        if (!row.empty() && row[0] == '.')
+            return r;
+    }
+    return -1;
+}
+
+/*
+ * Spin frames until the OS reaches the dot prompt and the prompt
+ * row has been stable for `stableFrames` frames in a row.  Returns
+ * the detected prompt row (≥ 0) on success, or -1 on timeout.
+ */
+[[nodiscard]]
+static int bootToPrompt(ms0515::Emulator &emu, ms0515::ScreenReader &sr,
+                        int stableFrames = 20)
+{
+    /*
+     * Only require the prompt row itself to stay still — cursors and
+     * status indicators on other lines (Omega flickers a glyph in
+     * the line below the prompt) keep flipping the full-screen hash
+     * forever otherwise.
+     */
+    std::string prevRow;
     int stable = 0;
+    int promptRow = -1;
 
     for (int frame = 0; frame < kBootFramesMax; ++frame) {
         (void)emu.stepFrame();
         auto cur = readScreen(emu, sr);
 
-        const std::string row = cur.row(kPromptRow);
-        const bool atPrompt   = !row.empty() && row[0] == '.';
+        promptRow = findPromptRow(cur);
+        const bool atPrompt = (promptRow >= 0);
 
-        if (atPrompt && cur.cells == prev.cells)
-            ++stable;
-        else
+        if (atPrompt) {
+            std::string curRow = cur.row(promptRow);
+            if (curRow == prevRow) ++stable;
+            else                   stable = 0;
+            prevRow = std::move(curRow);
+        } else {
             stable = 0;
+            prevRow.clear();
+        }
 
         if (atPrompt && stable >= stableFrames)
-            return true;
-
-        prev = cur;
+            return promptRow;
     }
-    return false;
+    return -1;
 }
 
 /*
@@ -174,13 +216,13 @@ static void toggleRusLat(ms0515::Emulator &emu, int echoFrames = kEchoFrames)
 
 struct LetterCase {
     ms7004_key_t key;
-    char         upper;   /* echo without Shift — OSA monitor default */
-    char         lower;   /* echo with Shift — Shift inverts case in OSA */
+    char         upper;   /* echo without Shift — monitor default */
+    char         lower;   /* echo with Shift — Shift inverts case */
 };
 
 /*
- * 26 Latin letters in alphabetic order.  OSA monitor (RT-11 derived)
- * uppercases all command-line input by default; pressing Shift
+ * 26 Latin letters in alphabetic order.  Both monitors (OSA and
+ * Omega) uppercase all command-line input by default; pressing Shift
  * inverts to lowercase.  Per-letter assertions name the failing key
  * directly in the failure report.  Shift scancode generation itself
  * is covered by the unit tests in test_ms7004.cpp.
@@ -202,36 +244,50 @@ constexpr LetterCase kLetters[] = {
 };
 
 /*
- * Typing-test fixture: boots OSA to the prompt, returns an emulator
- * and screen reader ready for keystroke injection.  Encapsulating the
- * setup here keeps the actual scenarios short.
+ * Typing-test fixture: boots the chosen ROM + disk to the dot prompt
+ * and exposes an emulator + screen reader ready for keystroke
+ * injection.  Constructor takes both paths so callers can feed any
+ * entry from `kConfigs` without globals.
  */
 struct TypingFixture {
     ms0515::Emulator     emu;
     ms0515::ScreenReader sr;
     TempDisk             disk;
+    int                  promptRow = -1;   /* set by bootToPrompt */
 
-    TypingFixture()
-        : disk{kDiskFile}
+    TypingFixture(const char *romPath, const char *diskPath)
+        : disk{diskPath}
     {
-        REQUIRE(emu.loadRomFile(kRomFile));
+        REQUIRE(emu.loadRomFile(romPath));
         sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
         REQUIRE(emu.mountDisk(0, disk.path().string()));
         emu.reset();
-        REQUIRE(bootToPrompt(emu, sr));
+        promptRow = bootToPrompt(emu, sr);
+        REQUIRE(promptRow >= 0);
     }
 };
 
 /*
- * After bootToPrompt the cursor sits at row 4, column 1 (right after
- * the '.').  Each tapped character lands in the next column.  Read
- * the cell directly so we get a clean per-letter result.
+ * After bootToPrompt the cursor sits at the prompt row, column 1
+ * (right after the '.').  Each tapped character lands in the next
+ * column.  Read the cell directly so we get a clean per-letter
+ * result.
  */
 [[nodiscard]]
 static char cellAt(const ms0515::ScreenReader::Snapshot &snap, int row, int col)
 {
     return static_cast<char>(snap.cells[row * ms0515::ScreenReader::kHiresCols + col]);
 }
+
+/*
+ * Boilerplate for parametrising every TEST_CASE over the 4 entries
+ * in `kConfigs`.  Wraps the body in a `for` + `SUBCASE` so doctest
+ * runs the body once per (ROM × disk) and labels each invocation
+ * with the config's `name` ("ROM-A + OSA", etc.).
+ */
+#define FOR_EACH_CONFIG()                  \
+    for (const auto &cfg : kConfigs)       \
+        SUBCASE(cfg.name)
 
 /* ── Suite ──────────────────────────────────────────────────────────────── */
 
@@ -266,174 +322,187 @@ static void toggleCaps(ms0515::Emulator &emu, int echoFrames = kEchoFrames)
  */
 
 TEST_CASE("ФКС inverts letter case in LAT mode (no Shift)") {
-    TypingFixture fix;
-    toggleCaps(fix.emu);   /* ФКС on */
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
+        toggleCaps(fix.emu);   /* ФКС on */
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    /* Pick a few letters; every Latin position behaves the same way. */
-    static const std::pair<ms7004_key_t, char> kCases[] = {
-        {MS7004_KEY_A, 'a'}, {MS7004_KEY_M, 'm'}, {MS7004_KEY_Z, 'z'},
-    };
-    for (auto [key, expected] : kCases) {
-        tapKey(fix.emu, key);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == expected,
-                      "ФКС+'", expected, "' produced '", actual, "'");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        /* Pick a few letters; every Latin position behaves the same way. */
+        static const std::pair<ms7004_key_t, char> kCases[] = {
+            {MS7004_KEY_A, 'a'}, {MS7004_KEY_M, 'm'}, {MS7004_KEY_Z, 'z'},
+        };
+        for (auto [key, expected] : kCases) {
+            tapKey(fix.emu, key);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == expected,
+                          "ФКС+'", expected, "' produced '", actual, "'");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
 TEST_CASE("ФКС + Shift cancel: LAT letter back to uppercase default") {
-    TypingFixture fix;
-    toggleCaps(fix.emu);
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
+        toggleCaps(fix.emu);
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    static const std::pair<ms7004_key_t, char> kCases[] = {
-        {MS7004_KEY_A, 'A'}, {MS7004_KEY_M, 'M'}, {MS7004_KEY_Z, 'Z'},
-    };
-    for (auto [key, expected] : kCases) {
-        tapKey(fix.emu, key, /*shift=*/true);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == expected,
-                      "ФКС+Shift+'", expected, "' produced '", actual, "'");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        static const std::pair<ms7004_key_t, char> kCases[] = {
+            {MS7004_KEY_A, 'A'}, {MS7004_KEY_M, 'M'}, {MS7004_KEY_Z, 'Z'},
+        };
+        for (auto [key, expected] : kCases) {
+            tapKey(fix.emu, key, /*shift=*/true);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == expected,
+                          "ФКС+Shift+'", expected, "' produced '", actual, "'");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
 TEST_CASE("ФКС has no effect on non-letter keys in LAT") {
-    TypingFixture fix;
-    toggleCaps(fix.emu);
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
+        toggleCaps(fix.emu);
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    /* {key, expected_no_shift, expected_shift} — ФКС state is on the
-     * whole time, but the result must equal the no-ФКС behaviour
-     * captured by the digit / symbol / shift-immune tests above. */
-    struct NonLetter {
-        ms7004_key_t key;
-        char         no_shift;
-        char         shifted;
-    };
-    constexpr NonLetter kCases[] = {
-        {MS7004_KEY_1,           '1',  '!'},   /* digit */
-        {MS7004_KEY_SEMI_PLUS,   ';',  '+'},   /* punctuation */
-        {MS7004_KEY_LBRACKET,    '[',  '['},   /* shift-immune ШЩЭЧ */
-        {MS7004_KEY_RBRACKET,    ']',  ']'},
-        {MS7004_KEY_BACKSLASH,   '\\', '\\'},
-    };
-    for (const auto &nl : kCases) {
-        tapKey(fix.emu, nl.key);
-        auto snap = readScreen(fix.emu, fix.sr);
-        char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == nl.no_shift,
-                      "ФКС+key produced '", actual, "', expected '",
-                      nl.no_shift, "'");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        /* {key, expected_no_shift, expected_shift} — ФКС state is on the
+         * whole time, but the result must equal the no-ФКС behaviour
+         * captured by the digit / symbol / shift-immune tests above. */
+        struct NonLetter {
+            ms7004_key_t key;
+            char         no_shift;
+            char         shifted;
+        };
+        constexpr NonLetter kCases[] = {
+            {MS7004_KEY_1,           '1',  '!'},   /* digit */
+            {MS7004_KEY_SEMI_PLUS,   ';',  '+'},   /* punctuation */
+            {MS7004_KEY_LBRACKET,    '[',  '['},   /* shift-immune ШЩЭЧ */
+            {MS7004_KEY_RBRACKET,    ']',  ']'},
+            {MS7004_KEY_BACKSLASH,   '\\', '\\'},
+        };
+        for (const auto &nl : kCases) {
+            tapKey(fix.emu, nl.key);
+            auto snap = readScreen(fix.emu, fix.sr);
+            char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == nl.no_shift,
+                          "ФКС+key produced '", actual, "', expected '",
+                          nl.no_shift, "'");
+            tapKey(fix.emu, MS7004_KEY_BS);
 
-        tapKey(fix.emu, nl.key, /*shift=*/true);
-        snap = readScreen(fix.emu, fix.sr);
-        actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == nl.shifted,
-                      "ФКС+Shift+key produced '", actual, "', expected '",
-                      nl.shifted, "'");
-        tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, nl.key, /*shift=*/true);
+            snap = readScreen(fix.emu, fix.sr);
+            actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == nl.shifted,
+                          "ФКС+Shift+key produced '", actual, "', expected '",
+                          nl.shifted, "'");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
 TEST_CASE("ФКС inverts letter case in RUS mode (no Shift)") {
-    TypingFixture fix;
-    toggleRusLat(fix.emu);
-    runFrames(fix.emu, 10);
-    toggleCaps(fix.emu);
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
+        toggleRusLat(fix.emu);
+        runFrames(fix.emu, 10);
+        toggleCaps(fix.emu);
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    /* Sample of Russian letters — RUS default is lowercase, ФКС
-     * should flip to uppercase.  KOI-8 uppercase codes 0xE0..0xFF. */
-    struct CyrCase {
-        ms7004_key_t key;
-        const char  *name;
-        uint8_t      upper;   /* expected with ФКС on, no Shift */
-    };
-    constexpr CyrCase kCases[] = {
-        {MS7004_KEY_A,         "А", 0xE1},
-        {MS7004_KEY_M,         "М", 0xED},
-        {MS7004_KEY_Z,         "З", 0xFA},
-        {MS7004_KEY_LBRACKET,  "Ш", 0xFB},   /* symbol-on-letter is letter in RUS */
-    };
-    for (const auto &c : kCases) {
-        tapKey(fix.emu, c.key);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const uint8_t actual =
-            snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
-        CHECK_MESSAGE(actual == c.upper,
-                      "ФКС+'", c.name, "' produced 0x",
-                      std::hex, static_cast<int>(actual), std::dec,
-                      " (expected 0x", std::hex, static_cast<int>(c.upper),
-                      std::dec, ")");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        /* Sample of Russian letters — RUS default is lowercase, ФКС
+         * should flip to uppercase.  KOI-8 uppercase codes 0xE0..0xFF. */
+        struct CyrCase {
+            ms7004_key_t key;
+            const char  *name;
+            uint8_t      upper;   /* expected with ФКС on, no Shift */
+        };
+        constexpr CyrCase kCases[] = {
+            {MS7004_KEY_A,         "А", 0xE1},
+            {MS7004_KEY_M,         "М", 0xED},
+            {MS7004_KEY_Z,         "З", 0xFA},
+            {MS7004_KEY_LBRACKET,  "Ш", 0xFB},   /* symbol-on-letter is letter in RUS */
+        };
+        for (const auto &c : kCases) {
+            tapKey(fix.emu, c.key);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const uint8_t actual =
+                snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
+            CHECK_MESSAGE(actual == c.upper,
+                          "ФКС+'", c.name, "' produced 0x",
+                          std::hex, static_cast<int>(actual), std::dec,
+                          " (expected 0x", std::hex, static_cast<int>(c.upper),
+                          std::dec, ")");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
 TEST_CASE("ФКС + Shift cancel: RUS letter back to lowercase default") {
-    TypingFixture fix;
-    toggleRusLat(fix.emu);
-    runFrames(fix.emu, 10);
-    toggleCaps(fix.emu);
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
+        toggleRusLat(fix.emu);
+        runFrames(fix.emu, 10);
+        toggleCaps(fix.emu);
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    struct CyrCase {
-        ms7004_key_t key;
-        const char  *name;
-        uint8_t      lower;   /* expected with ФКС on AND Shift held */
-    };
-    constexpr CyrCase kCases[] = {
-        {MS7004_KEY_A,         "А", 0xC1},
-        {MS7004_KEY_M,         "М", 0xCD},
-        {MS7004_KEY_Z,         "З", 0xDA},
-        {MS7004_KEY_LBRACKET,  "Ш", 0xDB},
-    };
-    for (const auto &c : kCases) {
-        tapKey(fix.emu, c.key, /*shift=*/true);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const uint8_t actual =
-            snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
-        CHECK_MESSAGE(actual == c.lower,
-                      "ФКС+Shift+'", c.name, "' produced 0x",
-                      std::hex, static_cast<int>(actual), std::dec,
-                      " (expected 0x", std::hex, static_cast<int>(c.lower),
-                      std::dec, ")");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        struct CyrCase {
+            ms7004_key_t key;
+            const char  *name;
+            uint8_t      lower;   /* expected with ФКС on AND Shift held */
+        };
+        constexpr CyrCase kCases[] = {
+            {MS7004_KEY_A,         "А", 0xC1},
+            {MS7004_KEY_M,         "М", 0xCD},
+            {MS7004_KEY_Z,         "З", 0xDA},
+            {MS7004_KEY_LBRACKET,  "Ш", 0xDB},
+        };
+        for (const auto &c : kCases) {
+            tapKey(fix.emu, c.key, /*shift=*/true);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const uint8_t actual =
+                snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
+            CHECK_MESSAGE(actual == c.lower,
+                          "ФКС+Shift+'", c.name, "' produced 0x",
+                          std::hex, static_cast<int>(actual), std::dec,
+                          " (expected 0x", std::hex, static_cast<int>(c.lower),
+                          std::dec, ")");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
 /*
  * Diagnostic only — kept skip()'d so the suite stays fast.  Re-runs
  * a brute-force scancode → screen-cell map to chase down which raw
- * byte values produce specific glyphs in OSA.  Originally used to
- * show that '@' and '_' do not have unique scancodes — the ROM font
- * stores identical 8x8 patterns for ('@', '`') and ('_', 'Ъ'), so
- * what the screen-reader returns for those cells depends on which
- * KOI-8 code we register first in `ScreenReader::buildFont`.
+ * byte values produce specific glyphs.  Originally used to show that
+ * '@' and '_' do not have unique scancodes — the ROM font stores
+ * identical 8x8 patterns for ('@', '`') and ('_', 'Ъ'), so what the
+ * screen-reader returns for those cells depends on which KOI-8 code
+ * we register first in `ScreenReader::buildFont`.  Pinned to the
+ * first entry of `kConfigs` (ROM-A + OSA) to keep wall time bounded.
  */
-TEST_CASE("brute-force scancode → OSA echo (diagnostic)" * doctest::skip()) {
+TEST_CASE("brute-force scancode → OS echo (diagnostic)" * doctest::skip()) {
     /* Re-boot for each scancode — slow (~12 emulated seconds per
      * iteration × ~256 = a few minutes wall time), but isolates each
      * test from any state corruption (cursor drift, sticky modifiers,
      * line wrap) the previous scancode might have caused. */
 
     std::fprintf(stderr,
-        "\n=== brute-force scancode scan: scancode → row 4 contents ===\n");
+        "\n=== brute-force scancode scan: scancode → prompt-row contents ===\n");
+
+    const auto &cfg = kConfigs[0];
 
     for (int sc = 1; sc < 256; ++sc) {
         /* Modifiers + ALL-UP do not echo a glyph and would corrupt the
@@ -441,14 +510,14 @@ TEST_CASE("brute-force scancode → OSA echo (diagnostic)" * doctest::skip()) {
         if (sc >= 0256 && sc <= 0263) continue;
         if (sc >= 0375) continue;
 
-        TypingFixture fix;
+        TypingFixture fix{cfg.rom, cfg.disk};
         auto &kbd = fix.emu.board().kbd;
 
         kbd_push_scancode(&kbd, static_cast<uint8_t>(sc));
         runFrames(fix.emu, 30);
 
         auto snap = readScreen(fix.emu, fix.sr);
-        const std::string row = snap.row(4);
+        const std::string row = snap.row(fix.promptRow);
 
         /* The dot is the prompt; anything after it is the echo. */
         std::string echo = row.substr(0, std::min<size_t>(row.size(), 12));
@@ -470,72 +539,79 @@ TEST_CASE("brute-force scancode → OSA echo (diagnostic)" * doctest::skip()) {
 }
 
 /*
- * Smoke test — boots the OSA test image to the dot prompt.  This is
- * the foundation every keyboard scenario relies on; if it fails the
- * test image needs reviewing before any keystroke test will work.
+ * Smoke — boots each ROM + disk combination to the dot prompt.  This
+ * is the foundation every keyboard scenario relies on; if a config
+ * fails this test the corresponding image needs reviewing before any
+ * keystroke test will work.
  */
-TEST_CASE("boot OSA to prompt") {
-    ms0515::Emulator emu;
-    REQUIRE(emu.loadRomFile(kRomFile));
+TEST_CASE("boot to prompt") {
+    FOR_EACH_CONFIG() {
+        ms0515::Emulator emu;
+        REQUIRE(emu.loadRomFile(cfg.rom));
 
-    ms0515::ScreenReader sr;
-    sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
+        ms0515::ScreenReader sr;
+        sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
 
-    TempDisk td{kDiskFile};
-    REQUIRE(emu.mountDisk(0, td.path().string()));
+        TempDisk td{cfg.disk};
+        REQUIRE(emu.mountDisk(0, td.path().string()));
 
-    emu.reset();
-    CHECK_MESSAGE(bootToPrompt(emu, sr),
-                  "OSA did not reach a stable dot-prompt within "
-                  "kBootFramesMax frames");
+        emu.reset();
+        CHECK_MESSAGE(bootToPrompt(emu, sr) >= 0,
+                      "did not reach a stable dot-prompt within "
+                      "kBootFramesMax frames");
+    }
 }
 
 /*
  * Latin letters, no Shift: tap each MS7004 letter key in alphabetic
- * order and verify OSA echoes the corresponding *uppercase* letter
+ * order and verify the OS echoes the corresponding *uppercase* letter
  * (default monitor casing).  Single-letter-at-a-time with Backspace
  * between taps keeps the test independent of the monitor's command-
  * line buffer length.
  */
-TEST_CASE("Latin letter keys echo as uppercase at OSA prompt") {
-    TypingFixture fix;
+TEST_CASE("Latin letter keys echo as uppercase at prompt") {
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;   /* first cell after the '.' */
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;   /* first cell after the '.' */
 
-    for (const auto &lc : kLetters) {
-        tapKey(fix.emu, lc.key);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == lc.upper,
-                      "key for '", lc.upper, "' produced '", actual, "'");
+        for (const auto &lc : kLetters) {
+            tapKey(fix.emu, lc.key);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == lc.upper,
+                          "key for '", lc.upper, "' produced '", actual, "'");
 
-        tapKey(fix.emu, MS7004_KEY_BS);   /* erase to keep cursor at col 1 */
+            tapKey(fix.emu, MS7004_KEY_BS);   /* erase to keep cursor at col 1 */
+        }
     }
 }
 
 /*
  * Latin letters, with Shift held: same set, but each tap holds Shift.
- * In OSA the Shift modifier inverts the default casing — so we expect
- * lowercase 'a'..'z' on the screen.  This is the canonical end-to-end
+ * The monitor inverts the default casing — so we expect lowercase
+ * 'a'..'z' on the screen.  This is the canonical end-to-end
  * verification that the Shift scancode (0o256) reaches the OS and
  * actually changes the keyboard handler's behaviour.
  */
-TEST_CASE("Latin letter keys with Shift echo as lowercase at OSA prompt") {
-    TypingFixture fix;
+TEST_CASE("Latin letter keys with Shift echo as lowercase at prompt") {
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    for (const auto &lc : kLetters) {
-        tapKey(fix.emu, lc.key, /*shift=*/true);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == lc.lower,
-                      "Shift+'", lc.upper, "' produced '", actual,
-                      "' (expected '", lc.lower, "')");
+        for (const auto &lc : kLetters) {
+            tapKey(fix.emu, lc.key, /*shift=*/true);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == lc.lower,
+                          "Shift+'", lc.upper, "' produced '", actual,
+                          "' (expected '", lc.lower, "')");
 
-        tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
@@ -551,10 +627,10 @@ struct DigitCase {
  * Top-row digit keys.  Without Shift each echoes its own digit;
  * Shift maps via the standard typewriter layout (1!, 2", 3#, 4$, 5%,
  * 6&, 7', 8(, 9)).  Shift+0 has no alternate symbol on the MS7004
- * cap (assets/keyboard/ms7004_layout.txt row1) and OSA echoes a
- * plain '0'.  Note: the cap shows '¤' for Shift+4 but OSA renders
- * the ASCII-compatible '$' instead — the screen-reader glyph-match
- * resolves to that code.
+ * cap (assets/keyboard/ms7004_layout.txt row1) and the OS echoes a
+ * plain '0'.  Note: the cap shows '¤' for Shift+4 but the monitor
+ * renders the ASCII-compatible '$' instead — the screen-reader
+ * glyph-match resolves to that code.
  */
 constexpr DigitCase kDigits[] = {
     {MS7004_KEY_1, '1', '!'}, {MS7004_KEY_2, '2', '"'},
@@ -568,20 +644,22 @@ constexpr DigitCase kDigits[] = {
  * Top-row digit keys 1..9, 0 — without modifiers, each should echo
  * the corresponding ASCII digit straight to the prompt.
  */
-TEST_CASE("Digit keys echo at OSA prompt") {
-    TypingFixture fix;
+TEST_CASE("Digit keys echo at prompt") {
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    for (const auto &dc : kDigits) {
-        tapKey(fix.emu, dc.key);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == dc.digit,
-                      "key for '", dc.digit, "' produced '", actual, "'");
+        for (const auto &dc : kDigits) {
+            tapKey(fix.emu, dc.key);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == dc.digit,
+                          "key for '", dc.digit, "' produced '", actual, "'");
 
-        tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
@@ -589,21 +667,23 @@ TEST_CASE("Digit keys echo at OSA prompt") {
  * Shift + digit keys: typewriter-style symbols.  See kDigits above
  * for the mapping rationale and the Shift+0 / Shift+4 caveats.
  */
-TEST_CASE("Shift + digit keys echo typewriter symbols at OSA prompt") {
-    TypingFixture fix;
+TEST_CASE("Shift + digit keys echo typewriter symbols at prompt") {
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    for (const auto &dc : kDigits) {
-        tapKey(fix.emu, dc.key, /*shift=*/true);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == dc.shifted,
-                      "Shift+'", dc.digit, "' produced '", actual,
-                      "' (expected '", dc.shifted, "')");
+        for (const auto &dc : kDigits) {
+            tapKey(fix.emu, dc.key, /*shift=*/true);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == dc.shifted,
+                          "Shift+'", dc.digit, "' produced '", actual,
+                          "' (expected '", dc.shifted, "')");
 
-        tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
@@ -634,37 +714,41 @@ constexpr SymbolCase kSymbols[] = {
     {MS7004_KEY_LBRACE_PIPE,  '{',  '{',  '|'},
 };
 
-TEST_CASE("Punctuation keys (unshifted) echo at OSA prompt") {
-    TypingFixture fix;
+TEST_CASE("Punctuation keys (unshifted) echo at prompt") {
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    for (const auto &sc : kSymbols) {
-        tapKey(fix.emu, sc.key);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == sc.unshifted,
-                      "key '", sc.label, "' produced '", actual,
-                      "' (expected '", sc.unshifted, "')");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        for (const auto &sc : kSymbols) {
+            tapKey(fix.emu, sc.key);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == sc.unshifted,
+                          "key '", sc.label, "' produced '", actual,
+                          "' (expected '", sc.unshifted, "')");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
-TEST_CASE("Shift + punctuation keys echo at OSA prompt") {
-    TypingFixture fix;
+TEST_CASE("Shift + punctuation keys echo at prompt") {
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    for (const auto &sc : kSymbols) {
-        tapKey(fix.emu, sc.key, /*shift=*/true);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == sc.shifted,
-                      "Shift+'", sc.label, "' produced '", actual,
-                      "' (expected '", sc.shifted, "')");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        for (const auto &sc : kSymbols) {
+            tapKey(fix.emu, sc.key, /*shift=*/true);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == sc.shifted,
+                          "Shift+'", sc.label, "' produced '", actual,
+                          "' (expected '", sc.shifted, "')");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
@@ -696,37 +780,41 @@ constexpr LatSpecialCase kLatSpecials[] = {
     {MS7004_KEY_AT,          "@",   '@'},
 };
 
-TEST_CASE("LAT-mode special keys (unshifted) echo cap symbol at OSA prompt") {
-    TypingFixture fix;
+TEST_CASE("LAT-mode special keys (unshifted) echo cap symbol at prompt") {
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    for (const auto &lc : kLatSpecials) {
-        tapKey(fix.emu, lc.key);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == lc.glyph,
-                      "key '", lc.name, "' produced '", actual,
-                      "' (expected '", lc.glyph, "')");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        for (const auto &lc : kLatSpecials) {
+            tapKey(fix.emu, lc.key);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == lc.glyph,
+                          "key '", lc.name, "' produced '", actual,
+                          "' (expected '", lc.glyph, "')");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
 TEST_CASE("Shift + LAT-mode special keys echo same glyph as unshifted") {
-    TypingFixture fix;
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    for (const auto &lc : kLatSpecials) {
-        tapKey(fix.emu, lc.key, /*shift=*/true);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const char actual = cellAt(snap, kPromptRow, kCursorCol);
-        CHECK_MESSAGE(actual == lc.glyph,
-                      "Shift+'", lc.name, "' produced '", actual,
-                      "' (expected '", lc.glyph, "')");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        for (const auto &lc : kLatSpecials) {
+            tapKey(fix.emu, lc.key, /*shift=*/true);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const char actual = cellAt(snap, kPromptRow, kCursorCol);
+            CHECK_MESSAGE(actual == lc.glyph,
+                          "Shift+'", lc.name, "' produced '", actual,
+                          "' (expected '", lc.glyph, "')");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
@@ -773,8 +861,8 @@ constexpr SingleLabelCase kSingleLabel[] = {
  * is single-label so it lives in `kSingleLabel`).  Each entry pairs
  * the MS7004 key with the KOI-8R codes for the Russian letter on
  * the cap top — lowercase (used without Shift) and uppercase (used
- * with Shift).  RUS mode in OSA inverts the casing rule from LAT:
- * default is lowercase, Shift produces uppercase.
+ * with Shift).  RUS mode in the monitor inverts the casing rule
+ * from LAT: default is lowercase, Shift produces uppercase.
  *
  * For ШЩЧЭЮ-type keys (cap shows Russian letter + Latin symbol),
  * the Russian letter is what surfaces in RUS mode and the same
@@ -821,78 +909,84 @@ constexpr CyrLetterCase kCyrLetters[] = {
     {MS7004_KEY_AT,        "Ю", 0xC0, 0xE0},
 };
 
-TEST_CASE("RUS mode: letter keys echo lowercase Cyrillic at OSA prompt") {
-    TypingFixture fix;
-    toggleRusLat(fix.emu);
-    runFrames(fix.emu, 10);   /* let OSA register the mode flip */
+TEST_CASE("RUS mode: letter keys echo lowercase Cyrillic at prompt") {
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
+        toggleRusLat(fix.emu);
+        runFrames(fix.emu, 10);   /* let the monitor register the mode flip */
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    for (const auto &cl : kCyrLetters) {
-        tapKey(fix.emu, cl.key);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const uint8_t actual =
-            snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
-        CHECK_MESSAGE(actual == cl.lower,
-                      "key '", cl.name, "' produced 0x",
-                      std::hex, static_cast<int>(actual), std::dec,
-                      " (expected lowercase 0x",
-                      std::hex, static_cast<int>(cl.lower), std::dec, ")");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        for (const auto &cl : kCyrLetters) {
+            tapKey(fix.emu, cl.key);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const uint8_t actual =
+                snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
+            CHECK_MESSAGE(actual == cl.lower,
+                          "key '", cl.name, "' produced 0x",
+                          std::hex, static_cast<int>(actual), std::dec,
+                          " (expected lowercase 0x",
+                          std::hex, static_cast<int>(cl.lower), std::dec, ")");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
-TEST_CASE("RUS mode: Shift + letter keys echo uppercase Cyrillic at OSA prompt") {
-    TypingFixture fix;
-    toggleRusLat(fix.emu);
-    runFrames(fix.emu, 10);
+TEST_CASE("RUS mode: Shift + letter keys echo uppercase Cyrillic at prompt") {
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
+        toggleRusLat(fix.emu);
+        runFrames(fix.emu, 10);
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    for (const auto &cl : kCyrLetters) {
-        tapKey(fix.emu, cl.key, /*shift=*/true);
-        auto snap = readScreen(fix.emu, fix.sr);
-        const uint8_t actual =
-            snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
-        CHECK_MESSAGE(actual == cl.upper,
-                      "Shift+'", cl.name, "' produced 0x",
-                      std::hex, static_cast<int>(actual), std::dec,
-                      " (expected uppercase 0x",
-                      std::hex, static_cast<int>(cl.upper), std::dec, ")");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        for (const auto &cl : kCyrLetters) {
+            tapKey(fix.emu, cl.key, /*shift=*/true);
+            auto snap = readScreen(fix.emu, fix.sr);
+            const uint8_t actual =
+                snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
+            CHECK_MESSAGE(actual == cl.upper,
+                          "Shift+'", cl.name, "' produced 0x",
+                          std::hex, static_cast<int>(actual), std::dec,
+                          " (expected uppercase 0x",
+                          std::hex, static_cast<int>(cl.upper), std::dec, ")");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
 TEST_CASE("Single-label keys echo the same glyph with and without Shift") {
-    TypingFixture fix;
+    FOR_EACH_CONFIG() {
+        TypingFixture fix{cfg.rom, cfg.disk};
 
-    constexpr int kPromptRow = 4;
-    constexpr int kCursorCol = 1;
+        const int kPromptRow = fix.promptRow;
+        constexpr int kCursorCol = 1;
 
-    for (const auto &sl : kSingleLabel) {
-        tapKey(fix.emu, sl.key);
-        auto snap = readScreen(fix.emu, fix.sr);
-        uint8_t actual = snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols
-                                     + kCursorCol];
-        CHECK_MESSAGE(actual == sl.koi8,
-                      "key '", sl.name, "' unshifted produced 0x",
-                      std::hex, static_cast<int>(actual), std::dec,
-                      " (expected 0x", std::hex, static_cast<int>(sl.koi8),
-                      std::dec, ")");
-        tapKey(fix.emu, MS7004_KEY_BS);
+        for (const auto &sl : kSingleLabel) {
+            tapKey(fix.emu, sl.key);
+            auto snap = readScreen(fix.emu, fix.sr);
+            uint8_t actual = snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols
+                                         + kCursorCol];
+            CHECK_MESSAGE(actual == sl.koi8,
+                          "key '", sl.name, "' unshifted produced 0x",
+                          std::hex, static_cast<int>(actual), std::dec,
+                          " (expected 0x", std::hex, static_cast<int>(sl.koi8),
+                          std::dec, ")");
+            tapKey(fix.emu, MS7004_KEY_BS);
 
-        tapKey(fix.emu, sl.key, /*shift=*/true);
-        snap = readScreen(fix.emu, fix.sr);
-        actual = snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols
-                            + kCursorCol];
-        CHECK_MESSAGE(actual == sl.koi8,
-                      "Shift+'", sl.name, "' produced 0x",
-                      std::hex, static_cast<int>(actual), std::dec,
-                      " (expected 0x", std::hex, static_cast<int>(sl.koi8),
-                      std::dec, ")");
-        tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, sl.key, /*shift=*/true);
+            snap = readScreen(fix.emu, fix.sr);
+            actual = snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols
+                                + kCursorCol];
+            CHECK_MESSAGE(actual == sl.koi8,
+                          "Shift+'", sl.name, "' produced 0x",
+                          std::hex, static_cast<int>(actual), std::dec,
+                          " (expected 0x", std::hex, static_cast<int>(sl.koi8),
+                          std::dec, ")");
+            tapKey(fix.emu, MS7004_KEY_BS);
+        }
     }
 }
 
