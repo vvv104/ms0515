@@ -145,8 +145,30 @@ typedef struct ms0515_board {
     /* Tape interface (bit 7 of RegB reads constant 0 — no recorder) */
     uint32_t tape_bit_counter;     /* reserved (snapshot compat) */
 
-    /* I/O trace (see trace.h for zero-cost macros) */
-    ms0515_trace_t trace;
+    /* Monotonic CPU cycle counter — bumped by each cpu_step by the
+     * instruction's cycle cost.  Used as the timestamp for every event
+     * pushed into the history ring. */
+    uint64_t total_cycles;
+
+    /* Binary event ring for post-mortem debugging.  Disabled by default;
+     * turn on via board_enable_history().  Contents are serialised into
+     * the HIST chunk of a snapshot so an external tool can reconstruct
+     * the sequence of I/O events leading up to a hang. */
+    ms0515_event_ring_t history;
+
+    /* Optional memory-write watchpoint — when watch_len > 0, every byte
+     * or word write that falls inside [watch_addr, watch_addr+watch_len)
+     * pushes an MS0515_EVT_MEMW event into the history ring.  No-op
+     * when watch_len == 0.  Set via board_set_memory_watch(). */
+    uint16_t watch_addr;
+    uint16_t watch_len;
+
+    /* Same mechanism for reads — MS0515_EVT_MEMR events.  Useful for
+     * pinning down polling loops (where does the CPU spin waiting for
+     * a bit?).  A hot I/O register can fill the ring very quickly;
+     * size accordingly. */
+    uint16_t read_watch_addr;
+    uint16_t read_watch_len;
 } ms0515_board_t;
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
@@ -228,17 +250,43 @@ bool           board_is_hires(const ms0515_board_t *board);
 uint8_t        board_get_border_color(const ms0515_board_t *board);
 
 /*
- * board_set_trace_callback — Enable or disable I/O tracing.
+ * board_enable_history — size the board's event ring.
  *
- * When `cb` is non-NULL, trace macros (BOARD_TRACE) deliver formatted
- * lines to the callback.  Pass NULL to disable tracing.
+ * Pass `n_events > 0` to allocate the ring and start recording binary
+ * I/O events (reg_a writes, dispatcher changes, FDC commands, traps,
+ * HALTs) into it.  Pass 0 to free the ring and stop recording.  Cheap
+ * per-event cost (~5 stores) only when enabled; completely free when
+ * disabled.  Call any time; resizing discards the existing contents.
  */
-void board_set_trace_callback(ms0515_board_t *board,
-                              ms0515_trace_cb_t cb, void *userdata);
+void board_enable_history(ms0515_board_t *board, size_t n_events);
 
-/* Convenience macros: trace through the board's embedded trace context. */
-#define BOARD_TRACE(board, ...)      TRACE(&(board)->trace, __VA_ARGS__)
-#define BOARD_TRACE_ACTIVE(board)    TRACE_ACTIVE(&(board)->trace)
+/*
+ * board_set_memory_watch — watch writes to [addr, addr+len).  Each
+ * matching byte/word write emits an MS0515_EVT_MEMW event into the
+ * history ring (no effect if the ring is disabled).  Passing len==0
+ * clears the watchpoint.
+ */
+void board_set_memory_watch(ms0515_board_t *board,
+                            uint16_t addr, uint16_t len);
+
+/* Same as board_set_memory_watch() but for reads (MEMR events).
+ * Read watchpoints are noisy — a single polling loop easily fills a
+ * 16 K-entry ring in a few milliseconds of emulated time. */
+void board_set_read_watch(ms0515_board_t *board,
+                          uint16_t addr, uint16_t len);
+
+/* Push an event into the board's history ring using the current
+ * instruction_pc and total_cycles as timestamp.  Expands to a cheap
+ * enable-check when recording is off. */
+#define BOARD_EVT(board, kind, data_ptr, data_len)                     \
+    do {                                                               \
+        if (ms0515_event_ring_enabled(&(board)->history)) {            \
+            ms0515_event_ring_push(&(board)->history,                  \
+                (board)->total_cycles,                                 \
+                (board)->cpu.instruction_pc,                           \
+                (uint8_t)(kind), (data_ptr), (data_len));              \
+        }                                                              \
+    } while (0)
 
 #ifdef __cplusplus
 }

@@ -18,9 +18,6 @@ class Ms0515Recipe(ConanFile):
     settings    = "os", "arch", "compiler", "build_type"
     generators  = "CMakeDeps", "CMakeToolchain"
 
-    options = {
-        "trace": [True, False],
-    }
     default_options = {
         "sdl/*:shared": False,
         # Linux SDL2 backends: keep only ALSA for sound.  Disabling pulse
@@ -29,7 +26,6 @@ class Ms0515Recipe(ConanFile):
         # Disabling libunwind saves another chunky transitive build.
         "sdl/*:pulse":     False,
         "sdl/*:libunwind": False,
-        "trace": False,
     }
 
     requires = (
@@ -37,7 +33,6 @@ class Ms0515Recipe(ConanFile):
         "imgui/1.91.5",
         "doctest/2.4.11",
         "stb/cci.20240213",
-        "spdlog/1.17.0",
     )
 
     def layout(self):
@@ -46,7 +41,5 @@ class Ms0515Recipe(ConanFile):
     def build(self):
         cmake = CMake(self)
         variables = {"MS0515_BUILD_TESTS": "ON"}
-        if self.options.trace:
-            variables["MS0515_TRACE"] = "ON"
         cmake.configure(variables=variables)
         cmake.build()

@@ -12,7 +12,9 @@
  *          [--fd2 <path>] [--fd3 <path>]
  *          [--disk <path> [--drive N]]     (legacy, maps to --fdN)
  *          [--screen-dump stderr|stdout|<path>]
- *          [--trace <path>]                (async I/O trace log)
+ *          [--history-size N]               (events; 0 disables)
+ *          [--history-watch-addr A] [--history-watch-len L]  (MEMW evts)
+ *          [--history-read-watch-addr A] [--history-read-watch-len L]
  *
  * FD0..FD3 are the four logical floppy units addressable via bits 1:0
  * of System Register A.  Each disk image represents one side of a
@@ -36,7 +38,6 @@
 #include "PhysicalKeyboard.hpp"
 #include "Platform.hpp"
 #include "ScreenReader.hpp"
-#include "TraceLog.hpp"
 #include "Video.hpp"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -62,9 +63,13 @@ struct CliArgs {
     std::string fdPath[4];     /* FD0..FD3 */
     std::string screenDumpPath; /* --screen-dump: VRAM text output */
     std::string screenshotPath;
-    std::string tracePath;      /* --trace: async I/O trace log path */
     int         maxFrames = 0;      /* 0 = run forever */
     int         screenshotFrame = 0; /* frame number to take screenshot */
+    int         historySize = -1;   /* -1 = take from config, 0 = disabled */
+    int         historyWatchAddr = -1;
+    int         historyWatchLen  = -1;
+    int         historyReadWatchAddr = -1;
+    int         historyReadWatchLen  = -1;
 };
 
 /* ── Config file (YAML) ─────────────────────────────────────────────── */
@@ -98,6 +103,19 @@ struct Config {
     std::string lastDirDisk;
     std::string lastDirRom;
     std::string lastDirState;
+    /* Size of the binary event history ring (in 16-byte events).  0
+     * disables recording entirely (zero runtime cost).  When > 0, the
+     * last N I/O events are kept in RAM and serialised into the HIST
+     * chunk on snapshot save — turn this on when diagnosing a hang. */
+    int         historySize  = 0;
+    /* Memory-write watchpoint — when watchLen > 0, each byte/word write
+     * to [watchAddr, watchAddr+watchLen) is recorded as an MEMW event
+     * in the history ring (requires historySize > 0 to be useful). */
+    int         historyWatchAddr = 0;
+    int         historyWatchLen  = 0;
+    /* Same, but for reads (MEMR events). */
+    int         historyReadWatchAddr = 0;
+    int         historyReadWatchLen  = 0;
 
     bool isDefault() const {
         for (int i = 0; i < 4; ++i)
@@ -107,9 +125,27 @@ struct Config {
         if (!lastDirDisk.empty() || !lastDirRom.empty() ||
             !lastDirState.empty())
             return false;
+        if (historySize != 0) return false;
+        if (historyWatchAddr != 0 || historyWatchLen != 0) return false;
+        if (historyReadWatchAddr != 0 || historyReadWatchLen != 0)
+            return false;
         return true;
     }
 };
+
+/* Parse a numeric config value accepting decimal, 0x-hex, and 0o-octal
+ * (Python-style).  Returns 0 on malformed input. */
+static int parseNumber(const std::string &s)
+{
+    if (s.empty()) return 0;
+    try {
+        if (s.rfind("0o", 0) == 0 || s.rfind("0O", 0) == 0)
+            return std::stoi(s.substr(2), nullptr, 8);
+        if (s.rfind("0x", 0) == 0 || s.rfind("0X", 0) == 0)
+            return std::stoi(s.substr(2), nullptr, 16);
+        return std::stoi(s);
+    } catch (...) { return 0; }
+}
 
 Config loadConfig()
 {
@@ -142,6 +178,23 @@ Config loadConfig()
         else if (key == "last_dir_disk")  cfg.lastDirDisk  = val;
         else if (key == "last_dir_rom")   cfg.lastDirRom   = val;
         else if (key == "last_dir_state") cfg.lastDirState = val;
+        else if (key == "history_size") {
+            try { cfg.historySize = std::stoi(val); }
+            catch (...) { cfg.historySize = 0; }
+            if (cfg.historySize < 0) cfg.historySize = 0;
+        }
+        else if (key == "history_watch_addr") {
+            cfg.historyWatchAddr = parseNumber(val);
+        }
+        else if (key == "history_watch_len") {
+            cfg.historyWatchLen = parseNumber(val);
+        }
+        else if (key == "history_read_watch_addr") {
+            cfg.historyReadWatchAddr = parseNumber(val);
+        }
+        else if (key == "history_read_watch_len") {
+            cfg.historyReadWatchLen = parseNumber(val);
+        }
     }
     return cfg;
 }
@@ -172,6 +225,18 @@ void saveConfig(const Config &cfg)
         f << "last_dir_rom: \""   << cfg.lastDirRom   << "\"\n";
     if (!cfg.lastDirState.empty())
         f << "last_dir_state: \"" << cfg.lastDirState << "\"\n";
+    if (cfg.historySize != 0)
+        f << "history_size: " << cfg.historySize << "\n";
+    if (cfg.historyWatchAddr != 0 || cfg.historyWatchLen != 0) {
+        f << "history_watch_addr: 0o" << std::oct << cfg.historyWatchAddr
+          << std::dec << "\n";
+        f << "history_watch_len: "    << cfg.historyWatchLen << "\n";
+    }
+    if (cfg.historyReadWatchAddr != 0 || cfg.historyReadWatchLen != 0) {
+        f << "history_read_watch_addr: 0o" << std::oct
+          << cfg.historyReadWatchAddr << std::dec << "\n";
+        f << "history_read_watch_len: "   << cfg.historyReadWatchLen << "\n";
+    }
 }
 
 /* Starting folder for a file dialog of the given kind: the remembered
@@ -334,8 +399,16 @@ CliArgs parseArgs(int argc, char **argv)
             out.screenshotPath = argv[++i];
         } else if (a == "--screenshot-frame" && i + 1 < argc) {
             out.screenshotFrame = std::atoi(argv[++i]);
-        } else if (a == "--trace" && i + 1 < argc) {
-            out.tracePath = argv[++i];
+        } else if (a == "--history-size" && i + 1 < argc) {
+            out.historySize = std::max(0, std::atoi(argv[++i]));
+        } else if (a == "--history-watch-addr" && i + 1 < argc) {
+            out.historyWatchAddr = parseNumber(argv[++i]);
+        } else if (a == "--history-watch-len" && i + 1 < argc) {
+            out.historyWatchLen  = parseNumber(argv[++i]);
+        } else if (a == "--history-read-watch-addr" && i + 1 < argc) {
+            out.historyReadWatchAddr = parseNumber(argv[++i]);
+        } else if (a == "--history-read-watch-len" && i + 1 < argc) {
+            out.historyReadWatchLen  = parseNumber(argv[++i]);
         } else {
             std::fprintf(stderr, "warning: unknown argument '%s'\n", a.c_str());
         }
@@ -574,17 +647,28 @@ int main(int argc, char **argv)
     /* Enable the 512 KB RAM disk expansion board (EX0:). */
     emu.enableRamDisk();
 
-    /* ── Trace logger (optional, --trace <path>) ────────────────────────── */
-    ms0515_frontend::TraceLog traceLog;
-    if (!cli.tracePath.empty()) {
-        if (traceLog.open(cli.tracePath)) {
-            board_set_trace_callback(&emu.board(),
-                                     &ms0515_frontend::TraceLog::traceCallback,
-                                     &traceLog);
-            std::fprintf(stderr, "trace: logging to '%s'\n",
-                         cli.tracePath.c_str());
-        }
-    }
+    /* Binary event history: CLI --history-size overrides the yaml
+     * history_size setting.  Default (both unset) keeps it off. */
+    int histSize = cli.historySize >= 0 ? cli.historySize : config.historySize;
+    if (histSize > 0)
+        emu.enableHistory(static_cast<std::size_t>(histSize));
+
+    /* Optional memory-write watchpoint.  CLI values override yaml. */
+    int watchAddr = cli.historyWatchAddr >= 0
+                  ? cli.historyWatchAddr : config.historyWatchAddr;
+    int watchLen  = cli.historyWatchLen  >= 0
+                  ? cli.historyWatchLen  : config.historyWatchLen;
+    if (watchLen > 0)
+        emu.setMemoryWatch(static_cast<std::uint16_t>(watchAddr),
+                           static_cast<std::uint16_t>(watchLen));
+
+    int readWatchAddr = cli.historyReadWatchAddr >= 0
+                      ? cli.historyReadWatchAddr : config.historyReadWatchAddr;
+    int readWatchLen  = cli.historyReadWatchLen  >= 0
+                      ? cli.historyReadWatchLen  : config.historyReadWatchLen;
+    if (readWatchLen > 0)
+        emu.setReadWatch(static_cast<std::uint16_t>(readWatchAddr),
+                         static_cast<std::uint16_t>(readWatchLen));
 
     emu.reset();
 
@@ -1125,7 +1209,6 @@ int main(int argc, char **argv)
     if (screenDumpFile && screenDumpFile != stderr && screenDumpFile != stdout)
         std::fclose(screenDumpFile);
     audio.shutdown();
-    traceLog.close();
 
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();

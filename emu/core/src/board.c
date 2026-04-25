@@ -219,8 +219,13 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     if (offset <= 0x1F) {
         uint16_t old = board->mem.dispatcher;
         board->mem.dispatcher = (board->mem.dispatcher & 0xFF00) | value;
-        BOARD_TRACE(board, "disp byte: %06o -> %06o  PC=%06o",
-                    old, board->mem.dispatcher, board->cpu.instruction_pc);
+        {
+            uint8_t payload[2] = {
+                (uint8_t)(board->mem.dispatcher & 0xFF),
+                (uint8_t)(board->mem.dispatcher >> 8),
+            };
+            BOARD_EVT(board, MS0515_EVT_DISP, payload, sizeof payload);
+        }
         /* Bit 8: monitor interrupt — edge-triggered on any transition.
          * Per NS4 tech desc: writing 1 initiates interrupt request. */
         if ((board->mem.dispatcher ^ old) & MEM_DISP_MON_IRQ)
@@ -248,13 +253,7 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     /* System registers */
     if (offset == IO_REG_A) {
         board->reg_a = value;
-        BOARD_TRACE(board, "reg_a: %03o  drive=%d motor=%d side=%d rom_ext=%d  PC=%06o",
-                    value,
-                    value & 3,
-                    !(value & 4),
-                    (value & 8) ? 0 : 1,
-                    (value & 0x80) != 0,
-                    board->cpu.instruction_pc);
+        BOARD_EVT(board, MS0515_EVT_REG_A, &value, 1);
         apply_reg_a(board);
         return;
     }
@@ -280,16 +279,10 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     /* FDC registers */
     if (offset >= IO_FDC_BASE && offset <= IO_FDC_BASE + 0x06) {
         int reg = (offset - IO_FDC_BASE) >> 1;
-#ifdef MS0515_TRACE
-        static const char *FDC_REG_NAMES[] = {"cmd", "track", "sector", "data"};
-        BOARD_TRACE(board,
-                    "fdc write %s=%03o unit=%d trk=%d sec=%d  PC=%06o",
-                    FDC_REG_NAMES[reg & 3], value,
-                    board->fdc.selected,
-                    board->fdc.drives[board->fdc.selected].track,
-                    board->fdc.sector_reg,
-                    board->cpu.instruction_pc);
-#endif
+        {
+            uint8_t payload[2] = { (uint8_t)(reg & 3), value };
+            BOARD_EVT(board, MS0515_EVT_FDC, payload, sizeof payload);
+        }
         fdc_write(&board->fdc, reg, value);
         return;
     }
@@ -347,11 +340,21 @@ static void io_write_word(ms0515_board_t *board, uint16_t offset, uint16_t value
 uint16_t board_read_word(ms0515_board_t *board, uint16_t address)
 {
     mem_translation_t tr = mem_translate(&board->mem, address);
+    uint16_t value = (tr.type == ADDR_TYPE_IO)
+        ? io_read_word(board, (uint16_t)tr.offset)
+        : mem_read_word(&board->mem, tr);
 
-    if (tr.type == ADDR_TYPE_IO)
-        return io_read_word(board, (uint16_t)tr.offset);
-
-    return mem_read_word(&board->mem, tr);
+    if (board->read_watch_len &&
+        address >= board->read_watch_addr &&
+        (uint32_t)address <
+            (uint32_t)board->read_watch_addr + board->read_watch_len) {
+        uint8_t payload[4] = {
+            (uint8_t)(address & 0xFF), (uint8_t)(address >> 8),
+            (uint8_t)(value & 0xFF),   (uint8_t)(value >> 8),
+        };
+        BOARD_EVT(board, MS0515_EVT_MEMR, payload, 4);
+    }
+    return value;
 }
 
 void board_write_word(ms0515_board_t *board, uint16_t address, uint16_t value)
@@ -363,17 +366,37 @@ void board_write_word(ms0515_board_t *board, uint16_t address, uint16_t value)
         return;
     }
 
+    if (board->watch_len &&
+        address >= board->watch_addr &&
+        (uint32_t)address < (uint32_t)board->watch_addr + board->watch_len) {
+        uint8_t payload[4] = {
+            (uint8_t)(address & 0xFF), (uint8_t)(address >> 8),
+            (uint8_t)(value & 0xFF),   (uint8_t)(value >> 8),
+        };
+        BOARD_EVT(board, MS0515_EVT_MEMW, payload, 4);
+    }
+
     mem_write_word(&board->mem, tr, value);
 }
 
 uint8_t board_read_byte(ms0515_board_t *board, uint16_t address)
 {
     mem_translation_t tr = mem_translate(&board->mem, address);
+    uint8_t value = (tr.type == ADDR_TYPE_IO)
+        ? io_read_byte(board, (uint16_t)tr.offset)
+        : mem_read_byte(&board->mem, tr);
 
-    if (tr.type == ADDR_TYPE_IO)
-        return io_read_byte(board, (uint16_t)tr.offset);
-
-    return mem_read_byte(&board->mem, tr);
+    if (board->read_watch_len &&
+        address >= board->read_watch_addr &&
+        (uint32_t)address <
+            (uint32_t)board->read_watch_addr + board->read_watch_len) {
+        uint8_t payload[3] = {
+            (uint8_t)(address & 0xFF), (uint8_t)(address >> 8),
+            value,
+        };
+        BOARD_EVT(board, MS0515_EVT_MEMR, payload, 3);
+    }
+    return value;
 }
 
 void board_write_byte(ms0515_board_t *board, uint16_t address, uint8_t value)
@@ -383,6 +406,16 @@ void board_write_byte(ms0515_board_t *board, uint16_t address, uint8_t value)
     if (tr.type == ADDR_TYPE_IO) {
         io_write_byte(board, (uint16_t)tr.offset, value);
         return;
+    }
+
+    if (board->watch_len &&
+        address >= board->watch_addr &&
+        (uint32_t)address < (uint32_t)board->watch_addr + board->watch_len) {
+        uint8_t payload[3] = {
+            (uint8_t)(address & 0xFF), (uint8_t)(address >> 8),
+            value,
+        };
+        BOARD_EVT(board, MS0515_EVT_MEMW, payload, 3);
     }
 
     mem_write_byte(&board->mem, tr, value);
@@ -455,8 +488,8 @@ void board_load_rom(ms0515_board_t *board, const uint8_t *data, uint32_t size)
 
 bool board_step_frame(ms0515_board_t *board)
 {
-    int total_cycles = get_frame_cycles(board);
-    int cycles_left = total_cycles;
+    int frame_cycles = get_frame_cycles(board);
+    int cycles_left  = frame_cycles;
     static int kbd_counter = 0;
 
     board->frame_cycle_pos = 0;
@@ -467,8 +500,9 @@ bool board_step_frame(ms0515_board_t *board)
             /* CPU halted or waiting — still tick peripherals for 1 cycle */
             c = 1;
         }
-        cycles_left -= c;
-        board->frame_cycle_pos = total_cycles - cycles_left;
+        board->total_cycles   += (uint64_t)c;
+        cycles_left           -= c;
+        board->frame_cycle_pos = frame_cycles - cycles_left;
 
         /* Tick timer at ~2 MHz (every TIMER_DIVIDER CPU cycles) */
         board->timer_counter -= c;
@@ -529,7 +563,8 @@ bool board_step_frame(ms0515_board_t *board)
 
 void board_step_cpu(ms0515_board_t *board)
 {
-    cpu_step(&board->cpu);
+    int c = cpu_step(&board->cpu);
+    board->total_cycles += (uint64_t)(c > 0 ? c : 1);
 }
 
 void board_key_event(ms0515_board_t *board, uint8_t scancode)
@@ -546,11 +581,23 @@ void board_set_sound_callback(ms0515_board_t *board,
     board->cb_userdata = userdata;
 }
 
-void board_set_trace_callback(ms0515_board_t *board,
-                              ms0515_trace_cb_t cb, void *userdata)
+void board_enable_history(ms0515_board_t *board, size_t n_events)
 {
-    board->trace.cb       = cb;
-    board->trace.userdata = userdata;
+    ms0515_event_ring_resize(&board->history, n_events);
+}
+
+void board_set_memory_watch(ms0515_board_t *board,
+                            uint16_t addr, uint16_t len)
+{
+    board->watch_addr = addr;
+    board->watch_len  = len;
+}
+
+void board_set_read_watch(ms0515_board_t *board,
+                          uint16_t addr, uint16_t len)
+{
+    board->read_watch_addr = addr;
+    board->read_watch_len  = len;
 }
 
 void board_set_serial_callbacks(ms0515_board_t *board,

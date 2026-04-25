@@ -4,11 +4,6 @@ project(ms0515 VERSION 0.1.0 LANGUAGES C CXX)
 # ── Build options ────────────────────────────────────────────────────────────
 option(MS0515_BUILD_FRONTEND "Build the SDL2/ImGui frontend"  ON)
 option(MS0515_BUILD_TESTS    "Build unit tests"               OFF)
-option(MS0515_TRACE          "Enable I/O trace instrumentation (debug builds)" OFF)
-
-if(MS0515_TRACE)
-    add_compile_definitions(MS0515_TRACE)
-endif()
 
 # ── Compiler warnings ───────────────────────────────────────────────────────
 if(MSVC)

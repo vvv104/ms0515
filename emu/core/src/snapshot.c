@@ -51,6 +51,12 @@ static bool write_i32(snap_io_t *io, int32_t v)
     return write_u32(io, (uint32_t)v);
 }
 
+static bool write_u64(snap_io_t *io, uint64_t v)
+{
+    return write_u32(io, (uint32_t)(v & 0xFFFFFFFFu))
+        && write_u32(io, (uint32_t)(v >> 32));
+}
+
 static bool write_bytes(snap_io_t *io, const void *data, size_t n)
 {
     return io->write(io->ctx, data, n);
@@ -83,6 +89,14 @@ static bool read_i32(snap_io_t *io, int32_t *v)
     uint32_t u;
     if (!read_u32(io, &u)) return false;
     *v = (int32_t)u;
+    return true;
+}
+
+static bool read_u64(snap_io_t *io, uint64_t *v)
+{
+    uint32_t lo, hi;
+    if (!read_u32(io, &lo) || !read_u32(io, &hi)) return false;
+    *v = ((uint64_t)hi << 32) | lo;
     return true;
 }
 
@@ -386,6 +400,68 @@ static bool read_brd(snap_io_t *f, ms0515_board_t *b)
     return true;
 }
 
+/* ── History event ring chunk ────────────────────────────────────────────── */
+
+/* HIST layout:
+ *   u32 version  (= 1)
+ *   u32 cap      (ring size in events)
+ *   u32 head     (next write slot, raw)
+ *   u32 reserved (0)
+ *   u64 written  (total pushes; reader uses it + head to find oldest)
+ *   cap × 16 bytes  (events in raw wire form)
+ */
+#define HIST_VERSION      1
+#define HIST_HEADER_SIZE  (4 + 4 + 4 + 4 + 8)
+
+static uint32_t history_chunk_size(const ms0515_event_ring_t *r)
+{
+    if (!r->cap) return 0;
+    return (uint32_t)(HIST_HEADER_SIZE + r->cap * sizeof(ms0515_event_t));
+}
+
+static bool write_history(snap_io_t *f, const ms0515_event_ring_t *r)
+{
+    if (!write_u32(f, HIST_VERSION))          return false;
+    if (!write_u32(f, (uint32_t)r->cap))      return false;
+    if (!write_u32(f, (uint32_t)r->head))     return false;
+    if (!write_u32(f, 0))                     return false;
+    if (!write_u64(f, r->written))            return false;
+    if (!write_bytes(f, r->events,
+                     r->cap * sizeof(ms0515_event_t)))
+        return false;
+    return true;
+}
+
+static bool read_history(snap_io_t *f, ms0515_event_ring_t *r,
+                         uint32_t chunk_size)
+{
+    uint32_t version, cap, head, reserved;
+    uint64_t written;
+
+    if (chunk_size < HIST_HEADER_SIZE) return false;
+    if (!read_u32(f, &version) || version != HIST_VERSION) return false;
+    if (!read_u32(f, &cap))            return false;
+    if (!read_u32(f, &head))           return false;
+    if (!read_u32(f, &reserved))       return false;
+    if (!read_u64(f, &written))        return false;
+
+    uint32_t expected = (uint32_t)(HIST_HEADER_SIZE + cap * sizeof(ms0515_event_t));
+    if (chunk_size != expected) return false;
+
+    ms0515_event_ring_resize(r, cap);
+    if (cap && !r->events) return false;   /* allocation failed */
+
+    if (cap) {
+        if (!read_bytes(f, r->events,
+                        cap * sizeof(ms0515_event_t)))
+            return false;
+    }
+    if (cap && head >= cap) head = 0;      /* guard against corrupt data */
+    r->head    = head;
+    r->written = written;
+    return true;
+}
+
 /* ── RAM disk chunk ──────────────────────────────────────────────────────── */
 
 static bool write_ramdisk(snap_io_t *f, const ms0515_ramdisk_t *rd)
@@ -602,6 +678,13 @@ snap_error_t snap_save(const ms0515_board_t *board,
     if (!write_chunk_hdr(out, "RDK\0", rdk_sz)) return SNAP_ERR_IO;
     if (!write_ramdisk(out, &board->ramdisk)) return SNAP_ERR_IO;
 
+    /* Event history ring — omitted if the ring is disabled (cap == 0). */
+    uint32_t hist_sz = history_chunk_size(&board->history);
+    if (hist_sz) {
+        if (!write_chunk_hdr(out, "HIST", hist_sz)) return SNAP_ERR_IO;
+        if (!write_history(out, &board->history)) return SNAP_ERR_IO;
+    }
+
     /* MS7004 keyboard controller */
     if (!write_chunk_hdr(out, "7004", MS7004_CHUNK_SIZE)) return SNAP_ERR_IO;
     if (!write_ms7004(out, kbd7004)) return SNAP_ERR_IO;
@@ -684,6 +767,8 @@ snap_error_t snap_load(ms0515_board_t *board,
         } else if (memcmp(id, "RDK\0", 4) == 0) {
             if (!read_ramdisk(in, &board->ramdisk, chunk_size)) return SNAP_ERR_CORRUPT;
             got_rdk = true;
+        } else if (memcmp(id, "HIST", 4) == 0) {
+            if (!read_history(in, &board->history, chunk_size)) return SNAP_ERR_CORRUPT;
         } else if (memcmp(id, "7004", 4) == 0) {
             if (!read_ms7004(in, kbd7004)) return SNAP_ERR_CORRUPT;
             got_7004 = true;

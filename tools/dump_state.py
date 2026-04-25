@@ -152,6 +152,70 @@ def dump_state(path):
                 print(f"  rx_ready={rx_ready} tx_ready={tx_ready}")
                 f.seek(chunk_start + chunk_size)
 
+            elif chunk_id == b'HIST':
+                version = u32(f)
+                cap     = u32(f)
+                head    = u32(f)
+                _pad    = u32(f)
+                written_lo = u32(f)
+                written_hi = u32(f)
+                written = written_lo | (written_hi << 32)
+                print(f"\n=== History event ring ===")
+                print(f"  version={version} cap={cap} head={head} "
+                      f"written={written}  "
+                      f"({'wrapped' if written > cap else 'linear'})")
+                # Decide oldest index: same logic as the C walker
+                if written < cap:
+                    count = written
+                    start = 0
+                else:
+                    count = cap
+                    start = head
+                # Read all events into memory so we can walk in order
+                raw = read_bytes(f, cap * 16)
+                events = []
+                for i in range(cap):
+                    rec = raw[i*16:(i+1)*16]
+                    cycle = struct.unpack('<Q', rec[0:8])[0]
+                    pc    = struct.unpack('<H', rec[8:10])[0]
+                    kind  = rec[10]
+                    dlen  = rec[11]
+                    data  = rec[12:12+dlen]
+                    events.append((cycle, pc, kind, data))
+                kinds = {1: 'REG_A', 2: 'DISP', 3: 'FDC',
+                         4: 'TRAP',  5: 'HALT', 6: 'MEMW', 7: 'MEMR'}
+                fdc_regs = {0: 'cmd', 1: 'track', 2: 'sector', 3: 'data'}
+                for i in range(count):
+                    idx = (start + i) % cap
+                    cycle, pc, kind, data = events[idx]
+                    label = kinds.get(kind, f'??{kind}')
+                    if kind == 1 and len(data) >= 1:          # REG_A
+                        v = data[0]
+                        detail = (f"val={v:03o} drive={v & 3} "
+                                  f"motor={'on' if not (v & 4) else 'off'} "
+                                  f"side={0 if (v & 8) else 1} "
+                                  f"erom={'y' if (v & 0x80) else 'n'}")
+                    elif kind == 2 and len(data) >= 2:        # DISP
+                        w = data[0] | (data[1] << 8)
+                        detail = f"disp={w:06o}"
+                    elif kind == 3 and len(data) >= 2:        # FDC
+                        detail = (f"{fdc_regs.get(data[0], '?')}="
+                                  f"{data[1]:03o}")
+                    elif kind == 4 and len(data) >= 1:        # TRAP
+                        detail = f"vec={data[0]:03o}"
+                    elif (kind == 6 or kind == 7) and len(data) >= 3:  # MEMW/MEMR
+                        op = '<-' if kind == 7 else '='
+                        addr = data[0] | (data[1] << 8)
+                        if len(data) >= 4:
+                            val = data[2] | (data[3] << 8)
+                            detail = f"@{addr:06o} {op} {val:06o} (word)"
+                        else:
+                            detail = f"@{addr:06o} {op} {data[2]:03o} (byte)"
+                    else:
+                        detail = ''
+                    print(f"  cycle={cycle:<10} PC={pc:06o}  "
+                          f"{label:<5}  {detail}")
+                # f position is already past the chunk body
             else:
                 f.seek(chunk_start + chunk_size)
 
