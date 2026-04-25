@@ -10,16 +10,67 @@
   causing the Omega loader to write to wrong addresses or misconfigure
   the display mode.
 
-## mihin.dsk — RUS/LAT switch interpreted as ^O
+## Mihin (OS-16SJ) — РУС/ЛАТ key prints `^N`/`^O`, locks input on exit
 
-- **ROM**: all ROMs
-- **Disk**: mihin.dsk
-- **Symptom**: Switching from RUS to LAT mode is interpreted by the OS
-  as Ctrl+O (^O) followed by a carriage return.  After that the system
-  stops responding to key presses until the user switches back to RUS
-  and then to LAT again.
-- **Likely cause**: The RUSLAT toggle scancode or its timing is being
-  misinterpreted by the keyboard driver as a control character sequence.
+- **ROMs**: ROM-A and ROM-B both affected (different flavours)
+- **Disks**: any Mihinsoft / OS-16SJ image (`mihin.dsk`, `kbtest_mihin.dsk`)
+- **Reproduction**:
+  Boot Mihin to its dot prompt, then tap the РУС/ЛАТ key.  The first
+  tap prints two characters at the cursor (visible garbage); the
+  second tap prints two more characters AND silently puts the
+  monitor's input echo into "Ctrl-O quiet" — subsequent letter
+  keys are buffered but produce no echo until the user either
+  presses Enter (ends the line, Mihin reports `KMON-F-Invalid
+  command`) or alternates РУС/ЛАТ another two times to clear the
+  quiet flag.
+
+- **Why it happens** (analysed 2026-04-26 from ROM listings + Mihin
+  RT11SJ.SYS / TT.SYS disassembly, see also the diagnostic findings
+  in `project_keyboard_tests.md`):
+
+  1. The MS7004 firmware sends scancode `0o262` for the РУС/ЛАТ key.
+     Both ROMs route this to a small RUS/LAT handler that toggles
+     a state bit in `0o157760` (bit 3 in ROM-A at address 0o176022;
+     bit 2 in ROM-B at address 0o175730).  On every press the
+     handler emits ONE byte into the OS input stream — `0o16` (SO,
+     Ctrl-N) when entering RUS mode, `0o17` (SI, Ctrl-O) when
+     leaving — and these bytes are what reaches the OS.
+  2. **OSA / Omega** consume SO/SI silently — their monitors know
+     SO/SI are charset-toggle codes and absorb them without echo.
+     Russian input "just works".
+  3. **Mihin** (Mihinsoft OS-16SJ, 1990) is a much thinner RT-11
+     SJ derivative; its KMON has no special handling for SO/SI,
+     so each byte goes through the standard RT-11 control-char
+     echo (`^N`, `^O`).  Worse: 0x0F (= Ctrl-O) ALSO triggers RT-
+     11's "quiet output" mode in Mihin's resident monitor, which
+     suppresses input-echo until the next CR or Ctrl-O.
+  4. Under ROM-B specifically the picture is partly redeemed:
+     ROM-B's keyboard handler does the LAT→RUS letter translation
+     internally (adds 0o40 to letter bytes when bit 2 is set),
+     so after the FIRST РУС/ЛАТ tap subsequent letter keys really
+     do produce KOI-8 Cyrillic codes (`A` → 0xC1 'а', etc.).
+     Russian input works one-way.  Exit (second toggle) still
+     trips the Ctrl-O quiet trap.
+  5. Under ROM-A the ROM has no RUS letter translation at all;
+     letter scancodes always produce Latin bytes regardless of
+     the РУС/ЛАТ state, so Russian never appears even after the
+     toggle.
+
+- **Why we don't fix it**:
+  - It is not an emulator bug — both the ROM behaviour and Mihin's
+    response are faithful to the real hardware/OS.
+  - Patching ROM-B to suppress SO/SI emission would change ROM
+    behaviour for OSA/Omega too and risks breaking those configs.
+  - Patching Mihin's RT11SJ.SYS to silently absorb SO/SI requires
+    extensive reverse engineering of the resident monitor without
+    symbol tables.
+
+- **Test impact**: The keyboard emulation suite parametrises every
+  TEST_CASE over a `kConfigs` matrix; Mihin entries carry
+  `hasRusMode = false` so the four РУС-mode TEST_CASEs skip them
+  with a `MESSAGE` line.  The Mihin configs DO run all the LAT-mode
+  scenarios (Latin letters, digits, punctuation, ФКС on letters,
+  shift-immune positions) and pass identically to OSA / Omega.
 
 ## rodionov.dsk — copy protection (self-modifying code, partial bypass)
 
