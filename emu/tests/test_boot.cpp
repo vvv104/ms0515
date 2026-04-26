@@ -80,6 +80,13 @@ static const std::set<std::pair<std::string, std::string>> kKnownBad = {
     {"ms0515-roma.rom",          "rodionov2.dsk"},
     {"ms0515-roma-original.rom", "rodionov2.dsk"},
     {"ms0515-romb.rom",          "rodionov2.dsk"},
+    /* 065_full.dsk is a 819200-byte raw track dump (different
+     * sector layout from our linear .dsk format).  Loader support
+     * is on the roadmap; for now the BIOS halts at PC=0o2 trying
+     * to interpret the boot block as code. */
+    {"ms0515-roma.rom",          "065_full.dsk"},
+    {"ms0515-roma-original.rom", "065_full.dsk"},
+    {"ms0515-romb.rom",          "065_full.dsk"},
 };
 
 static bool isKnownBad(const std::string &rom, const std::string &disk)

@@ -8,17 +8,27 @@
  * run/step controls.
  *
  * CLI:
- *   ms0515 [--rom <path>] [--fd0 <path>] [--fd1 <path>]
- *          [--fd2 <path>] [--fd3 <path>]
- *          [--disk <path> [--drive N]]     (legacy, maps to --fdN)
+ *   ms0515 [--rom <path>]
+ *          [--disk0-side0 <path>] [--disk0-side1 <path>]   (-d0s0/-d0s1)
+ *          [--disk1-side0 <path>] [--disk1-side1 <path>]   (-d1s0/-d1s1)
  *          [--screen-dump stderr|stdout|<path>]
  *          [--history-size N]               (events; 0 disables)
  *          [--history-watch-addr A] [--history-watch-len L]  (MEMW evts)
  *          [--history-read-watch-addr A] [--history-read-watch-len L]
  *
- * FD0..FD3 are the four logical floppy units addressable via bits 1:0
- * of System Register A.  Each disk image represents one side of a
- * physical diskette; the BIOS treats every side as an independent unit.
+ * Each disk image represents ONE side of a 5.25" diskette (single-side,
+ * 409600 bytes).  The hardware exposes four logical floppy units (the
+ * core driver still calls them FD0..FD3, mapped via bits 1:0 of System
+ * Register A); the user-facing CLI/YAML names them by drive + side:
+ *
+ *      --disk0-side0  ↔  drive 0, lower head (= core FD0)
+ *      --disk0-side1  ↔  drive 0, upper head (= core FD2)
+ *      --disk1-side0  ↔  drive 1, lower head (= core FD1)
+ *      --disk1-side1  ↔  drive 1, upper head (= core FD3)
+ *
+ * Future option for double-sided images (one path covers both sides of
+ * a drive, accessed via offset within the file): `--disk0` / `--disk1`
+ * — not yet implemented.
  *
  * Defaults: loads reference/docs/ms0515-roma.rom if --rom is not given.
  */
@@ -58,9 +68,19 @@
 
 namespace {
 
+/* Map a (drive, side) pair to the core FDC's logical-unit index.
+ * Hardware mapping: FD0 = drive 0 side 0, FD1 = drive 1 side 0,
+ * FD2 = drive 0 side 1, FD3 = drive 1 side 1.  See core/floppy.c. */
+constexpr int fdcUnitFor(int drive, int side) noexcept
+{
+    return drive + side * 2;
+}
+
 struct CliArgs {
     std::string romPath;
-    std::string fdPath[4];     /* FD0..FD3 */
+    /* fdPath[unit] — one image per core FDC unit (FD0..FD3 indexing).
+     * Frontend names these by (drive, side) — see fdcUnitFor(). */
+    std::string fdPath[4];
     std::string screenDumpPath; /* --screen-dump: VRAM text output */
     std::string screenshotPath;
     int         maxFrames = 0;      /* 0 = run forever */
@@ -174,10 +194,17 @@ Config loadConfig()
         if (vb == std::string::npos) val.clear();
         else val = val.substr(vb, ve - vb + 1);
 
-        if (key == "fd0") cfg.fdPath[0] = val;
-        else if (key == "fd1") cfg.fdPath[1] = val;
-        else if (key == "fd2") cfg.fdPath[2] = val;
-        else if (key == "fd3") cfg.fdPath[3] = val;
+        if      (key == "disk0_side0") cfg.fdPath[fdcUnitFor(0, 0)] = val;
+        else if (key == "disk0_side1") cfg.fdPath[fdcUnitFor(0, 1)] = val;
+        else if (key == "disk1_side0") cfg.fdPath[fdcUnitFor(1, 0)] = val;
+        else if (key == "disk1_side1") cfg.fdPath[fdcUnitFor(1, 1)] = val;
+        /* Quiet migration of legacy fd0..fd3 keys.  Older configs
+         * continue to load; the next saveConfig() rewrites them in
+         * the new disk{N}_side{M} form. */
+        else if (key == "fd0") cfg.fdPath[fdcUnitFor(0, 0)] = val;
+        else if (key == "fd1") cfg.fdPath[fdcUnitFor(1, 0)] = val;
+        else if (key == "fd2") cfg.fdPath[fdcUnitFor(0, 1)] = val;
+        else if (key == "fd3") cfg.fdPath[fdcUnitFor(1, 1)] = val;
         else if (key == "rom") cfg.romPath = val;
         else if (key == "show_keyboard") cfg.showKeyboard = (val == "true");
         else if (key == "show_debugger") cfg.showDebugger = (val == "true");
@@ -220,9 +247,14 @@ void saveConfig(const Config &cfg)
     std::ofstream f(path);
     if (!f) return;
     f << "# MS0515 emulator configuration\n";
-    for (int i = 0; i < 4; ++i) {
-        if (!cfg.fdPath[i].empty())
-            f << "fd" << i << ": \"" << cfg.fdPath[i] << "\"\n";
+    static constexpr struct { int drive, side; const char *name; } kSlots[] = {
+        {0, 0, "disk0_side0"}, {0, 1, "disk0_side1"},
+        {1, 0, "disk1_side0"}, {1, 1, "disk1_side1"},
+    };
+    for (const auto &s : kSlots) {
+        const auto &p = cfg.fdPath[fdcUnitFor(s.drive, s.side)];
+        if (!p.empty())
+            f << s.name << ": \"" << p << "\"\n";
     }
     if (!cfg.romPath.empty())
         f << "rom: \"" << cfg.romPath << "\"\n";
@@ -371,6 +403,35 @@ std::string findDefaultRom()
     return {};
 }
 
+/* Quick disk-image format gate.  Step 1A only accepts a 409600-byte
+ * single-side image, since each --diskN-sideM CLI option targets one
+ * physical side.  Bigger or smaller files are rejected before
+ * fdc_attach() opens them — so unknown formats fail early with a
+ * clear stderr message rather than getting silently mounted as
+ * garbage.  Returns std::nullopt on success, or a human-readable
+ * reason on failure. */
+static std::optional<std::string>
+validateSingleSideImage(const std::string &path)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    auto sz = fs::file_size(path, ec);
+    if (ec)
+        return std::format("cannot stat '{}': {}", path, ec.message());
+    if (sz == 409600)
+        return std::nullopt;
+    if (sz == 819200)
+        return std::format(
+            "'{}' is a double-sided image (819200 bytes); --diskN-sideM "
+            "expects a single-side dump (409600 bytes).  Double-sided "
+            "support is on the way; for now split it into two halves.",
+            path);
+    return std::format(
+        "'{}' has unrecognised disk format (size {} bytes; expected 409600 "
+        "for a single-side image).",
+        path, static_cast<unsigned long long>(sz));
+}
+
 /* Discover all .rom files in assets/rom/ directories relative to the
  * executable and the current working directory. */
 std::vector<std::string> discoverRoms()
@@ -402,23 +463,68 @@ std::vector<std::string> discoverRoms()
     return result;
 }
 
+/* Disk-mount option table.  Each entry binds a long form
+ * (`--diskN-sideM`) and a short alias (`-dNsM`) to a (drive, side)
+ * pair — the new user-facing names introduced when the legacy
+ * `--fd0..fd3` flags were retired. */
+struct DiskOption {
+    const char *longForm;
+    const char *shortForm;
+    int         drive;
+    int         side;
+};
+static constexpr DiskOption kDiskOptions[] = {
+    {"--disk0-side0", "-d0s0", 0, 0},
+    {"--disk0-side1", "-d0s1", 0, 1},
+    {"--disk1-side0", "-d1s0", 1, 0},
+    {"--disk1-side1", "-d1s1", 1, 1},
+};
+
+/* Detects the legacy CLI options we removed (--fd0..fd3, --disk,
+ * --drive) and emits a friendly migration message naming the
+ * replacement.  Returns `true` if `arg` was a legacy option (the
+ * caller should also skip its accompanying value, if any). */
+static bool reportRetiredArg(const std::string &arg)
+{
+    if (arg == "--fd0" || arg == "--fd1" ||
+        arg == "--fd2" || arg == "--fd3") {
+        std::fprintf(stderr,
+            "error: '%s' was removed.  Use the disk/side names instead:\n"
+            "  --fd0 → --disk0-side0   (-d0s0)\n"
+            "  --fd1 → --disk1-side0   (-d1s0)\n"
+            "  --fd2 → --disk0-side1   (-d0s1)\n"
+            "  --fd3 → --disk1-side1   (-d1s1)\n",
+            arg.c_str());
+        return true;
+    }
+    if (arg == "--disk" || arg == "--drive") {
+        std::fprintf(stderr,
+            "error: '%s' was removed.  Use --diskN-sideM (or -dNsM) "
+            "to mount one side of a drive.\n",
+            arg.c_str());
+        return true;
+    }
+    return false;
+}
+
 CliArgs parseArgs(int argc, char **argv)
 {
     CliArgs out;
-    std::string legacyDisk;
-    int         legacyDrive = 0;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--rom" && i + 1 < argc) {
             out.romPath = argv[++i];
-        } else if ((a == "--fd0" || a == "--fd1" ||
-                    a == "--fd2" || a == "--fd3") && i + 1 < argc) {
-            out.fdPath[a[4] - '0'] = argv[++i];
-        } else if (a == "--disk" && i + 1 < argc) {
-            legacyDisk = argv[++i];
-        } else if (a == "--drive" && i + 1 < argc) {
-            legacyDrive = std::atoi(argv[++i]);
+        } else if (reportRetiredArg(a)) {
+            /* Skip the path value too if there is one. */
+            if (i + 1 < argc) ++i;
+        } else if (auto *opt = std::find_if(
+                       std::begin(kDiskOptions), std::end(kDiskOptions),
+                       [&](const DiskOption &o) {
+                           return a == o.longForm || a == o.shortForm;
+                       });
+                   opt != std::end(kDiskOptions) && i + 1 < argc) {
+            out.fdPath[fdcUnitFor(opt->drive, opt->side)] = argv[++i];
         } else if (a == "--frames" && i + 1 < argc) {
             out.maxFrames = std::atoi(argv[++i]);
         } else if (a == "--screen-dump" && i + 1 < argc) {
@@ -440,9 +546,6 @@ CliArgs parseArgs(int argc, char **argv)
         } else {
             std::fprintf(stderr, "warning: unknown argument '%s'\n", a.c_str());
         }
-    }
-    if (!legacyDisk.empty() && legacyDrive >= 0 && legacyDrive < 4) {
-        out.fdPath[legacyDrive] = legacyDisk;
     }
     /* If a screenshot frame is set but no explicit --frames, auto-stop
      * after the screenshot so headless runs don't hang. */
@@ -661,14 +764,23 @@ int main(int argc, char **argv)
     } else {
         romStatus = "ROM: " + currentRomPath;
     }
-    for (int i = 0; i < 4; ++i) {
-        if (cli.fdPath[i].empty()) continue;
-        if (emu.mountDisk(i, cli.fdPath[i])) {
-            config.fdPath[i] = cli.fdPath[i];
-        } else {
-            std::fprintf(stderr,
-                         "error: failed to mount '%s' on FD%d\n",
-                         cli.fdPath[i].c_str(), i);
+    for (int drive = 0; drive < 2; ++drive) {
+        for (int side = 0; side < 2; ++side) {
+            int unit = fdcUnitFor(drive, side);
+            if (cli.fdPath[unit].empty()) continue;
+            if (auto err = validateSingleSideImage(cli.fdPath[unit])) {
+                std::fprintf(stderr,
+                    "error: cannot mount disk %d side %d: %s\n",
+                    drive, side, err->c_str());
+                continue;
+            }
+            if (emu.mountDisk(unit, cli.fdPath[unit])) {
+                config.fdPath[unit] = cli.fdPath[unit];
+            } else {
+                std::fprintf(stderr,
+                    "error: failed to mount '%s' on disk %d side %d\n",
+                    cli.fdPath[unit].c_str(), drive, side);
+            }
         }
     }
     saveConfig(config);
@@ -765,6 +877,11 @@ int main(int argc, char **argv)
     bool     ramDiskOn     = true;  /* enableRamDisk() above */
     std::string mountedFd[4];
     for (int i = 0; i < 4; ++i) mountedFd[i] = cli.fdPath[i];
+    /* Non-empty mountErrorMessage means a modal popup is shown next
+     * frame.  Used for friendly format-detect / mount-failure feedback
+     * inside the GUI; the CLI path still routes errors to stderr. */
+    std::string mountErrorMessage;
+    bool        mountErrorPending = false;
     int      menuBarHeight = 0;     /* updated each frame once menu drawn */
 
     /* ── Main loop ─────────────────────────────────────────────────────── */
@@ -877,40 +994,57 @@ int main(int argc, char **argv)
         if (ImGui::BeginMainMenuBar()) {
             menuBarHeight = (int)ImGui::GetWindowSize().y;
             if (ImGui::BeginMenu("File")) {
-                for (int i = 0; i < 4; ++i) {
-                    bool mounted = !mountedFd[i].empty();
-                    std::string leafName = mounted
-                        ? std::filesystem::path(mountedFd[i]).filename().string()
-                        : std::string{"(empty)"};
-                    auto label = std::format("FD{}  [{}]", i, leafName);
-                    if (ImGui::BeginMenu(label.c_str())) {
-                        if (ImGui::MenuItem("Mount...")) {
-                            auto title = std::format("Select image for FD{}", i);
-                            std::string p = ms0515_frontend::openFileDialog(
-                                window, title.c_str(),
-                                ms0515_frontend::FileDialogKind::Disk,
-                                initialDirFor(ms0515_frontend::FileDialogKind::Disk,
-                                              config));
-                            if (!p.empty()) {
-                                if (emu.mountDisk(i, p)) {
-                                    mountedFd[i] = p;
-                                    config.fdPath[i] = p;
-                                    rememberDirFor(config,
-                                        ms0515_frontend::FileDialogKind::Disk, p);
-                                } else {
-                                    std::fprintf(stderr,
-                                        "error: failed to mount '%s' on FD%d\n",
-                                        p.c_str(), i);
+                /* Show one entry per (drive, side) — same flat list as
+                 * before, only the labels follow the new naming.  A
+                 * proper Disk-1 / Disk-2 grouped menu with submenus and
+                 * dual-side mount comes in a follow-up. */
+                for (int drive = 0; drive < 2; ++drive) {
+                    for (int side = 0; side < 2; ++side) {
+                        int unit = fdcUnitFor(drive, side);
+                        bool mounted = !mountedFd[unit].empty();
+                        std::string leafName = mounted
+                            ? std::filesystem::path(mountedFd[unit]).filename().string()
+                            : std::string{"(empty)"};
+                        auto label = std::format(
+                            "Disk {} side {}  [{}]", drive, side, leafName);
+                        if (ImGui::BeginMenu(label.c_str())) {
+                            if (ImGui::MenuItem("Mount...")) {
+                                auto title = std::format(
+                                    "Select image for disk {} side {}", drive, side);
+                                std::string p = ms0515_frontend::openFileDialog(
+                                    window, title.c_str(),
+                                    ms0515_frontend::FileDialogKind::Disk,
+                                    initialDirFor(
+                                        ms0515_frontend::FileDialogKind::Disk,
+                                        config));
+                                if (!p.empty()) {
+                                    if (auto err = validateSingleSideImage(p)) {
+                                        mountErrorMessage = std::format(
+                                            "Cannot mount disk {} side {}:\n\n{}",
+                                            drive, side, *err);
+                                        mountErrorPending = true;
+                                    } else if (emu.mountDisk(unit, p)) {
+                                        mountedFd[unit] = p;
+                                        config.fdPath[unit] = p;
+                                        rememberDirFor(config,
+                                            ms0515_frontend::FileDialogKind::Disk, p);
+                                    } else {
+                                        mountErrorMessage = std::format(
+                                            "Failed to mount '{}' on "
+                                            "disk {} side {}.",
+                                            p, drive, side);
+                                        mountErrorPending = true;
+                                    }
                                 }
                             }
+                            if (ImGui::MenuItem("Unmount", nullptr, false, mounted)) {
+                                emu.unmountDisk(unit);
+                                mountedFd[unit].clear();
+                                config.fdPath[unit].clear();
+                                saveConfig(config);
+                            }
+                            ImGui::EndMenu();
                         }
-                        if (ImGui::MenuItem("Unmount", nullptr, false, mounted)) {
-                            emu.unmountDisk(i);
-                            mountedFd[i].clear();
-                            config.fdPath[i].clear();
-                            saveConfig(config);
-                        }
-                        ImGui::EndMenu();
                     }
                 }
                 ImGui::Separator();
@@ -1077,6 +1211,24 @@ int main(int argc, char **argv)
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
+        }
+
+        /* Disk-mount error modal — opened the frame after a mount
+         * attempt fails (format-detect rejection, fdc_attach failure,
+         * etc.).  Stays modal until the user clicks OK. */
+        if (mountErrorPending) {
+            ImGui::OpenPopup("Disk mount error");
+            mountErrorPending = false;
+        }
+        if (ImGui::BeginPopupModal("Disk mount error", nullptr,
+                                   ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextWrapped("%s", mountErrorMessage.c_str());
+            ImGui::Separator();
+            if (ImGui::Button("OK", ImVec2(120, 0))) {
+                mountErrorMessage.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
 
         /* ── Layout math ───────────────────────────────────────────────

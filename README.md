@@ -53,17 +53,20 @@ executable and all required assets.
 
 ```bash
 cd emu/package
-ms0515.exe --fd0 path/to/disk.dsk
+ms0515.exe --disk0-side0 path/to/disk.dsk
 ```
 
 Command-line options:
 
-| Option | Description |
-|--------|-------------|
-| `--rom <path>` | ROM image (default: `assets/rom/ms0515-roma.rom`) |
-| `--fd0..--fd3 <path>` | Mount floppy disk image to drive 0-3 |
-| `--trace <path>` | Write CPU execution trace to file |
-| `--screen-dump <path>` | Dump VRAM text to file (`stderr`/`stdout` accepted) |
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--rom <path>` | | ROM image (default: `assets/rom/ms0515-roma.rom`) |
+| `--disk0-side0 <path>` | `-d0s0` | Drive 0, lower side (single-side .dsk) |
+| `--disk0-side1 <path>` | `-d0s1` | Drive 0, upper side |
+| `--disk1-side0 <path>` | `-d1s0` | Drive 1, lower side |
+| `--disk1-side1 <path>` | `-d1s1` | Drive 1, upper side |
+| `--trace <path>` | | Write CPU execution trace to file |
+| `--screen-dump <path>` | | Dump VRAM text to file (`stderr`/`stdout` accepted) |
 
 Disks can also be mounted at runtime via the File menu.
 

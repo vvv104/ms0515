@@ -93,16 +93,24 @@ cmake --build --preset conan-release
 
 ```bash
 cd package
-./ms0515 --fd0 path/to/disk.dsk
+./ms0515 --disk0-side0 path/to/disk.dsk
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--rom <path>` | ROM image (default: `assets/rom/ms0515-roma.rom`) |
-| `--fd0` .. `--fd3 <path>` | Mount floppy disk image to drive 0..3 |
-| `--screen-dump <path>` | Dump VRAM text (`stderr` / `stdout` accepted) |
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--rom <path>` | | ROM image (default: `assets/rom/ms0515-roma.rom`) |
+| `--disk0-side0 <path>` | `-d0s0` | Drive 0, lower side (single-side .dsk, 409600 bytes) |
+| `--disk0-side1 <path>` | `-d0s1` | Drive 0, upper side |
+| `--disk1-side0 <path>` | `-d1s0` | Drive 1, lower side |
+| `--disk1-side1 <path>` | `-d1s1` | Drive 1, upper side |
+| `--screen-dump <path>` | | Dump VRAM text (`stderr` / `stdout` accepted) |
 
 Disks can also be mounted at runtime via the **File** menu.
+
+Double-sided disks (a single 819200-byte image covering both sides
+of one drive) need `--disk0` / `--disk1` — coming next.  Until then
+split such an image into two 409600-byte halves and mount each side
+explicitly.
 
 Machine state can be saved and restored via **Machine → Save/Load State**.
 Snapshots use the `.ms0515` extension and include CPU, RAM, VRAM, timer,

@@ -162,8 +162,8 @@
 - **Boot command**:
   ```
   ms0515.exe --rom assets/rom/ms0515-roma.rom \
-             --fd0 assets/disks/rodionov.dsk \
-             --fd2 assets/disks/rodionov2.dsk
+             --disk0-side0 assets/disks/rodionov.dsk \
+             --disk0-side1 assets/disks/rodionov2.dsk
   ```
 
 ### Reverse engineering notes

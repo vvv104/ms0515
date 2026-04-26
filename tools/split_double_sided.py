@@ -15,7 +15,8 @@ Usage:
     python split_double_sided.py disk1.raw disk2.raw disk3.raw ...
 
 Mount with:
-    ms0515 --fd0 disk1_s0.img --fd2 disk1_s1.img
+    ms0515 --disk0-side0 disk1_s0.img --disk0-side1 disk1_s1.img
+(short form: -d0s0 / -d0s1)
 """
 
 import sys
