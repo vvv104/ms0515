@@ -7,12 +7,12 @@
  *   2. exposes the copy's path via .path(),
  *   3. removes the copy on destruction.
  *
- * Tests must NEVER mount their fixture disks (emu/tests/disks/*.dsk)
- * directly — some Soviet OSes flush dirty buffer pages back on
- * close and can corrupt the image (see KNOWN_ISSUES.md, "type
- * STARTS.COM disk-corruption").  The fixtures stay pristine; each
- * test gets a writeable copy and lets the OS do whatever it likes
- * to it.
+ * Tests must NEVER mount their fixture disks (the .dsk files under
+ * emu/tests/disks/) directly — some Soviet OSes flush dirty buffer
+ * pages back on close and can corrupt the image (see
+ * KNOWN_ISSUES.md, "type STARTS.COM disk-corruption").  The
+ * fixtures stay pristine; each test gets a writeable copy and lets
+ * the OS do whatever it likes to it.
  *
  * Field-order note for callers: when TempDisk lives alongside an
  * Emulator in the same struct or stack frame, declare TempDisk
