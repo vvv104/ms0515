@@ -1,15 +1,26 @@
-# Filesystem — RT-11 on the MS0515 (OMEGA OS)
+# Filesystem — RT-11 on the MS0515
 
 ## Overview
 
-The MS0515 runs OMEGA OS, which is a localized build of RT-11 (DEC).
-The on-disk filesystem is standard RT-11 with one critical
+The MS0515 runs RT-11 derivatives (OMEGA OS, OSA, RT-15SJ/ФОДОС, MihinSoft
+OS-16SJ).  The on-disk filesystem is standard RT-11 with one critical
 hardware-specific detail: **2:1 sector interleave** within each track
 and **track 0 placed last** (blocks 790-799 map to track 0).
 
 This document describes the physical layout as observed on real
 MS0515 floppy disks.  All offsets refer to a single-sided 409,600-byte
 disk image (80 tracks x 10 sectors x 512 bytes).
+
+> **Caveat.** The 2:1 interleave below has been verified empirically for
+> metadata blocks (boot, home, directory) and for OSA-written file data.
+> Other OS handlers (Omega/RT-15SJ DZ.SYS) appear to apply additional
+> rotation skew when writing file content via `COPY/SYS`, so the file
+> bytes can land at non-obvious physical positions.  The OSes are
+> internally consistent (a disk written by Omega is readable by Omega),
+> but a Python-side extraction tool relying solely on the table below
+> will read correct bytes only for OSA-style images and for metadata
+> blocks of all OSes.  A complete description of the per-handler skew
+> is on the TODO list.
 
 ## Block-to-Sector Mapping
 

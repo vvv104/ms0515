@@ -71,17 +71,21 @@ struct TestConfig {
  */
 constexpr TestConfig kConfigs[] = {
     {ASSETS_DIR "/rom/ms0515-roma.rom", TESTS_DIR "/disks/test_osa.dsk",
-     "ROM-A + OSA",   true},
+     "ROM-A + OSA",     true},
     {ASSETS_DIR "/rom/ms0515-roma.rom", TESTS_DIR "/disks/test_omega.dsk",
-     "ROM-A + Omega", true},
+     "ROM-A + Omega",   true},
     {ASSETS_DIR "/rom/ms0515-roma.rom", TESTS_DIR "/disks/test_mihin.dsk",
-     "ROM-A + Mihin", false},
+     "ROM-A + Mihin",   false},
+    {ASSETS_DIR "/rom/ms0515-roma.rom", TESTS_DIR "/disks/test_rod.dsk",
+     "ROM-A + RT-15SJ", true},
     {ASSETS_DIR "/rom/ms0515-romb.rom", TESTS_DIR "/disks/test_osa.dsk",
-     "ROM-B + OSA",   true},
+     "ROM-B + OSA",     true},
     {ASSETS_DIR "/rom/ms0515-romb.rom", TESTS_DIR "/disks/test_omega.dsk",
-     "ROM-B + Omega", true},
+     "ROM-B + Omega",   true},
     {ASSETS_DIR "/rom/ms0515-romb.rom", TESTS_DIR "/disks/test_mihin.dsk",
-     "ROM-B + Mihin", false},
+     "ROM-B + Mihin",   false},
+    /* RT-15SJ (Rodionov) is ROM-A only — original 065_full.dsk also
+     * stalls on ROM-B, so we only exercise it under ROM-A. */
 };
 
 /* Boot is bounded by frames so a stuck OS does not freeze the test
@@ -250,7 +254,14 @@ struct TypingFixture {
     {
         REQUIRE(emu.loadRomFile(romPath));
         sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
-        REQUIRE(emu.mountDisk(0, disk.path().string()));
+        const auto pathStr = disk.path().string();
+        REQUIRE(emu.mountDisk(0, pathStr));
+        /* Double-sided fixture: also mount the upper-side unit so the
+         * OS can access side 1 (e.g. Rodionov's protection sector). */
+        std::error_code ec;
+        const auto sz = fs::file_size(disk.path(), ec);
+        if (!ec && sz == 2 * 409600u)
+            REQUIRE(emu.mountDisk(2, pathStr));
         emu.reset();
         promptRow = bootToPrompt(emu, sr);
         REQUIRE(promptRow >= 0);
@@ -557,7 +568,12 @@ TEST_CASE("boot to prompt") {
         ms0515::ScreenReader sr;
         sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
 
-        REQUIRE(emu.mountDisk(0, td.path().string()));
+        const auto pathStr = td.path().string();
+        REQUIRE(emu.mountDisk(0, pathStr));
+        std::error_code ec;
+        const auto sz = fs::file_size(td.path(), ec);
+        if (!ec && sz == 2 * 409600u)
+            REQUIRE(emu.mountDisk(2, pathStr));
 
         emu.reset();
         CHECK_MESSAGE(bootToPrompt(emu, sr) >= 0,

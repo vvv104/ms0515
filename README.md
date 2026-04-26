@@ -105,6 +105,8 @@ Disks can also be mounted at runtime via the File menu.
 
 - [Known issues](docs/kb/KNOWN_ISSUES.md) — disk/ROM-specific quirks
   and OS-level peculiarities encountered while reverse-engineering
+- [Disk copying](docs/kb/DISK_COPYING.md) — how to clone `.dsk`
+  images, including copy-protected ones, on host or inside the emulator
 - [TODO](docs/kb/TODO.md) — non-bug deferrals and future-improvement
   notes
 - [References](docs/kb/REFERENCES.md) — external resources used

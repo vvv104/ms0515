@@ -81,6 +81,11 @@ static const std::set<std::pair<std::string, std::string>> kKnownBad = {
      * stalls on the unpatched ms0515-roma-original.rom.  See the
      * "pink screen, tight loop" entry in docs/kb/KNOWN_ISSUES.md. */
     {"ms0515-roma-original.rom", "test_omega.dsk"},
+    /* RT-15SJ (Rodionov) was authored for ROM-A; with ROM-B the boot
+     * stalls right after printing "НГМД готов..." — same behaviour as
+     * the original 065_full.dsk on ROM-B, so this is a property of the
+     * disk image, not our trimmed fixture. */
+    {"ms0515-romb.rom", "test_rod.dsk"},
 };
 
 static bool isKnownBad(const std::string &rom, const std::string &disk)
@@ -120,8 +125,18 @@ static BootResult runBoot(const std::string &romPath,
     if (!emu.loadRomFile(romPath))
         return {true, false, 0, 0, 0, false, false, false, false, 0};
 
-    if (td)
-        (void)emu.mountDisk(0, td->path().string());
+    if (td) {
+        const auto pathStr = td->path().string();
+        (void)emu.mountDisk(0, pathStr);
+        /* For double-sided images (819200 bytes = 2 × FDC_DISK_SIZE)
+         * also mount the upper-side unit so the OS can access side 1.
+         * Required e.g. by the Rodionov RT-15SJ fixture whose copy
+         * protection reads from FD2 sector 3. */
+        std::error_code ec;
+        const auto sz = fs::file_size(td->path(), ec);
+        if (!ec && sz == 2 * 409600u)
+            (void)emu.mountDisk(2, pathStr);
+    }
 
     emu.reset();
 

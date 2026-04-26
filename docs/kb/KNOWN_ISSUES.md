@@ -97,107 +97,201 @@
   scenarios (Latin letters, digits, punctuation, ФКС on letters,
   shift-immune positions) and pass identically to OSA / Omega.
 
-## rodionov.dsk — copy protection (self-modifying code, partial bypass)
+## rodionov.dsk — copy protection (resolved with full DS dump)
 
-- **ROM**: all ROMs
-- **Disk**: rodionov.dsk (forum collection, RT-15SJ with ROSA Commander v1.3
-  by Rodionov S.A., Voronezh, 1993).  Not shipped in the repo —
-  obtain a local copy if you want to follow these notes;
-  rodionov2.dsk is the partial-bypass variant we built during
-  investigation, also local-only.
-- **Protection mechanism (fully reversed)**:
-  1. Trap vector 64 fires periodically; the handler at RAM `0o137374`
-     reaches the protection block via RAM `0o141744`.
-  2. RAM `0o141770: TSTB @#63` — if byte `0o63` is zero, the code runs
-     the sector-3 loader + patch sequence; non-zero skips straight to
-     `0o142102`.
-  3. Loader path (RAM 141776-142076):
-     - Builds an 8-byte param block at `0o142014` with fields
-       `[sector/side=001430, drive/reg_a=001000, dest=000060, count=000002]`.
-     - `ADD #110010, @142042` patches the JSR target (160010 → 070020).
-     - `JSR PC, @#160010` calls the ROM's generic sector-read routine
-       (ROM 160010 is a JMP trampoline to ROM `0o162652`).
-     - The read pulls exactly **4 bytes** from FD2 side-1 sector 3 into
-       RAM `0o60–0o63`.  Destination and count are hard-coded in the
-       param block; there is **no length-prefix or second read** driven
-       by the data itself.
-     - Four patches fire in sequence:
-       * `MOV @#60, @142110` — word@60 becomes the first instruction slot
-       * `MOV @#62, @142112` — word@62 becomes the second instruction slot
-       * `MOV #105737, @142114` — forces `TSTB @#` opcode
-       * `MOV #157760, @142116` — forces operand (→ `TSTB @#157760`)
-     - `INCB @#63` marks "loader already ran" so subsequent trap passes
-       skip the loader and land directly at `0o142102`.
-  4. Execution then falls into the patched instructions at `0o142110`
-     followed by the forced `TSTB @#157760` at `0o142114`, then
-     `0o142120: BPL 142236`.  Both paths (fall-through at 142122 and
-     BPL-taken at 142236) write to VRAM via `R2`, using data from
-     `@#143056`/`@#143060` or `BIC #100000, @R2`.
-  5. The 4 sector-3 bytes are thus **two 16-bit instruction words**
-     that the original disk almost certainly encoded as
-     `JSR PC, @#<loader>` — a call into a deeper initialisation routine
-     that populated `@#143056/@#143060` with real logo bitmap data and
-     left `@#157712`/`@#157760` in a self-consistent state before
-     returning.  Without that call, the pixel-writing arms at 142122-140
-     and 142236-246 run on uninitialised scratch.
-- **Partial bypass**: `rodionov2.dsk` contains bytes
+- **ROM**: ROM-A only.  ROM-B stalls right after printing
+  «НГМД готов, идет загрузка операционной системы…» both with the
+  original `065_full.dsk` and with our trimmed `tests/disks/test_rod.dsk`
+  fixture, so the boot suite marks `(ms0515-romb.rom, test_rod.dsk)` as
+  known-bad.  The protection check is unrelated to the ROM-B stall;
+  the disk simply was not built to boot under that ROM.
+- **Disk**: RT-15SJ with ROSA Commander v1.3 by Rodionov S.A.,
+  Voronezh, 1993.  Forum dumps circulate under several names
+  (`rodionov.dsk`, `065.dsk`, `065_full.dsk`).  Single-sided dumps
+  (409600 bytes) contain only the boot side and trip the protection;
+  the genuine track-interleaved double-sided dump (819200 bytes)
+  carries the protection payload on side 1 and boots cleanly.  Shipped
+  in the repo as `emu/assets/disks/rodionov.dsk`.
+- **Status**: solved.  Mounted via `--disk0 path/to/065_full.dsk`, the
+  disk boots into ROSA Commander with no visual artefacts and reaches
+  the RT-11 date prompt normally.
+- **Boot command**:
+  ```
+  ms0515.exe --rom assets/rom/ms0515-roma.rom --disk0 path/to/065_full.dsk
+  ```
+
+### Protection mechanism
+
+1. Trap vector 64 fires periodically; the handler at RAM `0o137374`
+   reaches the protection block via RAM `0o141744`.
+2. RAM `0o141770: TSTB @#63` — if byte `@#63` is zero the code runs
+   the sector-3 loader + patch sequence; non-zero skips straight to
+   `0o142102`.
+3. Loader path (RAM `0o141776-142076`):
+   - Builds an 8-byte param block at `0o142014`:
+     `[sector/side=001430, drive/reg_a=001000, dest=000060, count=000002]`.
+   - `ADD #110010, @142042` patches the JSR target (`0o160010` →
+     `0o070020`).
+   - `JSR PC, @#160010` calls the ROM sector-read trampoline at
+     ROM `0o162652`.  Reads exactly **4 bytes** from FD2 (drive 0
+     upper side) sector 3 into RAM `0o60..0o63`.  Destination and
+     count are hard-coded; there is no length-prefix or second read
+     driven by the data itself.
+   - Four patches install a 4-byte instruction plus a forced TSTB:
+     * `MOV @#60, @142110` — word @ `0o60` → instruction slot 1
+     * `MOV @#62, @142112` — word @ `0o62` → instruction slot 2
+     * `MOV #105737, @142114` — fixed `TSTB @#` opcode
+     * `MOV #157760, @142116` — fixed operand → `TSTB @#157760`
+   - `INCB @#63` marks "loader ran" so subsequent trap passes skip
+     the loader and jump straight to `0o142102`.
+4. Execution falls into the patched 4-byte instruction at `0o142110`,
+   then the forced `TSTB @#157760` at `0o142114`, then
+   `0o142120: BPL 142236`.  Both arms (fall-through at `0o142122`
+   and BPL-taken at `0o142236`) write to VRAM through R2.
+
+### What is in the four sector-3 bytes
+
+From a genuine DS dump (`065_full.dsk` track 0 side 1 sector 3, first
+four bytes):
+
+```
+c2 65 e0 01
+```
+
+Decoded as little-endian PDP-11 words:
+
+```
+0o062702 → ADD #imm, R2
+0o000740 → imm = 480 (decimal)
+```
+
+i.e. **`ADD #740, R2`** — advance the VRAM destination pointer R2 by
+480 bytes.  VRAM is 16 KB at `0o160000`; both display modes
+(320×200 attribute and 640×200 monochrome) use 80 bytes per scan
+line, so R2 moves exactly **6 rows down**.  The downstream `@R2`
+writes therefore land 6 rows below where an unmodified R2 would put
+them.
+
+### Why the protection fails quietly on a copy
+
+A disk without those 4 bytes (single-sided dump, brute-force patch,
+or our historical `BR +3` workaround) leaves R2 at its original value,
+and the subsequent `@R2` writes pollute the top-left corner of the
+screen with two thin stripes.  The disk still boots, ROSA Commander
+still renders Russian UI correctly, the OS prompt still appears —
+only the stripes betray the broken copy.
+
+This is a deliberately low-noise failure mode.  A `JSR @#real_loader`
+scheme (which the previous KB hypothesis assumed) would have prevented
+boot entirely when the bytes were missing — much louder, and easier
+to diagnose.  `ADD #imm, Rn` is one of the most innocuous PDP-11
+instructions imaginable; a cracker who has traced the loader and
+landed on it would conclude "this didn't really do anything" and look
+elsewhere.  The instruction is also exactly 4 bytes (one opcode word
++ one immediate word), fitting the patch-slot size with nothing to
+spare.
+
+### Historical workaround: rodionov2.dsk
+
+Before we obtained the genuine DS dump, we shipped a hand-rolled
+"partial bypass" disk pair:
+
+- `rodionov2.dsk` (the upper side, also local-only) contained
   `03 01 01 01` at offset `0x400` (track 0 sector 3).  That encodes
-  `BR +3` at RAM 142110, which jumps over both 2nd-slot and
-  `TSTB @#157760` straight to `0o142120`.  Byte `0o63 = 1` satisfies
-  the non-zero check on subsequent passes.  Boot completes, ROSA
-  Commander renders Russian UI correctly, two thin stripes remain
-  visible in the top-left column.
-- **Residual stripes are unreachable from this patch slot**:
-  - Last writes at the stripe offsets come from **outside** the
-    protection block: `ROM 165200: BISB #377, @R2` and
-    `RAM 146156: COMB @R2`.  Both are gated on `TSTB @#157760 → BPL`
-    inside their own caller.
-  - Bit 7 of `@#157760` is set by `ROM 174376: BIS #200, @#157760`,
-    which is the side-1 (FD2) selector in the floppy driver — it
-    re-asserts on every FD2 access and overwrites any `CLR @#157760`
-    we install at 142110.
-  - Attempted fix `CLR @#157760` (`1F 0A 70 DF`) added *more* stripes:
-    the BPL-taken arm at 142236 then runs `BIC #100000, @R2` with
-    `R2` undefined, planting fresh garbage writes in VRAM while the
-    ROM side-drivers continued to redraw the original stripes.
-  - Attempted fix `JMP @#142444` broke boot by skipping mandatory
-    state stores (`MOV R3, @142166` and `MOV @X(PC), @#141740` at
-    142164-142176) that downstream code depends on.
-  - Attempted fix `MOV #1430, R2` (`C2 15 18 03`) produced identical
-    output to `BR +3` (0 pixels different) — confirming the residual
-    stripes do **not** originate inside the patch block, they come
-    from the ROM/RAM sites above.
-- **What would fix the residual stripes**: the original 4 bytes —
-  almost certainly `004737 <addr>` — that `JSR`'d into a loader which
-  set `@#143056/@#143060` (glyph data) and `@#157712/@#157760` (mode
-  flags) to values consistent with a real logo rendering, so the
-  `BISB`/`COMB` paths become logo draws instead of artefacts.
-  Brute-forcing all 2³² combinations against expected visual output
-  is the only remaining avenue without the source disk.
-- **Boot command** (paths are wherever you keep your local copies of
-  the disks):
-  ```
-  ms0515.exe --rom assets/rom/ms0515-roma.rom \
-             --disk0-side0 path/to/rodionov.dsk \
-             --disk0-side1 path/to/rodionov2.dsk
-  ```
+  `BR +3` at RAM `0o142110`, jumping over the second slot and the
+  forced `TSTB @#157760` straight to `0o142120`.  Byte `0o63 = 1`
+  satisfied the non-zero check on subsequent passes.
+- Booted via `--disk0-side0 rodionov.dsk --disk0-side1 rodionov2.dsk`.
+- Boot completed, two thin stripes remained visible in the top-left
+  column — exactly the expected effect of leaving R2 un-advanced.
 
-### Reverse engineering notes
+Superseded by the genuine DS dump.  Kept here as a worked example of
+how a content-only protection can be partially bypassed without
+knowing the original payload.
+
+### Building `tests/disks/test_rod.dsk` from scratch
+
+The original `065_full.dsk` contains user applications and games that
+are not ours to redistribute, so the test fixture is built from a
+zeroed image using only OS commands plus a four-byte host-side patch
+for the protection sector.  Reproduce as follows:
+
+1. **Create a blank double-sided image** (819200 bytes):
+   ```
+   dd if=/dev/zero of=test_rod.dsk bs=1024 count=800
+   ```
+2. **Mount in the emulator** with `065_full.dsk` as drive 0 (source)
+   and `test_rod.dsk` as drive 1 (target):
+   ```yaml
+   disk0: "065_full.dsk"
+   disk1: "test_rod.dsk"
+   rom:   "ms0515-roma-original.rom"
+   ```
+3. **Boot RT-15SJ from drive 0** and run, in order:
+   ```
+   .INIT/NOQUERY DZ1:
+   .INIT/NOQUERY DZ3:
+   .COPY/SYS DZ0:SWAP.SYS    DZ1:
+   .COPY/SYS DZ0:RT15SJ.SYS  DZ1:
+   .COPY/SYS DZ0:DZ.SYS      DZ1:
+   .COPY/SYS DZ0:TT.SYS      DZ1:
+   .COPY/SYS DZ0:VM.SYS      DZ1:
+   .COPY/SYS DZ0:VS.SYS      DZ1:
+   .COPY/SYS DZ0:DIR.SAV     DZ1:
+   .COPY/SYS DZ0:DUP.SAV     DZ1:
+   .COPY/SYS DZ0:PIP.SAV     DZ1:
+   .COPY/BOOT DZ1:RT15SJ.SYS DZ1:
+   .CREATE START.COM
+   ```
+   `CREATE START.COM` makes a 1-block empty file so RT-11 prints the
+   `.` prompt without an error.  `COPY TT: file ^Z` does NOT work in
+   ФОДОС — `COPY` does not accept an immediate EOF; use `CREATE`.
+4. **Close the emulator**, then host-side install the four protection
+   bytes:
+   ```python
+   with open('test_rod.dsk', 'r+b') as f:
+       f.seek(0x1800)               # track 0 / side 1 / sector 3
+       f.write(bytes([0xc2, 0x65, 0xe0, 0x01]))  # ADD #740, R2
+   ```
+   Offset `0x1800` is the FDC byte address: `image_offset(side1) +
+   track*track_stride + (sector_reg-1)*512 = 5120 + 0 + 2*512`.  Note
+   this is **not** the `0x1A00` you would compute from "block 796 of
+   DZ3 under 2:1 OS-level interleave" — the protection's BIOS sector
+   read uses raw `(track, sector)`, which under OS interleave maps to
+   block 791 of DZ3, not block 796.  Off-by-one between FDC sector
+   numbering (1-indexed) and physical sector index (0-indexed) is the
+   trap to watch for.
+5. **Boot test_rod.dsk standalone** (`disk0: test_rod.dsk`).  Without
+   the four bytes the boot HALTs (the patched instruction collapses to
+   `HALT HALT`); with them, RT-15SJ reaches the `.` prompt cleanly.
+
+The boot suite mounts `test_rod.dsk` automatically via `--disk0`-style
+DS handling: `runBoot` detects 819200-byte images and calls
+`mountDisk(0)` for the lower side and `mountDisk(2)` for the upper
+side so the protection's sector read returns real bytes.
+
+### Reverse-engineering notes
 
 - RT-15SJ is loaded at RAM base `0o66416` (file offset 0 → RAM
   `0o66416`).  Protection entry `0o141744`; param block `0o142014`;
   patch slots `0o142110/0o142112`; forced `TSTB @#157760` at
   `0o142114`; VRAM-writing arms `0o142122-140` and `0o142236-250`.
-- Downstream stripe sites: `ROM 0o165200` (BISB #377, @R2) and
-  `RAM 0o146156` (COMB @R2), both gated on `TSTB @#157760 → BPL`.
+- Downstream `@R2` write sites: `ROM 0o165200` (`BISB #377, @R2`) and
+  `RAM 0o146156` (`COMB @R2`), both gated on `TSTB @#157760 → BPL`.
   `@#157760` bit 7 is set by `ROM 0o174376` on each FD2 side-1
-  selection.
-- The `--trace <path>` CLI flag (async spdlog-backed) records I/O
-  access, memory dispatcher changes, reg_a writes, trap vectors,
-  HALTs, and non-zero VRAM byte writes.  Ground truth for the
-  analysis above came from diffing VRAM-write offsets between a
-  `BR +3` run and candidate patch runs, then correlating the
-  differing offsets back to the writing PC.
+  selection.  These sites are benign — they write through R2 wherever
+  R2 happens to point.  With the original `ADD #740, R2` they land
+  6 rows below the visible top; without it they land at the top.
+- Retracted hypothesis: we previously suspected the 4 bytes encoded
+  `004737 <addr>` (`JSR PC, @#…`) into a deeper initialisation
+  routine that populated `@#143056/@#143060` glyph data and
+  `@#157712/@#157760` mode flags.  The genuine DS dump showed the
+  bytes are a plain `ADD #740, R2`; no glyph table, no mode flag
+  setup.  Of the experimental patches we tried during the
+  wrong-hypothesis phase, `MOV #1430, R2` (`C2 15 18 03`) produced
+  identical visual output to `BR +3` — in retrospect the strongest
+  hint that the answer was a simple R2 adjustment, but we did not
+  converge on the exact value `0o740` until the DS dump arrived.
 
 ## ROM monitor `D` command with no disk attached — silent BIOS spin
 
