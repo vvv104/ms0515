@@ -476,6 +476,7 @@ validateDoubleSidedImage(const std::string &path)
         path, static_cast<unsigned long long>(sz));
 }
 
+
 /* Discover all .rom files in assets/rom/ directories relative to the
  * executable and the current working directory. */
 std::vector<std::string> discoverRoms()
@@ -823,7 +824,7 @@ int main(int argc, char **argv)
     auto availableRoms = discoverRoms();
 
     if (currentRomPath.empty()) {
-        romStatus = "ROM: <not found — pass --rom <path>>";
+        romStatus = "ROM: <not found - pass --rom <path>>";
         std::fprintf(stderr, "%s\n", romStatus.c_str());
     } else if (!emu.loadRomFile(currentRomPath)) {
         romStatus = "ROM: FAILED to load '" + currentRomPath + "'";
@@ -982,8 +983,28 @@ int main(int argc, char **argv)
     osk.loadLayout();
     bool     audioOn       = true;  /* user-togglable audio mute */
     bool     ramDiskOn     = true;  /* enableRamDisk() above */
+    /* Per-FDC-unit mount tracker.  When a drive is mounted as
+     * double-sided, both side units carry the SAME path and
+     * `mountedAsDs[drive]` is set; "Unmount" then drops both sides
+     * in one click. */
     std::string mountedFd[4];
-    for (int i = 0; i < 4; ++i) mountedFd[i] = cli.fdPath[i];
+    bool        mountedAsDs[2] = {false, false};
+    auto refreshMountState = [&]() {
+        for (int drive = 0; drive < 2; ++drive) {
+            int unit0 = fdcUnitFor(drive, 0);
+            int unit1 = fdcUnitFor(drive, 1);
+            if (!cli.dsPath[drive].empty()) {
+                mountedFd[unit0]  = cli.dsPath[drive];
+                mountedFd[unit1]  = cli.dsPath[drive];
+                mountedAsDs[drive] = true;
+            } else {
+                mountedFd[unit0]  = cli.fdPath[unit0];
+                mountedFd[unit1]  = cli.fdPath[unit1];
+                mountedAsDs[drive] = false;
+            }
+        }
+    };
+    refreshMountState();
     /* Non-empty mountErrorMessage means a modal popup is shown next
      * frame.  Used for friendly format-detect / mount-failure feedback
      * inside the GUI; the CLI path still routes errors to stderr. */
@@ -1101,23 +1122,120 @@ int main(int argc, char **argv)
         if (ImGui::BeginMainMenuBar()) {
             menuBarHeight = (int)ImGui::GetWindowSize().y;
             if (ImGui::BeginMenu("File")) {
-                /* Show one entry per (drive, side) — same flat list as
-                 * before, only the labels follow the new naming.  A
-                 * proper Disk-1 / Disk-2 grouped menu with submenus and
-                 * dual-side mount comes in a follow-up. */
+                /* Per-drive submenu — flat list of three mount actions
+                 * (DS image, side 0, side 1) plus Unmount.  Mounting
+                 * anything on one side automatically detaches the
+                 * other half of a previous DS mount, so the drive is
+                 * always in a coherent state.  Mounting a fresh DS
+                 * image replaces both sides at once. */
                 for (int drive = 0; drive < 2; ++drive) {
-                    for (int side = 0; side < 2; ++side) {
-                        int unit = fdcUnitFor(drive, side);
-                        bool mounted = !mountedFd[unit].empty();
-                        std::string leafName = mounted
-                            ? std::filesystem::path(mountedFd[unit]).filename().string()
-                            : std::string{"(empty)"};
-                        auto label = std::format(
-                            "Disk {} side {}  [{}]", drive, side, leafName);
-                        if (ImGui::BeginMenu(label.c_str())) {
-                            if (ImGui::MenuItem("Mount...")) {
+                    int unit0 = fdcUnitFor(drive, 0);
+                    int unit1 = fdcUnitFor(drive, 1);
+                    const bool side0 = !mountedFd[unit0].empty();
+                    const bool side1 = !mountedFd[unit1].empty();
+                    const bool any   = side0 || side1;
+
+                    /* Compact summary for the top-level label: how the
+                     * drive is currently driven, not which file. */
+                    const char *summary;
+                    if (!any)                     summary = "empty";
+                    else if (mountedAsDs[drive])  summary = "image";
+                    else if (side0 && side1)      summary = "both sides";
+                    else if (side0)               summary = "0 side";
+                    else                          summary = "1 side";
+                    auto driveLabel = std::format(
+                        "Disk {}: {}", drive, summary);
+                    if (ImGui::BeginMenu(driveLabel.c_str())) {
+                        /* When a DS image is currently mounted, picking
+                         * up just one side means dropping the other to
+                         * stay coherent — that's the same regardless
+                         * of which mount action triggered it. */
+                        auto detachDsRemnant = [&](int keepUnit) {
+                            if (!mountedAsDs[drive]) return;
+                            int otherUnit = (keepUnit == unit0) ? unit1 : unit0;
+                            emu.unmountDisk(otherUnit);
+                            mountedFd[otherUnit].clear();
+                            config.fdPath[otherUnit].clear();
+                            mountedAsDs[drive] = false;
+                            config.dsPath[drive].clear();
+                        };
+
+                        /* Show the currently mounted DS file alongside
+                         * the "Mount image" entry; for SS-only or
+                         * empty drives nothing is appended. */
+                        std::string mountImageLabel = "Mount image...";
+                        if (mountedAsDs[drive]) {
+                            mountImageLabel += "    [" +
+                                std::filesystem::path(mountedFd[unit0])
+                                    .filename().string() + "]";
+                        }
+                        if (ImGui::MenuItem(mountImageLabel.c_str())) {
+                            auto title = std::format(
+                                "Select double-sided image for drive {}", drive);
+                            std::string p = ms0515_frontend::openFileDialog(
+                                window, title.c_str(),
+                                ms0515_frontend::FileDialogKind::Disk,
+                                initialDirFor(
+                                    ms0515_frontend::FileDialogKind::Disk,
+                                    config));
+                            if (!p.empty()) {
+                                if (auto err = validateDoubleSidedImage(p)) {
+                                    mountErrorMessage = std::format(
+                                        "Cannot mount disk {}:\n\n{}",
+                                        drive, *err);
+                                    mountErrorPending = true;
+                                } else {
+                                    emu.unmountDisk(unit0);
+                                    emu.unmountDisk(unit1);
+                                    bool ok = emu.mountDisk(unit0, p)
+                                           && emu.mountDisk(unit1, p);
+                                    if (ok) {
+                                        mountedFd[unit0] = p;
+                                        mountedFd[unit1] = p;
+                                        mountedAsDs[drive] = true;
+                                        config.dsPath[drive] = p;
+                                        config.fdPath[unit0].clear();
+                                        config.fdPath[unit1].clear();
+                                        rememberDirFor(config,
+                                            ms0515_frontend::FileDialogKind::Disk,
+                                            p);
+                                    } else {
+                                        emu.unmountDisk(unit0);
+                                        emu.unmountDisk(unit1);
+                                        mountErrorMessage = std::format(
+                                            "Failed to mount '{}' on disk {}.",
+                                            p, drive);
+                                        mountErrorPending = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        for (int side = 0; side < 2; ++side) {
+                            int unit       = (side == 0) ? unit0 : unit1;
+                            int otherUnit  = (side == 0) ? unit1 : unit0;
+                            /* Append per-side state.  Filename when
+                             * this side is mounted; "[empty]" only if
+                             * the OTHER side has something — that
+                             * makes the contrast useful.  When the
+                             * drive is fully empty or DS-mounted both
+                             * side items stay plain. */
+                            std::string label = std::format(
+                                "Mount side {}...", side);
+                            if (!mountedAsDs[drive]) {
+                                if (!mountedFd[unit].empty()) {
+                                    label += "    [" +
+                                        std::filesystem::path(mountedFd[unit])
+                                            .filename().string() + "]";
+                                } else if (!mountedFd[otherUnit].empty()) {
+                                    label += "    [empty]";
+                                }
+                            }
+                            if (ImGui::MenuItem(label.c_str())) {
                                 auto title = std::format(
-                                    "Select image for disk {} side {}", drive, side);
+                                    "Select single-side image for "
+                                    "disk {} side {}",
+                                    drive, side);
                                 std::string p = ms0515_frontend::openFileDialog(
                                     window, title.c_str(),
                                     ms0515_frontend::FileDialogKind::Disk,
@@ -1127,31 +1245,42 @@ int main(int argc, char **argv)
                                 if (!p.empty()) {
                                     if (auto err = validateSingleSideImage(p)) {
                                         mountErrorMessage = std::format(
-                                            "Cannot mount disk {} side {}:\n\n{}",
+                                            "Cannot mount disk {} side {}:"
+                                            "\n\n{}",
                                             drive, side, *err);
                                         mountErrorPending = true;
-                                    } else if (emu.mountDisk(unit, p)) {
-                                        mountedFd[unit] = p;
-                                        config.fdPath[unit] = p;
-                                        rememberDirFor(config,
-                                            ms0515_frontend::FileDialogKind::Disk, p);
                                     } else {
-                                        mountErrorMessage = std::format(
-                                            "Failed to mount '{}' on "
-                                            "disk {} side {}.",
-                                            p, drive, side);
-                                        mountErrorPending = true;
+                                        detachDsRemnant(unit);
+                                        emu.unmountDisk(unit);
+                                        if (emu.mountDisk(unit, p)) {
+                                            mountedFd[unit] = p;
+                                            config.fdPath[unit] = p;
+                                            rememberDirFor(config,
+                                                ms0515_frontend::FileDialogKind::Disk,
+                                                p);
+                                        } else {
+                                            mountErrorMessage = std::format(
+                                                "Failed to mount '{}' on "
+                                                "disk {} side {}.",
+                                                p, drive, side);
+                                            mountErrorPending = true;
+                                        }
                                     }
                                 }
                             }
-                            if (ImGui::MenuItem("Unmount", nullptr, false, mounted)) {
-                                emu.unmountDisk(unit);
-                                mountedFd[unit].clear();
-                                config.fdPath[unit].clear();
-                                saveConfig(config);
-                            }
-                            ImGui::EndMenu();
                         }
+                        if (ImGui::MenuItem("Unmount", nullptr, false, any)) {
+                            emu.unmountDisk(unit0);
+                            emu.unmountDisk(unit1);
+                            mountedFd[unit0].clear();
+                            mountedFd[unit1].clear();
+                            mountedAsDs[drive] = false;
+                            config.fdPath[unit0].clear();
+                            config.fdPath[unit1].clear();
+                            config.dsPath[drive].clear();
+                            saveConfig(config);
+                        }
+                        ImGui::EndMenu();
                     }
                 }
                 ImGui::Separator();
@@ -1327,11 +1456,90 @@ int main(int argc, char **argv)
             ImGui::OpenPopup("Disk mount error");
             mountErrorPending = false;
         }
+        /* Pin the popup width so a long path doesn't blow it up; the
+         * height still auto-fits the wrapped message.  Anchor it to
+         * the centre of the host window — without this ImGui places
+         * the popup wherever it last was, which is unpredictable. */
+        {
+            ImVec2 vpCentre = ImGui::GetMainViewport()->GetCenter();
+            ImGui::SetNextWindowPos(vpCentre, ImGuiCond_Appearing,
+                                    ImVec2(0.5f, 0.5f));
+        }
+        ImGui::SetNextWindowSizeConstraints(ImVec2(400, 0),
+                                            ImVec2(400, FLT_MAX));
         if (ImGui::BeginPopupModal("Disk mount error", nullptr,
-                                   ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextWrapped("%s", mountErrorMessage.c_str());
+                                   ImGuiWindowFlags_AlwaysAutoResize |
+                                   ImGuiWindowFlags_NoResize)) {
+            /* Split the message: the headline (everything up to the
+             * first newline) is rendered left-aligned and wrapped;
+             * the detail (everything after the first newline) is
+             * rendered centred line by line.  ImGui has no built-in
+             * centred TextWrapped, so for the detail block we step
+             * through paragraph by paragraph, ask the font for the
+             * word-wrap break inside each, and SetCursorPosX so the
+             * line lands centred on the available content region. */
+            const std::string &msg = mountErrorMessage;
+            std::size_t splitAt = msg.find('\n');
+            std::string headline = (splitAt == std::string::npos)
+                                 ? msg : msg.substr(0, splitAt);
+            std::string detail   = (splitAt == std::string::npos)
+                                 ? std::string{}
+                                 : msg.substr(splitAt + 1);
+            /* Skip extra leading newlines so we don't render a
+             * pointless empty line between headline and detail. */
+            while (!detail.empty() && detail.front() == '\n')
+                detail.erase(detail.begin());
+
+            ImGui::PushTextWrapPos(0.0f);  /* wrap to content region */
+            ImGui::TextUnformatted(headline.c_str());
+            ImGui::PopTextWrapPos();
+
+            if (!detail.empty()) {
+                ImGui::Spacing();
+                ImFont *font    = ImGui::GetFont();
+                const char *p   = detail.data();
+                const char *end = p + detail.size();
+                float wrapWidth = ImGui::GetContentRegionAvail().x;
+
+                while (p <= end) {
+                    const char *paraEnd = p;
+                    while (paraEnd < end && *paraEnd != '\n') ++paraEnd;
+
+                    if (p == paraEnd) {
+                        ImGui::Spacing();
+                    } else {
+                        const char *ls = p;
+                        while (ls < paraEnd) {
+                            const char *le = font->CalcWordWrapPositionA(
+                                1.0f, ls, paraEnd, wrapWidth);
+                            if (le == ls)
+                                le = (ls + 1 <= paraEnd) ? ls + 1 : paraEnd;
+
+                            ImVec2 sz = ImGui::CalcTextSize(ls, le);
+                            float avail = ImGui::GetContentRegionAvail().x;
+                            float pad   = (avail - sz.x) * 0.5f;
+                            if (pad > 0)
+                                ImGui::SetCursorPosX(
+                                    ImGui::GetCursorPosX() + pad);
+                            ImGui::TextUnformatted(ls, le);
+
+                            ls = le;
+                            while (ls < paraEnd && *ls == ' ') ++ls;
+                        }
+                    }
+
+                    if (paraEnd >= end) break;
+                    p = paraEnd + 1;
+                }
+            }
+
             ImGui::Separator();
-            if (ImGui::Button("OK", ImVec2(120, 0))) {
+            const float btnW = 120.0f;
+            float availW = ImGui::GetContentRegionAvail().x;
+            float btnPad = (availW - btnW) * 0.5f;
+            if (btnPad > 0)
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + btnPad);
+            if (ImGui::Button("OK", ImVec2(btnW, 0))) {
                 mountErrorMessage.clear();
                 ImGui::CloseCurrentPopup();
             }
@@ -1494,17 +1702,40 @@ int main(int argc, char **argv)
                     ImGui::TextColored(modCol(true),         "\xd0\x9b\xd0\x90\xd0\xa2");
                 }
 
-                /* Line 2: disks (may be long paths/filenames). */
-                for (int i = 0; i < 4; ++i) {
-                    const char *name = "—";
-                    std::string base;
-                    if (!mountedFd[i].empty()) {
-                        base = std::filesystem::path(mountedFd[i])
-                               .filename().string();
-                        name = base.c_str();
+                /* Line 2: per-drive mount summary.  One column per
+                 * physical drive, mode-dependent format:
+                 *   empty  →  "Disk 0: empty"
+                 *   DS     →  "Disk 0: <name> (DS)"
+                 *   SS     →  "Disk 0: <side0> / <side1>"  (either may
+                 *             be (empty)) */
+                for (int drive = 0; drive < 2; ++drive) {
+                    int unit0 = fdcUnitFor(drive, 0);
+                    int unit1 = fdcUnitFor(drive, 1);
+                    if (drive > 0) {
+                        ImGui::SameLine();
+                        ImGui::TextUnformatted("|");
+                        ImGui::SameLine();
                     }
-                    if (i > 0) ImGui::SameLine();
-                    ImGui::Text("FD%d:%s", i, name);
+                    if (!mountedFd[unit0].empty() ||
+                        !mountedFd[unit1].empty()) {
+                        if (mountedAsDs[drive]) {
+                            std::string n = std::filesystem::path(
+                                mountedFd[unit0]).filename().string();
+                            ImGui::Text("Disk %d: %s (DS)", drive, n.c_str());
+                        } else {
+                            auto sideName = [&](int unit) -> std::string {
+                                if (mountedFd[unit].empty()) return "(empty)";
+                                return std::filesystem::path(mountedFd[unit])
+                                           .filename().string();
+                            };
+                            ImGui::Text("Disk %d: %s / %s",
+                                drive,
+                                sideName(unit0).c_str(),
+                                sideName(unit1).c_str());
+                        }
+                    } else {
+                        ImGui::Text("Disk %d: empty", drive);
+                    }
                 }
             }
             ImGui::End();
