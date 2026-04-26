@@ -65,6 +65,19 @@
     extensive reverse engineering of the resident monitor without
     symbol tables.
 
+- **Cross-emulator confirmation (2026-04-26)**: Same disk image and
+  ROM-B run under MAME 0.287's `ms0515` driver produce visually
+  identical output: the entry indicator `чн` (KOI-8 0xDE 0xCE — `^N`
+  rendered through Mihin's high-bit-set Cyrillic display mode), the
+  exit indicator `^O` (0x5E 0x4F), Cyrillic letters in between, and
+  the same Ctrl-O echo lock after the second toggle.  MAME runs the
+  authentic MS7004 keyboard microcontroller firmware (Intel 8035 +
+  2 KB ROM `mc7004_keyboard_original.rom`, CRC `69fcab53`) plus the
+  same system ROMs we ship.  Identical bytes in screen RAM under
+  both emulators confirm this is genuine Mihin behaviour and our
+  high-level keyboard state machine is byte-accurate at the OS-
+  visible interface.
+
 - **Test impact**: The keyboard emulation suite parametrises every
   TEST_CASE over a `kConfigs` matrix; Mihin entries carry
   `hasRusMode = false` so the four РУС-mode TEST_CASEs skip them
@@ -258,26 +271,3 @@
   of ШЩЧЭ; check whether one releases the host Shift before sending
   and the other doesn't.
 
-## TODO: automated keyboard regression tests
-
-- **Why**: The smart-ALL-UP fix (modifier-aware) caught a real bug
-  (random POST reboots in SABOT2, manual-D halt in Mihin) but each
-  iteration required full manual verification — start emulator, boot
-  several OSes, type, switch RUS/LAT, hold Shift, observe.  That cycle
-  is slow and skips coverage easily.
-- **Goal**: a headless test that runs a boot, feeds a scripted scancode
-  sequence into the keyboard, and asserts on observable state
-  (screen text via `ScreenReader`, register values, no spurious POST
-  re-entry).
-- **Sketch**:
-  - Extend `tests/test_boot.cpp`: after each ROM × disk pair boots
-    successfully, fire a small scenario:
-    1. press a regular key, release → expect no ALL-UP, no POST re-entry
-    2. press Shift, press letter, release both → expect ALL-UP exactly
-       once, no reboot, screen got upper-case
-    3. type "DIR\r" in RT-11/OSA → expect directory listing on screen
-  - Reuse `ms0515_frontend::ScreenReader` from the frontend tests to
-    sample VRAM text without needing SDL/ImGui.
-  - Drive scancodes via `ms7004_key()` directly (bypass SDL).
-- **Cost**: small per-test runtime, biggest risk is flakiness from
-  timing assumptions — frame counts must be generous.
