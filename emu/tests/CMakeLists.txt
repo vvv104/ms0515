@@ -17,6 +17,7 @@ add_executable(ms0515_tests
     test_boot.cpp
     test_disassembler.cpp
     test_keyboard_emulated.cpp
+    test_floppy.cpp
 )
 
 target_compile_features(ms0515_tests PRIVATE cxx_std_23)

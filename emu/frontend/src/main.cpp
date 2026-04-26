@@ -9,26 +9,30 @@
  *
  * CLI:
  *   ms0515 [--rom <path>]
- *          [--disk0-side0 <path>] [--disk0-side1 <path>]   (-d0s0/-d0s1)
- *          [--disk1-side0 <path>] [--disk1-side1 <path>]   (-d1s0/-d1s1)
+ *          [--disk0 <path>] | [--disk0-side0 <path>] [--disk0-side1 <path>]
+ *          [--disk1 <path>] | [--disk1-side0 <path>] [--disk1-side1 <path>]
+ *          (short aliases: -d0/-d0s0/-d0s1, -d1/-d1s0/-d1s1)
  *          [--screen-dump stderr|stdout|<path>]
  *          [--history-size N]               (events; 0 disables)
  *          [--history-watch-addr A] [--history-watch-len L]  (MEMW evts)
  *          [--history-read-watch-addr A] [--history-read-watch-len L]
  *
- * Each disk image represents ONE side of a 5.25" diskette (single-side,
- * 409600 bytes).  The hardware exposes four logical floppy units (the
- * core driver still calls them FD0..FD3, mapped via bits 1:0 of System
- * Register A); the user-facing CLI/YAML names them by drive + side:
+ * Disk-mount options come in two flavours:
+ *   - Single-side mounts: `--diskN-sideM` (-dNsM) — one 409600-byte
+ *     image per physical side.  The core driver calls these logical
+ *     units FD0..FD3, mapped via bits 1:0 of System Register A:
  *
- *      --disk0-side0  ↔  drive 0, lower head (= core FD0)
- *      --disk0-side1  ↔  drive 0, upper head (= core FD2)
- *      --disk1-side0  ↔  drive 1, lower head (= core FD1)
- *      --disk1-side1  ↔  drive 1, upper head (= core FD3)
+ *         --disk0-side0  ↔  drive 0, lower head (= core FD0)
+ *         --disk0-side1  ↔  drive 0, upper head (= core FD2)
+ *         --disk1-side0  ↔  drive 1, lower head (= core FD1)
+ *         --disk1-side1  ↔  drive 1, upper head (= core FD3)
  *
- * Future option for double-sided images (one path covers both sides of
- * a drive, accessed via offset within the file): `--disk0` / `--disk1`
- * — not yet implemented.
+ *   - Double-sided mount: `--diskN` (-dN) — one 819200-byte image
+ *     covering both sides of one drive.  fdc_attach() detects the
+ *     image size and offsets the upper-side unit so reads and writes
+ *     for either side go to the right half of the original file.
+ *     `--diskN` and `--diskN-sideM` for the same N are mutually
+ *     exclusive.
  *
  * Defaults: loads reference/docs/ms0515-roma.rom if --rom is not given.
  */
@@ -78,9 +82,13 @@ constexpr int fdcUnitFor(int drive, int side) noexcept
 
 struct CliArgs {
     std::string romPath;
-    /* fdPath[unit] — one image per core FDC unit (FD0..FD3 indexing).
-     * Frontend names these by (drive, side) — see fdcUnitFor(). */
+    /* fdPath[unit] — one single-side image per core FDC unit
+     * (FD0..FD3 indexing).  Frontend names these by (drive, side) —
+     * see fdcUnitFor(). */
     std::string fdPath[4];
+    /* dsPath[drive] — one double-sided image covering both sides of a
+     * drive.  Mutually exclusive with fdPath[fdcUnitFor(drive, 0|1)]. */
+    std::string dsPath[2];
     std::string screenDumpPath; /* --screen-dump: VRAM text output */
     std::string screenshotPath;
     int         maxFrames = 0;      /* 0 = run forever */
@@ -113,6 +121,7 @@ std::string configPath()
 /* Minimal YAML parser — only handles top-level "key: value" lines. */
 struct Config {
     std::string fdPath[4];
+    std::string dsPath[2];     /* double-sided per drive */
     std::string romPath;
     bool showKeyboard = false;
     bool showDebugger = false;
@@ -146,6 +155,8 @@ struct Config {
     bool isDefault() const {
         for (int i = 0; i < 4; ++i)
             if (!fdPath[i].empty()) return false;
+        for (int i = 0; i < 2; ++i)
+            if (!dsPath[i].empty()) return false;
         if (!romPath.empty() || showKeyboard || showDebugger || hostMode)
             return false;
         if (!lastDirDisk.empty() || !lastDirRom.empty() ||
@@ -194,7 +205,9 @@ Config loadConfig()
         if (vb == std::string::npos) val.clear();
         else val = val.substr(vb, ve - vb + 1);
 
-        if      (key == "disk0_side0") cfg.fdPath[fdcUnitFor(0, 0)] = val;
+        if      (key == "disk0")       cfg.dsPath[0] = val;
+        else if (key == "disk1")       cfg.dsPath[1] = val;
+        else if (key == "disk0_side0") cfg.fdPath[fdcUnitFor(0, 0)] = val;
         else if (key == "disk0_side1") cfg.fdPath[fdcUnitFor(0, 1)] = val;
         else if (key == "disk1_side0") cfg.fdPath[fdcUnitFor(1, 0)] = val;
         else if (key == "disk1_side1") cfg.fdPath[fdcUnitFor(1, 1)] = val;
@@ -247,11 +260,19 @@ void saveConfig(const Config &cfg)
     std::ofstream f(path);
     if (!f) return;
     f << "# MS0515 emulator configuration\n";
+    /* Double-sided drives take precedence — when set, the side-N
+     * fields below are not also written for the same drive. */
+    static constexpr const char *kDsKeys[] = {"disk0", "disk1"};
+    for (int drive = 0; drive < 2; ++drive) {
+        if (!cfg.dsPath[drive].empty())
+            f << kDsKeys[drive] << ": \"" << cfg.dsPath[drive] << "\"\n";
+    }
     static constexpr struct { int drive, side; const char *name; } kSlots[] = {
         {0, 0, "disk0_side0"}, {0, 1, "disk0_side1"},
         {1, 0, "disk1_side0"}, {1, 1, "disk1_side1"},
     };
     for (const auto &s : kSlots) {
+        if (!cfg.dsPath[s.drive].empty()) continue;  /* DS owns this drive */
         const auto &p = cfg.fdPath[fdcUnitFor(s.drive, s.side)];
         if (!p.empty())
             f << s.name << ": \"" << p << "\"\n";
@@ -403,9 +424,10 @@ std::string findDefaultRom()
     return {};
 }
 
-/* Quick disk-image format gate.  Step 1A only accepts a 409600-byte
- * single-side image, since each --diskN-sideM CLI option targets one
- * physical side.  Bigger or smaller files are rejected before
+/* Quick disk-image format gate.  Each --diskN-sideM CLI option
+ * targets one physical side and must be a 409600-byte SS image;
+ * each --diskN option targets a whole drive and must be a 819200-
+ * byte DS image.  Files of other sizes are rejected before
  * fdc_attach() opens them — so unknown formats fail early with a
  * clear stderr message rather than getting silently mounted as
  * garbage.  Returns std::nullopt on success, or a human-readable
@@ -422,13 +444,35 @@ validateSingleSideImage(const std::string &path)
         return std::nullopt;
     if (sz == 819200)
         return std::format(
-            "'{}' is a double-sided image (819200 bytes); --diskN-sideM "
-            "expects a single-side dump (409600 bytes).  Double-sided "
-            "support is on the way; for now split it into two halves.",
+            "'{}' is a double-sided image (819200 bytes).  Use "
+            "--diskN (or -dN) to mount a whole double-sided drive "
+            "from one image.",
             path);
     return std::format(
         "'{}' has unrecognised disk format (size {} bytes; expected 409600 "
         "for a single-side image).",
+        path, static_cast<unsigned long long>(sz));
+}
+
+static std::optional<std::string>
+validateDoubleSidedImage(const std::string &path)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    auto sz = fs::file_size(path, ec);
+    if (ec)
+        return std::format("cannot stat '{}': {}", path, ec.message());
+    if (sz == 819200)
+        return std::nullopt;
+    if (sz == 409600)
+        return std::format(
+            "'{}' is a single-side image (409600 bytes).  Use "
+            "--diskN-side0 (or -dNs0) to mount it on one side of "
+            "a drive.",
+            path);
+    return std::format(
+        "'{}' has unrecognised disk format (size {} bytes; expected 819200 "
+        "for a double-sided image).",
         path, static_cast<unsigned long long>(sz));
 }
 
@@ -463,10 +507,9 @@ std::vector<std::string> discoverRoms()
     return result;
 }
 
-/* Disk-mount option table.  Each entry binds a long form
+/* Single-side disk-mount option table.  Each entry binds a long form
  * (`--diskN-sideM`) and a short alias (`-dNsM`) to a (drive, side)
- * pair — the new user-facing names introduced when the legacy
- * `--fd0..fd3` flags were retired. */
+ * pair. */
 struct DiskOption {
     const char *longForm;
     const char *shortForm;
@@ -478,6 +521,18 @@ static constexpr DiskOption kDiskOptions[] = {
     {"--disk0-side1", "-d0s1", 0, 1},
     {"--disk1-side0", "-d1s0", 1, 0},
     {"--disk1-side1", "-d1s1", 1, 1},
+};
+
+/* Double-sided disk-mount option table.  Each entry binds a long
+ * form (`--diskN`) and a short alias (`-dN`) to a drive index. */
+struct DoubleSidedOption {
+    const char *longForm;
+    const char *shortForm;
+    int         drive;
+};
+static constexpr DoubleSidedOption kDoubleSidedOptions[] = {
+    {"--disk0", "-d0", 0},
+    {"--disk1", "-d1", 1},
 };
 
 /* Detects the legacy CLI options we removed (--fd0..fd3, --disk,
@@ -525,6 +580,14 @@ CliArgs parseArgs(int argc, char **argv)
                        });
                    opt != std::end(kDiskOptions) && i + 1 < argc) {
             out.fdPath[fdcUnitFor(opt->drive, opt->side)] = argv[++i];
+        } else if (auto *dsOpt = std::find_if(
+                       std::begin(kDoubleSidedOptions),
+                       std::end(kDoubleSidedOptions),
+                       [&](const DoubleSidedOption &o) {
+                           return a == o.longForm || a == o.shortForm;
+                       });
+                   dsOpt != std::end(kDoubleSidedOptions) && i + 1 < argc) {
+            out.dsPath[dsOpt->drive] = argv[++i];
         } else if (a == "--frames" && i + 1 < argc) {
             out.maxFrames = std::atoi(argv[++i]);
         } else if (a == "--screen-dump" && i + 1 < argc) {
@@ -660,6 +723,10 @@ int main(int argc, char **argv)
         if (cli.fdPath[i].empty() && !config.fdPath[i].empty())
             cli.fdPath[i] = config.fdPath[i];
     }
+    for (int i = 0; i < 2; ++i) {
+        if (cli.dsPath[i].empty() && !config.dsPath[i].empty())
+            cli.dsPath[i] = config.dsPath[i];
+    }
 
     /* Resolve the ROM path: CLI > config > auto-detect. */
     if (cli.romPath.empty() && !config.romPath.empty())
@@ -765,6 +832,46 @@ int main(int argc, char **argv)
         romStatus = "ROM: " + currentRomPath;
     }
     for (int drive = 0; drive < 2; ++drive) {
+        const bool wantDs = !cli.dsPath[drive].empty();
+        const bool wantSide0 = !cli.fdPath[fdcUnitFor(drive, 0)].empty();
+        const bool wantSide1 = !cli.fdPath[fdcUnitFor(drive, 1)].empty();
+
+        if (wantDs && (wantSide0 || wantSide1)) {
+            std::fprintf(stderr,
+                "error: --disk%d (-d%d) is mutually exclusive with "
+                "--disk%d-sideN (-d%dsN); pick one.  Skipping drive %d.\n",
+                drive, drive, drive, drive, drive);
+            continue;
+        }
+
+        if (wantDs) {
+            if (auto err = validateDoubleSidedImage(cli.dsPath[drive])) {
+                std::fprintf(stderr,
+                    "error: cannot mount disk %d (double-sided): %s\n",
+                    drive, err->c_str());
+                continue;
+            }
+            int unit0 = fdcUnitFor(drive, 0);
+            int unit1 = fdcUnitFor(drive, 1);
+            bool ok0 = emu.mountDisk(unit0, cli.dsPath[drive]);
+            bool ok1 = emu.mountDisk(unit1, cli.dsPath[drive]);
+            if (ok0 && ok1) {
+                config.dsPath[drive] = cli.dsPath[drive];
+                /* DS-mount owns both sides — drop any stale per-side
+                 * config so the next save reflects reality. */
+                config.fdPath[unit0].clear();
+                config.fdPath[unit1].clear();
+            } else {
+                std::fprintf(stderr,
+                    "error: failed to mount double-sided image '%s' "
+                    "on drive %d\n",
+                    cli.dsPath[drive].c_str(), drive);
+                if (ok0) emu.unmountDisk(unit0);
+                if (ok1) emu.unmountDisk(unit1);
+            }
+            continue;
+        }
+
         for (int side = 0; side < 2; ++side) {
             int unit = fdcUnitFor(drive, side);
             if (cli.fdPath[unit].empty()) continue;

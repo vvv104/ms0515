@@ -99,18 +99,19 @@ cd package
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--rom <path>` | | ROM image (default: `assets/rom/ms0515-roma.rom`) |
-| `--disk0-side0 <path>` | `-d0s0` | Drive 0, lower side (single-side .dsk, 409600 bytes) |
+| `--disk0 <path>` | `-d0` | Drive 0, both sides from one 819200-byte image |
+| `--disk0-side0 <path>` | `-d0s0` | Drive 0, lower side (409600-byte SS image) |
 | `--disk0-side1 <path>` | `-d0s1` | Drive 0, upper side |
+| `--disk1 <path>` | `-d1` | Drive 1, both sides from one image |
 | `--disk1-side0 <path>` | `-d1s0` | Drive 1, lower side |
 | `--disk1-side1 <path>` | `-d1s1` | Drive 1, upper side |
 | `--screen-dump <path>` | | Dump VRAM text (`stderr` / `stdout` accepted) |
 
-Disks can also be mounted at runtime via the **File** menu.
+`--diskN` and `--diskN-sideM` for the same N are mutually exclusive.
 
-Double-sided disks (a single 819200-byte image covering both sides
-of one drive) need `--disk0` / `--disk1` — coming next.  Until then
-split such an image into two 409600-byte halves and mount each side
-explicitly.
+Disks can also be mounted at runtime via the **File** menu (single-
+side only at the moment; the menu still accepts double-sided images
+through `--disk0` / `--disk1` on the command line).
 
 Machine state can be saved and restored via **Machine → Save/Load State**.
 Snapshots use the `.ms0515` extension and include CPU, RAM, VRAM, timer,

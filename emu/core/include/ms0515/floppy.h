@@ -86,6 +86,7 @@ typedef struct {
     bool     read_only;         /* Write protection flag                    */
     bool     motor_on;          /* Motor is spinning                        */
     int      track;             /* Current track position (0–79)            */
+    long     image_offset;      /* Bytes added to every image fseek (DS-side base) */
 } fdc_drive_t;
 
 /* ── Asynchronous command state machine ──────────────────────────────────── */
@@ -147,9 +148,16 @@ void    fdc_reset(ms0515_floppy_t *fdc);
 /*
  * fdc_attach — Attach a disk image file to a logical unit (FD0..FD3).
  *
- * `unit` selects FD0..FD3 directly.  Each image represents one side of
- * a physical disk and must be FDC_DISK_SIZE bytes.  Returns true on
- * success.  The file is kept open until detach.
+ * `unit` selects FD0..FD3 directly.  The image base offset is picked
+ * automatically from the file size:
+ *   - FDC_DISK_SIZE  (single-side, 409600 bytes): offset 0
+ *   - FDC_DISK_SIZE*2 (double-side, 819200 bytes): offset 0 for the
+ *     side-0 units (FD0/FD1) and FDC_DISK_SIZE for the side-1 units
+ *     (FD2/FD3).  This lets one DS file be mounted to BOTH sides of
+ *     a drive (two fdc_attach calls with the same path) so reads and
+ *     writes go to the right halves of the original file.
+ *
+ * Returns true on success.  The file is kept open until detach.
  */
 bool    fdc_attach(ms0515_floppy_t *fdc, int unit, const char *path,
                    bool read_only);
