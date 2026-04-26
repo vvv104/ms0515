@@ -86,7 +86,12 @@ typedef struct {
     bool     read_only;         /* Write protection flag                    */
     bool     motor_on;          /* Motor is spinning                        */
     int      track;             /* Current track position (0–79)            */
-    long     image_offset;      /* Bytes added to every image fseek (DS-side base) */
+    long     image_offset;      /* Byte offset of this side's track 0 sec 1 */
+    long     track_stride;      /* Bytes between sector 1 of consecutive tracks
+                                 * (FDC_TRACK_SIZE for SS, 2×FDC_TRACK_SIZE
+                                 * for track-interleaved DS where each track
+                                 * occupies a contiguous slot covering both
+                                 * sides) */
 } fdc_drive_t;
 
 /* ── Asynchronous command state machine ──────────────────────────────────── */
@@ -148,14 +153,22 @@ void    fdc_reset(ms0515_floppy_t *fdc);
 /*
  * fdc_attach — Attach a disk image file to a logical unit (FD0..FD3).
  *
- * `unit` selects FD0..FD3 directly.  The image base offset is picked
- * automatically from the file size:
- *   - FDC_DISK_SIZE  (single-side, 409600 bytes): offset 0
- *   - FDC_DISK_SIZE*2 (double-side, 819200 bytes): offset 0 for the
- *     side-0 units (FD0/FD1) and FDC_DISK_SIZE for the side-1 units
- *     (FD2/FD3).  This lets one DS file be mounted to BOTH sides of
- *     a drive (two fdc_attach calls with the same path) so reads and
- *     writes go to the right halves of the original file.
+ * `unit` selects FD0..FD3 directly.  The image layout is picked from
+ * the file size:
+ *   - FDC_DISK_SIZE (409600 bytes) — single-side image.
+ *     image_offset = 0, track_stride = FDC_TRACK_SIZE.
+ *   - 2*FDC_DISK_SIZE (819200 bytes) — double-side image in
+ *     track-interleaved layout: each track occupies a contiguous
+ *     2*FDC_TRACK_SIZE slot, side 0 first then side 1
+ *     (T0S0, T0S1, T1S0, T1S1, ...).  Mount the same file to both
+ *     side units of a drive: side-0 units (FD0/FD1) get
+ *     image_offset = 0, side-1 units (FD2/FD3) get image_offset =
+ *     FDC_TRACK_SIZE.  Both share track_stride = 2*FDC_TRACK_SIZE.
+ *
+ * Track-interleaved is the only DS layout the emulator understands —
+ * it matches what raw MS0515 hardware dumps look like.  Other layouts
+ * (e.g. side-major concatenations) are not supported; convert with
+ * tools/split_double_sided.py first.
  *
  * Returns true on success.  The file is kept open until detach.
  */

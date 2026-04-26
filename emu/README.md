@@ -99,10 +99,10 @@ cd package
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--rom <path>` | | ROM image (default: `assets/rom/ms0515-roma.rom`) |
-| `--disk0 <path>` | `-d0` | Drive 0, both sides from one 819200-byte image |
+| `--disk0 <path>` | `-d0` | Drive 0, both sides from one 819200-byte track-interleaved image |
 | `--disk0-side0 <path>` | `-d0s0` | Drive 0, lower side (409600-byte SS image) |
 | `--disk0-side1 <path>` | `-d0s1` | Drive 0, upper side |
-| `--disk1 <path>` | `-d1` | Drive 1, both sides from one image |
+| `--disk1 <path>` | `-d1` | Drive 1, both sides from a track-interleaved image |
 | `--disk1-side0 <path>` | `-d1s0` | Drive 1, lower side |
 | `--disk1-side1 <path>` | `-d1s1` | Drive 1, upper side |
 | `--screen-dump <path>` | | Dump VRAM text (`stderr` / `stdout` accepted) |

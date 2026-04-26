@@ -28,11 +28,12 @@
  *         --disk1-side1  ↔  drive 1, upper head (= core FD3)
  *
  *   - Double-sided mount: `--diskN` (-dN) — one 819200-byte image
- *     covering both sides of one drive.  fdc_attach() detects the
- *     image size and offsets the upper-side unit so reads and writes
- *     for either side go to the right half of the original file.
- *     `--diskN` and `--diskN-sideM` for the same N are mutually
- *     exclusive.
+ *     in track-interleaved layout (T0S0, T0S1, T1S0, T1S1, ...) —
+ *     this is what raw MS0515 hardware dumps look like.
+ *     fdc_attach() detects the image size and gives the upper-side
+ *     unit an in-track offset so reads and writes for either side
+ *     land in the right half of each track slot.  `--diskN` and
+ *     `--diskN-sideM` for the same N are mutually exclusive.
  *
  * Defaults: looks for assets/rom/ms0515-roma.rom (the patched ROM-A,
  * relative to either the executable directory or the current working

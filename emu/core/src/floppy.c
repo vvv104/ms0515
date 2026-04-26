@@ -72,11 +72,15 @@ static fdc_drive_t *current_drive(ms0515_floppy_t *fdc)
 }
 
 /* Compute byte offset in the disk image for a given track/sector.
- * Each image is one side, so layout is: track 0 sectors 1..10, track 1
- * sectors 1..10, ... */
-static long disk_offset(int track, int sector)
+ * SS images: contiguous tracks, sectors 1..10 per track.
+ * DS images: each track occupies 2*FDC_TRACK_SIZE (side 0 then side 1
+ * back-to-back); per-drive image_offset / track_stride select the
+ * right slice for this unit. */
+static long disk_offset(const fdc_drive_t *drv, int sector)
 {
-    return (long)track * FDC_TRACK_SIZE + (long)(sector - 1) * FDC_SECTOR_SIZE;
+    return drv->image_offset
+         + (long)drv->track * drv->track_stride
+         + (long)(sector - 1) * FDC_SECTOR_SIZE;
 }
 
 static bool drive_ready(const ms0515_floppy_t *fdc)
@@ -109,7 +113,7 @@ static bool read_sector(ms0515_floppy_t *fdc)
     if (fdc->sector_reg < 1 || fdc->sector_reg > FDC_SECTORS)
         return false;
 
-    long offset = drv->image_offset + disk_offset(drv->track, fdc->sector_reg);
+    long offset = disk_offset(drv, fdc->sector_reg);
     if (fseek(drv->image, offset, SEEK_SET) != 0)
         return false;
 
@@ -131,7 +135,7 @@ static bool write_sector(ms0515_floppy_t *fdc)
     if (fdc->sector_reg < 1 || fdc->sector_reg > FDC_SECTORS)
         return false;
 
-    long offset = drv->image_offset + disk_offset(drv->track, fdc->sector_reg);
+    long offset = disk_offset(drv, fdc->sector_reg);
     if (fseek(drv->image, offset, SEEK_SET) != 0)
         return false;
 
@@ -273,25 +277,34 @@ bool fdc_attach(ms0515_floppy_t *fdc, int unit, const char *path,
     if (!f)
         return false;
 
-    /* Auto-detect the image's base offset for this unit:
-     *   single-side (FDC_DISK_SIZE  bytes) → offset 0 always
-     *   double-side (FDC_DISK_SIZE*2 bytes) → offset depends on side
-     *     unit < 2 (FD0/FD1, side 0) → offset 0
-     *     unit ≥ 2 (FD2/FD3, side 1) → offset FDC_DISK_SIZE
-     * Mounting the same DS file to both side-0 and side-1 units of one
-     * drive thus exposes both halves through one open file. */
-    long offset = 0;
+    /* Auto-detect layout from file size:
+     *   FDC_DISK_SIZE   (single-side):      track_stride = FDC_TRACK_SIZE,
+     *                                       image_offset = 0
+     *   2*FDC_DISK_SIZE (track-interleaved DS): track_stride = 2*FDC_TRACK_SIZE,
+     *                                       image_offset = 0 for side-0 units
+     *                                       (FD0/FD1), FDC_TRACK_SIZE for the
+     *                                       side-1 units (FD2/FD3).
+     * Anything else falls back to the SS layout — the file will read
+     * short / past-EOF garbage, but fdc_attach itself doesn't gate
+     * size; the frontend's format check is the user-friendly error
+     * surface. */
+    long image_offset = 0;
+    long track_stride = FDC_TRACK_SIZE;
     if (fseek(f, 0, SEEK_END) == 0) {
         long size = ftell(f);
-        if (size == 2 * FDC_DISK_SIZE && unit >= 2)
-            offset = FDC_DISK_SIZE;
+        if (size == 2 * FDC_DISK_SIZE) {
+            track_stride = 2 * FDC_TRACK_SIZE;
+            if (unit >= 2)
+                image_offset = FDC_TRACK_SIZE;
+        }
     }
     rewind(f);
 
     fdc->drives[unit].image        = f;
     fdc->drives[unit].read_only    = read_only;
     fdc->drives[unit].track        = 0;
-    fdc->drives[unit].image_offset = offset;
+    fdc->drives[unit].image_offset = image_offset;
+    fdc->drives[unit].track_stride = track_stride;
     return true;
 }
 
@@ -306,6 +319,7 @@ void fdc_detach(ms0515_floppy_t *fdc, int unit)
     }
     fdc->drives[unit].read_only    = false;
     fdc->drives[unit].image_offset = 0;
+    fdc->drives[unit].track_stride = FDC_TRACK_SIZE;
 }
 
 /*

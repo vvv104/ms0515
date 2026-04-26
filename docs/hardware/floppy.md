@@ -129,15 +129,24 @@ sectors — see `docs/filesystem.md` for the block-to-sector mapping.
 
 ### Double-sided raw images
 
-Floppy images captured by hardware readers (Catweasel, KryoFlux) are
-typically double-sided with track-interleaved layout:
+Floppy images captured by hardware readers (Catweasel, KryoFlux) and
+the surviving forum dumps are double-sided with track-interleaved
+layout:
 
 ```
 Track 0 Side 0, Track 0 Side 1, Track 1 Side 0, Track 1 Side 1, ...
 ```
 
-Total: 819,200 bytes.  Use `tools/split_double_sided.py` to split
-these into two single-sided images for the emulator.
+Total: 819,200 bytes.  The emulator reads this format natively —
+`fdc_attach` looks at the file size, sets `track_stride` to
+2*FDC_TRACK_SIZE (= 10240) for DS, and offsets the side-1 logical
+units (FD2/FD3) by FDC_TRACK_SIZE (= 5120) into each track slot.
+
+Mount via `--disk0 path` / `-d0 path` (similarly for drive 1) and
+both sides become readable through one open file with writes
+routed to the right halves.  `tools/split_double_sided.py` is no
+longer needed for emulator playback; it remains as a convenience
+for tools that only consume single-sided images.
 
 ## MFM Encoding
 

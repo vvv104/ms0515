@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-split_double_sided.py — Split double-sided raw floppy images into
-single-sided images understood by the MS0515 emulator.
+split_double_sided.py — Convert a track-interleaved raw floppy image
+into two single-sided images.
+
+The MS0515 emulator natively reads the 819200-byte track-interleaved
+raw layout via `--disk0` / `--disk1`, so this script is no longer
+required for emulator playback.  It remains useful when feeding
+those dumps to tools that only consume single-sided images, or when
+you want to inspect each side as a standalone file.
 
 Input:  819200-byte raw image (80 tracks × 2 sides × 10 sectors × 512 bytes)
         with track-interleaved layout: T0S0, T0S1, T1S0, T1S1, ...
@@ -14,9 +20,12 @@ Usage:
     python split_double_sided.py disk1.raw
     python split_double_sided.py disk1.raw disk2.raw disk3.raw ...
 
-Mount with:
+Mount the resulting halves with:
     ms0515 --disk0-side0 disk1_s0.img --disk0-side1 disk1_s1.img
 (short form: -d0s0 / -d0s1)
+
+Or skip the split entirely and mount the original image directly:
+    ms0515 --disk0 disk1.raw         (short form: -d0)
 """
 
 import sys
