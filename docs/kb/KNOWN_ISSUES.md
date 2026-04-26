@@ -1,19 +1,31 @@
 # Known Issues
 
-## ms0515-roma-original.rom + omega-lang.dsk — pink screen, tight loop
+## ms0515-roma-original.rom + Omega disks — pink screen, stuck boot
 
-- **ROM**: ms0515-roma-original.rom (original unpatched ROM-A)
-- **Disk**: omega-lang.dsk (Omega — language disk)
-- **Symptom**: Screen fills with pink background, CPU enters tight loop.
-  The patched ROM-A (`ms0515-roma.rom`) boots this disk successfully.
-- **Likely cause**: Original ROM-A initialises video or memory differently,
-  causing the Omega loader to write to wrong addresses or misconfigure
-  the display mode.
+- **ROM**: `ms0515-roma-original.rom` (original unpatched ROM-A)
+- **Disks**: any Omega image —
+  `emu/assets/disks/omega-lang.dsk` ships and reproduces this; the
+  trimmed-OS fixture `emu/tests/disks/test_omega.dsk` (derived from
+  the same Omega) inherits the same failure mode and is what the
+  boot test exercises.
+- **Symptom**: Screen border turns pink (palette index 5) very
+  early, only the BIOS banner ("НГМД готов..." + "ОМЕГА SJ(S)
+  V05.04") makes it onto the framebuffer, and the system never
+  reaches a prompt.  The patched ROM-A (`ms0515-roma.rom`) boots
+  the same disks successfully.
+- **Detection in tests**: the boot suite records `BootResult::borderColor`
+  and treats `borderColor != 0` as a failure.  The known-bad entry
+  `{ms0515-roma-original.rom, test_omega.dsk}` demotes that
+  failure to a `WARN` so the suite stays green.
+- **Likely cause**: original ROM-A initialises the video or memory
+  dispatcher differently from the patched build, causing Omega's
+  loader to write to wrong addresses or leave the display
+  mis-configured.
 
 ## Mihin (OS-16SJ) — РУС/ЛАТ key prints `^N`/`^O`, locks input on exit
 
 - **ROMs**: ROM-A and ROM-B both affected (different flavours)
-- **Disks**: any Mihinsoft / OS-16SJ image (`mihin.dsk`, `kbtest_mihin.dsk`)
+- **Disks**: any Mihinsoft / OS-16SJ image (`mihin.dsk`, `tests/disks/test_mihin.dsk`)
 - **Reproduction**:
   Boot Mihin to its dot prompt, then tap the РУС/ЛАТ key.  The first
   tap prints two characters at the cursor (visible garbage); the
@@ -89,7 +101,10 @@
 
 - **ROM**: all ROMs
 - **Disk**: rodionov.dsk (forum collection, RT-15SJ with ROSA Commander v1.3
-  by Rodionov S.A., Voronezh, 1993)
+  by Rodionov S.A., Voronezh, 1993).  Not shipped in the repo —
+  obtain a local copy if you want to follow these notes;
+  rodionov2.dsk is the partial-bypass variant we built during
+  investigation, also local-only.
 - **Protection mechanism (fully reversed)**:
   1. Trap vector 64 fires periodically; the handler at RAM `0o137374`
      reaches the protection block via RAM `0o141744`.
@@ -125,7 +140,7 @@
      left `@#157712`/`@#157760` in a self-consistent state before
      returning.  Without that call, the pixel-writing arms at 142122-140
      and 142236-246 run on uninitialised scratch.
-- **Partial bypass**: `emu/assets/disks/rodionov2.dsk` contains bytes
+- **Partial bypass**: `rodionov2.dsk` contains bytes
   `03 01 01 01` at offset `0x400` (track 0 sector 3).  That encodes
   `BR +3` at RAM 142110, which jumps over both 2nd-slot and
   `TSTB @#157760` straight to `0o142120`.  Byte `0o63 = 1` satisfies
@@ -159,11 +174,12 @@
   `BISB`/`COMB` paths become logo draws instead of artefacts.
   Brute-forcing all 2³² combinations against expected visual output
   is the only remaining avenue without the source disk.
-- **Boot command**:
+- **Boot command** (paths are wherever you keep your local copies of
+  the disks):
   ```
   ms0515.exe --rom assets/rom/ms0515-roma.rom \
-             --disk0-side0 assets/disks/rodionov.dsk \
-             --disk0-side1 assets/disks/rodionov2.dsk
+             --disk0-side0 path/to/rodionov.dsk \
+             --disk0-side1 path/to/rodionov2.dsk
   ```
 
 ### Reverse engineering notes
@@ -185,8 +201,9 @@
 
 ## ROM monitor `D` command with no disk attached — silent BIOS spin
 
-- **Scenario**: From the ROM monitor prompt, press `D` to boot from FD0
-  without any disk image mounted to that drive.
+- **Scenario**: From the ROM monitor prompt, press `D` to boot from
+  drive 0 (FD0 in the core's logical-unit naming) without any disk
+  image mounted to that drive.
 - **Symptom**: Emulator appears frozen.  CPU spins in
   ```
   163720: MOV #177640, R4
@@ -215,7 +232,7 @@
   `drive_ready()` and lets BIOS continue.
 - **Possible improvements** (regardless of root cause):
   1. Surface a hint in the menu bar after the CPU has spent ~1 s in
-     this loop ("FD0 not ready — Reset or mount a disk").
+     this loop ("Disk 0 not ready — Reset or mount a disk").
   2. Auto-pause and offer a mount dialog.
   3. Investigate the ROM string table for an unused error message.
 

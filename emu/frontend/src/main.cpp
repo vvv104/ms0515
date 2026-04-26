@@ -34,7 +34,9 @@
  *     `--diskN` and `--diskN-sideM` for the same N are mutually
  *     exclusive.
  *
- * Defaults: loads reference/docs/ms0515-roma.rom if --rom is not given.
+ * Defaults: looks for assets/rom/ms0515-roma.rom (the patched ROM-A,
+ * relative to either the executable directory or the current working
+ * directory) when --rom is not given.  Other ROMs need explicit --rom.
  */
 
 #include <SDL.h>

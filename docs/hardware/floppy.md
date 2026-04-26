@@ -35,6 +35,23 @@ of System Register A; the emulator refers to these four slots as FD0..FD3.
 names, not hardware designations, and the emulator deliberately avoids
 them.)
 
+The user-facing emulator CLI / YAML / GUI describe each unit as
+"drive N, side M" (e.g. `--disk0-side0`, `disk0_side0:` in the YAML
+config, "Disk 0 side 0" in the File menu).  That maps onto the
+hardware naming above as
+
+| User-facing       | Core unit |
+|-------------------|-----------|
+| disk 0, side 0    | FD0       |
+| disk 0, side 1    | FD2       |
+| disk 1, side 0    | FD1       |
+| disk 1, side 1    | FD3       |
+
+`--disk0` (and `--disk1`) is a convenience for one 819200-byte
+double-sided image: it mounts the same file on both side units of
+the drive, and `fdc_attach` picks the right offset for each side
+automatically.
+
 ## FDC Register Addresses
 
 | Address | Read          | Write         |

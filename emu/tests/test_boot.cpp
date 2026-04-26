@@ -6,8 +6,11 @@
  * initialised.
  *
  * ROMs are discovered from ASSETS_DIR/rom (.rom files); disks from
- * ASSETS_DIR/disks (.dsk files).  Adding a new ROM or disk image to the
- * corresponding directory automatically creates new test cases.
+ * TESTS_DIR/disks (.dsk files).  Adding a new ROM or test-fixture
+ * disk to the corresponding directory automatically creates new
+ * test cases.  emu/assets/disks/ is reserved for the original-OS
+ * images shipped to end users and is intentionally not exercised
+ * by the suite.
  *
  * These are integration tests that exercise the entire stack:
  * CPU → memory → board → timer → keyboard → FDC.
@@ -17,6 +20,7 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -26,6 +30,9 @@ extern "C" {
 }
 
 #include <ms0515/Emulator.hpp>
+#include <ms0515/ScreenReader.hpp>
+
+#include "test_disk.hpp"
 
 namespace fs = std::filesystem;
 
@@ -37,14 +44,17 @@ TEST_SUITE("Boot") {
 
 /* ── Asset discovery ────────────────────────────────────────────────────── */
 
-static const std::string kAssetsDir = ASSETS_DIR;
-static const std::string kRomDir    = kAssetsDir + "/rom";
-static const std::string kDiskDir   = kAssetsDir + "/disks";
+/* ROMs come from the release-side assets tree (where they ride along
+ * to end users); disk fixtures come from the tests tree.  The boot
+ * suite never touches emu/assets/disks/ — that directory is reserved
+ * for the original-OS images that ship in the package, and we
+ * exercise the emulator against the trimmed-OS test_*.dsk fixtures
+ * instead. */
+static const std::string kRomDir    = std::string{ASSETS_DIR} + "/rom";
+static const std::string kDiskDir   = std::string{TESTS_DIR}  + "/disks";
 
 /* Collect all files matching an extension in a directory.
- * Returns filenames sorted alphabetically for stable ordering.
- * Files starting with "kbtest_" are reserved for the keyboard-emulation
- * test (which prepares its own boot state) and are skipped here. */
+ * Returns filenames sorted alphabetically for stable ordering. */
 static std::vector<std::string> discoverFiles(const std::string &dir,
                                               const std::string &ext)
 {
@@ -54,10 +64,7 @@ static std::vector<std::string> discoverFiles(const std::string &dir,
     for (const auto &entry : fs::directory_iterator(dir)) {
         if (!entry.is_regular_file() || entry.path().extension() != ext)
             continue;
-        const std::string name = entry.path().filename().string();
-        if (name.starts_with("kbtest_"))
-            continue;
-        result.push_back(name);
+        result.push_back(entry.path().filename().string());
     }
     std::sort(result.begin(), result.end());
     return result;
@@ -67,26 +74,13 @@ static std::vector<std::string> discoverFiles(const std::string &dir,
 
 /* ROM+disk pairs that are known to fail.  These are tested with WARN
  * instead of CHECK so the suite stays green while the issues are
- * documented.  See also: assets/KNOWN_ISSUES.md */
+ * documented.  See also: docs/kb/KNOWN_ISSUES.md */
 static const std::set<std::pair<std::string, std::string>> kKnownBad = {
-    {"ms0515-roma-original.rom", "omega-lang.dsk"},
-    /* rodionov.dsk is copy-protected and needs rodionov2.dsk on FD2 plus
-     * the patched ms0515-roma.rom.  The boot matrix mounts only FD0, so
-     * every ROM × rodionov*.dsk combination halts or tight-loops here.
-     * See docs/kb/KNOWN_ISSUES.md. */
-    {"ms0515-roma.rom",          "rodionov.dsk"},
-    {"ms0515-roma-original.rom", "rodionov.dsk"},
-    {"ms0515-romb.rom",          "rodionov.dsk"},
-    {"ms0515-roma.rom",          "rodionov2.dsk"},
-    {"ms0515-roma-original.rom", "rodionov2.dsk"},
-    {"ms0515-romb.rom",          "rodionov2.dsk"},
-    /* 065_full.dsk is a 819200-byte raw track dump (different
-     * sector layout from our linear .dsk format).  Loader support
-     * is on the roadmap; for now the BIOS halts at PC=0o2 trying
-     * to interpret the boot block as code. */
-    {"ms0515-roma.rom",          "065_full.dsk"},
-    {"ms0515-roma-original.rom", "065_full.dsk"},
-    {"ms0515-romb.rom",          "065_full.dsk"},
+    /* test_omega.dsk inherits Omega's video-mode setup from omega-lang
+     * — boots fine on the patched ROM-A but turns the screen pink and
+     * stalls on the unpatched ms0515-roma-original.rom.  See the
+     * "pink screen, tight loop" entry in docs/kb/KNOWN_ISSUES.md. */
+    {"ms0515-roma-original.rom", "test_omega.dsk"},
 };
 
 static bool isKnownBad(const std::string &rom, const std::string &disk)
@@ -105,19 +99,29 @@ struct BootResult {
     bool     vramPopulated;    /* any non-zero byte in VRAM */
     bool     kbdInitialised;   /* USART init_step advanced */
     bool     tightLoop;        /* PC did not change over last N frames */
+    bool     reachedPrompt;    /* a row starts with '.' (the cmd prompt) */
+    uint8_t  borderColor;      /* 0..7; recorded for diagnosis only */
 };
 
 static BootResult runBoot(const std::string &romPath,
                           const std::string &diskPath,
                           int frames)
 {
+    /* TempDisk first → destructed last (after Emulator releases its
+     * FILE handle) so the temp copy is always cleaned up.  The
+     * fixture in tests/disks/ stays pristine even if the OS would
+     * try to write to the disk during boot. */
+    std::optional<ms0515_test::TempDisk> td;
+    if (!diskPath.empty())
+        td.emplace(diskPath);
+
     ms0515::Emulator emu;
 
     if (!emu.loadRomFile(romPath))
-        return {true, false, 0, 0, 0, false, false, false};
+        return {true, false, 0, 0, 0, false, false, false, false, 0};
 
-    if (!diskPath.empty())
-        (void)emu.mountDisk(0, diskPath);
+    if (td)
+        (void)emu.mountDisk(0, td->path().string());
 
     emu.reset();
 
@@ -160,12 +164,35 @@ static BootResult runBoot(const std::string &romPath,
     /* Check keyboard USART was initialised */
     r.kbdInitialised = (emu.board().kbd.init_step > 0);
 
+    r.borderColor = emu.borderColor();
+
+    /* Did the OS reach a command prompt?  The keyboard monitors of
+     * OSA, Omega and Mihin all use '.' as the prompt character, so
+     * "any row whose first non-blank glyph is '.'" is a reliable
+     * signal that boot finished and is waiting for input.  Failed
+     * boots (pink-screen Omega on the unpatched ROM-A, etc.) sit
+     * with the BIOS banner only and never produce a '.'. */
+    {
+        ms0515::ScreenReader sr;
+        sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
+        auto snap = sr.readScreen({vram, MEM_VRAM_SIZE}, emu.isHires());
+        r.reachedPrompt = false;
+        for (int row = 0; row < ms0515::ScreenReader::kRows; ++row) {
+            const auto rs = snap.row(row);
+            if (!rs.empty() && rs[0] == '.') {
+                r.reachedPrompt = true;
+                break;
+            }
+        }
+    }
+
     return r;
 }
 
-/* How many frames to boot.  At 50 Hz, 200 frames = 4 seconds of
- * emulated time — enough for POST + disk boot on all known ROMs. */
-static constexpr int kBootFrames = 200;
+/* How many frames to boot.  At 50 Hz, 600 frames = 12 seconds of
+ * emulated time — enough for POST + disk boot to reach a command
+ * prompt on all known good combinations. */
+static constexpr int kBootFrames = 600;
 
 /* Frames for POST-only test (no disk, just ROM self-test). */
 static constexpr int kPostFrames = 100;
@@ -212,6 +239,9 @@ TEST_CASE("Boot: ROM + disk matrix") {
                             "[known-bad] CPU stuck at PC=0"
                             << std::oct << r.pc);
                         WARN(r.vramPopulated);
+                        WARN_MESSAGE(r.reachedPrompt,
+                            "[known-bad] no '.' prompt visible after "
+                            << kBootFrames << " frames");
                     } else {
                         CHECK_MESSAGE(!r.halted,
                             "CPU halted at PC=0" << std::oct << r.pc);
@@ -219,6 +249,11 @@ TEST_CASE("Boot: ROM + disk matrix") {
                             "CPU stuck in tight loop at PC=0"
                             << std::oct << r.pc);
                         CHECK(r.vramPopulated);
+                        CHECK_MESSAGE(r.reachedPrompt,
+                            "no '.' prompt visible after "
+                            << kBootFrames
+                            << " frames — boot did not reach a usable "
+                            "state");
                     }
                 }
             }

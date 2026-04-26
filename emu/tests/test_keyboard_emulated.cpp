@@ -17,9 +17,11 @@
  * for every one of them; a divergence shows up as a failed SUBCASE
  * named after the offending combination.
  *
- * Reference disks: `assets/disks/kbtest_osa.dsk` and
- * `assets/disks/kbtest_omega.dsk` — both boot straight to the dot
- * prompt with echo enabled.
+ * Reference disks: `tests/disks/test_osa.dsk` and
+ * `tests/disks/test_omega.dsk` — both boot straight to the dot
+ * prompt with echo enabled.  These trimmed-OS images live under the
+ * tests tree (rather than emu/assets/disks/) because they're for
+ * test fixtures, not for end-user runtime.
  */
 
 #include <doctest/doctest.h>
@@ -30,10 +32,11 @@
 #include <ms0515/memory.h>
 #include <ms0515/ms7004.h>
 
+#include "test_disk.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
-#include <random>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -55,7 +58,7 @@ namespace {
  */
 struct TestConfig {
     const char *rom;       /* path to the .rom file                  */
-    const char *disk;      /* path to the kbtest_*.dsk image         */
+    const char *disk;      /* path to the tests/disks/test_*.dsk image */
     const char *name;      /* short label used as the doctest subcase name */
     bool        hasRusMode;/* monitor honours the РУС/ЛАТ scancode   */
 };
@@ -67,17 +70,17 @@ struct TestConfig {
  * РУС/ЛАТ toggle skip those configs.
  */
 constexpr TestConfig kConfigs[] = {
-    {ASSETS_DIR "/rom/ms0515-roma.rom", ASSETS_DIR "/disks/kbtest_osa.dsk",
+    {ASSETS_DIR "/rom/ms0515-roma.rom", TESTS_DIR "/disks/test_osa.dsk",
      "ROM-A + OSA",   true},
-    {ASSETS_DIR "/rom/ms0515-roma.rom", ASSETS_DIR "/disks/kbtest_omega.dsk",
+    {ASSETS_DIR "/rom/ms0515-roma.rom", TESTS_DIR "/disks/test_omega.dsk",
      "ROM-A + Omega", true},
-    {ASSETS_DIR "/rom/ms0515-roma.rom", ASSETS_DIR "/disks/kbtest_mihin.dsk",
+    {ASSETS_DIR "/rom/ms0515-roma.rom", TESTS_DIR "/disks/test_mihin.dsk",
      "ROM-A + Mihin", false},
-    {ASSETS_DIR "/rom/ms0515-romb.rom", ASSETS_DIR "/disks/kbtest_osa.dsk",
+    {ASSETS_DIR "/rom/ms0515-romb.rom", TESTS_DIR "/disks/test_osa.dsk",
      "ROM-B + OSA",   true},
-    {ASSETS_DIR "/rom/ms0515-romb.rom", ASSETS_DIR "/disks/kbtest_omega.dsk",
+    {ASSETS_DIR "/rom/ms0515-romb.rom", TESTS_DIR "/disks/test_omega.dsk",
      "ROM-B + Omega", true},
-    {ASSETS_DIR "/rom/ms0515-romb.rom", ASSETS_DIR "/disks/kbtest_mihin.dsk",
+    {ASSETS_DIR "/rom/ms0515-romb.rom", TESTS_DIR "/disks/test_mihin.dsk",
      "ROM-B + Mihin", false},
 };
 
@@ -89,39 +92,7 @@ constexpr int kBootFramesMax = 600;
 /* Frames to wait after each key press for the OS to echo. */
 constexpr int kEchoFrames = 4;
 
-/* ── TempDisk: writeable copy of a pristine asset disk ──────────────────── */
-
-/*
- * Tests must NEVER write directly to assets/disks/*.dsk.  Some Soviet
- * OSes flush dirty buffer pages back on file close and corrupt the
- * image (see KNOWN_ISSUES.md "type STARTS.COM disk-corruption").  Each
- * test mounts its own copy in the OS temp dir; the original stays
- * pristine.  Copy is removed on destructor — ignore failures since the
- * file may still be open inside Emulator at that point.
- */
-class TempDisk {
-    fs::path path_;
-public:
-    explicit TempDisk(const fs::path &source)
-    {
-        std::random_device rd;
-        const auto stem = source.stem().string();
-        const auto ext  = source.extension().string();
-        path_ = fs::temp_directory_path()
-              / fs::path{"ms0515_kbtest_" + std::to_string(rd())
-                         + "_" + stem + ext};
-        fs::copy_file(source, path_, fs::copy_options::overwrite_existing);
-    }
-    ~TempDisk()
-    {
-        std::error_code ec;
-        fs::remove(path_, ec);
-    }
-    TempDisk(const TempDisk &)            = delete;
-    TempDisk &operator=(const TempDisk &) = delete;
-
-    [[nodiscard]] const fs::path &path() const noexcept { return path_; }
-};
+using ms0515_test::TempDisk;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
@@ -261,9 +232,17 @@ constexpr LetterCase kLetters[] = {
  * entry from `kConfigs` without globals.
  */
 struct TypingFixture {
+    /* Field order matters: members are destroyed in reverse
+     * declaration order, and TempDisk's destructor calls
+     * fs::remove() on its file.  If `emu` were declared after the
+     * disk, it would still hold the FILE handle open when TempDisk
+     * tried to remove the file (Windows would refuse the unlink),
+     * leaving stale copies in build/tests/temp/.  Declaring the
+     * disk first makes it the LAST to destruct, after emu has
+     * closed its handles. */
+    TempDisk             disk;
     ms0515::Emulator     emu;
     ms0515::ScreenReader sr;
-    TempDisk             disk;
     int                  promptRow = -1;   /* set by bootToPrompt */
 
     TypingFixture(const char *romPath, const char *diskPath)
@@ -569,13 +548,15 @@ TEST_CASE("brute-force scancode → OS echo (diagnostic)" * doctest::skip()) {
  */
 TEST_CASE("boot to prompt") {
     FOR_EACH_CONFIG() {
+        /* TempDisk first → destroyed last (after emu releases its
+         * FILE handle), so the temp copy actually gets cleaned up. */
+        TempDisk td{cfg.disk};
         ms0515::Emulator emu;
         REQUIRE(emu.loadRomFile(cfg.rom));
 
         ms0515::ScreenReader sr;
         sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
 
-        TempDisk td{cfg.disk};
         REQUIRE(emu.mountDisk(0, td.path().string()));
 
         emu.reset();
