@@ -23,6 +23,7 @@
 
 #include <ms0515/i8035.h>
 #include <ms0515/i8243.h>
+#include <ms0515/ms7004.h>      /* for ms7004_key_t enum (mapping table) */
 
 #ifdef __cplusplus
 extern "C" {
@@ -102,10 +103,14 @@ void ms7004_fw_init(ms7004_fw_t *fw,
 void ms7004_fw_reset(ms7004_fw_t *fw);
 
 /* Press or release a key by matrix position.  `col` must be 0..15,
- * `row` must be 0..7; out-of-range arguments are ignored.  The
- * mapping from `ms7004_key_t` to (col, row) lives in the facade
- * layer (phase 3c/3d). */
+ * `row` must be 0..7; out-of-range arguments are ignored. */
 void ms7004_fw_press(ms7004_fw_t *fw, int col, int row, bool down);
+
+/* Press or release a key by ms7004_key_t enum value.  Looks up the
+ * (col, row) for the key from the firmware-derived MAME wiring table
+ * (see docs/kb/MS7004_WIRING.md) and forwards to ms7004_fw_press.
+ * Out-of-range or unmapped enum values are silently ignored. */
+void ms7004_fw_key(ms7004_fw_t *fw, ms7004_key_t key, bool down);
 
 /* Enqueue a host-to-keyboard byte to be shifted out on !INT, one bit
  * per 64 CPU cycles, starting on the next ms7004_fw_run_cycles call.

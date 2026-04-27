@@ -139,6 +139,65 @@ TEST_CASE("Host ID probe (0xAB) elicits a 2-byte response") {
     CHECK(fw.tx_history[boot_history + 1] == 0x00);
 }
 
+TEST_CASE("Key enum maps to the right matrix coords (firmware-derived)") {
+    /* Smoke-check the enum→(col,row) lookup table by pressing a few
+     * representative keys via the enum and inspecting the matrix
+     * bits directly. */
+    auto rom = load_firmware();
+    ms7004_fw_t fw;
+    ms7004_fw_init(&fw, rom.data(), (uint16_t)rom.size(), nullptr);
+
+    ms7004_fw_key(&fw, MS7004_KEY_F1, true);          /* col 12 row 1 */
+    CHECK((fw.matrix[12] & 0x02) != 0);
+    ms7004_fw_key(&fw, MS7004_KEY_F1, false);
+    CHECK(fw.matrix[12] == 0);
+
+    ms7004_fw_key(&fw, MS7004_KEY_RETURN, true);      /* col 5  row 5 */
+    CHECK((fw.matrix[5] & 0x20) != 0);
+    ms7004_fw_key(&fw, MS7004_KEY_RETURN, false);
+
+    ms7004_fw_key(&fw, MS7004_KEY_KP_5, true);        /* col 0  row 7 */
+    CHECK((fw.matrix[0] & 0x80) != 0);
+
+    /* Unmapped keys (caps that don't exist on the matrix) are no-ops. */
+    ms7004_fw_key(&fw, MS7004_KEY_HARDSIGN, true);
+    /* No matrix change beyond what we already pressed: */
+    CHECK((fw.matrix[0] & 0x80) != 0);
+    /* Sanity: nothing in column 11 (we only touched 0, 5, 12). */
+    CHECK(fw.matrix[11] == 0);
+}
+
+TEST_CASE("Authentic firmware scancodes for a few keys") {
+    /* Capture what bytes the real firmware emits for a handful of
+     * named keys.  These values are what the host ROM's keyboard
+     * driver actually receives — phase 4 will reconcile them with
+     * the existing kScancode[] table in ms7004.c. */
+    struct Sample { ms7004_key_t key; const char *name; };
+    Sample samples[] = {
+        { MS7004_KEY_F1,     "F1"     },
+        { MS7004_KEY_F2,     "F2"     },
+        { MS7004_KEY_RETURN, "RETURN" },
+        { MS7004_KEY_SPACE,  "SPACE"  },
+        { MS7004_KEY_A,      "A"      },
+        { MS7004_KEY_KP_5,   "KP_5"   },
+    };
+    auto rom = load_firmware();
+    for (auto &s : samples) {
+        ms7004_fw_t fw;
+        ms7004_fw_init(&fw, rom.data(), (uint16_t)rom.size(), nullptr);
+        ms7004_fw_run_cycles(&fw, 200000);
+        int before = fw.tx_history_count;
+
+        ms7004_fw_key(&fw, s.key, true);
+        ms7004_fw_run_cycles(&fw, 4000000);
+
+        REQUIRE(fw.tx_history_count > before);
+        std::fprintf(stderr, "  %-8s → 0x%02X (0o%03o)\n",
+                     s.name, fw.tx_history[before], fw.tx_history[before]);
+        CHECK(fw.tx_history[before] != 0);
+    }
+}
+
 TEST_CASE("Pressing keys updates the matrix bits") {
     /* Phase 3b only: setting the matrix is enough — the keylatch
      * recompute on every i8243 write lands in 3c with the wiring of

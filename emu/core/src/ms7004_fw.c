@@ -157,6 +157,158 @@ void ms7004_fw_press(ms7004_fw_t *fw, int col, int row, bool down)
     else      fw->matrix[col] &= (uint8_t)~mask;
 }
 
+/* ── Key enum → matrix coords ──────────────────────────────────────────
+ *
+ * Built from MAME's INPUT_PORTS_START(ms7004) — see
+ * docs/kb/MS7004_WIRING.md for the full table.  Entries are
+ * {col, row}; (-1, -1) means the enum cap exists in the user-facing
+ * key set but has no matrix position on the real keyboard (MAME marks
+ * those IPT_UNUSED).  Out-of-range or unmapped keys silently no-op.
+ */
+typedef struct { int8_t col; int8_t row; } key_xy_t;
+
+static const key_xy_t kKeyMatrix[MS7004_KEY__COUNT] = {
+    [MS7004_KEY_NONE]            = {-1,-1},
+
+    /* Function strip */
+    [MS7004_KEY_F1]              = {12, 1},
+    [MS7004_KEY_F2]              = {12, 2},
+    [MS7004_KEY_F3]              = {13, 2},
+    [MS7004_KEY_F4]              = {13, 1},
+    [MS7004_KEY_F5]              = {14, 2},
+    [MS7004_KEY_F6]              = {11, 2},
+    [MS7004_KEY_F7]              = {10, 2},
+    [MS7004_KEY_F8]              = { 9, 2},
+    [MS7004_KEY_F9]              = { 9, 1},
+    [MS7004_KEY_F10]             = { 8, 2},
+    [MS7004_KEY_F11]             = { 7, 1},
+    [MS7004_KEY_F12]             = { 6, 2},
+    [MS7004_KEY_F13]             = { 6, 1},
+    [MS7004_KEY_F14]             = { 5, 2},
+    [MS7004_KEY_HELP]            = { 3, 2},
+    [MS7004_KEY_PERFORM]         = { 1, 2},
+    [MS7004_KEY_F17]             = { 0, 2},
+    [MS7004_KEY_F18]             = { 0, 1},
+    [MS7004_KEY_F19]             = { 4, 2},
+    [MS7004_KEY_F20]             = { 4, 1},
+
+    /* Row 1 — digits */
+    [MS7004_KEY_LBRACE_PIPE]     = {-1,-1},     /* IPT_UNUSED on KBD12 */
+    [MS7004_KEY_SEMI_PLUS]       = {12, 3},
+    [MS7004_KEY_1]               = {13, 0},
+    [MS7004_KEY_2]               = {14, 0},
+    [MS7004_KEY_3]               = {15, 1},
+    [MS7004_KEY_4]               = {15, 0},
+    [MS7004_KEY_5]               = {11, 1},
+    [MS7004_KEY_6]               = {10, 1},
+    [MS7004_KEY_7]               = { 9, 0},
+    [MS7004_KEY_8]               = { 8, 0},
+    [MS7004_KEY_9]               = { 8, 1},
+    [MS7004_KEY_0]               = { 7, 0},
+    [MS7004_KEY_MINUS_EQ]        = { 7, 3},
+    [MS7004_KEY_RBRACE_LEFTUP]   = {-1,-1},     /* IPT_UNUSED on KBD6  */
+    [MS7004_KEY_BS]              = { 5, 0},
+
+    /* Row 2 — top letter row */
+    [MS7004_KEY_TAB]             = {12, 5},
+    [MS7004_KEY_J]               = {13, 3},
+    [MS7004_KEY_C]               = {13, 5},
+    [MS7004_KEY_U]               = {14, 3},
+    [MS7004_KEY_K]               = {15, 3},
+    [MS7004_KEY_E]               = {11, 0},
+    [MS7004_KEY_N]               = {10, 0},
+    [MS7004_KEY_G]               = {10, 3},
+    [MS7004_KEY_LBRACKET]        = { 9, 3},
+    [MS7004_KEY_RBRACKET]        = { 9, 5},
+    [MS7004_KEY_Z]               = { 8, 3},
+    [MS7004_KEY_H]               = { 7, 5},
+    [MS7004_KEY_COLON_STAR]      = { 6, 5},
+    [MS7004_KEY_TILDE]           = {14, 7},
+    [MS7004_KEY_RETURN]          = { 5, 5},
+
+    /* Row 3 — home row */
+    [MS7004_KEY_CTRL]            = {12, 7},
+    [MS7004_KEY_CAPS]            = {12, 6},
+    [MS7004_KEY_F]               = {13, 7},
+    [MS7004_KEY_Y]               = {14, 5},
+    [MS7004_KEY_W]               = {15, 5},
+    [MS7004_KEY_A]               = {11, 5},
+    [MS7004_KEY_P]               = {11, 3},
+    [MS7004_KEY_R]               = {10, 5},
+    [MS7004_KEY_O]               = { 9, 7},
+    [MS7004_KEY_L]               = { 8, 7},
+    [MS7004_KEY_D]               = { 8, 5},
+    [MS7004_KEY_V]               = { 7, 7},
+    [MS7004_KEY_BACKSLASH]       = { 7, 6},
+    [MS7004_KEY_PERIOD]          = { 6, 6},
+    [MS7004_KEY_HARDSIGN]        = {-1,-1},     /* not bound by MAME    */
+
+    /* Row 4 — bottom letter row */
+    [MS7004_KEY_SHIFT_L]         = {12, 4},
+    [MS7004_KEY_RUSLAT]          = {13, 6},
+    [MS7004_KEY_Q]               = {14, 6},
+    [MS7004_KEY_CHE]             = {-1,-1},     /* not bound by MAME    */
+    [MS7004_KEY_S]               = {15, 7},
+    [MS7004_KEY_M]               = {11, 7},
+    [MS7004_KEY_I]               = {10, 6},
+    [MS7004_KEY_T]               = {10, 7},
+    [MS7004_KEY_X]               = { 9, 6},
+    [MS7004_KEY_B]               = { 9, 4},
+    [MS7004_KEY_AT]              = { 8, 6},
+    [MS7004_KEY_COMMA]           = { 8, 4},
+    [MS7004_KEY_SLASH]           = { 7, 4},
+    [MS7004_KEY_UNDERSCORE]      = { 6, 4},
+    [MS7004_KEY_SHIFT_R]         = { 5, 6},
+
+    /* Row 5 — bottom row */
+    [MS7004_KEY_COMPOSE]         = {13, 4},
+    [MS7004_KEY_SPACE]           = {10, 4},
+    [MS7004_KEY_KP0_WIDE]        = {-1,-1},     /* no separate "wide 0" */
+    [MS7004_KEY_KP_ENTER]        = { 4, 4},
+
+    /* Editing cluster */
+    [MS7004_KEY_FIND]            = { 3, 0},
+    [MS7004_KEY_INSERT]          = { 3, 1},
+    [MS7004_KEY_REMOVE]          = { 2, 1},
+    [MS7004_KEY_SELECT]          = { 3, 3},
+    [MS7004_KEY_PREV]            = { 2, 3},
+    [MS7004_KEY_NEXT]            = { 2, 0},
+
+    /* Arrows */
+    [MS7004_KEY_UP]              = { 3, 5},
+    [MS7004_KEY_DOWN]            = { 2, 6},
+    [MS7004_KEY_LEFT]            = { 3, 6},
+    [MS7004_KEY_RIGHT]           = { 2, 7},
+
+    /* PF keys */
+    [MS7004_KEY_PF1]             = { 1, 0},
+    [MS7004_KEY_PF2]             = { 0, 0},
+    [MS7004_KEY_PF3]             = { 0, 3},
+    [MS7004_KEY_PF4]             = { 4, 0},
+
+    /* Numpad */
+    [MS7004_KEY_KP_1]            = { 1, 7},
+    [MS7004_KEY_KP_2]            = { 1, 6},
+    [MS7004_KEY_KP_3]            = { 0, 4},
+    [MS7004_KEY_KP_4]            = { 1, 5},
+    [MS7004_KEY_KP_5]            = { 0, 7},
+    [MS7004_KEY_KP_6]            = { 0, 6},
+    [MS7004_KEY_KP_7]            = { 1, 3},
+    [MS7004_KEY_KP_8]            = { 0, 5},
+    [MS7004_KEY_KP_9]            = { 4, 3},
+    [MS7004_KEY_KP_DOT]          = { 4, 6},
+    [MS7004_KEY_KP_COMMA]        = { 4, 5},
+    [MS7004_KEY_KP_MINUS]        = { 4, 7},
+};
+
+void ms7004_fw_key(ms7004_fw_t *fw, ms7004_key_t key, bool down)
+{
+    if (key <= MS7004_KEY_NONE || key >= MS7004_KEY__COUNT) return;
+    key_xy_t xy = kKeyMatrix[key];
+    if (xy.col < 0 || xy.row < 0) return;
+    ms7004_fw_press(fw, xy.col, xy.row, down);
+}
+
 void ms7004_fw_send_host_byte(ms7004_fw_t *fw, uint8_t byte)
 {
     int next_tail = (fw->rx_q_tail + 1) % MS7004_RX_QUEUE_SIZE;
