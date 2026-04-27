@@ -217,6 +217,14 @@ typedef struct ms7004 {
     bool         sound_enabled;      /* bell sound enabled */
     bool         click_enabled;      /* keyclick enabled */
     bool         latin_indicator;    /* Latin indicator LED */
+
+    /* Firmware ROM blob attached via ms7004_attach_firmware.  Owned by
+     * the caller (typically the Emulator wrapper); must outlive this
+     * struct.  Phase 3d-1: stored but not yet consumed — the existing
+     * state-machine path ignores it.  Phase 3d-final wires it through
+     * to the i8035 backend that replaces the state machine. */
+    const uint8_t *firmware_rom;
+    uint16_t       firmware_rom_size;
 } ms7004_t;
 
 /* ── API ──────────────────────────────────────────────────────────────── */
@@ -266,6 +274,15 @@ bool    ms7004_is_held  (const ms7004_t *kbd, ms7004_key_t key);
  * or out-of-range values.  Exposed mainly for tests / diagnostics —
  * normal code should not need this. */
 uint8_t ms7004_scancode(ms7004_key_t key);
+
+/* Attach the keyboard firmware ROM blob (typically 2048 bytes, the
+ * mc7004_keyboard_original.rom asset).  The pointer is stored, not
+ * copied — `rom` must outlive `kbd`.  Phase 3d-1: the existing
+ * state-machine path does not consume the firmware; this just sets
+ * up the plumbing for the upcoming facade swap (3d-final) where the
+ * i8035 backend takes over. */
+void ms7004_attach_firmware(ms7004_t *kbd,
+                            const uint8_t *rom, uint16_t rom_size);
 
 #ifdef __cplusplus
 }

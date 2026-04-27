@@ -45,6 +45,29 @@ static int drain_fifo(ms0515_keyboard_t *uart, uint8_t *buf, int max)
 
 /* ── Init / Reset ────────────────────────────────────────────────────────── */
 
+TEST_CASE("ms7004_attach_firmware stores the ROM blob without consuming it") {
+    /* Phase 3d-1 plumbing: the existing state machine ignores the
+     * attached ROM; this test just verifies the pointer/size land in
+     * the right struct fields and don't disturb other state. */
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+    CHECK(kbd.firmware_rom == nullptr);
+    CHECK(kbd.firmware_rom_size == 0);
+
+    static const uint8_t kSampleRom[] = { 0x12, 0x34, 0x56, 0x78 };
+    ms7004_attach_firmware(&kbd, kSampleRom, (uint16_t)sizeof(kSampleRom));
+    CHECK(kbd.firmware_rom == kSampleRom);
+    CHECK(kbd.firmware_rom_size == 4);
+
+    /* State machine still works as before — pressing a key emits the
+     * same byte it always did. */
+    ms7004_key(&kbd, MS7004_KEY_A, true);
+    uint8_t got[4];
+    int n = drain_fifo(&uart, got, 4);
+    CHECK(n == 1);
+    CHECK(got[0] == ms7004_scancode(MS7004_KEY_A));
+}
+
 TEST_CASE("ms7004_init: all keys released, toggles off") {
     auto uart = make_uart();
     auto kbd  = make_kbd(&uart);

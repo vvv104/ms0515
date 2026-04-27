@@ -42,6 +42,23 @@ TEST_CASE("board_reset resets CPU") {
     CHECK(emu.cpu().waiting == false);
 }
 
+TEST_CASE("loadKeyboardFirmwareFile attaches the ROM blob to ms7004") {
+    /* Phase 3d-1 Emulator-side wiring: reading the firmware asset and
+     * handing it to ms7004_attach_firmware.  The firmware does not
+     * yet drive keyboard behaviour — only the data path is exercised. */
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadKeyboardFirmwareFile(
+        ASSETS_DIR "/rom/mc7004_keyboard_original.rom"));
+    CHECK(emu.keyboard().firmware_rom != nullptr);
+    CHECK(emu.keyboard().firmware_rom_size == 2048);
+
+    /* Bogus path is a clean false return, struct unchanged. */
+    ms0515::Emulator emu2;
+    CHECK(!emu2.loadKeyboardFirmwareFile("/nonexistent/path.rom"));
+    CHECK(emu2.keyboard().firmware_rom == nullptr);
+    CHECK(emu2.keyboard().firmware_rom_size == 0);
+}
+
 /* ── Memory dispatcher I/O ───────────────────────────────────────────────── */
 
 TEST_CASE("memory dispatcher word read/write") {

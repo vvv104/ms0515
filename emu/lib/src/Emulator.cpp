@@ -95,6 +95,29 @@ bool Emulator::loadRomFile(std::string_view path)
     return true;
 }
 
+bool Emulator::loadKeyboardFirmwareFile(std::string_view path)
+{
+    std::ifstream f(std::string{path}, std::ios::binary | std::ios::ate);
+    if (!f)
+        return false;
+
+    auto size = f.tellg();
+    if (size <= 0 || size > 65535)        /* uint16_t cap on attach API */
+        return false;
+
+    f.seekg(0);
+    kbdFirmware_.assign(static_cast<std::size_t>(size), 0);
+    f.read(reinterpret_cast<char *>(kbdFirmware_.data()),
+           static_cast<std::streamsize>(size));
+    if (!f)
+        return false;
+
+    ms7004_attach_firmware(&kbd7004_,
+                           kbdFirmware_.data(),
+                           static_cast<uint16_t>(kbdFirmware_.size()));
+    return true;
+}
+
 bool Emulator::mountDisk(int drive, std::string_view path)
 {
     if (drive < 0 || drive >= 4)

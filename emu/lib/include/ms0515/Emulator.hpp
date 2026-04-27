@@ -24,6 +24,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 extern "C" {
 #include "ms0515/board.h"
@@ -53,6 +54,14 @@ public:
     void loadRom(std::span<const uint8_t> data);
 
     [[nodiscard]] bool loadRomFile(std::string_view path);
+
+    /* Load the MS 7004 keyboard firmware ROM (typically the
+     * mc7004_keyboard_original.rom asset, 2048 bytes).  Reads the
+     * file into an internal buffer, then calls ms7004_attach_firmware
+     * to hand the blob to the keyboard model.  The firmware is not
+     * yet driving keyboard behaviour (phase 3d-final) — this just
+     * wires up the data path. */
+    [[nodiscard]] bool loadKeyboardFirmwareFile(std::string_view path);
 
     [[nodiscard]] bool mountDisk(int drive, std::string_view path);
 
@@ -138,6 +147,7 @@ private:
 
     std::unique_ptr<ms0515_board_t> board_;
     ms7004_t kbd7004_;
+    std::vector<uint8_t> kbdFirmware_;
     std::array<std::string, 4> diskPath_;
 
     SoundCallback     soundCb_;

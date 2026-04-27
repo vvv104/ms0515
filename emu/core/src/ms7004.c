@@ -695,3 +695,10 @@ uint8_t ms7004_scancode(ms7004_key_t key)
     if (!key_valid(key)) return 0;
     return kScancode[key];
 }
+
+void ms7004_attach_firmware(ms7004_t *kbd,
+                            const uint8_t *rom, uint16_t rom_size)
+{
+    kbd->firmware_rom      = rom;
+    kbd->firmware_rom_size = rom_size;
+}
