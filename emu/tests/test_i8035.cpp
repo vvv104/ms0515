@@ -647,6 +647,178 @@ TEST_CASE("MOVD Pp,A drives WRITE command then data through P2") {
     CHECK((c.cpu.p2_out & 0x0F) == 0x0A);
 }
 
+/* ── Timer / counter ─────────────────────────────────────────────────────── */
+
+TEST_CASE("MOV T,A / MOV A,T round-trip the counter register") {
+    Cpu c; c.load({
+        0x23, 0x55,    /* MOV A,#55                   */
+        0x62,          /* MOV T,A                     */
+        0x27,          /* CLR A                       */
+        0x42,          /* MOV A,T                     */
+    });
+    c.run(4);
+    CHECK(c.cpu.t == 0x55);
+    CHECK(c.cpu.a == 0x55);
+}
+
+TEST_CASE("STRT T increments T once per 32 machine cycles") {
+    /* STRT T at 0, then NOPs (already zero in fresh ROM) — each NOP
+     * is one machine cycle, so 32 NOPs after STRT T roll the prescaler
+     * exactly once and bump T from 0 to 1. */
+    Cpu c; c.load({0x55});
+    c.run(33);
+    CHECK(c.cpu.t == 1);
+    CHECK(c.cpu.tf == false);
+}
+
+TEST_CASE("Timer overflow sets TF and JTF samples-and-clears it") {
+    Cpu c; c.load({});
+    c.rom[0x00] = 0x23; c.rom[0x01] = 0xFF;     /* MOV A,#FF       */
+    c.rom[0x02] = 0x62;                          /* MOV T,A         */
+    c.rom[0x03] = 0x55;                          /* STRT T          */
+    /* NOPs at 0x04..0x23 (32 of them) — already zero from load().    */
+    c.rom[0x24] = 0x16; c.rom[0x25] = 0x80;     /* JTF 0x80         */
+    c.rom[0x80] = 0x23; c.rom[0x81] = 0xA5;     /* MOV A,#A5        */
+
+    /* MOV A,#FF (1) + MOV T,A (1) + STRT T (1) + 32 NOPs = 35 steps.
+     * After step 34 the prescaler reaches 32 → T overflows to 0,
+     * TF is set; step 35 is one more NOP that bumps the prescaler
+     * back up to 1. */
+    c.run(35);
+    CHECK(c.cpu.tf == true);
+    CHECK(c.cpu.t  == 0x00);
+
+    c.run(1);                                    /* JTF — taken      */
+    CHECK(c.cpu.tf == false);
+    CHECK(c.cpu.pc == 0x80);
+
+    c.run(1);                                    /* MOV A,#A5        */
+    CHECK(c.cpu.a == 0xA5);
+}
+
+TEST_CASE("STOP TCNT freezes the timer") {
+    Cpu c; c.load({
+        0x55,          /* STRT T                      */
+        0x65,          /* STOP TCNT                   */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   /* 8 NOPs */
+    });
+    c.run(2 + 8);
+    CHECK(c.cpu.t == 0);                    /* never ticked     */
+    CHECK(c.cpu.timer_run == false);
+}
+
+TEST_CASE("STRT CNT counts T1 falling edges") {
+    Cpu c; c.load({
+        0x45,          /* STRT CNT                    */
+        0x00, 0x00, 0x00, 0x00,            /* NOPs while we toggle T1 */
+    });
+    /* Drive T1 high then low across instruction boundaries. */
+    c.pin_t1 = true;  c.run(1);            /* STRT CNT — sample T1 high */
+    c.pin_t1 = false; c.run(1);            /* falling edge → T = 1  */
+    c.pin_t1 = true;  c.run(1);            /* rising → no count    */
+    c.pin_t1 = false; c.run(1);            /* falling edge → T = 2 */
+    CHECK(c.cpu.t == 2);
+}
+
+/* ── Interrupts: enable, dispatch, return ───────────────────────────────── */
+
+TEST_CASE("EN I + INT pin low dispatches to vector 0x003") {
+    /* Vector 3 sits two bytes past EN I, so we route the main flow
+     * around it with a JMP.  Without a JMP, normal execution would
+     * reach the sentinel at 0x03 by simple PC advance and we
+     * couldn't tell IRQ dispatch from straight-line execution. */
+    Cpu c; c.load({});
+    c.rom[0x00] = 0x04; c.rom[0x01] = 0x10;     /* JMP 0x10        */
+    c.rom[0x03] = 0x23; c.rom[0x04] = 0x42;     /* ISR: MOV A,#42  */
+    c.rom[0x10] = 0x05;                          /* EN I            */
+    /* NOPs from 0x11 onward keep the main loop spinning.            */
+
+    c.pin_int = true;                            /* INT pulled low  */
+    c.run(2);                                    /* JMP + EN I       */
+    CHECK(c.cpu.in_irq == false);
+    c.run(1);                                    /* IRQ dispatched   */
+    CHECK(c.cpu.in_irq == true);
+    CHECK(c.cpu.pc == 0x03);
+    c.run(1);                                    /* MOV A,#42 in ISR */
+    CHECK(c.cpu.a == 0x42);
+}
+
+TEST_CASE("EN TCNTI + timer overflow dispatches to vector 0x007") {
+    Cpu c; c.load({});
+    /* JMP around the vector area to a setup block at 0x20. */
+    c.rom[0x00] = 0x04; c.rom[0x01] = 0x20;     /* JMP 0x20         */
+    c.rom[0x07] = 0x23; c.rom[0x08] = 0x99;     /* ISR: MOV A,#99   */
+    c.rom[0x20] = 0x23; c.rom[0x21] = 0xFF;     /* MOV A,#FF        */
+    c.rom[0x22] = 0x62;                          /* MOV T,A          */
+    c.rom[0x23] = 0x25;                          /* EN TCNTI         */
+    c.rom[0x24] = 0x55;                          /* STRT T           */
+    /* NOPs at 0x25..0x44 — already zero. */
+
+    /* JMP + 4 setup + 32 NOPs = 37 steps; on step 37 the IRQ check
+     * fires and dispatches to vector 7. */
+    c.run(1 + 4 + 32);
+    CHECK(c.cpu.in_irq == true);
+    CHECK(c.cpu.pc == 0x07);
+    CHECK(c.cpu.tf == false);                    /* auto-cleared on ack */
+    c.run(1);                                    /* MOV A,#99        */
+    CHECK(c.cpu.a == 0x99);
+}
+
+TEST_CASE("RETR returns from interrupt and restores PSW upper, clears in_irq") {
+    Cpu c; c.load({});
+    c.rom[0x00] = 0x04; c.rom[0x01] = 0x10;     /* JMP 0x10         */
+    /* ISR clears CY (touches only the PSW upper nibble — must not
+     * write SP via MOV PSW,A, otherwise the pop reads from the wrong
+     * stack slot).  RETR then pops PC and restores PSW upper from
+     * the stack, so CY comes back from the snapshot taken on entry. */
+    c.rom[0x03] = 0x97;                          /* CLR C            */
+    c.rom[0x04] = 0x93;                          /* RETR             */
+    /* Main: set CY=AC=1, EN I, NOP (return-slot). */
+    c.rom[0x10] = 0x23; c.rom[0x11] = 0xC0;     /* MOV A,#C0        */
+    c.rom[0x12] = 0xD7;                          /* MOV PSW,A → CY=AC=1 */
+    c.rom[0x13] = 0x05;                          /* EN I             */
+    c.rom[0x14] = 0x00;                          /* NOP (return slot) */
+
+    c.pin_int = true;
+    /* JMP, MOV A, MOV PSW, EN I = 4 steps; IRQ dispatch on step 5;
+     * ISR has 2 instructions = steps 6-7.  After step 7 we are back
+     * in the main flow at 0x14 with CY=AC=1 restored. */
+    c.run(7);
+    CHECK(c.cpu.in_irq == false);
+    CHECK((c.cpu.psw & 0xF0) == 0xC0);           /* CY,AC restored   */
+    CHECK(c.cpu.pc == 0x14);                     /* return slot      */
+}
+
+TEST_CASE("Nested interrupts are blocked while in_irq") {
+    Cpu c; c.load({});
+    c.rom[0x00] = 0x04; c.rom[0x01] = 0x10;     /* JMP 0x10         */
+    /* ISR is just NOPs — never returns, so in_irq stays true.       */
+    c.rom[0x10] = 0x05;                          /* EN I             */
+    /* NOPs at 0x11+. */
+
+    c.pin_int = true;
+    c.run(3);                                    /* JMP + EN I + IRQ */
+    REQUIRE(c.cpu.in_irq == true);
+    uint8_t sp_before = c.cpu.psw & 0x07;
+    /* Run a few more — INT is still asserted but we should not
+     * recurse: stack pointer and in_irq don't change. */
+    c.run(3);
+    CHECK(c.cpu.in_irq == true);
+    CHECK((c.cpu.psw & 0x07) == sp_before);
+}
+
+TEST_CASE("JNI samples INT pin without enabling interrupts") {
+    /* INT high → JNI taken; INT low → JNI not taken. */
+    Cpu c; c.load({
+        0x86, 0x10,    /* JNI 0x10                    */
+    });
+    c.rom[0x10] = 0x23;
+    c.rom[0x11] = 0xBB;
+    c.pin_int = false;                     /* INT high           */
+    c.run(2);
+    CHECK(c.cpu.a == 0xBB);                /* taken              */
+}
+
 TEST_CASE("ANLD / ORLD use the AND / OR command codes") {
     Cpu c;
     c.load({

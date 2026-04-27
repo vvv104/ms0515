@@ -118,16 +118,35 @@ last byte written to each port and counts PROG transitions — enough
 to assert wire-level behaviour of port-driving instructions without
 a real expander attached.
 
-#### Commit 4 — timer / counter + interrupts
+#### Commit 4 (2026-04-27) — timer / counter + interrupts
 
-Plan:
-- MOV T,A; MOV A,T; STRT T; STRT CNT; STOP TCNT.
-- Prescaler ticks per machine cycle; counter increments on T1
-  falling edges (host signals via callback).
-- TF flag, JTF.
-- EN I, DIS I, EN TCNTI, DIS TCNTI, JNI.
-- Interrupt vectoring: external → 0x003, timer → 0x007. CALL-style
-  push (no PSW upper), in_irq blocks nesting, RETR clears in_irq.
+Implemented opcodes (covered by tests):
+- timer/counter:  MOV T,A (`0x62`), MOV A,T (`0x42`), STRT T (`0x55`),
+  STRT CNT (`0x45`), STOP TCNT (`0x65`), JTF (`0x16`)
+- interrupts:     EN I (`0x05`), DIS I (`0x15`), EN TCNTI (`0x25`),
+  DIS TCNTI (`0x35`), JNI (`0x86`), RETR (`0x93`)
+
+Timer mode: every machine cycle accumulates into a 5-bit prescaler;
+overflow (32 cycles) bumps T.  Counter mode samples T1 once per
+`step` and bumps T on a high→low transition.  Either way, T rolling
+FF→00 latches TF.
+
+Interrupt model: at the top of `step`, before the fetch, check pending
+sources (external INT pin > timer TF, MCS-48 priority order); if `ie`
+or `tie` enables the corresponding source and `in_irq` is false,
+push the return slot CALL-style and jump to vector 003 or 007.
+`in_irq` blocks nested entry until RETR clears it.  Acknowledging
+the timer interrupt also clears TF (matches the standard MCS-48
+behaviour).
+
+10 new tests, 27 assertions; total i8035 suite is 54 cases / 129
+assertions.  Full suite 239/239.
+
+Test gotcha discovered while writing the RETR test: an ISR that does
+`MOV PSW,A` clobbers the SP bits in PSW and the subsequent RETR
+pops from the wrong stack slot.  ISRs must use bit-level PSW ops
+(CLR/CPL C, F0) or save/restore PSW manually.  Our test now uses
+`CLR C` to flip the flag without touching SP.
 
 #### Commit 5 — remaining opcodes
 

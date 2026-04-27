@@ -6,7 +6,7 @@
  * (1976), one opcode (or one tightly-related group of opcodes) per
  * static helper, dispatched through a single 256-entry switch.
  *
- * Coverage so far (commits 1..3 of phase 1):
+ * Coverage so far (commits 1..4 of phase 1):
  *   - control flow:  JMP page0..7, CALL page0..7, RET, conditional
  *                    branches on Acc / carry / F0 / F1
  *                    (JZ / JNZ / JC / JNC / JF0 / JF1)
@@ -24,10 +24,17 @@
  *                    ANL/ORL BUS/P1/P2,#imm
  *   - 8243 expander: MOVD A,P4..P7; MOVD P4..P7,A; ANLD/ORLD P4..P7,A
  *                    (drives PROG strobe through the host callback)
+ *   - timer/counter: MOV T,A; MOV A,T; STRT T (timer mode, prescale 32);
+ *                    STRT CNT (count T1 falling edges); STOP TCNT;
+ *                    JTF (samples and clears TF)
+ *   - interrupts:    EN/DIS I; EN/DIS TCNTI; JNI; RETR.  At each step
+ *                    the IRQ check (external > timer priority) runs
+ *                    before the fetch; dispatch pushes PC + PSW upper
+ *                    (CALL-style) and sets `in_irq`, which blocks
+ *                    nested IRQs until RETR clears it.  Timer IRQ
+ *                    acknowledge clears TF.
  *
  * Coverage to follow in subsequent commits:
- *   - timer / counter (STRT/STOP/MOV T,A, JTF),
- *   - interrupts (EN/DIS I, EN/DIS TCNTI, RETR, vector dispatch),
  *   - external memory (MOVX), MOVP / MOVP3, JMPP, DJNZ,
  *   - bit-test branches (JBb), XCH A,Rn / XCH A,@Rn / XCHD A,@Rn.
  *
@@ -106,6 +113,48 @@ static void expander_op(i8035_t *cpu, uint8_t cmd_bits, int port,
                    (uint8_t)((cpu->p2_out & 0xF0) | (cpu->a & 0x0F)));
     }
     prog_edge(cpu, true);
+}
+
+/* Forward declarations — the IRQ helpers below need stack_push, but
+ * stack_push lives further down with the rest of the stack helpers. */
+static void stack_push(i8035_t *cpu);
+static void stack_pop (i8035_t *cpu, bool restore_psw);
+
+/* Advance the timer / counter forward by `cycles` machine cycles
+ * since the previous step.  Timer mode bumps the prescaler (overflow
+ * at 32 increments T); counter mode samples T1 and bumps T on a
+ * high→low transition.  Either way, T overflowing FF→00 latches TF. */
+static inline void tick_t(i8035_t *cpu, int cycles)
+{
+    if (cpu->timer_run) {
+        unsigned p = (unsigned)cpu->prescaler + (unsigned)cycles;
+        while (p >= 32u) {
+            p -= 32u;
+            cpu->t++;
+            if (cpu->t == 0) cpu->tf = true;
+        }
+        cpu->prescaler = (uint8_t)p;
+    }
+    if (cpu->counter_run) {
+        bool t1 = cpu->read_t1 ? cpu->read_t1(cpu->host_ctx) : false;
+        if (cpu->last_t1 && !t1) {                /* falling edge      */
+            cpu->t++;
+            if (cpu->t == 0) cpu->tf = true;
+        }
+        cpu->last_t1 = t1;
+    }
+}
+
+/* CALL-style stack push followed by a vector dispatch.  Used by the
+ * interrupt entry sequence (vectors 0x003 and 0x007) — costs two
+ * machine cycles like a regular CALL. */
+static int dispatch_irq(i8035_t *cpu, uint16_t vector, bool is_timer)
+{
+    stack_push(cpu);
+    cpu->pc = vector;
+    cpu->in_irq = true;
+    if (is_timer) cpu->tf = false;                /* TF cleared on ack */
+    return 2;
 }
 
 /* Index into ram[] for the currently-selected register Rn. */
@@ -220,6 +269,24 @@ void i8035_reset(i8035_t *cpu)
 
 int i8035_step(i8035_t *cpu)
 {
+    /* Pending-interrupt check happens between instructions and only
+     * when we're not already inside a handler — the MCS-48 has no
+     * nesting.  External INT (vector 003) wins ties against the
+     * timer (vector 007), per the MCS-48 manual. */
+    if (!cpu->in_irq) {
+        bool int_low = cpu->read_int && cpu->read_int(cpu->host_ctx);
+        if (cpu->ie && int_low) {
+            int cyc = dispatch_irq(cpu, 0x003, false);
+            tick_t(cpu, cyc);
+            return cyc;
+        }
+        if (cpu->tie && cpu->tf) {
+            int cyc = dispatch_irq(cpu, 0x007, true);
+            tick_t(cpu, cyc);
+            return cyc;
+        }
+    }
+
     uint8_t op = fetch(cpu);
     int cycles = 1;
 
@@ -667,11 +734,70 @@ int i8035_step(i8035_t *cpu)
         break;
     }
 
+    /* ── Timer / counter ────────────────────────────────────────────── */
+    case 0x62:                                  /* MOV T,A              */
+        cpu->t = cpu->a;
+        break;
+
+    case 0x42:                                  /* MOV A,T              */
+        cpu->a = cpu->t;
+        break;
+
+    case 0x55:                                  /* STRT T — timer mode  */
+        cpu->timer_run   = true;
+        cpu->counter_run = false;
+        cpu->prescaler   = 0;
+        break;
+
+    case 0x45:                                  /* STRT CNT — counter   */
+        cpu->counter_run = true;
+        cpu->timer_run   = false;
+        cpu->last_t1     = cpu->read_t1
+            ? cpu->read_t1(cpu->host_ctx) : false;
+        break;
+
+    case 0x65:                                  /* STOP TCNT            */
+        cpu->timer_run   = false;
+        cpu->counter_run = false;
+        break;
+
+    case 0x16: {                                /* JTF addr             */
+        uint8_t lo = fetch(cpu);
+        if (cpu->tf) {
+            cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | lo);
+            cpu->tf = false;                    /* JTF clears TF       */
+        }
+        cycles = 2;
+        break;
+    }
+
+    /* ── Interrupt enables and JNI ──────────────────────────────────── */
+    case 0x05: cpu->ie  = true;  break;         /* EN I                 */
+    case 0x15: cpu->ie  = false; break;         /* DIS I                */
+    case 0x25: cpu->tie = true;  break;         /* EN TCNTI             */
+    case 0x35: cpu->tie = false; break;         /* DIS TCNTI            */
+
+    case 0x86: {                                /* JNI addr             */
+        uint8_t lo = fetch(cpu);
+        bool int_low = cpu->read_int && cpu->read_int(cpu->host_ctx);
+        if (!int_low)                           /* INT high → branch    */
+            cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | lo);
+        cycles = 2;
+        break;
+    }
+
+    case 0x93:                                  /* RETR                 */
+        stack_pop(cpu, true);
+        cpu->in_irq = false;
+        cycles = 2;
+        break;
+
     /* ── Unimplemented in this commit — see file header comment. ────── */
     default:
         assert(!"i8035: unimplemented opcode");
         break;
     }
 
+    tick_t(cpu, cycles);
     return cycles;
 }
