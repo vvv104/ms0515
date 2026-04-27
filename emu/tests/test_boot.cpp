@@ -54,9 +54,13 @@ static const std::string kRomDir    = std::string{ASSETS_DIR} + "/rom";
 static const std::string kDiskDir   = std::string{TESTS_DIR}  + "/disks";
 
 /* Collect all files matching an extension in a directory.
- * Returns filenames sorted alphabetically for stable ordering. */
+ * Returns filenames sorted alphabetically for stable ordering.
+ * Optionally filter by filename prefix so the boot suite picks up
+ * only system ROMs, not peripheral firmware that lives in the same
+ * directory (e.g. the MS7004 keyboard's i8035 image). */
 static std::vector<std::string> discoverFiles(const std::string &dir,
-                                              const std::string &ext)
+                                              const std::string &ext,
+                                              const std::string &prefix = "")
 {
     std::vector<std::string> result;
     if (!fs::is_directory(dir))
@@ -64,7 +68,10 @@ static std::vector<std::string> discoverFiles(const std::string &dir,
     for (const auto &entry : fs::directory_iterator(dir)) {
         if (!entry.is_regular_file() || entry.path().extension() != ext)
             continue;
-        result.push_back(entry.path().filename().string());
+        const auto name = entry.path().filename().string();
+        if (!prefix.empty() && name.rfind(prefix, 0) != 0)
+            continue;
+        result.push_back(name);
     }
     std::sort(result.begin(), result.end());
     return result;
@@ -215,7 +222,7 @@ static constexpr int kPostFrames = 100;
 /* ── POST tests: every ROM boots without disk ───────────────────────────── */
 
 TEST_CASE("POST: ROMs boot without disk") {
-    auto roms = discoverFiles(kRomDir, ".rom");
+    auto roms = discoverFiles(kRomDir, ".rom", "ms0515-");
     REQUIRE_MESSAGE(!roms.empty(), "No ROM files found in " << kRomDir);
 
     for (const auto &romFile : roms) {
@@ -233,7 +240,7 @@ TEST_CASE("POST: ROMs boot without disk") {
 /* ── Disk boot tests: every ROM × every disk ────────────────────────────── */
 
 TEST_CASE("Boot: ROM + disk matrix") {
-    auto roms  = discoverFiles(kRomDir, ".rom");
+    auto roms  = discoverFiles(kRomDir, ".rom", "ms0515-");
     auto disks = discoverFiles(kDiskDir, ".dsk");
     REQUIRE_MESSAGE(!roms.empty(),  "No ROM files found in "  << kRomDir);
     REQUIRE_MESSAGE(!disks.empty(), "No disk files found in " << kDiskDir);
