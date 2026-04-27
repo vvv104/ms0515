@@ -268,4 +268,242 @@ TEST_CASE("JC / JNC follow PSW carry bit") {
     CHECK(c.cpu.a == 0xCC);
 }
 
+/* ── Arithmetic: ADD / ADDC ──────────────────────────────────────────────── */
+
+TEST_CASE("ADD A,#imm sums and clears carry on no-overflow") {
+    Cpu c; c.load({
+        0x23, 0x05,   /* MOV A,#05    */
+        0x03, 0x07,   /* ADD A,#07    */
+    });
+    c.run(2);
+    CHECK(c.cpu.a == 0x0C);
+    CHECK((c.cpu.psw & 0x80) == 0);   /* CY clear */
+    CHECK((c.cpu.psw & 0x40) == 0);   /* AC clear */
+}
+
+TEST_CASE("ADD A,#imm sets CY on byte overflow") {
+    Cpu c; c.load({
+        0x23, 0xF0,   /* MOV A,#F0    */
+        0x03, 0x20,   /* ADD A,#20 → 110 → A=10, CY=1 */
+    });
+    c.run(2);
+    CHECK(c.cpu.a == 0x10);
+    CHECK((c.cpu.psw & 0x80) != 0);   /* CY set   */
+    CHECK((c.cpu.psw & 0x40) == 0);   /* AC clear (no nibble overflow at low end) */
+}
+
+TEST_CASE("ADD A,#imm sets AC on low-nibble overflow") {
+    Cpu c; c.load({
+        0x23, 0x08,   /* MOV A,#08    */
+        0x03, 0x09,   /* ADD A,#09 → 11h, AC=1 (8+9=17 in low nibble) */
+    });
+    c.run(2);
+    CHECK(c.cpu.a == 0x11);
+    CHECK((c.cpu.psw & 0x80) == 0);
+    CHECK((c.cpu.psw & 0x40) != 0);   /* AC set */
+}
+
+TEST_CASE("ADD A,Rn / ADD A,@Rn use the right operand") {
+    /* Pointer must lie inside the 6-bit RAM (0x00..0x3F), so we use
+     * 0x30 — anywhere in the user area away from R0..R7. */
+    Cpu c; c.load({
+        0xB8, 0x30,   /* MOV R0,#30h          */
+        0xB0, 0x33,   /* MOV @R0,#33          */
+        0xB9, 0x07,   /* MOV R1,#07           */
+        0x23, 0x10,   /* MOV A,#10            */
+        0x69,         /* ADD A,R1 → A=17      */
+        0x60,         /* ADD A,@R0 → A=17+33=4A */
+    });
+    c.run(6);
+    CHECK(c.cpu.a == 0x4A);
+}
+
+TEST_CASE("ADDC A,#imm adds carry input") {
+    Cpu c; c.load({
+        0x23, 0x80,   /* MOV A,#80 (carry bit) */
+        0xD7,         /* MOV PSW,A → CY=1      */
+        0x23, 0x05,   /* MOV A,#05             */
+        0x13, 0x03,   /* ADDC A,#03 → 09       */
+    });
+    c.run(4);
+    CHECK(c.cpu.a == 0x09);
+    CHECK((c.cpu.psw & 0x80) == 0);   /* CY consumed */
+}
+
+TEST_CASE("ADDC A,Rn / ADDC A,@Rn pull carry through") {
+    Cpu c; c.load({
+        0x23, 0x80,   /* MOV A,#80                          */
+        0xD7,         /* MOV PSW,A → CY=1                   */
+        0x23, 0xFF,   /* MOV A,#FF                          */
+        0xB8, 0x30,   /* MOV R0,#30                         */
+        0xB0, 0x00,   /* MOV @R0,#00                        */
+        0x70,         /* ADDC A,@R0 → FF+00+1 = 100 → 00, CY=1 */
+    });
+    c.run(6);
+    CHECK(c.cpu.a == 0x00);
+    CHECK((c.cpu.psw & 0x80) != 0);
+}
+
+/* ── DA A — decimal adjust after BCD addition ───────────────────────────── */
+
+TEST_CASE("DA A: low nibble > 9 adds 6") {
+    /* 0x05 + 0x09 = 0x0E (binary).  DA → 0x14 (BCD).  No CY out. */
+    Cpu c; c.load({
+        0x23, 0x05,
+        0x03, 0x09,   /* ADD A,#09 → 0E, AC=0 (5+9=14 low nibble) */
+        0x57,         /* DA A → 14h */
+    });
+    c.run(3);
+    CHECK(c.cpu.a == 0x14);
+    CHECK((c.cpu.psw & 0x80) == 0);
+}
+
+TEST_CASE("DA A: high-nibble adjust sets CY") {
+    /* 0x99 + 0x01 = 0x9A.  DA: low > 9 → +6 → A0; high > 9 → +60 → 00, CY=1.
+     * BCD model: 99 + 01 = 100 → 00 with carry. */
+    Cpu c; c.load({
+        0x23, 0x99,
+        0x03, 0x01,   /* ADD A,#01 → 9A, AC=0 */
+        0x57,         /* DA A → low+6=A0; high>9 → +60=00, CY=1 */
+    });
+    c.run(3);
+    CHECK(c.cpu.a == 0x00);
+    CHECK((c.cpu.psw & 0x80) != 0);
+}
+
+/* ── Logic: ANL / ORL / XRL ─────────────────────────────────────────────── */
+
+TEST_CASE("ANL / ORL / XRL with immediate, register, and indirect") {
+    Cpu c; c.load({
+        0xB8, 0x30,    /* MOV R0,#30                       */
+        0xB0, 0x0F,    /* MOV @R0,#0F                      */
+        0xBA, 0xF0,    /* MOV R2,#F0                       */
+        0x23, 0xAA,    /* MOV A,#AA                        */
+        0x53, 0xCC,    /* ANL A,#CC → 88                   */
+        0x4A,          /* ORL A,R2 → 88|F0 = F8            */
+        0xD0,          /* XRL A,@R0 → F8 ^ 0F = F7         */
+    });
+    c.run(7);
+    CHECK(c.cpu.a == 0xF7);
+}
+
+TEST_CASE("Logic ops do not touch CY or AC") {
+    Cpu c; c.load({
+        0x23, 0xC0,    /* MOV A,#C0 (CY=1, AC=1)           */
+        0xD7,          /* MOV PSW,A → CY=AC=1              */
+        0x23, 0xFF,    /* MOV A,#FF                        */
+        0x53, 0x00,    /* ANL A,#00 → 0                    */
+    });
+    c.run(4);
+    CHECK(c.cpu.a == 0);
+    CHECK((c.cpu.psw & 0x80) != 0);   /* CY preserved */
+    CHECK((c.cpu.psw & 0x40) != 0);   /* AC preserved */
+}
+
+/* ── Rotates ─────────────────────────────────────────────────────────────── */
+
+TEST_CASE("RL A rotates left without carry") {
+    Cpu c; c.load({
+        0x23, 0x81,    /* MOV A,#81                    */
+        0xE7,          /* RL A → 03                    */
+    });
+    c.run(2);
+    CHECK(c.cpu.a == 0x03);
+    CHECK((c.cpu.psw & 0x80) == 0);   /* CY untouched */
+}
+
+TEST_CASE("RR A rotates right without carry") {
+    Cpu c; c.load({
+        0x23, 0x03,    /* MOV A,#03                    */
+        0x77,          /* RR A → 81                    */
+    });
+    c.run(2);
+    CHECK(c.cpu.a == 0x81);
+}
+
+TEST_CASE("RLC A pulls bit 7 into CY and CY into bit 0") {
+    Cpu c; c.load({
+        0x23, 0x80,    /* MOV A,#80                    */
+        0xD7,          /* MOV PSW,A — set CY           */
+        0x23, 0x80,    /* MOV A,#80                    */
+        0xF7,          /* RLC A → A = 01, CY = 1       */
+    });
+    c.run(4);
+    CHECK(c.cpu.a == 0x01);
+    CHECK((c.cpu.psw & 0x80) != 0);
+}
+
+TEST_CASE("RRC A pulls bit 0 into CY and CY into bit 7") {
+    Cpu c; c.load({
+        0x97,          /* CLR C                        */
+        0x23, 0x03,    /* MOV A,#03                    */
+        0x67,          /* RRC A → A = 01, CY = 1       */
+    });
+    c.run(3);
+    CHECK(c.cpu.a == 0x01);
+    CHECK((c.cpu.psw & 0x80) != 0);
+}
+
+/* ── Flag manipulation: CLR/CPL C, F0, F1, JF0, JF1 ─────────────────────── */
+
+TEST_CASE("CLR C / CPL C toggle PSW.CY without disturbing other bits") {
+    Cpu c; c.load({
+        0x23, 0xF0,    /* MOV A,#F0 — high nibble all set */
+        0xD7,          /* MOV PSW,A → CY=AC=F0=BS=1     */
+        0x97,          /* CLR C → PSW = 78              */
+        0xA7,          /* CPL C → PSW = F8              */
+    });
+    c.run(4);
+    CHECK(c.cpu.psw == 0xF8);
+    CHECK((c.cpu.psw & 0x70) == 0x70);   /* AC, F0, BS preserved */
+}
+
+TEST_CASE("CLR / CPL F0 toggle PSW bit 5") {
+    Cpu c; c.load({
+        0x95,          /* CPL F0 → set                 */
+        0x95,          /* CPL F0 → clear               */
+        0x95,          /* CPL F0 → set                 */
+        0x85,          /* CLR F0                       */
+    });
+    c.run(3);
+    CHECK((c.cpu.psw & 0x20) != 0);
+    c.run(1);
+    CHECK((c.cpu.psw & 0x20) == 0);
+}
+
+TEST_CASE("CLR / CPL F1 toggle the standalone F1 flag") {
+    Cpu c; c.load({
+        0xB5,          /* CPL F1 → 1                   */
+        0xB5,          /* CPL F1 → 0                   */
+        0xB5,          /* CPL F1 → 1                   */
+        0xA5,          /* CLR F1                       */
+    });
+    c.run(3);
+    CHECK(c.cpu.f1 == true);
+    c.run(1);
+    CHECK(c.cpu.f1 == false);
+}
+
+TEST_CASE("JF0 jumps when F0 is set, falls through otherwise") {
+    Cpu c; c.load({
+        0x95,          /* CPL F0 → set                 */
+        0xB6, 0x10,    /* JF0 0x10 — taken             */
+    });
+    c.rom[0x10] = 0x23;
+    c.rom[0x11] = 0x42;
+    c.run(3);
+    CHECK(c.cpu.a == 0x42);
+}
+
+TEST_CASE("JF1 jumps when F1 is set, falls through otherwise") {
+    Cpu c; c.load({
+        0xB5,          /* CPL F1 → set                 */
+        0x76, 0x10,    /* JF1 0x10 — taken             */
+    });
+    c.rom[0x10] = 0x23;
+    c.rom[0x11] = 0x55;
+    c.run(3);
+    CHECK(c.cpu.a == 0x55);
+}
+
 } /* TEST_SUITE */

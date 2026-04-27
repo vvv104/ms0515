@@ -66,16 +66,31 @@ Implemented opcodes (covered by tests):
 Boot test had to be taught to filter by `ms0515-` prefix so it
 doesn't try to use the keyboard ROM as a system ROM.
 
-#### Commit 2 (next session) — arithmetic + logic
+#### Commit 2 (2026-04-27) — arithmetic + logic + rotates + flag ops
 
-Plan:
-- ADD A,#imm; ADD A,Rn; ADD A,@Rn; ADDC variants — set CY/AC.
-- DA A — decimal adjust after add; tricky, needs both nibbles
-  inspected against AC and CY.
-- ANL/ORL/XRL A,{Rn,@Rn,#imm}
-- Rotates: RL A, RR A, RLC A, RRC A — RLC/RRC go through CY.
-- CLR C, CPL C, CLR/CPL F0, CLR/CPL F1.
-- JF0, JF1.
+Implemented opcodes (covered by tests):
+- arithmetic: ADD A,{#imm,Rn,@Rn} (`0x03`, `0x68..6F`, `0x60..61`);
+  ADDC A,{#imm,Rn,@Rn} (`0x13`, `0x78..7F`, `0x70..71`); both update
+  CY (carry-out from bit 7) and AC (carry-out from bit 3 to 4)
+- DA A (`0x57`) — decimal adjust after BCD addition; low-nibble
+  correction triggers on `(A & 0x0F) > 9 || AC`, high-nibble
+  correction on `A > 0x9F || CY` and sets CY
+- logic:    ANL/ORL/XRL A,{#imm,Rn,@Rn} (`0x53/43/D3` for #imm,
+  `0x5x/4x/Dx` for Rn, `0x50-51/40-41/D0-D1` for @Rn).  CY and
+  AC explicitly preserved by the test
+- rotates:  RL A (`0xE7`), RR A (`0x77`), RLC A (`0xF7`),
+  RRC A (`0x67`) — RLC/RRC route bits through CY; RL/RR don't
+- flag ops: CLR/CPL C (`0x97`/`0xA7`), CLR/CPL F0 (`0x85`/`0x95`),
+  CLR/CPL F1 (`0xA5`/`0xB5`)
+- branches: JF0 (`0xB6`), JF1 (`0x76`)
+
+19 new tests, 80 assertions total in i8035 suite. Full suite 222/222.
+
+Test gotcha discovered while writing: `MOV @R0,#xx` with a pointer
+≥ 0x40 wraps to a low RAM address (8035 RAM is only 64 bytes, so
+indirect addresses are masked to 6 bits) and silently overwrites Rn
+itself. Tests now use 0x30 — well inside the user RAM area at
+0x20..0x3F.
 
 #### Commit 3 — port IO + MOVD to expander
 
