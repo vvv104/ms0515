@@ -929,6 +929,15 @@ int i8035_step(i8035_t *cpu)
         cpu->mb = true;
         break;
 
+    /* ── ENT0 CLK ────────────────────────────────────────────────────
+     * Routes the internal CPU clock (oscillator / 3) onto the T0 pin
+     * as an output signal.  We do not model T0 as an output anywhere
+     * (no host wiring consumes such a clock), so this is a no-op for
+     * us.  The ms7004 firmware issues it once during init and never
+     * reads T0 — confirmed by scanning the ROM for JT0/JNT0. */
+    case 0x75:
+        break;
+
     /* ── Unimplemented in this commit — see file header comment. ────── */
     default:
         assert(!"i8035: unimplemented opcode");

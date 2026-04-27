@@ -1016,6 +1016,19 @@ TEST_CASE("SEL MB0 / SEL MB1 toggle the memory-bank flag") {
     CHECK(c.cpu.mb == false);
 }
 
+TEST_CASE("ENT0 CLK is accepted as a no-op (T0 not modelled as output)") {
+    /* The ms7004 firmware issues ENT0 CLK once during init.  We don't
+     * model T0 as a CPU-driven clock output, but the opcode must not
+     * trip the unimplemented-opcode assert. */
+    Cpu c; c.load({
+        0x75,          /* ENT0 CLK */
+        0x27,          /* CLR A    — proves we kept executing past it */
+    });
+    c.cpu.a = 0xAA;
+    c.run(2);
+    CHECK(c.cpu.a == 0x00);
+}
+
 TEST_CASE("ANLD / ORLD use the AND / OR command codes") {
     Cpu c;
     c.load({

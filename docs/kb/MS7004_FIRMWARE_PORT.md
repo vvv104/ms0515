@@ -18,7 +18,10 @@ programmer's manual).
 |-------|----------------------------------------|-------------|
 |   1   | i8035 CPU emulator (TDD)               | done        |
 |   2   | i8243 port expander (TDD)              | done        |
-|   3   | Replace ms7004.c body                  | pending     |
+|  3a   | Wiring research, dasm, ENT0 CLK fix    | done        |
+|  3b   | Firmware-driven backend (skeleton)     | next        |
+|  3c   | Wire matrix, T1 latch, UART RX/TX      | pending     |
+|  3d   | Switch ms7004 facade to fw backend     | pending     |
 |   4   | Reconcile tests vs firmware            | pending     |
 |   5   | Frontend cleanup, docs                 | pending     |
 
@@ -197,21 +200,80 @@ cannot raise a line the latch holds low.
 
 Wiring with i8035 happens in phase 3.
 
-### Phase 3 — wire i8035 + i8243 into ms7004 (next)
+### Phase 3a (2026-04-27) — wiring research before coding
 
-Plan:
-- Embed `i8035_t cpu`, `i8243_t exp`, `uint8_t matrix[8]` in
-  `ms7004_t` (existing scancode-table fields go away).
-- `ms7004_init`: load firmware ROM, init CPU and expander, wire
-  callbacks (CPU port_read/port_write for P1/P2/BUS, prog edge
-  to expander, T0/T1/INT pin readers from matrix scan state).
-- `ms7004_key(key, down)`: set/clear the matrix bit corresponding
-  to that key (mapping cribbed from MAME's `mame/shared/ms7004.cpp`
-  — that's a data table, not algorithm).
-- `ms7004_tick(now_ms)`: convert elapsed wall-clock ms to a number
-  of i8035 machine cycles (4.608 MHz / 15 = 307 200 inst/s, so
-  ≈4920 instructions per 16 ms host frame) and call `i8035_step`
-  in a loop, feeding the result through to `kbd_push_scancode`
-  whenever the firmware drives its UART output.
-- `ms7004_host_byte(b)`: the host CPU's UART TX → push into the
-  firmware's UART RX line.
+Status: done.
+
+Outputs:
+- `docs/kb/MS7004_WIRING.md` — full pin / matrix / serial spec
+  derived from MAME `src/mame/shared/ms7004.cpp` (data only, not code).
+- `tools/dasm8048.py` — original MCS-48 disassembler, ~250 LOC, used
+  to read the firmware ROM and confirm the wiring assumptions.
+- `i8035.c` — added ENT0 CLK (0x75) as a documented no-op + regression
+  test.  Firmware issues it once at PC=134H during init; without this
+  the CPU would trip the unimplemented-opcode assert before the main
+  loop ever starts.
+
+Firmware roadmap (addresses confirmed by disassembly):
+- `000H`: reset → `JMP 133H`
+- `003H`: external INT vector → `JMP 400H` (host-command receiver)
+- `007H`: timer ISR — saves A at RAM[3AH], decrements R3, reloads R6
+- `0C2H`: 2-instruction delay loop (`DJNZ R4 / DJNZ R5`) — used by
+  every TX bit, every RX bit, and the speaker beep
+- `0DDH`/`0E4H`: speaker beep — toggles P1[3] at ~2.5 kHz × 254
+- `0F6H`: bit-mask helper — sets bits in [22H] to mirror P2 latch
+- `115H`: 8-bit RX assembly (sample INT, rotate into R7)
+- `133H`: main entry — `EN TCNTI`, init P1/P2 latches, then big poll loop
+- `400H`: host-command ISR — branches on R7 against 0x23/0x11/0x13/
+  0x1B/0xA1/0x99/0xA7 etc., matching exactly the table our existing
+  hand-rolled `ms7004_host_byte` switch uses.  Confirms our
+  command-set is authentic.
+
+Data-table region: 380H..3F1H — disassembler reports several "DB"
+bytes there; cluster is too tight to be code, almost certainly a
+scancode lookup table read via MOVP/MOVP3.
+
+T0 pin: never sampled by firmware (no `JT0`/`JNT0` anywhere), so
+ENT0 CLK at 134H is functionally a no-op for ms7004.
+
+### Phase 3b — firmware backend skeleton (next)
+
+Build a parallel `ms7004_fw` translation unit that does NOT replace
+the existing `ms7004.c` yet.  Goal: prove the firmware boots and
+reaches a quiescent poll loop without crashing.
+
+Steps:
+- New `core/include/ms0515/ms7004_fw.h` + `core/src/ms7004_fw.c`.
+- `ms7004_fw_t` carries `i8035_t cpu`, `i8243_t exp`, `uint8_t matrix[16]`,
+  a TX-bit reassembler (sample P1[7] every 64 cyc when start bit seen),
+  an RX-bit driver (push host bytes by holding INT low for 64 cyc/bit),
+  and the firmware ROM blob loaded by `ms7004_assets.c`.
+- Stub callbacks: port_read returns whatever P1/P2 latch holds, T1
+  returns the cached keylatch (initially 0 = no key), INT mirrors the
+  RX bit driver.
+- `ms7004_fw_step(cycles)` runs the CPU forward.
+- Test: load ROM, step ~10 000 instructions (≈ 30 ms wall), assert PC
+  ends up inside the main loop region (133H..200H) and no assert fired.
+
+### Phase 3c — matrix + UART wiring
+
+Steps:
+- Implement `ms7004_fw_press(col, row, down)` that sets `matrix[col]`
+  bits and recomputes the cached keylatch on every `i8243` write.
+- Map `ms7004_key_t` → (col, row) via a static table built from
+  `MS7004_WIRING.md`.
+- TX reassembler: detect start bit on P1[7], sample 8 bits at 64-cyc
+  intervals, push to `kbd_push_scancode`.
+- RX driver: take a queue of host→keyboard bytes; for each byte hold
+  INT low for one bit, then drive each data bit on INT, then stop.
+- Test: press F1 at boot, step long enough for one TX byte to assemble,
+  assert it equals scancode 0o127 (F1 LK201 code).
+
+### Phase 3d — switch facade
+
+Replace the contents of `ms7004.c` with a thin wrapper that delegates
+to `ms7004_fw`, keeping the existing `ms7004_*` public API.  Phase 4
+then reconciles `test_keyboard_emulated` expectations against whatever
+the real firmware produces (our state machine had OSK/case-toggle
+deviations that the firmware does not implement — those move into the
+frontend per the existing `[DEVIATE n]` notes in ms7004.c).
