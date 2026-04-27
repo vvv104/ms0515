@@ -17,7 +17,7 @@ programmer's manual).
 | Phase | Subject                                | Status      |
 |-------|----------------------------------------|-------------|
 |   1   | i8035 CPU emulator (TDD)               | done        |
-|   2   | i8243 port expander (TDD)              | pending     |
+|   2   | i8243 port expander (TDD)              | done        |
 |   3   | Replace ms7004.c body                  | pending     |
 |   4   | Reconcile tests vs firmware            | pending     |
 |   5   | Frontend cleanup, docs                 | pending     |
@@ -173,8 +173,45 @@ The unimplemented set is now down to ENT0 CLK (`0x75`, output T0
 as clock — peripheral feature not used by ms7004) plus a handful of
 documented-undefined slots.  Phase 1 is closed.
 
-### Phase 2 — i8243 port expander
+### Phase 2 (2026-04-27) — i8243 port expander
 
-Status: pending.
+Status: done in a single commit.
 
-Plan: see TODO entry in this journal's status table.
+`core/include/ms0515/i8243.h` + `core/src/i8243.c` (~70 LOC of
+implementation) plus `tests/test_i8243.cpp` (9 cases, 21 assertions).
+
+API:
+- `i8243_p2_write(low_nibble)` — host-CPU side: stash whatever the
+  CPU drove on P2[3:0]
+- `i8243_prog(level)` — falling edge latches command + port from
+  the stashed nibble; rising edge latches data into the addressed
+  port for WRITE/ORLD/ANLD; READ command opens a drive window
+- `i8243_p2_read()` — what the expander currently presents on
+  P2[3:0]; `latch & input` during a READ window, `0xF` otherwise
+- `i8243_get_port(p)` / `i8243_set_input(p, v)` — host-side
+  inspection of the latch and injection of an external pull-down
+
+Quasi-bidirectional model: `latch & input` for reads matches real
+silicon — the host can pull lines low against a high latch but
+cannot raise a line the latch holds low.
+
+Wiring with i8035 happens in phase 3.
+
+### Phase 3 — wire i8035 + i8243 into ms7004 (next)
+
+Plan:
+- Embed `i8035_t cpu`, `i8243_t exp`, `uint8_t matrix[8]` in
+  `ms7004_t` (existing scancode-table fields go away).
+- `ms7004_init`: load firmware ROM, init CPU and expander, wire
+  callbacks (CPU port_read/port_write for P1/P2/BUS, prog edge
+  to expander, T0/T1/INT pin readers from matrix scan state).
+- `ms7004_key(key, down)`: set/clear the matrix bit corresponding
+  to that key (mapping cribbed from MAME's `mame/shared/ms7004.cpp`
+  — that's a data table, not algorithm).
+- `ms7004_tick(now_ms)`: convert elapsed wall-clock ms to a number
+  of i8035 machine cycles (4.608 MHz / 15 = 307 200 inst/s, so
+  ≈4920 instructions per 16 ms host frame) and call `i8035_step`
+  in a loop, feeding the result through to `kbd_push_scancode`
+  whenever the firmware drives its UART output.
+- `ms7004_host_byte(b)`: the host CPU's UART TX → push into the
+  firmware's UART RX line.

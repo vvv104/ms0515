@@ -12,6 +12,7 @@ add_library(ms0515_core STATIC
     src/keyboard.c
     src/ms7004.c
     src/i8035.c
+    src/i8243.c
     src/floppy.c
     src/ramdisk.c
     src/trace.c
