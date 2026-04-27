@@ -14,16 +14,17 @@ programmer's manual).
 
 ## Status
 
-| Phase | Subject                                | Status      |
-|-------|----------------------------------------|-------------|
-|   1   | i8035 CPU emulator (TDD)               | done        |
-|   2   | i8243 port expander (TDD)              | done        |
-|  3a   | Wiring research, dasm, ENT0 CLK fix    | done        |
-|  3b   | Firmware-driven backend (skeleton)     | done        |
-|  3c   | Wire matrix, T1 latch, UART RX/TX      | done        |
-|  3d   | Switch ms7004 facade to fw backend     | next        |
-|   4   | Reconcile tests vs firmware            | pending     |
-|   5   | Frontend cleanup, docs                 | pending     |
+| Phase  | Subject                                       | Status |
+|--------|-----------------------------------------------|--------|
+|   1    | i8035 CPU emulator (TDD)                      | done   |
+|   2    | i8243 port expander (TDD)                     | done   |
+|  3a    | Wiring research, dasm, ENT0 CLK fix           | done   |
+|  3b    | Firmware-driven backend (skeleton)            | done   |
+|  3c    | Wire matrix, T1 latch, UART RX/TX             | done   |
+|  3d-prep | Key enum mapping + scancode capture         | done   |
+|  3d-final | Facade swap, snapshot format bump, OSK    | next   |
+|   4    | Reconcile tests vs firmware                   | pending |
+|   5    | Frontend cleanup, docs                        | pending |
 
 ## Decisions
 
@@ -298,20 +299,118 @@ End-to-end smoke tests (all green):
 - Boot itself emits zero bytes (stop-bit filter rejects the speaker
   glitch).
 
-### Phase 3d — swap ms7004 facade onto fw backend (next)
+### Phase 3d-prep (2026-04-27) — key enum mapping + scancode capture
 
-Replace the body of `ms7004.c` so that the public API (`ms7004_init`,
-`ms7004_key`, `ms7004_tick`, `ms7004_host_byte`, queries) delegates
-to the firmware backend, and remove the `_fw` suffix entirely:
-- Fold `ms7004_fw.c/h` into `ms7004.c/h` (was: parallel TU, now: one
-  authoritative backend).
-- Maintain the `ms7004_key_t → (col, row)` mapping inside the new
-  `ms7004.c` from `docs/kb/MS7004_WIRING.md`.
-- Move OSK behaviour-deviations (the `[DEVIATE 1..4]` notes) into the
-  frontend on-screen-keyboard handler — those are UX overrides that
-  do not belong in the keyboard model.
-- Convert `ms7004_tick(now_ms)` into `ms7004_fw_run_cycles` driven by
-  the elapsed wall-clock delta (≈4920 instructions per 16 ms frame).
+Status: done.
+
+Added `ms7004_fw_key(key, down)` plus a static `MS7004_KEY__COUNT`-entry
+lookup table mapping each `ms7004_key_t` to its `(column, row)` matrix
+position (from MAME wiring + `MS7004_WIRING.md`).  Caps without a
+matrix position (HARDSIGN, CHE, KP0_WIDE, LBRACE_PIPE, RBRACE_LEFTUP)
+map to `{-1,-1}` and silently no-op.
+
+Capture-test ran the firmware against six representative key presses
+and recorded the byte each emits on the wire:
+
+| Key    | Firmware | Existing kScancode[] | Match |
+|--------|---------:|---------------------:|:-----:|
+| F1     |   0o126  |       0o126          |  ✓    |
+| F2     |   0o127  |       0o127          |  ✓    |
+| RETURN |   0o275  |       0o275          |  ✓    |
+| SPACE  |   0o324  |       0o324          |  ✓    |
+| A      |   0o322  |       0o322          |  ✓    |
+| KP_5   |   0o232  |       0o232          |  ✓    |
+
+Implication: the hand-rolled `kScancode[]` table in `ms7004.c` was
+already correct on its own merits, so the facade swap does **not**
+need to renumber any scancodes.  Only the *behaviour* layer differs
+(auto-repeat, ALL-UP semantics, modifier handling, OSK overrides).
+
+### Phase 3d-final — facade swap (next session)
+
+This is the big swap.  The intermediate `ms7004_fw.c/h` files merge
+back into `ms7004.c/h` and lose the `_fw` suffix.  Public API of
+`ms7004.h` stays identical so callers (board, Emulator, frontend)
+do not need to change.
+
+File-by-file plan and risk:
+
+- **`emu/core/include/ms0515/ms7004.h`** — replace the `ms7004_t`
+  struct body to embed firmware backend state (`i8035_t cpu`,
+  `i8243_t exp`, `matrix[16]`, TX/RX state, etc.).  Drop the old
+  scancode-table / state-machine fields (`held[]`, `held_count`,
+  `caps_on`, `ruslat_on`, `repeat_*`, `key_stack[]`,
+  `modifier_in_session`, `cmd_pending`, `data_enabled`,
+  `sound_enabled`, `click_enabled`, `latin_indicator`).  Public API
+  unchanged.  *Risk: low — only struct layout; no API change.*
+
+- **`emu/core/src/ms7004.c`** — replace body.  Each public function
+  becomes a thin delegate to the embedded firmware backend.  Add an
+  `ms7004_attach_firmware(kbd, rom, rom_size)` initialiser called by
+  `Emulator` after the ROM file is loaded.  `ms7004_tick(now_ms)`
+  converts the elapsed delta to machine cycles (≈4920 inst per 16 ms
+  frame) and runs the CPU forward.  *Risk: low — internal refactor.*
+
+- **`emu/core/src/ms7004_fw.c/h`** — delete after fold.  Their
+  contents land verbatim inside the new `ms7004.c/h` (private static
+  functions and helpers).  *Risk: trivial.*
+
+- **`emu/core/src/snapshot.c`** — the `write_ms7004` / `read_ms7004`
+  chunks reference fields that no longer exist.  Bump `SNAP_VERSION`,
+  write a new chunk format that captures the firmware state we
+  actually need (`cpu.pc`, `cpu.a`, `cpu.psw`, `cpu.ram[64]`,
+  `cpu.t`, `cpu.p1_out`, `cpu.p2_out`, `cpu.tf/ie/tie/in_irq`,
+  `exp.latch[4]`, `matrix[16]`, RX queue head/tail/contents, TX
+  reassembly state).  Read path: detect old version, init fresh kbd
+  and skip the legacy chunk.  *Risk: medium — must not corrupt save
+  files; gracefully degrade old snapshots.*
+
+- **`emu/lib/src/Emulator.cpp`** — `loadRomFile` only handles the
+  system ROM; add a constructor / init step that loads
+  `mc7004_keyboard_original.rom` from `assets/rom/` and calls
+  `ms7004_attach_firmware`.  *Risk: low — straightforward addition.*
+
+- **`emu/tests/test_ms7004.cpp`** (589 lines) — almost every test
+  references the old struct fields and tests behaviour that the
+  firmware does differently (ALL-UP-when-modifier-held, hand-rolled
+  auto-repeat, CAPS toggle case mapping).  **Replace wholesale**
+  with ~150 lines of tests against the new public API: init/reset,
+  is_held tracking, caps_on/ruslat_on queries (driven by firmware
+  LED-bit state, not internal flags), end-to-end "press key, expect
+  scancode on UART" using the firmware as ground truth.  *Risk:
+  high — most tests get deleted, but the new ones cover the same
+  observable surface.*
+
+- **`emu/frontend/src/OnScreenKeyboard.cpp`** (717 lines) — the
+  `[DEVIATE 1..4]` OSK overrides currently live in `ms7004.c`'s
+  `ms7004_key` body.  After the swap those overrides must move to
+  the OSK click handler (where the synthesis of "press SHIFT around
+  this key", "temporarily disable CAPS for this digit", etc. is
+  natural).  Physical key events bypass these overrides — they go
+  through `ms7004_key` unchanged, which now drives the firmware
+  matrix directly.  *Risk: medium — the override logic is non-trivial
+  (case toggle, shift-immune positions, RUS/LAT-conditional symbol
+  mapping) and OSK clicks are only manually testable.*
+
+- **`emu/tests/test_keyboard_emulated.cpp`** (6 OS×ROM configs) —
+  end-to-end tests that boot a real OS and feed key events.  With
+  scancodes matching exactly, most should pass.  Differences likely
+  to surface: auto-repeat timing (firmware-driven now, may be
+  faster/slower), ALL-UP emission (firmware always emits on full
+  release; our state machine suppressed it without modifier), Mihin
+  RUS/LAT cross-check.  Whatever fails moves to phase 4.  *Risk:
+  medium — depends entirely on whether real-OS behaviour tolerates
+  the firmware's authentic timing.*
+
+Suggested commit order to keep each step bisectable:
+  3d-1: `ms7004_attach_firmware` API + Emulator wiring (new code,
+        old still works since ms7004.c untouched);
+  3d-2: snapshot format bump (new chunk co-exists with old reader
+        path during transition);
+  3d-3: replace `ms7004.c/h` body and delete `ms7004_fw.c/h`;
+        rewrite `test_ms7004.cpp`;
+  3d-4: move OSK overrides to frontend; run
+        `test_keyboard_emulated` and assess.
 
 ### Phase 3d — switch facade
 
