@@ -808,15 +808,30 @@ TEST_CASE("Nested interrupts are blocked while in_irq") {
 }
 
 TEST_CASE("JNI samples INT pin without enabling interrupts") {
-    /* INT high → JNI taken; INT low → JNI not taken. */
+    /* JNI per Intel MCS-48: branches when INT pin is LOW (active —
+     * interrupt request pending).  The "Not" in the mnemonic refers
+     * to INT being active-low.  The ms7004 firmware uses this at
+     * 0x40C (verify start bit), 0x150 (skip EN I if mid-transfer),
+     * and 0x687 (busy-wait for line idle). */
     Cpu c; c.load({
-        0x86, 0x10,    /* JNI 0x10                    */
+        0x86, 0x10,    /* JNI 0x10 — branch when INT low */
+        0x23, 0xCC,    /* MOV A,#CC (fall-through path)  */
     });
     c.rom[0x10] = 0x23;
     c.rom[0x11] = 0xBB;
-    c.pin_int = false;                     /* INT high           */
+    c.pin_int = true;                      /* INT low (asserted) */
     c.run(2);
-    CHECK(c.cpu.a == 0xBB);                /* taken              */
+    CHECK(c.cpu.a == 0xBB);                /* branch taken       */
+
+    Cpu c2; c2.load({
+        0x86, 0x10,
+        0x23, 0xCC,
+    });
+    c2.rom[0x10] = 0x23;
+    c2.rom[0x11] = 0xBB;
+    c2.pin_int = false;                    /* INT high (idle)    */
+    c2.run(2);
+    CHECK(c2.cpu.a == 0xCC);               /* fall-through       */
 }
 
 /* ── XCH / XCHD ──────────────────────────────────────────────────────────── */

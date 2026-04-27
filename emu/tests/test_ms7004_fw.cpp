@@ -80,6 +80,65 @@ TEST_CASE("Firmware reaches the main poll loop without crashing") {
     CHECK(fw.cpu.pc < 0x800);             /* still inside ROM image */
 }
 
+TEST_CASE("Boot leaves the TX line silent (no spurious bytes)") {
+    /* The init speaker beep clobbers P1 (uninitialized RAM mirror)
+     * and briefly lowers P1[7].  Our TX reassembler must not mistake
+     * that for a UART start bit — the stop-bit validation rejects it
+     * because P1[7] stays low during the beep. */
+    auto rom = load_firmware();
+    ms7004_fw_t fw;
+    ms7004_fw_init(&fw, rom.data(), (uint16_t)rom.size(), nullptr);
+    ms7004_fw_run_cycles(&fw, 200000);
+    CHECK(fw.tx_history_count == 0);
+}
+
+TEST_CASE("Pressing F1 emits a scancode byte over the TX line") {
+    /* F1 lives at column 12 row 1 (KBD12 PORT_BIT 0x02 — see
+     * docs/kb/MS7004_WIRING.md).  After boot we press the key,
+     * give the firmware time to scan, debounce, and bit-bang the
+     * scancode, then check the TX history captured a byte. */
+    auto rom = load_firmware();
+    ms7004_fw_t fw;
+    ms7004_fw_init(&fw, rom.data(), (uint16_t)rom.size(), nullptr);
+
+    ms7004_fw_run_cycles(&fw, 200000);
+    int boot_history = fw.tx_history_count;
+
+    /* Press F1, then run long enough for the firmware to scan, debounce,
+     * and bit-bang the scancode (~5 ms at 4800 baud per byte). */
+    ms7004_fw_press(&fw, 12, 1, true);
+    ms7004_fw_run_cycles(&fw, 4000000);
+
+    CHECK(fw.tx_history_count > boot_history);
+    /* Non-zero scancode emitted — we deliberately don't pin the exact
+     * value here.  The hand-rolled kScancode table in ms7004.c was
+     * derived from an OS-side keymap, not from the firmware itself;
+     * reconciliation against what the real firmware emits is phase 4. */
+    if (fw.tx_history_count > boot_history) {
+        CHECK(fw.tx_history[boot_history] != 0);
+    }
+}
+
+TEST_CASE("Host ID probe (0xAB) elicits a 2-byte response") {
+    /* Sending 0xAB to the keyboard via !INT triggers the firmware's
+     * external IRQ handler at 400H, which decodes the command and
+     * pushes a 2-byte ID response (0x01, 0x00) back over TX.  This
+     * verifies the full RX-IRQ-process-respond loop end to end. */
+    auto rom = load_firmware();
+    ms7004_fw_t fw;
+    ms7004_fw_init(&fw, rom.data(), (uint16_t)rom.size(), nullptr);
+
+    ms7004_fw_run_cycles(&fw, 200000);
+    int boot_history = fw.tx_history_count;
+
+    ms7004_fw_send_host_byte(&fw, 0xAB);
+    ms7004_fw_run_cycles(&fw, 200000);
+
+    REQUIRE(fw.tx_history_count >= boot_history + 2);
+    CHECK(fw.tx_history[boot_history + 0] == 0x01);
+    CHECK(fw.tx_history[boot_history + 1] == 0x00);
+}
+
 TEST_CASE("Pressing keys updates the matrix bits") {
     /* Phase 3b only: setting the matrix is enough — the keylatch
      * recompute on every i8243 write lands in 3c with the wiring of

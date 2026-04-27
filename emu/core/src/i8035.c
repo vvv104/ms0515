@@ -783,9 +783,15 @@ int i8035_step(i8035_t *cpu)
     case 0x35: cpu->tie = false; break;         /* DIS TCNTI            */
 
     case 0x86: {                                /* JNI addr             */
+        /* "Jump on Not INT": branches when the INT pin is LOW
+         * (active — interrupt request pending).  The "Not" in the
+         * mnemonic refers to INT being active-low, not to the test.
+         * The ms7004 firmware relies on this at 0x40C (verify start
+         * bit), 0x150 (skip EN I when host already mid-transfer),
+         * and 0x687 (busy-wait for line idle). */
         uint8_t lo = fetch(cpu);
         bool int_low = cpu->read_int && cpu->read_int(cpu->host_ctx);
-        if (!int_low)                           /* INT high → branch    */
+        if (int_low)                            /* INT low → branch     */
             cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | lo);
         cycles = 2;
         break;

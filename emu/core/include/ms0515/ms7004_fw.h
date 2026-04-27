@@ -30,6 +30,26 @@ extern "C" {
 
 struct ms0515_keyboard;     /* forward decl — see keyboard.h */
 
+/* TX reassembler — watches P1[7] and assembles the bit-banged 4800-baud
+ * stream into bytes.  See the .c file for the timing rationale. */
+typedef enum {
+    MS7004_TX_IDLE,        /* line is high, waiting for start bit       */
+    MS7004_TX_SAMPLING,    /* start bit seen, sampling 8 data bits      */
+    MS7004_TX_STOP_CHECK,  /* validating that the stop bit is high      */
+} ms7004_tx_state_t;
+
+/* RX driver — drives the !INT pin from a queue of host-to-keyboard
+ * bytes, one bit per 64 CPU cycles. */
+typedef enum {
+    MS7004_RX_IDLE,        /* nothing to send, INT released (high)      */
+    MS7004_RX_START,       /* driving INT low for the start bit         */
+    MS7004_RX_DATA,        /* driving INT for one of 8 data bits        */
+    MS7004_RX_STOP,        /* releasing INT high for the stop bit       */
+} ms7004_rx_state_t;
+
+#define MS7004_RX_QUEUE_SIZE  16
+#define MS7004_TX_HISTORY_SIZE 16
+
 typedef struct ms7004_fw {
     i8035_t  cpu;
     i8243_t  exp;
@@ -45,8 +65,28 @@ typedef struct ms7004_fw {
      * this when P1[4]=0 (STROBE asserted), 0 otherwise. */
     bool     keylatch;
 
+    /* TX reassembly state. */
+    ms7004_tx_state_t tx_state;
+    int               tx_cycles_to_sample;
+    int               tx_bit_index;
+    uint8_t           tx_byte;
+    bool              tx_last_bit7;
+    /* Ring of recently-assembled TX bytes (for tests).  Always written
+     * regardless of whether `uart` is non-NULL. */
+    uint8_t           tx_history[MS7004_TX_HISTORY_SIZE];
+    int               tx_history_count;
+
+    /* RX driver state. */
+    ms7004_rx_state_t rx_state;
+    int               rx_cycles_to_event;
+    int               rx_bit_index;
+    uint8_t           rx_byte;
+    bool              rx_int_low;        /* active-low: true = INT asserted */
+    uint8_t           rx_queue[MS7004_RX_QUEUE_SIZE];
+    int               rx_q_head, rx_q_tail;
+
     /* Downstream UART that receives assembled scancodes.  May be
-     * NULL in unit tests that only inspect CPU state. */
+     * NULL in unit tests that only inspect tx_history. */
     struct ms0515_keyboard *uart;
 } ms7004_fw_t;
 
@@ -67,9 +107,14 @@ void ms7004_fw_reset(ms7004_fw_t *fw);
  * layer (phase 3c/3d). */
 void ms7004_fw_press(ms7004_fw_t *fw, int col, int row, bool down);
 
+/* Enqueue a host-to-keyboard byte to be shifted out on !INT, one bit
+ * per 64 CPU cycles, starting on the next ms7004_fw_run_cycles call.
+ * Drops the byte if the queue is full. */
+void ms7004_fw_send_host_byte(ms7004_fw_t *fw, uint8_t byte);
+
 /* Run the CPU forward for at least `cycles` machine cycles and return
  * the actual count consumed (last instruction may overshoot by 1).
- * Stops as soon as the cumulative cycle count reaches the target. */
+ * Drives the TX reassembler and RX bit driver in lock-step. */
 int  ms7004_fw_run_cycles(ms7004_fw_t *fw, int cycles);
 
 #ifdef __cplusplus

@@ -19,9 +19,9 @@ programmer's manual).
 |   1   | i8035 CPU emulator (TDD)               | done        |
 |   2   | i8243 port expander (TDD)              | done        |
 |  3a   | Wiring research, dasm, ENT0 CLK fix    | done        |
-|  3b   | Firmware-driven backend (skeleton)     | next        |
-|  3c   | Wire matrix, T1 latch, UART RX/TX      | pending     |
-|  3d   | Switch ms7004 facade to fw backend     | pending     |
+|  3b   | Firmware-driven backend (skeleton)     | done        |
+|  3c   | Wire matrix, T1 latch, UART RX/TX      | done        |
+|  3d   | Switch ms7004 facade to fw backend     | next        |
 |   4   | Reconcile tests vs firmware            | pending     |
 |   5   | Frontend cleanup, docs                 | pending     |
 
@@ -255,19 +255,63 @@ Steps:
 - Test: load ROM, step ~10 000 instructions (≈ 30 ms wall), assert PC
   ends up inside the main loop region (133H..200H) and no assert fired.
 
-### Phase 3c — matrix + UART wiring
+### Phase 3c (2026-04-27) — matrix + UART wiring
 
-Steps:
-- Implement `ms7004_fw_press(col, row, down)` that sets `matrix[col]`
-  bits and recomputes the cached keylatch on every `i8243` write.
-- Map `ms7004_key_t` → (col, row) via a static table built from
-  `MS7004_WIRING.md`.
-- TX reassembler: detect start bit on P1[7], sample 8 bits at 64-cyc
-  intervals, push to `kbd_push_scancode`.
-- RX driver: take a queue of host→keyboard bytes; for each byte hold
-  INT low for one bit, then drive each data bit on INT, then stop.
-- Test: press F1 at boot, step long enough for one TX byte to assemble,
-  assert it equals scancode 0o127 (F1 LK201 code).
+Status: done.
+
+Implementation:
+- TX reassembler watches `P1[7]` for falling edges, samples 8 bits at
+  64-cycle intervals (mid-bit, LSB first), validates the stop bit is
+  high before pushing the assembled byte.  Stop-bit validation matters:
+  the boot-time speaker beep at 0xE4H reads uninitialised RAM[21]=0
+  and OUTL P1's it, briefly dragging bit 7 low — without the stop-bit
+  check we'd assemble a spurious 0x00 byte at every boot.
+- RX driver pulls bytes from a 16-deep queue, drives !INT low for a
+  start bit then 64 cyc per data bit (LSB first, line low = logic 0),
+  then releases the line for the stop bit.  The i8035's external IRQ
+  fires on the level transition and the firmware's handler at 400H
+  reassembles the byte via JNI sampling.
+- `cb_prog`: keylatch is now updated on the **rising** edge of PROG
+  (when the new latch value has been committed by `i8243_prog`),
+  reading from `exp->latch[port]` rather than the stale `p2_low`
+  command nibble.  Writing 0 (deselect) leaves the previous keylatch
+  intact, matching MAME's `if (data)` guard — necessary because the
+  firmware's scan does `MOVD Pp,#one-hot ; MOVD Pp,#0 ; sample T1`
+  and the deselect strobe must not clobber what we just sensed.
+
+Bugs surfaced in earlier phases:
+- **i8035 JNI**: was branching when INT pin is HIGH; correct semantics
+  per Intel MCS-48 reference and MAME is to branch when INT is **LOW**
+  (the "Not" in JNI refers to INT being active-low).  The firmware
+  uses this at 0x40C (verify start bit is still asserted), 0x150
+  (skip EN I if host already mid-transfer), and 0x687 (busy-wait for
+  line idle before transmitting).  With the bug, the boot path took
+  the JNI branch and skipped EN I, leaving ie=0 forever and the
+  host-cmd ISR never firing.
+- **ENT0 CLK**: already plugged in 3a as a no-op.
+
+End-to-end smoke tests (all green):
+- Pressing key at (col=12, row=1) after boot emits a non-zero byte
+  on TX.
+- Sending 0xAB host ID probe elicits the standard 2-byte response
+  0x01, 0x00.
+- Boot itself emits zero bytes (stop-bit filter rejects the speaker
+  glitch).
+
+### Phase 3d — swap ms7004 facade onto fw backend (next)
+
+Replace the body of `ms7004.c` so that the public API (`ms7004_init`,
+`ms7004_key`, `ms7004_tick`, `ms7004_host_byte`, queries) delegates
+to the firmware backend, and remove the `_fw` suffix entirely:
+- Fold `ms7004_fw.c/h` into `ms7004.c/h` (was: parallel TU, now: one
+  authoritative backend).
+- Maintain the `ms7004_key_t → (col, row)` mapping inside the new
+  `ms7004.c` from `docs/kb/MS7004_WIRING.md`.
+- Move OSK behaviour-deviations (the `[DEVIATE 1..4]` notes) into the
+  frontend on-screen-keyboard handler — those are UX overrides that
+  do not belong in the keyboard model.
+- Convert `ms7004_tick(now_ms)` into `ms7004_fw_run_cycles` driven by
+  the elapsed wall-clock delta (≈4920 instructions per 16 ms frame).
 
 ### Phase 3d — switch facade
 
