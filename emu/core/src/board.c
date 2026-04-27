@@ -339,6 +339,8 @@ static void io_write_word(ms0515_board_t *board, uint16_t offset, uint16_t value
 
 uint16_t board_read_word(ms0515_board_t *board, uint16_t address)
 {
+    /* K1801VM1 ignores the LSB on word access — align down silently. */
+    address &= 0xFFFEu;
     mem_translation_t tr = mem_translate(&board->mem, address);
     uint16_t value = (tr.type == ADDR_TYPE_IO)
         ? io_read_word(board, (uint16_t)tr.offset)
@@ -359,6 +361,8 @@ uint16_t board_read_word(ms0515_board_t *board, uint16_t address)
 
 void board_write_word(ms0515_board_t *board, uint16_t address, uint16_t value)
 {
+    /* K1801VM1 ignores the LSB on word access — align down silently. */
+    address &= 0xFFFEu;
     mem_translation_t tr = mem_translate(&board->mem, address);
 
     if (tr.type == ADDR_TYPE_IO) {

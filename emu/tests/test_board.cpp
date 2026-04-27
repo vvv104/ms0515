@@ -187,6 +187,31 @@ TEST_CASE("board_read/write_byte round-trips") {
     CHECK(emu.readByte(addr) == 0x42);
 }
 
+/* K1801VM1 ignores the LSB of the address on word access — a word access
+ * at an odd address must behave exactly like the same access at the even
+ * address one below it (no odd-address trap on this CPU). */
+TEST_CASE("word access at odd address ignores LSB") {
+    ms0515::Emulator emu;
+    emu.reset();
+    emu.writeWord(IO_DISPATCHER, 0x007F);
+
+    /* Write the surrounding bytes so we can detect a wrong byte being
+     * pulled into the word: 0x2000=0x11, 0x2001=0x22, 0x2002=0x33. */
+    emu.writeByte(0x2000, 0x11);
+    emu.writeByte(0x2001, 0x22);
+    emu.writeByte(0x2002, 0x33);
+
+    /* Word read at odd address 0x2001 must return the word at 0x2000
+     * (lo=0x11, hi=0x22), NOT a word assembled from 0x2001/0x2002. */
+    CHECK(emu.readWord(0x2001) == 0x2211);
+
+    /* Word write at odd address 0x2001 must store at 0x2000. */
+    emu.writeWord(0x2001, 0xBEEF);
+    CHECK(emu.readByte(0x2000) == 0xEF);
+    CHECK(emu.readByte(0x2001) == 0xBE);
+    CHECK(emu.readByte(0x2002) == 0x33);  /* untouched */
+}
+
 /* ── VRAM access ─────────────────────────────────────────────────────────── */
 
 TEST_CASE("board_get_vram returns non-null") {
