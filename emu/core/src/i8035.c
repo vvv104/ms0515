@@ -6,7 +6,7 @@
  * (1976), one opcode (or one tightly-related group of opcodes) per
  * static helper, dispatched through a single 256-entry switch.
  *
- * Coverage so far (commits 1 and 2 of phase 1):
+ * Coverage so far (commits 1..3 of phase 1):
  *   - control flow:  JMP page0..7, CALL page0..7, RET, conditional
  *                    branches on Acc / carry / F0 / F1
  *                    (JZ / JNZ / JC / JNC / JF0 / JF1)
@@ -20,9 +20,12 @@
  *   - logic:         ANL / ORL / XRL against #imm, Rn, @Rn
  *   - rotates:       RL A, RR A, RLC A, RRC A
  *   - flag ops:      CLR/CPL C, CLR/CPL F0, CLR/CPL F1
+ *   - port IO:       INS A,BUS; IN A,P1/P2; OUTL BUS/P1/P2,A;
+ *                    ANL/ORL BUS/P1/P2,#imm
+ *   - 8243 expander: MOVD A,P4..P7; MOVD P4..P7,A; ANLD/ORLD P4..P7,A
+ *                    (drives PROG strobe through the host callback)
  *
  * Coverage to follow in subsequent commits:
- *   - port IO (IN/OUTL/ANL/ORL Pn, MOVD/ANLD/ORLD to expander),
  *   - timer / counter (STRT/STOP/MOV T,A, JTF),
  *   - interrupts (EN/DIS I, EN/DIS TCNTI, RETR, vector dispatch),
  *   - external memory (MOVX), MOVP / MOVP3, JMPP, DJNZ,
@@ -62,6 +65,47 @@ static inline void add_to_a(i8035_t *cpu, uint8_t b, bool carry_in)
     cpu->a = (uint8_t)full;
     psw_assign(cpu, PSW_CY, full > 0xFFu);
     psw_assign(cpu, PSW_AC, ac);
+}
+
+/* Push a byte both into the corresponding output latch (for P1/P2 —
+ * BUS has no latch in our model) and through the host callback so the
+ * host sees the change immediately. */
+static inline void port_write(i8035_t *cpu, uint8_t port, uint8_t val)
+{
+    if (port == I8035_PORT_P1) cpu->p1_out = val;
+    if (port == I8035_PORT_P2) cpu->p2_out = val;
+    if (cpu->port_write) cpu->port_write(cpu->host_ctx, port, val);
+}
+
+static inline uint8_t port_read(i8035_t *cpu, uint8_t port)
+{
+    return cpu->port_read ? cpu->port_read(cpu->host_ctx, port) : 0xFF;
+}
+
+static inline void prog_edge(i8035_t *cpu, bool level)
+{
+    if (cpu->prog) cpu->prog(cpu->host_ctx, level);
+}
+
+/* Drive a single i8243 transaction.  cmd_bits is the 2-bit opcode for
+ * the expander (00=READ, 01=WRITE, 10=ORLD, 11=ANLD); port is 0..3 for
+ * P4..P7.  For READ the accumulator gets the low nibble that the
+ * expander placed on P2 while PROG was low; for the write-style
+ * commands the data nibble of A goes onto P2 before PROG rises. */
+static void expander_op(i8035_t *cpu, uint8_t cmd_bits, int port,
+                        bool is_read)
+{
+    uint8_t cmd_nibble = (uint8_t)(((cmd_bits & 3) << 2) | (port & 3));
+    port_write(cpu, I8035_PORT_P2,
+               (uint8_t)((cpu->p2_out & 0xF0) | cmd_nibble));
+    prog_edge(cpu, false);
+    if (is_read) {
+        cpu->a = (uint8_t)(port_read(cpu, I8035_PORT_P2) & 0x0F);
+    } else {
+        port_write(cpu, I8035_PORT_P2,
+                   (uint8_t)((cpu->p2_out & 0xF0) | (cpu->a & 0x0F)));
+    }
+    prog_edge(cpu, true);
 }
 
 /* Index into ram[] for the currently-selected register Rn. */
@@ -521,6 +565,104 @@ int i8035_step(i8035_t *cpu)
         uint8_t lo = fetch(cpu);
         if (cpu->f1)
             cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | lo);
+        cycles = 2;
+        break;
+    }
+
+    /* ── Port IO: IN / OUTL / ANL / ORL on BUS, P1, P2 ──────────────── */
+    case 0x08:                                  /* INS A,BUS            */
+        cpu->a = port_read(cpu, I8035_PORT_BUS);
+        cycles = 2;
+        break;
+
+    case 0x09:                                  /* IN A,P1              */
+        cpu->a = port_read(cpu, I8035_PORT_P1);
+        cycles = 2;
+        break;
+
+    case 0x0A:                                  /* IN A,P2              */
+        cpu->a = port_read(cpu, I8035_PORT_P2);
+        cycles = 2;
+        break;
+
+    case 0x02:                                  /* OUTL BUS,A           */
+        port_write(cpu, I8035_PORT_BUS, cpu->a);
+        cycles = 2;
+        break;
+
+    case 0x39:                                  /* OUTL P1,A            */
+        port_write(cpu, I8035_PORT_P1, cpu->a);
+        cycles = 2;
+        break;
+
+    case 0x3A:                                  /* OUTL P2,A            */
+        port_write(cpu, I8035_PORT_P2, cpu->a);
+        cycles = 2;
+        break;
+
+    case 0x98: {                                /* ANL BUS,#data        */
+        uint8_t imm = fetch(cpu);
+        port_write(cpu, I8035_PORT_BUS, (uint8_t)(0xFF & imm));
+        cycles = 2;
+        break;
+    }
+
+    case 0x99: {                                /* ANL P1,#data         */
+        cpu->p1_out &= fetch(cpu);
+        port_write(cpu, I8035_PORT_P1, cpu->p1_out);
+        cycles = 2;
+        break;
+    }
+
+    case 0x9A: {                                /* ANL P2,#data         */
+        cpu->p2_out &= fetch(cpu);
+        port_write(cpu, I8035_PORT_P2, cpu->p2_out);
+        cycles = 2;
+        break;
+    }
+
+    case 0x88: {                                /* ORL BUS,#data        */
+        uint8_t imm = fetch(cpu);
+        port_write(cpu, I8035_PORT_BUS, imm);
+        cycles = 2;
+        break;
+    }
+
+    case 0x89: {                                /* ORL P1,#data         */
+        cpu->p1_out |= fetch(cpu);
+        port_write(cpu, I8035_PORT_P1, cpu->p1_out);
+        cycles = 2;
+        break;
+    }
+
+    case 0x8A: {                                /* ORL P2,#data         */
+        cpu->p2_out |= fetch(cpu);
+        port_write(cpu, I8035_PORT_P2, cpu->p2_out);
+        cycles = 2;
+        break;
+    }
+
+    /* ── 8243 expander: MOVD / ANLD / ORLD ──────────────────────────── */
+    case 0x0C: case 0x0D: case 0x0E: case 0x0F: {
+        expander_op(cpu, 0x0, op & 3, true);    /* MOVD A,Pp (READ)     */
+        cycles = 2;
+        break;
+    }
+
+    case 0x3C: case 0x3D: case 0x3E: case 0x3F: {
+        expander_op(cpu, 0x1, op & 3, false);   /* MOVD Pp,A (WRITE)    */
+        cycles = 2;
+        break;
+    }
+
+    case 0x8C: case 0x8D: case 0x8E: case 0x8F: {
+        expander_op(cpu, 0x2, op & 3, false);   /* ORLD Pp,A            */
+        cycles = 2;
+        break;
+    }
+
+    case 0x9C: case 0x9D: case 0x9E: case 0x9F: {
+        expander_op(cpu, 0x3, op & 3, false);   /* ANLD Pp,A            */
         cycles = 2;
         break;
     }

@@ -92,15 +92,31 @@ indirect addresses are masked to 6 bits) and silently overwrites Rn
 itself. Tests now use 0x30 — well inside the user RAM area at
 0x20..0x3F.
 
-#### Commit 3 — port IO + MOVD to expander
+#### Commit 3 (2026-04-27) — port IO + 8243 expander interface
 
-Plan:
-- IN A,P1/P2; OUTL P1/P2,A; ANL/ORL P1/P2,#imm — modify p1_out/p2_out
-  latch; OUTL goes through callback.
-- INS A,BUS; OUTL BUS,A — through callback for port 0.
-- MOVD A,P4..P7; MOVD P4..P7,A — drive PROG via callback, exchange a
-  4-bit nibble through P2 low nibble.
-- ANLD/ORLD P4..P7,A — same wiring as MOVD but with AND/OR command.
+Implemented opcodes (covered by tests):
+- port IO:  INS A,BUS (`0x08`), IN A,P1 (`0x09`), IN A,P2 (`0x0A`);
+  OUTL BUS,A (`0x02`), OUTL P1,A (`0x39`), OUTL P2,A (`0x3A`);
+  ANL/ORL BUS|P1|P2,#imm (`0x88`/`0x89`/`0x8A` for OR;
+  `0x98`/`0x99`/`0x9A` for AND).  P1/P2 latch in `cpu->p1_out` /
+  `cpu->p2_out`; every change is mirrored to the host via the
+  `port_write` callback so peripherals can react.
+- 8243 expander: MOVD A,P4..P7 (`0x0C..0F`); MOVD P4..P7,A
+  (`0x3C..3F`); ORLD P4..P7,A (`0x8C..8F`); ANLD P4..P7,A
+  (`0x9C..9F`).  Each transaction drives a 2-bit command (00 read /
+  01 write / 10 OR / 11 AND) plus a 2-bit port number on P2[3:0],
+  strobes PROG low via the `prog` callback, exchanges the data
+  nibble (read = inbound from P2, write/OR/AND = outbound), then
+  raises PROG.
+
+7 new tests, 22 assertions added; total i8035 suite is 44 cases /
+102 assertions.  Full suite 229/229.
+
+Test-fixture upgrade: Cpu now carries a programmable input bank
+(`in_bus`/`in_p1`/`in_p2`/`pin_t0`/`pin_t1`/`pin_int`), records the
+last byte written to each port and counts PROG transitions — enough
+to assert wire-level behaviour of port-driving instructions without
+a real expander attached.
 
 #### Commit 4 — timer / counter + interrupts
 

@@ -11,18 +11,62 @@ TEST_SUITE("i8035") {
 /* ── Fixture ─────────────────────────────────────────────────────────────── */
 
 /* A scratch CPU bound to a 256-byte ROM we can fill from a test.
- * Callbacks are nullptr — port and pin tests come in a later commit
- * once port-IO opcodes are implemented. */
+ * Tracks every port-IO and pin-read interaction so port tests can
+ * inspect the wire-level transcript. */
 struct Cpu {
     i8035_t  cpu;
     uint8_t  rom[256];
+
+    /* Programmable inputs the host returns when the CPU asks. */
+    uint8_t  in_bus = 0xFF;
+    uint8_t  in_p1  = 0xFF;
+    uint8_t  in_p2  = 0xFF;
+    bool     pin_t0 = false;
+    bool     pin_t1 = false;
+    bool     pin_int = false;
+
+    /* Last value written to each port — set by OUTL / ANL / ORL. */
+    uint8_t  out_bus = 0;
+    uint8_t  out_p1  = 0;
+    uint8_t  out_p2  = 0;
+
+    /* Last PROG transition recorded.  prog_edges counts every change. */
+    bool     prog_level = true;       /* PROG idles high             */
+    int      prog_edges = 0;
+
+    static uint8_t cb_read (void *ctx, uint8_t port) {
+        auto *c = static_cast<Cpu*>(ctx);
+        switch (port) {
+        case I8035_PORT_BUS: return c->in_bus;
+        case I8035_PORT_P1:  return c->in_p1;
+        case I8035_PORT_P2:  return c->in_p2;
+        }
+        return 0xFF;
+    }
+    static void cb_write(void *ctx, uint8_t port, uint8_t val) {
+        auto *c = static_cast<Cpu*>(ctx);
+        switch (port) {
+        case I8035_PORT_BUS: c->out_bus = val; break;
+        case I8035_PORT_P1:  c->out_p1  = val; break;
+        case I8035_PORT_P2:  c->out_p2  = val; break;
+        }
+    }
+    static bool cb_t0 (void *ctx) { return static_cast<Cpu*>(ctx)->pin_t0; }
+    static bool cb_t1 (void *ctx) { return static_cast<Cpu*>(ctx)->pin_t1; }
+    static bool cb_int(void *ctx) { return static_cast<Cpu*>(ctx)->pin_int; }
+    static void cb_prog(void *ctx, bool level) {
+        auto *c = static_cast<Cpu*>(ctx);
+        if (level != c->prog_level) c->prog_edges++;
+        c->prog_level = level;
+    }
 
     void load(std::initializer_list<uint8_t> bytes) {
         std::memset(rom, 0, sizeof(rom));
         std::size_t i = 0;
         for (uint8_t b : bytes) rom[i++] = b;
         i8035_init(&cpu, rom, sizeof(rom),
-                   nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                   this, cb_read, cb_write,
+                   cb_t0, cb_t1, cb_int, cb_prog);
         i8035_reset(&cpu);
     }
 
@@ -504,6 +548,125 @@ TEST_CASE("JF1 jumps when F1 is set, falls through otherwise") {
     c.rom[0x11] = 0x55;
     c.run(3);
     CHECK(c.cpu.a == 0x55);
+}
+
+/* ── Port IO: IN, OUTL, ANL, ORL on P1 / P2 / BUS ───────────────────────── */
+
+TEST_CASE("IN A,P1 / IN A,P2 / INS A,BUS pull from host callback") {
+    Cpu c;
+    c.in_p1  = 0x42;
+    c.in_p2  = 0x77;
+    c.in_bus = 0xCC;
+    c.load({
+        0x09,          /* IN A,P1 → A = 0x42         */
+        0xAB,          /* MOV R3,A                   */
+        0x0A,          /* IN A,P2 → A = 0x77         */
+        0xAC,          /* MOV R4,A                   */
+        0x08,          /* INS A,BUS → A = 0xCC       */
+    });
+    c.run(5);
+    CHECK(c.cpu.a == 0xCC);
+    CHECK(c.cpu.ram[3] == 0x42);
+    CHECK(c.cpu.ram[4] == 0x77);
+}
+
+TEST_CASE("OUTL P1,A / OUTL P2,A drive the latch and the host callback") {
+    Cpu c; c.load({
+        0x23, 0x5A,    /* MOV A,#5A                  */
+        0x39,          /* OUTL P1,A                  */
+        0x23, 0xA5,    /* MOV A,#A5                  */
+        0x3A,          /* OUTL P2,A                  */
+        0x23, 0x33,    /* MOV A,#33                  */
+        0x02,          /* OUTL BUS,A                 */
+    });
+    c.run(6);
+    CHECK(c.cpu.p1_out == 0x5A);   CHECK(c.out_p1  == 0x5A);
+    CHECK(c.cpu.p2_out == 0xA5);   CHECK(c.out_p2  == 0xA5);
+                                    CHECK(c.out_bus == 0x33);
+}
+
+TEST_CASE("ANL P1,#imm / ORL P1,#imm AND/OR the latch in place") {
+    Cpu c; c.load({
+        0x23, 0xFF,    /* MOV A,#FF                  */
+        0x39,          /* OUTL P1,A → latch = FF     */
+        0x99, 0xF0,    /* ANL P1,#F0 → latch = F0    */
+        0x89, 0x0C,    /* ORL P1,#0C → latch = FC    */
+    });
+    c.run(4);
+    CHECK(c.cpu.p1_out == 0xFC);
+    CHECK(c.out_p1     == 0xFC);
+}
+
+TEST_CASE("ANL P2,#imm / ORL P2,#imm AND/OR the P2 latch") {
+    Cpu c; c.load({
+        0x23, 0xFF,    /* MOV A,#FF                  */
+        0x3A,          /* OUTL P2,A → latch = FF     */
+        0x9A, 0x0F,    /* ANL P2,#0F → latch = 0F    */
+        0x8A, 0x80,    /* ORL P2,#80 → latch = 8F    */
+    });
+    c.run(4);
+    CHECK(c.cpu.p2_out == 0x8F);
+}
+
+/* ── MOVD / ANLD / ORLD: 8243 expander interface ────────────────────────── */
+
+/* Helper: model an 8243 just barely enough to satisfy a MOVD A,Pp.
+ * The CPU drives a 4-bit READ command on P2[3:0] and strobes PROG low;
+ * while PROG is low, the host (this lambda) places the expander port
+ * value on the low nibble of P2.  PROG goes high to latch. */
+TEST_CASE("MOVD A,P4..P7 strobes PROG and latches expander nibble") {
+    Cpu c;
+    /* Programmed expander value: bottom nibble of in_p2 is what the
+     * CPU will sample while PROG is low.  Tie the upper nibble to
+     * what the latch wrote so we exercise the (val & 0x0F) mask. */
+    c.in_p2 = 0xC7;        /* low nibble = 0x7 — what the expander returns */
+    c.load({
+        0x0E,              /* MOVD A,P6                                  */
+    });
+    c.run(1);
+    CHECK(c.cpu.a == 0x07);              /* low nibble latched, high cleared */
+    CHECK(c.prog_edges >= 2);            /* at least one falling + rising  */
+    CHECK(c.prog_level == true);         /* PROG returns high after MOVD   */
+    /* During the strobe the CPU put the READ command (00) plus port
+     * number (P6 → 10) into P2[3:0].  After the instruction the latch
+     * reflects whatever was last written — which is the command byte. */
+    CHECK((c.out_p2 & 0x0F) == 0x02);    /* READ (00) | port-2 (10) = 0010 */
+}
+
+TEST_CASE("MOVD Pp,A drives WRITE command then data through P2") {
+    Cpu c;
+    c.load({
+        0x23, 0x0A,        /* MOV A,#0A — only low nibble matters       */
+        0x3D,              /* MOVD P5,A                                  */
+    });
+    c.run(2);
+    CHECK(c.prog_edges >= 2);
+    CHECK(c.prog_level == true);
+    /* After the strobe sequence the P2 latch holds the data nibble
+     * (0xA), having earlier held the WRITE command (01 << 2 | 01). */
+    CHECK((c.cpu.p2_out & 0x0F) == 0x0A);
+}
+
+TEST_CASE("ANLD / ORLD use the AND / OR command codes") {
+    Cpu c;
+    c.load({
+        0x23, 0x05,        /* MOV A,#05                                  */
+        0x9C,              /* ANLD P4,A — AND command on port 4          */
+    });
+    c.run(2);
+    /* AND command nibble is (11 << 2 | port).  P4 → port 0; final byte
+     * before PROG rise should be the data 0x5 (low nibble of A). */
+    CHECK((c.cpu.p2_out & 0x0F) == 0x05);
+    CHECK(c.prog_edges >= 2);
+
+    Cpu c2;
+    c2.load({
+        0x23, 0x09,
+        0x8F,              /* ORLD P7,A — OR command on port 7=11       */
+    });
+    c2.run(2);
+    CHECK((c2.cpu.p2_out & 0x0F) == 0x09);
+    CHECK(c2.prog_edges >= 2);
 }
 
 } /* TEST_SUITE */
