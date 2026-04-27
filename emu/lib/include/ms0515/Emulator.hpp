@@ -148,6 +148,7 @@ private:
     std::unique_ptr<ms0515_board_t> board_;
     ms7004_t kbd7004_;
     std::vector<uint8_t> kbdFirmware_;
+    uint32_t kbdSyntheticMs_ = 0;          /* see Emulator::stepFrame */
     std::array<std::string, 4> diskPath_;
 
     SoundCallback     soundCb_;

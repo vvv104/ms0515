@@ -602,73 +602,42 @@ static bool read_ramdisk(snap_io_t *f, ms0515_ramdisk_t *rd, uint32_t chunk_size
     return true;
 }
 
-/* ── MS7004 keyboard controller chunk ────────────────────────────────────── */
+/* ── MS7004 keyboard controller chunk ──────────────────────────────────────
+ *
+ * Phase 3d-final replaced the hand-rolled state machine with the real
+ * keyboard firmware running on i8035 + i8243.  The new chunk uses a
+ * different ID (`K700` vs the legacy `7004`) so that:
+ *   - old snapshots keep their `7004` chunks; the new reader hits the
+ *     unknown-chunk path and skips them.  The keyboard ends up in
+ *     fresh init state — acceptable, no save-file is corrupted.
+ *   - new snapshots write `K700` and old readers (if any are around)
+ *     also skip via their unknown-chunk path.
+ *
+ * We deliberately do NOT serialise the live i8035 / i8243 state.  Any
+ * mid-bit-bang TX byte or in-flight host RX is lost on save/load —
+ * a perfectly acceptable degradation.  The firmware re-initialises
+ * fresh and resumes scanning on load.  What we DO serialise is the
+ * caller-driven matrix (which keys are held) and the observed toggle
+ * flags so the OSK shows the right modifier state.
+ */
 
 static bool write_ms7004(snap_io_t *f, const ms7004_t *k)
 {
-    if (!write_u16(f, (uint16_t)MS7004_KEY__COUNT)) return false;
-    if (!write_bytes(f, k->held, MS7004_KEY__COUNT)) return false;
-    if (!write_i32(f, k->held_count)) return false;
-    if (!write_bool(f, k->caps_on)) return false;
-    if (!write_bool(f, k->ruslat_on)) return false;
-    if (!write_i32(f, (int32_t)k->repeat_key)) return false;
-    if (!write_u32(f, k->repeat_next_ms)) return false;
-    if (!write_u32(f, k->repeat_delay_ms)) return false;
-    if (!write_u32(f, k->repeat_period_ms)) return false;
-    if (!write_bool(f, k->repeat_enabled)) return false;
-    for (int i = 0; i < 8; i++)
-        if (!write_i32(f, (int32_t)k->key_stack[i])) return false;
-    if (!write_i32(f, k->key_stack_top)) return false;
-    if (!write_u32(f, k->now_ms)) return false;
-    if (!write_u8(f, k->cmd_pending)) return false;
-    if (!write_bool(f, k->data_enabled)) return false;
-    if (!write_bool(f, k->sound_enabled)) return false;
-    if (!write_bool(f, k->click_enabled)) return false;
-    if (!write_bool(f, k->latin_indicator)) return false;
+    if (!write_bytes(f, k->matrix, 16)) return false;
+    if (!write_bool(f, k->caps_on))     return false;
+    if (!write_bool(f, k->ruslat_on))   return false;
     return true;
 }
 
 static bool read_ms7004(snap_io_t *f, ms7004_t *k)
 {
-    uint16_t key_count;
-    if (!read_u16(f, &key_count)) return false;
-
-    /* Read held[] array — handle size changes gracefully */
-    if (key_count <= MS7004_KEY__COUNT) {
-        if (!read_bytes(f, k->held, key_count)) return false;
-        memset(k->held + key_count, 0, MS7004_KEY__COUNT - key_count);
-    } else {
-        if (!read_bytes(f, k->held, MS7004_KEY__COUNT)) return false;
-        /* Skip extra bytes from newer version */
-        if (!f->seek(f->ctx, (long)(key_count - MS7004_KEY__COUNT)))
-            return false;
-    }
-
-    int32_t i32;
-    if (!read_i32(f, &k->held_count)) return false;
-    if (!read_bool(f, &k->caps_on)) return false;
-    if (!read_bool(f, &k->ruslat_on)) return false;
-    if (!read_i32(f, &i32)) return false;
-    k->repeat_key = (ms7004_key_t)i32;
-    if (!read_u32(f, &k->repeat_next_ms)) return false;
-    if (!read_u32(f, &k->repeat_delay_ms)) return false;
-    if (!read_u32(f, &k->repeat_period_ms)) return false;
-    if (!read_bool(f, &k->repeat_enabled)) return false;
-    for (int i = 0; i < 8; i++) {
-        if (!read_i32(f, &i32)) return false;
-        k->key_stack[i] = (ms7004_key_t)i32;
-    }
-    if (!read_i32(f, &k->key_stack_top)) return false;
-    if (!read_u32(f, &k->now_ms)) return false;
-    if (!read_u8(f, &k->cmd_pending)) return false;
-    if (!read_bool(f, &k->data_enabled)) return false;
-    if (!read_bool(f, &k->sound_enabled)) return false;
-    if (!read_bool(f, &k->click_enabled)) return false;
-    if (!read_bool(f, &k->latin_indicator)) return false;
+    if (!read_bytes(f, k->matrix, 16)) return false;
+    if (!read_bool(f, &k->caps_on))    return false;
+    if (!read_bool(f, &k->ruslat_on))  return false;
     return true;
 }
 
-#define MS7004_CHUNK_SIZE (2 + MS7004_KEY__COUNT + 4 + 2 + 4 + 3*4 + 1 + 8*4 + 4 + 4 + 1 + 4)
+#define MS7004_CHUNK_SIZE (16 + 1 + 1)
 
 /* ── Disk paths chunk ────────────────────────────────────────────────────── */
 
@@ -775,7 +744,7 @@ snap_error_t snap_save(const ms0515_board_t *board,
     }
 
     /* MS7004 keyboard controller */
-    if (!write_chunk_hdr(out, "7004", MS7004_CHUNK_SIZE)) return SNAP_ERR_IO;
+    if (!write_chunk_hdr(out, "K700", MS7004_CHUNK_SIZE)) return SNAP_ERR_IO;
     if (!write_ms7004(out, kbd7004)) return SNAP_ERR_IO;
 
     /* Disk paths */
@@ -858,7 +827,7 @@ snap_error_t snap_load(ms0515_board_t *board,
             got_rdk = true;
         } else if (memcmp(id, "HIST", 4) == 0) {
             if (!read_history(in, &board->history, chunk_size)) return SNAP_ERR_CORRUPT;
-        } else if (memcmp(id, "7004", 4) == 0) {
+        } else if (memcmp(id, "K700", 4) == 0) {
             if (!read_ms7004(in, kbd7004)) return SNAP_ERR_CORRUPT;
             got_7004 = true;
         } else if (memcmp(id, "DISK", 4) == 0) {

@@ -13,7 +13,6 @@ add_executable(ms0515_tests
     test_keyboard.cpp
     test_ramdisk.cpp
     test_ms7004.cpp
-    test_ms7004_fw.cpp
     test_i8035.cpp
     test_i8243.cpp
     test_board.cpp

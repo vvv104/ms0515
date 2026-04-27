@@ -22,8 +22,9 @@ programmer's manual).
 |  3b    | Firmware-driven backend (skeleton)            | done   |
 |  3c    | Wire matrix, T1 latch, UART RX/TX             | done   |
 |  3d-prep | Key enum mapping + scancode capture         | done   |
-|  3d-final | Facade swap, snapshot format bump, OSK    | next   |
-|   4    | Reconcile tests vs firmware                   | pending |
+|  3d-1  | attach_firmware API + Emulator wiring         | done   |
+|  3d-final | Facade swap + snapshot + test rewrite     | done   |
+|   4    | OSK overrides migration + reactivate skipped tests | next |
 |   5    | Frontend cleanup, docs                        | pending |
 
 ## Decisions

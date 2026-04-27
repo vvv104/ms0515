@@ -161,7 +161,16 @@ void Emulator::setReadWatch(std::uint16_t addr, std::uint16_t len)
 
 bool Emulator::stepFrame()
 {
-    return board_step_frame(board_.get());
+    bool result = board_step_frame(board_.get());
+    /* The MS 7004 keyboard firmware ticks alongside every CPU frame.
+     * 50 Hz video = 20 ms per frame; ms7004_tick computes the cycle
+     * budget from this synthetic timeline so callers don't need to
+     * juggle a separate wall-clock tick (which used to leak into the
+     * frontend as keyTick).  Single source of time → no risk of two
+     * tickers stomping each other's delta tracking. */
+    kbdSyntheticMs_ += 20;
+    ms7004_tick(&kbd7004_, kbdSyntheticMs_);
+    return result;
 }
 
 void Emulator::stepInstruction()
@@ -186,9 +195,11 @@ void Emulator::keyReleaseAll()
     ms7004_release_all(&kbd7004_);
 }
 
-void Emulator::keyTick(uint32_t now_ms)
+void Emulator::keyTick(uint32_t /*now_ms*/)
 {
-    ms7004_tick(&kbd7004_, now_ms);
+    /* No-op: stepFrame now drives ms7004_tick from a synthetic
+     * timeline.  This stub stays for source compatibility — the
+     * frontend's call site is harmless but redundant. */
 }
 
 bool Emulator::capsOn()   const noexcept { return ms7004_caps_on(&kbd7004_); }

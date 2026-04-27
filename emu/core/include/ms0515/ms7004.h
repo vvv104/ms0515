@@ -1,52 +1,34 @@
 /*
  * ms7004.h — Elektronika MS 7004 keyboard microcontroller model.
  *
- * The MS 7004 is a serial keyboard derived from the DEC LK201.  A small
- * microcontroller inside the keyboard scans the key matrix, tracks modifier
- * state, handles auto-repeat, and emits 8-bit scancodes over a 4800-baud
- * serial line.  Its output is consumed by the host's i8251 USART (modelled
- * separately in keyboard.c); this module models the keyboard itself.
+ * The MS 7004 is a serial keyboard derived from the DEC LK201.  An
+ * Intel 8035 microcontroller inside the keyboard scans the key matrix,
+ * tracks modifier state, handles auto-repeat, and emits 8-bit
+ * scancodes over a 4800-baud serial line into the host's i8251 USART.
  *
- * Design goals
- * ------------
- * `core/keyboard.c` is a pure i8251 USART — it does not know what bytes
- * mean.  This module sits logically on the serial line's *other* end: the
- * frontend tells it "physical key at matrix position X went down", and it
- * produces the scancode sequence the real MS 7004 would have emitted,
- * pushing bytes into the USART's RX FIFO.
+ * This module runs the real keyboard firmware on top of i8035 + i8243
+ * cores (see i8035.h, i8243.h, docs/kb/MS7004_WIRING.md).  Callers
+ * push physical key presses by enum or matrix position; the firmware
+ * takes care of scanning, debouncing, ALL-UP, repeat, and command
+ * decoding, just like the real chip.
  *
- * That way, OSK clicks and physical host-key events funnel through the
- * same single point (`ms7004_key`), and all MS 7004 behaviour (modifier
- * latching, ALL-UP on release, toggle keys, auto-repeat) lives here — the
- * one authoritative place, matching the real hardware.
- *
- * Scancode semantics (LK201-derived)
- * ----------------------------------
- *   - Regular key pressed : emit its scancode once.
- *   - Held modifier (ВР/СУ/КМП) pressed : emit its scancode, set internal
- *     "held" flag.
- *   - Held modifier released : emit nothing immediately; emit ALL-UP
- *     (0o263) only when the LAST held key (regular OR modifier) is
- *     released.  This matches LK201 behaviour and is what the MS0515
- *     boot ROM expects.
- *   - Toggle key (ФКС, РУС/ЛАТ) pressed : emit its scancode once, flip
- *     an internal toggle flag.  Release is a no-op.  The keyboard
- *     firmware tracks the toggle state; the host ROM reads it back by
- *     inference from subsequent keystrokes, not by polling.
- *   - Auto-repeat : while a regular key is held alone (as the most
- *     recent non-modifier press), its scancode may be re-emitted at
- *     a fixed rate after an initial delay.  Disabled by default in
- *     this model until a host command enables it.
+ * Design summary
+ * --------------
+ * `core/keyboard.c` is a pure i8251 USART — it does not know what
+ * bytes mean.  This module sits logically on the serial line's *other*
+ * end: the frontend tells it "physical key X went down", and the
+ * firmware produces the scancode sequence the real MS 7004 would have
+ * emitted, pushing bytes into the USART's RX FIFO.  Host commands
+ * (the USART's TX side) flow back into `ms7004_host_byte`, which feeds
+ * the firmware's external IRQ pin one bit at a time.
  *
  * Sources
  * -------
- *   - MS0515BTL emulator (nzeemin/ms0515btl) — full scancode table in
- *     KeyboardView.cpp; treated as the authoritative make-code set.
- *   - DEC LK201 Technical Manual (EK-104AA-TM) — modifier & ALL-UP
- *     semantics, auto-repeat divisions.
- *   - Habr article about MS 7004 (timeweb/706422) — protocol overview.
- *   - NS4 technical description §4.10 — USART interface only; the doc
- *     does not describe keyboard-side behaviour.
+ *   - `mc7004_keyboard_original.rom` (2 KB, CRC32 69fcab53) — the
+ *     authoritative state machine, run as actual MCS-48 code.
+ *   - MAME `src/mame/shared/ms7004.cpp` — pin and matrix wiring
+ *     reference (data only, code original).
+ *   - DEC LK201 Technical Manual (EK-104AA-TM) — protocol overview.
  */
 
 #ifndef MS0515_MS7004_H
@@ -55,21 +37,22 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <ms0515/i8035.h>
+#include <ms0515/i8243.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct ms0515_keyboard;      /* forward decl — see keyboard.h */
+struct ms0515_keyboard;     /* forward decl — see keyboard.h */
 
 /*
  * Physical key identifiers.  Each enum value corresponds to ONE cap on
- * the real MS 7004.  Values are opaque indices; the matrix-position →
- * scancode mapping is internal (see ms7004.c::kScancode).
+ * the real MS 7004.  Values are opaque indices; the matrix-position
+ * mapping lives inside ms7004.c (kKeyMatrix[]).
  *
  * Ordering below follows the physical layout (top strip, then main
- * block row-by-row, then editing cluster / arrows / PF / numpad).  Do
- * not reorder arbitrarily — the scancode table in ms7004.c is index-
- * aligned with this enum.
+ * block row-by-row, then editing cluster / arrows / PF / numpad).
  */
 typedef enum ms7004_key {
     MS7004_KEY_NONE = 0,
@@ -107,7 +90,7 @@ typedef enum ms7004_key {
     MS7004_KEY_RETURN,          /* ВК    sc 0o275 */
 
     /* ── Row 3: home row ─────────────────────────────────────────── */
-    MS7004_KEY_CTRL,            /* СУ    sc 0o257 (held) */
+    MS7004_KEY_CTRL,            /* СУ    sc 0o257 */
     MS7004_KEY_CAPS,            /* ФКС   sc 0o260 (toggle) */
     MS7004_KEY_F, MS7004_KEY_Y, MS7004_KEY_W, MS7004_KEY_A,
     MS7004_KEY_P, MS7004_KEY_R, MS7004_KEY_O, MS7004_KEY_L,
@@ -115,14 +98,13 @@ typedef enum ms7004_key {
     MS7004_KEY_V,               /* "Ж/V"  sc 0o362 */
     MS7004_KEY_BACKSLASH,       /* "Э\"   sc 0o373 */
     MS7004_KEY_PERIOD,          /* ".>"   sc 0o367 */
-    MS7004_KEY_HARDSIGN,        /* Ъ      sc 0o361  (same sc as `_` —
-                                   see note in ms7004.c) */
+    MS7004_KEY_HARDSIGN,        /* Ъ      sc 0o361 */
 
     /* ── Row 4: bottom letter row ────────────────────────────────── */
-    MS7004_KEY_SHIFT_L,         /* ВР left  sc 0o256 (held) */
+    MS7004_KEY_SHIFT_L,         /* ВР left  sc 0o256 */
     MS7004_KEY_RUSLAT,          /* РУС/ЛАТ  sc 0o262 (toggle) */
     MS7004_KEY_Q,               /* "Я/Q"  sc 0o303 */
-    MS7004_KEY_CHE,             /* "Ч/¬"  sc 0o310 — no SDL keycode */
+    MS7004_KEY_CHE,             /* "Ч/¬"  sc 0o310 */
     MS7004_KEY_S, MS7004_KEY_M, MS7004_KEY_I, MS7004_KEY_T,
     MS7004_KEY_X,               /* "Ь/X"  sc 0o343 */
     MS7004_KEY_B,
@@ -133,7 +115,7 @@ typedef enum ms7004_key {
     MS7004_KEY_SHIFT_R,         /* ВР right — shares scancode 0o256 */
 
     /* ── Row 5: bottom row (space etc.) ──────────────────────────── */
-    MS7004_KEY_COMPOSE,         /* КМП    sc 0o261 (held) */
+    MS7004_KEY_COMPOSE,         /* КМП    sc 0o261 */
     MS7004_KEY_SPACE,           /*        sc 0o324 */
     MS7004_KEY_KP0_WIDE,        /* wide 0 sc 0o222 */
     MS7004_KEY_KP_ENTER,        /* ВВОД   sc 0o225 */
@@ -166,103 +148,122 @@ typedef enum ms7004_key {
     MS7004_KEY__COUNT
 } ms7004_key_t;
 
+/* TX reassembler — watches P1[7] and assembles the bit-banged
+ * 4800-baud stream into bytes.  See ms7004.c for the timing rationale. */
+typedef enum {
+    MS7004_TX_IDLE,        /* line is high, waiting for start bit       */
+    MS7004_TX_SAMPLING,    /* start bit seen, sampling 8 data bits      */
+    MS7004_TX_STOP_CHECK,  /* validating that the stop bit is high      */
+} ms7004_tx_state_t;
+
+/* RX driver — drives the !INT pin from a queue of host-to-keyboard
+ * bytes, one bit per 64 CPU cycles. */
+typedef enum {
+    MS7004_RX_IDLE,        /* nothing to send, INT released (high)      */
+    MS7004_RX_START,       /* driving INT low for the start bit         */
+    MS7004_RX_DATA,        /* driving INT for one of 8 data bits        */
+    MS7004_RX_STOP,        /* releasing INT high for the stop bit       */
+} ms7004_rx_state_t;
+
+#define MS7004_RX_QUEUE_SIZE   16
+#define MS7004_TX_HISTORY_SIZE 16
+
 /* ── Public state ─────────────────────────────────────────────────────── */
 
 typedef struct ms7004 {
-    /* Downstream USART the keyboard is wired to. */
-    struct ms0515_keyboard *uart;
+    /* Keyboard firmware running on i8035 + i8243.  Drives all real
+     * keyboard behaviour — matrix scan, ALL-UP, auto-repeat, modifier
+     * latching, host command decoding. */
+    i8035_t  cpu;
+    i8243_t  exp;
 
-    /* Per-key held state (1 = pressed on matrix). Indexed by ms7004_key_t. */
-    uint8_t  held[MS7004_KEY__COUNT];
+    /* Key matrix: bit `r` of `matrix[c]` is 1 when the key at
+     * column c (0..15), row r (0..7) is held.  Updated by the public
+     * ms7004_key / ms7004_release_all entry points. */
+    uint8_t  matrix[16];
 
-    /* Total number of held keys — both modifiers and regular.  ALL-UP
-     * (0o263) is emitted when this transitions from non-zero back to
-     * zero, *but only if a modifier was held during the session*.
-     * Modifier-free key presses do not produce ALL-UP — emitting it
-     * unconditionally exposes a host-side bug where ROM kbd routines
-     * leave R0 untouched on byte 0o263 and the OS's interrupt handler
-     * then leaks R0 from interrupted code (hits e.g. random reboots
-     * in SABOT2, vec-130 halt in Mihin manual-D). */
-    int      held_count;
-    bool     modifier_in_session;    /* set on modifier press, cleared on ALL-UP */
+    /* Last value latched by the most recent i8243 column write.  T1
+     * returns this when P1[4]=0 (STROBE asserted), 0 otherwise. */
+    bool     keylatch;
 
-    /* Toggle state, latched inside the keyboard firmware. */
+    /* TX reassembly state. */
+    ms7004_tx_state_t tx_state;
+    int               tx_cycles_to_sample;
+    int               tx_bit_index;
+    uint8_t           tx_byte;
+    bool              tx_last_bit7;
+    /* Ring of recently-assembled TX bytes (for tests).  Always written. */
+    uint8_t           tx_history[MS7004_TX_HISTORY_SIZE];
+    int               tx_history_count;
+
+    /* RX driver state. */
+    ms7004_rx_state_t rx_state;
+    int               rx_cycles_to_event;
+    int               rx_bit_index;
+    uint8_t           rx_byte;
+    bool              rx_int_low;        /* active-low: true = INT asserted */
+    uint8_t           rx_queue[MS7004_RX_QUEUE_SIZE];
+    int               rx_q_head, rx_q_tail;
+
+    /* Toggle states observed from the firmware's TX byte stream:
+     * each emission of CAPS scancode (0o260) flips caps_on, each
+     * RUSLAT scancode (0o262) flips ruslat_on.  The frontend reads
+     * these to display modifier state on the on-screen keyboard. */
     bool     caps_on;
-    bool     ruslat_on;         /* false = ЛАТ, true = РУС */
+    bool     ruslat_on;
 
-    /* Auto-repeat: the most recently pressed regular key and the
-     * time its next repeat is due.  The key_stack tracks the order
-     * of regular (non-modifier, non-toggle) key presses so that when
-     * the topmost key is released, repeat falls back to the previous
-     * still-held key. */
-    ms7004_key_t repeat_key;
-    uint32_t     repeat_next_ms;
-    uint32_t     repeat_delay_ms;    /* initial delay before first repeat */
-    uint32_t     repeat_period_ms;   /* interval between repeats */
-    bool         repeat_enabled;
+    /* Wall-clock tracking for ms7004_tick → cycle conversion. */
+    uint32_t last_tick_ms;
+    bool     last_tick_valid;
 
-    ms7004_key_t key_stack[8];       /* recent regular keys, [top-1] is newest */
-    int          key_stack_top;
-
-    /* Free-running host clock; updated by ms7004_tick(). */
-    uint32_t     now_ms;
-
-    /* Host→keyboard command channel state.
-     * Some commands are 2 bytes; cmd_pending stores the first byte
-     * while waiting for the second.  Zero = no pending command. */
-    uint8_t      cmd_pending;
-
-    /* Keyboard configuration set by host commands. */
-    bool         data_enabled;       /* data output to host (default true) */
-    bool         sound_enabled;      /* bell sound enabled */
-    bool         click_enabled;      /* keyclick enabled */
-    bool         latin_indicator;    /* Latin indicator LED */
-
-    /* Firmware ROM blob attached via ms7004_attach_firmware.  Owned by
-     * the caller (typically the Emulator wrapper); must outlive this
-     * struct.  Phase 3d-1: stored but not yet consumed — the existing
-     * state-machine path ignores it.  Phase 3d-final wires it through
-     * to the i8035 backend that replaces the state machine. */
+    /* Firmware ROM blob (attached via ms7004_attach_firmware). */
     const uint8_t *firmware_rom;
     uint16_t       firmware_rom_size;
+
+    /* Downstream USART that receives assembled scancode bytes. */
+    struct ms0515_keyboard *uart;
 } ms7004_t;
 
 /* ── API ──────────────────────────────────────────────────────────────── */
 
-/* Initialise to reset state.  `uart` is the destination for scancode
- * bytes — typically &board->kbd.  Auto-repeat is DISABLED by default
- * (the real keyboard defaults to enabled, but we wait for either a
- * host command to turn it on or the user to opt in; this avoids
- * surprising behaviour until the host↔keyboard command set is
- * modelled). */
-void ms7004_init (ms7004_t *kbd, struct ms0515_keyboard *uart);
+/* Initialise to the post-power-on state.  `uart` is the destination
+ * for scancode bytes — typically &board->kbd.  After init you MUST
+ * call ms7004_attach_firmware before any keyboard interaction; without
+ * the firmware ROM the i8035 has nothing to execute. */
+void ms7004_init(ms7004_t *kbd, struct ms0515_keyboard *uart);
 
-/* Force reset: clears held state, clears toggles, disarms repeat.
- * Does NOT send anything downstream. */
+/* Attach the keyboard firmware ROM blob (typically 2048 bytes, the
+ * mc7004_keyboard_original.rom asset).  The pointer is stored, not
+ * copied — `rom` must outlive `kbd`.  Resets the i8035 so it begins
+ * executing from the ROM's reset vector at PC=0. */
+void ms7004_attach_firmware(ms7004_t *kbd,
+                            const uint8_t *rom, uint16_t rom_size);
+
+/* Force RESET: re-initialise all state without disturbing the
+ * firmware ROM binding or the UART pointer.  The CPU restarts at
+ * PC=0 just as on power-up. */
 void ms7004_reset(ms7004_t *kbd);
 
 /* Press or release a physical key.  Idempotent: pressing an already-
- * held key is a no-op (no auto-repeat is produced from duplicate
- * calls — auto-repeat is driven exclusively by ms7004_tick).
- *
- * This is the single entry point for both OSK clicks and host-key
- * events; all MS 7004 behaviour (modifier latch, ALL-UP, toggles)
- * applies uniformly. */
-void ms7004_key (ms7004_t *kbd, ms7004_key_t key, bool down);
+ * held key is a no-op.  Out-of-range or unmapped enum values silently
+ * no-op (some caps in the enum exist for OSK display only and have
+ * no matrix position on the real keyboard). */
+void ms7004_key(ms7004_t *kbd, ms7004_key_t key, bool down);
 
 /* Release every currently-held key.  Used when the emulator window
- * loses focus so that the guest does not see phantom-held keys. */
+ * loses focus so the firmware does not see phantom-held keys. */
 void ms7004_release_all(ms7004_t *kbd);
 
-/* Advance internal time and emit any due auto-repeat scancode.  Call
- * once per host frame with a monotonic millisecond counter. */
+/* Advance internal time.  Converts the elapsed delta since the
+ * previous call into i8035 machine cycles and runs the firmware that
+ * far forward.  At 4.608 MHz / 15 = 307 200 inst/s, one 16 ms host
+ * frame is ≈4920 instructions. */
 void ms7004_tick(ms7004_t *kbd, uint32_t now_ms);
 
-/* Called by the board/USART layer when the CPU writes a byte into the
- * TX buffer destined for the keyboard.  Decodes host→keyboard commands:
- * ID probe, auto-repeat enable/disable, LED control, sound/click,
- * data output enable/disable, Latin indicator, power-up reset.
- * Some commands are 2 bytes; the state machine tracks pending bytes. */
+/* Push a host-to-keyboard byte (typically from the i8251 USART TX)
+ * into the firmware's external IRQ line.  The byte is queued and
+ * shifted out on !INT one bit per 64 CPU cycles starting on the next
+ * ms7004_tick / run call. */
 void ms7004_host_byte(ms7004_t *kbd, uint8_t byte);
 
 /* Queries for the OSK / UI. */
@@ -270,19 +271,12 @@ bool    ms7004_caps_on  (const ms7004_t *kbd);
 bool    ms7004_ruslat_on(const ms7004_t *kbd);
 bool    ms7004_is_held  (const ms7004_t *kbd, ms7004_key_t key);
 
-/* Lookup: MS 7004 scancode for a key.  Returns 0 for MS7004_KEY_NONE
- * or out-of-range values.  Exposed mainly for tests / diagnostics —
- * normal code should not need this. */
+/* Lookup: canonical MS 7004 scancode for a key.  Returns 0 for
+ * MS7004_KEY_NONE / out-of-range / caps with no matrix position.
+ * This is a pure data lookup (LK201-derived); the firmware's actual
+ * emission may differ for modifier-affected keys, but for plain
+ * make-codes the values match — verified in test_ms7004.cpp. */
 uint8_t ms7004_scancode(ms7004_key_t key);
-
-/* Attach the keyboard firmware ROM blob (typically 2048 bytes, the
- * mc7004_keyboard_original.rom asset).  The pointer is stored, not
- * copied — `rom` must outlive `kbd`.  Phase 3d-1: the existing
- * state-machine path does not consume the firmware; this just sets
- * up the plumbing for the upcoming facade swap (3d-final) where the
- * i8035 backend takes over. */
-void ms7004_attach_firmware(ms7004_t *kbd,
-                            const uint8_t *rom, uint16_t rom_size);
 
 #ifdef __cplusplus
 }

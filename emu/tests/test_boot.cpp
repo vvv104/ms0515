@@ -132,6 +132,11 @@ static BootResult runBoot(const std::string &romPath,
     if (!emu.loadRomFile(romPath))
         return {true, false, 0, 0, 0, false, false, false, false, 0};
 
+    /* Phase 3d-final: the keyboard model now runs the real firmware.
+     * Boot can stall on the ID-probe handshake without it. */
+    (void)emu.loadKeyboardFirmwareFile(
+        std::string{ASSETS_DIR} + "/rom/mc7004_keyboard_original.rom");
+
     if (td) {
         const auto pathStr = td->path().string();
         (void)emu.mountDisk(0, pathStr);
