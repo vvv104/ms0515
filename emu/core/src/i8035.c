@@ -6,7 +6,7 @@
  * (1976), one opcode (or one tightly-related group of opcodes) per
  * static helper, dispatched through a single 256-entry switch.
  *
- * Coverage so far (commits 1..4 of phase 1):
+ * Coverage so far (phase 1, commits 1..5 — full instruction set):
  *   - control flow:  JMP page0..7, CALL page0..7, RET, conditional
  *                    branches on Acc / carry / F0 / F1
  *                    (JZ / JNZ / JC / JNC / JF0 / JF1)
@@ -33,10 +33,15 @@
  *                    (CALL-style) and sets `in_irq`, which blocks
  *                    nested IRQs until RETR clears it.  Timer IRQ
  *                    acknowledge clears TF.
- *
- * Coverage to follow in subsequent commits:
- *   - external memory (MOVX), MOVP / MOVP3, JMPP, DJNZ,
- *   - bit-test branches (JBb), XCH A,Rn / XCH A,@Rn / XCHD A,@Rn.
+ *   - exchanges:     XCH A,Rn; XCH A,@Rn; XCHD A,@Rn (low nibbles)
+ *   - loops/tests:   DJNZ Rn,addr; JBb (8 encodings, branch on
+ *                    accumulator bit); JT0 / JNT0 / JT1 / JNT1
+ *   - ROM probes:    MOVP A,@A (current page + A); MOVP3 A,@A
+ *                    (always page 3); JMPP @A (indirect within page)
+ *   - external mem:  MOVX A,@Rn / MOVX @Rn,A routed through the BUS
+ *                    port_read / port_write callbacks
+ *   - bank select:   SEL MB0 / SEL MB1 — flag-only on a 2 KB image,
+ *                    would select the high half of a 4 KB ROM
  *
  * Unimplemented opcodes trap via assert() in debug, and behave as NOP
  * in release — this surfaces firmware paths that exercise something
@@ -790,6 +795,138 @@ int i8035_step(i8035_t *cpu)
         stack_pop(cpu, true);
         cpu->in_irq = false;
         cycles = 2;
+        break;
+
+    /* ── XCH / XCHD ─────────────────────────────────────────────────── */
+    case 0x28: case 0x29: case 0x2A: case 0x2B:
+    case 0x2C: case 0x2D: case 0x2E: case 0x2F: {
+        int n = op & 7;                          /* XCH A,Rn            */
+        uint8_t tmp = get_reg(cpu, n);
+        set_reg(cpu, n, cpu->a);
+        cpu->a = tmp;
+        break;
+    }
+
+    case 0x20: case 0x21: {                     /* XCH A,@Rn            */
+        uint8_t addr = indirect_addr(cpu, op & 1);
+        uint8_t tmp  = cpu->ram[addr];
+        cpu->ram[addr] = cpu->a;
+        cpu->a = tmp;
+        break;
+    }
+
+    case 0x30: case 0x31: {                     /* XCHD A,@Rn — low 4 b */
+        uint8_t addr = indirect_addr(cpu, op & 1);
+        uint8_t mem  = cpu->ram[addr];
+        uint8_t a_lo = (uint8_t)(cpu->a & 0x0F);
+        uint8_t m_lo = (uint8_t)(mem    & 0x0F);
+        cpu->a         = (uint8_t)((cpu->a & 0xF0) | m_lo);
+        cpu->ram[addr] = (uint8_t)((mem    & 0xF0) | a_lo);
+        break;
+    }
+
+    /* ── DJNZ ───────────────────────────────────────────────────────── */
+    case 0xE8: case 0xE9: case 0xEA: case 0xEB:
+    case 0xEC: case 0xED: case 0xEE: case 0xEF: {
+        int n = op & 7;                          /* DJNZ Rn,addr        */
+        uint8_t lo = fetch(cpu);
+        uint8_t v  = (uint8_t)(get_reg(cpu, n) - 1);
+        set_reg(cpu, n, v);
+        if (v != 0)
+            cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | lo);
+        cycles = 2;
+        break;
+    }
+
+    /* ── JBb: branch on accumulator bit ─────────────────────────────── */
+    case 0x12: case 0x32: case 0x52: case 0x72:
+    case 0x92: case 0xB2: case 0xD2: case 0xF2: {
+        int bit = (op >> 5) & 7;                 /* JBb addr            */
+        uint8_t lo = fetch(cpu);
+        if (cpu->a & (1u << bit))
+            cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | lo);
+        cycles = 2;
+        break;
+    }
+
+    /* ── JT0 / JNT0 / JT1 / JNT1: pin-test branches ─────────────────── */
+    case 0x36: {                                /* JT0 addr             */
+        uint8_t lo = fetch(cpu);
+        if (cpu->read_t0 && cpu->read_t0(cpu->host_ctx))
+            cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | lo);
+        cycles = 2;
+        break;
+    }
+    case 0x26: {                                /* JNT0 addr            */
+        uint8_t lo = fetch(cpu);
+        bool t0 = cpu->read_t0 && cpu->read_t0(cpu->host_ctx);
+        if (!t0)
+            cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | lo);
+        cycles = 2;
+        break;
+    }
+    case 0x56: {                                /* JT1 addr             */
+        uint8_t lo = fetch(cpu);
+        if (cpu->read_t1 && cpu->read_t1(cpu->host_ctx))
+            cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | lo);
+        cycles = 2;
+        break;
+    }
+    case 0x46: {                                /* JNT1 addr            */
+        uint8_t lo = fetch(cpu);
+        bool t1 = cpu->read_t1 && cpu->read_t1(cpu->host_ctx);
+        if (!t1)
+            cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | lo);
+        cycles = 2;
+        break;
+    }
+
+    /* ── ROM probes: MOVP / MOVP3 / JMPP ────────────────────────────── */
+    case 0xA3: {                                /* MOVP A,@A            */
+        uint16_t addr = (uint16_t)((cpu->pc & 0x0F00) | cpu->a);
+        cpu->a = (cpu->rom && addr < cpu->rom_size) ? cpu->rom[addr] : 0xFF;
+        cycles = 2;
+        break;
+    }
+
+    case 0xE3: {                                /* MOVP3 A,@A           */
+        uint16_t addr = (uint16_t)(0x0300 | cpu->a);
+        cpu->a = (cpu->rom && addr < cpu->rom_size) ? cpu->rom[addr] : 0xFF;
+        cycles = 2;
+        break;
+    }
+
+    case 0xB3: {                                /* JMPP @A — indirect   */
+        uint16_t tbl_addr = (uint16_t)((cpu->pc & 0x0F00) | cpu->a);
+        uint8_t target = (cpu->rom && tbl_addr < cpu->rom_size)
+                          ? cpu->rom[tbl_addr] : 0xFF;
+        cpu->pc = (uint16_t)((cpu->pc & 0xFF00) | target);
+        cycles = 2;
+        break;
+    }
+
+    /* ── External memory through BUS ────────────────────────────────── */
+    case 0x80: case 0x81: {                     /* MOVX A,@Rn           */
+        (void)indirect_addr(cpu, op & 1);       /* address driven on    */
+                                                /* BUS by host          */
+        cpu->a = port_read(cpu, I8035_PORT_BUS);
+        cycles = 2;
+        break;
+    }
+
+    case 0x90: case 0x91: {                     /* MOVX @Rn,A           */
+        (void)indirect_addr(cpu, op & 1);
+        port_write(cpu, I8035_PORT_BUS, cpu->a);
+        cycles = 2;
+        break;
+    }
+
+    /* ── Memory bank select (8049) ──────────────────────────────────── */
+    case 0xE5:                                  /* SEL MB0              */
+        cpu->mb = false;
+        break;
+    case 0xF5:                                  /* SEL MB1              */
+        cpu->mb = true;
         break;
 
     /* ── Unimplemented in this commit — see file header comment. ────── */

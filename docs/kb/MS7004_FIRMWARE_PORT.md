@@ -16,7 +16,7 @@ programmer's manual).
 
 | Phase | Subject                                | Status      |
 |-------|----------------------------------------|-------------|
-|   1   | i8035 CPU emulator (TDD)               | in progress |
+|   1   | i8035 CPU emulator (TDD)               | done        |
 |   2   | i8243 port expander (TDD)              | pending     |
 |   3   | Replace ms7004.c body                  | pending     |
 |   4   | Reconcile tests vs firmware            | pending     |
@@ -148,13 +148,33 @@ pops from the wrong stack slot.  ISRs must use bit-level PSW ops
 (CLR/CPL C, F0) or save/restore PSW manually.  Our test now uses
 `CLR C` to flip the flag without touching SP.
 
-#### Commit 5 — remaining opcodes
+#### Commit 5 (2026-04-27) — remaining opcodes; phase 1 complete
 
-Plan:
-- MOVP A,@A — page-local ROM read; MOVP3 A,@A — page-3 ROM read.
-- JMPP @A — indirect jump within page.
-- DJNZ Rn,addr.
-- JBb (8 encodings) — jump on accumulator bit.
-- XCH A,Rn / XCH A,@Rn / XCHD A,@Rn.
-- MOVX A,@Rn / MOVX @Rn,A — external RAM (only relevant if
-  firmware uses any; ms7004 might not).
+Implemented opcodes (covered by tests):
+- exchanges:    XCH A,Rn (`0x28..2F`); XCH A,@Rn (`0x20..21`);
+  XCHD A,@Rn (`0x30..31`) — only swaps low nibbles
+- DJNZ Rn,addr (`0xE8..EF`) — decrement-and-branch loop primitive
+- JBb addr (`0x12,32,52,72,92,B2,D2,F2`) — branch on accumulator
+  bit b (b extracted from bits 7..5 of opcode)
+- pin tests:    JT0 (`0x36`), JNT0 (`0x26`), JT1 (`0x56`),
+  JNT1 (`0x46`)
+- ROM probes:   MOVP A,@A (`0xA3`); MOVP3 A,@A (`0xE3`); JMPP @A
+  (`0xB3`)
+- external mem: MOVX A,@Rn (`0x80..81`); MOVX @Rn,A (`0x90..91`) —
+  routed through the BUS port_read / port_write callbacks so a host
+  can model XRAM if needed (ms7004 doesn't, but kept generic)
+- bank select:  SEL MB0 (`0xE5`), SEL MB1 (`0xF5`) — flag-only on
+  our 2 KB image
+
+15 new tests, 22 assertions; total i8035 suite is 69 cases / 151
+assertions.  Full suite 254/254.
+
+The unimplemented set is now down to ENT0 CLK (`0x75`, output T0
+as clock — peripheral feature not used by ms7004) plus a handful of
+documented-undefined slots.  Phase 1 is closed.
+
+### Phase 2 — i8243 port expander
+
+Status: pending.
+
+Plan: see TODO entry in this journal's status table.

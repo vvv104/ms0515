@@ -819,6 +819,203 @@ TEST_CASE("JNI samples INT pin without enabling interrupts") {
     CHECK(c.cpu.a == 0xBB);                /* taken              */
 }
 
+/* ── XCH / XCHD ──────────────────────────────────────────────────────────── */
+
+TEST_CASE("XCH A,Rn swaps A with the named register") {
+    Cpu c; c.load({
+        0xB8, 0x11,    /* MOV R0,#11             */
+        0x23, 0xAA,    /* MOV A,#AA              */
+        0x28,          /* XCH A,R0 → A=11, R0=AA */
+    });
+    c.run(3);
+    CHECK(c.cpu.a == 0x11);
+    CHECK(c.cpu.ram[0] == 0xAA);
+}
+
+TEST_CASE("XCH A,@Rn swaps A with the byte at @Rn") {
+    Cpu c; c.load({
+        0xB8, 0x20,    /* MOV R0,#20             */
+        0xB0, 0x55,    /* MOV @R0,#55            */
+        0x23, 0x99,    /* MOV A,#99              */
+        0x20,          /* XCH A,@R0              */
+    });
+    c.run(4);
+    CHECK(c.cpu.a == 0x55);
+    CHECK(c.cpu.ram[0x20] == 0x99);
+}
+
+TEST_CASE("XCHD A,@Rn swaps low nibbles only") {
+    Cpu c; c.load({
+        0xB8, 0x20,    /* MOV R0,#20             */
+        0xB0, 0xC3,    /* MOV @R0,#C3 (low nib 3)*/
+        0x23, 0xF7,    /* MOV A,#F7   (low nib 7)*/
+        0x30,          /* XCHD A,@R0             */
+    });
+    c.run(4);
+    CHECK(c.cpu.a == 0xF3);              /* high preserved, low swapped */
+    CHECK(c.cpu.ram[0x20] == 0xC7);
+}
+
+/* ── DJNZ ────────────────────────────────────────────────────────────────── */
+
+TEST_CASE("DJNZ Rn,addr loops the right number of times") {
+    Cpu c; c.load({
+        0xB8, 0x03,    /* MOV R0,#3              */
+        0x17,          /* INC A                  */
+        0xE8, 0x02,    /* DJNZ R0,0x02 — branch back to INC A */
+    });
+    c.run(2 + 3 * 2);                    /* MOV + (INC + DJNZ) × 3 */
+    CHECK(c.cpu.a == 3);                  /* loop ran 3 times       */
+    CHECK(c.cpu.ram[0] == 0);             /* R0 decremented to 0    */
+}
+
+/* ── JBb: bit-test branch on the accumulator ────────────────────────────── */
+
+TEST_CASE("JB0 takes branch when bit 0 is set, falls through otherwise") {
+    Cpu c; c.load({
+        0x23, 0x01,    /* MOV A,#01              */
+        0x12, 0x10,    /* JB0 0x10 — taken       */
+    });
+    c.rom[0x10] = 0x23;
+    c.rom[0x11] = 0x77;
+    c.run(3);
+    CHECK(c.cpu.a == 0x77);
+}
+
+TEST_CASE("JB7 distinguishes high bit") {
+    Cpu c; c.load({
+        0x23, 0x80,    /* MOV A,#80              */
+        0xF2, 0x10,    /* JB7 0x10 — taken       */
+    });
+    c.rom[0x10] = 0x23;
+    c.rom[0x11] = 0x55;
+    c.run(3);
+    CHECK(c.cpu.a == 0x55);
+}
+
+TEST_CASE("JBb falls through when the bit is clear") {
+    Cpu c; c.load({
+        0x23, 0x00,    /* MOV A,#00              */
+        0x12, 0x10,    /* JB0 0x10 — not taken   */
+        0x23, 0xCC,    /* MOV A,#CC              */
+    });
+    c.run(3);
+    CHECK(c.cpu.a == 0xCC);
+}
+
+/* ── JT0 / JNT0 / JT1 / JNT1: pin-test branches ─────────────────────────── */
+
+TEST_CASE("JT0 / JNT0 sample the T0 pin") {
+    Cpu c; c.load({0x36, 0x10});         /* JT0 0x10 — taken if T0=1 */
+    c.rom[0x10] = 0x23; c.rom[0x11] = 0xAA;
+    c.pin_t0 = true;
+    c.run(2);
+    CHECK(c.cpu.a == 0xAA);
+
+    Cpu c2; c2.load({0x26, 0x10});       /* JNT0 0x10 — taken if T0=0 */
+    c2.rom[0x10] = 0x23; c2.rom[0x11] = 0xBB;
+    c2.pin_t0 = false;
+    c2.run(2);
+    CHECK(c2.cpu.a == 0xBB);
+}
+
+TEST_CASE("JT1 / JNT1 sample the T1 pin") {
+    Cpu c; c.load({0x56, 0x10});         /* JT1 0x10                  */
+    c.rom[0x10] = 0x23; c.rom[0x11] = 0x42;
+    c.pin_t1 = true;
+    c.run(2);
+    CHECK(c.cpu.a == 0x42);
+
+    Cpu c2; c2.load({0x46, 0x10});       /* JNT1 0x10                 */
+    c2.rom[0x10] = 0x23; c2.rom[0x11] = 0x99;
+    c2.pin_t1 = false;
+    c2.run(2);
+    CHECK(c2.cpu.a == 0x99);
+}
+
+/* ── MOVP / MOVP3 / JMPP ────────────────────────────────────────────────── */
+
+TEST_CASE("MOVP A,@A reads ROM at the current page + A") {
+    /* Place MOVP at PC=0; after the fetch, PC=1, page=0x000.  With
+     * A=0x40 the read address is 0x040.  Stash a known byte there. */
+    Cpu c; c.load({
+        0x23, 0x40,    /* MOV A,#40              */
+        0xA3,          /* MOVP A,@A              */
+    });
+    c.rom[0x40] = 0xDE;
+    c.run(2);
+    CHECK(c.cpu.a == 0xDE);
+}
+
+TEST_CASE("MOVP3 A,@A always reads from page 3") {
+    Cpu c; c.load({
+        0x23, 0x05,    /* MOV A,#05              */
+        0xE3,          /* MOVP3 A,@A → ROM[0x305] */
+    });
+    /* ROM is only 256 bytes in our fixture; pad it out so 0x305
+     * exists, then write a sentinel.  We can't blindly index past
+     * sizeof(rom), so allocate a separate larger buffer. */
+    static uint8_t rom4k[4096] = {0};
+    rom4k[0]    = 0x23;  rom4k[1] = 0x05;
+    rom4k[2]    = 0xE3;
+    rom4k[0x305] = 0x42;
+    i8035_init(&c.cpu, rom4k, sizeof(rom4k),
+               &c, Cpu::cb_read, Cpu::cb_write,
+               Cpu::cb_t0, Cpu::cb_t1, Cpu::cb_int, Cpu::cb_prog);
+    i8035_reset(&c.cpu);
+    c.run(2);
+    CHECK(c.cpu.a == 0x42);
+}
+
+TEST_CASE("JMPP @A jumps within the current page using A as table index") {
+    /* JMPP at PC=0; after fetch PC=1, current page is 0x000.  With
+     * A=0x10, JMPP fetches ROM[0x010] as the new low byte of PC. */
+    Cpu c; c.load({
+        0x23, 0x10,    /* MOV A,#10              */
+        0xB3,          /* JMPP @A → PC = 00 | ROM[0x010] */
+    });
+    c.rom[0x10] = 0x80;                  /* jump target low byte    */
+    c.rom[0x80] = 0x23;                  /* sentinel at target      */
+    c.rom[0x81] = 0x77;
+    c.run(3);                            /* MOV, JMPP, MOV A,#77    */
+    CHECK(c.cpu.a == 0x77);
+}
+
+/* ── MOVX: external memory through the BUS port ─────────────────────────── */
+
+TEST_CASE("MOVX A,@Rn reads through the BUS callback") {
+    Cpu c; c.load({
+        0xB8, 0x20,    /* MOV R0,#20 (external addr on BUS) */
+        0x80,          /* MOVX A,@R0                         */
+    });
+    c.in_bus = 0xC3;
+    c.run(2);
+    CHECK(c.cpu.a == 0xC3);
+}
+
+TEST_CASE("MOVX @Rn,A writes through the BUS callback") {
+    Cpu c; c.load({
+        0xB8, 0x40,    /* MOV R0,#40                         */
+        0x23, 0x66,    /* MOV A,#66                          */
+        0x90,          /* MOVX @R0,A                         */
+    });
+    c.run(3);
+    CHECK(c.out_bus == 0x66);
+}
+
+/* ── SEL MB0 / MB1 — flag-only on a 2 KB image ──────────────────────────── */
+
+TEST_CASE("SEL MB0 / SEL MB1 toggle the memory-bank flag") {
+    Cpu c; c.load({
+        0xF5,          /* SEL MB1                            */
+        0xE5,          /* SEL MB0                            */
+    });
+    c.run(1);
+    CHECK(c.cpu.mb == true);
+    c.run(1);
+    CHECK(c.cpu.mb == false);
+}
+
 TEST_CASE("ANLD / ORLD use the AND / OR command codes") {
     Cpu c;
     c.load({
