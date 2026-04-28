@@ -26,6 +26,7 @@
 
 #include <doctest/doctest.h>
 #include <ms0515/Emulator.hpp>
+#include <ms0515/KeyInputAdapter.hpp>
 #include <ms0515/ScreenReader.hpp>
 #include <ms0515/board.h>
 #include <ms0515/keyboard.h>
@@ -173,34 +174,33 @@ static int bootToPrompt(ms0515::Emulator &emu, ms0515::ScreenReader &sr,
  * holds Shift/Ctrl while typing.  RUS/LAT toggle has its own helper
  * because it is a toggle, not a modifier.
  */
+/* Single shared OSK adapter for the test suite — its caps_on / ruslat_on
+ * state must persist across tapKey calls within one test scenario.
+ * Reset by each TypingFixture to keep tests isolated. */
+[[maybe_unused]]
+static ms0515::KeyInputAdapter g_osk;
+
 [[maybe_unused]]
 static void tapKey(ms0515::Emulator &emu, ms7004_key_t key,
                    bool shift = false, bool ctrl = false,
                    int echoFrames = kEchoFrames)
 {
-    if (shift) emu.keyPress(MS7004_KEY_SHIFT_L, true);
-    if (ctrl)  emu.keyPress(MS7004_KEY_CTRL,    true);
-    emu.keyPress(key, true);
-    /* Phase 3d-final: real firmware needs several scan passes (each
-     * ~6 K cycles) to debounce + bit-bang TX a make-code over 4800
-     * baud.  Hold the key for enough frames to let the SHIFT scancode
-     * emit before the key release lands. */
-    runFrames(emu, 6);
-    emu.keyPress(key, false);
-    if (ctrl)  emu.keyPress(MS7004_KEY_CTRL,    false);
-    if (shift) emu.keyPress(MS7004_KEY_SHIFT_L, false);
+    /* Tests exercise OSK-click semantics — case-toggle, RUS/LAT mode,
+     * shift-immune positions per [DEVIATE 1..4].  Route through the
+     * lib-layer adapter that synthesises the right byte sequence;
+     * pure physical-key tests would call emu.keyPress directly. */
+    g_osk.clickKey(emu, key, shift, ctrl);
     runFrames(emu, echoFrames);
 }
 
-/* Toggle the РУС/ЛАТ language mode (single press flips). */
+/* Toggle the РУС/ЛАТ language mode via the OSK adapter. */
 [[maybe_unused]]
 static void toggleRusLat(ms0515::Emulator &emu, int echoFrames = kEchoFrames)
 {
-    emu.keyPress(MS7004_KEY_RUSLAT, true);
-    runFrames(emu, 6);
-    emu.keyPress(MS7004_KEY_RUSLAT, false);
+    g_osk.clickRuslat(emu);
     runFrames(emu, echoFrames);
 }
+
 
 /* ── Latin letter test data ─────────────────────────────────────────────── */
 
@@ -256,6 +256,9 @@ struct TypingFixture {
     TypingFixture(const char *romPath, const char *diskPath)
         : disk{diskPath}
     {
+        /* Reset per-test OSK state — caps_on / ruslat_on must not
+         * leak between scenarios. */
+        g_osk.reset();
         REQUIRE(emu.loadRomFile(romPath));
         REQUIRE(emu.loadKeyboardFirmwareFile(
             std::string{ASSETS_DIR} + "/rom/mc7004_keyboard_original.rom"));
@@ -311,9 +314,11 @@ TEST_SUITE("KeyboardEmulated") {
  */
 static void toggleCaps(ms0515::Emulator &emu, int echoFrames = kEchoFrames)
 {
-    emu.keyPress(MS7004_KEY_CAPS, true);
-    runFrames(emu, 1);
-    emu.keyPress(MS7004_KEY_CAPS, false);
+    /* ФКС via the OSK adapter — toggles a virtual CAPS state used by
+     * the adapter's case-mapping logic.  No scancode is emitted to the
+     * OS (it doesn't honour 0o260 anyway, which is why we apply CAPS
+     * locally per [DEVIATE 2/3]). */
+    g_osk.clickCaps();
     runFrames(emu, echoFrames);
 }
 
@@ -328,18 +333,7 @@ static void toggleCaps(ms0515::Emulator &emu, int echoFrames = kEchoFrames)
  *     and symbol-on-letter positions in ЛАТ (Ш→[, Щ→], Э→\\, Ч→¬).
  */
 
-/*
- * Phase 3d-final note: the ФКС / Shift / РУС behavioural tests below
- * were written against the hand-rolled state machine in the old
- * ms7004.c, which built the OSK [DEVIATE 1..4] case-toggle overrides
- * directly into ms7004_key.  The firmware-driven backend is the new
- * ground truth and emits authentic LK201 scancode sequences instead.
- * Rewriting these tests against the firmware (or moving the OSK
- * overrides into OnScreenKeyboard.cpp where they belong) is phase 4
- * work — see docs/kb/MS7004_FIRMWARE_PORT.md.  Skipped for now so
- * the suite stays green during the transition.
- */
-TEST_CASE("ФКС inverts letter case in LAT mode (no Shift)" * doctest::skip()) {
+TEST_CASE("ФКС inverts letter case in LAT mode (no Shift)") {
     FOR_EACH_CONFIG() {
         TypingFixture fix{cfg.rom, cfg.disk};
         toggleCaps(fix.emu);   /* ФКС on */
@@ -362,7 +356,7 @@ TEST_CASE("ФКС inverts letter case in LAT mode (no Shift)" * doctest::skip())
     }
 }
 
-TEST_CASE("ФКС + Shift cancel: LAT letter back to uppercase default" * doctest::skip()) {
+TEST_CASE("ФКС + Shift cancel: LAT letter back to uppercase default") {
     FOR_EACH_CONFIG() {
         TypingFixture fix{cfg.rom, cfg.disk};
         toggleCaps(fix.emu);
@@ -384,7 +378,7 @@ TEST_CASE("ФКС + Shift cancel: LAT letter back to uppercase default" * doctes
     }
 }
 
-TEST_CASE("ФКС has no effect on non-letter keys in LAT" * doctest::skip()) {
+TEST_CASE("ФКС has no effect on non-letter keys in LAT") {
     FOR_EACH_CONFIG() {
         TypingFixture fix{cfg.rom, cfg.disk};
         toggleCaps(fix.emu);
@@ -427,7 +421,7 @@ TEST_CASE("ФКС has no effect on non-letter keys in LAT" * doctest::skip()) {
     }
 }
 
-TEST_CASE("ФКС inverts letter case in RUS mode (no Shift)" * doctest::skip()) {
+TEST_CASE("ФКС inverts letter case in RUS mode (no Shift)") {
     FOR_EACH_CONFIG() {
         if (!cfg.hasRusMode) {
             const std::string skip = std::string{cfg.name}
@@ -471,7 +465,7 @@ TEST_CASE("ФКС inverts letter case in RUS mode (no Shift)" * doctest::skip())
     }
 }
 
-TEST_CASE("ФКС + Shift cancel: RUS letter back to lowercase default" * doctest::skip()) {
+TEST_CASE("ФКС + Shift cancel: RUS letter back to lowercase default") {
     FOR_EACH_CONFIG() {
         if (!cfg.hasRusMode) {
             const std::string skip = std::string{cfg.name}
@@ -634,7 +628,7 @@ TEST_CASE("Latin letter keys echo as uppercase at prompt") {
  * verification that the Shift scancode (0o256) reaches the OS and
  * actually changes the keyboard handler's behaviour.
  */
-TEST_CASE("Latin letter keys with Shift echo as lowercase at prompt" * doctest::skip()) {
+TEST_CASE("Latin letter keys with Shift echo as lowercase at prompt") {
     FOR_EACH_CONFIG() {
         TypingFixture fix{cfg.rom, cfg.disk};
 
@@ -706,7 +700,7 @@ TEST_CASE("Digit keys echo at prompt") {
  * Shift + digit keys: typewriter-style symbols.  See kDigits above
  * for the mapping rationale and the Shift+0 / Shift+4 caveats.
  */
-TEST_CASE("Shift + digit keys echo typewriter symbols at prompt" * doctest::skip()) {
+TEST_CASE("Shift + digit keys echo typewriter symbols at prompt") {
     FOR_EACH_CONFIG() {
         TypingFixture fix{cfg.rom, cfg.disk};
 
@@ -753,7 +747,7 @@ constexpr SymbolCase kSymbols[] = {
     {MS7004_KEY_LBRACE_PIPE,  '{',  '{',  '|'},
 };
 
-TEST_CASE("Punctuation keys (unshifted) echo at prompt" * doctest::skip()) {
+TEST_CASE("Punctuation keys (unshifted) echo at prompt") {
     FOR_EACH_CONFIG() {
         TypingFixture fix{cfg.rom, cfg.disk};
 
@@ -772,7 +766,7 @@ TEST_CASE("Punctuation keys (unshifted) echo at prompt" * doctest::skip()) {
     }
 }
 
-TEST_CASE("Shift + punctuation keys echo at prompt" * doctest::skip()) {
+TEST_CASE("Shift + punctuation keys echo at prompt") {
     FOR_EACH_CONFIG() {
         TypingFixture fix{cfg.rom, cfg.disk};
 
@@ -838,7 +832,7 @@ TEST_CASE("LAT-mode special keys (unshifted) echo cap symbol at prompt") {
     }
 }
 
-TEST_CASE("Shift + LAT-mode special keys echo same glyph as unshifted" * doctest::skip()) {
+TEST_CASE("Shift + LAT-mode special keys echo same glyph as unshifted") {
     FOR_EACH_CONFIG() {
         TypingFixture fix{cfg.rom, cfg.disk};
 
@@ -948,7 +942,7 @@ constexpr CyrLetterCase kCyrLetters[] = {
     {MS7004_KEY_AT,        "Ю", 0xC0, 0xE0},
 };
 
-TEST_CASE("RUS mode: letter keys echo lowercase Cyrillic at prompt" * doctest::skip()) {
+TEST_CASE("RUS mode: letter keys echo lowercase Cyrillic at prompt") {
     FOR_EACH_CONFIG() {
         if (!cfg.hasRusMode) {
             const std::string skip = std::string{cfg.name}
@@ -978,7 +972,7 @@ TEST_CASE("RUS mode: letter keys echo lowercase Cyrillic at prompt" * doctest::s
     }
 }
 
-TEST_CASE("RUS mode: Shift + letter keys echo uppercase Cyrillic at prompt" * doctest::skip()) {
+TEST_CASE("RUS mode: Shift + letter keys echo uppercase Cyrillic at prompt") {
     FOR_EACH_CONFIG() {
         if (!cfg.hasRusMode) {
             const std::string skip = std::string{cfg.name}
@@ -1008,7 +1002,7 @@ TEST_CASE("RUS mode: Shift + letter keys echo uppercase Cyrillic at prompt" * do
     }
 }
 
-TEST_CASE("Single-label keys echo the same glyph with and without Shift" * doctest::skip()) {
+TEST_CASE("Single-label keys echo the same glyph with and without Shift") {
     FOR_EACH_CONFIG() {
         TypingFixture fix{cfg.rom, cfg.disk};
 
