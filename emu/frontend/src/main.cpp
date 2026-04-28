@@ -427,6 +427,30 @@ std::string findDefaultRom()
     return {};
 }
 
+/* Find the MS 7004 keyboard firmware ROM.  Without it the keyboard
+ * CPU has nothing to execute and BIOS POST stalls on "Клавиатура не
+ * готова" because no ID-probe response ever comes back. */
+std::string findKeyboardFirmware()
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    std::vector<fs::path> roots;
+    if (char *base = SDL_GetBasePath()) {
+        roots.emplace_back(base);
+        SDL_free(base);
+    }
+    roots.emplace_back(fs::current_path(ec));
+
+    for (const auto &root : roots) {
+        fs::path candidate = root / "assets" / "rom" / "mc7004_keyboard_original.rom";
+        if (fs::exists(candidate, ec)) {
+            return candidate.lexically_normal().string();
+        }
+    }
+    return {};
+}
+
 /* Quick disk-image format gate.  Each --diskN-sideM CLI option
  * targets one physical side and must be a 409600-byte SS image;
  * each --diskN option targets a whole drive and must be a 819200-
@@ -834,6 +858,22 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "%s\n", romStatus.c_str());
     } else {
         romStatus = "ROM: " + currentRomPath;
+    }
+
+    /* MS 7004 keyboard firmware — required for the BIOS POST to see
+     * the keyboard respond.  Failure isn't fatal (the rest of the
+     * machine boots), but the user will see "Клавиатура не готова". */
+    {
+        std::string kbdFwPath = findKeyboardFirmware();
+        if (kbdFwPath.empty()) {
+            std::fprintf(stderr,
+                "warning: mc7004_keyboard_original.rom not found — "
+                "keyboard will report not-ready in BIOS POST\n");
+        } else if (!emu.loadKeyboardFirmwareFile(kbdFwPath)) {
+            std::fprintf(stderr,
+                "warning: failed to load keyboard firmware from '%s'\n",
+                kbdFwPath.c_str());
+        }
     }
     for (int drive = 0; drive < 2; ++drive) {
         const bool wantDs = !cli.dsPath[drive].empty();
