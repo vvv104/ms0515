@@ -67,6 +67,8 @@ void Emulator::reset()
 {
     board_reset(board_.get());
     ms7004_reset(&kbd7004_);
+    inputAdapter_.reset();
+    kbdSyntheticMs_ = 0;
 }
 
 void Emulator::loadRom(std::span<const uint8_t> data)
@@ -195,15 +197,8 @@ void Emulator::keyReleaseAll()
     ms7004_release_all(&kbd7004_);
 }
 
-void Emulator::keyTick(uint32_t /*now_ms*/)
-{
-    /* No-op: stepFrame now drives ms7004_tick from a synthetic
-     * timeline.  This stub stays for source compatibility — the
-     * frontend's call site is harmless but redundant. */
-}
-
-bool Emulator::capsOn()   const noexcept { return ms7004_caps_on(&kbd7004_); }
-bool Emulator::ruslatOn() const noexcept { return ms7004_ruslat_on(&kbd7004_); }
+bool Emulator::capsOn()   const noexcept { return inputAdapter_.capsOn();   }
+bool Emulator::ruslatOn() const noexcept { return inputAdapter_.ruslatOn(); }
 
 bool Emulator::keyHeld(ms7004_key_t key) const noexcept
 {
@@ -331,6 +326,13 @@ std::expected<void, std::string> Emulator::saveState(std::string_view path)
             paths[i] = diskPath_[i].c_str();
     }
 
+    /* Project the adapter's view of the toggle state into the C-core
+     * fields the snapshot serialises.  The kbd_t fields are otherwise
+     * observed-from-TX (pre-phase-5 model) and don't reflect OSK-side
+     * changes, so we override them at save time. */
+    kbd7004_.caps_on   = inputAdapter_.capsOn();
+    kbd7004_.ruslat_on = inputAdapter_.ruslatOn();
+
     snap_io_t io{fstreamWrite, nullptr, nullptr, &f};
     snap_error_t err = snap_save(board_.get(), &kbd7004_,
                                  romCrc32(), paths, &io);
@@ -375,6 +377,11 @@ std::expected<void, std::string> Emulator::loadState(std::string_view path)
     }
 
     rewirePointers();
+
+    /* Re-sync the input adapter's toggle state with what the snapshot
+     * recorded for the C-core.  Without this, save+load would reset
+     * caps_on / ruslat_on to false, dropping the user's mode. */
+    inputAdapter_.setState(kbd7004_.caps_on, kbd7004_.ruslat_on);
 
     /* Re-mount disk images */
     for (int i = 0; i < 4; i++) {

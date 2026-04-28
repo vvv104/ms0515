@@ -76,6 +76,15 @@ public:
     [[nodiscard]] bool capsOn()   const noexcept { return caps_on_;   }
     [[nodiscard]] bool ruslatOn() const noexcept { return ruslat_on_; }
 
+    /* Restore the adapter's view of the toggle state from a snapshot
+     * load.  Does NOT emit any scancode — the C-core's matching
+     * fields were already restored by the snapshot reader. */
+    void setState(bool caps, bool ruslat) noexcept
+    {
+        caps_on_   = caps;
+        ruslat_on_ = ruslat;
+    }
+
     /* Reset the adapter to power-on defaults (used by Emulator::reset
      * to keep the OSK display in sync with the model). */
     void reset()            { caps_on_ = false; ruslat_on_ = false; }

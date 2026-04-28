@@ -123,9 +123,12 @@ the rules apply uniformly to physical typing and OSK clicks.  The C
 core stays pure firmware — it has no knowledge of the user-facing
 deviations.
 
-(As of 2026-04-28, `PhysicalKeyboard.cpp` and `OnScreenKeyboard.cpp`
-still apply the rules via their own matrix-based logic from before
-the firmware swap.  Migrating both to call into `KeyInputAdapter` is
-deferred frontend cleanup — see phase 5.  The current behaviour in
-the running app is correct because the matrix-based path produces the
-same byte sequences via the firmware.)
+(As of 2026-04-28, `OnScreenKeyboard.cpp` routes all clicks through
+`KeyInputAdapter::clickKey / clickCaps / clickRuslat`.
+`PhysicalKeyboard.cpp` routes ФКС / РУС/ЛАТ key presses through the
+adapter (so the toggle state stays in sync with the OSK display) but
+keeps its own matrix-based handling for regular keys, so SDL hold
+events let the firmware do its native auto-repeat.  Both code paths
+share the same single source of truth for `caps_on` / `ruslat_on`,
+which lives on `Emulator`'s embedded adapter and is also serialised
+to / restored from snapshots.)

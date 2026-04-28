@@ -1029,10 +1029,9 @@ int main(int argc, char **argv)
             }
         }
 
-        /* Advance ms7004 auto-repeat timer. */
-        emu.keyTick(SDL_GetTicks());
-
-        /* Run emulated frames based on real elapsed time × speed factor. */
+        /* Run emulated frames based on real elapsed time × speed factor.
+         * stepFrame() also drives ms7004_tick from a synthetic timeline
+         * (see Emulator::stepFrame), so no separate keyTick call. */
         if (running) {
             uint32_t nowTick = SDL_GetTicks();
             float realDeltaMs = static_cast<float>(nowTick - lastTickMs);

@@ -31,6 +31,8 @@ extern "C" {
 #include "ms0515/ms7004.h"
 }
 
+#include "ms0515/KeyInputAdapter.hpp"
+
 namespace ms0515 {
 
 class Emulator {
@@ -107,14 +109,20 @@ public:
 
     void keyReleaseAll();
 
-    void keyTick(uint32_t now_ms);
-
     [[nodiscard]] bool capsOn()   const noexcept;
     [[nodiscard]] bool ruslatOn() const noexcept;
     [[nodiscard]] bool keyHeld(ms7004_key_t key) const noexcept;
 
     const ms7004_t &keyboard() const noexcept { return kbd7004_; }
     ms7004_t       &keyboard()       noexcept { return kbd7004_; }
+
+    /* Single source of truth for OSK / virtual-keyboard state and the
+     * four UX overrides (see docs/kb/OSK_BEHAVIOUR_RULES.md).  Both
+     * the on-screen keyboard handler and the physical-keyboard event
+     * dispatcher route through this adapter so caps_on / ruslat_on
+     * stay in sync regardless of input source. */
+    KeyInputAdapter       &inputAdapter()       noexcept { return inputAdapter_; }
+    const KeyInputAdapter &inputAdapter() const noexcept { return inputAdapter_; }
 
     /* ── State accessors ───────────────────────────────────────────────── */
 
@@ -149,6 +157,7 @@ private:
     ms7004_t kbd7004_;
     std::vector<uint8_t> kbdFirmware_;
     uint32_t kbdSyntheticMs_ = 0;          /* see Emulator::stepFrame */
+    KeyInputAdapter inputAdapter_;
     std::array<std::string, 4> diskPath_;
 
     SoundCallback     soundCb_;

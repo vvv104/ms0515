@@ -24,8 +24,8 @@ programmer's manual).
 |  3d-prep | Key enum mapping + scancode capture         | done   |
 |  3d-1  | attach_firmware API + Emulator wiring         | done   |
 |  3d-final | Facade swap + snapshot + test rewrite     | done   |
-|   4    | OSK overrides migration + reactivate skipped tests | next |
-|   5    | Frontend cleanup, docs                        | pending |
+|   4    | KeyInputAdapter + reactivate skipped tests    | done   |
+|   5    | Frontend consolidation, snapshot sync, docs   | done   |
 
 ## Decisions
 

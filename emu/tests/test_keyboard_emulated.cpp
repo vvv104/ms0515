@@ -174,12 +174,6 @@ static int bootToPrompt(ms0515::Emulator &emu, ms0515::ScreenReader &sr,
  * holds Shift/Ctrl while typing.  RUS/LAT toggle has its own helper
  * because it is a toggle, not a modifier.
  */
-/* Single shared OSK adapter for the test suite — its caps_on / ruslat_on
- * state must persist across tapKey calls within one test scenario.
- * Reset by each TypingFixture to keep tests isolated. */
-[[maybe_unused]]
-static ms0515::KeyInputAdapter g_osk;
-
 [[maybe_unused]]
 static void tapKey(ms0515::Emulator &emu, ms7004_key_t key,
                    bool shift = false, bool ctrl = false,
@@ -187,9 +181,10 @@ static void tapKey(ms0515::Emulator &emu, ms7004_key_t key,
 {
     /* Tests exercise OSK-click semantics — case-toggle, RUS/LAT mode,
      * shift-immune positions per [DEVIATE 1..4].  Route through the
-     * lib-layer adapter that synthesises the right byte sequence;
-     * pure physical-key tests would call emu.keyPress directly. */
-    g_osk.clickKey(emu, key, shift, ctrl);
+     * Emulator's KeyInputAdapter (single source of truth for the
+     * caps_on / ruslat_on state); pure physical-key tests would call
+     * emu.keyPress directly. */
+    emu.inputAdapter().clickKey(emu, key, shift, ctrl);
     runFrames(emu, echoFrames);
 }
 
@@ -197,7 +192,7 @@ static void tapKey(ms0515::Emulator &emu, ms7004_key_t key,
 [[maybe_unused]]
 static void toggleRusLat(ms0515::Emulator &emu, int echoFrames = kEchoFrames)
 {
-    g_osk.clickRuslat(emu);
+    emu.inputAdapter().clickRuslat(emu);
     runFrames(emu, echoFrames);
 }
 
@@ -256,9 +251,8 @@ struct TypingFixture {
     TypingFixture(const char *romPath, const char *diskPath)
         : disk{diskPath}
     {
-        /* Reset per-test OSK state — caps_on / ruslat_on must not
-         * leak between scenarios. */
-        g_osk.reset();
+        /* Per-fixture Emulator owns its own KeyInputAdapter, so
+         * caps_on / ruslat_on naturally don't leak between scenarios. */
         REQUIRE(emu.loadRomFile(romPath));
         REQUIRE(emu.loadKeyboardFirmwareFile(
             std::string{ASSETS_DIR} + "/rom/mc7004_keyboard_original.rom"));
@@ -318,7 +312,7 @@ static void toggleCaps(ms0515::Emulator &emu, int echoFrames = kEchoFrames)
      * the adapter's case-mapping logic.  No scancode is emitted to the
      * OS (it doesn't honour 0o260 anyway, which is why we apply CAPS
      * locally per [DEVIATE 2/3]). */
-    g_osk.clickCaps();
+    emu.inputAdapter().clickCaps();
     runFrames(emu, echoFrames);
 }
 

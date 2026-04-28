@@ -136,6 +136,18 @@ void PhysicalKeyboard::handleKeyDown(SDL_Scancode phys,
     if (key == MS7004_KEY_NONE)
         return;
 
+    /* Toggle keys (ФКС, РУС/ЛАТ): route through the input adapter so
+     * caps_on / ruslat_on stay in sync with the OSK display.  No
+     * SDL_KEYUP handling needed — toggles are one-shot. */
+    if (key == MS7004_KEY_CAPS) {
+        emu.inputAdapter().clickCaps();
+        return;
+    }
+    if (key == MS7004_KEY_RUSLAT) {
+        emu.inputAdapter().clickRuslat(emu);
+        return;
+    }
+
     physToMs7004_[(int)phys] = (int)key;
 
     /* Let modifiers through even when ImGui wants keyboard. */

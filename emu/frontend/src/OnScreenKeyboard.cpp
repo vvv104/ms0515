@@ -189,49 +189,6 @@ const NumpadLabel *findNumpad(const std::string &lbl)
     return nullptr;
 }
 
-/* Mode-dependent letter classification.  In ЛАТ mode, only the 26 keys
- * with dual Latin+Cyrillic letter labels count as "letters" for ФКС/ВР
- * purposes.  In РУС mode, the symbol-on-letter keys (Ш/[ Щ/] Э/\ Ч/¬
- * Ю/@ Ъ) also count — they produce Cyrillic letters in that mode.
- * See "UX convenience layer" in handleClick. */
-bool isLetterKey(ms7004_key_t k, bool rusMode)
-{
-    switch (k) {
-    /* Pure letter keys: always letters in both modes. */
-    case MS7004_KEY_A: case MS7004_KEY_B: case MS7004_KEY_C:
-    case MS7004_KEY_D: case MS7004_KEY_E: case MS7004_KEY_F:
-    case MS7004_KEY_G: case MS7004_KEY_H: case MS7004_KEY_I:
-    case MS7004_KEY_J: case MS7004_KEY_K: case MS7004_KEY_L:
-    case MS7004_KEY_M: case MS7004_KEY_N: case MS7004_KEY_O:
-    case MS7004_KEY_P: case MS7004_KEY_Q: case MS7004_KEY_R:
-    case MS7004_KEY_S: case MS7004_KEY_T: case MS7004_KEY_U:
-    case MS7004_KEY_V: case MS7004_KEY_W: case MS7004_KEY_X:
-    case MS7004_KEY_Y: case MS7004_KEY_Z:
-        return true;
-    /* Symbol-on-letter: Cyrillic letter in РУС, symbol in ЛАТ. */
-    case MS7004_KEY_LBRACKET:   /* Ш/[ */
-    case MS7004_KEY_RBRACKET:   /* Щ/] */
-    case MS7004_KEY_BACKSLASH:  /* Э/\ */
-    case MS7004_KEY_CHE:        /* Ч/¬ */
-    case MS7004_KEY_AT:         /* Ю/@ */
-    case MS7004_KEY_HARDSIGN:   /* Ъ   */
-        return rusMode;
-    default:
-        return false;
-    }
-}
-
-/* Symbol-on-letter keys that are immune to ВР (Shift) in ЛАТ mode.
- * In РУС mode they act as letters and respond to Shift normally. */
-bool isShiftImmuneSymbol(ms7004_key_t k, bool rusMode)
-{
-    if (rusMode) return false;
-    return k == MS7004_KEY_LBRACKET    /* Ш/[  — Shift would give { */
-        || k == MS7004_KEY_RBRACKET    /* Щ/]  — Shift would give } */
-        || k == MS7004_KEY_BACKSLASH   /* Э/\  — Shift would give | */
-        || k == MS7004_KEY_CHE;        /* Ч/¬  — Shift would give ~ */
-}
-
 } /* anonymous namespace */
 
 /* ── OnScreenKeyboard ─────────────────────────────────────────────────── */
@@ -469,150 +426,56 @@ float OnScreenKeyboard::pixelHeight() const
 
 /* ── Click dispatch ───────────────────────────────────────────────────── */
 
+/*
+ * OSK click semantics:
+ *   - Sticky modifier caps (Shift, Ctrl, Compose) latch visually on
+ *     click; the latched state is held in `stickyKeys_` and applied
+ *     to the next regular click, then cleared (one-shot).
+ *   - Toggle caps (ФКС, РУС/ЛАТ) flip a virtual mode in the input
+ *     adapter (see KeyInputAdapter — for ФКС the OS never sees the
+ *     scancode, for РУС/ЛАТ it does).
+ *   - Regular caps emit through the adapter, which applies the four
+ *     UX rules from docs/kb/OSK_BEHAVIOUR_RULES.md.
+ */
 void OnScreenKeyboard::handleClick(const Cap &c, ms0515::Emulator &emu)
 {
     if (c.dim || c.ms7004key == MS7004_KEY_NONE) return;
 
     /* Ъ and _ share scancode 0o361.  The ROM renders it as Ъ in РУС
-     * and _ in ЛАТ.  Suppress Ъ in ЛАТ (it has no Latin equivalent).
-     * _ in РУС is handled by RUSLAT-immunity below (temporarily
-     * switches to ЛАТ so the ROM outputs _). */
+     * and _ in ЛАТ.  Suppress the Ъ cap in ЛАТ (no Latin equivalent);
+     * _ in РУС is handled by the adapter's DEVIATE 4 mode-flip. */
     if (c.ms7004key == MS7004_KEY_HARDSIGN && !emu.ruslatOn())
         return;
 
-    /* Sticky modifier cap: toggle latch. */
+    /* Sticky modifier cap: toggle the visual latch only.  No matrix
+     * press — the adapter's clickKey synthesises the Shift sandwich
+     * itself based on the modifier flags we pass in. */
     if (c.sticky) {
         int k = (int)c.ms7004key;
-        if (stickyKeys_.count(k)) {
-            /* Unlatch: release in ms7004. */
-            emu.keyPress(c.ms7004key, false);
-            stickyKeys_.erase(k);
-        } else {
-            /* Latch: press in ms7004. */
-            emu.keyPress(c.ms7004key, true);
-            stickyKeys_.insert(k);
-        }
+        if (stickyKeys_.count(k)) stickyKeys_.erase(k);
+        else                      stickyKeys_.insert(k);
         return;
     }
 
-    /* Toggle caps (ФКС, РУС-ЛАТ): press + release.  The ms7004 model
-     * flips the internal toggle flag on press; release is a no-op. */
+    /* Toggle caps (ФКС, РУС/ЛАТ): delegated to the adapter. */
     if (c.toggle) {
-        emu.keyPress(c.ms7004key, true);
-        emu.keyPress(c.ms7004key, false);
+        if (c.ms7004key == MS7004_KEY_CAPS)
+            emu.inputAdapter().clickCaps();
+        else if (c.ms7004key == MS7004_KEY_RUSLAT)
+            emu.inputAdapter().clickRuslat(emu);
         return;
     }
 
-    /* ── UX convenience layer ──────────────────────────────────────
-     *
-     * Four deviations from authentic MS7004 / ROM behaviour, applied
-     * only to OSK clicks (physical keyboard goes through the model
-     * unmodified).  See comments marked [DEVIATE] in ms7004.c.
-     *
-     * 1. ВР (Shift) does not change symbol-on-letter keys (Ш/[ Щ/]
-     *    Э/\ Ч/¬) in ЛАТ mode.  On real hardware, Shift + [ → {.
-     *    Here, the OSK releases Shift before emitting the key.
-     *    In РУС mode these keys are letters and respond to Shift
-     *    normally.
-     *
-     * 2. ФКС (CapsLock) only affects letter keys.  Digits, symbols,
-     *    and function keys are immune.  Which keys count as "letters"
-     *    is mode-dependent: in РУС mode, Ш/Щ/Э/Ч/Ю/Ъ are letters.
-     *    Implemented by temporarily toggling CAPS off around emission.
-     *
-     * 3. ВР inverts ФКС on letter keys.  On real MS7004, CAPS +
-     *    Shift still produces uppercase.  Here, CAPS + Shift + letter
-     *    produces lowercase (modern CapsLock + Shift cancellation).
-     *
-     * 4. РУС/ЛАТ does not change non-letter keys.  On real hardware,
-     *    the ROM maps some symbol scancodes to Cyrillic in РУС mode
-     *    (e.g. { → Ш, } → Щ).  Here, non-letter keys temporarily
-     *    switch to ЛАТ so their symbol output is preserved.
-     * ──────────────────────────────────────────────────────────────── */
+    /* Regular cap: hand off to the adapter with the current sticky
+     * modifier flags.  The adapter applies all four UX rules. */
+    const bool shift = stickyKeys_.count((int)MS7004_KEY_SHIFT_L)
+                    || stickyKeys_.count((int)MS7004_KEY_SHIFT_R);
+    const bool ctrl  = stickyKeys_.count((int)MS7004_KEY_CTRL);
 
-    const bool rusMode      = emu.ruslatOn();
-    const bool shiftLatched = stickyKeys_.count((int)MS7004_KEY_SHIFT_L)
-                           || stickyKeys_.count((int)MS7004_KEY_SHIFT_R);
-    const bool capsOn       = emu.capsOn();
-    const bool letter       = isLetterKey(c.ms7004key, rusMode);
-    const bool shiftImmune  = isShiftImmuneSymbol(c.ms7004key, rusMode);
+    emu.inputAdapter().clickKey(emu, c.ms7004key, shift, ctrl);
 
-    /* Do we need to suppress Shift before the key? */
-    const bool dropShift = shiftLatched
-                        && (shiftImmune                     /* fix 1 */
-                         || (letter && capsOn));             /* fix 3 */
-
-    /* Do we need to temporarily toggle CAPS off? */
-    const bool toggleCapsOff = capsOn
-                            && (!letter                     /* fix 2 */
-                             || shiftLatched);               /* fix 3 */
-
-    /* Do we need to temporarily switch to ЛАТ? */
-    const bool toggleRusOff = rusMode && !letter;            /* fix 4 */
-
-    if (dropShift || toggleCapsOff || toggleRusOff) {
-        /* Release Shift sticky keys from the ms7004 model. */
-        if (dropShift) {
-            for (auto it = stickyKeys_.begin(); it != stickyKeys_.end(); ) {
-                auto mk = static_cast<ms7004_key_t>(*it);
-                if (mk == MS7004_KEY_SHIFT_L || mk == MS7004_KEY_SHIFT_R) {
-                    emu.keyPress(mk, false);
-                    it = stickyKeys_.erase(it);
-                } else {
-                    ++it;
-                }
-            }
-        }
-
-        /* Temporarily switch to ЛАТ so the ROM outputs the Latin
-         * symbol, not a Cyrillic letter for this scancode. */
-        if (toggleRusOff) {
-            emu.keyPress(MS7004_KEY_RUSLAT, true);
-            emu.keyPress(MS7004_KEY_RUSLAT, false);
-        }
-
-        /* Temporarily flip CAPS off in both the ms7004 model and the
-         * guest ROM (they track toggle state independently). */
-        if (toggleCapsOff) {
-            emu.keyPress(MS7004_KEY_CAPS, true);
-            emu.keyPress(MS7004_KEY_CAPS, false);
-        }
-
-        /* Emit the key itself. */
-        emu.keyPress(c.ms7004key, true);
-        emu.keyPress(c.ms7004key, false);
-
-        /* Restore CAPS to its original state. */
-        if (toggleCapsOff) {
-            emu.keyPress(MS7004_KEY_CAPS, true);
-            emu.keyPress(MS7004_KEY_CAPS, false);
-        }
-
-        /* Restore РУС mode. */
-        if (toggleRusOff) {
-            emu.keyPress(MS7004_KEY_RUSLAT, true);
-            emu.keyPress(MS7004_KEY_RUSLAT, false);
-        }
-
-        /* Release any remaining sticky modifiers (Ctrl, Compose). */
-        if (!stickyKeys_.empty()) {
-            for (int k : stickyKeys_)
-                emu.keyPress(static_cast<ms7004_key_t>(k), false);
-            stickyKeys_.clear();
-        }
-        return;
-    }
-
-    /* Regular key: press, release, then release any sticky mods
-     * (one-shot behaviour). */
-    emu.keyPress(c.ms7004key, true);
-    emu.keyPress(c.ms7004key, false);
-
-    if (!stickyKeys_.empty()) {
-        for (int k : stickyKeys_)
-            emu.keyPress(static_cast<ms7004_key_t>(k), false);
-        stickyKeys_.clear();
-    }
+    /* Sticky modifiers are one-shot — clear after the click. */
+    stickyKeys_.clear();
 }
 
 /* ── Rendering ────────────────────────────────────────────────────────── */
