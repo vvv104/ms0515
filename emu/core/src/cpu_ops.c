@@ -248,6 +248,33 @@ static void write_byte_op(ms0515_cpu_t *cpu, int mode, int reg,
     }
 }
 
+/*
+ * Pure-write instructions (CLR, MOV, SXT, MFPS-to-memory) on the
+ * K1801VM1 still go through a read-then-write bus cycle — the chip
+ * has no stand-alone write pin.  The fetched value is discarded but
+ * the read side-effect is real, which matters for memory-mapped I/O
+ * registers that auto-clear or pop a FIFO on read.  These helpers
+ * issue the implicit discard read; register-direct writes (mode 0)
+ * stay clear of the bus and are skipped.
+ *
+ * The only writes that genuinely don't read first are stack pushes
+ * (interrupt entry, JSR, MARK, PSW save).  Those go through `push`,
+ * not write_word_op, so they remain pure writes — correct.
+ */
+static void discard_read_word(ms0515_cpu_t *cpu, int mode, uint16_t addr)
+{
+    if (mode == 0) return;
+    cpu->cycles += BUS_CYCLE;
+    (void)board_read_word(cpu->board, addr);
+}
+
+static void discard_read_byte(ms0515_cpu_t *cpu, int mode, uint16_t addr)
+{
+    if (mode == 0) return;
+    cpu->cycles += BUS_CYCLE;
+    (void)board_read_byte(cpu->board, addr);
+}
+
 /* ── Opcode field extraction macros ───────────────────────────────────────── */
 
 #define DST_MODE(op)   (((op) >> 3) & 7)
@@ -418,6 +445,7 @@ static void op_clr(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    discard_read_word(cpu, mode, addr);     /* K1801VM1: read-then-write */
     write_word_op(cpu, mode, reg, addr, 0);
     cpu->psw = (cpu->psw & ~(CPU_PSW_N | CPU_PSW_V | CPU_PSW_C)) | CPU_PSW_Z;
 }
@@ -427,6 +455,7 @@ static void op_clrb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    discard_read_byte(cpu, mode, addr);     /* K1801VM1: read-then-write */
     write_byte_op(cpu, mode, reg, addr, 0);
     cpu->psw = (cpu->psw & ~(CPU_PSW_N | CPU_PSW_V | CPU_PSW_C)) | CPU_PSW_Z;
 }
@@ -746,6 +775,7 @@ static void op_sxt(ms0515_cpu_t *cpu)
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
     uint16_t val  = (cpu->psw & CPU_PSW_N) ? 0xFFFF : 0;
+    discard_read_word(cpu, mode, addr);     /* K1801VM1: read-then-write */
     write_word_op(cpu, mode, reg, addr, val);
     set_nz_word(cpu, val);
     set_v(cpu, false);
@@ -791,6 +821,7 @@ static void op_mfps(ms0515_cpu_t *cpu)
         cpu->r[reg] = (val & 0x80) ? (0xFF00 | val) : val;
     } else {
         uint16_t addr = get_byte_addr(cpu, mode, reg);
+        discard_read_byte(cpu, mode, addr); /* K1801VM1: read-then-write */
         write_byte_op(cpu, mode, reg, addr, val);
     }
     set_nz_byte(cpu, val);
@@ -808,6 +839,7 @@ static void op_mov(ms0515_cpu_t *cpu)
     uint16_t val   = read_word_op(cpu, sm, sr, saddr);
 
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    discard_read_word(cpu, dm, daddr);  /* K1801VM1: read-then-write */
     write_word_op(cpu, dm, dr, daddr, val);
 
     set_nz_word(cpu, val);
@@ -827,6 +859,7 @@ static void op_movb(ms0515_cpu_t *cpu)
         cpu->r[dr] = (val & 0x80) ? (0xFF00 | val) : val;
     } else {
         uint16_t daddr = get_byte_addr(cpu, dm, dr);
+        discard_read_byte(cpu, dm, daddr);  /* K1801VM1: read-then-write */
         write_byte_op(cpu, dm, dr, daddr, val);
     }
 
