@@ -752,6 +752,19 @@ TEST_CASE("IOT sets irq_iot flag") {
     CHECK(emu.cpu().irq_iot == true);
 }
 
+TEST_CASE("MFPT writes K1801VM1 type code (4) to R0") {
+    /* MFPT (000007) returns the CPU type identifier in R0.  The
+     * K1801VM1 returns 4, matching the DEC T-11 / KDF-11 family.
+     * Required by the unpatched ROM-A boot path on Omega; trapping
+     * here causes the well-known pink-screen wedge. */
+    ms0515::Emulator emu;
+    emu.reset();
+    emu.cpu().r[0] = 0xFFFF;                /* poison so we see the write */
+    run_at(emu, BASE, {000007});
+    CHECK(emu.cpu().r[0] == 4);
+    CHECK(emu.cpu().irq_reserved == false); /* no trap */
+}
+
 /* ── Interrupt request API ───────────────────────────────────────────────── */
 
 TEST_CASE("cpu_interrupt / cpu_clear_interrupt") {

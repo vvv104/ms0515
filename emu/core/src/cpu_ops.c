@@ -384,20 +384,19 @@ static void op_trap(ms0515_cpu_t *cpu)
 
 /* ── MFPT — Move From Processor Type ─────────────────────────────────────── */
 /*
- * The MS0515 CPU is based on the Soviet KR1807VM1 (1801-series)
- * microprocessor, which does not implement the MFPT instruction — it
- * raises a reserved-instruction trap (vector 010) just like any other
- * unknown opcode.  The Omega boot loader relies on this behavior: it
- * sets vector 010 to a CPU-probe handler and executes MFPT to drive
- * the probe; if MFPT instead *returns* a value in R0, the loader
- * deliberately HALTs (it thinks it is running on an incompatible J-11
- * or T-11 class CPU).
+ * Move From Processor Type: writes a one-byte CPU identifier into R0.
+ * Different PDP-11 family chips return different values; the K1801VM1
+ * (and the related 1807VM1 and DEC T-11) returns 4.
  *
- * So we must trap rather than provide a processor-type code.
+ * An earlier comment in this slot claimed Omega's boot loader needed a
+ * reserved-instruction trap on MFPT — that turned out to be wrong: the
+ * unpatched ROM-A + Omega config (the pink-screen known-bad in
+ * test_boot.cpp) hung specifically because we trapped instead of
+ * returning the spec value.
  */
 static void op_mfpt(ms0515_cpu_t *cpu)
 {
-    cpu->irq_reserved = true;
+    cpu->r[0] = 4;
 }
 
 /* ── CLR / CLRB ───────────────────────────────────────────────────────────── */
