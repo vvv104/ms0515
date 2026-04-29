@@ -106,7 +106,12 @@ ms7004_key_t sdlToMs7004(SDL_Scancode phys, bool rusMode)
     case SDL_SCANCODE_LCTRL:    return MS7004_KEY_CTRL;
     /* RCTRL is reserved as the host-mode toggle key (PhysicalKeyboard) */
     case SDL_SCANCODE_CAPSLOCK: return MS7004_KEY_CAPS;
-    case SDL_SCANCODE_LALT:     return MS7004_KEY_COMPOSE;
+    /* LALT intentionally NOT mapped: host Alt+key combos (Alt+Tab,
+     * Alt+F4, Alt+PrtScr, etc.) are stolen by the window manager so
+     * SDL frequently misses the Alt KEYUP, leaving the COMPOSE bit
+     * stuck and corrupting subsequent typing.  КМП is rarely useful
+     * (LK201 accent-compose feature); users who need it can click
+     * the OSK button. */
     case SDL_SCANCODE_RALT:     return MS7004_KEY_RUSLAT;
 
     /* Toggle */
