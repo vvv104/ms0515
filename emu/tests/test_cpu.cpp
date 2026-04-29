@@ -590,12 +590,29 @@ TEST_CASE("JSR PC,(R1) and RTS PC") {
 
 /* ── HALT / WAIT ─────────────────────────────────────────────────────────── */
 
-TEST_CASE("HALT sets halted flag") {
+TEST_CASE("HALT traps to restart vector 0172004") {
+    /* On K1801VM1 the HALT instruction is a trap, not a stop:
+     * pushes PC + PSW, sets PC = 0172004, PSW = 0340.  Mirrors the
+     * behaviour of an external HALT signal handled in cpu.c. */
     ms0515::Emulator emu;
     emu.reset();
+    /* Map full RAM through the dispatcher so the stack push lands in
+     * writable memory.  Then point SP into the same window. */
+    emu.writeWord(0177400, 0x007F);
+    emu.cpu().r[CPU_REG_SP] = 0x4000;
+    emu.cpu().psw = 0;                  /* known PSW for the push */
+    uint16_t old_sp = emu.cpu().r[CPU_REG_SP];
 
     run_at(emu, BASE, {000000});
-    CHECK(emu.cpu().halted == true);
+
+    CHECK(emu.cpu().halted == false);   /* not stopped */
+    CHECK(emu.cpu().r[CPU_REG_PC] == 0172004);
+    CHECK(emu.cpu().psw == 0340);
+    CHECK(emu.cpu().r[CPU_REG_SP] == (uint16_t)(old_sp - 4));  /* PC + PSW */
+    /* Pushed PC is the address AFTER the HALT word — would be the
+     * return point if a handler at 0172004 RTI'd back. */
+    CHECK(emu.readWord(emu.cpu().r[CPU_REG_SP]) == BASE + 2);
+    CHECK(emu.readWord(emu.cpu().r[CPU_REG_SP] + 2) == 0);  /* old PSW */
 }
 
 TEST_CASE("WAIT sets waiting flag") {
@@ -791,26 +808,27 @@ TEST_CASE("small loop: sum 1..5 using SOB") {
      * R0 = 5 (counter), R1 = 0 (accumulator)
      *
      * loop:  ADD R0, R1    ; 060001
-     *        SOB R0, loop  ; 077001 (offset=1, back 2 bytes)
-     *        HALT           ; 000000
-     */
+     *        SOB R0, loop  ; 077002 (offset=2 words back)
+     *
+     * After SOB drops through (R0 hits 0) we land at the next address.
+     * No HALT — that opcode now traps to the restart vector instead of
+     * stopping the CPU, so the test runs an exact known number of
+     * instructions (2 setup + 5 × 2 loop body) and inspects R1. */
     uint16_t addr = BASE;
     addr = emit(emu, addr, {012700, 5});       /* MOV #5, R0 */
     addr = emit(emu, addr, {012701, 0});       /* MOV #0, R1 */
     uint16_t loop = addr;
     addr = emit(emu, addr, {060001});          /* ADD R0, R1 */
     addr = emit(emu, addr, {077002});          /* SOB R0, loop (offset=2 words back) */
-    addr = emit(emu, addr, {000000});          /* HALT */
     (void)loop;
 
     emu.cpu().r[CPU_REG_PC] = BASE;
     emu.cpu().halted = false;
 
-    /* Run until halted (max 100 instructions to avoid infinite loop) */
-    for (int i = 0; i < 100 && !emu.cpu().halted; i++)
+    /* 2 setup MOVs + 5 iterations × (ADD + SOB) = 12 instructions. */
+    for (int i = 0; i < 12; i++)
         emu.stepInstruction();
 
-    CHECK(emu.cpu().halted == true);
     CHECK(emu.cpu().r[1] == 15);  /* 5+4+3+2+1 = 15 */
 }
 

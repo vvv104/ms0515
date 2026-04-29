@@ -293,10 +293,22 @@ static void op_nop(ms0515_cpu_t *cpu)
 
 /* ── HALT ─────────────────────────────────────────────────────────────────── */
 
+/*
+ * On the K1801VM1 (and the related 1807VM1 / DEC T-11) the HALT
+ * instruction is not a "stop the CPU" — it traps to the restart
+ * vector at 0172004 with PSW=0340, exactly like the external HALT
+ * signal handled by cpu_check_interrupts.  Code that uses HALT to
+ * drop into the monitor (or to re-enter the boot loader) relies on
+ * this; halting the CPU outright wedged any program that did so.
+ */
 static void op_halt(ms0515_cpu_t *cpu)
 {
     BOARD_EVT(cpu->board, MS0515_EVT_HALT, NULL, 0);
-    cpu->halted = true;
+    push(cpu, cpu->psw);
+    push(cpu, cpu->r[CPU_REG_PC]);
+    cpu->r[CPU_REG_PC] = 0172004;
+    cpu->psw = 0340;
+    cpu->waiting = false;
 }
 
 /* ── WAIT ─────────────────────────────────────────────────────────────────── */
