@@ -182,22 +182,44 @@ void PhysicalKeyboard::handleKeyDown(SDL_Scancode phys,
         if (shiftL) emu.keyPress(MS7004_KEY_SHIFT_L, true);
         if (shiftR) emu.keyPress(MS7004_KEY_SHIFT_R, true);
     } else if (shiftChange) {
-        /* Character remapping changed the Shift requirement.
-         * Keep the key HELD so the OSK highlights correctly. */
+        /* Character remapping changed the Shift requirement.  Defer
+         * the target-key press by one frame so the keyboard firmware
+         * has time to emit the Shift state-change scancode BEFORE the
+         * key make-code, avoiding the column-scan race where col(key)
+         * < col(SHIFT_L) lets the firmware emit the key first. */
         if (hostShift && !needShift) {
-            /* Case 2: remove Shift, hold key. */
+            /* Case 2: remove Shift now, defer key press. */
             if (shiftL) emu.keyPress(MS7004_KEY_SHIFT_L, false);
             if (shiftR) emu.keyPress(MS7004_KEY_SHIFT_R, false);
-            emu.keyPress(key, true);
+            deferredPresses_.push_back({0, key});
             shiftOverrides_[(int)phys] = {false, shiftL, shiftR};
         } else {
-            /* Case 1: add Shift, hold key. */
+            /* Case 1: add Shift now, defer key press. */
             emu.keyPress(MS7004_KEY_SHIFT_L, true);
-            emu.keyPress(key, true);
+            deferredPresses_.push_back({0, key});
             shiftOverrides_[(int)phys] = {true, false, false};
         }
     } else {
         emu.keyPress(key, true);
+    }
+}
+
+/* ── Per-frame tick ──────────────────────────────────────────────────── */
+
+void PhysicalKeyboard::tick(ms0515::Emulator &emu)
+{
+    /* Process deferred presses queued by handleKeyDown.  Called once
+     * per frame BEFORE SDL polling, so a press queued at the end of
+     * frame N fires at the start of frame N+1 — one frame after the
+     * Shift state-change had a chance to scan + bit-bang on the wire. */
+    for (auto it = deferredPresses_.begin(); it != deferredPresses_.end(); ) {
+        if (it->frames_to_wait <= 0) {
+            emu.keyPress(it->key, true);
+            it = deferredPresses_.erase(it);
+        } else {
+            --it->frames_to_wait;
+            ++it;
+        }
     }
 }
 

@@ -1057,6 +1057,10 @@ int main(int argc, char **argv)
 
     /* ── Main loop ─────────────────────────────────────────────────────── */
     while (!quit) {
+        /* Apply any presses the previous frame deferred (synthetic-shift
+         * race avoidance — see PhysicalKeyboard::DeferredPress). */
+        physKbd.tick(emu);
+
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             ImGui_ImplSDL2_ProcessEvent(&ev);
