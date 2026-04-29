@@ -769,6 +769,56 @@ TEST_CASE("IOT sets irq_iot flag") {
     CHECK(emu.cpu().irq_iot == true);
 }
 
+/* ── Cycle-count audit (K1801VM1 spec via MAME T11) ─────────────────────── */
+
+/* Run one MOV instruction with the given (src_mode, dst_mode) and
+ * return the cycle count cpu_step reported. */
+static int mov_cycles(int sm, int dm)
+{
+    ms0515::Emulator emu;
+    emu.reset();
+    emu.writeWord(0177400, 0x007F);          /* full RAM mapping */
+    emu.cpu().r[CPU_REG_SP] = 0x4000;        /* stack inside RAM */
+
+    /* Build a MOV instruction word with the given modes / R0,R1. */
+    uint16_t instr = 010000u                 /* MOV opcode */
+                   | (uint16_t)(sm << 9)
+                   | 0u                       /* src reg = 0 */
+                   | (uint16_t)(dm << 3)
+                   | 1u;                      /* dst reg = 1 */
+    /* Some modes need an extra word (mode 6, 7) for the index value;
+     * write a zero index after the instruction. */
+    emu.writeWord(BASE,     instr);
+    emu.writeWord(BASE + 2, 0);
+    emu.writeWord(BASE + 4, 0);
+    emu.cpu().r[CPU_REG_PC] = BASE;
+    emu.cpu().halted = false;
+    /* Point R0 / R1 at writable RAM so deferred / indexed modes don't
+     * touch an I/O register and skew the timing. */
+    emu.cpu().r[0] = 0x3000;
+    emu.cpu().r[1] = 0x3010;
+    emu.stepInstruction();
+    return emu.cpu().cycles;
+}
+
+TEST_CASE("MOV cycle counts match K1801VM1 spec (MAME T11 reference)") {
+    /* Per src/devices/cpu/t11/t11ops.hxx: the MOV cost is the sum of
+     * the source-operand cost plus the destination-operand
+     * additional cost.  Source costs by mode:
+     *   mode 0..7 = 9, 15, 15, 21, 18, 24, 24, 30
+     * Destination additional costs by mode:
+     *   mode 0..7 = 3, 12, 12, 18, 15, 21, 21, 27
+     * MOV reg→reg = 9 + 3 = 12; MOV @R,@R = 15 + 12 = 27; etc. */
+    constexpr int kSrcCost[8] = { 9, 15, 15, 21, 18, 24, 24, 30 };
+    constexpr int kDstAdd[8]  = { 3, 12, 12, 18, 15, 21, 21, 27 };
+
+    /* Spot-check the four corners of the matrix. */
+    CHECK(mov_cycles(0, 0) == kSrcCost[0] + kDstAdd[0]);  /* 12 */
+    CHECK(mov_cycles(1, 1) == kSrcCost[1] + kDstAdd[1]);  /* 27 */
+    CHECK(mov_cycles(6, 6) == kSrcCost[6] + kDstAdd[6]);  /* 45 */
+    CHECK(mov_cycles(7, 7) == kSrcCost[7] + kDstAdd[7]);  /* 57 */
+}
+
 TEST_CASE("MFPT writes K1801VM1 type code (4) to R0") {
     /* MFPT (000007) returns the CPU type identifier in R0.  The
      * K1801VM1 returns 4, matching the DEC T-11 / KDF-11 family.
