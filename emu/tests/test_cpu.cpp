@@ -771,34 +771,80 @@ TEST_CASE("IOT sets irq_iot flag") {
 
 /* ── Cycle-count audit (K1801VM1 spec via MAME T11) ─────────────────────── */
 
-/* Run one MOV instruction with the given (src_mode, dst_mode) and
- * return the cycle count cpu_step reported. */
-static int mov_cycles(int sm, int dm)
+/* Run one MOV instruction with the given (src_mode/reg, dst_mode/reg)
+ * and return the cycle count cpu_step reported.  Sets up RAM mapping
+ * and points R0/R1 inside RAM so deferred/indexed modes don't touch
+ * I/O registers.  PC-relative modes (reg=7) get a zero index/imm
+ * word written after the instruction. */
+static int mov_cycles_full(int sm, int sr, int dm, int dr)
 {
     ms0515::Emulator emu;
     emu.reset();
     emu.writeWord(0177400, 0x007F);          /* full RAM mapping */
-    emu.cpu().r[CPU_REG_SP] = 0x4000;        /* stack inside RAM */
+    emu.cpu().r[CPU_REG_SP] = 0x4000;
 
-    /* Build a MOV instruction word with the given modes / R0,R1. */
     uint16_t instr = 010000u                 /* MOV opcode */
                    | (uint16_t)(sm << 9)
-                   | 0u                       /* src reg = 0 */
+                   | (uint16_t)(sr << 6)
                    | (uint16_t)(dm << 3)
-                   | 1u;                      /* dst reg = 1 */
-    /* Some modes need an extra word (mode 6, 7) for the index value;
-     * write a zero index after the instruction. */
+                   | (uint16_t) dr;
     emu.writeWord(BASE,     instr);
     emu.writeWord(BASE + 2, 0);
     emu.writeWord(BASE + 4, 0);
     emu.cpu().r[CPU_REG_PC] = BASE;
     emu.cpu().halted = false;
-    /* Point R0 / R1 at writable RAM so deferred / indexed modes don't
-     * touch an I/O register and skew the timing. */
-    emu.cpu().r[0] = 0x3000;
-    emu.cpu().r[1] = 0x3010;
+    /* Point R0/R1 (and R2-R5 for safety) at writable RAM. */
+    for (int i = 0; i < 6; ++i)
+        emu.cpu().r[i] = (uint16_t)(0x3000 + i * 0x10);
     emu.stepInstruction();
     return emu.cpu().cycles;
+}
+
+static int mov_cycles(int sm, int dm)
+{
+    return mov_cycles_full(sm, 0, dm, 1);
+}
+
+/* Diagnostic: print the full 12×12 MOV cycle matrix in the same
+ * shape the forum-circulating "CMOV.SAV" tool prints — rows and
+ * columns are mode-reg pairs.  Columns 01..71 use reg=1, columns
+ * 27/37/67/77 use reg=7 (PC) which makes them #imm / @#abs /
+ * label / @label respectively.  Rows likewise: 00..70 use reg=0,
+ * 27/37/67/77 use reg=7.
+ *
+ * Skip-marked because it's a one-shot inspection — run with
+ *   build/Release/tests/ms0515_tests.exe --no-skip -tc='DIAG MOV*'
+ * and compare the printed grid against the same grid measured
+ * inside an OS via CMOV.SAV (or against MAME). */
+TEST_CASE("DIAG MOV cycle matrix (12×12 grid for forum-style comparison)" * doctest::skip()) {
+    /* (mode, reg) entries that label the rows and columns.  reg=0 for
+     * src rows and reg=1 for dst columns over modes 0-7; reg=7 for
+     * the special PC-relative modes 2/3/6/7. */
+    struct ModeReg { int mode; int reg; const char *label; };
+    static const ModeReg kSrcAxis[12] = {
+        {0,0,"00"}, {1,0,"10"}, {2,0,"20"}, {3,0,"30"},
+        {4,0,"40"}, {5,0,"50"}, {6,0,"60"}, {7,0,"70"},
+        {2,7,"27"}, {3,7,"37"}, {6,7,"67"}, {7,7,"77"},
+    };
+    static const ModeReg kDstAxis[12] = {
+        {0,1,"01"}, {1,1,"11"}, {2,1,"21"}, {3,1,"31"},
+        {4,1,"41"}, {5,1,"51"}, {6,1,"61"}, {7,1,"71"},
+        {2,7,"27"}, {3,7,"37"}, {6,7,"67"}, {7,7,"77"},
+    };
+
+    std::fprintf(stderr, "\n[diag] MOV cycle matrix (rows=src, cols=dst):\n");
+    std::fprintf(stderr, "MOV ");
+    for (auto &c : kDstAxis)
+        std::fprintf(stderr, "  %s ", c.label);
+    std::fprintf(stderr, "\n");
+    for (auto &r : kSrcAxis) {
+        std::fprintf(stderr, " %s ", r.label);
+        for (auto &c : kDstAxis) {
+            int n = mov_cycles_full(r.mode, r.reg, c.mode, c.reg);
+            std::fprintf(stderr, " %4d", n);
+        }
+        std::fprintf(stderr, "\n");
+    }
 }
 
 TEST_CASE("MOV cycle counts match K1801VM1 spec (MAME T11 reference)") {
