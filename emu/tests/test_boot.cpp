@@ -29,6 +29,7 @@ extern "C" {
 #include <ms0515/board.h>
 }
 
+#include <ms0515/Disassembler.hpp>
 #include <ms0515/Emulator.hpp>
 #include <ms0515/ScreenReader.hpp>
 
@@ -273,6 +274,131 @@ TEST_CASE("Boot: ROM + disk matrix") {
                 }
             }
         }
+    }
+}
+
+/* ── Pink-screen diagnostic ──────────────────────────────────────────────── */
+
+/* Skip-marked: only enabled with --no-skip when actively investigating
+ * the Omega-on-unpatched-ROM-A stall.  Captures PC trajectory at coarse
+ * intervals and disassembles the neighbourhood of the final stuck PC. */
+TEST_CASE("DIAG pink-screen: trace PC through Omega + roma-original" * doctest::skip()) {
+    const std::string romPath = kRomDir  + "/ms0515-roma-original.rom";
+    const std::string diskPath = kDiskDir + "/test_omega.dsk";
+
+    if (!fs::exists(romPath) || !fs::exists(diskPath)) {
+        std::fprintf(stderr, "[diag] missing rom or disk fixture, skipping\n");
+        return;
+    }
+
+    ms0515_test::TempDisk td{diskPath};
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(romPath));
+    (void)emu.mountDisk(0, td.path().string());
+    /* Double-side mount — Omega disk is 819200 bytes. */
+    std::error_code ec;
+    if (fs::file_size(td.path(), ec) == 2 * 409600u)
+        (void)emu.mountDisk(2, td.path().string());
+    emu.reset();
+
+    constexpr int kFrames    = 3000;
+    constexpr int kSampleEvery = 200;
+
+    std::vector<uint16_t> pcSamples;
+    pcSamples.reserve(kFrames / kSampleEvery + 1);
+
+    for (int i = 0; i < kFrames; ++i) {
+        (void)emu.stepFrame();
+        if (i % kSampleEvery == 0) {
+            pcSamples.push_back(emu.cpu().r[CPU_REG_PC]);
+        }
+    }
+
+    const uint16_t finalPc = emu.cpu().r[CPU_REG_PC];
+    const uint16_t sp      = emu.cpu().r[CPU_REG_SP];
+    const uint16_t psw     = emu.cpu().psw;
+
+    std::fprintf(stderr, "\n[diag] after %d frames:\n", kFrames);
+    std::fprintf(stderr, "[diag]   PC=%06o  SP=%06o  PSW=%06o  halted=%d  waiting=%d\n",
+                 finalPc, sp, psw,
+                 (int)emu.cpu().halted, (int)emu.cpu().waiting);
+    std::fprintf(stderr, "[diag]   R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o\n",
+                 emu.cpu().r[0], emu.cpu().r[1], emu.cpu().r[2],
+                 emu.cpu().r[3], emu.cpu().r[4], emu.cpu().r[5]);
+
+    std::fprintf(stderr, "[diag] PC samples (every %d frames):\n", kSampleEvery);
+    for (size_t i = 0; i < pcSamples.size(); ++i) {
+        std::fprintf(stderr, "[diag]   frame %4zu: PC=%06o\n",
+                     i * kSampleEvery, pcSamples[i]);
+    }
+
+    /* Disassemble 16 instructions around the final PC to see the loop. */
+    std::fprintf(stderr, "[diag] disassembly around final PC:\n");
+    auto reader = [&emu](uint16_t a) -> uint16_t {
+        return const_cast<ms0515::Emulator&>(emu).readWord(a);
+    };
+    uint16_t scan = finalPc > 32 ? (uint16_t)(finalPc - 32) : 0;
+    scan &= ~1u;
+    for (int i = 0; i < 30; ++i) {
+        auto d = ms0515::Disassembler::decode(scan, reader);
+        std::fprintf(stderr, "[diag]   %06o:  %s%s\n",
+                     d.address,
+                     d.mnemonic.c_str(),
+                     d.operands.empty() ? "" : ("\t" + d.operands).c_str());
+        if (d.length == 0) break;
+        scan = (uint16_t)(d.address + d.length);
+    }
+
+    /* Also dump the routine entry: 162516 is INC R1, but where was it
+     * called from?  Try walking the stack a few frames. */
+    std::fprintf(stderr, "[diag] stack (top 8 words):\n");
+    for (int i = 0; i < 8; ++i) {
+        uint16_t a = (uint16_t)(sp + i*2);
+        std::fprintf(stderr, "[diag]   SP+%d (%06o): %06o\n",
+                     i*2, a, reader(a));
+    }
+
+    /* Disassemble a wider scan upward from finalPc (50 bytes back) to
+     * find the routine header. */
+    std::fprintf(stderr, "[diag] wider context above final PC:\n");
+    scan = (uint16_t)(finalPc - 60) & ~1u;
+    for (int i = 0; i < 20; ++i) {
+        auto d = ms0515::Disassembler::decode(scan, reader);
+        std::fprintf(stderr, "[diag]   %06o:  %s%s\n",
+                     d.address,
+                     d.mnemonic.c_str(),
+                     d.operands.empty() ? "" : ("\t" + d.operands).c_str());
+        if (d.length == 0) break;
+        scan = (uint16_t)(d.address + d.length);
+    }
+
+    /* Disassemble forward from final PC to find exit conditions
+     * (TST R3, magic-byte CMPs, etc.) */
+    std::fprintf(stderr, "[diag] forward context from final PC:\n");
+    scan = finalPc;
+    for (int i = 0; i < 40; ++i) {
+        auto d = ms0515::Disassembler::decode(scan, reader);
+        std::fprintf(stderr, "[diag]   %06o:  %s%s\n",
+                     d.address,
+                     d.mnemonic.c_str(),
+                     d.operands.empty() ? "" : ("\t" + d.operands).c_str());
+        if (d.length == 0) break;
+        scan = (uint16_t)(d.address + d.length);
+    }
+
+    /* Disassemble the caller (return address from stack top). */
+    uint16_t retAddr = reader(sp);
+    std::fprintf(stderr, "[diag] caller context (return PC %06o):\n", retAddr);
+    scan = retAddr > 24 ? (uint16_t)(retAddr - 24) : 0;
+    scan &= ~1u;
+    for (int i = 0; i < 25; ++i) {
+        auto d = ms0515::Disassembler::decode(scan, reader);
+        std::fprintf(stderr, "[diag]   %06o:  %s%s\n",
+                     d.address,
+                     d.mnemonic.c_str(),
+                     d.operands.empty() ? "" : ("\t" + d.operands).c_str());
+        if (d.length == 0) break;
+        scan = (uint16_t)(d.address + d.length);
     }
 }
 

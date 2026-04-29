@@ -160,12 +160,12 @@ static uint8_t read_reg_b(ms0515_board_t *board)
     /* Bits 4-3: DIP switches for refresh rate */
     val |= (board->dip_refresh & 0x03) << 3;
 
-    /* Bit 7: Tape data input.
-     * On real hardware with no cassette recorder connected, this pin
-     * reads a constant level (no edge transitions).  The ROM's tape
-     * routine uses R3 as a countdown timer and exits after ~65535
-     * iterations when no transitions are detected — this is the
-     * hardware's built-in timeout for absent tape drives. */
+    /* Bit 7: Tape data input — analogue comparator output for the
+     * cassette interface.  Returns constant 0 (no cassette).  The boot
+     * ROM's tape-load routine at 0162504 in the unpatched ROM-A spins
+     * here forever when entered, but on real hardware the disk boot
+     * succeeds first and the tape routine is never reached.  See the
+     * pink-screen task in docs/kb/CPU_TIMING_AUDIT.md for the trace. */
 
     return val;
 }
