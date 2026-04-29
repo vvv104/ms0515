@@ -91,19 +91,37 @@ static inline bool get_c(const ms0515_cpu_t *cpu)
 #define ADDR_REGISTER  0xFFFF   /* Sentinel: operand is in a register */
 
 /*
- * Approximate bus-cycle cost for the 1807VM1 at 7.5 MHz.
+ * Cycle accounting calibrated against MAME's T11 / K1801VM1 core
+ * (src/devices/cpu/t11/t11ops.hxx in mamedev/mame).  The K1801VM1
+ * splits each instruction into:
  *
- * Each memory bus transaction takes ~4 clock cycles (one microcycle).
- * The instruction fetch itself costs BUS_CYCLE (set in cpu.c as the
- * initial cpu->cycles = BUS_CYCLE).  Each addressing mode adds more
- * cycles for fetching index words and doing indirect reads.  Operand
- * loads/stores add BUS_CYCLE per access.
+ *   fetch+decode  +  per-mode source cost  +  per-mode dest cost
  *
- * This gives approximate but realistic instruction durations (e.g.
- * MOV R,R ≈ 4 clk, MOV @X(R),@X(R) ≈ 24 clk) without a full
- * microcode-level timing model.
+ * which we model by accumulating cycles across get_word_addr,
+ * read_word_op, write_word_op, and the discard read added for
+ * pure-write opcodes.  The four constants below combine to give
+ * exact agreement with MAME for every (src_mode, dst_mode) pair on
+ * MOV (and approximate agreement for the rest):
+ *
+ *   - BUS_CYCLE       6 cycles per memory access (read or write)
+ *   - REG_WRITE_CYCLE 3 cycles for storing into a register (mode 0
+ *                       destination — matches MAME's kDstAdd[0]=3)
+ *   - AUTODEC_CYCLE   3 cycles for the pre-decrement step in
+ *                       modes 4 (autodec) and 5 (autodec deferred)
+ *   - INDEX_CYCLE     3 cycles for the index-word arithmetic in
+ *                       modes 6 (indexed) and 7 (indexed deferred)
+ *
+ * Initial instruction fetch is 9 cycles (set in cpu.c).
+ *
+ * Verified against MAME: MOV R,R = 12; MOV @R,@R = 27; MOV X(R),X(R) =
+ * 45 — same as MAME's t11_device::mov_*_*() expressions.  Earlier
+ * model (fetch=4, BUS=4, no register-write or autodec/index extras)
+ * ran roughly 2× faster than the K1801VM1 spec.
  */
-#define BUS_CYCLE  4
+#define BUS_CYCLE        6
+#define REG_WRITE_CYCLE  3
+#define AUTODEC_CYCLE    3
+#define INDEX_CYCLE      3
 
 static uint16_t get_word_addr(ms0515_cpu_t *cpu, int mode, int reg)
 {
@@ -128,22 +146,23 @@ static uint16_t get_word_addr(ms0515_cpu_t *cpu, int mode, int reg)
         return board_read_word(cpu->board, addr);
 
     case 4:  /* Autodecrement: -(Rn) */
+        cpu->cycles += AUTODEC_CYCLE;
         cpu->r[reg] -= 2;
         return cpu->r[reg];
 
     case 5:  /* Autodecrement deferred: @-(Rn) */
+        cpu->cycles += AUTODEC_CYCLE + BUS_CYCLE;
         cpu->r[reg] -= 2;
-        cpu->cycles += BUS_CYCLE;
         return board_read_word(cpu->board, cpu->r[reg]);
 
     case 6:  /* Index: X(Rn) */
-        cpu->cycles += BUS_CYCLE;
+        cpu->cycles += INDEX_CYCLE + BUS_CYCLE;
         addr = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
         cpu->r[CPU_REG_PC] += 2;
         return (uint16_t)(addr + cpu->r[reg]);
 
     case 7:  /* Index deferred: @X(Rn) */
-        cpu->cycles += 2 * BUS_CYCLE;
+        cpu->cycles += INDEX_CYCLE + 2 * BUS_CYCLE;
         addr = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
         cpu->r[CPU_REG_PC] += 2;
         return board_read_word(cpu->board, (uint16_t)(addr + cpu->r[reg]));
@@ -183,22 +202,23 @@ static uint16_t get_byte_addr(ms0515_cpu_t *cpu, int mode, int reg)
         return board_read_word(cpu->board, addr);
 
     case 4:
+        cpu->cycles += AUTODEC_CYCLE;
         cpu->r[reg] -= step;
         return cpu->r[reg];
 
     case 5:
+        cpu->cycles += AUTODEC_CYCLE + BUS_CYCLE;
         cpu->r[reg] -= 2;
-        cpu->cycles += BUS_CYCLE;
         return board_read_word(cpu->board, cpu->r[reg]);
 
     case 6:
-        cpu->cycles += BUS_CYCLE;
+        cpu->cycles += INDEX_CYCLE + BUS_CYCLE;
         addr = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
         cpu->r[CPU_REG_PC] += 2;
         return (uint16_t)(addr + cpu->r[reg]);
 
     case 7:
-        cpu->cycles += 2 * BUS_CYCLE;
+        cpu->cycles += INDEX_CYCLE + 2 * BUS_CYCLE;
         addr = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
         cpu->r[CPU_REG_PC] += 2;
         return board_read_word(cpu->board, (uint16_t)(addr + cpu->r[reg]));
@@ -220,8 +240,10 @@ static uint16_t read_word_op(ms0515_cpu_t *cpu, int mode, int reg, uint16_t addr
 static void write_word_op(ms0515_cpu_t *cpu, int mode, int reg,
                            uint16_t addr, uint16_t val)
 {
-    if (mode == 0)
+    if (mode == 0) {
+        cpu->cycles += REG_WRITE_CYCLE;
         cpu->r[reg] = val;
+    }
     else {
         cpu->cycles += BUS_CYCLE;
         board_write_word(cpu->board, addr, val);
@@ -241,6 +263,7 @@ static void write_byte_op(ms0515_cpu_t *cpu, int mode, int reg,
                            uint16_t addr, uint8_t val)
 {
     if (mode == 0) {
+        cpu->cycles += REG_WRITE_CYCLE;
         cpu->r[reg] = (cpu->r[reg] & 0xFF00) | val;
     } else {
         cpu->cycles += BUS_CYCLE;
