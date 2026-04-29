@@ -1084,61 +1084,66 @@ static void op_xor(ms0515_cpu_t *cpu)
 
 /* ── Branch instructions ──────────────────────────────────────────────────── */
 
+/* All branch instructions on the K1801VM1 cost 12 cycles (per MAME's
+ * t11ops.hxx — every Bxx variant has `m_icount -= 12`).  The condition
+ * has no effect on timing; taken and not-taken branches cost the same.
+ * Initial fetch already accounts for 9; +3 brings us to 12. */
+#define BRANCH_EXTRA 3
+
+static void apply_branch(ms0515_cpu_t *cpu, bool take)
+{
+    cpu->cycles += BRANCH_EXTRA;
+    if (take)
+        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+}
+
 static void op_br(ms0515_cpu_t *cpu)
 {
-    cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, true);
 }
 
 static void op_bne(ms0515_cpu_t *cpu)
 {
-    if (!(cpu->psw & CPU_PSW_Z))
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, !(cpu->psw & CPU_PSW_Z));
 }
 
 static void op_beq(ms0515_cpu_t *cpu)
 {
-    if (cpu->psw & CPU_PSW_Z)
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, cpu->psw & CPU_PSW_Z);
 }
 
 static void op_bpl(ms0515_cpu_t *cpu)
 {
-    if (!(cpu->psw & CPU_PSW_N))
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, !(cpu->psw & CPU_PSW_N));
 }
 
 static void op_bmi(ms0515_cpu_t *cpu)
 {
-    if (cpu->psw & CPU_PSW_N)
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, cpu->psw & CPU_PSW_N);
 }
 
 static void op_bvc(ms0515_cpu_t *cpu)
 {
-    if (!(cpu->psw & CPU_PSW_V))
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, !(cpu->psw & CPU_PSW_V));
 }
 
 static void op_bvs(ms0515_cpu_t *cpu)
 {
-    if (cpu->psw & CPU_PSW_V)
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, cpu->psw & CPU_PSW_V);
 }
 
 static void op_bge(ms0515_cpu_t *cpu)
 {
     bool n = (cpu->psw & CPU_PSW_N) != 0;
     bool v = (cpu->psw & CPU_PSW_V) != 0;
-    if (!(n ^ v))
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, !(n ^ v));
 }
 
 static void op_blt(ms0515_cpu_t *cpu)
 {
     bool n = (cpu->psw & CPU_PSW_N) != 0;
     bool v = (cpu->psw & CPU_PSW_V) != 0;
-    if (n ^ v)
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, n ^ v);
 }
 
 static void op_bgt(ms0515_cpu_t *cpu)
@@ -1146,8 +1151,7 @@ static void op_bgt(ms0515_cpu_t *cpu)
     bool n = (cpu->psw & CPU_PSW_N) != 0;
     bool v = (cpu->psw & CPU_PSW_V) != 0;
     bool z = (cpu->psw & CPU_PSW_Z) != 0;
-    if (!(z || (n ^ v)))
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, !(z || (n ^ v)));
 }
 
 static void op_ble(ms0515_cpu_t *cpu)
@@ -1155,36 +1159,31 @@ static void op_ble(ms0515_cpu_t *cpu)
     bool n = (cpu->psw & CPU_PSW_N) != 0;
     bool v = (cpu->psw & CPU_PSW_V) != 0;
     bool z = (cpu->psw & CPU_PSW_Z) != 0;
-    if (z || (n ^ v))
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, z || (n ^ v));
 }
 
 static void op_bhi(ms0515_cpu_t *cpu)
 {
     bool c = (cpu->psw & CPU_PSW_C) != 0;
     bool z = (cpu->psw & CPU_PSW_Z) != 0;
-    if (!(c || z))
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, !(c || z));
 }
 
 static void op_blos(ms0515_cpu_t *cpu)
 {
     bool c = (cpu->psw & CPU_PSW_C) != 0;
     bool z = (cpu->psw & CPU_PSW_Z) != 0;
-    if (c || z)
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, c || z);
 }
 
 static void op_bhis(ms0515_cpu_t *cpu)  /* BCC */
 {
-    if (!(cpu->psw & CPU_PSW_C))
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, !(cpu->psw & CPU_PSW_C));
 }
 
 static void op_blo(ms0515_cpu_t *cpu)   /* BCS */
 {
-    if (cpu->psw & CPU_PSW_C)
-        cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
+    apply_branch(cpu, cpu->psw & CPU_PSW_C);
 }
 
 /* ── JMP ──────────────────────────────────────────────────────────────────── */
