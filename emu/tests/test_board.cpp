@@ -187,7 +187,7 @@ TEST_CASE("board_read/write_byte round-trips") {
     CHECK(emu.readByte(addr) == 0x42);
 }
 
-/* K1801VM1 ignores the LSB of the address on word access — a word access
+/* K1807VM1 ignores the LSB of the address on word access — a word access
  * at an odd address must behave exactly like the same access at the even
  * address one below it (no odd-address trap on this CPU). */
 TEST_CASE("word access at odd address ignores LSB") {

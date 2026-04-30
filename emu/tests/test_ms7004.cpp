@@ -387,6 +387,57 @@ TEST_CASE("auto-repeat stops when key is released") {
     CHECK(uart.fifo_count == 0);
 }
 
+TEST_CASE("auto-repeat eligibility matches MS-7004 firmware") {
+    /* Verified against the 8035 ROM disassembly (routine L_29B):
+     *   - scancode 0xBD (ВК) does NOT repeat
+     *   - scancode  < 0x80 (entire top function row) does NOT repeat
+     *   - scancode in 0x80..0x8F (Ф17–Ф20 + 6-key edit block) does NOT repeat
+     *   - everything else (PF1–PF4, arrows, KP, ВВОД, letters …) DOES repeat */
+    struct Spec { ms7004_key_t key; bool should_repeat; const char *label; };
+    static const Spec kCases[] = {
+        /* No-repeat — top row */
+        { MS7004_KEY_F1,     false, "F1"     },
+        { MS7004_KEY_F20,    false, "F20"    },
+        /* No-repeat — 6-key editing block */
+        { MS7004_KEY_FIND,   false, "НТ"     },
+        { MS7004_KEY_INSERT, false, "ВСТ"    },
+        { MS7004_KEY_REMOVE, false, "УДАЛ"   },
+        { MS7004_KEY_SELECT, false, "ВЫБР"   },
+        { MS7004_KEY_PREV,   false, "ПРЕД"   },
+        { MS7004_KEY_NEXT,   false, "СЛЕД"   },
+        /* No-repeat — ВК */
+        { MS7004_KEY_RETURN, false, "ВК"     },
+        /* Repeat — PF block, arrows, KP Enter, regular letters */
+        { MS7004_KEY_PF1,    true,  "ПФ1"    },
+        { MS7004_KEY_PF4,    true,  "ПФ4"    },
+        { MS7004_KEY_UP,     true,  "Up"     },
+        { MS7004_KEY_LEFT,   true,  "Left"   },
+        { MS7004_KEY_KP_ENTER, true,"ВВОД"   },
+        { MS7004_KEY_A,      true,  "A"      },
+    };
+
+    for (const auto &c : kCases) {
+        auto uart = make_uart();
+        auto kbd  = make_kbd(&uart);
+        kbd.repeat_enabled = true;
+
+        ms7004_key(&kbd, c.key, true);
+        kbd_flush_fifo(&uart);            /* drain the press scancode */
+
+        ms7004_tick(&kbd, 2000);          /* well past the 500 ms initial delay */
+
+        if (c.should_repeat) {
+            CHECK_MESSAGE(uart.fifo_count > 0,
+                          c.label, " (sc=", (int)ms7004_scancode(c.key),
+                          ") should auto-repeat but didn't");
+        } else {
+            CHECK_MESSAGE(uart.fifo_count == 0,
+                          c.label, " (sc=", (int)ms7004_scancode(c.key),
+                          ") repeated when it shouldn't");
+        }
+    }
+}
+
 TEST_CASE("modifier press cancels pending auto-repeat") {
     auto uart = make_uart();
     auto kbd  = make_kbd(&uart);

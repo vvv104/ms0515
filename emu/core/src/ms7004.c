@@ -216,13 +216,22 @@ static bool is_modifier(ms7004_key_t k)
         || k == MS7004_KEY_COMPOSE;
 }
 
+/* Keys that do not auto-repeat on the real MS-7004.  Logic copied
+ * verbatim from the keyboard firmware (8035 ROM disassembly,
+ * routine L_29B at offset 0x29B):
+ *
+ *     if (sc == 0xBD)               return no-repeat;   // ВК
+ *     if (sc < 0x80)                return no-repeat;   // top row F1..F16, ПМ, ИСП
+ *     if ((sc & 0x70) == 0)         return no-repeat;   // 0x80..0x8F — Ф17–Ф20 + 6-key edit block
+ *
+ * The combined condition is `sc < 0x90 || sc == 0xBD`.
+ * Note PF1–PF4 (0xA1–0xA4), arrows (0xA7–0xAA), ВВОД (0x95) and KP
+ * digits all repeat — the firmware lets anything in 0x90..0xFF
+ * through (except the single ВК case). */
 static bool no_repeat(ms7004_key_t k)
 {
-    return (k >= MS7004_KEY_F1 && k <= MS7004_KEY_F20)
-        || (k >= MS7004_KEY_PF1 && k <= MS7004_KEY_PF4)
-        || k == MS7004_KEY_FIND
-        || k == MS7004_KEY_SELECT
-        || k == MS7004_KEY_INSERT;
+    uint8_t sc = kScancode[k];
+    return sc < 0x90 || sc == 0xBD;
 }
 
 static bool key_valid(ms7004_key_t k)

@@ -246,7 +246,7 @@ int cpu_step(ms0515_cpu_t *cpu)
     cpu->instruction_pc = cpu->r[CPU_REG_PC];
     cpu->instruction    = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
     cpu->r[CPU_REG_PC] += 2;
-    cpu->cycles = 9;   /* Instruction fetch + decode (per K1801VM1 / MAME T11) */
+    cpu->cycles = 9;   /* Instruction fetch + decode (per K1807VM1 / MAME T11) */
 
     /* Dispatch */
     dispatch_table[cpu->instruction](cpu);

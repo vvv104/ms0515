@@ -591,7 +591,7 @@ TEST_CASE("JSR PC,(R1) and RTS PC") {
 /* ── HALT / WAIT ─────────────────────────────────────────────────────────── */
 
 TEST_CASE("HALT traps to restart vector 0172004") {
-    /* On K1801VM1 the HALT instruction is a trap, not a stop:
+    /* On K1807VM1 the HALT instruction is a trap, not a stop:
      * pushes PC + PSW, sets PC = 0172004, PSW = 0340.  Mirrors the
      * behaviour of an external HALT signal handled in cpu.c. */
     ms0515::Emulator emu;
@@ -769,7 +769,7 @@ TEST_CASE("IOT sets irq_iot flag") {
     CHECK(emu.cpu().irq_iot == true);
 }
 
-/* ── Cycle-count audit (K1801VM1 spec via MAME T11) ─────────────────────── */
+/* ── Cycle-count audit (K1807VM1 spec via MAME T11) ─────────────────────── */
 
 /* Run one MOV instruction with the given (src_mode/reg, dst_mode/reg)
  * and return the cycle count cpu_step reported.  Sets up RAM mapping
@@ -805,49 +805,7 @@ static int mov_cycles(int sm, int dm)
     return mov_cycles_full(sm, 0, dm, 1);
 }
 
-/* Diagnostic: print the full 12×12 MOV cycle matrix in the same
- * shape the forum-circulating "CMOV.SAV" tool prints — rows and
- * columns are mode-reg pairs.  Columns 01..71 use reg=1, columns
- * 27/37/67/77 use reg=7 (PC) which makes them #imm / @#abs /
- * label / @label respectively.  Rows likewise: 00..70 use reg=0,
- * 27/37/67/77 use reg=7.
- *
- * Skip-marked because it's a one-shot inspection — run with
- *   build/Release/tests/ms0515_tests.exe --no-skip -tc='DIAG MOV*'
- * and compare the printed grid against the same grid measured
- * inside an OS via CMOV.SAV (or against MAME). */
-TEST_CASE("DIAG MOV cycle matrix (12×12 grid for forum-style comparison)" * doctest::skip()) {
-    /* (mode, reg) entries that label the rows and columns.  reg=0 for
-     * src rows and reg=1 for dst columns over modes 0-7; reg=7 for
-     * the special PC-relative modes 2/3/6/7. */
-    struct ModeReg { int mode; int reg; const char *label; };
-    static const ModeReg kSrcAxis[12] = {
-        {0,0,"00"}, {1,0,"10"}, {2,0,"20"}, {3,0,"30"},
-        {4,0,"40"}, {5,0,"50"}, {6,0,"60"}, {7,0,"70"},
-        {2,7,"27"}, {3,7,"37"}, {6,7,"67"}, {7,7,"77"},
-    };
-    static const ModeReg kDstAxis[12] = {
-        {0,1,"01"}, {1,1,"11"}, {2,1,"21"}, {3,1,"31"},
-        {4,1,"41"}, {5,1,"51"}, {6,1,"61"}, {7,1,"71"},
-        {2,7,"27"}, {3,7,"37"}, {6,7,"67"}, {7,7,"77"},
-    };
-
-    std::fprintf(stderr, "\n[diag] MOV cycle matrix (rows=src, cols=dst):\n");
-    std::fprintf(stderr, "MOV ");
-    for (auto &c : kDstAxis)
-        std::fprintf(stderr, "  %s ", c.label);
-    std::fprintf(stderr, "\n");
-    for (auto &r : kSrcAxis) {
-        std::fprintf(stderr, " %s ", r.label);
-        for (auto &c : kDstAxis) {
-            int n = mov_cycles_full(r.mode, r.reg, c.mode, c.reg);
-            std::fprintf(stderr, " %4d", n);
-        }
-        std::fprintf(stderr, "\n");
-    }
-}
-
-TEST_CASE("MOV cycle counts match K1801VM1 spec (MAME T11 reference)") {
+TEST_CASE("MOV cycle counts match K1807VM1 spec (MAME T11 reference)") {
     /* Per src/devices/cpu/t11/t11ops.hxx: the MOV cost is the sum of
      * the source-operand cost plus the destination-operand
      * additional cost.  Source costs by mode:
@@ -865,9 +823,9 @@ TEST_CASE("MOV cycle counts match K1801VM1 spec (MAME T11 reference)") {
     CHECK(mov_cycles(7, 7) == kSrcCost[7] + kDstAdd[7]);  /* 57 */
 }
 
-TEST_CASE("MFPT writes K1801VM1 type code (4) to R0") {
+TEST_CASE("MFPT writes K1807VM1 type code (4) to R0") {
     /* MFPT (000007) returns the CPU type identifier in R0.  The
-     * K1801VM1 returns 4, matching the DEC T-11 / KDF-11 family.
+     * K1807VM1 returns 4, matching the DEC T-11 / KDF-11 family.
      * Required by the unpatched ROM-A boot path on Omega; trapping
      * here causes the well-known pink-screen wedge. */
     ms0515::Emulator emu;

@@ -91,8 +91,8 @@ static inline bool get_c(const ms0515_cpu_t *cpu)
 #define ADDR_REGISTER  0xFFFF   /* Sentinel: operand is in a register */
 
 /*
- * Cycle accounting calibrated against MAME's T11 / K1801VM1 core
- * (src/devices/cpu/t11/t11ops.hxx in mamedev/mame).  The K1801VM1
+ * Cycle accounting calibrated against MAME's T11 / K1807VM1 core
+ * (src/devices/cpu/t11/t11ops.hxx in mamedev/mame).  The K1807VM1
  * splits each instruction into:
  *
  *   fetch+decode  +  per-mode source cost  +  per-mode dest cost
@@ -116,7 +116,7 @@ static inline bool get_c(const ms0515_cpu_t *cpu)
  * Verified against MAME: MOV R,R = 12; MOV @R,@R = 27; MOV X(R),X(R) =
  * 45 — same as MAME's t11_device::mov_*_*() expressions.  Earlier
  * model (fetch=4, BUS=4, no register-write or autodec/index extras)
- * ran roughly 2× faster than the K1801VM1 spec.
+ * ran roughly 2× faster than the K1807VM1 spec.
  */
 #define BUS_CYCLE        6
 #define REG_WRITE_CYCLE  3
@@ -273,7 +273,7 @@ static void write_byte_op(ms0515_cpu_t *cpu, int mode, int reg,
 
 /*
  * Pure-write instructions (CLR, MOV, SXT, MFPS-to-memory) on the
- * K1801VM1 still go through a read-then-write bus cycle — the chip
+ * K1807VM1 still go through a read-then-write bus cycle — the chip
  * has no stand-alone write pin.  The fetched value is discarded but
  * the read side-effect is real, which matters for memory-mapped I/O
  * registers that auto-clear or pop a FIFO on read.  These helpers
@@ -344,7 +344,7 @@ static void op_nop(ms0515_cpu_t *cpu)
 /* ── HALT ─────────────────────────────────────────────────────────────────── */
 
 /*
- * On the K1801VM1 (and the related 1807VM1 / DEC T-11) the HALT
+ * On the K1807VM1 (DEC T-11 family) the HALT
  * instruction is not a "stop the CPU" — it traps to the restart
  * vector at 0172004 with PSW=0340, exactly like the external HALT
  * signal handled by cpu_check_interrupts.  Code that uses HALT to
@@ -447,8 +447,8 @@ static void op_trap(ms0515_cpu_t *cpu)
 /* ── MFPT — Move From Processor Type ─────────────────────────────────────── */
 /*
  * Move From Processor Type: writes a one-byte CPU identifier into R0.
- * Different PDP-11 family chips return different values; the K1801VM1
- * (and the related 1807VM1 and DEC T-11) returns 4.
+ * Different PDP-11 family chips return different values; the K1807VM1
+ * (DEC T-11 family) returns 4.
  *
  * An earlier comment in this slot claimed Omega's boot loader needed a
  * reserved-instruction trap on MFPT — that turned out to be wrong: the
@@ -468,7 +468,7 @@ static void op_clr(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
-    discard_read_word(cpu, mode, addr);     /* K1801VM1: read-then-write */
+    discard_read_word(cpu, mode, addr);     /* K1807VM1: read-then-write */
     write_word_op(cpu, mode, reg, addr, 0);
     cpu->psw = (cpu->psw & ~(CPU_PSW_N | CPU_PSW_V | CPU_PSW_C)) | CPU_PSW_Z;
 }
@@ -478,7 +478,7 @@ static void op_clrb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
-    discard_read_byte(cpu, mode, addr);     /* K1801VM1: read-then-write */
+    discard_read_byte(cpu, mode, addr);     /* K1807VM1: read-then-write */
     write_byte_op(cpu, mode, reg, addr, 0);
     cpu->psw = (cpu->psw & ~(CPU_PSW_N | CPU_PSW_V | CPU_PSW_C)) | CPU_PSW_Z;
 }
@@ -798,7 +798,7 @@ static void op_sxt(ms0515_cpu_t *cpu)
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
     uint16_t val  = (cpu->psw & CPU_PSW_N) ? 0xFFFF : 0;
-    discard_read_word(cpu, mode, addr);     /* K1801VM1: read-then-write */
+    discard_read_word(cpu, mode, addr);     /* K1807VM1: read-then-write */
     write_word_op(cpu, mode, reg, addr, val);
     set_nz_word(cpu, val);
     set_v(cpu, false);
@@ -844,7 +844,7 @@ static void op_mfps(ms0515_cpu_t *cpu)
         cpu->r[reg] = (val & 0x80) ? (0xFF00 | val) : val;
     } else {
         uint16_t addr = get_byte_addr(cpu, mode, reg);
-        discard_read_byte(cpu, mode, addr); /* K1801VM1: read-then-write */
+        discard_read_byte(cpu, mode, addr); /* K1807VM1: read-then-write */
         write_byte_op(cpu, mode, reg, addr, val);
     }
     set_nz_byte(cpu, val);
@@ -862,7 +862,7 @@ static void op_mov(ms0515_cpu_t *cpu)
     uint16_t val   = read_word_op(cpu, sm, sr, saddr);
 
     uint16_t daddr = get_word_addr(cpu, dm, dr);
-    discard_read_word(cpu, dm, daddr);  /* K1801VM1: read-then-write */
+    discard_read_word(cpu, dm, daddr);  /* K1807VM1: read-then-write */
     write_word_op(cpu, dm, dr, daddr, val);
 
     set_nz_word(cpu, val);
@@ -882,7 +882,7 @@ static void op_movb(ms0515_cpu_t *cpu)
         cpu->r[dr] = (val & 0x80) ? (0xFF00 | val) : val;
     } else {
         uint16_t daddr = get_byte_addr(cpu, dm, dr);
-        discard_read_byte(cpu, dm, daddr);  /* K1801VM1: read-then-write */
+        discard_read_byte(cpu, dm, daddr);  /* K1807VM1: read-then-write */
         write_byte_op(cpu, dm, dr, daddr, val);
     }
 
@@ -1084,7 +1084,7 @@ static void op_xor(ms0515_cpu_t *cpu)
 
 /* ── Branch instructions ──────────────────────────────────────────────────── */
 
-/* All branch instructions on the K1801VM1 cost 12 cycles (per MAME's
+/* All branch instructions on the K1807VM1 cost 12 cycles (per MAME's
  * t11ops.hxx — every Bxx variant has `m_icount -= 12`).  The condition
  * has no effect on timing; taken and not-taken branches cost the same.
  * Initial fetch already accounts for 9; +3 brings us to 12. */
