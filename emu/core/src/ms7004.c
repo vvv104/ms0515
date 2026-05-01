@@ -322,13 +322,70 @@ void ms7004_init(ms7004_t *kbd, struct ms0515_keyboard *uart)
 {
     memset(kbd, 0, sizeof(*kbd));
     kbd->uart             = uart;
-    kbd->repeat_delay_ms  = 500;
-    kbd->repeat_period_ms = 33;
-    kbd->repeat_enabled   = false;
-    kbd->data_enabled     = true;
-    kbd->sound_enabled    = true;
-    kbd->click_enabled    = true;
+
+    /* Typing preset (shorter than the firmware's 500 ms typematic delay
+     * for a more responsive shell). */
+    kbd->repeat_typing_delay_ms  = 250;
+    kbd->repeat_typing_period_ms = 30;
+
+    /* Game preset (non-authentic).  125 ms initial delay keeps short
+     * taps from double-firing UI controls (switches, lift-up/lift-down
+     * toggles); 50 ms period gives SABOT2 a brisk enough stream that
+     * its movement loop reads "key still held" between repeats. */
+    kbd->repeat_game_delay_ms    = 125;
+    kbd->repeat_game_period_ms   = 50;
+
+    /* Live values mirror the typing preset until something flips us
+     * into game mode. */
+    kbd->repeat_delay_ms   = kbd->repeat_typing_delay_ms;
+    kbd->repeat_period_ms  = kbd->repeat_typing_period_ms;
+    kbd->repeat_enabled    = false;
+
+    kbd->auto_game_mode    = true;     /* heuristic on by default */
+    kbd->in_game_mode      = false;
+
+    kbd->data_enabled      = true;
+    kbd->sound_enabled     = true;
+    kbd->click_enabled     = true;
 }
+
+/* ── Auto game-mode helpers ─────────────────────────────────────────────── */
+
+/* Push the live typematic timings to whichever preset is currently active.
+ * `in_game_mode` always reflects the heuristic's idea of "are we in a
+ * game right now" regardless of the user's `auto_game_mode` toggle —
+ * that way the user can flip the toggle off (to type a name with the
+ * full 500 ms typing delay) and back on without the heuristic forgetting
+ * it had already detected game-mode. The toggle gates only whether
+ * `in_game_mode` is allowed to influence the live values. */
+static void recompute_live_repeat(ms7004_t *kbd)
+{
+    bool use_game = kbd->auto_game_mode && kbd->in_game_mode;
+    if (use_game) {
+        kbd->repeat_delay_ms  = kbd->repeat_game_delay_ms;
+        kbd->repeat_period_ms = kbd->repeat_game_period_ms;
+    } else {
+        kbd->repeat_delay_ms  = kbd->repeat_typing_delay_ms;
+        kbd->repeat_period_ms = kbd->repeat_typing_period_ms;
+    }
+}
+
+static void enter_typing_mode(ms7004_t *kbd)
+{
+    kbd->in_game_mode = false;
+    recompute_live_repeat(kbd);
+}
+
+static void enter_game_mode(ms7004_t *kbd)
+{
+    kbd->in_game_mode = true;
+    recompute_live_repeat(kbd);
+}
+
+/* Public hook for the UI: call after toggling auto_game_mode or after
+ * editing a preset, to re-derive live values without otherwise touching
+ * heuristic state. */
+void ms7004_recompute_live_repeat(ms7004_t *kbd) { recompute_live_repeat(kbd); }
 
 void ms7004_reset(ms7004_t *kbd)
 {
@@ -553,6 +610,7 @@ static bool cmd_second_byte(ms7004_t *kbd, uint8_t first, uint8_t second)
 
     case 0x1B:  /* 0o033 — keyclick enabled (second byte = volume) */
         kbd->click_enabled = true;
+        if (kbd->in_game_mode) enter_typing_mode(kbd);
         return true;
 
     /* LED control: mode byte first (0x11=OFF, 0x13=ON), then mask byte.
@@ -606,6 +664,12 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
             kbd_push_scancode(kbd->uart, 0x01);
             kbd_push_scancode(kbd->uart, 0x00);
         }
+        /* BIOS POST after Ctrl-C-induced reboot sends ID probe but no
+         * formal click re-enable; treat ID probe as a safe trigger to
+         * leave game mode.  Click stays in whatever state the firmware
+         * had; the "hidden" click-off persists across the reboot, which
+         * matches real hardware. */
+        if (kbd->in_game_mode) enter_typing_mode(kbd);
         return;
 
     /* ── Power-up reset ──────────────────────────────────────────── */
@@ -615,8 +679,7 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
         kbd->sound_enabled   = true;
         kbd->click_enabled   = true;
         kbd->latin_indicator = false;
-        kbd->repeat_delay_ms  = 500;
-        kbd->repeat_period_ms = 33;
+        enter_typing_mode(kbd);   /* full reset → typing preset */
         if (kbd->uart) {
             kbd_flush_fifo(kbd->uart);
             kbd_push_scancode(kbd->uart, 0x01);
@@ -629,10 +692,8 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
     /* ── Auto-repeat enable ──────────────────────────────────────── */
     case 0x90:  /* 0o220 — MS7004 auto-repeat enable */
     case 0xE3:  /* 0o343 — LK201 auto-repeat enable (alternate) */
-        kbd->repeat_enabled   = true;
-        kbd->repeat_delay_ms  = 500;  /* restore normal OS typing rate */
-        kbd->repeat_period_ms = 33;
-        /* fprintf(stderr, "[KBD] auto-repeat ENABLED\n"); */
+        kbd->repeat_enabled = true;
+        recompute_live_repeat(kbd);   /* re-derive from current presets */
         return;
 
     /* ── Auto-repeat disable ─────────────────────────────────────── */
@@ -665,15 +726,26 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
         /* TODO: could trigger a host beep if wired up */
         return;
     case 0x9F:  /* 0o237 — produce click */
+        /* Read pragmatically as "system is back in interactive typing".
+         * The mode flag flips regardless of `auto_game_mode`; the
+         * recompute step turns that into a no-op for live values when
+         * the user has the heuristic switched off. */
+        if (kbd->in_game_mode) enter_typing_mode(kbd);
         return;
     case 0xA1:  /* 0o241 — sound disabled */
         kbd->sound_enabled = false;
         return;
     case 0x99:  /* 0o231 — keyclick disabled */
+        /* Per the 8035 firmware (L_44E at 0x44E in the ROM disasm):
+         * this command clears ONLY bit 3 of the parameters byte (the
+         * click flag).  Auto-repeat lives in bit 5 and is untouched.
+         *
+         * Heuristic: games (SABOT2, etc.) send 0x99 at startup.  We
+         * always update `in_game_mode` so the user can flip auto-mode
+         * off-then-on without losing the detected state; live values
+         * follow the toggle (recompute_live_repeat applies the toggle). */
         kbd->click_enabled = false;
-        /* Games send this command; disable auto-repeat so held keys
-         * produce a single make code + ALL-UP on release. */
-        kbd->repeat_enabled = false;
+        if (!kbd->in_game_mode) enter_game_mode(kbd);
         return;
 
     /* ── 2-byte command prefixes ─────────────────────────────────── */

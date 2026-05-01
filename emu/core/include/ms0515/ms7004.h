@@ -201,6 +201,26 @@ typedef struct ms7004 {
     uint32_t     repeat_period_ms;   /* interval between repeats */
     bool         repeat_enabled;
 
+    /* Auto game-mode (non-authentic convenience feature):
+     *
+     * The MS-7004 firmware uses a single typematic delay/period
+     * (500 ms / 33 ms) tuned for typing.  Games inherit this and
+     * feel sluggish — character takes one step, pauses 500 ms, then
+     * runs.  Games typically signal "this is gameplay, not typing"
+     * by sending 0x99 (click off) on entry; restore happens on click
+     * re-enable, full reset, or BIOS POST after Ctrl-C reboot.
+     *
+     * When `auto_game_mode` is enabled, we observe these commands and
+     * swap delay/period between two presets; the typing preset is
+     * authoritative — game mode borrows from it on the way in.  When
+     * disabled, only the typing preset is used. */
+    bool         auto_game_mode;     /* heuristic enabled (default true) */
+    bool         in_game_mode;       /* current state (true = game preset active) */
+    uint32_t     repeat_typing_delay_ms;   /* preset for typing (default 500) */
+    uint32_t     repeat_typing_period_ms;  /* preset for typing (default 33) */
+    uint32_t     repeat_game_delay_ms;     /* preset for game   (default 50) */
+    uint32_t     repeat_game_period_ms;    /* preset for game   (default 50) */
+
     ms7004_key_t key_stack[8];       /* recent regular keys, [top-1] is newest */
     int          key_stack_top;
 
@@ -256,6 +276,12 @@ void ms7004_tick(ms7004_t *kbd, uint32_t now_ms);
  * data output enable/disable, Latin indicator, power-up reset.
  * Some commands are 2 bytes; the state machine tracks pending bytes. */
 void ms7004_host_byte(ms7004_t *kbd, uint8_t byte);
+
+/* Re-derive the live `repeat_delay_ms` / `repeat_period_ms` from the
+ * (typing|game) preset and the (auto_game_mode, in_game_mode) flags.
+ * Frontend calls this after editing presets or toggling auto_game_mode
+ * so the next auto-repeat tick uses the new values immediately. */
+void ms7004_recompute_live_repeat(ms7004_t *kbd);
 
 /* Queries for the OSK / UI. */
 bool    ms7004_caps_on  (const ms7004_t *kbd);

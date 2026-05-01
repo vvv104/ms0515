@@ -625,6 +625,13 @@ static bool write_ms7004(snap_io_t *f, const ms7004_t *k)
     if (!write_bool(f, k->sound_enabled)) return false;
     if (!write_bool(f, k->click_enabled)) return false;
     if (!write_bool(f, k->latin_indicator)) return false;
+    /* Auto game-mode (added 2026-04-30): user setting + presets. */
+    if (!write_bool(f, k->auto_game_mode)) return false;
+    if (!write_bool(f, k->in_game_mode)) return false;
+    if (!write_u32(f, k->repeat_typing_delay_ms)) return false;
+    if (!write_u32(f, k->repeat_typing_period_ms)) return false;
+    if (!write_u32(f, k->repeat_game_delay_ms)) return false;
+    if (!write_u32(f, k->repeat_game_period_ms)) return false;
     return true;
 }
 
@@ -665,10 +672,21 @@ static bool read_ms7004(snap_io_t *f, ms7004_t *k)
     if (!read_bool(f, &k->sound_enabled)) return false;
     if (!read_bool(f, &k->click_enabled)) return false;
     if (!read_bool(f, &k->latin_indicator)) return false;
+    /* Auto game-mode fields (added 2026-04-30).  Older snapshots
+     * lack these — defaults are already filled in by ms7004_init
+     * before this function is called, so silently keep them. */
+    if (!read_bool(f, &k->auto_game_mode)) return true;
+    if (!read_bool(f, &k->in_game_mode)) return true;
+    if (!read_u32(f, &k->repeat_typing_delay_ms)) return true;
+    if (!read_u32(f, &k->repeat_typing_period_ms)) return true;
+    if (!read_u32(f, &k->repeat_game_delay_ms)) return true;
+    if (!read_u32(f, &k->repeat_game_period_ms)) return true;
     return true;
 }
 
-#define MS7004_CHUNK_SIZE (2 + MS7004_KEY__COUNT + 4 + 2 + 4 + 3*4 + 1 + 8*4 + 4 + 4 + 1 + 4)
+#define MS7004_CHUNK_SIZE \
+    (2 + MS7004_KEY__COUNT + 4 + 2 + 4 + 3*4 + 1 + 8*4 + 4 + 4 + 1 + 4 \
+     + 2 + 4*4)  /* + auto_game_mode/in_game_mode flags + 4 preset u32s */
 
 /* ── Disk paths chunk ────────────────────────────────────────────────────── */
 

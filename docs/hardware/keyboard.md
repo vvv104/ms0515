@@ -246,7 +246,11 @@ All code values are octal.
 
 Note: 0x90 is listed as a two-byte prefix in the original ТО table layout,
 but the ROM firmware always sends it as a standalone single-byte command.
-0x99 (keyclick disabled) also disables auto-repeat — games use this.
+
+Auto-repeat and click are independent flags in the firmware's parameters
+byte (bit 5 = repeat, bit 3 = click).  Each command touches exactly one
+bit: 0x99 only clears click; 0xE1 / 0xD9 only clear auto-repeat; 0x90 /
+0xE3 only set auto-repeat.  Verified against the 8035 ROM disasm.
 
 **Two-byte commands (prefix + second byte):**
 

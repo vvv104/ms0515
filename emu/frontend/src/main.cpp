@@ -154,6 +154,14 @@ struct Config {
      * playing — by the time the user notices, the snapshot is already
      * on disk with the event ring intact. */
     bool        autoSnapOnReset = false;
+    /* Keyboard typematic settings.  -1 means "use core default", which
+     * lets us add new presets without baking them into existing config
+     * files.  Auto-game-mode is the heuristic toggle. */
+    int         kbdTypingDelayMs  = -1;
+    int         kbdTypingPeriodMs = -1;
+    int         kbdGameDelayMs    = -1;
+    int         kbdGamePeriodMs   = -1;
+    int         kbdAutoGameMode   = -1;     /* -1 unset, 0 off, 1 on */
 
     bool isDefault() const {
         for (int i = 0; i < 4; ++i)
@@ -170,6 +178,9 @@ struct Config {
         if (historyReadWatchAddr != 0 || historyReadWatchLen != 0)
             return false;
         if (autoSnapOnReset) return false;
+        if (kbdTypingDelayMs >= 0 || kbdTypingPeriodMs >= 0 ||
+            kbdGameDelayMs   >= 0 || kbdGamePeriodMs   >= 0 ||
+            kbdAutoGameMode  >= 0) return false;
         return true;
     }
 };
@@ -248,6 +259,11 @@ Config loadConfig()
         else if (key == "auto_snap_on_reset") {
             cfg.autoSnapOnReset = (val == "true");
         }
+        else if (key == "kbd_typing_delay_ms")  cfg.kbdTypingDelayMs  = parseNumber(val);
+        else if (key == "kbd_typing_period_ms") cfg.kbdTypingPeriodMs = parseNumber(val);
+        else if (key == "kbd_game_delay_ms")    cfg.kbdGameDelayMs    = parseNumber(val);
+        else if (key == "kbd_game_period_ms")   cfg.kbdGamePeriodMs   = parseNumber(val);
+        else if (key == "kbd_auto_game_mode")   cfg.kbdAutoGameMode   = (val == "true") ? 1 : 0;
     }
     return cfg;
 }
@@ -304,6 +320,17 @@ void saveConfig(const Config &cfg)
         f << "history_read_watch_len: "   << cfg.historyReadWatchLen << "\n";
     }
     if (cfg.autoSnapOnReset) f << "auto_snap_on_reset: true\n";
+    if (cfg.kbdTypingDelayMs  >= 0)
+        f << "kbd_typing_delay_ms: "  << cfg.kbdTypingDelayMs  << "\n";
+    if (cfg.kbdTypingPeriodMs >= 0)
+        f << "kbd_typing_period_ms: " << cfg.kbdTypingPeriodMs << "\n";
+    if (cfg.kbdGameDelayMs    >= 0)
+        f << "kbd_game_delay_ms: "    << cfg.kbdGameDelayMs    << "\n";
+    if (cfg.kbdGamePeriodMs   >= 0)
+        f << "kbd_game_period_ms: "   << cfg.kbdGamePeriodMs   << "\n";
+    if (cfg.kbdAutoGameMode   >= 0)
+        f << "kbd_auto_game_mode: "
+          << (cfg.kbdAutoGameMode ? "true" : "false") << "\n";
 }
 
 /* Starting folder for a file dialog of the given kind: the remembered
@@ -923,6 +950,24 @@ int main(int argc, char **argv)
 
     emu.reset();
 
+    /* Apply persisted keyboard typematic settings (auto game-mode + presets). */
+    {
+        auto &kbd = emu.keyboard();
+        if (config.kbdAutoGameMode >= 0)
+            kbd.auto_game_mode = (config.kbdAutoGameMode != 0);
+        if (config.kbdTypingDelayMs >= 0)
+            kbd.repeat_typing_delay_ms  = (uint32_t)config.kbdTypingDelayMs;
+        if (config.kbdTypingPeriodMs >= 0)
+            kbd.repeat_typing_period_ms = (uint32_t)config.kbdTypingPeriodMs;
+        if (config.kbdGameDelayMs >= 0)
+            kbd.repeat_game_delay_ms    = (uint32_t)config.kbdGameDelayMs;
+        if (config.kbdGamePeriodMs >= 0)
+            kbd.repeat_game_period_ms   = (uint32_t)config.kbdGamePeriodMs;
+        /* Live values follow the typing preset until a heuristic flips us */
+        kbd.repeat_delay_ms  = kbd.repeat_typing_delay_ms;
+        kbd.repeat_period_ms = kbd.repeat_typing_period_ms;
+    }
+
     ms0515::Debugger dbg(emu);
     ms0515_frontend::Video video;
 
@@ -1440,6 +1485,72 @@ int main(int argc, char **argv)
                         emu.enableRamDisk();
                         ramDiskOn = true;
                     }
+                }
+                ImGui::Separator();
+                if (ImGui::BeginMenu("Keyboard")) {
+                    auto &kbd = emu.keyboard();
+                    bool dirty = false;
+
+                    bool autoGame = kbd.auto_game_mode;
+                    if (ImGui::MenuItem("Auto game-mode", nullptr, &autoGame)) {
+                        kbd.auto_game_mode = autoGame;
+                        config.kbdAutoGameMode = autoGame ? 1 : 0;
+                        dirty = true;
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "When ON, watch for 'click off' (0x99) from a "
+                            "game and swap typematic delay/period to the "
+                            "game preset.  When OFF, always typing preset.\n"
+                            "Sliders below edit whichever preset is active.");
+                    }
+                    ImGui::Separator();
+
+                    /* Snap helper: round `v` to the nearest multiple of
+                     * `step` and clamp to [min, max].  ImGui::SliderInt
+                     * has no built-in step parameter. */
+                    auto snap = [](int v, int step, int min, int max) {
+                        v = ((v + step / 2) / step) * step;
+                        if (v < min) v = min;
+                        if (v > max) v = max;
+                        return v;
+                    };
+
+                    /* Single pair of sliders editing the *active* preset.
+                     * Active = game preset iff auto-game-mode is on AND the
+                     * heuristic has detected click-off; typing otherwise. */
+                    bool active_is_game = kbd.auto_game_mode && kbd.in_game_mode;
+                    ImGui::TextDisabled("Editing %s preset",
+                                        active_is_game ? "game" : "typing");
+                    uint32_t *p_delay  = active_is_game
+                        ? &kbd.repeat_game_delay_ms  : &kbd.repeat_typing_delay_ms;
+                    uint32_t *p_period = active_is_game
+                        ? &kbd.repeat_game_period_ms : &kbd.repeat_typing_period_ms;
+
+                    int delay_min  = active_is_game ? 50  : 250;
+                    int delay_max  = active_is_game ? 500 : 1000;
+                    int delay_step = active_is_game ? 25  : 250;
+
+                    int d = (int)*p_delay;
+                    int p = (int)*p_period;
+                    if (ImGui::SliderInt("Delay (ms)", &d, delay_min, delay_max)) {
+                        d = snap(d, delay_step, delay_min, delay_max);
+                        *p_delay = (uint32_t)d;
+                        if (active_is_game) config.kbdGameDelayMs   = d;
+                        else                config.kbdTypingDelayMs = d;
+                        dirty = true;
+                    }
+                    if (ImGui::SliderInt("Period (ms)", &p, 10, 100)) {
+                        p = snap(p, 5, 10, 100);
+                        *p_period = (uint32_t)p;
+                        if (active_is_game) config.kbdGamePeriodMs   = p;
+                        else                config.kbdTypingPeriodMs = p;
+                        dirty = true;
+                    }
+                    ms7004_recompute_live_repeat(&kbd);
+
+                    if (dirty) saveConfig(config);
+                    ImGui::EndMenu();
                 }
                 ImGui::EndMenu();
             }

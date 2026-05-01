@@ -541,14 +541,132 @@ TEST_CASE("data output enable/disable commands") {
     CHECK(kbd.data_enabled == true);
 }
 
-TEST_CASE("keyclick disable also disables auto-repeat") {
+TEST_CASE("keyclick disable does NOT touch auto-repeat") {
+    /* Per the 8035 firmware (routine L_44E in the ROM disasm),
+     * 0x99 only clears bit 3 (click) in the parameters byte; bit 5
+     * (auto-repeat) is independent and stays as-is.  Verifies our
+     * earlier mis-interpretation that "0x99 also kills AR" is fixed —
+     * SABOT2 needs AR to remain on after this command. */
     auto uart = make_uart();
     auto kbd  = make_kbd(&uart);
     kbd.repeat_enabled = true;
 
     ms7004_host_byte(&kbd, 0x99);   /* keyclick disabled */
     CHECK(kbd.click_enabled == false);
-    CHECK(kbd.repeat_enabled == false);
+    CHECK(kbd.repeat_enabled == true);   /* must stay on */
+}
+
+/* ── Auto game-mode heuristic ───────────────────────────────────────────── */
+
+TEST_CASE("auto game-mode: 0x99 swaps to game preset, click-on swaps back") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+    REQUIRE(kbd.auto_game_mode == true);
+    REQUIRE(kbd.in_game_mode == false);
+    REQUIRE(kbd.repeat_delay_ms == kbd.repeat_typing_delay_ms);
+
+    /* Game start: keyclick off → enter game mode. */
+    ms7004_host_byte(&kbd, 0x99);
+    CHECK(kbd.in_game_mode == true);
+    CHECK(kbd.repeat_delay_ms == kbd.repeat_game_delay_ms);
+    CHECK(kbd.repeat_period_ms == kbd.repeat_game_period_ms);
+
+    /* OS shell returns: produce-click (0x9F) → leave game mode. */
+    ms7004_host_byte(&kbd, 0x9F);
+    CHECK(kbd.in_game_mode == false);
+    CHECK(kbd.repeat_delay_ms == kbd.repeat_typing_delay_ms);
+    CHECK(kbd.repeat_period_ms == kbd.repeat_typing_period_ms);
+}
+
+TEST_CASE("auto game-mode: BIOS ID probe (0xAB) ends game mode after Ctrl-C reboot") {
+    /* SABOT2 → Ctrl-C → POST.  POST does NOT send 0xFD or 0x9F, but
+     * always sends 0xAB at startup.  The heuristic uses that to leave
+     * game mode. */
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+
+    ms7004_host_byte(&kbd, 0x99);
+    REQUIRE(kbd.in_game_mode == true);
+
+    ms7004_host_byte(&kbd, 0xAB);   /* BIOS POST init */
+    CHECK(kbd.in_game_mode == false);
+    CHECK(kbd.repeat_delay_ms == kbd.repeat_typing_delay_ms);
+}
+
+TEST_CASE("auto game-mode: keyclick-enable 2-byte (0x1B X) ends game mode") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+
+    ms7004_host_byte(&kbd, 0x99);
+    REQUIRE(kbd.in_game_mode == true);
+
+    ms7004_host_byte(&kbd, 0x1B);
+    ms7004_host_byte(&kbd, 0x80);   /* volume byte completes the command */
+    CHECK(kbd.in_game_mode == false);
+    CHECK(kbd.click_enabled == true);
+}
+
+TEST_CASE("auto game-mode: power reset (0xFD) returns to typing preset") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+
+    ms7004_host_byte(&kbd, 0x99);
+    REQUIRE(kbd.in_game_mode == true);
+
+    ms7004_host_byte(&kbd, 0xFD);   /* full keyboard reset */
+    CHECK(kbd.in_game_mode == false);
+    CHECK(kbd.repeat_delay_ms == kbd.repeat_typing_delay_ms);
+    CHECK(kbd.repeat_period_ms == kbd.repeat_typing_period_ms);
+}
+
+TEST_CASE("auto game-mode: heuristic state latches even when toggle is off") {
+    /* When the user disables auto-game-mode, live values revert to
+     * typing — but the heuristic keeps tracking `in_game_mode` based on
+     * commands.  Re-enabling auto-game-mode restores game preset
+     * without needing the game to re-send 0x99 (which it won't). */
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+    kbd.auto_game_mode = false;
+
+    ms7004_host_byte(&kbd, 0x99);
+    /* Heuristic state advances silently; live stays in typing preset. */
+    CHECK(kbd.in_game_mode == true);
+    CHECK(kbd.click_enabled == false);
+    CHECK(kbd.repeat_delay_ms == kbd.repeat_typing_delay_ms);
+
+    /* User re-enables the toggle (e.g. after typing a name).  Without
+     * any further game command, live should snap to the game preset. */
+    kbd.auto_game_mode = true;
+    ms7004_recompute_live_repeat(&kbd);
+    CHECK(kbd.repeat_delay_ms  == kbd.repeat_game_delay_ms);
+    CHECK(kbd.repeat_period_ms == kbd.repeat_game_period_ms);
+}
+
+TEST_CASE("auto game-mode: toggle off-then-on round-trip preserves game state") {
+    /* Real-world scenario the user reported: SABOT2 → enter game mode
+     * via 0x99 → user toggles auto off to type their high-score name
+     * with normal typing delay → toggles back on to keep playing.  The
+     * bug being guarded against was: toggling off cleared in_game_mode,
+     * so flipping on landed in typing-mode permanently. */
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+
+    ms7004_host_byte(&kbd, 0x99);                  /* game start */
+    REQUIRE(kbd.in_game_mode == true);
+    REQUIRE(kbd.repeat_delay_ms == kbd.repeat_game_delay_ms);
+
+    /* User flips auto off.  Live drops to typing preset, but the
+     * heuristic remembers the game session. */
+    kbd.auto_game_mode = false;
+    ms7004_recompute_live_repeat(&kbd);
+    CHECK(kbd.in_game_mode == true);
+    CHECK(kbd.repeat_delay_ms == kbd.repeat_typing_delay_ms);
+
+    /* User flips auto back on.  Live should resume the game preset. */
+    kbd.auto_game_mode = true;
+    ms7004_recompute_live_repeat(&kbd);
+    CHECK(kbd.in_game_mode == true);
+    CHECK(kbd.repeat_delay_ms == kbd.repeat_game_delay_ms);
 }
 
 TEST_CASE("sound disable command") {
