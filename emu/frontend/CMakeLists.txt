@@ -40,6 +40,7 @@ add_executable(ms0515 WIN32
     src/Keymap.cpp
     src/PhysicalKeyboard.cpp
     src/OnScreenKeyboard.cpp
+    src/Ui.cpp
     ${PLATFORM_SRC}
     ${IMGUI_BACKENDS_DIR}/imgui_impl_sdl2.cpp
     ${IMGUI_BACKENDS_DIR}/imgui_impl_sdlrenderer2.cpp
