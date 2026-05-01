@@ -129,12 +129,6 @@ struct Config {
     bool showKeyboard = false;
     bool showDebugger = false;
     bool hostMode     = false;
-    /* Last directory used for each kind of file dialog — remembered
-     * across sessions so the user doesn't repeatedly navigate to the
-     * same folder. */
-    std::string lastDirDisk;
-    std::string lastDirRom;
-    std::string lastDirState;
     /* Size of the binary event history ring (in 16-byte events).  0
      * disables recording entirely (zero runtime cost).  When > 0, the
      * last N I/O events are kept in RAM and serialised into the HIST
@@ -171,9 +165,6 @@ struct Config {
             if (!dsPath[i].empty()) return false;
         if (!romPath.empty() || showKeyboard || showDebugger || hostMode)
             return false;
-        if (!lastDirDisk.empty() || !lastDirRom.empty() ||
-            !lastDirState.empty())
-            return false;
         if (historySize != 0) return false;
         if (historyWatchAddr != 0 || historyWatchLen != 0) return false;
         if (historyReadWatchAddr != 0 || historyReadWatchLen != 0)
@@ -207,6 +198,10 @@ Config loadConfig()
     std::ifstream f(configPath());
     if (!f) return cfg;
 
+    /* Forgiving loader: missing file, malformed lines, unknown keys
+     * and bad numeric values are all non-fatal — defaults stand in.
+     * Lets older or newer binaries share a config without surprises;
+     * the next saveConfig() rewrites the file in the current schema. */
     std::string line;
     while (std::getline(f, line)) {
         /* Skip comments and empty lines. */
@@ -238,9 +233,6 @@ Config loadConfig()
         else if (key == "show_keyboard") cfg.showKeyboard = (val == "true");
         else if (key == "show_debugger") cfg.showDebugger = (val == "true");
         else if (key == "host_mode")     cfg.hostMode     = (val == "true");
-        else if (key == "last_dir_disk")  cfg.lastDirDisk  = val;
-        else if (key == "last_dir_rom")   cfg.lastDirRom   = val;
-        else if (key == "last_dir_state") cfg.lastDirState = val;
         else if (key == "history_size") {
             try { cfg.historySize = std::stoi(val); }
             catch (...) { cfg.historySize = 0; }
@@ -304,12 +296,6 @@ void saveConfig(const Config &cfg)
     if (cfg.showKeyboard) f << "show_keyboard: true\n";
     if (cfg.showDebugger) f << "show_debugger: true\n";
     if (cfg.hostMode)     f << "host_mode: true\n";
-    if (!cfg.lastDirDisk.empty())
-        f << "last_dir_disk: \""  << cfg.lastDirDisk  << "\"\n";
-    if (!cfg.lastDirRom.empty())
-        f << "last_dir_rom: \""   << cfg.lastDirRom   << "\"\n";
-    if (!cfg.lastDirState.empty())
-        f << "last_dir_state: \"" << cfg.lastDirState << "\"\n";
     if (cfg.historySize != 0)
         f << "history_size: " << cfg.historySize << "\n";
     if (cfg.historyWatchAddr != 0 || cfg.historyWatchLen != 0) {
@@ -337,18 +323,17 @@ void saveConfig(const Config &cfg)
     if (cfg.fullscreen) f << "fullscreen: true\n";
 }
 
-/* Starting folder for a file dialog of the given kind: the remembered
- * last-used dir if present, otherwise a sensible default next to the
- * executable (assets/disks for Disk, assets/rom for Rom, exe root for
- * State). */
-std::string initialDirFor(ms0515_frontend::FileDialogKind kind,
-                          const Config &cfg)
+/* Starting folder for a file dialog of the given kind: the bundled
+ * assets directory next to the executable.  We deliberately don't
+ * track per-kind "last used directory" ourselves — Windows' file
+ * dialogs already remember the most-recent folder per process+app
+ * (provided lpstrInitialDir is consistent between calls), so a copy
+ * in our config just overrode that and made navigation worse.  First
+ * launch lands in the assets dir; subsequent calls land where the
+ * user was last. */
+std::string initialDirFor(ms0515_frontend::FileDialogKind kind)
 {
     using K = ms0515_frontend::FileDialogKind;
-    const std::string &last =
-        kind == K::Disk  ? cfg.lastDirDisk  :
-        kind == K::Rom   ? cfg.lastDirRom   : cfg.lastDirState;
-    if (!last.empty()) return last;
     std::string base = getExeDir();           /* has trailing separator */
     switch (kind) {
     case K::Disk:  return base + "assets/disks";
@@ -356,23 +341,6 @@ std::string initialDirFor(ms0515_frontend::FileDialogKind kind,
     case K::State: return base;
     }
     return base;
-}
-
-/* Update the cached last-used dir for `kind` to the parent folder of
- * `chosenPath` and persist the Config.  Called after every successful
- * file-dialog selection. */
-void rememberDirFor(Config &cfg, ms0515_frontend::FileDialogKind kind,
-                    const std::string &chosenPath)
-{
-    std::string dir = std::filesystem::path(chosenPath).parent_path().string();
-    if (dir.empty()) return;
-    using K = ms0515_frontend::FileDialogKind;
-    switch (kind) {
-    case K::Disk:  cfg.lastDirDisk  = dir; break;
-    case K::Rom:   cfg.lastDirRom   = dir; break;
-    case K::State: cfg.lastDirState = dir; break;
-    }
-    saveConfig(cfg);
 }
 
 /* Build a path next to the executable with a timestamped filename:
@@ -1295,8 +1263,7 @@ int main(int argc, char **argv)
                                 window, title.c_str(),
                                 ms0515_frontend::FileDialogKind::Disk,
                                 initialDirFor(
-                                    ms0515_frontend::FileDialogKind::Disk,
-                                    config));
+                                    ms0515_frontend::FileDialogKind::Disk));
                             if (!p.empty()) {
                                 if (auto err = validateDoubleSidedImage(p)) {
                                     mountErrorMessage = std::format(
@@ -1315,9 +1282,7 @@ int main(int argc, char **argv)
                                         config.dsPath[drive] = p;
                                         config.fdPath[unit0].clear();
                                         config.fdPath[unit1].clear();
-                                        rememberDirFor(config,
-                                            ms0515_frontend::FileDialogKind::Disk,
-                                            p);
+                                        saveConfig(config);
                                     } else {
                                         emu.unmountDisk(unit0);
                                         emu.unmountDisk(unit1);
@@ -1359,8 +1324,7 @@ int main(int argc, char **argv)
                                     window, title.c_str(),
                                     ms0515_frontend::FileDialogKind::Disk,
                                     initialDirFor(
-                                        ms0515_frontend::FileDialogKind::Disk,
-                                        config));
+                                        ms0515_frontend::FileDialogKind::Disk));
                                 if (!p.empty()) {
                                     if (auto err = validateSingleSideImage(p)) {
                                         mountErrorMessage = std::format(
@@ -1374,9 +1338,7 @@ int main(int argc, char **argv)
                                         if (emu.mountDisk(unit, p)) {
                                             mountedFd[unit] = p;
                                             config.fdPath[unit] = p;
-                                            rememberDirFor(config,
-                                                ms0515_frontend::FileDialogKind::Disk,
-                                                p);
+                                            saveConfig(config);
                                         } else {
                                             mountErrorMessage = std::format(
                                                 "Failed to mount '{}' on "
@@ -1451,16 +1413,14 @@ int main(int argc, char **argv)
                         std::string p = ms0515_frontend::openFileDialog(
                             window, "Select ROM",
                             ms0515_frontend::FileDialogKind::Rom,
-                            initialDirFor(ms0515_frontend::FileDialogKind::Rom,
-                                          config));
+                            initialDirFor(ms0515_frontend::FileDialogKind::Rom));
                         if (!p.empty() && p != currentRomPath &&
                             emu.loadRomFile(p))
                         {
                             currentRomPath = p;
                             romStatus = "ROM: " + currentRomPath;
                             config.romPath = currentRomPath;
-                            rememberDirFor(config,
-                                ms0515_frontend::FileDialogKind::Rom, p);
+                            saveConfig(config);
                             dbg.reset();
                             running = true;
                             emuTimeAccumMs = 0.0f;
@@ -1508,15 +1468,11 @@ int main(int argc, char **argv)
                     std::string path = ms0515_frontend::saveFileDialog(
                         window, "Save State", "state.ms0515",
                         ms0515_frontend::FileDialogKind::State,
-                        initialDirFor(ms0515_frontend::FileDialogKind::State,
-                                      config));
+                        initialDirFor(ms0515_frontend::FileDialogKind::State));
                     if (!path.empty()) {
                         if (auto r = emu.saveState(path); !r) {
                             std::fprintf(stderr, "Save state failed: %s\n",
                                          r.error().c_str());
-                        } else {
-                            rememberDirFor(config,
-                                ms0515_frontend::FileDialogKind::State, path);
                         }
                     }
                     running = wasRunning;
@@ -1527,11 +1483,8 @@ int main(int argc, char **argv)
                     std::string path = ms0515_frontend::openFileDialog(
                         window, "Load State",
                         ms0515_frontend::FileDialogKind::State,
-                        initialDirFor(ms0515_frontend::FileDialogKind::State,
-                                      config));
+                        initialDirFor(ms0515_frontend::FileDialogKind::State));
                     if (!path.empty()) {
-                        rememberDirFor(config,
-                            ms0515_frontend::FileDialogKind::State, path);
                         if (auto r = emu.loadState(path); !r) {
                             std::fprintf(stderr, "Load state failed: %s\n",
                                          r.error().c_str());
