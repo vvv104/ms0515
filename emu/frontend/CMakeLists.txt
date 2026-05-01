@@ -32,6 +32,7 @@ endif()
 
 add_executable(ms0515 WIN32
     src/main.cpp
+    src/App.cpp
     src/Assets.cpp
     src/Audio.cpp
     src/Cli.cpp

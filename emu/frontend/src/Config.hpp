@@ -24,7 +24,8 @@ constexpr int fdcUnitFor(int drive, int side) noexcept
     return drive + side * 2;
 }
 
-struct Config {
+class Config {
+public:
     std::string fdPath[4];
     std::string dsPath[2];     /* double-sided per drive */
     std::string romPath;
@@ -61,34 +62,40 @@ struct Config {
     bool        fullscreen        = false;
 
     bool isDefault() const;
+
+    /* Forgiving YAML loader.  Missing file, malformed lines, unknown
+     * keys and bad numeric values are all non-fatal — defaults
+     * stand in. */
+    static Config load();
+
+    /* Persist the config.  Writes only non-default values, deletes the
+     * file entirely if the config has reverted to all defaults. */
+    void save() const;
+
+    /* Path to the config file (`ms0515.yaml` next to the .exe). */
+    static std::string path();
 };
 
-/* Returns the directory containing the executable (with trailing separator). */
-std::string getExeDir();
+/* ── Filesystem-anchor helpers ──────────────────────────────────────── */
 
-/* Path to the config file (`ms0515.yaml` in the exe dir). */
-std::string configPath();
+class Paths {
+public:
+    /* Directory containing the executable, with trailing separator. */
+    static std::string exeDir();
 
-/* Forgiving YAML loader.  Missing file, malformed lines, unknown keys
- * and bad numeric values are all non-fatal — defaults stand in. */
-Config loadConfig();
+    /* Starting folder for a file dialog of the given kind: the bundled
+     * assets folder next to the executable.  Subsequent dialogs land
+     * wherever the user was last (handled by the OS shell). */
+    static std::string initialDirFor(FileDialogKind kind);
 
-/* Persist the config.  Writes only non-default values, deletes the
- * file entirely if the config has reverted to all defaults. */
-void saveConfig(const Config &cfg);
+    /* Build a path next to the executable with a timestamped filename:
+     *   <exeDir>/<prefix>_YYYY-MM-DD_HHMMSS<ext> */
+    static std::string timestamped(std::string_view prefix,
+                                    std::string_view ext);
 
-/* Starting folder for a file dialog of the given kind: the bundled
- * assets folder next to the executable.  Subsequent dialogs land
- * wherever the user was last (handled by the OS shell, not us). */
-std::string initialDirFor(FileDialogKind kind);
-
-/* Build a path next to the executable with a timestamped filename:
- *   <exeDir>/<prefix>_YYYY-MM-DD_HHMMSS<ext> */
-std::string timestampedPath(std::string_view prefix, std::string_view ext);
-
-/* Parse a numeric string accepting decimal, 0x-hex, and 0o-octal
- * (Python-style).  Returns 0 on malformed input.  Used by both the
- * config loader and the CLI parser. */
-int parseNumber(const std::string &s);
+    /* Parse a numeric string accepting decimal, 0x-hex, and 0o-octal
+     * (Python-style).  Returns 0 on malformed input. */
+    static int parseNumber(const std::string &s);
+};
 
 } /* namespace ms0515_frontend */

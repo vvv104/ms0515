@@ -104,13 +104,13 @@ CliArgs parseArgs(int argc, char **argv)
         } else if (a == "--history-size" && i + 1 < argc) {
             out.historySize = std::max(0, std::atoi(argv[++i]));
         } else if (a == "--history-watch-addr" && i + 1 < argc) {
-            out.historyWatchAddr = parseNumber(argv[++i]);
+            out.historyWatchAddr = Paths::parseNumber(argv[++i]);
         } else if (a == "--history-watch-len" && i + 1 < argc) {
-            out.historyWatchLen  = parseNumber(argv[++i]);
+            out.historyWatchLen  = Paths::parseNumber(argv[++i]);
         } else if (a == "--history-read-watch-addr" && i + 1 < argc) {
-            out.historyReadWatchAddr = parseNumber(argv[++i]);
+            out.historyReadWatchAddr = Paths::parseNumber(argv[++i]);
         } else if (a == "--history-read-watch-len" && i + 1 < argc) {
-            out.historyReadWatchLen  = parseNumber(argv[++i]);
+            out.historyReadWatchLen  = Paths::parseNumber(argv[++i]);
         } else {
             std::fprintf(stderr, "warning: unknown argument '%s'\n", a.c_str());
         }

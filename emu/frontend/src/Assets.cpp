@@ -132,7 +132,7 @@ std::string saveScreenshot(const Video &video, const std::string &path)
 #endif
         char buf[64];
         std::strftime(buf, sizeof(buf), "ms0515_%Y-%m-%d_%H%M%S.png", &tm);
-        outPath = getExeDir() + buf;
+        outPath = Paths::exeDir() + buf;
     }
     int rc = stbi_write_png(outPath.c_str(),
                             kScreenWidth,

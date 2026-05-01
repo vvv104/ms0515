@@ -32,7 +32,7 @@ bool Config::isDefault() const
     return true;
 }
 
-std::string getExeDir()
+std::string Paths::exeDir()
 {
     if (char *base = SDL_GetBasePath()) {
         std::string dir(base);
@@ -42,12 +42,12 @@ std::string getExeDir()
     return {};
 }
 
-std::string configPath()
+std::string Config::path()
 {
-    return getExeDir() + "ms0515.yaml";
+    return Paths::exeDir() + "ms0515.yaml";
 }
 
-int parseNumber(const std::string &s)
+int Paths::parseNumber(const std::string &s)
 {
     if (s.empty()) return 0;
     try {
@@ -59,10 +59,10 @@ int parseNumber(const std::string &s)
     } catch (...) { return 0; }
 }
 
-Config loadConfig()
+Config Config::load()
 {
     Config cfg;
-    std::ifstream f(configPath());
+    std::ifstream f(Config::path());
     if (!f) return cfg;
 
     std::string line;
@@ -98,19 +98,19 @@ Config loadConfig()
             if (cfg.historySize < 0) cfg.historySize = 0;
         }
         else if (key == "history_watch_addr")
-            cfg.historyWatchAddr = parseNumber(val);
+            cfg.historyWatchAddr = Paths::parseNumber(val);
         else if (key == "history_watch_len")
-            cfg.historyWatchLen = parseNumber(val);
+            cfg.historyWatchLen = Paths::parseNumber(val);
         else if (key == "history_read_watch_addr")
-            cfg.historyReadWatchAddr = parseNumber(val);
+            cfg.historyReadWatchAddr = Paths::parseNumber(val);
         else if (key == "history_read_watch_len")
-            cfg.historyReadWatchLen = parseNumber(val);
+            cfg.historyReadWatchLen = Paths::parseNumber(val);
         else if (key == "auto_snap_on_reset")
             cfg.autoSnapOnReset = (val == "true");
-        else if (key == "kbd_typing_delay_ms")  cfg.kbdTypingDelayMs  = parseNumber(val);
-        else if (key == "kbd_typing_period_ms") cfg.kbdTypingPeriodMs = parseNumber(val);
-        else if (key == "kbd_game_delay_ms")    cfg.kbdGameDelayMs    = parseNumber(val);
-        else if (key == "kbd_game_period_ms")   cfg.kbdGamePeriodMs   = parseNumber(val);
+        else if (key == "kbd_typing_delay_ms")  cfg.kbdTypingDelayMs  = Paths::parseNumber(val);
+        else if (key == "kbd_typing_period_ms") cfg.kbdTypingPeriodMs = Paths::parseNumber(val);
+        else if (key == "kbd_game_delay_ms")    cfg.kbdGameDelayMs    = Paths::parseNumber(val);
+        else if (key == "kbd_game_period_ms")   cfg.kbdGamePeriodMs   = Paths::parseNumber(val);
         else if (key == "kbd_auto_game_mode")   cfg.kbdAutoGameMode   = (val == "true") ? 1 : 0;
         else if (key == "fullscreen")           cfg.fullscreen        = (val == "true");
         /* Unknown keys: silently ignored (forward/backward compat). */
@@ -118,14 +118,14 @@ Config loadConfig()
     return cfg;
 }
 
-void saveConfig(const Config &cfg)
+void Config::save() const
 {
-    std::string path = configPath();
-    if (cfg.isDefault()) {
-        std::filesystem::remove(path);
+    std::string cfgPath = Config::path();
+    if (isDefault()) {
+        std::filesystem::remove(cfgPath);
         return;
     }
-    std::ofstream f(path);
+    std::ofstream f(cfgPath);
     if (!f) return;
     f << "# MS0515 emulator configuration\n";
 
@@ -133,54 +133,54 @@ void saveConfig(const Config &cfg)
      * fields below are not also written for the same drive. */
     static constexpr const char *kDsKeys[] = {"disk0", "disk1"};
     for (int drive = 0; drive < 2; ++drive) {
-        if (!cfg.dsPath[drive].empty())
-            f << kDsKeys[drive] << ": \"" << cfg.dsPath[drive] << "\"\n";
+        if (!dsPath[drive].empty())
+            f << kDsKeys[drive] << ": \"" << dsPath[drive] << "\"\n";
     }
     static constexpr struct { int drive, side; const char *name; } kSlots[] = {
         {0, 0, "disk0_side0"}, {0, 1, "disk0_side1"},
         {1, 0, "disk1_side0"}, {1, 1, "disk1_side1"},
     };
     for (const auto &s : kSlots) {
-        if (!cfg.dsPath[s.drive].empty()) continue;
-        const auto &p = cfg.fdPath[fdcUnitFor(s.drive, s.side)];
+        if (!dsPath[s.drive].empty()) continue;
+        const auto &p = fdPath[fdcUnitFor(s.drive, s.side)];
         if (!p.empty())
             f << s.name << ": \"" << p << "\"\n";
     }
-    if (!cfg.romPath.empty())
-        f << "rom: \"" << cfg.romPath << "\"\n";
-    if (cfg.showKeyboard) f << "show_keyboard: true\n";
-    if (cfg.showDebugger) f << "show_debugger: true\n";
-    if (cfg.hostMode)     f << "host_mode: true\n";
-    if (cfg.historySize != 0)
-        f << "history_size: " << cfg.historySize << "\n";
-    if (cfg.historyWatchAddr != 0 || cfg.historyWatchLen != 0) {
-        f << "history_watch_addr: 0o" << std::oct << cfg.historyWatchAddr
+    if (!romPath.empty())
+        f << "rom: \"" << romPath << "\"\n";
+    if (showKeyboard) f << "show_keyboard: true\n";
+    if (showDebugger) f << "show_debugger: true\n";
+    if (hostMode)     f << "host_mode: true\n";
+    if (historySize != 0)
+        f << "history_size: " << historySize << "\n";
+    if (historyWatchAddr != 0 || historyWatchLen != 0) {
+        f << "history_watch_addr: 0o" << std::oct << historyWatchAddr
           << std::dec << "\n";
-        f << "history_watch_len: "    << cfg.historyWatchLen << "\n";
+        f << "history_watch_len: "    << historyWatchLen << "\n";
     }
-    if (cfg.historyReadWatchAddr != 0 || cfg.historyReadWatchLen != 0) {
+    if (historyReadWatchAddr != 0 || historyReadWatchLen != 0) {
         f << "history_read_watch_addr: 0o" << std::oct
-          << cfg.historyReadWatchAddr << std::dec << "\n";
-        f << "history_read_watch_len: "   << cfg.historyReadWatchLen << "\n";
+          << historyReadWatchAddr << std::dec << "\n";
+        f << "history_read_watch_len: "   << historyReadWatchLen << "\n";
     }
-    if (cfg.autoSnapOnReset) f << "auto_snap_on_reset: true\n";
-    if (cfg.kbdTypingDelayMs  >= 0)
-        f << "kbd_typing_delay_ms: "  << cfg.kbdTypingDelayMs  << "\n";
-    if (cfg.kbdTypingPeriodMs >= 0)
-        f << "kbd_typing_period_ms: " << cfg.kbdTypingPeriodMs << "\n";
-    if (cfg.kbdGameDelayMs    >= 0)
-        f << "kbd_game_delay_ms: "    << cfg.kbdGameDelayMs    << "\n";
-    if (cfg.kbdGamePeriodMs   >= 0)
-        f << "kbd_game_period_ms: "   << cfg.kbdGamePeriodMs   << "\n";
-    if (cfg.kbdAutoGameMode   >= 0)
+    if (autoSnapOnReset) f << "auto_snap_on_reset: true\n";
+    if (kbdTypingDelayMs  >= 0)
+        f << "kbd_typing_delay_ms: "  << kbdTypingDelayMs  << "\n";
+    if (kbdTypingPeriodMs >= 0)
+        f << "kbd_typing_period_ms: " << kbdTypingPeriodMs << "\n";
+    if (kbdGameDelayMs    >= 0)
+        f << "kbd_game_delay_ms: "    << kbdGameDelayMs    << "\n";
+    if (kbdGamePeriodMs   >= 0)
+        f << "kbd_game_period_ms: "   << kbdGamePeriodMs   << "\n";
+    if (kbdAutoGameMode   >= 0)
         f << "kbd_auto_game_mode: "
-          << (cfg.kbdAutoGameMode ? "true" : "false") << "\n";
-    if (cfg.fullscreen) f << "fullscreen: true\n";
+          << (kbdAutoGameMode ? "true" : "false") << "\n";
+    if (fullscreen) f << "fullscreen: true\n";
 }
 
-std::string initialDirFor(FileDialogKind kind)
+std::string Paths::initialDirFor(FileDialogKind kind)
 {
-    std::string base = getExeDir();
+    std::string base = exeDir();
     switch (kind) {
     case FileDialogKind::Disk:  return base + "assets/disks";
     case FileDialogKind::Rom:   return base + "assets/rom";
@@ -189,7 +189,7 @@ std::string initialDirFor(FileDialogKind kind)
     return base;
 }
 
-std::string timestampedPath(std::string_view prefix, std::string_view ext)
+std::string Paths::timestamped(std::string_view prefix, std::string_view ext)
 {
     std::time_t t = std::time(nullptr);
     std::tm tm;
@@ -200,7 +200,7 @@ std::string timestampedPath(std::string_view prefix, std::string_view ext)
 #endif
     char buf[64];
     std::strftime(buf, sizeof(buf), "%Y-%m-%d_%H%M%S", &tm);
-    return getExeDir() + std::string{prefix} + "_" + buf + std::string{ext};
+    return exeDir() + std::string{prefix} + "_" + buf + std::string{ext};
 }
 
 } /* namespace ms0515_frontend */
