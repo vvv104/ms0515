@@ -30,7 +30,6 @@ void drawDebuggerWindow(ms0515::Debugger &dbg,
         return;
     }
 
-    /* Status */
     ImGui::TextUnformatted(romStatus.c_str());
     const auto &cpu = dbg.emulator().cpu();
     ImGui::Text("CPU: PC=%06o  %s",
@@ -39,7 +38,6 @@ void drawDebuggerWindow(ms0515::Debugger &dbg,
                 cpu.waiting ? "WAIT"   : "running");
     ImGui::Separator();
 
-    /* Execution controls */
     if (ImGui::Button(running ? "Pause" : "Run"))
         running = !running;
     ImGui::SameLine();
@@ -53,13 +51,9 @@ void drawDebuggerWindow(ms0515::Debugger &dbg,
         dbg.reset();
 
     ImGui::Separator();
-
-    /* Registers */
     ImGui::TextUnformatted(dbg.formatRegisters().c_str());
-
     ImGui::Separator();
 
-    /* Disassembly around PC */
     if (ImGui::CollapsingHeader("Disassembly", ImGuiTreeNodeFlags_DefaultOpen)) {
         auto lines = dbg.disassembleAtPc(16);
         for (const auto &ins : lines) {
@@ -68,7 +62,6 @@ void drawDebuggerWindow(ms0515::Debugger &dbg,
         }
     }
 
-    /* Breakpoint editor */
     if (ImGui::CollapsingHeader("Breakpoints")) {
         static char  bpBuf[16] = "";
         ImGui::InputText("addr (octal)", bpBuf, sizeof bpBuf,
@@ -182,7 +175,7 @@ void drawStatusBar(const StatusBarState &s)
         return;
     }
 
-    /* Line 1: CPU state, FPS, time. */
+    /* Line 1: CPU state | speed/fps | uptime | host-mode + modifier indicators. */
     const auto &cpu = s.emu.cpu();
     const char *state = cpu.halted  ? "HALT" :
                         cpu.waiting ? "WAIT" :

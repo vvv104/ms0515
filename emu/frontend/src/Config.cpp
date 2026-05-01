@@ -189,6 +189,19 @@ std::string Paths::initialDirFor(FileDialogKind kind)
     return base;
 }
 
+std::vector<std::filesystem::path> Paths::searchRoots()
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    std::vector<fs::path> roots;
+    if (char *base = SDL_GetBasePath()) {
+        roots.emplace_back(base);
+        SDL_free(base);
+    }
+    roots.emplace_back(fs::current_path(ec));
+    return roots;
+}
+
 std::string Paths::timestamped(std::string_view prefix, std::string_view ext)
 {
     std::time_t t = std::time(nullptr);

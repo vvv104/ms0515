@@ -8,6 +8,7 @@
  */
 
 #include "OnScreenKeyboard.hpp"
+#include "Config.hpp"          /* Paths::searchRoots */
 
 #include <ms0515/Emulator.hpp>
 
@@ -335,30 +336,20 @@ bool OnScreenKeyboard::loadLayout(const std::string &path)
     rows_.clear();
     stickyKeys_.clear();
 
-    namespace fs = std::filesystem;
     std::vector<std::string> candidates;
     if (!path.empty()) {
         candidates.push_back(path);
     } else {
-        /* Search relative to both the executable directory and cwd. */
-        std::vector<fs::path> roots;
-        if (char *base = SDL_GetBasePath()) {
-            roots.emplace_back(base);
-            SDL_free(base);
-        }
-        std::error_code ec;
-        roots.emplace_back(fs::current_path(ec));
-
         const char *rels[] = {
             "assets/keyboard/ms7004_layout.txt",
         };
-        for (const auto &root : roots)
+        for (const auto &root : Paths::searchRoots())
             for (const char *rel : rels)
                 candidates.push_back((root / rel).string());
     }
     std::string chosen;
     for (const auto &p : candidates)
-        if (fs::exists(p)) { chosen = p; break; }
+        if (std::filesystem::exists(p)) { chosen = p; break; }
     if (chosen.empty()) return false;
 
     std::ifstream f(chosen);

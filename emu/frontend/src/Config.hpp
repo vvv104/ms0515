@@ -11,8 +11,10 @@
 
 #include "Platform.hpp"   /* FileDialogKind */
 
+#include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace ms0515_frontend {
 
@@ -96,6 +98,12 @@ public:
     /* Parse a numeric string accepting decimal, 0x-hex, and 0o-octal
      * (Python-style).  Returns 0 on malformed input. */
     static int parseNumber(const std::string &s);
+
+    /* Roots searched when looking for bundled assets: the executable's
+     * directory first, then the current working directory.  Used by
+     * ROM/keyboard-layout discovery — anything that ships in
+     * `assets/...` next to the binary. */
+    static std::vector<std::filesystem::path> searchRoots();
 };
 
 } /* namespace ms0515_frontend */
