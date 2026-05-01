@@ -151,8 +151,10 @@ ms7004_key_t sdlToMs7004(SDL_Scancode phys, bool rusMode)
     case SDL_SCANCODE_UP:    return MS7004_KEY_UP;
     case SDL_SCANCODE_DOWN:  return MS7004_KEY_DOWN;
 
-    /* Function keys */
-    case SDL_SCANCODE_ESCAPE: return MS7004_KEY_F11;
+    /* Function keys.
+     * Note: SDL_SCANCODE_ESCAPE intentionally NOT mapped — host ESC is
+     * reserved for the frontend to exit fullscreen (see main.cpp event
+     * loop).  The guest's Ф11 is reachable via the host F11 key. */
     case SDL_SCANCODE_F1:    return MS7004_KEY_F1;
     case SDL_SCANCODE_F2:    return MS7004_KEY_F2;
     case SDL_SCANCODE_F3:    return MS7004_KEY_F3;

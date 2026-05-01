@@ -162,6 +162,7 @@ struct Config {
     int         kbdGameDelayMs    = -1;
     int         kbdGamePeriodMs   = -1;
     int         kbdAutoGameMode   = -1;     /* -1 unset, 0 off, 1 on */
+    bool        fullscreen        = false;
 
     bool isDefault() const {
         for (int i = 0; i < 4; ++i)
@@ -181,6 +182,7 @@ struct Config {
         if (kbdTypingDelayMs >= 0 || kbdTypingPeriodMs >= 0 ||
             kbdGameDelayMs   >= 0 || kbdGamePeriodMs   >= 0 ||
             kbdAutoGameMode  >= 0) return false;
+        if (fullscreen) return false;
         return true;
     }
 };
@@ -264,6 +266,7 @@ Config loadConfig()
         else if (key == "kbd_game_delay_ms")    cfg.kbdGameDelayMs    = parseNumber(val);
         else if (key == "kbd_game_period_ms")   cfg.kbdGamePeriodMs   = parseNumber(val);
         else if (key == "kbd_auto_game_mode")   cfg.kbdAutoGameMode   = (val == "true") ? 1 : 0;
+        else if (key == "fullscreen")           cfg.fullscreen        = (val == "true");
     }
     return cfg;
 }
@@ -331,6 +334,7 @@ void saveConfig(const Config &cfg)
     if (cfg.kbdAutoGameMode   >= 0)
         f << "kbd_auto_game_mode: "
           << (cfg.kbdAutoGameMode ? "true" : "false") << "\n";
+    if (cfg.fullscreen) f << "fullscreen: true\n";
 }
 
 /* Starting folder for a file dialog of the given kind: the remembered
@@ -781,6 +785,15 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* Apply persisted fullscreen preference.  Use BORDERLESS desktop
+     * fullscreen (no resolution change, instant alt-tab) — exclusive
+     * fullscreen mucks with virtual desktops and is hostile to a
+     * retro display anyway.  The setFullscreen() helper is defined
+     * later, near the main loop, where lastTickMs is in scope. */
+    bool fullscreenOn = config.fullscreen;
+    if (fullscreenOn)
+        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+
     SDL_Renderer *renderer = SDL_CreateRenderer(
         window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) {
@@ -1014,6 +1027,28 @@ int main(int argc, char **argv)
     float    emuTimeAccumMs      = 0.0f;    /* accumulated emu time to run */
     uint32_t lastTickMs          = SDL_GetTicks();
     constexpr float kFrameMs     = 20.0f;   /* one emulated frame = 20 ms */
+
+    /* Toggle host fullscreen and clean up after the SDL call.  Defined
+     * here (not next to the initial SDL_SetWindowFullscreen call) so it
+     * can capture lastTickMs / emuTimeAccumMs / frameTex by reference. */
+    auto setFullscreen = [&](bool on) {
+        SDL_SetWindowFullscreen(window,
+            on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        fullscreenOn = on;
+        if (config.fullscreen != on) {
+            config.fullscreen = on;
+            saveConfig(config);
+        }
+    };
+    /* Known issue: toggling fullscreen during early BIOS POST (first
+     * couple of seconds) wedges the emulator — the framebuffer freezes
+     * on the RAM-test stripe pattern (or a white screen) and the BIOS
+     * gets stuck in a keyboard-byte wait loop at PC=0o175630.  Several
+     * defensive measures were tried and did not help: SDL_RENDER_*_RESET
+     * event handling, unconditional SDL_Texture recreation, ImGui
+     * SDLRenderer2 device-object recreation, emu.keyReleaseAll(),
+     * resetting lastTickMs/emuTimeAccumMs.  Wait until the OS prompt is
+     * up before pressing Alt+Enter as a workaround. */
     /* FPS / speed tracking — sliding 1-second window. */
     uint32_t fpsWindowStartMs    = hostMsAtStart;
     uint32_t emuFramesInWindow   = 0;
@@ -1061,6 +1096,14 @@ int main(int argc, char **argv)
     int      menuBarHeight = 0;     /* updated each frame once menu drawn */
 
     /* ── Main loop ─────────────────────────────────────────────────────── */
+    /* Track frontend hotkeys we've intercepted so the matching KEYUP is
+     * also swallowed.  Without this, the guest sees "key-up without
+     * key-down" for the held intercept (e.g. ESC up after exiting
+     * fullscreen) — not a problem for ESC (unmapped) but Enter would
+     * fire a stray ВК release. */
+    bool swallowedReturnDown = false;
+    bool swallowedEscDown    = false;
+
     while (!quit) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
@@ -1068,9 +1111,35 @@ int main(int argc, char **argv)
             if (ev.type == SDL_QUIT) {
                 quit = true;
             } else if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
-                physKbd.handleEvent(ev, emu, io.WantCaptureKeyboard);
+                bool intercepted = false;
+                /* Frontend hotkeys.  Skip when ImGui has keyboard focus
+                 * (text input fields, search boxes etc.). */
+                if (!io.WantCaptureKeyboard) {
+                    auto sc = ev.key.keysym.scancode;
+                    bool altHeld = (ev.key.keysym.mod & KMOD_ALT) != 0;
 
-                /* Host-mode hotkeys will be handled here in the future. */
+                    if (ev.type == SDL_KEYDOWN) {
+                        if (sc == SDL_SCANCODE_RETURN && altHeld) {
+                            setFullscreen(!fullscreenOn);
+                            swallowedReturnDown = true;
+                            intercepted = true;
+                        } else if (sc == SDL_SCANCODE_ESCAPE && fullscreenOn) {
+                            setFullscreen(false);
+                            swallowedEscDown = true;
+                            intercepted = true;
+                        }
+                    } else /* KEYUP */ {
+                        if (sc == SDL_SCANCODE_RETURN && swallowedReturnDown) {
+                            swallowedReturnDown = false;
+                            intercepted = true;
+                        } else if (sc == SDL_SCANCODE_ESCAPE && swallowedEscDown) {
+                            swallowedEscDown = false;
+                            intercepted = true;
+                        }
+                    }
+                }
+                if (!intercepted)
+                    physKbd.handleEvent(ev, emu, io.WantCaptureKeyboard);
             }
         }
 
@@ -1166,8 +1235,10 @@ int main(int argc, char **argv)
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        /* Main menu bar */
-        if (ImGui::BeginMainMenuBar()) {
+        /* Main menu bar — hidden in fullscreen so the emulated screen
+         * fills the host display.  Exit via ESC or Alt+Enter. */
+        menuBarHeight = 0;
+        if (!fullscreenOn && ImGui::BeginMainMenuBar()) {
             menuBarHeight = (int)ImGui::GetWindowSize().y;
             if (ImGui::BeginMenu("File")) {
                 /* Per-drive submenu — flat list of three mount actions
@@ -1555,6 +1626,9 @@ int main(int argc, char **argv)
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("View")) {
+                if (ImGui::MenuItem("Fullscreen", "Alt+Enter", fullscreenOn))
+                    setFullscreen(!fullscreenOn);
+                ImGui::Separator();
                 ImGui::MenuItem("Screen", nullptr, &showScreen);
                 ImGui::MenuItem("Debugger", nullptr, &showDebugger);
                 ImGui::MenuItem("On-screen keyboard", nullptr, &showKeyboard);
@@ -1680,9 +1754,51 @@ int main(int argc, char **argv)
             (int)(ImGui::GetTextLineHeightWithSpacing() * 2.0f +
                   imstyle.WindowPadding.y * 2.0f + 2.0f);
 
-        /* Screen window — framebuffer wrapped in an ImGui window with a
-         * caption, same style as the debugger and on-screen keyboard. */
-        if (showScreen) {
+        /* Screen window — framebuffer wrapped in an ImGui window.
+         *
+         * Two layouts:
+         *   - Windowed: caption + auto-sized to the framebuffer pixels,
+         *     same style as debugger and OSK.
+         *   - Fullscreen: fills the entire host window, scaled with
+         *     aspect-ratio preserved (letterbox bars are SDL-cleared
+         *     black).  Other panels and the menu/status bar are hidden;
+         *     ESC or Alt+Enter exits. */
+        if (fullscreenOn) {
+            int W = 0, H = 0;
+            SDL_GetWindowSize(window, &W, &H);
+            float srcAspect = (float)screenContentW / (float)screenContentH;
+            float dstAspect = (float)W / (float)H;
+            float drawW, drawH;
+            if (dstAspect > srcAspect) {
+                drawH = (float)H;
+                drawW = drawH * srcAspect;
+            } else {
+                drawW = (float)W;
+                drawH = drawW / srcAspect;
+            }
+            float offX = ((float)W - drawW) * 0.5f;
+            float offY = ((float)H - drawH) * 0.5f;
+
+            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+            ImGui::SetNextWindowSize(ImVec2((float)W, (float)H));
+            ImGuiWindowFlags fsFlags =
+                ImGuiWindowFlags_NoDecoration |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoResize |
+                ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoBringToFrontOnFocus |
+                ImGuiWindowFlags_NoFocusOnAppearing |
+                ImGuiWindowFlags_NoNav |
+                ImGuiWindowFlags_NoBackground;
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            if (ImGui::Begin("##fullscreen_screen", nullptr, fsFlags)) {
+                ImGui::SetCursorPos(ImVec2(offX, offY));
+                ImGui::Image((ImTextureID)(intptr_t)frameTex,
+                             ImVec2(drawW, drawH));
+            }
+            ImGui::End();
+            ImGui::PopStyleVar();
+        } else if (showScreen) {
             ImGui::SetNextWindowPos(
                 ImVec2(8.0f, (float)(menuBarHeight + 8)),
                 ImGuiCond_FirstUseEver);
@@ -1698,7 +1814,7 @@ int main(int argc, char **argv)
         }
 
         /* Place the debugger to the right of the screen window on first use. */
-        if (showDebugger) {
+        if (showDebugger && !fullscreenOn) {
             int dbgX = 8 + (showScreen ? scrWinW + 8 : 0);
             ImGui::SetNextWindowPos(
                 ImVec2((float)dbgX, (float)(menuBarHeight + 8)),
@@ -1710,7 +1826,7 @@ int main(int argc, char **argv)
         }
 
         /* On-screen MS7004 keyboard — initial position below the top row. */
-        if (showKeyboard) {
+        if (showKeyboard && !fullscreenOn) {
             int topRowH = std::max(showScreen ? scrWinH : 0,
                                    showDebugger ? dbgWinH : 0);
             ImGui::SetNextWindowPos(
@@ -1723,10 +1839,12 @@ int main(int argc, char **argv)
         }
 
         /* Resize the SDL host window whenever the set of visible inner
-         * windows changes, sized to exactly contain them. */
-        if (showScreen   != prevShowScreen   ||
-            showDebugger != prevShowDebugger ||
-            showKeyboard != prevShowKeyboard) {
+         * windows changes, sized to exactly contain them.  Skipped in
+         * fullscreen — SDL owns the window size in that mode. */
+        if (!fullscreenOn &&
+            (showScreen   != prevShowScreen   ||
+             showDebugger != prevShowDebugger ||
+             showKeyboard != prevShowKeyboard)) {
             int topRowW = 8
                         + (showScreen   ? scrWinW + 8 : 0)
                         + (showDebugger ? dbgWinW + 8 : 0);
@@ -1746,8 +1864,9 @@ int main(int argc, char **argv)
             prevShowKeyboard = showKeyboard;
         }
 
-        /* Status bar (two lines) — pinned to the bottom of the host window. */
-        {
+        /* Status bar (two lines) — pinned to the bottom of the host window.
+         * Hidden in fullscreen so the emulated screen owns the display. */
+        if (!fullscreenOn) {
             int cw = 0, ch = 0;
             SDL_GetWindowSize(window, &cw, &ch);
             const ImGuiStyle &st = ImGui::GetStyle();
@@ -1857,8 +1976,13 @@ int main(int argc, char **argv)
 
         /* ── Render ────────────────────────────────────────────────── */
         /* The framebuffer is drawn via ImGui::Image inside the "Screen"
-         * window, so all host-window content comes from ImGui. */
-        SDL_SetRenderDrawColor(renderer, 40, 40, 48, 255);
+         * window, so all host-window content comes from ImGui.  Use
+         * pure black in fullscreen so the letterbox bars disappear
+         * into the bezel; standard chrome-grey otherwise. */
+        if (fullscreenOn)
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        else
+            SDL_SetRenderDrawColor(renderer, 40, 40, 48, 255);
         SDL_RenderClear(renderer);
 
         ImGui::Render();
