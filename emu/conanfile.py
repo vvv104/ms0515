@@ -14,7 +14,7 @@ from conan.tools.cmake import CMake, cmake_layout
 
 class Ms0515Recipe(ConanFile):
     name        = "ms0515"
-    version     = "0.2.0"
+    version     = "0.3.0"
     settings    = "os", "arch", "compiler", "build_type"
     generators  = "CMakeDeps", "CMakeToolchain"
 
