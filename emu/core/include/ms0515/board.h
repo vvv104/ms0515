@@ -76,6 +76,7 @@
 #include "floppy.h"
 #include "ramdisk.h"
 #include "trace.h"
+#include "cassette.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -110,6 +111,7 @@ typedef struct ms0515_board {
     ms0515_timer_t    timer;
     ms0515_keyboard_t kbd;
     ms0515_floppy_t   fdc;
+    ms0515_cassette_t cassette;
 
     /* System registers (PPI KR580VV55, ports A/B/C) */
     uint8_t  reg_a;             /* System Register A (output)               */
@@ -170,19 +172,6 @@ typedef struct ms0515_board {
     uint16_t read_watch_addr;
     uint16_t read_watch_len;
 
-    /* Spontaneous-reset detector.
-     *
-     * Set when the CPU fetches an instruction at the cold-start vector
-     * (0172000) after having previously fetched elsewhere — i.e., the
-     * machine just ran POST again without the user pressing Reset.
-     * `reset_first_seen` arms the detector after the initial cold boot;
-     * `unexpected_reset` is the latched event flag the frontend polls
-     * to decide whether to auto-snapshot.
-     *
-     * Both fields are cleared by board_reset(), so user-initiated
-     * resets do not produce a false detection. */
-    bool reset_first_seen;
-    bool unexpected_reset;
 } ms0515_board_t;
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
@@ -218,16 +207,6 @@ bool board_step_frame(ms0515_board_t *board);
  */
 void board_step_cpu(ms0515_board_t *board);
 
-/*
- * board_pre_step — Hook invoked by cpu_step() before each
- * instruction fetch.  Performs board-level observations (cold-start
- * vector tracking) and gives the rom_patches subsystem a chance to
- * intercept the upcoming instruction.  Returns true if execution
- * was redirected (CPU should skip its normal fetch/dispatch this
- * step, the hook has already updated PC and cycles); false to
- * continue with normal execution.
- */
-bool board_pre_step(ms0515_board_t *board);
 
 /*
  * board_key_event — Notify the board of a key press or release.

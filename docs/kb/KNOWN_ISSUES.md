@@ -1,5 +1,72 @@
 # Known Issues
 
+## ROM-A + Omega — boot stalls in ROM tape autoloader (unresolved)
+
+- **ROM**: `ms0515-roma.rom` (dumped from the original developer's
+  NS4 board)
+- **Disk**: `test_omega.dsk` (and any Omega image, e.g. `omega-lang.dsk`)
+- **Symptom**: Boot freezes ~7 emulated seconds in.  CPU spins inside
+  ROM at 0o162530, in the inner-spin loop of the cassette-tape
+  autoloader at 0o162504.  The loop polls Reg B bit 7 (CSIN) waiting
+  for transitions that never arrive when no cassette is connected.
+
+- **How we get there**: Omega's resident timer ISR (RT-11 SJ kernel,
+  RT11SJ.SYS file offset 0x685c → RAM 0o146210) calls `@#160014`
+  every 16 frames unconditionally.  In ROM-A this resolves via a
+  `JMP X(PC)` table to 0o162360, the cassette autoloader.  In ROM-B
+  the same address holds an unrelated floppy service entry, which is
+  why ROM-B + Omega has always worked.
+
+- **The puzzle**: the developer's machine boots Omega cleanly without
+  a cassette plugged in.  The mechanism that lets the routine exit
+  on real hardware is not yet known.  Investigated and rejected:
+
+  - `Reg B bit 7 = constant 0 / 1`: deadlocks the inner spin
+    (162522…162536) because samples on either side of the spin
+    return identical values.
+  - `Reg B bit 7 ← Reg A bit 6` (cassette-out leakage loopback): the
+    routine never writes Reg A, so bit 7 stays at the value it had
+    on entry — same deadlock.
+  - `Reg B bit 7 ← Reg C bit 0` loopback (Reg C bit 0 nominally
+    drives blue-border, the routine toggles it as inter-bit clock):
+    breaks the inner spin but produces an alternating 0xAA/0x55
+    pattern that never forms sync byte 0o346 in the outer hunt.
+  - LFSR pseudo-noise on bit 7 (modelling RF pickup on a floating
+    comparator): the routine eventually hits sync, but the
+    `0o162564: SOB R1, 162564` delay loop dominates per-iteration
+    cost; in our cycle model one routine call burns more cycles
+    than Omega's 16-frame ISR window provides, so the kernel falls
+    behind permanently.
+  - Synthesised stub-tape feeding R0_call1 = 0o162650 so the loader
+    JMPs onto an in-ROM `RETURN`: clean RTS, but the loader's
+    `MOV R0, @#157704` along the way overwrites a kernel-state
+    word and individual keyboard tests then echo wrong characters.
+
+- **Most likely real-hardware explanations** (unverifiable — the
+  original machine no longer powers up):
+
+  1. Reg B bit 7 has a deterministic source we don't model
+     (e.g. a clock-divider tap).
+  2. K1801VM1 cycle counts differ from our model enough that one
+     routine invocation finishes inside the 16-frame ISR window.
+  3. Board-revision-specific analog leakage from CASS to CSIN.
+  4. The dumped ROM is bit-perfect but a different revision was in
+     the machine when Omega was authored.
+
+- **What would resolve this**: bring a working NS4 board back online
+  and probe CSIN with no cassette; or get the full schematic of the
+  cassette interface; or implement `.wav` cassette playback in
+  `cassette.c` and replay the tape data the autoloader expects.
+
+- **Test impact**:
+  - `test_boot.cpp` lists `(ms0515-roma.rom, test_omega.dsk)` in
+    `kKnownBad`, demoting the boot assertions to `WARN` so the suite
+    stays green.
+  - `test_keyboard_emulated.cpp` omits the ROM-A + Omega entry from
+    `kConfigs` (precedent: ROM-B + RT-15SJ is also omitted for the
+    same reason — boot does not reach a prompt under that ROM).
+    Omega is still exercised under ROM-B, the supported config.
+
 ## Mihin (OS-16SJ) — РУС/ЛАТ key prints `^N`/`^O`, locks input on exit
 
 - **ROMs**: ROM-A and ROM-B both affected (different flavours)

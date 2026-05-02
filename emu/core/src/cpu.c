@@ -230,14 +230,6 @@ int cpu_step(ms0515_cpu_t *cpu)
     /* Save T-bit state before execution (checked after instruction) */
     bool tbit_was_set = (cpu->psw & CPU_PSW_T) != 0;
 
-    /*
-     * Hand control to the board for per-step observations and any
-     * runtime ROM patches.  If the hook redirected execution it will
-     * have already updated PC and cycles; we return early.
-     */
-    if (board_pre_step(cpu->board))
-        return cpu->cycles;
-
     /* Fetch instruction */
     cpu->instruction_pc = cpu->r[CPU_REG_PC];
     cpu->instruction    = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);

@@ -24,7 +24,6 @@ bool Config::isDefault() const
     if (historyWatchAddr != 0 || historyWatchLen != 0) return false;
     if (historyReadWatchAddr != 0 || historyReadWatchLen != 0)
         return false;
-    if (autoSnapOnReset) return false;
     if (kbdTypingDelayMs >= 0 || kbdTypingPeriodMs >= 0 ||
         kbdGameDelayMs   >= 0 || kbdGamePeriodMs   >= 0 ||
         kbdAutoGameMode  >= 0) return false;
@@ -105,8 +104,6 @@ Config Config::load()
             cfg.historyReadWatchAddr = Paths::parseNumber(val);
         else if (key == "history_read_watch_len")
             cfg.historyReadWatchLen = Paths::parseNumber(val);
-        else if (key == "auto_snap_on_reset")
-            cfg.autoSnapOnReset = (val == "true");
         else if (key == "kbd_typing_delay_ms")  cfg.kbdTypingDelayMs  = Paths::parseNumber(val);
         else if (key == "kbd_typing_period_ms") cfg.kbdTypingPeriodMs = Paths::parseNumber(val);
         else if (key == "kbd_game_delay_ms")    cfg.kbdGameDelayMs    = Paths::parseNumber(val);
@@ -163,7 +160,6 @@ void Config::save() const
           << historyReadWatchAddr << std::dec << "\n";
         f << "history_read_watch_len: "   << historyReadWatchLen << "\n";
     }
-    if (autoSnapOnReset) f << "auto_snap_on_reset: true\n";
     if (kbdTypingDelayMs  >= 0)
         f << "kbd_typing_delay_ms: "  << kbdTypingDelayMs  << "\n";
     if (kbdTypingPeriodMs >= 0)

@@ -15,7 +15,7 @@ add_library(ms0515_core STATIC
     src/ramdisk.c
     src/trace.c
     src/snapshot.c
-    src/rom_patches.c
+    src/cassette.c
 )
 
 target_compile_features(ms0515_core PUBLIC c_std_11)

@@ -533,20 +533,6 @@ void App::tick()
             if (audioEnabled) audio_.beginFrame();
             bool ok = emu_.stepFrame();
             if (audioEnabled) audio_.endFrame(emu_.board().frame_cycle_pos);
-            if (emu_.board().unexpected_reset) {
-                emu_.board().unexpected_reset = false;
-                if (config_.autoSnapOnReset) {
-                    std::string p = Paths::timestamped("state_post", ".ms0515");
-                    if (auto r = emu_.saveState(p); !r) {
-                        std::fprintf(stderr,
-                            "Auto-snapshot on POST failed: %s\n",
-                            r.error().c_str());
-                    } else {
-                        std::fprintf(stderr,
-                            "Auto-snapshot on POST: %s\n", p.c_str());
-                    }
-                }
-            }
             if (!ok) {
                 running_ = false;
                 emuTimeAccumMs_ = 0.0f;
@@ -814,11 +800,6 @@ void App::drawMachineMenu()
         audioOn_ = !audioOn_;
 
     ImGui::Separator();
-    if (ImGui::MenuItem("Auto-snapshot on POST entry",
-                        nullptr, config_.autoSnapOnReset)) {
-        config_.autoSnapOnReset = !config_.autoSnapOnReset;
-        config_.save();
-    }
     if (ImGui::MenuItem("Save State...")) {
         bool wasRunning = running_;
         running_ = false;

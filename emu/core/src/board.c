@@ -14,7 +14,6 @@
  */
 
 #include <ms0515/board.h>
-#include <ms0515/rom_patches.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -123,6 +122,10 @@ static void apply_reg_a(ms0515_board_t *board)
 
     /* Extended ROM visibility */
     board->mem.rom_extended = (board->reg_a & 0x80) != 0;
+
+    /* Bit 6: cassette output line (CASS).  Forwarded to the cassette
+     * module so it can record (currently a no-op). */
+    cassette_set_output(&board->cassette, (board->reg_a & 0x40) != 0);
 }
 
 static void apply_reg_c(ms0515_board_t *board)
@@ -160,6 +163,11 @@ static uint8_t read_reg_b(ms0515_board_t *board)
 
     /* Bits 4-3: DIP switches for refresh rate */
     val |= (board->dip_refresh & 0x03) << 3;
+
+    /* Bit 7: Cassette input (CSIN) — comparator output from the
+     * cassette module.  No tape inserted → reads as 0. */
+    if (cassette_get_input(&board->cassette))
+        val |= 0x80;
 
     return val;
 }
@@ -429,6 +437,7 @@ void board_init(ms0515_board_t *board)
     timer_init(&board->timer);
     kbd_init(&board->kbd);
     fdc_init(&board->fdc);
+    cassette_init(&board->cassette);
     cpu_init(&board->cpu, board);
 
     board->dip_refresh   = 0;  /* 50 Hz default */
@@ -453,6 +462,7 @@ void board_reset(ms0515_board_t *board)
     timer_reset(&board->timer);
     kbd_reset(&board->kbd);
     fdc_reset(&board->fdc);
+    cassette_init(&board->cassette);
     if (board->ramdisk.enabled)
         ramdisk_reset(&board->ramdisk);
 
@@ -474,14 +484,6 @@ void board_reset(ms0515_board_t *board)
 
     board->timer_counter = TIMER_DIVIDER;
     board->frame_counter = get_frame_cycles(board);
-
-    /* Re-arm the spontaneous-reset detector — clearing both flags here
-     * means a user-initiated reset is not reported as unexpected.  The
-     * very next cold-start fetch sets reset_first_seen, and only a
-     * subsequent fetch at 0172000 (e.g., game JMPs there) latches
-     * unexpected_reset. */
-    board->reset_first_seen = false;
-    board->unexpected_reset = false;
 
     /* Reset CPU last — it reads the boot vector from memory */
     cpu_reset(&board->cpu);
@@ -571,28 +573,6 @@ void board_step_cpu(ms0515_board_t *board)
 {
     int c = cpu_step(&board->cpu);
     board->total_cycles += (uint64_t)(c > 0 ? c : 1);
-}
-
-bool board_pre_step(ms0515_board_t *board)
-{
-    /*
-     * Cold-start vector observation.
-     *
-     * The MS0515 boot vector is 0o172000 — power-on jumps here, and
-     * any later fetch at this address means the machine effectively
-     * rebooted itself (game JMPed to ROM, watchdog, etc.).  The
-     * frontend uses board->unexpected_reset to take an automatic
-     * post-mortem snapshot.  This is a faithful observation, not a
-     * patch — 0o172000 is part of the MS0515 hardware contract.
-     */
-    if (board->cpu.r[CPU_REG_PC] == 0172000) {
-        if (board->reset_first_seen)
-            board->unexpected_reset = true;
-        board->reset_first_seen = true;
-    }
-
-    /* Hand off to the patch subsystem for any per-PC kludges. */
-    return rom_patches_apply(board);
 }
 
 void board_key_event(ms0515_board_t *board, uint8_t scancode)

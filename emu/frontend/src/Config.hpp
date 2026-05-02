@@ -47,12 +47,6 @@ public:
     /* Same, but for reads (MEMR events). */
     int         historyReadWatchAddr = 0;
     int         historyReadWatchLen  = 0;
-    /* When true, the frontend writes a timestamped snapshot every time
-     * the CPU spontaneously re-enters POST (fetch at 0172000 after the
-     * initial cold boot).  Useful for catching rare reboots while
-     * playing — by the time the user notices, the snapshot is already
-     * on disk with the event ring intact. */
-    bool        autoSnapOnReset = false;
     /* Keyboard typematic settings.  -1 means "use core default", which
      * lets us add new presets without baking them into existing config
      * files.  Auto-game-mode is the heuristic toggle. */
