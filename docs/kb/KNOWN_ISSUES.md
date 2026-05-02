@@ -1,27 +1,5 @@
 # Known Issues
 
-## ms0515-roma-original.rom + Omega disks — pink screen, stuck boot
-
-- **ROM**: `ms0515-roma-original.rom` (original unpatched ROM-A)
-- **Disks**: any Omega image —
-  `emu/assets/disks/omega-lang.dsk` ships and reproduces this; the
-  trimmed-OS fixture `emu/tests/disks/test_omega.dsk` (derived from
-  the same Omega) inherits the same failure mode and is what the
-  boot test exercises.
-- **Symptom**: Screen border turns pink (palette index 5) very
-  early, only the BIOS banner ("НГМД готов..." + "ОМЕГА SJ(S)
-  V05.04") makes it onto the framebuffer, and the system never
-  reaches a prompt.  The patched ROM-A (`ms0515-roma.rom`) boots
-  the same disks successfully.
-- **Detection in tests**: the boot suite records `BootResult::borderColor`
-  and treats `borderColor != 0` as a failure.  The known-bad entry
-  `{ms0515-roma-original.rom, test_omega.dsk}` demotes that
-  failure to a `WARN` so the suite stays green.
-- **Likely cause**: original ROM-A initialises the video or memory
-  dispatcher differently from the patched build, causing Omega's
-  loader to write to wrong addresses or leave the display
-  mis-configured.
-
 ## Mihin (OS-16SJ) — РУС/ЛАТ key prints `^N`/`^O`, locks input on exit
 
 - **ROMs**: ROM-A and ROM-B both affected (different flavours)

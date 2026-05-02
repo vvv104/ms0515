@@ -825,9 +825,7 @@ TEST_CASE("MOV cycle counts match K1807VM1 spec (MAME T11 reference)") {
 
 TEST_CASE("MFPT writes K1807VM1 type code (4) to R0") {
     /* MFPT (000007) returns the CPU type identifier in R0.  The
-     * K1807VM1 returns 4, matching the DEC T-11 / KDF-11 family.
-     * Required by the unpatched ROM-A boot path on Omega; trapping
-     * here causes the well-known pink-screen wedge. */
+     * K1807VM1 returns 4, matching the DEC T-11 / KDF-11 family.*/
     ms0515::Emulator emu;
     emu.reset();
     emu.cpu().r[0] = 0xFFFF;                /* poison so we see the write */

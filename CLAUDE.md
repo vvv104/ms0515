@@ -1,5 +1,7 @@
 # MS0515 Emulator Project
 
+**Read this first after compacting!**
+
 ## Architecture
 Three-layer emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Core** (`emu/core/`) — Pure C11, zero OS deps. Fully implemented and verified.

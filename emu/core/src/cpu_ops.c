@@ -449,12 +449,6 @@ static void op_trap(ms0515_cpu_t *cpu)
  * Move From Processor Type: writes a one-byte CPU identifier into R0.
  * Different PDP-11 family chips return different values; the K1807VM1
  * (DEC T-11 family) returns 4.
- *
- * An earlier comment in this slot claimed Omega's boot loader needed a
- * reserved-instruction trap on MFPT — that turned out to be wrong: the
- * unpatched ROM-A + Omega config (the pink-screen known-bad in
- * test_boot.cpp) hung specifically because we trapped instead of
- * returning the spec value.
  */
 static void op_mfpt(ms0515_cpu_t *cpu)
 {
