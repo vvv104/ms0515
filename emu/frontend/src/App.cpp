@@ -42,6 +42,7 @@ int App::run()
     prevShowScreen_     = !showScreen_;   /* force first-frame resize */
     prevShowDebugger_   = showDebugger_;
     prevShowKeyboard_   = showKeyboard_;
+    prevShowTerminal_   = showTerminal_;
 
     quit_ = false;
     while (!quit_) {
@@ -138,6 +139,8 @@ void App::initImGui()
         0x0020, 0x00FF,   /* Latin + Latin-1 */
         0x0400, 0x04FF,   /* Cyrillic */
         0x2190, 0x2199,   /* Arrows ← ↑ → ↓ ↖ ↗ ↘ ↙ */
+        0x2580, 0x259F,   /* Block elements (█ ▌ ▀ …) — Terminal
+                             window's unknown-glyph marker is U+2588 */
         0,
     };
     for (const auto &path : systemFontCandidates()) {
@@ -155,6 +158,21 @@ void App::initImGui()
     for (const auto &path : symbolFontCandidates()) {
         if (std::filesystem::exists(path)) {
             io.Fonts->AddFontFromFileTTF(path.c_str(), 15.0f, &sym, rangesSym);
+            break;
+        }
+    }
+
+    /* Separate monospace font for the Terminal window — the OS draws on
+     * a fixed 80-column grid, so the host-side mirror needs a fixed-pitch
+     * face for columns to line up.  Reuses the same Latin + Cyrillic
+     * range as the proportional UI font. */
+    ImFontConfig mono;
+    mono.OversampleH = 2;
+    mono.OversampleV = 2;
+    for (const auto &path : monoFontCandidates()) {
+        if (std::filesystem::exists(path)) {
+            terminalFont_ = io.Fonts->AddFontFromFileTTF(
+                path.c_str(), 15.0f, &mono, rangesMain);
             break;
         }
     }
@@ -542,8 +560,64 @@ void App::tick()
             ++emuFramesSinceReset_;
             ++emuFramesInWindow_;
         }
-        if (frameCounter_ % 10 == 0)
-            screenReader_.update({emu_.vram(), MEM_VRAM_SIZE}, emu_.isHires());
+        {
+            /* Feed both the legacy CLI dump (no-op when no
+             * --screen-dump file is configured) and the in-app
+             * Terminal mirror.  Terminal accumulates history every
+             * tick whether or not its window is currently open, so
+             * a user opening it later sees everything since boot.
+             *
+             * Per-row stitching: a row updates `stableView_` only
+             * when it is both
+             *
+             *   - clean (no unknown-glyph cells; mid-bitmap-rewrite
+             *     produces partial keys that decode as kUnknownGlyph), AND
+             *   - stable (matches the previous raw sample's same row
+             *     so we know its content has held still for at least
+             *     one inter-sample interval).
+             *
+             * Rows that fail either check stay frozen at their last
+             * stable value.  The stitched snapshot is then forwarded
+             * to Terminal — its diff classifier sees only stable
+             * rows, so partial-write garbage like
+             * "      .SYS      P 27-12-90" or transient unknown
+             * blocks never reach scrollback. */
+            const auto rawSnap = screenReader_.readScreen(
+                {emu_.vram(), MEM_VRAM_SIZE}, emu_.isHires());
+            screenReader_.update(
+                {emu_.vram(), MEM_VRAM_SIZE}, emu_.isHires());
+
+            using ms0515::ScreenReader;
+            auto stitched = rawSnap;
+            for (int r = 0; r < ScreenReader::kRows; ++r) {
+                const uint8_t *cur = &rawSnap.cells[r * ScreenReader::kHiresCols];
+                bool clean = true;
+                for (int c = 0; c < rawSnap.cols; ++c) {
+                    if (cur[c] == ScreenReader::kUnknownGlyph) {
+                        clean = false;
+                        break;
+                    }
+                }
+                bool stable = false;
+                if (hasPrevRawSnap_ && prevRawSnap_.cols == rawSnap.cols) {
+                    const uint8_t *prev = &prevRawSnap_.cells[
+                        r * ScreenReader::kHiresCols];
+                    stable = std::memcmp(cur, prev,
+                        static_cast<size_t>(rawSnap.cols)) == 0;
+                }
+                if (!(clean && stable) && hasStableView_) {
+                    std::memcpy(
+                        &stitched.cells[r * ScreenReader::kHiresCols],
+                        &stableView_.cells[r * ScreenReader::kHiresCols],
+                        static_cast<size_t>(rawSnap.cols));
+                }
+            }
+            stableView_     = stitched;
+            hasStableView_  = true;
+            prevRawSnap_    = rawSnap;
+            hasPrevRawSnap_ = true;
+            terminal_.update(stitched);
+        }
     } else {
         lastTickMs_     = SDL_GetTicks();
         emuTimeAccumMs_ = 0.0f;
@@ -595,10 +669,12 @@ void App::renderFrame()
     const int screenContentH = kScreenHeight;
     const int scrWinW = screenContentW + (int)(imstyle.WindowPadding.x * 2.0f) + 2;
     const int scrWinH = screenContentH + (int)(imstyle.WindowPadding.y * 2.0f + titleBarH) + 2;
-    const int dbgWinW = 380;
-    const int dbgWinH = std::max(scrWinH, 360);
-    const int oskWinW = (int)osk_.pixelWidth();
-    const int oskWinH = (int)osk_.pixelHeight();
+    const int dbgWinW  = 380;
+    const int dbgWinH  = std::max(scrWinH, 360);
+    const int termWinW = 690;
+    const int termWinH = scrWinH;
+    const int oskWinW  = (int)osk_.pixelWidth();
+    const int oskWinH  = (int)osk_.pixelHeight();
 
     drawScreenWindow(window_, frameTex_, screenContentW, screenContentH,
                      menuBarHeight_, fullscreenOn_, showScreen_);
@@ -614,8 +690,9 @@ void App::renderFrame()
         drawDebuggerWindow(dbg_, running_, romStatus_, showDebugger_);
     }
     if (showKeyboard_ && !fullscreenOn_) {
-        int topRowH = std::max(showScreen_   ? scrWinH : 0,
-                               showDebugger_ ? dbgWinH : 0);
+        int topRowH = std::max({showScreen_   ? scrWinH  : 0,
+                                showDebugger_ ? dbgWinH  : 0,
+                                showTerminal_ ? termWinH : 0});
         ImGui::SetNextWindowPos(
             ImVec2(8.0f, (float)(menuBarHeight_ + 8 + topRowH + 8)),
             ImGuiCond_FirstUseEver);
@@ -623,6 +700,18 @@ void App::renderFrame()
             ImVec2((float)oskWinW, (float)oskWinH),
             ImGuiCond_FirstUseEver);
         osk_.draw(emu_, showKeyboard_);
+    }
+
+    if (showTerminal_ && !fullscreenOn_) {
+        int termX = 8 + (showScreen_   ? scrWinW + 8 : 0)
+                      + (showDebugger_ ? dbgWinW + 8 : 0);
+        ImGui::SetNextWindowPos(
+            ImVec2((float)termX, (float)(menuBarHeight_ + 8)),
+            ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(
+            ImVec2((float)termWinW, (float)termWinH),
+            ImGuiCond_FirstUseEver);
+        drawTerminalWindow(terminal_, showTerminal_, terminalFont_);
     }
 
     if (!fullscreenOn_) resizeHostWindow();
@@ -651,24 +740,29 @@ void App::resizeHostWindow()
      * windows changes, sized to exactly contain them. */
     if (showScreen_   == prevShowScreen_   &&
         showDebugger_ == prevShowDebugger_ &&
-        showKeyboard_ == prevShowKeyboard_) return;
+        showKeyboard_ == prevShowKeyboard_ &&
+        showTerminal_ == prevShowTerminal_) return;
 
     const ImGuiStyle &imstyle = ImGui::GetStyle();
     const float titleBarH = ImGui::GetFontSize() + imstyle.FramePadding.y * 2.0f;
-    const int scrWinW = kScreenWidth  + (int)(imstyle.WindowPadding.x * 2.0f) + 2;
-    const int scrWinH = kScreenHeight + (int)(imstyle.WindowPadding.y * 2.0f + titleBarH) + 2;
-    const int dbgWinW = 380;
-    const int dbgWinH = std::max(scrWinH, 360);
-    const int oskWinW = (int)osk_.pixelWidth();
-    const int oskWinH = (int)osk_.pixelHeight();
+    const int scrWinW  = kScreenWidth  + (int)(imstyle.WindowPadding.x * 2.0f) + 2;
+    const int scrWinH  = kScreenHeight + (int)(imstyle.WindowPadding.y * 2.0f + titleBarH) + 2;
+    const int dbgWinW  = 380;
+    const int dbgWinH  = std::max(scrWinH, 360);
+    const int termWinW = 690;
+    const int termWinH = scrWinH;
+    const int oskWinW  = (int)osk_.pixelWidth();
+    const int oskWinH  = (int)osk_.pixelHeight();
     const int statusBarH = (int)(ImGui::GetTextLineHeightWithSpacing() * 2.0f
                                  + imstyle.WindowPadding.y * 2.0f + 2.0f);
     int topRowW = 8
-                + (showScreen_   ? scrWinW + 8 : 0)
-                + (showDebugger_ ? dbgWinW + 8 : 0);
-    if (!showScreen_ && !showDebugger_) topRowW = 16;
-    int topRowH = std::max(showScreen_   ? scrWinH : 0,
-                           showDebugger_ ? dbgWinH : 0);
+                + (showScreen_   ? scrWinW  + 8 : 0)
+                + (showDebugger_ ? dbgWinW  + 8 : 0)
+                + (showTerminal_ ? termWinW + 8 : 0);
+    if (!showScreen_ && !showDebugger_ && !showTerminal_) topRowW = 16;
+    int topRowH = std::max({showScreen_   ? scrWinH  : 0,
+                            showDebugger_ ? dbgWinH  : 0,
+                            showTerminal_ ? termWinH : 0});
     int totalW  = std::max(topRowW, showKeyboard_ ? oskWinW + 16 : 0);
     if (totalW < 320) totalW = 320;
     int totalH  = menuBarHeight_ + 8 + topRowH
@@ -679,6 +773,7 @@ void App::resizeHostWindow()
     prevShowScreen_   = showScreen_;
     prevShowDebugger_ = showDebugger_;
     prevShowKeyboard_ = showKeyboard_;
+    prevShowTerminal_ = showTerminal_;
 }
 
 /* ── Menu rendering ─────────────────────────────────────────────────── */
@@ -956,6 +1051,7 @@ void App::drawViewMenu()
     ImGui::MenuItem("Screen",             nullptr, &showScreen_);
     ImGui::MenuItem("Debugger",           nullptr, &showDebugger_);
     ImGui::MenuItem("On-screen keyboard", nullptr, &showKeyboard_);
+    ImGui::MenuItem("Terminal",           nullptr, &showTerminal_);
     ImGui::EndMenu();
 }
 

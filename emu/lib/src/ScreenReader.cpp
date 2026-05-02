@@ -5,6 +5,7 @@
 #include <ms0515/ScreenReader.hpp>
 #include <ms0515/Emulator.hpp>
 #include <algorithm>
+#include <bit>
 #include <cstring>
 
 namespace ms0515 {
@@ -34,7 +35,8 @@ static const char *koi8r_to_utf8(uint8_t code)
 
 ScreenReader::ScreenReader()
 {
-    prev_.fill(0x20);
+    cachedSnap_.cells.fill(0x20);
+    lastDumped_.fill(0x20);
 }
 
 uint64_t ScreenReader::glyphKey(const uint8_t glyph[8])
@@ -76,21 +78,67 @@ uint8_t ScreenReader::lookup(uint64_t key) const
         return it->second;
     if (key == 0)
         return 0x20;  /* All-zero = blank */
-    return '?';
+    /* Sparse-pixel cells: any unmatched bitmap with fewer than 17
+     * set pixels (out of 64) is a thin horizontal-bar / leftover
+     * pattern.  At Hi-Res 640×200 → 1×2 framebuffer scaling those
+     * are barely-visible 1–2 pixel lines that the user reads as
+     * blank space; emitting █ for them in scrollback creates noise
+     * the user explicitly objected to.  Diag run on Rodionov OSA-B
+     * showed the persistent "stray █ at column 0" cells were exactly
+     * these (popcount 8 and 16, e.g. `00 00 00 00 00 00 ff 00` and
+     * `00 00 00 00 00 00 ff ff`).  Anything denser stays as
+     * kUnknownGlyph and renders as █ — those are real visible
+     * unknown glyphs (custom bitmaps the OS draws, e.g. ©). */
+    if (std::popcount(key) < 17)
+        return 0x20;
+    return kUnknownGlyph;
 }
+
+/* UTF-8 encoding of the "full block" character █ (U+2588) — the
+ * visible marker we emit for cells that decoded to kUnknownGlyph.
+ * Three bytes: 11100010 10010110 10001000. */
+static constexpr char kUnknownGlyphUtf8[] = "\xE2\x96\x88";
+
+/* UTF-8 encoding of the copyright sign © (U+00A9) — the
+ * representation we emit for kCopyrightSign cells (the Rodionov
+ * banner glyph and any other OS-drawn ©). */
+static constexpr char kCopyrightUtf8[] = "\xC2\xA9";
 
 void ScreenReader::putKoi8Char(FILE *f, uint8_t koi8)
 {
-    if (koi8 >= 0x20 && koi8 < 0x7F) {
+    if (koi8 == kUnknownGlyph) {
+        std::fputs(kUnknownGlyphUtf8, f);
+    } else if (koi8 == kCopyrightSign) {
+        std::fputs(kCopyrightUtf8, f);
+    } else if (koi8 >= 0x20 && koi8 < 0x7F) {
         std::fputc(koi8, f);
     } else if (koi8 >= 0xC0) {
         const char *utf = koi8r_to_utf8(koi8);
         if (utf)
             std::fputs(utf, f);
         else
-            std::fputc('?', f);
+            std::fputs(kUnknownGlyphUtf8, f);
     } else {
         std::fputc('.', f);
+    }
+}
+
+void ScreenReader::appendKoi8Char(std::string &dst, uint8_t koi8)
+{
+    if (koi8 == kUnknownGlyph) {
+        dst.append(kUnknownGlyphUtf8);
+    } else if (koi8 == kCopyrightSign) {
+        dst.append(kCopyrightUtf8);
+    } else if (koi8 >= 0x20 && koi8 < 0x7F) {
+        dst.push_back(static_cast<char>(koi8));
+    } else if (koi8 >= 0xC0) {
+        const char *utf = koi8r_to_utf8(koi8);
+        if (utf)
+            dst.append(utf);
+        else
+            dst.append(kUnknownGlyphUtf8);
+    } else {
+        dst.push_back('.');
     }
 }
 
@@ -137,6 +185,9 @@ static int findFontBase(std::span<const uint8_t> rom,
 void ScreenReader::buildFont(std::span<const uint8_t> rom)
 {
     glyphMap_.clear();
+    /* Decoded chars in the cell cache reflect the OLD font; drop them
+     * so the next readScreen re-decodes everything against the new map. */
+    invalidateCache();
 
     /*
      * Main-font anchor: the visual shape of '0' (KOI-8 0x30).  Glyphs
@@ -216,42 +267,52 @@ void ScreenReader::buildFont(std::span<const uint8_t> rom)
                 glyphMap_.emplace(key, static_cast<uint8_t>(code));
         }
     }
+
+    /*
+     * OS-drawn glyphs that aren't fetched from the ROM font tables.
+     * Some applications draw their own bitmaps via direct VRAM
+     * writes (e.g. boot banners with stylised symbols), and those
+     * patterns never appear in either ROM font — so without an
+     * explicit map entry they leak into scrollback as █ unknown
+     * markers.  Each entry below was extracted from a real boot
+     * trace; insertion is `try_emplace` so a ROM-supplied glyph
+     * with the same shape would still take precedence. */
+    static constexpr struct { uint64_t key; uint8_t code; } kCustomGlyphs[] = {
+        /* © as drawn by the Rodionov 1992 OSA boot banner: an 8×8
+         * circle with an internal "C" — bytes
+         * 3c 42 99 a1 a1 99 42 3c (popcount 26).  KOI-8R has no
+         * copyright sign, so we map it to kCopyrightSign (Latin-1
+         * 0xA9) and let appendKoi8Char/putKoi8Char emit the UTF-8
+         * sequence. */
+        { 0x3C4299A1A199423CULL, kCopyrightSign },
+    };
+    for (const auto &g : kCustomGlyphs)
+        glyphMap_.try_emplace(g.key, g.code);
 }
 
 void ScreenReader::update(std::span<const uint8_t> vram, bool hires)
 {
     if (!out_) return;
 
-    int cols = hires ? kHiresCols : kLoresCols;
+    /* Use the cached read so we don't redo the per-cell glyph lookup
+     * on every frame.  Then check whether anything has changed since
+     * the last time we actually emitted a dump. */
+    const Snapshot &snap = readScreen(vram, hires);
 
-    /* Scan all cells */
-    bool changed = false;
-    std::array<uint8_t, kHiresCols * kRows> screen;
-    screen.fill(0x20);
-
-    for (int row = 0; row < kRows; ++row) {
-        for (int col = 0; col < cols; ++col) {
-            uint64_t key = hires
-                ? readCell(vram, col, row, 80)
-                : readCellLores(vram, col, row);
-            uint8_t ch = lookup(key);
-            screen[row * kHiresCols + col] = ch;
-            if (!hasPrev_ || prev_[row * kHiresCols + col] != ch)
-                changed = true;
-        }
-    }
-
+    bool changed = !hasLastDumped_ ||
+                   std::memcmp(snap.cells.data(), lastDumped_.data(),
+                               snap.cells.size()) != 0;
     if (changed) {
-        dumpScreen(screen.data(), cols);
-        prev_ = screen;
-        hasPrev_ = true;
+        dumpScreen(snap.cells.data(), snap.cols);
+        lastDumped_     = snap.cells;
+        hasLastDumped_  = true;
     }
 }
 
 void ScreenReader::dumpFull(std::span<const uint8_t> vram, bool hires)
 {
     if (!out_) return;
-    hasPrev_ = false;
+    hasLastDumped_ = false;
     update(vram, hires);
 }
 
@@ -284,24 +345,48 @@ void ScreenReader::dumpScreen(const uint8_t *screen, int cols)
     std::fflush(out_);
 }
 
-/* ── Pure read (no streaming, no side effects) ──────────────────────────── */
-
+/* ── Cached read ────────────────────────────────────────────────────────── */
+/*
+ * For each cell we re-extract the 8-byte glyph bitmap from VRAM
+ * (cheap — eight byte loads + bit shifts) and compare its 64-bit key
+ * against `cachedKeys_`.  Cells whose key matches keep the decoded
+ * code from `cachedSnap_`; only mismatched cells go through the
+ * unordered_map font lookup.  On a static screen the inner branch
+ * collapses to a key compare per cell, which is what the upcoming
+ * terminal mode wants when polling every frame.
+ *
+ * A mode change (hires↔lores) invalidates the cache because the
+ * column count and the cell-to-VRAM mapping both differ.
+ */
 ScreenReader::Snapshot ScreenReader::readScreen(std::span<const uint8_t> vram,
-                                                bool hires) const
+                                                bool hires)
 {
-    Snapshot snap;
-    snap.cols = hires ? kHiresCols : kLoresCols;
-    snap.cells.fill(0x20);
+    const int cols = hires ? kHiresCols : kLoresCols;
+    const bool useCache = cacheValid_ && cachedCols_ == cols;
+
+    if (!useCache) {
+        cachedSnap_.cols = cols;
+        /* Pre-fill so cells outside the active column range
+         * (lores: 40..79) read back as blanks. */
+        cachedSnap_.cells.fill(0x20);
+    }
 
     for (int row = 0; row < kRows; ++row) {
-        for (int col = 0; col < snap.cols; ++col) {
-            uint64_t key = hires
+        for (int col = 0; col < cols; ++col) {
+            const int idx = row * kHiresCols + col;
+            const uint64_t key = hires
                 ? readCell(vram, col, row, 80)
                 : readCellLores(vram, col, row);
-            snap.cells[row * kHiresCols + col] = lookup(key);
+            if (useCache && cachedKeys_[idx] == key)
+                continue;
+            cachedKeys_[idx]        = key;
+            cachedSnap_.cells[idx]  = lookup(key);
         }
     }
-    return snap;
+
+    cachedCols_  = cols;
+    cacheValid_  = true;
+    return cachedSnap_;
 }
 
 std::string ScreenReader::Snapshot::row(int r) const

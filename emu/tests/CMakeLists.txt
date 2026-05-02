@@ -18,6 +18,8 @@ add_executable(ms0515_tests
     test_disassembler.cpp
     test_keyboard_emulated.cpp
     test_floppy.cpp
+    test_screen_reader.cpp
+    test_terminal.cpp
 )
 
 target_compile_features(ms0515_tests PRIVATE cxx_std_23)

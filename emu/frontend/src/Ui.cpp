@@ -7,10 +7,12 @@
 #include <ms0515/Debugger.hpp>
 #include <ms0515/Disassembler.hpp>
 #include <ms0515/Emulator.hpp>
+#include <ms0515/Terminal.hpp>
 #include <ms0515/board.h>
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <charconv>
 #include <cstring>
 #include <filesystem>
@@ -260,6 +262,125 @@ void drawStatusBar(const StatusBarState &s)
             ImGui::Text("Disk %d: empty", drive);
         }
     }
+
+    ImGui::End();
+}
+
+void drawTerminalWindow(ms0515::Terminal &term, bool &open, ImFont *monoFont)
+{
+    if (!ImGui::Begin("Terminal", &open)) {
+        ImGui::End();
+        return;
+    }
+
+    if (ImGui::Button("Clear"))
+        term.clearHistory();
+    ImGui::SameLine();
+    if (ImGui::Button("Copy"))
+        ImGui::SetClipboardText(term.history().c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled("(select with mouse · Ctrl+C copies)");
+
+    ImGui::Separator();
+
+    static size_t lastBufSize         = 0;
+    static size_t lastSeenScreenStart = 0;
+    const std::string &hist           = term.history();
+    const bool grew                   = hist.size() > lastBufSize;
+    lastBufSize                       = hist.size();
+    const size_t curScreenStart       = term.lastScreenStart();
+    const bool screenRedrawn          = curScreenStart != lastSeenScreenStart;
+    lastSeenScreenStart               = curScreenStart;
+
+    if (monoFont) ImGui::PushFont(monoFont);
+
+    /* Outer child window we own — controls scrolling.  The
+     * InputTextMultiline inside renders the body and provides
+     * mouse-drag selection plus Ctrl+C copy.  We size the input to
+     * exactly fit its content so its built-in vertical scrollbar
+     * never engages; vertical scroll happens on the outer child,
+     * where SetScrollY / SetScrollHereY actually work (the input's
+     * CallbackAlways is gated on the widget being focused, which it
+     * isn't on a freshly-opened window). */
+    ImGui::BeginChild("##term_scroll", ImVec2(-FLT_MIN, -FLT_MIN), false,
+                      ImGuiWindowFlags_HorizontalScrollbar);
+
+    const float lineH   = ImGui::GetTextLineHeight();
+    const float windowH = ImGui::GetWindowHeight();
+
+    const auto totalLines = hist.empty() ? 0.0f : static_cast<float>(
+        std::count(hist.begin(), hist.end(), '\n')
+        + (hist.back() == '\n' ? 0 : 1));
+    const float framePad   = ImGui::GetStyle().FramePadding.y * 2.0f;
+    const float inputH     = totalLines * lineH + framePad + 4.0f;
+
+    /* Drop the input's frame so it blends with the outer child —
+     * border, background tint, and rounding all suppressed. */
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,    ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
+
+    ImGui::InputTextMultiline(
+        "##term_input",
+        const_cast<char *>(hist.c_str()),
+        hist.size() + 1,
+        ImVec2(-FLT_MIN, inputH),
+        ImGuiInputTextFlags_ReadOnly);
+
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+
+    /* Tail padding for Ctrl+L-style redraw: ImGui clamps SetScrollY
+     * to ScrollMaxY (total - viewport).  If the new screen is shorter
+     * than the viewport, the desired top-anchor falls past
+     * ScrollMaxY and gets clamped, putting the screen at viewport
+     * bottom instead of top.  An invisible Dummy fills the gap so
+     * ScrollMaxY reaches the screen-start line.  As prints fill in
+     * below the screen, the gap shrinks; once content from
+     * screen-start exceeds the viewport, padding hits zero and
+     * auto-scroll-to-tail naturally takes over (top-of-screen
+     * scrolls off, exactly like a real terminal). */
+    const auto screenStartLine = static_cast<float>(
+        std::count(hist.data(), hist.data() + curScreenStart, '\n'));
+    const auto linesFromScreen = static_cast<float>(
+        curScreenStart < hist.size()
+            ? std::count(hist.data() + curScreenStart,
+                         hist.data() + hist.size(), '\n')
+              + 1   /* the last (possibly partial) line */
+            : 0);
+    const float padY = windowH - linesFromScreen * lineH;
+    if (padY > 0.0f)
+        ImGui::Dummy(ImVec2(0.0f, padY));
+
+    const float anchorY = screenStartLine * lineH;
+
+    if (screenRedrawn) {
+        /* The OS just redrew the screen — anchor the viewport top to
+         * the new screen's first line.  Old content scrolls into
+         * scrollback above; padding fills the still-empty area
+         * below.  Subsequent prints replace the padding until the
+         * viewport is full. */
+        ImGui::SetScrollY(anchorY);
+    } else if (grew) {
+        /* While the new screen still fits in the viewport, hold the
+         * anchor exactly at viewport top — don't let SetScrollHereY's
+         * "tail follow" drift it forward by ItemSpacing /
+         * WindowPadding (which would push the first line ~1 row off
+         * the top).  Once content from the anchor exceeds the
+         * viewport, switch to tail-follow so new lines stay visible
+         * — but only when the user is still near the tail; if they
+         * scrolled up to read history, leave them alone. */
+        if (linesFromScreen * lineH <= windowH) {
+            ImGui::SetScrollY(anchorY);
+        } else if (ImGui::GetScrollY() >=
+                   ImGui::GetScrollMaxY() - lineH * 2.0f) {
+            ImGui::SetScrollHereY(1.0f);
+        }
+    }
+
+    ImGui::EndChild();
+
+    if (monoFont) ImGui::PopFont();
 
     ImGui::End();
 }

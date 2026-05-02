@@ -18,9 +18,12 @@
 #include <cstdint>
 #include <string>
 
+struct ImFont;
+
 namespace ms0515 {
 class Emulator;
 class Debugger;
+class Terminal;
 } /* namespace ms0515 */
 
 namespace ms0515_frontend {
@@ -55,5 +58,15 @@ struct StatusBarState {
 };
 
 void drawStatusBar(const StatusBarState &s);
+
+/* Multiline scrollback view of Terminal::history().  Auto-scrolls to
+ * the bottom while the user hasn't manually scrolled up; once they do
+ * (typically to read older output) auto-scroll pauses until the view
+ * is brought back to the bottom.  A "Clear" button drops the
+ * accumulated history.  `monoFont` is the fixed-pitch face used to
+ * render the scrollback so the OS's 80-column grid lines up; pass
+ * nullptr to fall back to the default UI font. */
+void drawTerminalWindow(ms0515::Terminal &term, bool &open,
+                        ImFont *monoFont);
 
 } /* namespace ms0515_frontend */

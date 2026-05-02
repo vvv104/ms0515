@@ -46,6 +46,11 @@ std::vector<std::string> systemFontCandidates();
 /* System font paths for symbol/arrow glyph fallback. */
 std::vector<std::string> symbolFontCandidates();
 
+/* System monospace font paths — used by the Terminal window so the
+ * mirrored OS screen lines up in fixed columns the way the user sees
+ * it on the emulated 80-column display. */
+std::vector<std::string> monoFontCandidates();
+
 } /* namespace ms0515_frontend */
 
 #endif /* MS0515_FRONTEND_PLATFORM_HPP */

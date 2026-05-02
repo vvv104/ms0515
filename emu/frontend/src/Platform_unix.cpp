@@ -62,4 +62,21 @@ std::vector<std::string> symbolFontCandidates()
 #endif
 }
 
+std::vector<std::string> monoFontCandidates()
+{
+#ifdef __APPLE__
+    return {
+        "/System/Library/Fonts/Menlo.ttc",
+        "/System/Library/Fonts/Monaco.ttf",
+        "/Library/Fonts/Courier New.ttf",
+    };
+#else
+    return {
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+    };
+#endif
+}
+
 } /* namespace ms0515_frontend */

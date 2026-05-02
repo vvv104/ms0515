@@ -146,4 +146,13 @@ std::vector<std::string> symbolFontCandidates()
     };
 }
 
+std::vector<std::string> monoFontCandidates()
+{
+    return {
+        "C:\\Windows\\Fonts\\consola.ttf",   /* Consolas — has Cyrillic */
+        "C:\\Windows\\Fonts\\lucon.ttf",     /* Lucida Console */
+        "C:\\Windows\\Fonts\\cour.ttf",      /* Courier New */
+    };
+}
+
 } /* namespace ms0515_frontend */
