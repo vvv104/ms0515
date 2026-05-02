@@ -77,9 +77,6 @@ static std::vector<std::string> discoverFiles(const std::string &dir,
  * instead of CHECK so the suite stays green while the issues are
  * documented.  See also: docs/kb/KNOWN_ISSUES.md */
 static const std::set<std::pair<std::string, std::string>> kKnownBad = {
-    /* test_omega.dsk inherits Omega's video-mode setup from omega-lang
-     * — stalls on ms0515-roma.rom. */
-    {"ms0515-roma.rom", "test_omega.dsk"},
     /* RT-15SJ (Rodionov) was authored for ROM-A; with ROM-B the boot
      * stalls right after printing "НГМД готов..." — same behaviour as
      * the original 065_full.dsk on ROM-B, so this is a property of the

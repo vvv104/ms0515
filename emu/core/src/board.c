@@ -14,6 +14,7 @@
  */
 
 #include <ms0515/board.h>
+#include <ms0515/rom_patches.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -570,6 +571,28 @@ void board_step_cpu(ms0515_board_t *board)
 {
     int c = cpu_step(&board->cpu);
     board->total_cycles += (uint64_t)(c > 0 ? c : 1);
+}
+
+bool board_pre_step(ms0515_board_t *board)
+{
+    /*
+     * Cold-start vector observation.
+     *
+     * The MS0515 boot vector is 0o172000 — power-on jumps here, and
+     * any later fetch at this address means the machine effectively
+     * rebooted itself (game JMPed to ROM, watchdog, etc.).  The
+     * frontend uses board->unexpected_reset to take an automatic
+     * post-mortem snapshot.  This is a faithful observation, not a
+     * patch — 0o172000 is part of the MS0515 hardware contract.
+     */
+    if (board->cpu.r[CPU_REG_PC] == 0172000) {
+        if (board->reset_first_seen)
+            board->unexpected_reset = true;
+        board->reset_first_seen = true;
+    }
+
+    /* Hand off to the patch subsystem for any per-PC kludges. */
+    return rom_patches_apply(board);
 }
 
 void board_key_event(ms0515_board_t *board, uint8_t scancode)

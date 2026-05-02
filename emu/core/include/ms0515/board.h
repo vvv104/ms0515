@@ -219,6 +219,17 @@ bool board_step_frame(ms0515_board_t *board);
 void board_step_cpu(ms0515_board_t *board);
 
 /*
+ * board_pre_step — Hook invoked by cpu_step() before each
+ * instruction fetch.  Performs board-level observations (cold-start
+ * vector tracking) and gives the rom_patches subsystem a chance to
+ * intercept the upcoming instruction.  Returns true if execution
+ * was redirected (CPU should skip its normal fetch/dispatch this
+ * step, the hook has already updated PC and cycles); false to
+ * continue with normal execution.
+ */
+bool board_pre_step(ms0515_board_t *board);
+
+/*
  * board_key_event — Notify the board of a key press or release.
  */
 void board_key_event(ms0515_board_t *board, uint8_t scancode);
