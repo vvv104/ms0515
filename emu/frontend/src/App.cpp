@@ -629,38 +629,45 @@ void App::renderFrame()
     drawScreenWindow(window_, frameTex_, screenContentW, screenContentH,
                      menuBarHeight_, fullscreenOn_, showScreen_);
 
+    /* Debugger and Terminal both anchor to the right of the screen
+     * window — same x position, occupying the same slot in the
+     * layout.  When both are visible they overlap (z-order picks the
+     * focused one); the host window only has to be wide enough for
+     * the bigger of the two.  Use `Appearing` rather than
+     * `FirstUseEver` for the position/size so a hide-then-show
+     * sequence puts the window back at the calculated slot instead
+     * of a stale internal ImGui position. */
+    const int rightPanelX = 8 + (showScreen_ ? scrWinW + 8 : 0);
+
     if (showDebugger_ && !fullscreenOn_) {
-        int dbgX = 8 + (showScreen_ ? scrWinW + 8 : 0);
         ImGui::SetNextWindowPos(
-            ImVec2((float)dbgX, (float)(menuBarHeight_ + 8)),
-            ImGuiCond_FirstUseEver);
+            ImVec2((float)rightPanelX, (float)(menuBarHeight_ + 8)),
+            ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(
             ImVec2((float)dbgWinW, (float)dbgWinH),
-            ImGuiCond_FirstUseEver);
+            ImGuiCond_Appearing);
         drawDebuggerWindow(dbg_, running_, romStatus_, showDebugger_);
     }
     if (showKeyboard_ && !fullscreenOn_) {
-        int topRowH = std::max({showScreen_   ? scrWinH  : 0,
-                                showDebugger_ ? dbgWinH  : 0,
-                                showTerminal_ ? termWinH : 0});
+        const int rightPanelH = std::max(showDebugger_ ? dbgWinH  : 0,
+                                         showTerminal_ ? termWinH : 0);
+        const int topRowH = std::max(showScreen_ ? scrWinH : 0, rightPanelH);
         ImGui::SetNextWindowPos(
             ImVec2(8.0f, (float)(menuBarHeight_ + 8 + topRowH + 8)),
-            ImGuiCond_FirstUseEver);
+            ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(
             ImVec2((float)oskWinW, (float)oskWinH),
-            ImGuiCond_FirstUseEver);
+            ImGuiCond_Appearing);
         osk_.draw(emu_, showKeyboard_);
     }
 
     if (showTerminal_ && !fullscreenOn_) {
-        int termX = 8 + (showScreen_   ? scrWinW + 8 : 0)
-                      + (showDebugger_ ? dbgWinW + 8 : 0);
         ImGui::SetNextWindowPos(
-            ImVec2((float)termX, (float)(menuBarHeight_ + 8)),
-            ImGuiCond_FirstUseEver);
+            ImVec2((float)rightPanelX, (float)(menuBarHeight_ + 8)),
+            ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(
             ImVec2((float)termWinW, (float)termWinH),
-            ImGuiCond_FirstUseEver);
+            ImGuiCond_Appearing);
         drawTerminalWindow(terminal_, showTerminal_, terminalFont_);
     }
 
@@ -705,14 +712,19 @@ void App::resizeHostWindow()
     const int oskWinH  = (int)osk_.pixelHeight();
     const int statusBarH = (int)(ImGui::GetTextLineHeightWithSpacing() * 2.0f
                                  + imstyle.WindowPadding.y * 2.0f + 2.0f);
+    /* Debugger and Terminal share the same right-of-screen slot, so
+     * the host width grows by the WIDER of the two — not by the
+     * sum.  When neither is shown, the right-panel slot disappears
+     * entirely and the host shrinks back to just-the-screen. */
+    const int rightPanelW = std::max(showDebugger_ ? dbgWinW : 0,
+                                     showTerminal_ ? termWinW : 0);
+    const int rightPanelH = std::max(showDebugger_ ? dbgWinH : 0,
+                                     showTerminal_ ? termWinH : 0);
     int topRowW = 8
-                + (showScreen_   ? scrWinW  + 8 : 0)
-                + (showDebugger_ ? dbgWinW  + 8 : 0)
-                + (showTerminal_ ? termWinW + 8 : 0);
+                + (showScreen_                       ? scrWinW     + 8 : 0)
+                + ((showDebugger_ || showTerminal_)  ? rightPanelW + 8 : 0);
     if (!showScreen_ && !showDebugger_ && !showTerminal_) topRowW = 16;
-    int topRowH = std::max({showScreen_   ? scrWinH  : 0,
-                            showDebugger_ ? dbgWinH  : 0,
-                            showTerminal_ ? termWinH : 0});
+    int topRowH = std::max(showScreen_ ? scrWinH : 0, rightPanelH);
     int totalW  = std::max(topRowW, showKeyboard_ ? oskWinW + 16 : 0);
     if (totalW < 320) totalW = 320;
     int totalH  = menuBarHeight_ + 8 + topRowH
