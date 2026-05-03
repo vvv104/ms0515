@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(ms0515 VERSION 0.3.0 LANGUAGES C CXX)
+project(ms0515 VERSION 0.4.0 LANGUAGES C CXX)
 
 # ── Build options ────────────────────────────────────────────────────────────
 option(MS0515_BUILD_FRONTEND "Build the SDL2/ImGui frontend"  ON)
