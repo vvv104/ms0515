@@ -860,7 +860,7 @@ void Terminal::feedSample(const Terminal::Snapshot &snap)
     if (clean && progressing && hasShadow_) {
         for (int r = 0; r + 1 < Terminal::kRows; ++r) {
             const auto a = trimmedRow(snap, r);
-            if (a.empty()) continue;
+            if (a.size() < 3) continue;          /* see note below   */
             if (trimmedRow(snap, r + 1) != a) continue;
             /* Two consecutive non-blank rows in cur with identical
              * trimmed content.  Mid-scroll-copy signature: cur row R
@@ -871,7 +871,14 @@ void Terminal::feedSample(const Terminal::Snapshot &snap)
              * other directions — both preserved (a stable column of
              * identical prompts) or both changed (a fresh emit of
              * two identical lines) — the duplication is a real
-             * intentional layout, not a transient. */
+             * intentional layout, not a transient.
+             *
+             * Only fire on rows with at least 3 non-blank glyphs:
+             * mid-scroll-copy artifacts the original "MORDA .SCR /
+             * MORDA .SCR" report was about always involve substantial
+             * filename / path content, and short prompts (`.`, `@`,
+             * `>`) printed back-to-back as a column of identical
+             * one- or two-character lines were false-positiving. */
             if (trimmedRow(shadow_, r) != a
              && trimmedRow(shadow_, r + 1) == a) {
                 noAdjacentDup = false;

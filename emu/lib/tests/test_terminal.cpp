@@ -568,6 +568,41 @@ TEST_CASE("Same-row prefix divergence backspaces over the changed suffix") {
     CHECK(term.history() == "DEL FOO");
 }
 
+TEST_CASE("feedSample lets a ROM-monitor `@` prompt column through") {
+    /* MS-0515 ROM monitor prints `@` for each input cycle.  Pressing
+     * Enter alone advances cursor and prints `\n@` for the new
+     * prompt — the screen ends up with a column of one-character
+     * `@` rows.  Pre-fix, the no-adjacent-duplicate gate would
+     * flag two consecutive `@` rows as a mid-scroll-copy and drop
+     * every snap; now the gate skips rows with fewer than 3
+     * non-blank glyphs (mid-scroll-copy false positives are about
+     * file/path content, not single-character prompts). */
+    Terminal term;
+
+    auto rowsAt = [](std::initializer_list<std::pair<int, std::string>> at) {
+        Terminal::Snapshot s;
+        s.cols = Terminal::kHiresCols;
+        s.cells.fill(0x20);
+        for (const auto &[r, t] : at)
+            for (size_t c = 0; c < t.size(); ++c)
+                s.cells[r * Terminal::kHiresCols + c] =
+                    static_cast<uint8_t>(t[c]);
+        return s;
+    };
+
+    term.feedSample(rowsAt({{20, "@"}}));
+    REQUIRE(term.history() == "@");
+
+    term.feedSample(rowsAt({{20, "@"}, {21, "@"}}));
+    CHECK(term.history() == "@\n@");
+
+    term.feedSample(rowsAt({{20, "@"}, {21, "@"}, {22, "@"}}));
+    CHECK(term.history() == "@\n@\n@");
+
+    term.feedSample(rowsAt({{20, "@"}, {21, "@"}, {22, "@"}, {23, "@"}}));
+    CHECK(term.history() == "@\n@\n@\n@");
+}
+
 TEST_CASE("feedSample lets a column of identical prompts through") {
     /* Empty-Enter at a `.` prompt makes OSA print just `\n.` — the
      * new prompt lands on the row right below the previous one, so
