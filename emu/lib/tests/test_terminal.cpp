@@ -77,9 +77,11 @@ struct CaptureSink {
         const long n      = endPos > lastDrained ? endPos - lastDrained : 0;
         std::fseek(f, lastDrained, SEEK_SET);
         std::string out(static_cast<size_t>(n), '\0');
-        if (n > 0)
-            (void)std::fread(out.data(), 1,
-                             static_cast<size_t>(n), f);
+        if (n > 0) {
+            const size_t got = std::fread(out.data(), 1,
+                                          static_cast<size_t>(n), f);
+            out.resize(got);    /* defensive — handles a short read */
+        }
         std::fseek(f, endPos, SEEK_SET);
         lastDrained = endPos;
         return out;
