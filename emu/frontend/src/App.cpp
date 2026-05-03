@@ -199,22 +199,24 @@ void App::initEmulator()
     config_.save();
     emu_.enableRamDisk();
 
-    /* History ring + watchpoints — CLI overrides config. */
+    /* History ring + watchpoints — diagnostic features, routed through
+     * the Debugger so the public Emulator API stays free of these.
+     * CLI overrides config. */
     int histSize = cli_.historySize >= 0 ? cli_.historySize : config_.historySize;
     if (histSize > 0)
-        emu_.enableHistory(static_cast<std::size_t>(histSize));
+        dbg_.enableHistory(static_cast<std::size_t>(histSize));
     int watchAddr = cli_.historyWatchAddr >= 0
                   ? cli_.historyWatchAddr : config_.historyWatchAddr;
     int watchLen  = cli_.historyWatchLen  >= 0
                   ? cli_.historyWatchLen  : config_.historyWatchLen;
     if (watchLen > 0)
-        emu_.setMemoryWatch((uint16_t)watchAddr, (uint16_t)watchLen);
+        dbg_.setMemoryWatch((uint16_t)watchAddr, (uint16_t)watchLen);
     int rwAddr = cli_.historyReadWatchAddr >= 0
                ? cli_.historyReadWatchAddr : config_.historyReadWatchAddr;
     int rwLen  = cli_.historyReadWatchLen  >= 0
                ? cli_.historyReadWatchLen  : config_.historyReadWatchLen;
     if (rwLen > 0)
-        emu_.setReadWatch((uint16_t)rwAddr, (uint16_t)rwLen);
+        dbg_.setReadWatch((uint16_t)rwAddr, (uint16_t)rwLen);
 
     emu_.reset();
     applyKeyboardConfig();

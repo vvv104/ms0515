@@ -147,18 +147,8 @@ public:
 
     void enableRamDisk();
 
-    /* Size the event history ring (0 disables).  Can be toggled any
-     * time — resizing discards the current contents. */
-    void enableHistory(std::size_t nEvents);
-
-    /* Set a memory-write watchpoint.  When len > 0, every byte or word
-     * write to [addr, addr+len) pushes a MEMW event into the history
-     * ring.  Pass len=0 to clear. */
-    void setMemoryWatch(std::uint16_t addr, std::uint16_t len);
-
-    /* Same for reads — emits MEMR events.  Can fire thousands of times
-     * per polling loop; size the history ring accordingly. */
-    void setReadWatch(std::uint16_t addr, std::uint16_t len);
+    /* History ring & memory watchpoints used to live here; they moved
+     * onto `Debugger` (diagnostic surface) — see Debugger.hpp. */
 
     /* ── Snapshot (save/load state) ────────────────────────────────────── */
 

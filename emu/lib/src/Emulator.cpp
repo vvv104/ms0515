@@ -192,21 +192,6 @@ void Emulator::enableRamDisk()
     board_ramdisk_enable(&impl_->board);
 }
 
-void Emulator::enableHistory(std::size_t nEvents)
-{
-    board_enable_history(&impl_->board, nEvents);
-}
-
-void Emulator::setMemoryWatch(std::uint16_t addr, std::uint16_t len)
-{
-    board_set_memory_watch(&impl_->board, addr, len);
-}
-
-void Emulator::setReadWatch(std::uint16_t addr, std::uint16_t len)
-{
-    board_set_read_watch(&impl_->board, addr, len);
-}
-
 /* ── Execution ──────────────────────────────────────────────────────────── */
 
 bool Emulator::stepFrame()

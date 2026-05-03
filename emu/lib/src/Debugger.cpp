@@ -41,6 +41,23 @@ bool Debugger::hasBreakpoint(uint16_t address) const
     return breakpoints_.contains(address);
 }
 
+/* ── History ring + memory watchpoints ─────────────────────────────────── */
+
+void Debugger::enableHistory(std::size_t nEvents)
+{
+    board_enable_history(&internal::board(emu_), nEvents);
+}
+
+void Debugger::setMemoryWatch(std::uint16_t addr, std::uint16_t len)
+{
+    board_set_memory_watch(&internal::board(emu_), addr, len);
+}
+
+void Debugger::setReadWatch(std::uint16_t addr, std::uint16_t len)
+{
+    board_set_read_watch(&internal::board(emu_), addr, len);
+}
+
 /* ── Internal helpers ───────────────────────────────────────────────────── */
 
 bool Debugger::checkBreakpoint()

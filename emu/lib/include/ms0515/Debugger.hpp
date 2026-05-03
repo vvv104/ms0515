@@ -53,6 +53,26 @@ public:
     [[nodiscard]] const std::unordered_set<uint16_t> &breakpoints() const noexcept
     { return breakpoints_; }
 
+    /* ── History ring + memory watchpoints ───────────────────────────────
+     * Diagnostic features — they belong on the debugger surface so the
+     * public Emulator API stays focused on running-the-machine
+     * concerns.  The underlying ring lives on the C-side board; these
+     * methods proxy through to it without requiring callers to know
+     * the board layout. */
+
+    /* Size the event-history ring (0 disables, default).  Resizing
+     * discards the current contents. */
+    void enableHistory(std::size_t nEvents);
+
+    /* Memory-write watchpoint.  When `len > 0`, every byte/word write
+     * to `[addr, addr+len)` pushes a MEMW event into the history ring
+     * (requires `enableHistory(>0)` to be useful).  `len = 0` clears. */
+    void setMemoryWatch(std::uint16_t addr, std::uint16_t len);
+
+    /* Memory-read watchpoint — emits MEMR events.  Can fire thousands
+     * of times per polling loop; size the history ring accordingly. */
+    void setReadWatch(std::uint16_t addr, std::uint16_t len);
+
     /* ── Execution control ──────────────────────────────────────────────── */
 
     StopReason stepInstruction();
