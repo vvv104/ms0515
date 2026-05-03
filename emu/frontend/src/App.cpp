@@ -6,6 +6,7 @@
 #include "Ui.hpp"
 
 #include <ms0515/board.h>
+#include <ms0515/cpu.h>
 
 #include <imgui.h>
 #include "imgui_impl_sdl2.h"
@@ -559,64 +560,40 @@ void App::tick()
             emuTimeAccumMs_ -= kFrameMs;
             ++emuFramesSinceReset_;
             ++emuFramesInWindow_;
-        }
-        {
-            /* Feed both the legacy CLI dump (no-op when no
-             * --screen-dump file is configured) and the in-app
-             * Terminal mirror.  Terminal accumulates history every
-             * tick whether or not its window is currently open, so
-             * a user opening it later sees everything since boot.
+            /* Skip sampling while the CPU is inside the BIOS scroll
+             * routines.  Disasm of ROM-A located two address ranges
+             * that perform mass VRAM copy:
              *
-             * Per-row stitching: a row updates `stableView_` only
-             * when it is both
+             *   - 0o165340–0o165502: scroll-up-by-1-cell-row (entry
+             *     from 0o165324 when row counter reaches 030).
+             *     Copies 1920 bytes from VRAM+1200 to VRAM+0
+             *     (8 scanlines × 80 bytes × 24 cell rows of source),
+             *     then clears the new bottom row.
              *
-             *   - clean (no unknown-glyph cells; mid-bitmap-rewrite
-             *     produces partial keys that decode as kUnknownGlyph), AND
-             *   - stable (matches the previous raw sample's same row
-             *     so we know its content has held still for at least
-             *     one inter-sample interval).
+             *   - 0o167160–0o167334: coordinate-based scroll variant
+             *     used by the OS terminal driver when scrolling a
+             *     specific region.  Same MOV (R5)+,(R4)+ pattern.
              *
-             * Rows that fail either check stay frozen at their last
-             * stable value.  The stitched snapshot is then forwarded
-             * to Terminal — its diff classifier sees only stable
-             * rows, so partial-write garbage like
-             * "      .SYS      P 27-12-90" or transient unknown
-             * blocks never reach scrollback. */
-            const auto rawSnap = screenReader_.readScreen(
+             * Sampling mid-routine catches partial states where some
+             * cells have been copied but others haven't — exactly the
+             * "      .SYS     2P 27-12-90" mid-scroll-copy garbage.
+             * Skip those frames; the next emu frame after the routine
+             * exits will be a clean post-scroll state.
+             *
+             * Address ranges are ROM-A specific.  ROM-B / different
+             * OSes that ship their own scroll in RAM still benefit
+             * from the Terminal::feedSample gates (clean/progressing/
+             * no-adjacent-duplicate) as a fallback. */
+            const uint16_t pc = emu_.cpu().r[CPU_REG_PC];
+            if ((pc >= 0165340u && pc <= 0165502u) ||
+                (pc >= 0167160u && pc <= 0167334u))
+                continue;
+
+            const auto snap = screenReader_.readScreen(
                 {emu_.vram(), MEM_VRAM_SIZE}, emu_.isHires());
             screenReader_.update(
                 {emu_.vram(), MEM_VRAM_SIZE}, emu_.isHires());
-
-            using ms0515::ScreenReader;
-            auto stitched = rawSnap;
-            for (int r = 0; r < ScreenReader::kRows; ++r) {
-                const uint8_t *cur = &rawSnap.cells[r * ScreenReader::kHiresCols];
-                bool clean = true;
-                for (int c = 0; c < rawSnap.cols; ++c) {
-                    if (cur[c] == ScreenReader::kUnknownGlyph) {
-                        clean = false;
-                        break;
-                    }
-                }
-                bool stable = false;
-                if (hasPrevRawSnap_ && prevRawSnap_.cols == rawSnap.cols) {
-                    const uint8_t *prev = &prevRawSnap_.cells[
-                        r * ScreenReader::kHiresCols];
-                    stable = std::memcmp(cur, prev,
-                        static_cast<size_t>(rawSnap.cols)) == 0;
-                }
-                if (!(clean && stable) && hasStableView_) {
-                    std::memcpy(
-                        &stitched.cells[r * ScreenReader::kHiresCols],
-                        &stableView_.cells[r * ScreenReader::kHiresCols],
-                        static_cast<size_t>(rawSnap.cols));
-                }
-            }
-            stableView_     = stitched;
-            hasStableView_  = true;
-            prevRawSnap_    = rawSnap;
-            hasPrevRawSnap_ = true;
-            terminal_.update(stitched);
+            terminal_.feedSample(snap);
         }
     } else {
         lastTickMs_     = SDL_GetTicks();

@@ -73,8 +73,31 @@ public:
      * delta to `out_` and the in-memory history.  Trailing blanks
      * are always stripped — the OS pre-fills its 80×25 cell grid
      * with spaces; the host terminal sees only meaningful
-     * characters. */
+     * characters.  Assumes the caller has already filtered out
+     * mid-redraw / mid-scroll garbage; tests pass hand-crafted
+     * Snapshots straight to this entry point. */
     void update(const ScreenReader::Snapshot &snap);
+
+    /* Live sampling entry point.  Drives every raw screen-reader
+     * sample through three stability gates before forwarding to
+     * update():
+     *
+     *   1. Clean       — no kUnknownGlyph cells in the snap (would
+     *                    mean partial bitmap rewrite caught mid-cell).
+     *   2. Stable      — whole snap matches the previous raw sample
+     *                    (so we know the OS finished its current
+     *                    operation by the time we sampled).
+     *   3. Progressing — no row in the snap is a strict-subset
+     *                    partial copy of *any* row in the last
+     *                    forwarded snap (catches mid-scroll states
+     *                    where the OS is copying content from one
+     *                    row into another cell-by-cell, paused
+     *                    long enough to look stable for two ticks).
+     *
+     * Snaps that fail any gate are dropped — the next sample lands
+     * one tick later, and once the OS is done its real state passes
+     * all three gates and reaches scrollback. */
+    void feedSample(const ScreenReader::Snapshot &snap);
 
     /* Read-only access to every byte the mirror has ever emitted.
      * Returned as `const std::string&` (rather than string_view) so
@@ -196,6 +219,13 @@ private:
      * line in cur starts with this string, we emit just the
      * appended tail instead of duplicating the prefix. */
     std::string lastEmittedLine_;
+
+    /* feedSample() state — the last raw snapshot we forwarded to
+     * update().  Used by the progressing gate to detect mid-scroll
+     * copy patterns by checking whether any row in the new sample
+     * is a strict-subset partial copy of any row in this reference. */
+    Snapshot    lastForwardedSnap_;
+    bool        hasLastForwardedSnap_ = false;
 
     /* Byte offset in history_ where the most recent "screen redraw"
      * starts — updated by the initial dump and by the dedup

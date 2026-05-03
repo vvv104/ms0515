@@ -106,24 +106,6 @@ private:
     ms0515::Debugger     dbg_{emu_};
     ms0515::ScreenReader screenReader_;
     ms0515::Terminal     terminal_;
-    /* Per-row stable view of the screen.  Each tick we read a fresh
-     * snapshot from VRAM; rows that are still mid-write (either
-     * decode contains unknown-glyph cells, or content differs from
-     * the previous raw sample of that row) are stitched in from
-     * this stable view instead of being forwarded as-is.  A row
-     * has to be both clean AND stable across two consecutive
-     * samples to actually update stableView_ — that's how we filter
-     * mid-scroll garbage like "      .SYS     2P 27-12-90"
-     * (cells partially blanked while the OS copies content between
-     * rows) which has no unknown-glyph signature but is still in
-     * flux. */
-    ms0515::ScreenReader::Snapshot stableView_;
-    bool                           hasStableView_ = false;
-    /* The previous tick's raw (unpatched) snapshot — what the
-     * screen reader produced before any stitching.  Used to gate
-     * stableView_ updates on per-row stability across two ticks. */
-    ms0515::ScreenReader::Snapshot prevRawSnap_;
-    bool                           hasPrevRawSnap_ = false;
     Video                video_;
     ImFont              *terminalFont_ = nullptr;
     Audio                audio_;

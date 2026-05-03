@@ -279,7 +279,7 @@ void drawTerminalWindow(ms0515::Terminal &term, bool &open, ImFont *monoFont)
     if (ImGui::Button("Copy"))
         ImGui::SetClipboardText(term.history().c_str());
     ImGui::SameLine();
-    ImGui::TextDisabled("(select with mouse · Ctrl+C copies)");
+    ImGui::TextDisabled("(Copy dumps the whole scrollback)");
 
     ImGui::Separator();
 
@@ -294,41 +294,23 @@ void drawTerminalWindow(ms0515::Terminal &term, bool &open, ImFont *monoFont)
 
     if (monoFont) ImGui::PushFont(monoFont);
 
-    /* Outer child window we own — controls scrolling.  The
-     * InputTextMultiline inside renders the body and provides
-     * mouse-drag selection plus Ctrl+C copy.  We size the input to
-     * exactly fit its content so its built-in vertical scrollbar
-     * never engages; vertical scroll happens on the outer child,
-     * where SetScrollY / SetScrollHereY actually work (the input's
-     * CallbackAlways is gated on the widget being focused, which it
-     * isn't on a freshly-opened window). */
+    /* Single-child rendering: TextUnformatted in a BeginChild we
+     * own.  Earlier tried InputTextMultiline for inline drag-select,
+     * but it nests its own scrollable child inside our outer child —
+     * giving the user two scrollbars and breaking SetScrollY.  Use
+     * Copy button for clipboard for now; per-line Selectable could
+     * be layered on later if needed. */
     ImGui::BeginChild("##term_scroll", ImVec2(-FLT_MIN, -FLT_MIN), false,
                       ImGuiWindowFlags_HorizontalScrollbar);
 
     const float lineH   = ImGui::GetTextLineHeight();
     const float windowH = ImGui::GetWindowHeight();
 
-    const auto totalLines = hist.empty() ? 0.0f : static_cast<float>(
-        std::count(hist.begin(), hist.end(), '\n')
-        + (hist.back() == '\n' ? 0 : 1));
-    const float framePad   = ImGui::GetStyle().FramePadding.y * 2.0f;
-    const float inputH     = totalLines * lineH + framePad + 4.0f;
-
-    /* Drop the input's frame so it blends with the outer child —
-     * border, background tint, and rounding all suppressed. */
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,    ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
-
-    ImGui::InputTextMultiline(
-        "##term_input",
-        const_cast<char *>(hist.c_str()),
-        hist.size() + 1,
-        ImVec2(-FLT_MIN, inputH),
-        ImGuiInputTextFlags_ReadOnly);
-
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(2);
+    /* Tight line spacing — terminal output looks wrong with the
+     * default ItemSpacing.y between rows. */
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+    ImGui::TextUnformatted(hist.data(), hist.data() + hist.size());
+    ImGui::PopStyleVar();
 
     /* Tail padding for Ctrl+L-style redraw: ImGui clamps SetScrollY
      * to ScrollMaxY (total - viewport).  If the new screen is shorter

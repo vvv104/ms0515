@@ -46,11 +46,12 @@ Terminal::Terminal()
 void Terminal::reset() noexcept
 {
     shadow_.cells.fill(0x20);
-    shadow_.cols     = ScreenReader::kHiresCols;
-    hasShadow_       = false;
-    lastEmitRow_     = -1;
+    shadow_.cols          = ScreenReader::kHiresCols;
+    hasShadow_            = false;
+    lastEmitRow_          = -1;
     lastEmittedLine_.clear();
-    lastScreenStart_ = 0;
+    lastScreenStart_      = 0;
+    hasLastForwardedSnap_ = false;
 }
 
 void Terminal::emitChar(char c)
@@ -333,12 +334,22 @@ void Terminal::emitDedup(const Snapshot &cur)
                  "-------------------------------- screen redrawn "
                  "--------------------------------\n");
         lastScreenStart_ = history_.size();
-        int lastIdx = -1;
+        /* Reproduce the OS row layout faithfully: emit row.idx
+         * newlines before the first non-blank row's content (so any
+         * blank rows above it on the OS screen become blank lines
+         * in scrollback), then row.idx-prevIdx newlines between
+         * subsequent rows.  Without this, blank rows at the top of
+         * a freshly-drawn screen (e.g. POST starting with three
+         * empty rows above the "Электроника" banner) get collapsed
+         * and the visual layout differs from what the OS shows. */
+        int prevIdx = 0;
+        bool first = true;
         for (const auto &row : rows) {
-            if (lastIdx >= 0)
-                for (int i = lastIdx; i < row.idx; ++i) emitChar('\n');
+            const int gap = first ? row.idx : (row.idx - prevIdx);
+            for (int i = 0; i < gap; ++i) emitChar('\n');
             for (uint8_t c : row.text) emitKoi8(c);
-            lastIdx = row.idx;
+            prevIdx = row.idx;
+            first = false;
         }
         if (!rows.empty())
             lastEmittedLine_ = rows.back().text;
@@ -397,6 +408,108 @@ static void emitRowsSeparated(Terminal &t, const ScreenReader::Snapshot &snap,
         emitText(text);
     }
     (void)t;
+}
+
+void Terminal::feedSample(const ScreenReader::Snapshot &snap)
+{
+    /* Gate 1: clean — no unknown-glyph cells (mid-bitmap-rewrite
+     * produces partial keys that decode as kUnknownGlyph). */
+    bool clean = true;
+    for (uint8_t code : snap.cells) {
+        if (code == ScreenReader::kUnknownGlyph) {
+            clean = false;
+            break;
+        }
+    }
+
+    /* Gate 2: progressing — no row in `snap` is a strict-subset
+     * partial copy of *any* row in the last forwarded snap.
+     * Mid-scroll routines copy content from one row into another
+     * cell-by-cell; the intermediate state has cur.row[R] looking
+     * like a partial copy of lastForwardedSnap_.row[R'] for some R'.
+     * Strict subset = cur's non-blanks are at the same positions
+     * as ref's with the same values, and cur has fewer non-blanks.
+     * Reject those — they're mid-scroll-copy garbage.
+     *
+     * Stability across two consecutive samples was tried as a third
+     * gate but rejected almost every mid-DIR frame at per-emu-frame
+     * sampling (consecutive samples differ by one printed line).
+     * Letting non-stable but clean+progressing samples through is
+     * what allows files 1-2 of a fast DIR to reach scrollback before
+     * scrolling pushes them off the OS screen. */
+    /* Treat cursor cells (any character listed in transparentChars_)
+     * as blank when comparing — otherwise cursor blink (cell
+     * toggling between '_' and ' ') makes a row look like a strict
+     * subset of itself-with-cursor and trips the progressing gate
+     * every time the user is at a prompt.  All forwards get
+     * rejected, and the next clean state we eventually accept is
+     * far past the prompt — which is exactly what produced the
+     * spurious "screen redrawn" separators between successive
+     * commands. */
+    auto stripTransparent = [&](uint8_t c) -> uint8_t {
+        return transparentChars_.find(static_cast<char>(c))
+                 != std::string::npos ? uint8_t(0x20) : c;
+    };
+
+    bool progressing = true;
+    if (clean && hasLastForwardedSnap_
+     && lastForwardedSnap_.cols == snap.cols) {
+        for (int r = 0; r < ScreenReader::kRows && progressing; ++r) {
+            const uint8_t *cur = &snap.cells[r * ScreenReader::kHiresCols];
+            int curNonBlank = 0;
+            for (int c = 0; c < snap.cols; ++c)
+                if (stripTransparent(cur[c]) != 0x20) ++curNonBlank;
+            if (curNonBlank < 3) continue;
+            for (int rr = 0; rr < ScreenReader::kRows; ++rr) {
+                const uint8_t *ref = &lastForwardedSnap_.cells[
+                    rr * ScreenReader::kHiresCols];
+                int refNonBlank = 0;
+                bool subset = true;
+                for (int c = 0; c < snap.cols; ++c) {
+                    const uint8_t curC = stripTransparent(cur[c]);
+                    const uint8_t refC = stripTransparent(ref[c]);
+                    if (refC != 0x20) ++refNonBlank;
+                    if (curC != 0x20 && refC != curC) {
+                        subset = false;
+                        break;
+                    }
+                }
+                if (subset && curNonBlank < refNonBlank) {
+                    progressing = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    /* Gate 3: no-adjacent-duplicate — two consecutive non-blank
+     * rows with identical trimmed content are the signature of an
+     * in-progress scroll-up that copied row R+1 to row R but
+     * hasn't yet cleared row R+1 (the original).  detectScrollUp
+     * would happily match (cur[i] == shadow[i+1] holds) and emit
+     * cur's bottom row as "new content" — except it's the SAME
+     * row that's already at row R, so we'd duplicate it in
+     * scrollback (the "MORDA .SCR ... / MORDA .SCR ..." pattern
+     * the user reported).  The OS finishes the clear within a few
+     * cycles; skip this sample and the next clean one will be the
+     * proper post-scroll state. */
+    bool noAdjacentDup = true;
+    if (clean && progressing) {
+        for (int r = 0; r + 1 < ScreenReader::kRows; ++r) {
+            const auto a = trimmedRow(snap, r);
+            if (a.empty()) continue;
+            if (trimmedRow(snap, r + 1) == a) {
+                noAdjacentDup = false;
+                break;
+            }
+        }
+    }
+
+    if (clean && progressing && noAdjacentDup) {
+        update(snap);
+        lastForwardedSnap_    = snap;
+        hasLastForwardedSnap_ = true;
+    }
 }
 
 void Terminal::update(const ScreenReader::Snapshot &snap)

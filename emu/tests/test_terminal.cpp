@@ -580,47 +580,12 @@ TEST_CASE("DIAG: Rodionov OSA-B real boot — screen vs Terminal mirror"
     sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
     Terminal term;
 
-    /* App-style sampling: per-row stitching.  A row updates
-     * `stableView` only when it's both clean (no unknown-glyph
-     * cells) and stable (matches the previous raw sample).  Rows
-     * that fail either check are stitched in from `stableView`'s
-     * last stable value, keeping partial-write garbage out of
-     * scrollback. */
-    ScreenReader::Snapshot stableView;
-    ScreenReader::Snapshot prevRaw;
-    bool hasStable = false;
-    bool hasPrevRaw = false;
+    /* Drive each tick's raw sample through Terminal::feedSample —
+     * Terminal owns the stability gates; the test just supplies
+     * the stream. */
     auto sample = [&]{
         const auto raw = sr.readScreen({emu.vram(), MEM_VRAM_SIZE}, emu.isHires());
-        auto stitched = raw;
-        for (int r = 0; r < ScreenReader::kRows; ++r) {
-            const uint8_t *cur = &raw.cells[r * ScreenReader::kHiresCols];
-            bool clean = true;
-            for (int c = 0; c < raw.cols; ++c) {
-                if (cur[c] == ScreenReader::kUnknownGlyph) {
-                    clean = false;
-                    break;
-                }
-            }
-            bool stable = false;
-            if (hasPrevRaw && prevRaw.cols == raw.cols) {
-                const uint8_t *prev = &prevRaw.cells[
-                    r * ScreenReader::kHiresCols];
-                stable = std::memcmp(cur, prev,
-                    static_cast<size_t>(raw.cols)) == 0;
-            }
-            if (!(clean && stable) && hasStable) {
-                std::memcpy(
-                    &stitched.cells[r * ScreenReader::kHiresCols],
-                    &stableView.cells[r * ScreenReader::kHiresCols],
-                    static_cast<size_t>(raw.cols));
-            }
-        }
-        stableView = stitched;
-        hasStable = true;
-        prevRaw = raw;
-        hasPrevRaw = true;
-        term.update(stitched);
+        term.feedSample(raw);
     };
 
     auto checkpoint = [&](const char *label){
