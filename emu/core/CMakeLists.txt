@@ -24,3 +24,7 @@ target_include_directories(ms0515_core
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+if(MS0515_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

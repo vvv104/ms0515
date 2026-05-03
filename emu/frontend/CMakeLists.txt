@@ -77,3 +77,7 @@ add_custom_command(TARGET ms0515 POST_BUILD
         "${CMAKE_SOURCE_DIR}/assets/disks" "${PACKAGE_DIR}/assets/disks"
     COMMENT "Packaging ms0515 into ${PACKAGE_DIR}"
 )
+
+if(MS0515_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

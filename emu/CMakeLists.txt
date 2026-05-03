@@ -12,15 +12,18 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 endif()
 
+if(MS0515_BUILD_TESTS)
+    enable_testing()
+endif()
+
 # ── Sub-projects ─────────────────────────────────────────────────────────────
+# Each layer pulls in its own tests/ subdirectory when MS0515_BUILD_TESTS is
+# on, so each yields a separate test binary.  The top-level tests/ folder
+# is gone — keeping the test split aligned with the layering enforces (and
+# documents) the dependency direction at link time.
 add_subdirectory(core)
 add_subdirectory(lib)
 
 if(MS0515_BUILD_FRONTEND)
     add_subdirectory(frontend)
-endif()
-
-if(MS0515_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
 endif()

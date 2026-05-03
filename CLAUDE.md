@@ -22,8 +22,11 @@ Three-layer emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 emu/                — emulator source code and build files
   core/src/         — cpu.c, cpu_ops.c, memory.c, timer.c, keyboard.c, floppy.c, board.c
   core/include/     — ms0515/*.h headers
+  core/tests/       — pure-core unit tests (link only against ms0515_core)
   lib/              — C++ wrapper (Emulator, Debugger, Disassembler, GdbStub)
+  lib/tests/        — lib-level tests (Emulator/ScreenReader/Terminal) + disk fixtures
   frontend/         — SDL2 + ImGui application
+  frontend/tests/   — placeholder for future frontend tests
   assets/           — runtime resources (ROM files, keyboard layout, disk images)
 docs/               — architecture and subsystem documentation
   kb/              — knowledge base (references, verification, known issues)

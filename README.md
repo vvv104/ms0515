@@ -26,12 +26,14 @@ T-11), produced in the late 1980s.
 docs/           Technical documentation (architecture, hardware, kb, TODO)
 emu/            Emulator source code and build system
   core/         Hardware emulation in pure C11
+    tests/      Unit tests for the C core (cpu, memory, timer, …)
   lib/          C++ wrapper (Emulator, Debugger, Disassembler, GDB stub)
+    tests/      Lib-level tests + trimmed-OS disk fixtures (boot smoke,
+                screen reader, terminal, emulated keyboard)
   frontend/     SDL2 + Dear ImGui application
+    tests/      Placeholder for future frontend tests
   assets/       Runtime resources shipped to end users (ROMs, keyboard
                 layout, original-OS disk images)
-  tests/        Unit and boot-smoke test suite, plus trimmed-OS test
-                disk fixtures
 tools/          Utility scripts (PDP-11 disassembler, disk tools)
 ```
 
