@@ -95,8 +95,6 @@ CliArgs parseArgs(int argc, char **argv)
             out.dsPath[dsOpt->drive] = argv[++i];
         } else if (a == "--frames" && i + 1 < argc) {
             out.maxFrames = std::atoi(argv[++i]);
-        } else if (a == "--screen-dump" && i + 1 < argc) {
-            out.screenDumpPath = argv[++i];
         } else if (a == "--screenshot" && i + 1 < argc) {
             out.screenshotPath = argv[++i];
         } else if (a == "--screenshot-frame" && i + 1 < argc) {

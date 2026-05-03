@@ -17,11 +17,8 @@
 #ifndef MS0515_EMULATOR_HPP
 #define MS0515_EMULATOR_HPP
 
-#include <ms0515/ScreenReader.hpp>
-
 #include <array>
 #include <cstdint>
-#include <cstdio>      /* FILE for setScreenDumpFile */
 #include <expected>
 #include <functional>
 #include <memory>
@@ -203,20 +200,11 @@ public:
     [[nodiscard]] bool                     halted()        const noexcept;
     [[nodiscard]] bool                     waiting()       const noexcept;
 
-    /* ── Screen reading ────────────────────────────────────────────────── */
-
-    /* Decode the current VRAM into a KOI-8 cell snapshot.  The font
-     * map is rebuilt automatically on every loadRom / loadState — the
-     * frontend never needs to call buildFont directly.  Snapshots are
-     * the canonical input to `Terminal::feedSample` and the textual
-     * tests; visual rendering still goes through forEachXxxPixel. */
-    [[nodiscard]] ScreenReader::Snapshot screenSnapshot();
-
-    /* Stream changed cells to a host FILE* (typically stderr/stdout
-     * for headless logging).  Pass nullptr to disable.  No-op when
-     * the screen has not changed since the last flush. */
-    void setScreenDumpFile(FILE *f) noexcept;
-    void flushScreenDump();
+    /* Screen text decoding lives on `Terminal` — call
+     * `terminal.update(emu)` once per frame; it reads VRAM, builds a
+     * font map against the current ROM (auto-rebuilt on ROM change),
+     * and feeds the resulting snapshot through the diff/scrollback
+     * classifier. */
 
     /* Visit every pixel of the current frame in raster-scan order
      * and invoke `cb` with its coordinates and decoded attributes.

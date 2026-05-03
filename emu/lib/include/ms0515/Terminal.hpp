@@ -1,17 +1,24 @@
 /*
- * Terminal.hpp — Output-only host-terminal mirror.
+ * Terminal.hpp — VRAM-decoded scrollback mirror.
  *
- * Sits on top of ScreenReader and replays the emulated OS's text
- * screen as a linear stream of host-terminal output.  Its job is to
- * recognise the three diff patterns that show up while the OS is at
- * a command prompt:
+ * Owns the entire VRAM → host-terminal pipeline:
  *
- *   1. Append    — characters added at the end of one row (echoed
- *                  user input or freshly printed output).
- *   2. Scroll-up — top rows fall off, the bottom rows are new
- *                  (OS printed past the last screen line).
- *   3. Redraw    — anything else (clear-screen, big rewrite, mode
- *                  change).  Emits a marker and the current screen.
+ *   1. Decode VRAM into an 80×25 (or 40×25 in lores) cell snapshot of
+ *      KOI-8 codes, using a font map built from the current ROM.
+ *   2. Diff the snapshot against the previous one and emit just the
+ *      delta — characters appended at end-of-line, scroll-up content,
+ *      or a full redraw — to an in-memory history string and (if
+ *      configured) to a host FILE*.
+ *
+ * Two patterns the diff classifier recognises while the OS is at a
+ * command prompt:
+ *
+ *   - Append    — characters added at the end of one row (echoed
+ *                 user input or freshly printed output).
+ *   - Scroll-up — top rows fall off, the bottom rows are new
+ *                 (OS printed past the last screen line).
+ *   - Redraw    — anything else (clear-screen, big rewrite, mode
+ *                 change).  Emits the full current screen.
  *
  * What it intentionally does NOT do:
  *   - Position the host-terminal cursor with ANSI escapes.  We rely
@@ -23,183 +30,229 @@
  *     The cursor character is treated as a transparent blank for
  *     diffing — see `setCursorChar`.
  *
- * Caller wires it up by feeding a freshly-read Snapshot every frame
- * (or on a slower cadence — the diff handles arbitrary deltas).
- * Phase 1 of the terminal feature: output only; keyboard injection
- * back into the OS will land separately.
+ * Lifecycle: a single `Terminal` instance lives for the life of the
+ * Emulator.  Call `update(emu)` once per emulator frame; the font map
+ * is rebuilt automatically when the ROM changes (detected via the
+ * Emulator's ROM CRC).
  */
 
 #ifndef MS0515_TERMINAL_HPP
 #define MS0515_TERMINAL_HPP
 
-#include <ms0515/ScreenReader.hpp>
+#include <ms0515/Emulator.hpp>     /* ms0515::Emulator */
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 namespace ms0515 {
 
 class Terminal {
 public:
+    /* ── Constants ────────────────────────────────────────────────────── */
+
+    static constexpr int kHiresCols = 80;
+    static constexpr int kLoresCols = 40;
+    static constexpr int kRows      = 25;
+    static constexpr int kGlyphH    = 8;
+
+    /* Sentinel byte stored in a Snapshot cell when the underlying
+     * 8×8 bitmap doesn't match anything in the font map (the OS may
+     * be drawing with a custom font we haven't resolved, or with
+     * graphics glyphs the ROM doesn't carry).  We pick 0x7F (DEL)
+     * because it can never appear as legitimate visible text — KOI-8
+     * 0x7F is the control DEL.  putKoi8Char / appendKoi8Char render
+     * it as █ (U+2588) so the user sees a clear "this cell wasn't
+     * decoded" marker. */
+    static constexpr uint8_t kUnknownGlyph = 0x7F;
+
+    /* Cell code for OS-drawn glyphs that aren't part of KOI-8R but
+     * the OS still paints into VRAM (e.g. the © used by the Rodionov
+     * 1992 banner).  Borrowed from Latin-1 0xA9 so the code stays in
+     * a byte and reuses the existing emitter pipeline. */
+    static constexpr uint8_t kCopyrightSign = 0xA9;
+
+    /* ── Snapshot ─────────────────────────────────────────────────────── */
+
+    /* 25 × kHiresCols cells of decoded KOI-8.  In lores mode only the
+     * first kLoresCols of each row are meaningful; the rest hold
+     * 0x20 (blank). */
+    struct Snapshot {
+        int cols = 0;                                       /* 40 or 80 */
+        std::array<uint8_t, kHiresCols * kRows> cells{};
+
+        [[nodiscard]] std::string row(int r) const;
+    };
+
+    /* ── KOI-8 → UTF-8 emitters ───────────────────────────────────────── */
+
+    /* Emit one KOI-8 cell to a FILE*.  Printable ASCII passes through;
+     * KOI-8R upper-half (0xC0–0xFF) is translated to UTF-8 Cyrillic;
+     * kUnknownGlyph → █ (U+2588); kCopyrightSign → © (U+00A9);
+     * everything else becomes '.'. */
+    static void putKoi8Char(FILE *f, uint8_t koi8);
+
+    /* Same translation, but appends to a std::string. */
+    static void appendKoi8Char(std::string &dst, uint8_t koi8);
+
+    /* ── Construction / configuration ─────────────────────────────────── */
+
     Terminal();
 
-    /* Set the host-side stream.  Pass nullptr to disable output —
-     * `update()` becomes a no-op. */
+    /* Set the host-side stream.  Pass nullptr to disable mirroring to
+     * the host; the in-memory history keeps accumulating either way. */
     void setOutput(FILE *f) noexcept { out_ = f; }
 
     /* Override the set of "transparent" characters — code points
      * collapsed to a space when computing the trimmed row used for
-     * diff classification.  The default is the OS-drawn cursor
-     * (`_` for Omega/OSA, possibly other underscore-like glyphs
-     * elsewhere) — without stripping it, every cursor blink and
-     * every cursor move between rows would register as a content
-     * change and trip the incremental classifier into redraws. */
+     * diff classification.  Default is `_` (the OS-drawn cursor). */
     void setTransparentChars(std::string_view chars)
         { transparentChars_ = chars; }
 
-    /* Backwards-compatible single-char setter — sets the
-     * transparent-char set to exactly `c`. */
+    /* Backwards-compatible single-char setter. */
     void setCursorChar(uint8_t c) {
         transparentChars_.assign(1, static_cast<char>(c));
     }
 
-    /* Drop the shadow so the next update() emits the full current
+    /* Drop the diff shadow so the next update emits the full current
      * screen as the new initial state. */
     void reset() noexcept;
 
-    /* Compare `snap` against the previous frame and emit just the
-     * delta to `out_` and the in-memory history.  Trailing blanks
-     * are always stripped — the OS pre-fills its 80×25 cell grid
-     * with spaces; the host terminal sees only meaningful
-     * characters.  Assumes the caller has already filtered out
-     * mid-redraw / mid-scroll garbage; tests pass hand-crafted
-     * Snapshots straight to this entry point. */
-    void update(const ScreenReader::Snapshot &snap);
+    /* ── Live sampling (frontend entry points) ────────────────────────── */
 
-    /* Live sampling entry point.  Drives every raw screen-reader
-     * sample through three stability gates before forwarding to
-     * update():
-     *
-     *   1. Clean       — no kUnknownGlyph cells in the snap (would
-     *                    mean partial bitmap rewrite caught mid-cell).
-     *   2. Stable      — whole snap matches the previous raw sample
-     *                    (so we know the OS finished its current
-     *                    operation by the time we sampled).
-     *   3. Progressing — no row in the snap is a strict-subset
-     *                    partial copy of *any* row in the last
-     *                    forwarded snap (catches mid-scroll states
-     *                    where the OS is copying content from one
-     *                    row into another cell-by-cell, paused
-     *                    long enough to look stable for two ticks).
-     *
-     * Snaps that fail any gate are dropped — the next sample lands
-     * one tick later, and once the OS is done its real state passes
-     * all three gates and reaches scrollback. */
-    void feedSample(const ScreenReader::Snapshot &snap);
+    /* Decode the current VRAM into a Snapshot.  The font map is
+     * rebuilt automatically when the Emulator's ROM CRC changes —
+     * frontends never need to call buildFont themselves.  Does NOT
+     * advance the diff history. */
+    [[nodiscard]] Snapshot decode(const Emulator &emu);
+
+    /* Sample the current screen and run it through the stability
+     * gates → diff classifier → history.  Equivalent to
+     * `feedSample(decode(emu))`.  Call once per host frame from the
+     * sampling loop; the gates drop snapshots caught mid-update. */
+    void update(const Emulator &emu);
+
+    /* ── Snapshot-based entry points (test helpers) ──────────────────── */
+
+    /* Compare `snap` against the previous frame and emit just the
+     * delta, bypassing the stability gates.  Tests pass hand-crafted
+     * Snapshots straight to this entry point. */
+    void update(const Snapshot &snap);
+
+    /* Same path as `update(emu)` but with a hand-crafted snap (runs
+     * the clean / progressing / no-adjacent-duplicate gates).  */
+    void feedSample(const Snapshot &snap);
+
+    /* ── Output access ────────────────────────────────────────────────── */
 
     /* Read-only access to every byte the mirror has ever emitted.
-     * Returned as `const std::string&` (rather than string_view) so
      * UI code can hand the underlying null-terminated buffer to
-     * ImGui::InputTextMultiline.  The string is the same UTF-8
-     * stream that goes to `out_` (if configured), so a UI window
-     * opened mid-session can show the full scrollback by rendering
-     * it directly. */
+     * ImGui::InputTextMultiline. */
     [[nodiscard]] const std::string &history() const noexcept
         { return history_; }
 
-    /* Discard the accumulated history.  Does not touch the shadow
-     * (subsequent diffs continue to compare against the latest
-     * snapshot); use reset() if you want both. */
+    /* Discard the accumulated history.  Does not touch the diff
+     * shadow — call `reset()` if you want both. */
     void clearHistory() noexcept
         { history_.clear(); lastScreenStart_ = 0; }
 
     /* Byte offset in history() where the most recent "full-screen
-     * redraw" begins.  Updated by the initial dump and by the dedup
-     * re-layout path — every time the OS rearranges the screen and
-     * we replay it from the top.  UI code uses this to anchor the
-     * scrollback view to the start of the new screen so it visually
-     * mimics an OS terminal redraw. */
+     * redraw" begins.  UI code uses this to anchor the scrollback
+     * view to the start of the new screen so it visually mimics an
+     * OS terminal redraw. */
     [[nodiscard]] std::size_t lastScreenStart() const noexcept
         { return lastScreenStart_; }
 
 private:
-    using Snapshot = ScreenReader::Snapshot;
+    /* ── Decode pipeline (formerly ScreenReader) ──────────────────────── */
+
+    /* Drop the per-cell glyph cache.  The ROM-CRC check forces this
+     * automatically when the font map is rebuilt; the diff path also
+     * calls it after a snapshot wholesale-replace via loadState. */
+    void invalidateDecodeCache() noexcept { cacheValid_ = false; }
+
+    /* Build the KOI-8 → 8×8-glyph map from `rom`.  Anchors are
+     * KOI-8 '0' (main font) and Cyrillic 'А' (alt font); the table
+     * bases are derived by locating those glyph bitmaps in the ROM,
+     * so different ROM revisions with shifted font tables still
+     * resolve correctly. */
+    void buildFont(std::span<const uint8_t> rom);
+
+    /* Look up a 64-bit glyph key in the font map.  Falls back to
+     * 0x20 (blank) for sparse-pixel patterns and to kUnknownGlyph
+     * for everything else — see lookup() comments for the rationale. */
+    [[nodiscard]] uint8_t lookup(std::uint64_t key) const;
+
+    /* Decode every cell of `vram` into the cached Snapshot, reusing
+     * the per-cell cache for cells whose bitmap has not changed
+     * since the previous call.  A hires↔lores switch drops the
+     * cache automatically. */
+    [[nodiscard]] const Snapshot &readScreen(std::span<const uint8_t> vram,
+                                             bool hires);
+
+    /* Pack an 8-byte glyph bitmap into a single 64-bit key. */
+    [[nodiscard]] static std::uint64_t glyphKey(const uint8_t glyph[8]);
+
+    /* Read one cell's 64-bit glyph key from VRAM.  The hires variant
+     * uses bytesPerLine=80; the lores variant samples even bytes
+     * (pixel data lives in the low byte of each VRAM word). */
+    [[nodiscard]] static std::uint64_t readCell(std::span<const uint8_t> vram,
+                                                int col, int row,
+                                                int bytesPerLine);
+    [[nodiscard]] static std::uint64_t readCellLores(std::span<const uint8_t> vram,
+                                                     int col, int row);
+
+    /* ── Diff classifier (existing Terminal logic) ────────────────────── */
 
     /* Length of `s.row(r)` after stripping trailing blanks AND
-     * treating cursorChar_ as a blank (so cursor positioning does
-     * not affect the trimmed length).  Returns the byte string
+     * treating cursorChar_ as a blank.  Returns the byte string
      * directly because every caller wants both the length and the
      * content. */
-    std::string trimmedRow(const Snapshot &s, int r) const;
+    [[nodiscard]] std::string trimmedRow(const Snapshot &s, int r) const;
 
     /* Returns k > 0 if the new screen is the shadow scrolled up by
-     * exactly k rows (so shadow.row(i+k) == new.row(i) for i < 25-k)
-     * AND the preserved overlap actually contains some non-blank
-     * content (otherwise the match is meaningless — a screen that
-     * was mostly empty matches itself trivially at any k).  Returns
-     * 0 if no useful scroll is found.  Cursor character is stripped
-     * before comparison. */
-    int detectScrollUp(const Snapshot &cur) const;
+     * exactly k rows AND the preserved overlap actually contains
+     * non-blank content.  Returns 0 if no useful scroll is found. */
+    [[nodiscard]] int detectScrollUp(const Snapshot &cur) const;
 
-    /* True if shadow and cur agree on every trimmed row, i.e. no
-     * visible change once cursor blink and trailing blanks are
-     * ignored. */
-    bool isUnchanged(const Snapshot &cur) const;
+    /* True if shadow and cur agree on every trimmed row. */
+    [[nodiscard]] bool isUnchanged(const Snapshot &cur) const;
 
     /* Try to express the diff as an in-order sequence of row
-     * updates: for each row R that changed, R is either the
-     * current host-cursor row (suffix appended in place) or it is
-     * strictly past it (a fresh row, possibly skipping intermediate
-     * blank rows).  If a changed row would require moving the host
-     * cursor backwards, the function bails out and returns false so
-     * the caller falls through to the dedup path.  All actual
-     * emission goes through emitChar/emitText/emitKoi8 so history_
-     * and out_ both advance. */
-    bool tryEmitIncremental(const Snapshot &cur);
+     * updates.  Returns false → caller falls through to the dedup
+     * path. */
+    [[nodiscard]] bool tryEmitIncremental(const Snapshot &cur);
 
     /* Set-diff fallback: emit only the lines from `cur` that aren't
-     * already present in the shadow (treating each non-blank
-     * trimmed row as a unit of content).  Handles two patterns the
-     * row-by-row incremental can't:
-     *
-     *   1. Re-layout — same lines arranged differently (e.g. POST
-     *      first draws sparse with blank rows between entries, then
-     *      condenses into a packed block plus a new heading line).
-     *      All preserved lines skip silently; only the genuinely
-     *      new ones reach the wire.
-     *
-     *   2. Scroll with suffix-extension — the bottom row of the
-     *      preserved overlap was being printed when we last sampled
-     *      ("^T Auto RUN D") and is now complete ("^T Auto RUN
-     *      DBAS ALL").  detectScrollUp's strict equality misses it.
-     *      Here we recognise that a new line starts with the last
-     *      one we emitted and write only the appended tail.
-     *
-     * Output is always linear (`\n` separators, no cursor
-     * positioning) so the host's native scrollback receives the
-     * stream the user expects to read top-to-bottom. */
+     * already present in the shadow. */
     void emitDedup(const Snapshot &cur);
 
-    /* Emit the trimmed text of `row` from `snap` followed by a
-     * trailing newline.  KOI-8 → UTF-8 translation goes through
-     * ScreenReader::putKoi8Char. */
+    /* Emit the trimmed text of `row` from `snap`. */
     void emitRowLine(const Snapshot &snap, int row);
-
-    /* Just the trimmed text, no trailing newline. */
     void emitRowText(const Snapshot &snap, int row);
 
-    /* Index of the highest non-empty trimmed row, or -1 if the
-     * snapshot has no visible content. */
-    int lastNonEmptyRow(const Snapshot &s) const;
+    /* Index of the highest non-empty trimmed row, or -1. */
+    [[nodiscard]] int lastNonEmptyRow(const Snapshot &s) const;
 
-    /* Internal helpers that fan output to both the FILE* (if any)
-     * and the in-memory history buffer.  All emit code paths in
-     * Terminal.cpp go through these so neither sink can drift. */
+    /* Output fan-out helpers (FILE* + history string). */
     void emitChar(char c);
     void emitText(std::string_view s);
     void emitKoi8(uint8_t koi8);
+
+    /* ── Decode state ─────────────────────────────────────────────────── */
+
+    std::unordered_map<std::uint64_t, uint8_t>           glyphMap_;
+    std::array<std::uint64_t, kHiresCols * kRows>        cachedKeys_{};
+    Snapshot                                              cachedSnap_;
+    int                                                   cachedCols_  = 0;
+    bool                                                  cacheValid_  = false;
+    std::uint32_t                                         fontRomCrc_  = 0;
+    bool                                                  fontBuilt_   = false;
+
+    /* ── Diff state ───────────────────────────────────────────────────── */
 
     Snapshot    shadow_;
     bool        hasShadow_       = false;
@@ -208,28 +261,20 @@ private:
     std::string history_;
 
     /* Logical row of the shadow that the host terminal's cursor is
-     * currently parked on.  -1 before the very first emit; updated
-     * by every emit path so multi-row append knows how many `\n`s
-     * to issue to advance to a fresh row. */
+     * currently parked on. */
     int         lastEmitRow_     = -1;
 
     /* Trimmed content of the line the host cursor is currently
-     * parked on.  Used by the dedup fallback to detect suffix
-     * extensions ("^T … RUN D" → "^T … RUN DBAS ALL"): if a new
-     * line in cur starts with this string, we emit just the
-     * appended tail instead of duplicating the prefix. */
+     * parked on. */
     std::string lastEmittedLine_;
 
     /* feedSample() state — the last raw snapshot we forwarded to
-     * update().  Used by the progressing gate to detect mid-scroll
-     * copy patterns by checking whether any row in the new sample
-     * is a strict-subset partial copy of any row in this reference. */
+     * update(). */
     Snapshot    lastForwardedSnap_;
     bool        hasLastForwardedSnap_ = false;
 
     /* Byte offset in history_ where the most recent "screen redraw"
-     * starts — updated by the initial dump and by the dedup
-     * re-layout path.  Exposed via lastScreenStart() for UI use. */
+     * starts. */
     std::size_t lastScreenStart_ = 0;
 };
 

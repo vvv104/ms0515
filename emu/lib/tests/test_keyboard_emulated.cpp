@@ -7,7 +7,7 @@
  *
  * For each scenario we tap a key with optional modifiers, let the OS
  * echo the resulting character to the screen, then read the VRAM via
- * `ms0515::ScreenReader` and compare against the expected character.
+ * `ms0515::Terminal` and compare against the expected character.
  * Tests target the MS7004 hardware emulation specifically — the
  * SDL/OSK input layers above `ms7004_key()` are out of scope.
  *
@@ -27,7 +27,7 @@
 #include <doctest/doctest.h>
 #include <ms0515/Emulator.hpp>
 #include "EmulatorInternal.hpp"
-#include <ms0515/ScreenReader.hpp>
+#include <ms0515/Terminal.hpp>
 #include <ms0515/board.h>
 #include <ms0515/keyboard.h>
 #include <ms0515/memory.h>
@@ -114,10 +114,10 @@ static void runFrames(ms0515::Emulator &emu, int frames)
 }
 
 [[nodiscard]]
-static ms0515::ScreenReader::Snapshot readScreen(const ms0515::Emulator &emu,
-                                                 ms0515::ScreenReader &sr)
+static ms0515::Terminal::Snapshot readScreen(const ms0515::Emulator &emu,
+                                             ms0515::Terminal &term)
 {
-    return sr.readScreen(ms0515::internal::vram(emu), emu.isHires());
+    return term.decode(emu);
 }
 
 /*
@@ -128,9 +128,9 @@ static ms0515::ScreenReader::Snapshot readScreen(const ms0515::Emulator &emu,
  * is '.', which is where the user's input cursor sits.
  */
 [[nodiscard]]
-static int findPromptRow(const ms0515::ScreenReader::Snapshot &snap)
+static int findPromptRow(const ms0515::Terminal::Snapshot &snap)
 {
-    for (int r = ms0515::ScreenReader::kRows - 1; r >= 0; --r) {
+    for (int r = ms0515::Terminal::kRows - 1; r >= 0; --r) {
         const std::string row = snap.row(r);
         if (!row.empty() && row[0] == '.')
             return r;
@@ -152,7 +152,7 @@ static int findPromptRow(const ms0515::ScreenReader::Snapshot &snap)
  * present.
  */
 [[nodiscard]]
-static int bootToPrompt(ms0515::Emulator &emu, ms0515::ScreenReader &sr,
+static int bootToPrompt(ms0515::Emulator &emu, ms0515::Terminal &sr,
                         int stableFrames = 20)
 {
     int prevRow = -1;
@@ -253,14 +253,15 @@ struct TypingFixture {
      * closed its handles. */
     TempDisk             disk;
     ms0515::Emulator     emu;
-    ms0515::ScreenReader sr;
+    ms0515::Terminal sr;
     int                  promptRow = -1;   /* set by bootToPrompt */
 
     TypingFixture(const char *romPath, const char *diskPath)
         : disk{diskPath}
     {
         REQUIRE(emu.loadRomFile(romPath));
-        sr.buildFont({ms0515::internal::board(emu).mem.rom, MEM_ROM_SIZE});
+        /* Terminal builds its font lazily on the first decode() call;
+         * no explicit buildFont needed. */
         const auto pathStr = disk.path().string();
         REQUIRE(emu.mountDisk(0, pathStr));
         /* Double-sided fixture: also mount the upper-side unit so the
@@ -282,9 +283,9 @@ struct TypingFixture {
  * result.
  */
 [[nodiscard]]
-static char cellAt(const ms0515::ScreenReader::Snapshot &snap, int row, int col)
+static char cellAt(const ms0515::Terminal::Snapshot &snap, int row, int col)
 {
-    return static_cast<char>(snap.cells[row * ms0515::ScreenReader::kHiresCols + col]);
+    return static_cast<char>(snap.cells[row * ms0515::Terminal::kHiresCols + col]);
 }
 
 /*
@@ -449,7 +450,7 @@ TEST_CASE("ФКС inverts letter case in RUS mode (no Shift)") {
                 tapKey(fix.emu, c.key);
                 auto snap = readScreen(fix.emu, fix.sr);
                 const uint8_t actual =
-                    snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
+                    snap.cells[kPromptRow * ms0515::Terminal::kHiresCols + kCursorCol];
                 CHECK_MESSAGE(actual == c.upper,
                               "ФКС+'", c.name, "' produced 0x",
                               std::hex, static_cast<int>(actual), std::dec,
@@ -491,7 +492,7 @@ TEST_CASE("ФКС + Shift cancel: RUS letter back to lowercase default") {
                 tapKey(fix.emu, c.key, /*shift=*/true);
                 auto snap = readScreen(fix.emu, fix.sr);
                 const uint8_t actual =
-                    snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
+                    snap.cells[kPromptRow * ms0515::Terminal::kHiresCols + kCursorCol];
                 CHECK_MESSAGE(actual == c.lower,
                               "ФКС+Shift+'", c.name, "' produced 0x",
                               std::hex, static_cast<int>(actual), std::dec,
@@ -572,8 +573,8 @@ TEST_CASE("boot to prompt") {
         ms0515::Emulator emu;
         REQUIRE(emu.loadRomFile(cfg.rom));
 
-        ms0515::ScreenReader sr;
-        sr.buildFont({ms0515::internal::board(emu).mem.rom, MEM_ROM_SIZE});
+        ms0515::Terminal sr;
+        /* Terminal::decode auto-builds the font on first call. */
 
         const auto pathStr = td.path().string();
         REQUIRE(emu.mountDisk(0, pathStr));
@@ -954,7 +955,7 @@ TEST_CASE("RUS mode: letter keys echo lowercase Cyrillic at prompt") {
                 tapKey(fix.emu, cl.key);
                 auto snap = readScreen(fix.emu, fix.sr);
                 const uint8_t actual =
-                    snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
+                    snap.cells[kPromptRow * ms0515::Terminal::kHiresCols + kCursorCol];
                 CHECK_MESSAGE(actual == cl.lower,
                               "key '", cl.name, "' produced 0x",
                               std::hex, static_cast<int>(actual), std::dec,
@@ -984,7 +985,7 @@ TEST_CASE("RUS mode: Shift + letter keys echo uppercase Cyrillic at prompt") {
                 tapKey(fix.emu, cl.key, /*shift=*/true);
                 auto snap = readScreen(fix.emu, fix.sr);
                 const uint8_t actual =
-                    snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols + kCursorCol];
+                    snap.cells[kPromptRow * ms0515::Terminal::kHiresCols + kCursorCol];
                 CHECK_MESSAGE(actual == cl.upper,
                               "Shift+'", cl.name, "' produced 0x",
                               std::hex, static_cast<int>(actual), std::dec,
@@ -1006,7 +1007,7 @@ TEST_CASE("Single-label keys echo the same glyph with and without Shift") {
         for (const auto &sl : kSingleLabel) {
             tapKey(fix.emu, sl.key);
             auto snap = readScreen(fix.emu, fix.sr);
-            uint8_t actual = snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols
+            uint8_t actual = snap.cells[kPromptRow * ms0515::Terminal::kHiresCols
                                          + kCursorCol];
             CHECK_MESSAGE(actual == sl.koi8,
                           "key '", sl.name, "' unshifted produced 0x",
@@ -1017,7 +1018,7 @@ TEST_CASE("Single-label keys echo the same glyph with and without Shift") {
 
             tapKey(fix.emu, sl.key, /*shift=*/true);
             snap = readScreen(fix.emu, fix.sr);
-            actual = snap.cells[kPromptRow * ms0515::ScreenReader::kHiresCols
+            actual = snap.cells[kPromptRow * ms0515::Terminal::kHiresCols
                                 + kCursorCol];
             CHECK_MESSAGE(actual == sl.koi8,
                           "Shift+'", sl.name, "' produced 0x",

@@ -19,7 +19,6 @@ extern "C" {
 
 #include <ms0515/Emulator.hpp>
 #include "EmulatorInternal.hpp"
-#include <ms0515/ScreenReader.hpp>
 #include <ms0515/Terminal.hpp>
 
 #include "test_disk.hpp"
@@ -32,7 +31,6 @@ extern "C" {
 #include <ostream>
 #include <string>
 
-using ms0515::ScreenReader;
 using ms0515::Terminal;
 
 namespace {
@@ -44,18 +42,18 @@ namespace {
  * cell content, not column count, except where the mode itself
  * differs (which we test explicitly). */
 [[nodiscard]]
-ScreenReader::Snapshot makeSnapshot(std::initializer_list<std::string> rows,
-                                    int cols = ScreenReader::kHiresCols)
+Terminal::Snapshot makeSnapshot(std::initializer_list<std::string> rows,
+                                    int cols = Terminal::kHiresCols)
 {
-    ScreenReader::Snapshot s;
+    Terminal::Snapshot s;
     s.cols = cols;
     s.cells.fill(0x20);
     int r = 0;
     for (const auto &row : rows) {
-        if (r >= ScreenReader::kRows) break;
+        if (r >= Terminal::kRows) break;
         for (size_t c = 0; c < row.size() &&
-                           c < static_cast<size_t>(ScreenReader::kHiresCols); ++c) {
-            s.cells[r * ScreenReader::kHiresCols + c] =
+                           c < static_cast<size_t>(Terminal::kHiresCols); ++c) {
+            s.cells[r * Terminal::kHiresCols + c] =
                 static_cast<uint8_t>(row[c]);
         }
         ++r;
@@ -517,15 +515,15 @@ TEST_CASE("clearHistory() empties the buffer without disturbing the shadow") {
  * for cells that decoded to kUnknownGlyph.  Used by the diagnostic
  * tests below so we can see what bitmaps actually fail glyph lookup
  * during a real boot. */
-static void dumpUnknownCells(const ScreenReader::Snapshot &snap,
+static void dumpUnknownCells(const Terminal::Snapshot &snap,
                              const uint8_t *vram, bool hires, int maxRows)
 {
     const int colStride = hires ? 1 : 2;
     int dumped = 0;
-    for (int r = 0; r < ScreenReader::kRows && dumped < maxRows; ++r) {
+    for (int r = 0; r < Terminal::kRows && dumped < maxRows; ++r) {
         for (int c = 0; c < snap.cols && dumped < maxRows; ++c) {
-            const uint8_t code = snap.cells[r * ScreenReader::kHiresCols + c];
-            if (code != ScreenReader::kUnknownGlyph) continue;
+            const uint8_t code = snap.cells[r * Terminal::kHiresCols + c];
+            if (code != Terminal::kUnknownGlyph) continue;
             std::fprintf(stderr, "[diag] r=%2d c=%2d  bytes=", r, c);
             uint64_t key = 0;
             for (int y = 0; y < 8; ++y) {
@@ -544,10 +542,10 @@ static void dumpUnknownCells(const ScreenReader::Snapshot &snap,
  * framebuffer (modulo cursor blink, which is irrelevant here because
  * we sample only at quiescent moments). */
 static void dumpSnapshotRows(const char *label,
-                             const ScreenReader::Snapshot &snap)
+                             const Terminal::Snapshot &snap)
 {
     std::fprintf(stderr, "[diag] %s screen:\n", label);
-    for (int r = 0; r < ScreenReader::kRows; ++r) {
+    for (int r = 0; r < Terminal::kRows; ++r) {
         const auto rt = snap.row(r);
         if (rt.empty()) continue;
         std::fprintf(stderr, "[diag]   %2d: %.*s\n", r,
@@ -564,7 +562,7 @@ TEST_CASE("DIAG: Rodionov OSA-B real boot — screen vs Terminal mirror"
      * Terminal's history side-by-side so we can pinpoint exactly
      * which cells the user is seeing as stray █ in scrollback.  Also
      * dumps the raw VRAM bitmap of every unknown-glyph cell so the
-     * decision logic in ScreenReader::lookup() can be tuned against
+     * decision logic in Terminal::lookup() can be tuned against
      * real data instead of guesswork. */
     namespace fs = std::filesystem;
     ms0515::Emulator emu;
@@ -577,20 +575,15 @@ TEST_CASE("DIAG: Rodionov OSA-B real boot — screen vs Terminal mirror"
     emu.enableRamDisk();
     emu.reset();
 
-    ScreenReader sr;
-    sr.buildFont({ms0515::internal::board(emu).mem.rom, MEM_ROM_SIZE});
     Terminal term;
 
     /* Drive each tick's raw sample through Terminal::feedSample —
      * Terminal owns the stability gates; the test just supplies
      * the stream. */
-    auto sample = [&]{
-        const auto raw = sr.readScreen(ms0515::internal::vram(emu), emu.isHires());
-        term.feedSample(raw);
-    };
+    auto sample = [&]{ term.feedSample(term.decode(emu)); };
 
     auto checkpoint = [&](const char *label){
-        auto snap = sr.readScreen(ms0515::internal::vram(emu), emu.isHires());
+        auto snap = term.decode(emu);
         std::fprintf(stderr, "[diag] === %s ===\n", label);
         dumpSnapshotRows(label, snap);
         dumpUnknownCells(snap, ms0515::internal::vram(emu).data(), emu.isHires(), /*maxRows=*/40);

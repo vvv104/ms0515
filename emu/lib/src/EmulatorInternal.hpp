@@ -23,7 +23,6 @@
 #define MS0515_EMULATOR_INTERNAL_HPP
 
 #include "ms0515/Emulator.hpp"
-#include "ms0515/ScreenReader.hpp"
 
 #include <span>
 
@@ -37,7 +36,6 @@ namespace ms0515 {
 struct Emulator::Impl {
     ms0515_board_t board;
     ms7004_t       kbd7004;
-    ScreenReader   screenReader;
 
     Emulator::SoundCallback     soundCb;
     Emulator::SerialOutCallback serialOutCb;

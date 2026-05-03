@@ -52,7 +52,6 @@ private:
     void initEmulator();
     void mountInitialDisks();          /* called by initEmulator */
     void applyKeyboardConfig();        /* called by initEmulator */
-    void initScreenDump();             /* called by initEmulator */
     void initAudio();
     void shutdown();
 
@@ -109,7 +108,6 @@ private:
     Audio                audio_;
     PhysicalKeyboard     physKbd_;
     OnScreenKeyboard     osk_;
-    std::FILE           *screenDumpFile_ = nullptr;
 
     /* ── Mount state ────────────────────────────────────────────────── */
     std::array<std::string, 4> mountedFd_;

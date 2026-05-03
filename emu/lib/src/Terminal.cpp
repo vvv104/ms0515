@@ -30,23 +30,307 @@
 
 #include <ms0515/Terminal.hpp>
 
+#include "EmulatorInternal.hpp"   /* internal::vram / internal::rom */
+
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <unordered_set>
 #include <vector>
 
 namespace ms0515 {
 
+namespace {
+
+/* ── KOI-8R 0xC0..0xFF → UTF-8 Cyrillic (Russian-section table) ──────── */
+
+const char *koi8rToUtf8(uint8_t code)
+{
+    static const char *table[64] = {
+        /* 0xC0 */ "ю", "а", "б", "ц", "д", "е", "ф", "г",
+        /* 0xC8 */ "х", "и", "й", "к", "л", "м", "н", "о",
+        /* 0xD0 */ "п", "я", "р", "с", "т", "у", "ж", "в",
+        /* 0xD8 */ "ь", "ы", "з", "ш", "э", "щ", "ч", "ъ",
+        /* 0xE0 */ "Ю", "А", "Б", "Ц", "Д", "Е", "Ф", "Г",
+        /* 0xE8 */ "Х", "И", "Й", "К", "Л", "М", "Н", "О",
+        /* 0xF0 */ "П", "Я", "Р", "С", "Т", "У", "Ж", "В",
+        /* 0xF8 */ "Ь", "Ы", "З", "Ш", "Э", "Щ", "Ч", "Ъ",
+    };
+    return code >= 0xC0 ? table[code - 0xC0] : nullptr;
+}
+
+/* UTF-8 encoding of █ (U+2588) — visible marker for kUnknownGlyph. */
+constexpr char kUnknownGlyphUtf8[] = "\xE2\x96\x88";
+
+/* UTF-8 encoding of © (U+00A9) — what kCopyrightSign decodes to. */
+constexpr char kCopyrightUtf8[] = "\xC2\xA9";
+
+/* Find the file offset of an 8-byte glyph bitmap in the ROM by visual
+ * shape — i.e. an exact bitmap-pattern match.  We don't care which
+ * character code the ROM stores at that position; the anchor's
+ * fixed-position-within-its-font-table lets us derive the table base
+ * by subtracting the anchor's index from the located offset.  This
+ * frees the decoder from assuming any specific ROM revision: A and B
+ * builds shift the font tables but keep glyph shapes identical. */
+int findFontBase(std::span<const uint8_t> rom,
+                 const uint8_t (&anchor)[8],
+                 int anchorIndex)
+{
+    if (rom.size() < 8) return -1;
+    const auto end = rom.size() - 8;
+    for (size_t off = 0; off <= end; ++off) {
+        if (std::memcmp(rom.data() + off, anchor, 8) == 0) {
+            const int base = static_cast<int>(off) - anchorIndex * 8;
+            if (base >= 0)
+                return base;
+        }
+    }
+    return -1;
+}
+
+} /* anonymous namespace */
+
+/* ── KOI-8 → UTF-8 emitters ──────────────────────────────────────────── */
+
+void Terminal::putKoi8Char(FILE *f, uint8_t koi8)
+{
+    if (koi8 == kUnknownGlyph) {
+        std::fputs(kUnknownGlyphUtf8, f);
+    } else if (koi8 == kCopyrightSign) {
+        std::fputs(kCopyrightUtf8, f);
+    } else if (koi8 >= 0x20 && koi8 < 0x7F) {
+        std::fputc(koi8, f);
+    } else if (koi8 >= 0xC0) {
+        const char *utf = koi8rToUtf8(koi8);
+        std::fputs(utf ? utf : kUnknownGlyphUtf8, f);
+    } else {
+        std::fputc('.', f);
+    }
+}
+
+void Terminal::appendKoi8Char(std::string &dst, uint8_t koi8)
+{
+    if (koi8 == kUnknownGlyph) {
+        dst.append(kUnknownGlyphUtf8);
+    } else if (koi8 == kCopyrightSign) {
+        dst.append(kCopyrightUtf8);
+    } else if (koi8 >= 0x20 && koi8 < 0x7F) {
+        dst.push_back(static_cast<char>(koi8));
+    } else if (koi8 >= 0xC0) {
+        const char *utf = koi8rToUtf8(koi8);
+        if (utf) dst.append(utf);
+        else     dst.append(kUnknownGlyphUtf8);
+    } else {
+        dst.push_back('.');
+    }
+}
+
+/* ── Snapshot::row ───────────────────────────────────────────────────── */
+
+std::string Terminal::Snapshot::row(int r) const
+{
+    if (r < 0 || r >= kRows) return {};
+    std::string s;
+    s.reserve(static_cast<size_t>(cols));
+    for (int c = 0; c < cols; ++c)
+        s.push_back(static_cast<char>(cells[r * kHiresCols + c]));
+    while (!s.empty() && static_cast<uint8_t>(s.back()) == 0x20)
+        s.pop_back();
+    return s;
+}
+
+/* ── Decode pipeline (font map + per-cell cache) ─────────────────────── */
+
+uint64_t Terminal::glyphKey(const uint8_t glyph[8])
+{
+    uint64_t key = 0;
+    for (int i = 0; i < 8; ++i)
+        key |= static_cast<uint64_t>(glyph[i]) << (i * 8);
+    return key;
+}
+
+uint64_t Terminal::readCell(std::span<const uint8_t> vram, int col, int row,
+                            int bytesPerLine)
+{
+    uint8_t glyph[8];
+    for (int y = 0; y < kGlyphH; ++y) {
+        int offset = (row * kGlyphH + y) * bytesPerLine + col;
+        glyph[y] = vram[offset];
+    }
+    return glyphKey(glyph);
+}
+
+uint64_t Terminal::readCellLores(std::span<const uint8_t> vram, int col, int row)
+{
+    /* In lores (320×200) each scan line is 40 words = 80 bytes.  Pixel
+     * data lives in the low byte of each word (even offsets), so column
+     * c reads byte offset `c*2`. */
+    uint8_t glyph[8];
+    for (int y = 0; y < kGlyphH; ++y) {
+        int offset = (row * kGlyphH + y) * 80 + col * 2;
+        glyph[y] = vram[offset];
+    }
+    return glyphKey(glyph);
+}
+
+uint8_t Terminal::lookup(uint64_t key) const
+{
+    auto it = glyphMap_.find(key);
+    if (it != glyphMap_.end())
+        return it->second;
+    if (key == 0)
+        return 0x20;  /* All-zero = blank */
+    /* Sparse-pixel fallback.  Anything with fewer than 17 set pixels
+     * (out of 64) is treated as blank — the OS scatters thin
+     * horizontal-bar / leftover patterns into VRAM that scale to 1–2
+     * barely-visible pixels at 640×200; emitting █ for them in
+     * scrollback makes noise.  Denser patterns stay as kUnknownGlyph
+     * (real visible bitmaps the OS draws but the ROM font doesn't
+     * carry, e.g. ©). */
+    if (std::popcount(key) < 17)
+        return 0x20;
+    return kUnknownGlyph;
+}
+
+void Terminal::buildFont(std::span<const uint8_t> rom)
+{
+    glyphMap_.clear();
+    invalidateDecodeCache();
+
+    /* Main-font anchor: visual shape of '0' (KOI-8 0x30). */
+    static constexpr uint8_t kAnchorZero[8] = {
+        0x00, 0x3C, 0x46, 0x4A, 0x52, 0x62, 0x3C, 0x00,
+    };
+    /* Alt-font anchor: visual shape of 'А' (KOI-8 0xE1).  Lives at
+     * alt index 33 (= (0xE1 & 0x7F) - 0x40). */
+    static constexpr uint8_t kAnchorCyrA[8] = {
+        0x30, 0x78, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0x00,
+    };
+    static constexpr int kAnchorMainCode = 0x30;
+    static constexpr int kAnchorAltIndex = 33;
+
+    const int kMainFontFileOff = findFontBase(rom, kAnchorZero,
+                                              kAnchorMainCode - 0x20);
+    const int kAltFontFileOff  = findFontBase(rom, kAnchorCyrA,
+                                              kAnchorAltIndex);
+
+    const auto romSize = rom.size();
+
+    /* Main font (KOI-8 0x20–0x7F).  Insert-if-absent so EARLIER codes
+     * win on a glyph collision — '@' 0x40 and '`' 0x60 share a
+     * bitmap in the ROM, but we want the printable ASCII letter to
+     * be the canonical lookup result. */
+    if (kMainFontFileOff >= 0) {
+        for (int code = 0x20; code < 0x80; ++code) {
+            int off = kMainFontFileOff + (code - 0x20) * 8;
+            if (off + 8 > static_cast<int>(romSize))
+                break;
+            uint64_t key = glyphKey(rom.data() + off);
+            if (key != 0 || code == 0x20)
+                glyphMap_.emplace(key, static_cast<uint8_t>(code));
+        }
+    }
+
+    /* Cyrillic alt font (KOI-8 0xC0–0xFF → alt-table indices 0–63).
+     * Add only patterns the main font hasn't already claimed so
+     * printable ASCII stays canonical for ambiguous glyphs (e.g.
+     * '_' 0x5F vs Ъ 0xFF, identical 8×8). */
+    if (kAltFontFileOff >= 0) {
+        for (int code = 0xC0; code <= 0xFF; ++code) {
+            int glyph_idx = (code & 0x7F) - 0x40;
+            int off = kAltFontFileOff + glyph_idx * 8;
+            if (off < 0 || off + 8 > static_cast<int>(romSize))
+                continue;
+            uint64_t key = glyphKey(rom.data() + off);
+            if (key != 0)
+                glyphMap_.emplace(key, static_cast<uint8_t>(code));
+        }
+    }
+
+    /* OS-drawn glyphs that aren't in either ROM font.  Each entry
+     * was extracted from a real boot trace; insertion is `try_emplace`
+     * so a ROM-supplied glyph with the same shape would still take
+     * precedence. */
+    static constexpr struct { uint64_t key; uint8_t code; } kCustomGlyphs[] = {
+        /* © as drawn by the Rodionov 1992 OSA boot banner (popcount 26).
+         * KOI-8R has no copyright sign, so we map it to kCopyrightSign
+         * (Latin-1 0xA9) and let the emitters produce the UTF-8
+         * sequence for ©. */
+        { 0x3C4299A1A199423CULL, kCopyrightSign },
+    };
+    for (const auto &g : kCustomGlyphs)
+        glyphMap_.try_emplace(g.key, g.code);
+}
+
+const Terminal::Snapshot &
+Terminal::readScreen(std::span<const uint8_t> vram, bool hires)
+{
+    /* For each cell we re-extract the 8-byte glyph bitmap from VRAM
+     * (cheap — eight byte loads + bit shifts) and compare its 64-bit
+     * key against `cachedKeys_`.  Cells whose key matches keep the
+     * decoded code from `cachedSnap_`; only mismatched cells go
+     * through the unordered_map font lookup.  On a static screen the
+     * inner branch collapses to a key compare per cell — exactly
+     * what the per-frame sampling loop wants. */
+    const int cols = hires ? kHiresCols : kLoresCols;
+    const bool useCache = cacheValid_ && cachedCols_ == cols;
+
+    if (!useCache) {
+        cachedSnap_.cols = cols;
+        /* Pre-fill so cells outside the active column range
+         * (lores: 40..79) read back as blanks. */
+        cachedSnap_.cells.fill(0x20);
+    }
+
+    for (int row = 0; row < kRows; ++row) {
+        for (int col = 0; col < cols; ++col) {
+            const int idx = row * kHiresCols + col;
+            const uint64_t key = hires
+                ? readCell(vram, col, row, 80)
+                : readCellLores(vram, col, row);
+            if (useCache && cachedKeys_[idx] == key)
+                continue;
+            cachedKeys_[idx]       = key;
+            cachedSnap_.cells[idx] = lookup(key);
+        }
+    }
+
+    cachedCols_ = cols;
+    cacheValid_ = true;
+    return cachedSnap_;
+}
+
+/* ── Live-emulator entry points ──────────────────────────────────────── */
+
+Terminal::Snapshot Terminal::decode(const Emulator &emu)
+{
+    /* Auto-rebuild the font map when the ROM changes.  CRC32 of 16 KB
+     * is sub-microsecond and saves the frontend from threading a
+     * "rom dirty" flag through loadRom / loadState. */
+    const uint32_t crc = emu.romCrc32();
+    if (!fontBuilt_ || crc != fontRomCrc_) {
+        buildFont(internal::rom(emu));
+        fontRomCrc_ = crc;
+        fontBuilt_  = true;
+    }
+    return readScreen(internal::vram(emu), emu.isHires());
+}
+
+void Terminal::update(const Emulator &emu)
+{
+    feedSample(decode(emu));
+}
+
 Terminal::Terminal()
 {
     shadow_.cells.fill(0x20);
-    shadow_.cols = ScreenReader::kHiresCols;
+    shadow_.cols = Terminal::kHiresCols;
 }
 
 void Terminal::reset() noexcept
 {
     shadow_.cells.fill(0x20);
-    shadow_.cols          = ScreenReader::kHiresCols;
+    shadow_.cols          = Terminal::kHiresCols;
     hasShadow_            = false;
     lastEmitRow_          = -1;
     lastEmittedLine_.clear();
@@ -69,18 +353,18 @@ void Terminal::emitText(std::string_view s)
 
 void Terminal::emitKoi8(uint8_t koi8)
 {
-    ScreenReader::appendKoi8Char(history_, koi8);
-    if (out_) ScreenReader::putKoi8Char(out_, koi8);
+    Terminal::appendKoi8Char(history_, koi8);
+    if (out_) Terminal::putKoi8Char(out_, koi8);
 }
 
 std::string Terminal::trimmedRow(const Snapshot &s, int r) const
 {
-    if (r < 0 || r >= ScreenReader::kRows) return {};
+    if (r < 0 || r >= Terminal::kRows) return {};
     const int cols = s.cols;
     std::string text;
     text.reserve(static_cast<size_t>(cols));
     for (int c = 0; c < cols; ++c) {
-        uint8_t code = s.cells[r * ScreenReader::kHiresCols + c];
+        uint8_t code = s.cells[r * Terminal::kHiresCols + c];
         /* Any character in transparentChars_ collapses to a space —
          * cursor blink and unknown-glyph placeholders should not
          * register as content for diff classification. */
@@ -95,7 +379,7 @@ std::string Terminal::trimmedRow(const Snapshot &s, int r) const
 
 int Terminal::lastNonEmptyRow(const Snapshot &s) const
 {
-    for (int r = ScreenReader::kRows - 1; r >= 0; --r) {
+    for (int r = Terminal::kRows - 1; r >= 0; --r) {
         if (!trimmedRow(s, r).empty()) return r;
     }
     return -1;
@@ -110,10 +394,10 @@ int Terminal::detectScrollUp(const Snapshot &cur) const
      * but bursts of output (DIR listings, long boot messages) can
      * shift the visible window by many rows in a single 200-ms
      * sample window. */
-    for (int k = 1; k < ScreenReader::kRows; ++k) {
+    for (int k = 1; k < Terminal::kRows; ++k) {
         bool ok        = true;
         int  matched   = 0;
-        for (int i = 0; i + k < ScreenReader::kRows; ++i) {
+        for (int i = 0; i + k < Terminal::kRows; ++i) {
             const auto sh = trimmedRow(shadow_, i + k);
             const auto cu = trimmedRow(cur, i);
             if (sh != cu) { ok = false; break; }
@@ -132,7 +416,7 @@ bool Terminal::isUnchanged(const Snapshot &cur) const
 {
     if (!hasShadow_)              return false;
     if (shadow_.cols != cur.cols) return false;
-    for (int r = 0; r < ScreenReader::kRows; ++r) {
+    for (int r = 0; r < Terminal::kRows; ++r) {
         if (trimmedRow(shadow_, r) != trimmedRow(cur, r))
             return false;
     }
@@ -174,7 +458,7 @@ bool Terminal::tryEmitIncremental(const Snapshot &cur)
 
     std::vector<Op> plan;
 
-    for (int r = 0; r < ScreenReader::kRows; ++r) {
+    for (int r = 0; r < Terminal::kRows; ++r) {
         const std::string oldText = trimmedRow(shadow_, r);
         const std::string newText = trimmedRow(cur, r);
         if (oldText == newText) continue;
@@ -247,7 +531,7 @@ void Terminal::emitDedup(const Snapshot &cur)
     /* Build the set of trimmed lines visible in shadow — these have
      * already been emitted and shouldn't appear again on the wire. */
     std::unordered_set<std::string> shadowLines;
-    for (int r = 0; r < ScreenReader::kRows; ++r) {
+    for (int r = 0; r < Terminal::kRows; ++r) {
         auto t = trimmedRow(shadow_, r);
         if (!t.empty()) shadowLines.insert(std::move(t));
     }
@@ -276,11 +560,11 @@ void Terminal::emitDedup(const Snapshot &cur)
      * into "© 1992\n.SET TT QUIET", losing the visual layout. */
     struct Row { int idx; std::string text; bool preserved; };
     std::vector<Row> rows;
-    rows.reserve(ScreenReader::kRows);
+    rows.reserve(Terminal::kRows);
     bool sawNew      = false;
     bool sawPreserved = false;
     bool isRelayout  = false;
-    for (int r = 0; r < ScreenReader::kRows; ++r) {
+    for (int r = 0; r < Terminal::kRows; ++r) {
         auto t = trimmedRow(cur, r);
         if (t.empty()) continue;
         const bool preserved = shadowLines.count(t) > 0;
@@ -312,7 +596,7 @@ void Terminal::emitDedup(const Snapshot &cur)
      *                                       content accumulates
      *                                       below it. */
     int shadowNonBlank = 0;
-    for (int r = 0; r < ScreenReader::kRows; ++r)
+    for (int r = 0; r < Terminal::kRows; ++r)
         if (!trimmedRow(shadow_, r).empty()) ++shadowNonBlank;
     const bool allNew = !rows.empty() && !sawPreserved
                      && (rows.size() >= 3 || shadowNonBlank >= 3);
@@ -396,11 +680,11 @@ void Terminal::emitDedup(const Snapshot &cur)
  * paths so the buffer never accumulates a stray empty line at the
  * tail (which would leave lastEmitRow_ inconsistent with the host
  * cursor's actual position). */
-static void emitRowsSeparated(Terminal &t, const ScreenReader::Snapshot &snap,
+static void emitRowsSeparated(Terminal &t, const Terminal::Snapshot &snap,
                               auto &&rowText, auto &&emitNl, auto &&emitText)
 {
     bool first = true;
-    for (int r = 0; r < ScreenReader::kRows; ++r) {
+    for (int r = 0; r < Terminal::kRows; ++r) {
         const auto text = rowText(snap, r);
         if (text.empty()) continue;
         if (!first) emitNl();
@@ -410,13 +694,13 @@ static void emitRowsSeparated(Terminal &t, const ScreenReader::Snapshot &snap,
     (void)t;
 }
 
-void Terminal::feedSample(const ScreenReader::Snapshot &snap)
+void Terminal::feedSample(const Terminal::Snapshot &snap)
 {
     /* Gate 1: clean — no unknown-glyph cells (mid-bitmap-rewrite
      * produces partial keys that decode as kUnknownGlyph). */
     bool clean = true;
     for (uint8_t code : snap.cells) {
-        if (code == ScreenReader::kUnknownGlyph) {
+        if (code == Terminal::kUnknownGlyph) {
             clean = false;
             break;
         }
@@ -454,15 +738,15 @@ void Terminal::feedSample(const ScreenReader::Snapshot &snap)
     bool progressing = true;
     if (clean && hasLastForwardedSnap_
      && lastForwardedSnap_.cols == snap.cols) {
-        for (int r = 0; r < ScreenReader::kRows && progressing; ++r) {
-            const uint8_t *cur = &snap.cells[r * ScreenReader::kHiresCols];
+        for (int r = 0; r < Terminal::kRows && progressing; ++r) {
+            const uint8_t *cur = &snap.cells[r * Terminal::kHiresCols];
             int curNonBlank = 0;
             for (int c = 0; c < snap.cols; ++c)
                 if (stripTransparent(cur[c]) != 0x20) ++curNonBlank;
             if (curNonBlank < 3) continue;
-            for (int rr = 0; rr < ScreenReader::kRows; ++rr) {
+            for (int rr = 0; rr < Terminal::kRows; ++rr) {
                 const uint8_t *ref = &lastForwardedSnap_.cells[
-                    rr * ScreenReader::kHiresCols];
+                    rr * Terminal::kHiresCols];
                 int refNonBlank = 0;
                 bool subset = true;
                 for (int c = 0; c < snap.cols; ++c) {
@@ -495,7 +779,7 @@ void Terminal::feedSample(const ScreenReader::Snapshot &snap)
      * proper post-scroll state. */
     bool noAdjacentDup = true;
     if (clean && progressing) {
-        for (int r = 0; r + 1 < ScreenReader::kRows; ++r) {
+        for (int r = 0; r + 1 < Terminal::kRows; ++r) {
             const auto a = trimmedRow(snap, r);
             if (a.empty()) continue;
             if (trimmedRow(snap, r + 1) == a) {
@@ -512,7 +796,7 @@ void Terminal::feedSample(const ScreenReader::Snapshot &snap)
     }
 }
 
-void Terminal::update(const ScreenReader::Snapshot &snap)
+void Terminal::update(const Terminal::Snapshot &snap)
 {
     /* Drop snapshots dominated by unknown-glyph cells.  At cold-boot
      * VRAM is full of 0xFF bytes — every cell decodes to
@@ -525,7 +809,7 @@ void Terminal::update(const ScreenReader::Snapshot &snap)
      * unknown glyphs". */
     int unknownCount = 0;
     for (uint8_t code : snap.cells)
-        if (code == ScreenReader::kUnknownGlyph) ++unknownCount;
+        if (code == Terminal::kUnknownGlyph) ++unknownCount;
     if (unknownCount > 100)
         return;
 
@@ -540,11 +824,11 @@ void Terminal::update(const ScreenReader::Snapshot &snap)
      * AND triggers a spurious redraw separator (the corrupted line
      * has no match in shadow → isRelayout fires when subsequent
      * preserved rows follow it). */
-    for (int r = 0; r < ScreenReader::kRows; ++r) {
+    for (int r = 0; r < Terminal::kRows; ++r) {
         int rowUnknowns = 0;
         for (int c = 0; c < snap.cols; ++c) {
-            if (snap.cells[r * ScreenReader::kHiresCols + c]
-                == ScreenReader::kUnknownGlyph)
+            if (snap.cells[r * Terminal::kHiresCols + c]
+                == Terminal::kUnknownGlyph)
                 ++rowUnknowns;
         }
         if (rowUnknowns >= 3)
@@ -563,7 +847,7 @@ void Terminal::update(const ScreenReader::Snapshot &snap)
      * preserves the previous shadow so the next emit correctly
      * triggers the screen-clear-and-replace path. */
     bool anyContent = false;
-    for (int r = 0; r < ScreenReader::kRows; ++r) {
+    for (int r = 0; r < Terminal::kRows; ++r) {
         if (!trimmedRow(snap, r).empty()) { anyContent = true; break; }
     }
     if (!anyContent)
@@ -607,12 +891,12 @@ void Terminal::update(const ScreenReader::Snapshot &snap)
     if (int k = detectScrollUp(snap); k > 0) {
         for (int i = 0; i < k; ++i) {
             emitChar('\n');
-            emitRowText(snap, ScreenReader::kRows - k + i);
+            emitRowText(snap, Terminal::kRows - k + i);
         }
         if (out_) std::fflush(out_);
         shadow_           = snap;
-        lastEmitRow_      = ScreenReader::kRows - 1;
-        lastEmittedLine_  = trimmedRow(snap, ScreenReader::kRows - 1);
+        lastEmitRow_      = Terminal::kRows - 1;
+        lastEmittedLine_  = trimmedRow(snap, Terminal::kRows - 1);
         return;
     }
 

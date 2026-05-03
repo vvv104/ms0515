@@ -139,12 +139,6 @@ void Emulator::reset()
 void Emulator::loadRom(std::span<const uint8_t> data)
 {
     board_load_rom(&impl_->board, data.data(), static_cast<uint32_t>(data.size()));
-    /* Rebuild the screen-reader font map against the new ROM.  The
-     * 8×8 glyph table is ROM-version-specific (different ROMs ship
-     * different fonts), so this must run after every ROM load — the
-     * old map would mismatch real glyphs and `screenSnapshot` would
-     * return rows full of `kUnknownGlyph`. */
-    impl_->screenReader.buildFont(internal::rom(*this));
 }
 
 bool Emulator::loadRomFile(std::string_view path)
@@ -286,23 +280,6 @@ bool Emulator::halted() const noexcept
 bool Emulator::waiting() const noexcept
 {
     return impl_->board.cpu.waiting;
-}
-
-/* ── Screen reading ─────────────────────────────────────────────────────── */
-
-ScreenReader::Snapshot Emulator::screenSnapshot()
-{
-    return impl_->screenReader.readScreen(internal::vram(*this), isHires());
-}
-
-void Emulator::setScreenDumpFile(FILE *f) noexcept
-{
-    impl_->screenReader.setOutput(f);
-}
-
-void Emulator::flushScreenDump()
-{
-    impl_->screenReader.update(internal::vram(*this), isHires());
 }
 
 KeyboardSettings Emulator::keyboardSettings() const noexcept
@@ -500,12 +477,6 @@ std::expected<void, std::string> Emulator::loadState(std::string_view path)
             free(disk_paths[i]);  // NOLINT — allocated by C snap_load
         }
     }
-
-    /* VRAM has been overwritten with the snapshot's contents.  ROM is
-     * guaranteed to match by the CRC check above, so the font map is
-     * still good — but the per-cell glyph cache is keyed off VRAM
-     * bitmaps that just changed wholesale, so drop it. */
-    impl_->screenReader.invalidateCache();
 
     return {};
 }

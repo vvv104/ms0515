@@ -8,7 +8,6 @@ add_library(ms0515_lib STATIC
     src/Disassembler.cpp
     src/GdbStub.cpp
     src/KeyboardLayout.cpp
-    src/ScreenReader.cpp
     src/Terminal.cpp
 )
 

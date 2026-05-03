@@ -32,7 +32,7 @@ extern "C" {
 #include <ms0515/Disassembler.hpp>
 #include <ms0515/Emulator.hpp>
 #include "EmulatorInternal.hpp"
-#include <ms0515/ScreenReader.hpp>
+#include <ms0515/Terminal.hpp>
 
 #include "test_disk.hpp"
 
@@ -193,11 +193,10 @@ static BootResult runBoot(const std::string &romPath,
      * boots sit with the BIOS banner only and never produce a '.'.
      */
     {
-        ms0515::ScreenReader sr;
-        sr.buildFont({ms0515::internal::board(emu).mem.rom, MEM_ROM_SIZE});
-        auto snap = sr.readScreen({vram, MEM_VRAM_SIZE}, emu.isHires());
+        ms0515::Terminal term;
+        auto snap = term.decode(emu);
         r.reachedPrompt = false;
-        for (int row = 0; row < ms0515::ScreenReader::kRows; ++row) {
+        for (int row = 0; row < ms0515::Terminal::kRows; ++row) {
             const auto rs = snap.row(row);
             if (!rs.empty() && rs[0] == '.') {
                 r.reachedPrompt = true;

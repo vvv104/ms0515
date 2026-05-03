@@ -19,7 +19,6 @@ struct CliArgs {
     /* dsPath[drive] — one double-sided image covering both sides of a
      * drive.  Mutually exclusive with fdPath[fdcUnitFor(drive, 0|1)]. */
     std::string dsPath[2];
-    std::string screenDumpPath;     /* --screen-dump: VRAM text output */
     std::string screenshotPath;
     int         maxFrames = 0;      /* 0 = run forever */
     int         screenshotFrame = 0;
