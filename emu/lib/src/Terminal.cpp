@@ -481,9 +481,6 @@ bool Terminal::tryEmitIncremental(const Snapshot &cur)
     };
 
     int cursorRow = lastEmitRow_;
-    int cursorCol = cursorRow >= 0
-                  ? static_cast<int>(trimmedRow(shadow_, cursorRow).size())
-                  : 0;
 
     std::vector<Op> plan;
 
@@ -504,7 +501,6 @@ bool Terminal::tryEmitIncremental(const Snapshot &cur)
             for (uint8_t c : newText)
                 plan.push_back({Op::Content, c});
             cursorRow = r;
-            cursorCol = static_cast<int>(newText.size());
         } else if (r == cursorRow) {
             /* Same row as host cursor.  Three sub-cases:
              *
@@ -537,7 +533,6 @@ bool Terminal::tryEmitIncremental(const Snapshot &cur)
             for (std::size_t i = common; i < newText.size(); ++i)
                 plan.push_back({Op::Content,
                                 static_cast<uint8_t>(newText[i])});
-            cursorCol = static_cast<int>(newText.size());
         } else {
             /* r < cursorRow — we'd have to scroll the host
              * backwards, which `\n`-only output cannot do.  Bail. */
