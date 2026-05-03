@@ -18,6 +18,7 @@ add_executable(ms0515_lib_tests
     test_boot.cpp
     test_disassembler.cpp
     test_keyboard_emulated.cpp
+    test_keyboard_layout.cpp
     test_screen_reader.cpp
     test_terminal.cpp
 )

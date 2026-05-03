@@ -8,34 +8,9 @@
 #include "Keymap.hpp"
 
 #include <ms0515/Emulator.hpp>
+#include <ms0515/KeyboardLayout.hpp>   /* ms0515::isLetterKey */
 
 namespace ms0515_frontend {
-
-/* ── Helpers ─────────────────────────────────────────────────────────── */
-
-/* Letter key classification for CapsLock+Shift inversion (DEVIATE 3).
- * Same logic as isLetterKey() in OnScreenKeyboard.cpp. */
-static bool isPhysLetterKey(ms0515::Key k, bool rusMode)
-{
-    switch (k) {
-    case ms0515::Key::A: case ms0515::Key::B: case ms0515::Key::C:
-    case ms0515::Key::D: case ms0515::Key::E: case ms0515::Key::F:
-    case ms0515::Key::G: case ms0515::Key::H: case ms0515::Key::I:
-    case ms0515::Key::J: case ms0515::Key::K: case ms0515::Key::L:
-    case ms0515::Key::M: case ms0515::Key::N: case ms0515::Key::O:
-    case ms0515::Key::P: case ms0515::Key::Q: case ms0515::Key::R:
-    case ms0515::Key::S: case ms0515::Key::T: case ms0515::Key::U:
-    case ms0515::Key::V: case ms0515::Key::W: case ms0515::Key::X:
-    case ms0515::Key::Y: case ms0515::Key::Z:
-        return true;
-    case ms0515::Key::LBracket: case ms0515::Key::RBracket:
-    case ms0515::Key::Backslash: case ms0515::Key::Che:
-    case ms0515::Key::At: case ms0515::Key::HardSign:
-        return rusMode;
-    default:
-        return false;
-    }
-}
 
 /* ── Public interface ────────────────────────────────────────────────── */
 
@@ -151,7 +126,7 @@ void PhysicalKeyboard::handleKeyDown(SDL_Scancode phys,
     /* [DEVIATE 3] CapsLock+Shift inversion: when CAPS is on and
      * Shift is physically held, letter keys produce lowercase. */
     const bool capsInvert =
-        isPhysLetterKey(key, rusMode) && emu.capsOn() && hostShift;
+        ms0515::isLetterKey(key, rusMode) && emu.capsOn() && hostShift;
 
     /* Does the MS7004 Shift state need to differ from host? */
     const bool needShift   = capsInvert ? false : mapped.withShift;
