@@ -836,23 +836,44 @@ void Terminal::feedSample(const Terminal::Snapshot &snap)
         }
     }
 
-    /* Gate 3: no-adjacent-duplicate — two consecutive non-blank
-     * rows with identical trimmed content are the signature of an
-     * in-progress scroll-up that copied row R+1 to row R but
-     * hasn't yet cleared row R+1 (the original).  detectScrollUp
+    /* Gate 3: no-adjacent-duplicate — strict mid-scroll-copy
+     * signature: cur.row[R] and cur.row[R+1] are both equal to
+     * shadow.row[R+1].  In a mid-scroll-up, the OS copies row R+1
+     * down onto row R cell-by-cell and hasn't yet cleared row R+1
+     * (the original), so both rows hold the row-R+1 content for a
+     * few sample cycles.  If we let it through, detectScrollUp
      * would happily match (cur[i] == shadow[i+1] holds) and emit
-     * cur's bottom row as "new content" — except it's the SAME
-     * row that's already at row R, so we'd duplicate it in
-     * scrollback (the "MORDA .SCR ... / MORDA .SCR ..." pattern
-     * the user reported).  The OS finishes the clear within a few
-     * cycles; skip this sample and the next clean one will be the
-     * proper post-scroll state. */
+     * the bottom row as new content — except it's the SAME row
+     * already at row R, producing the "MORDA .SCR / MORDA .SCR"
+     * dup the gate was added for.
+     *
+     * The earlier formulation rejected ANY two consecutive non-blank
+     * rows with matching trimmed content, which false-positives on
+     * legitimate runs of identical prompts ("." Enter "." Enter
+     * "." Enter…) — the OS leaves a column of dots on screen and
+     * we'd reject every snapshot, so the dots stayed un-emitted
+     * until enough scrolling broke the streak.  Cross-checking
+     * against shadow distinguishes the two cases: a mid-scroll is
+     * the only one where the duplicated content was already at
+     * row R+1 in the previous accepted sample. */
     bool noAdjacentDup = true;
-    if (clean && progressing) {
+    if (clean && progressing && hasShadow_) {
         for (int r = 0; r + 1 < Terminal::kRows; ++r) {
             const auto a = trimmedRow(snap, r);
             if (a.empty()) continue;
-            if (trimmedRow(snap, r + 1) == a) {
+            if (trimmedRow(snap, r + 1) != a) continue;
+            /* Two consecutive non-blank rows in cur with identical
+             * trimmed content.  Mid-scroll-copy signature: cur row R
+             * CHANGED (the OS just copied content `a` from row R+1
+             * down onto it; previously row R held something else),
+             * AND cur row R+1 PRESERVED (still holds the original
+             * `a` because the OS hasn't cleared it yet).  In both
+             * other directions — both preserved (a stable column of
+             * identical prompts) or both changed (a fresh emit of
+             * two identical lines) — the duplication is a real
+             * intentional layout, not a transient. */
+            if (trimmedRow(shadow_, r) != a
+             && trimmedRow(shadow_, r + 1) == a) {
                 noAdjacentDup = false;
                 break;
             }

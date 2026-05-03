@@ -209,6 +209,46 @@ TEST_CASE("Diff path preserves blank rows between two content rows") {
     CHECK(sink.drain() == "\n\n.");
 }
 
+TEST_CASE("Multiple empty Enters at a `.` prompt keep blank rows between dots") {
+    /* OSA's monitor responds to Enter by echoing `\n` for the input
+     * itself, then printing `\n.` for the next prompt — three lines
+     * of state shifts, two of which are blank.  Each Enter therefore
+     * advances the cursor by 2 rows on screen, leaving an empty row
+     * between consecutive `.` prompts.  The mirror has to reproduce
+     * that spacing or `\n.\n.\n.` collapses into a tight column of
+     * dots that doesn't match the OS layout. */
+    Terminal term;
+
+    /* Initial state: prompt at row 14, everything else blank. */
+    auto rowsAt = [](std::initializer_list<std::pair<int, std::string>> at) {
+        Terminal::Snapshot s;
+        s.cols = Terminal::kHiresCols;
+        s.cells.fill(0x20);
+        for (const auto &[r, t] : at)
+            for (size_t c = 0; c < t.size(); ++c)
+                s.cells[r * Terminal::kHiresCols + c] =
+                    static_cast<uint8_t>(t[c]);
+        return s;
+    };
+
+    term.update(rowsAt({{14, "."}}));
+    REQUIRE(term.history() == ".");
+
+    /* First empty Enter: dot moved to row 16, row 15 blank. */
+    term.update(rowsAt({{14, "."}, {16, "."}}));
+    CHECK(term.history() == ".\n\n.");
+
+    /* Second empty Enter: dot moved to row 18, row 17 blank. */
+    term.update(rowsAt({{14, "."}, {16, "."}, {18, "."}}));
+    CHECK(term.history() == ".\n\n.\n\n.");
+
+    /* Third empty Enter: dot at row 20.  Each cycle should add `\n\n.`,
+     * not `\n.` — the bug the user reported was the cursor advancing
+     * by one row only, collapsing every gap after the first. */
+    term.update(rowsAt({{14, "."}, {16, "."}, {18, "."}, {20, "."}}));
+    CHECK(term.history() == ".\n\n.\n\n.\n\n.");
+}
+
 TEST_CASE("Scroll-up by one emits a single newline plus the new bottom row") {
     CaptureSink sink;
     Terminal term;
@@ -526,6 +566,80 @@ TEST_CASE("Same-row prefix divergence backspaces over the changed suffix") {
                               "\b \b\b \b\b \b\b \b\b \b"
           /* 6 × content   */ "EL FOO");
     CHECK(term.history() == "DEL FOO");
+}
+
+TEST_CASE("feedSample lets a column of identical prompts through") {
+    /* Empty-Enter at a `.` prompt makes OSA print just `\n.` — the
+     * new prompt lands on the row right below the previous one, so
+     * after a couple of empty Enters the screen has two or more
+     * consecutive `.` rows.  The no-adjacent-duplicate gate used
+     * to flag that as a mid-scroll-copy artifact and reject every
+     * snap, so subsequent prompts piled up un-emitted until enough
+     * scrolling broke the streak.  Now the gate cross-checks
+     * against the previous accepted sample — only true mid-scroll
+     * copies (where the duplicated content was already at row R+1
+     * in shadow) are blocked. */
+    Terminal term;
+
+    auto rowsAt = [](std::initializer_list<std::pair<int, std::string>> at) {
+        Terminal::Snapshot s;
+        s.cols = Terminal::kHiresCols;
+        s.cells.fill(0x20);
+        for (const auto &[r, t] : at)
+            for (size_t c = 0; c < t.size(); ++c)
+                s.cells[r * Terminal::kHiresCols + c] =
+                    static_cast<uint8_t>(t[c]);
+        return s;
+    };
+
+    /* First prompt at row 14, then three empty Enters land prompts
+     * at rows 15, 16, 17 (consecutive lines, no gaps). */
+    term.feedSample(rowsAt({{14, "."}}));
+    REQUIRE(term.history() == ".");
+
+    term.feedSample(rowsAt({{14, "."}, {15, "."}}));
+    CHECK(term.history() == ".\n.");
+
+    term.feedSample(rowsAt({{14, "."}, {15, "."}, {16, "."}}));
+    CHECK(term.history() == ".\n.\n.");
+
+    term.feedSample(rowsAt({{14, "."}, {15, "."}, {16, "."}, {17, "."}}));
+    CHECK(term.history() == ".\n.\n.\n.");
+}
+
+TEST_CASE("feedSample still rejects a true mid-scroll-copy") {
+    /* Original mid-scroll signature must keep getting blocked: the
+     * OS copies row R+1 down onto row R cell-by-cell, leaving both
+     * rows holding the row-R+1 content for a few sample cycles.
+     * Pre-fix, that was the canonical "MORDA .SCR / MORDA .SCR"
+     * duplication gate.  Post-fix, the cross-shadow check still
+     * catches it — `shadow.row[R+1]` was the same content, so we
+     * recognise the dup as a transient and drop the snap. */
+    Terminal term;
+
+    auto rowsAt = [](std::initializer_list<std::pair<int, std::string>> at) {
+        Terminal::Snapshot s;
+        s.cols = Terminal::kHiresCols;
+        s.cells.fill(0x20);
+        for (const auto &[r, t] : at)
+            for (size_t c = 0; c < t.size(); ++c)
+                s.cells[r * Terminal::kHiresCols + c] =
+                    static_cast<uint8_t>(t[c]);
+        return s;
+    };
+
+    /* Establish lastForwardedSnap_ with two rows: row 23 = "OLD",
+     * row 24 = "NEW" (where "NEW" is the content scroll is bringing
+     * down). */
+    term.feedSample(rowsAt({{23, "OLD"}, {24, "NEW"}}));
+    REQUIRE(!term.history().empty());
+    const auto baseline = term.history();
+
+    /* Mid-scroll-copy: cur.row[23] = "NEW" (copied), cur.row[24] =
+     * "NEW" still (not yet cleared).  shadow.row[24] = "NEW" too,
+     * so the gate's cross-check fires and the snap is dropped. */
+    term.feedSample(rowsAt({{23, "NEW"}, {24, "NEW"}}));
+    CHECK(term.history() == baseline);
 }
 
 TEST_CASE("feedSample lets a same-row shrink through the progressing gate") {
