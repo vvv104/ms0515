@@ -51,6 +51,22 @@ struct KeyboardSettings {
     uint32_t gamePeriodMs    = 0;
 };
 
+/* Decoded pixel attributes for the 320×200 colour mode.  The lib
+ * does the bit-fiddling (which byte holds the pixel data, where the
+ * attribute lives, MSB-first ordering) so the frontend never needs
+ * to touch raw VRAM.  Frontend palette translation (GRB → RGBA) and
+ * plotting stay on its side. */
+struct LoResAttr {
+    bool    flash;       /* swap fg/bg at ~2 Hz when set                 */
+    bool    bright;      /* full intensity when set, half when clear     */
+    uint8_t bgGrb;       /* 3-bit GRB index for unlit pixels             */
+    uint8_t fgGrb;       /* 3-bit GRB index for lit pixels               */
+};
+
+using HiResPixelCb = std::function<void(int x, int y, bool lit)>;
+using LoResPixelCb = std::function<void(int x, int y, bool lit,
+                                         const LoResAttr &)>;
+
 class Emulator {
 public:
     using SoundCallback     = std::function<void(int value)>;
@@ -158,6 +174,16 @@ public:
     [[nodiscard]] uint8_t                  borderColor() const noexcept;
     [[nodiscard]] uint16_t                 pc()          const noexcept;
     [[nodiscard]] uint32_t                 frameCyclePos() const noexcept;
+
+    /* Visit every pixel of the current frame in raster-scan order
+     * and invoke `cb` with its coordinates and decoded attributes.
+     * The lib walks VRAM and unpacks the bit/byte layout; the
+     * frontend's callback only has to plot — palette lookup and
+     * RGBA assembly stay on the frontend side because they're
+     * display-format concerns.  Use the variant matching the
+     * current mode (isHires()); calling the wrong one is a no-op. */
+    void forEachHiResPixel(const HiResPixelCb &cb) const;
+    void forEachLoResPixel(const LoResPixelCb &cb) const;
 
     /* ── Callbacks ──────────────────────────────────────────────────────── */
 

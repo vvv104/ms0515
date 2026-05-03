@@ -258,6 +258,56 @@ bool Emulator::keyboardInGameMode() const noexcept
     return kbd7004_.in_game_mode;
 }
 
+/* ── Frame iteration ────────────────────────────────────────────────────── */
+
+void Emulator::forEachHiResPixel(const HiResPixelCb &cb) const
+{
+    if (!isHires()) return;
+    const uint8_t *vramBytes = board_get_vram(board_.get());
+    /* 640 mono pixels per scanline, 200 scanlines.  Each 16-bit
+     * word in VRAM holds 16 pixels: the low byte is shifted out
+     * first (8 left pixels), then the high byte (8 right pixels),
+     * MSB = leftmost pixel.  See docs/hardware/video.md. */
+    for (int y = 0; y < 200; ++y) {
+        const uint8_t *row = vramBytes + y * 80;   /* 40 words = 80 bytes */
+        for (int wx = 0; wx < 40; ++wx) {
+            const uint8_t lo = row[wx * 2 + 0];
+            const uint8_t hi = row[wx * 2 + 1];
+            for (int p = 0; p < 8; ++p)
+                cb(wx * 16 + p,     y, ((lo >> (7 - p)) & 1) != 0);
+            for (int p = 0; p < 8; ++p)
+                cb(wx * 16 + 8 + p, y, ((hi >> (7 - p)) & 1) != 0);
+        }
+    }
+}
+
+void Emulator::forEachLoResPixel(const LoResPixelCb &cb) const
+{
+    if (isHires()) return;
+    const uint8_t *vramBytes = board_get_vram(board_.get());
+    /* 320 colour pixels per scanline, 200 scanlines.  Each 16-bit
+     * word in VRAM = 8 pixels: low byte is the pixel data
+     * (MSB = leftmost), high byte is the attribute byte
+     * (F=flash, I=bright, GRB' = bg, GRB = fg). */
+    for (int y = 0; y < 200; ++y) {
+        const uint8_t *row = vramBytes + y * 80;   /* 40 words = 80 bytes */
+        for (int wx = 0; wx < 40; ++wx) {
+            const uint8_t pix  = row[wx * 2 + 0];
+            const uint8_t attr = row[wx * 2 + 1];
+            const LoResAttr a {
+                .flash  = ((attr >> 7) & 1) != 0,
+                .bright = ((attr >> 6) & 1) != 0,
+                .bgGrb  = static_cast<uint8_t>((attr >> 3) & 0x07),
+                .fgGrb  = static_cast<uint8_t>((attr >> 0) & 0x07),
+            };
+            for (int p = 0; p < 8; ++p) {
+                const bool lit = ((pix >> (7 - p)) & 1) != 0;
+                cb(wx * 8 + p, y, lit, a);
+            }
+        }
+    }
+}
+
 /* ── Callbacks ──────────────────────────────────────────────────────────── */
 
 void Emulator::setSoundCallback(SoundCallback cb)

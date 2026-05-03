@@ -41,9 +41,6 @@ public:
     static constexpr int height() { return kScreenHeight; }
 
 private:
-    void renderLowRes(const uint8_t *vram, bool flashOn);
-    void renderHiRes (const uint8_t *vram, uint8_t border);
-
     /* GRB → RGBA8888 lookup, with intensity (dim/bright). */
     static uint32_t paletteColor(int grb, bool bright);
 
