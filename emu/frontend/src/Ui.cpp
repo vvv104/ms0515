@@ -155,6 +155,41 @@ void drawScreenWindow(SDL_Window *window,
     }
 }
 
+/* Render a small disk-activity LED at the current ImGui cursor.
+ * The OFF state mimics a tinted-glass lens with no light behind it:
+ * a dark crimson interior under a slightly darker rim, visible but
+ * clearly extinguished.  The ON state lights the lens up bright red
+ * with a white highlight to suggest a filament.  Caller advances
+ * the cursor via SameLine after drawing. */
+static void drawDiskLed(bool lit)
+{
+    const float h = ImGui::GetTextLineHeight();
+    const float r = h * 0.40f;
+    const ImVec2 cursor = ImGui::GetCursorScreenPos();
+    const ImVec2 center(cursor.x + r + 1.0f, cursor.y + h * 0.5f);
+
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+
+    /* Dark rim (lens edge, always visible). */
+    dl->AddCircleFilled(center, r, IM_COL32(38, 8, 8, 255), 18);
+
+    if (lit) {
+        /* Bright lit interior + soft highlight near the top-left to
+         * suggest a curved glass. */
+        dl->AddCircleFilled(center, r * 0.85f, IM_COL32(255, 70, 70, 255), 18);
+        dl->AddCircleFilled(
+            ImVec2(center.x - r * 0.30f, center.y - r * 0.30f),
+            r * 0.28f, IM_COL32(255, 230, 230, 220), 12);
+    } else {
+        /* "Glass without light": dim interior, no highlight. */
+        dl->AddCircleFilled(center, r * 0.85f, IM_COL32(80, 18, 18, 255), 18);
+    }
+
+    /* Reserve horizontal space matching the LED's footprint so the
+     * next SameLine'd item lands cleanly past the lens. */
+    ImGui::Dummy(ImVec2(r * 2.0f + 4.0f, h));
+}
+
 void drawStatusBar(const StatusBarState &s)
 {
     int cw = 0, ch = 0;
@@ -241,6 +276,16 @@ void drawStatusBar(const StatusBarState &s)
             ImGui::TextUnformatted("|");
             ImGui::SameLine();
         }
+        /* Activity LED — lit while the FDC is doing a seek / read /
+         * write on either logical side of this physical drive.  The
+         * decay built into core/floppy.c keeps the lamp glowing for
+         * a few frames past the last access so quick single-sector
+         * commands still register visibly. */
+        const bool active = s.emu.diskActive(unit0) ||
+                            s.emu.diskActive(unit1);
+        drawDiskLed(active);
+        ImGui::SameLine();
+
         if (!s.mountedFd[unit0].empty() ||
             !s.mountedFd[unit1].empty()) {
             if (s.mountedAsDs[drive]) {

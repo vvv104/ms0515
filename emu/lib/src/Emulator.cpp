@@ -173,6 +173,12 @@ bool Emulator::mountDisk(int drive, std::string_view path)
     return true;
 }
 
+bool Emulator::diskActive(int unit) const noexcept
+{
+    if (unit < 0 || unit >= 4) return false;
+    return impl_->board.fdc.drives[unit].activity_remaining > 0;
+}
+
 void Emulator::unmountDisk(int drive)
 {
     if (drive < 0 || drive >= 4)

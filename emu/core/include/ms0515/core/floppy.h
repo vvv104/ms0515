@@ -92,6 +92,13 @@ typedef struct {
                                  * for track-interleaved DS where each track
                                  * occupies a contiguous slot covering both
                                  * sides) */
+    int      activity_remaining; /* CPU cycles until the activity LED times
+                                  * out.  Refreshed by fdc_tick whenever
+                                  * this unit is the selected drive and the
+                                  * FDC is in a non-IDLE state; decays to
+                                  * zero otherwise.  Drives a UI-side
+                                  * indicator that lights up while the disk
+                                  * is being seeked / read / written.       */
 } fdc_drive_t;
 
 /* ── Asynchronous command state machine ──────────────────────────────────── */

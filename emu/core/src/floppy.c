@@ -516,10 +516,32 @@ uint8_t fdc_read(ms0515_floppy_t *fdc, int reg)
 
 /* ── State machine ───────────────────────────────────────────────────────── */
 
+/* How long (in CPU cycles) the per-drive activity flag stays
+ * asserted after the last tick observing the drive in motion.
+ * 7.5 MHz × 100 ms ≈ 750 000 cycles, so the activity LED lingers
+ * for roughly five 50 Hz frames — long enough to be visually
+ * noticeable on quick reads, short enough to follow the rhythm of
+ * a multi-sector transfer. */
+#define ACTIVITY_DECAY_CYCLES   750000
+
 void fdc_tick(ms0515_floppy_t *fdc, int cycles)
 {
+    /* Decay every drive's activity timer regardless of FDC state — a
+     * unit selected briefly during a seek then deselected for a long
+     * spin-down should still see its lamp fade out cleanly. */
+    for (int i = 0; i < FDC_LOGICAL_UNITS; ++i) {
+        int *t = &fdc->drives[i].activity_remaining;
+        if (*t > cycles) *t -= cycles;
+        else             *t  = 0;
+    }
+
     if (fdc->state == FDC_STATE_IDLE)
         return;
+
+    /* FDC is mid-command; refresh the selected drive's activity timer
+     * so its UI lamp stays lit for the duration of the operation. */
+    if (fdc->selected >= 0 && fdc->selected < FDC_LOGICAL_UNITS)
+        fdc->drives[fdc->selected].activity_remaining = ACTIVITY_DECAY_CYCLES;
 
     fdc->cycles_remaining -= cycles;
 

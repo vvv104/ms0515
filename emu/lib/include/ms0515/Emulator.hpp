@@ -142,6 +142,12 @@ public:
     [[nodiscard]] const std::string &diskPath(int drive) const noexcept
     { return diskPath_[drive]; }
 
+    /* Per-unit disk-activity flag — true while the FDC is doing a
+     * seek / read / write on `unit` (FD0..FD3), with a short
+     * post-activity decay so brief commands still register as a
+     * visible blip in any UI status indicator. */
+    [[nodiscard]] bool diskActive(int unit) const noexcept;
+
     void enableRamDisk();
 
     /* History ring & memory watchpoints used to live here; they moved
