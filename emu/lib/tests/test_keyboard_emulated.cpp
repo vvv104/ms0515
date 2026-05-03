@@ -117,7 +117,7 @@ static void runFrames(ms0515::Emulator &emu, int frames)
 static ms0515::ScreenReader::Snapshot readScreen(const ms0515::Emulator &emu,
                                                  ms0515::ScreenReader &sr)
 {
-    return sr.readScreen(emu.vram(), emu.isHires());
+    return sr.readScreen(ms0515::internal::vram(emu), emu.isHires());
 }
 
 /*

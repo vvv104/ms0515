@@ -218,7 +218,7 @@ void App::initEmulator()
 
     emu_.reset();
     applyKeyboardConfig();
-    initScreenReader();
+    initScreenDump();
 
     osk_.loadLayout();
     physKbd_.setHostMode(config_.hostMode);
@@ -295,9 +295,10 @@ void App::applyKeyboardConfig()
     emu_.applyKeyboardConfig(s);
 }
 
-void App::initScreenReader()
+void App::initScreenDump()
 {
-    screenReader_.buildFont(emu_.rom());
+    /* Emulator owns the ScreenReader and rebuilt its font on
+     * loadRom; here we just route the optional headless dump file. */
     if (cli_.screenDumpPath.empty()) return;
     if (cli_.screenDumpPath == "stderr")      screenDumpFile_ = stderr;
     else if (cli_.screenDumpPath == "stdout") screenDumpFile_ = stdout;
@@ -307,7 +308,7 @@ void App::initScreenReader()
             std::fprintf(stderr, "warning: cannot open screen dump '%s'\n",
                          cli_.screenDumpPath.c_str());
     }
-    screenReader_.setOutput(screenDumpFile_);
+    emu_.setScreenDumpFile(screenDumpFile_);
 }
 
 void App::initAudio()
@@ -584,10 +585,8 @@ void App::tick()
                 (pc >= 0167160u && pc <= 0167334u))
                 continue;
 
-            const auto snap = screenReader_.readScreen(
-                emu_.vram(), emu_.isHires());
-            screenReader_.update(
-                emu_.vram(), emu_.isHires());
+            const auto snap = emu_.screenSnapshot();
+            emu_.flushScreenDump();
             terminal_.feedSample(snap);
         }
     } else {

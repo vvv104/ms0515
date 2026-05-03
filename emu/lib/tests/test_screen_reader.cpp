@@ -11,6 +11,7 @@
 
 #include <doctest/doctest.h>
 #include <ms0515/Emulator.hpp>
+#include "EmulatorInternal.hpp"
 #include <ms0515/ScreenReader.hpp>
 #include <ms0515/memory.h>
 
@@ -222,8 +223,8 @@ TEST_CASE("DIAG: dump unrecognised cells from Mihin POST screen" * doctest::skip
         std::fprintf(stderr, "[diag] mode = %s\n",
                      hires ? "HIRES" : "LORES");
         const int colStride = hires ? 1 : 2;
-        auto cur = sr.readScreen(emu.vram(), hires);
-        const auto vram = emu.vram();
+        auto cur = sr.readScreen(ms0515::internal::vram(emu), hires);
+        const auto vram = ms0515::internal::vram(emu);
 
         /* Show row text first. */
         for (int r = 0; r < ms0515::ScreenReader::kRows; ++r) {

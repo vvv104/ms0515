@@ -23,6 +23,9 @@
 #define MS0515_EMULATOR_INTERNAL_HPP
 
 #include "ms0515/Emulator.hpp"
+#include "ms0515/ScreenReader.hpp"
+
+#include <span>
 
 extern "C" {
 #include "ms0515/board.h"
@@ -34,6 +37,7 @@ namespace ms0515 {
 struct Emulator::Impl {
     ms0515_board_t board;
     ms7004_t       kbd7004;
+    ScreenReader   screenReader;
 
     Emulator::SoundCallback     soundCb;
     Emulator::SerialOutCallback serialOutCb;
@@ -56,6 +60,14 @@ inline ms7004_t       &keyboard(Emulator &e) noexcept
     { return e.impl()->kbd7004; }
 inline const ms7004_t &keyboard(const Emulator &e) noexcept
     { return e.impl()->kbd7004; }
+
+/* ROM and VRAM byte spans — public API exposes neither (frontend goes
+ * through screenSnapshot / forEachXxxPixel), but lib tests that
+ * exercise ScreenReader / Terminal directly need the raw views. */
+inline std::span<const uint8_t> rom(const Emulator &e) noexcept
+    { return {e.impl()->board.mem.rom, MEM_ROM_SIZE}; }
+inline std::span<const uint8_t> vram(const Emulator &e) noexcept
+    { return {board_get_vram(&e.impl()->board), MEM_VRAM_SIZE}; }
 
 } /* namespace internal */
 } /* namespace ms0515 */

@@ -585,15 +585,15 @@ TEST_CASE("DIAG: Rodionov OSA-B real boot — screen vs Terminal mirror"
      * Terminal owns the stability gates; the test just supplies
      * the stream. */
     auto sample = [&]{
-        const auto raw = sr.readScreen(emu.vram(), emu.isHires());
+        const auto raw = sr.readScreen(ms0515::internal::vram(emu), emu.isHires());
         term.feedSample(raw);
     };
 
     auto checkpoint = [&](const char *label){
-        auto snap = sr.readScreen(emu.vram(), emu.isHires());
+        auto snap = sr.readScreen(ms0515::internal::vram(emu), emu.isHires());
         std::fprintf(stderr, "[diag] === %s ===\n", label);
         dumpSnapshotRows(label, snap);
-        dumpUnknownCells(snap, emu.vram().data(), emu.isHires(), /*maxRows=*/40);
+        dumpUnknownCells(snap, ms0515::internal::vram(emu).data(), emu.isHires(), /*maxRows=*/40);
     };
 
     /* Boot in chunks so we can checkpoint along the way and see

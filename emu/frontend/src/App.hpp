@@ -21,7 +21,6 @@
 
 #include <ms0515/Debugger.hpp>
 #include <ms0515/Emulator.hpp>
-#include <ms0515/ScreenReader.hpp>
 #include <ms0515/Terminal.hpp>
 
 #include <SDL.h>
@@ -53,7 +52,7 @@ private:
     void initEmulator();
     void mountInitialDisks();          /* called by initEmulator */
     void applyKeyboardConfig();        /* called by initEmulator */
-    void initScreenReader();           /* called by initEmulator */
+    void initScreenDump();             /* called by initEmulator */
     void initAudio();
     void shutdown();
 
@@ -104,7 +103,6 @@ private:
     /* ── Emulator + companions ──────────────────────────────────────── */
     ms0515::Emulator     emu_;
     ms0515::Debugger     dbg_{emu_};
-    ms0515::ScreenReader screenReader_;
     ms0515::Terminal     terminal_;
     Video                video_;
     ImFont              *terminalFont_ = nullptr;
