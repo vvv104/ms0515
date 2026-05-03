@@ -1,12 +1,12 @@
 # ── ms0515_lib unit tests ────────────────────────────────────────────────────
-# Lib-level checks — these go through the C++ wrapper (Emulator,
-# ScreenReader, Terminal, Disassembler, Debugger).  Linking against
-# ms0515_lib pulls ms0515_core transitively, but tests should not include
-# raw <ms0515/*.h> headers directly: doing so would defeat the layering and
-# reintroduce the leak the lib API revision is trying to plug.  Once the
-# Emulator.hpp PIMPL lands (Phase A), the build will enforce that on its
-# own — until then, treat any new core-include in this directory as a
-# regression that needs a lib-side accessor instead.
+# Lib-level checks — they go through the C++ wrapper (Emulator,
+# Terminal, KeyboardLayout, Disassembler, Debugger).  Linking against
+# ms0515_lib pulls ms0515_core transitively, and these tests are
+# allowed to peek at raw core symbols (`board_get_vram`,
+# `kbd_push_scancode`, etc.) for white-box assertions — they live
+# inside the lib layer.  Frontend code never gets that visibility:
+# `<ms0515/Emulator.hpp>` is PIMPL'd, so the structural seam holds
+# automatically.
 # ─────────────────────────────────────────────────────────────────────────────
 
 find_package(doctest REQUIRED)

@@ -105,7 +105,6 @@ cd package
 | `--disk1 <path>` | `-d1` | Drive 1, both sides from a track-interleaved image |
 | `--disk1-side0 <path>` | `-d1s0` | Drive 1, lower side |
 | `--disk1-side1 <path>` | `-d1s1` | Drive 1, upper side |
-| `--screen-dump <path>` | | Dump VRAM text (`stderr` / `stdout` accepted) |
 
 `--diskN` and `--diskN-sideM` for the same N are mutually exclusive.
 

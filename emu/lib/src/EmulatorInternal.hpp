@@ -59,9 +59,10 @@ inline ms7004_t       &keyboard(Emulator &e) noexcept
 inline const ms7004_t &keyboard(const Emulator &e) noexcept
     { return e.impl()->kbd7004; }
 
-/* ROM and VRAM byte spans — public API exposes neither (frontend goes
- * through screenSnapshot / forEachXxxPixel), but lib tests that
- * exercise ScreenReader / Terminal directly need the raw views. */
+/* ROM and VRAM byte spans — public API exposes neither (frontend
+ * goes through Terminal::decode / forEachXxxPixel for everything it
+ * needs), but Terminal.cpp itself and lib tests that exercise the
+ * decoder via Terminal::decode need the raw views. */
 inline std::span<const uint8_t> rom(const Emulator &e) noexcept
     { return {e.impl()->board.mem.rom, MEM_ROM_SIZE}; }
 inline std::span<const uint8_t> vram(const Emulator &e) noexcept

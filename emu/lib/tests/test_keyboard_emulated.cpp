@@ -510,8 +510,8 @@ TEST_CASE("ФКС + Shift cancel: RUS letter back to lowercase default") {
  * byte values produce specific glyphs.  Originally used to show that
  * '@' and '_' do not have unique scancodes — the ROM font stores
  * identical 8x8 patterns for ('@', '`') and ('_', 'Ъ'), so what the
- * screen-reader returns for those cells depends on which KOI-8 code
- * we register first in `ScreenReader::buildFont`.  Pinned to the
+ * Terminal::decode returns for those cells depends on which KOI-8
+ * code Terminal::buildFont registers first.  Pinned to the
  * first entry of `kConfigs` (ROM-A + OSA) to keep wall time bounded.
  */
 TEST_CASE("brute-force scancode → OS echo (diagnostic)" * doctest::skip()) {
@@ -860,8 +860,8 @@ TEST_CASE("Shift + LAT-mode special keys echo same glyph as unshifted") {
  * HARDSIGN ('Ъ') is a Russian letter; it has no Latin slot on the
  * cap.  The ROM font stores an IDENTICAL 8x8 pixel pattern for Ъ
  * (KOI-8 0xFF) and underscore '_' (KOI-8 0x5F) — the two glyphs
- * are visually indistinguishable on screen.  ScreenReader resolves
- * the ambiguity in favour of the ASCII code (0x5F), so we expect
+ * are visually indistinguishable on screen.  Terminal::decode
+ * resolves the ambiguity in favour of the ASCII code (0x5F), so we expect
  * '_' here even though the cap label is Ъ.
  *
  * ms0515::Key::Underscore shares scancode 0o361 with HARDSIGN in

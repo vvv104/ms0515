@@ -24,7 +24,7 @@ emu/                — emulator source code and build files
   core/include/     — ms0515/*.h headers
   core/tests/       — pure-core unit tests (link only against ms0515_core)
   lib/              — C++ wrapper (Emulator, Debugger, Disassembler, GdbStub)
-  lib/tests/        — lib-level tests (Emulator/ScreenReader/Terminal) + disk fixtures
+  lib/tests/        — lib-level tests (Emulator/Terminal/KeyboardLayout/...) + disk fixtures
   frontend/         — SDL2 + ImGui application
   frontend/tests/   — placeholder for future frontend tests
   assets/           — runtime resources (ROM files, keyboard layout, disk images)

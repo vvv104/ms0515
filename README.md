@@ -78,7 +78,6 @@ Command-line options:
 | `--disk1 <path>` | `-d1` | Drive 1, both sides from a track-interleaved DS image |
 | `--disk1-side0 <path>` | `-d1s0` | Drive 1, lower side |
 | `--disk1-side1 <path>` | `-d1s1` | Drive 1, upper side |
-| `--screen-dump <path>` | | Dump VRAM text to file (`stderr`/`stdout` accepted) |
 
 `--diskN` and `--diskN-sideM` for the same N are mutually exclusive.
 Diagnostic flags for headless / debugging runs (`--frames`,
