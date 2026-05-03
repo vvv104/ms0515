@@ -242,6 +242,12 @@ private:
     void emitText(std::string_view s);
     void emitKoi8(uint8_t koi8);
 
+    /* Erase one KOI-8 cell from the tail of the output (pops the
+     * UTF-8 bytes that `emitKoi8` had appended, writes `\b \b` to
+     * the host FILE* if attached).  Used by tryEmitIncremental for
+     * in-place line edits — backspace, mid-line rewrite. */
+    void emitBackspace(uint8_t koi8);
+
     /* ── Decode state ─────────────────────────────────────────────────── */
 
     std::unordered_map<std::uint64_t, uint8_t>           glyphMap_;

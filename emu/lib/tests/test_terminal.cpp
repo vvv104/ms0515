@@ -90,7 +90,7 @@ struct CaptureSink {
 
 TEST_SUITE("Terminal") {
 
-TEST_CASE("First snapshot dumps non-blank rows verbatim, no marker") {
+TEST_CASE("First snapshot preserves the OS row spacing") {
     CaptureSink sink;
     Terminal term;
     term.setOutput(sink.f);
@@ -102,12 +102,33 @@ TEST_CASE("First snapshot dumps non-blank rows verbatim, no marker") {
         "line four",
     }));
 
-    /* Blank rows are skipped — no padding into scrollback.  No
-     * trailing newline either: lastEmitRow_ tracks the row of the
-     * last emitted character so the host cursor stays at the end of
-     * the last non-empty row's content, which is where suffix
-     * appends and scroll-up emissions naturally continue from. */
-    CHECK(sink.drain() == "line one\nline two\nline four");
+    /* Blank rows BETWEEN content rows reach scrollback as `\n`-only
+     * lines so the visual layout the OS drew matches what the user
+     * sees.  Leading and trailing blanks (none here, but see the
+     * dedicated test below) are dropped; no trailing newline either —
+     * lastEmitRow_ tracks the row of the last emitted character so
+     * suffix appends continue from the right place. */
+    CHECK(sink.drain() == "line one\nline two\n\nline four");
+}
+
+TEST_CASE("Initial dump skips leading and trailing blank rows") {
+    CaptureSink sink;
+    Terminal term;
+    term.setOutput(sink.f);
+
+    /* Content surrounded by leading/trailing blanks: only the
+     * inter-row gap survives — no padding above or below. */
+    term.update(makeSnapshot({
+        "",
+        "",
+        "header",
+        "",
+        "body",
+        "",
+        "",
+    }));
+
+    CHECK(sink.drain() == "header\n\nbody");
 }
 
 TEST_CASE("Identical snapshot emits nothing") {
@@ -168,6 +189,24 @@ TEST_CASE("New row starting fresh prefixes the output with `\\n`") {
     /* OS finished printing on row 0 and started row 1 with output. */
     term.update(makeSnapshot({". DIR", "FOO.DAT"}));
     CHECK(sink.drain() == "\nFOO.DAT");
+}
+
+TEST_CASE("Diff path preserves blank rows between two content rows") {
+    CaptureSink sink;
+    Terminal term;
+    term.setOutput(sink.f);
+
+    /* Common DIR-listing pattern: "Свободных блоков: N" on row 0,
+     * blank row 1, "." prompt on row 2.  When the prompt appears,
+     * the diff plan walks rows 0-2 and finds row 0 unchanged, row 1
+     * unchanged (blank), row 2 freshly populated.  The forward-jump
+     * branch emits (r - cursorRow) `\n`s — two of them — which
+     * preserves the blank line as scrollback expects. */
+    term.update(makeSnapshot({"Free blocks: 247"}));
+    (void)sink.drain();
+
+    term.update(makeSnapshot({"Free blocks: 247", "", "."}));
+    CHECK(sink.drain() == "\n\n.");
 }
 
 TEST_CASE("Scroll-up by one emits a single newline plus the new bottom row") {
@@ -436,7 +475,40 @@ TEST_CASE("Scroll plus suffix-extension on the boundary row emits clean tail") {
     CHECK(out == "BAS ALL\n----------\nFree..>161.\n.");
 }
 
-TEST_CASE("Same-row prefix change rewrites the line with \\r") {
+TEST_CASE("Backspace shrinks the current line in place") {
+    CaptureSink sink;
+    Terminal term;
+    term.setOutput(sink.f);
+
+    term.update(makeSnapshot({"HELLO"}));
+    (void)sink.drain();
+
+    /* User pressed backspace twice; row trimmed back to "HEL".
+     * Two cells erased — host FILE* gets `\b \b` per cell, which a
+     * real terminal interprets as cursor-back / blank / cursor-back
+     * (proper destructive backspace). */
+    term.update(makeSnapshot({"HEL"}));
+    CHECK(sink.drain() == "\b \b\b \b");
+}
+
+TEST_CASE("Backspace also shrinks the in-memory history buffer") {
+    /* The ImGui scrollback view reads `term.history()` directly and
+     * doesn't interpret `\b`, so the history buffer has to be
+     * truncated outright — emitting raw `\b` bytes there would leave
+     * a literal control character in the rendered text.  Drive a
+     * stepwise shrink and check the buffer length each step. */
+    Terminal term;
+    term.update(makeSnapshot({"HELLO"}));
+    REQUIRE(term.history() == "HELLO");
+
+    term.update(makeSnapshot({"HEL"}));
+    CHECK(term.history() == "HEL");
+
+    term.update(makeSnapshot({"H"}));
+    CHECK(term.history() == "H");
+}
+
+TEST_CASE("Same-row prefix divergence backspaces over the changed suffix") {
     CaptureSink sink;
     Terminal term;
     term.setOutput(sink.f);
@@ -444,12 +516,62 @@ TEST_CASE("Same-row prefix change rewrites the line with \\r") {
     term.update(makeSnapshot({"DIR FOO.BAR"}));
     (void)sink.drain();
 
-    /* User backspaced and retyped — neither suffix-append nor
-     * fresh row.  The mirror clears the line and rewrites. */
+    /* "DIR FOO.BAR" → "DEL FOO": the common prefix is just "D".  We
+     * back over the 10 trailing oldText cells, then write the 6
+     * trailing newText cells.  History also shrinks accordingly so
+     * the in-app scrollback shows "DEL FOO". */
     term.update(makeSnapshot({"DEL FOO"}));
-    const auto out = sink.drain();
-    /* Format: `\r` + (oldLen) blanks + `\r` + new text. */
-    CHECK(out == "\r           \rDEL FOO");
+    CHECK(sink.drain() ==
+          /* 10 × `\b \b` */ "\b \b\b \b\b \b\b \b\b \b"
+                              "\b \b\b \b\b \b\b \b\b \b"
+          /* 6 × content   */ "EL FOO");
+    CHECK(term.history() == "DEL FOO");
+}
+
+TEST_CASE("feedSample lets a same-row shrink through the progressing gate") {
+    /* Live samplng goes through `feedSample`, which runs the
+     * stability gates before forwarding to update().  The progressing
+     * gate used to flag `cur.row[R]` as a "strict-subset partial
+     * copy" of `lastForwardedSnap_.row[R]` whenever the row got
+     * shorter — meaning every single-cell backspace was dropped
+     * until the row fell under the 3-non-blank noise floor.  Now
+     * same-row shrinkage is recognised as legitimate progress
+     * (backspace, DEL, end-of-line clear), and the gate only fires
+     * on cross-row matches (mid-scroll-copy of row R+1 down onto
+     * row R). */
+    Terminal term;
+
+    /* Establish lastForwardedSnap_ with a 4-cell row. */
+    term.feedSample(makeSnapshot({"ABCD"}));
+    REQUIRE(term.history() == "ABCD");
+
+    /* Single-cell backspace, well above the curNonBlank<3 floor. */
+    term.feedSample(makeSnapshot({"ABC"}));
+    CHECK(term.history() == "ABC");
+
+    term.feedSample(makeSnapshot({"AB"}));
+    CHECK(term.history() == "AB");
+}
+
+TEST_CASE("Backspace pops the right UTF-8 byte count for KOI-8 Cyrillic") {
+    /* KOI-8R 0xE1 ('А') decodes to two UTF-8 bytes (D0 90).  When
+     * the user erases that cell, the history buffer must shed both
+     * bytes — popping just one would leave a half-character that
+     * ImGui renders as U+FFFD. */
+    Terminal term;
+    auto initial = makeSnapshot({{ 'A',
+                                    static_cast<char>(0xE1),
+                                    static_cast<char>(0xE2) }});
+    term.update(initial);
+    REQUIRE(term.history().size() == 5);   /* "A" + 2+2 UTF-8 bytes */
+
+    term.update(makeSnapshot({{ 'A',
+                                 static_cast<char>(0xE1) }}));
+    /* One Cyrillic cell erased → 2 UTF-8 bytes popped. */
+    CHECK(term.history().size() == 3);
+
+    term.update(makeSnapshot({{ 'A' }}));
+    CHECK(term.history() == "A");
 }
 
 TEST_CASE("reset() makes the next update emit as initial again") {

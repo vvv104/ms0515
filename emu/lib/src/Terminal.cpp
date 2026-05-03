@@ -357,6 +357,33 @@ void Terminal::emitKoi8(uint8_t koi8)
     if (out_) Terminal::putKoi8Char(out_, koi8);
 }
 
+/* UTF-8 byte cost of the same KOI-8 cell that `appendKoi8Char` would
+ * have written.  Mirrors the case ladder there: kUnknownGlyph → █ (3),
+ * kCopyrightSign → © (2), printable ASCII → 1, KOI-8R upper half (0xC0
+ * .. 0xFF) → 2, anything else → '.' (1). */
+static std::size_t utf8BytesForKoi8(uint8_t koi8)
+{
+    if (koi8 == Terminal::kUnknownGlyph)            return 3;
+    if (koi8 == Terminal::kCopyrightSign)           return 2;
+    if (koi8 >= 0x20 && koi8 <  0x7F)               return 1;
+    if (koi8 >= 0xC0)                               return 2;
+    return 1;
+}
+
+/* Erase one KOI-8 cell from the tail of the output: pop its UTF-8
+ * bytes off `history_` (so ImGui sees a clean shorter string — it
+ * does not interpret control codes), and write `\b \b` to the host
+ * FILE* (which a real terminal does interpret as cursor-back / blank
+ * / cursor-back).  Caller passes the KOI-8 code that was written so
+ * the UTF-8 byte count matches what `appendKoi8Char` produced. */
+void Terminal::emitBackspace(uint8_t koi8)
+{
+    const std::size_t n = utf8BytesForKoi8(koi8);
+    if (history_.size() >= n)
+        history_.resize(history_.size() - n);
+    if (out_) std::fputs("\b \b", out_);
+}
+
 std::string Terminal::trimmedRow(const Snapshot &s, int r) const
 {
     if (r < 0 || r >= Terminal::kRows) return {};
@@ -446,9 +473,11 @@ bool Terminal::tryEmitIncremental(const Snapshot &cur)
      * single byte produced invalid UTF-8 in history_, which is what
      * the user saw rendered as U+FFFD (`�`) in the Terminal window. */
     struct Op {
-        enum Kind { Newline, Carriage, Space, Content };
+        enum Kind { Newline, Content, Backspace };
         Kind     kind;
-        uint8_t  koi8;   /* used only for Content */
+        uint8_t  koi8;   /* Content: byte to push.  Backspace: byte
+                          * being erased — drives the UTF-8 byte
+                          * count when popping it off history_. */
     };
 
     int cursorRow = lastEmitRow_;
@@ -477,24 +506,37 @@ bool Terminal::tryEmitIncremental(const Snapshot &cur)
             cursorRow = r;
             cursorCol = static_cast<int>(newText.size());
         } else if (r == cursorRow) {
-            /* Same row as host cursor: prefer suffix append.  If the
-             * old text isn't a prefix of the new one (backspace,
-             * line edit, or cursor-only difference we somehow
-             * still see), rewrite the line in place. */
-            if (newText.size() >= oldText.size() &&
-                std::memcmp(newText.data(), oldText.data(),
-                            oldText.size()) == 0) {
-                for (size_t i = oldText.size(); i < newText.size(); ++i)
-                    plan.push_back({Op::Content,
-                                    static_cast<uint8_t>(newText[i])});
-            } else {
-                plan.push_back({Op::Carriage, 0});
-                for (int i = 0; i < cursorCol; ++i)
-                    plan.push_back({Op::Space, 0});
-                plan.push_back({Op::Carriage, 0});
-                for (uint8_t c : newText)
-                    plan.push_back({Op::Content, c});
-            }
+            /* Same row as host cursor.  Three sub-cases:
+             *
+             *   a. newText is a prefix-extension of oldText (suffix
+             *      typed) — emit only the new tail.
+             *   b. newText is a strict prefix of oldText (backspace
+             *      / DEL) — back up over the removed cells.
+             *   c. neither (mid-line edit, e.g. user retyped after
+             *      backspacing) — back up over the divergent suffix
+             *      of oldText, then emit the divergent suffix of
+             *      newText.
+             *
+             * The unified handling: find the common prefix, then
+             * issue Backspace ops for the trailing oldText cells and
+             * Content ops for the trailing newText cells.  Case (a)
+             * collapses to "no backspaces, append-only"; case (b) to
+             * "backspaces, no content"; (c) is the general form.
+             *
+             * Using emitBackspace instead of the older `\r`/space
+             * /`\r` rewrite keeps history_ valid UTF-8 (no embedded
+             * `\r`) so the ImGui scrollback view doesn't render
+             * stray glyphs at the rewrite points. */
+            std::size_t common = 0;
+            while (common < oldText.size() && common < newText.size() &&
+                   oldText[common] == newText[common])
+                ++common;
+            for (std::size_t i = oldText.size(); i > common; --i)
+                plan.push_back({Op::Backspace,
+                                static_cast<uint8_t>(oldText[i - 1])});
+            for (std::size_t i = common; i < newText.size(); ++i)
+                plan.push_back({Op::Content,
+                                static_cast<uint8_t>(newText[i])});
             cursorCol = static_cast<int>(newText.size());
         } else {
             /* r < cursorRow — we'd have to scroll the host
@@ -504,15 +546,15 @@ bool Terminal::tryEmitIncremental(const Snapshot &cur)
     }
 
     /* Plan validated — execute through the real emit helpers.
-     * Control chars (`\n`, `\r`, ` `) go through emitChar; content
-     * bytes go through emitKoi8 so KOI-8R Cyrillic codes turn into
-     * proper multi-byte UTF-8 in history_. */
+     * Newlines go through emitChar; content bytes go through
+     * emitKoi8 so KOI-8R Cyrillic codes turn into proper multi-byte
+     * UTF-8 in history_; backspaces pop the same UTF-8 bytes off
+     * the tail and write `\b \b` to the host FILE*. */
     for (const Op &op : plan) {
         switch (op.kind) {
-            case Op::Newline:  emitChar('\n');     break;
-            case Op::Carriage: emitChar('\r');     break;
-            case Op::Space:    emitChar(' ');      break;
-            case Op::Content:  emitKoi8(op.koi8);  break;
+            case Op::Newline:   emitChar('\n');         break;
+            case Op::Content:   emitKoi8(op.koi8);      break;
+            case Op::Backspace: emitBackspace(op.koi8); break;
         }
     }
 
@@ -675,21 +717,34 @@ void Terminal::emitDedup(const Snapshot &cur)
 }
 
 /*
- * Helper: emit a sequence of non-blank rows separated by `\n`, no
- * leading or trailing newline.  Used by initial dump and redraw
- * paths so the buffer never accumulates a stray empty line at the
- * tail (which would leave lastEmitRow_ inconsistent with the host
- * cursor's actual position). */
-static void emitRowsSeparated(Terminal &t, const Terminal::Snapshot &snap,
-                              auto &&rowText, auto &&emitNl, auto &&emitText)
+ * Helper: emit the visible rows of `snap` preserving the OS's row
+ * spacing.  Leading and trailing blank rows are dropped (so the
+ * scrollback isn't padded with a screenful of empty lines), but
+ * blank rows BETWEEN content rows become blank lines on the wire
+ * — every row from the first non-empty to the last non-empty
+ * contributes either its text or a `\n` for the spacing gap.  Used
+ * by the initial-dump path and the redraw-marker path so that
+ * lastEmitRow_ ends up at the row of the last emitted character. */
+static void emitRowsPreservingGaps(Terminal &t, const Terminal::Snapshot &snap,
+                                   auto &&rowText, auto &&emitNl,
+                                   auto &&emitText)
 {
-    bool first = true;
+    int first = -1, last = -1;
     for (int r = 0; r < Terminal::kRows; ++r) {
+        if (!rowText(snap, r).empty()) {
+            if (first < 0) first = r;
+            last = r;
+        }
+    }
+    if (first < 0) return;   /* all-blank — nothing to emit */
+
+    emitText(rowText(snap, first));
+    int prev = first;
+    for (int r = first + 1; r <= last; ++r) {
+        for (int i = 0; i < r - prev; ++i) emitNl();
         const auto text = rowText(snap, r);
-        if (text.empty()) continue;
-        if (!first) emitNl();
-        first = false;
-        emitText(text);
+        if (!text.empty()) emitText(text);
+        prev = r;
     }
     (void)t;
 }
@@ -745,6 +800,21 @@ void Terminal::feedSample(const Terminal::Snapshot &snap)
                 if (stripTransparent(cur[c]) != 0x20) ++curNonBlank;
             if (curNonBlank < 3) continue;
             for (int rr = 0; rr < Terminal::kRows; ++rr) {
+                /* Skip the same-row comparison: a row shrinking
+                 * relative to its own previous content is normal
+                 * progress (backspace / DEL / end-of-line clear),
+                 * not a mid-scroll-copy.  The mid-scroll signature
+                 * we want to catch here is `cur.row[R]` looking
+                 * like a partial copy of `lastForwardedSnap_.row[R']`
+                 * where R' ≠ R — that's the OS copying row R+1 down
+                 * onto row R cell-by-cell.  Keeping rr == r in the
+                 * loop made every backspace under a 3-char-or-more
+                 * row register as "subset of itself shrunk" and
+                 * dropped the snap, so backspaces only became
+                 * visible once the row fell under the curNonBlank<3
+                 * noise floor — exactly the symptom the user
+                 * reported. */
+                if (rr == r) continue;
                 const uint8_t *ref = &lastForwardedSnap_.cells[
                     rr * Terminal::kHiresCols];
                 int refNonBlank = 0;
@@ -853,17 +923,17 @@ void Terminal::update(const Terminal::Snapshot &snap)
     if (!anyContent)
         return;
 
-    /* First frame: dump the current visible content (skipping
-     * blank rows entirely so we don't pad scrollback with empty
-     * lines).  This becomes the baseline shadow.  No trailing
-     * newline — lastEmitRow_ tracks the row of the *last emitted
-     * character*, so the host cursor sits at the end of the last
-     * non-empty row's content. */
+    /* First frame: dump the current visible content, preserving the
+     * OS's row spacing — leading and trailing blank rows are
+     * skipped, but blanks BETWEEN content rows reach scrollback as
+     * `\n`-only lines.  No trailing newline: lastEmitRow_ tracks
+     * the row of the last emitted character so the host cursor
+     * sits at the end of the last non-empty row's content. */
     if (!hasShadow_) {
         /* The initial dump is the first "screen" the UI should
          * anchor against. */
         lastScreenStart_ = history_.size();
-        emitRowsSeparated(
+        emitRowsPreservingGaps(
             *this, snap,
             [&](const Snapshot &s, int r){ return trimmedRow(s, r); },
             [&]{ emitChar('\n'); },
