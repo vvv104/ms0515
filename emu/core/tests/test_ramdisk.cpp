@@ -1,7 +1,7 @@
 #include <doctest/doctest.h>
 
 extern "C" {
-#include <ms0515/ramdisk.h>
+#include <ms0515/core/ramdisk.h>
 }
 
 TEST_SUITE("Ramdisk") {

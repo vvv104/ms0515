@@ -2,7 +2,7 @@
 #include <cstring>
 
 extern "C" {
-#include <ms0515/keyboard.h>
+#include <ms0515/core/keyboard.h>
 }
 
 TEST_SUITE("Keyboard") {

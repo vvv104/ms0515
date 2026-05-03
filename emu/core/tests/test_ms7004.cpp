@@ -2,8 +2,8 @@
 #include <cstring>
 
 extern "C" {
-#include <ms0515/ms7004.h>
-#include <ms0515/keyboard.h>
+#include <ms0515/core/ms7004.h>
+#include <ms0515/core/keyboard.h>
 }
 
 TEST_SUITE("MS7004") {

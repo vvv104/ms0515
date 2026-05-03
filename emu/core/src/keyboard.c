@@ -20,7 +20,7 @@
  *   - NS4 technical description, section 4.10.1
  */
 
-#include <ms0515/keyboard.h>
+#include <ms0515/core/keyboard.h>
 #include <string.h>
 
 /* ── i8251 command register bits ─────────────────────────────────────────── */

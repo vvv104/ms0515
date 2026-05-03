@@ -17,7 +17,7 @@
  *   N bytes  data
  */
 
-#include <ms0515/snapshot.h>
+#include <ms0515/core/snapshot.h>
 #include <string.h>
 #include <stdlib.h>
 

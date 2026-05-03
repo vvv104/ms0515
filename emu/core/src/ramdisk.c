@@ -28,7 +28,7 @@
  *   - reference/docs/ext/l6_1.doc.txt (hardware description)
  */
 
-#include <ms0515/ramdisk.h>
+#include <ms0515/core/ramdisk.h>
 #include <stdlib.h>
 #include <string.h>
 

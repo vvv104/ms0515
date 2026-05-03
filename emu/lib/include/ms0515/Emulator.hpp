@@ -2,7 +2,7 @@
  * Emulator.hpp — High-level C++ wrapper around the MS0515 core board.
  *
  * Deliberately self-contained: the public header pulls in NO C-side
- * core symbols (no <ms0515/board.h>, no <ms0515/ms7004.h>, no scancode
+ * core symbols (no <ms0515/core/*.h>, no scancode
  * macros).  Everything frontend-visible is expressed in plain C++ —
  * the strong `Key` enum mirrors the MS-7004 scancode set; ROM/disk
  * sizes and snapshot APIs use `std::span` / `std::expected`; pixel

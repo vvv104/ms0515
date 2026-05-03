@@ -28,10 +28,10 @@
 #include <ms0515/Emulator.hpp>
 #include "EmulatorInternal.hpp"
 #include <ms0515/Terminal.hpp>
-#include <ms0515/board.h>
-#include <ms0515/keyboard.h>
-#include <ms0515/memory.h>
-#include <ms0515/ms7004.h>
+#include <ms0515/core/board.h>
+#include <ms0515/core/keyboard.h>
+#include <ms0515/core/memory.h>
+#include <ms0515/core/ms7004.h>
 
 #include "test_disk.hpp"
 

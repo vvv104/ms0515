@@ -1,7 +1,7 @@
 #include <doctest/doctest.h>
 
 extern "C" {
-#include <ms0515/timer.h>
+#include <ms0515/core/timer.h>
 }
 
 TEST_SUITE("Timer") {

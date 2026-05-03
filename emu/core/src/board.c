@@ -13,7 +13,7 @@
  *   - MAME driver: src/mame/ussr/ms0515.cpp
  */
 
-#include <ms0515/board.h>
+#include <ms0515/core/board.h>
 #include <stdlib.h>
 #include <string.h>
 

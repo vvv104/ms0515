@@ -2,7 +2,7 @@
  * trace.c — Binary event ring implementation.
  */
 
-#include <ms0515/trace.h>
+#include <ms0515/core/trace.h>
 
 #include <stdlib.h>
 #include <string.h>

@@ -26,7 +26,7 @@
 #include <vector>
 
 extern "C" {
-#include <ms0515/board.h>
+#include <ms0515/core/board.h>
 }
 
 #include <ms0515/Disassembler.hpp>

@@ -13,8 +13,8 @@
  *   - NS4 technical description, section 4.2
  */
 
-#include <ms0515/cpu.h>
-#include <ms0515/board.h>
+#include <ms0515/core/cpu.h>
+#include <ms0515/core/board.h>
 #include <string.h>
 #include <assert.h>
 

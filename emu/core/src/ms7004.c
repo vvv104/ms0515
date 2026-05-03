@@ -10,8 +10,8 @@
  * here; callers (OSK clicks, host-key events) stay dumb.
  */
 
-#include <ms0515/ms7004.h>
-#include <ms0515/keyboard.h>
+#include <ms0515/core/ms7004.h>
+#include <ms0515/core/keyboard.h>
 
 #include <string.h>
 

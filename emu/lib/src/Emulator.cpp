@@ -9,7 +9,7 @@
 #include <utility>
 
 extern "C" {
-#include "ms0515/snapshot.h"
+#include "ms0515/core/snapshot.h"
 }
 
 namespace {

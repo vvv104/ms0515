@@ -10,7 +10,7 @@
  *   - NS4 technical description, section 4.9
  */
 
-#include <ms0515/timer.h>
+#include <ms0515/core/timer.h>
 #include <string.h>
 
 /* ── Channel initialization ───────────────────────────────────────────────── */

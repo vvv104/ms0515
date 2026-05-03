@@ -2,7 +2,7 @@
 #include <cstring>
 
 extern "C" {
-#include <ms0515/memory.h>
+#include <ms0515/core/memory.h>
 }
 
 TEST_SUITE("Memory") {

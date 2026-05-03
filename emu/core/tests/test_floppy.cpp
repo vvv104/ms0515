@@ -13,7 +13,7 @@
 
 #include <doctest/doctest.h>
 
-#include <ms0515/floppy.h>
+#include <ms0515/core/floppy.h>
 
 #include <array>
 #include <cstdio>

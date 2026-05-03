@@ -12,7 +12,7 @@
  *      (0 = extended bank, 1 = primary bank)
  */
 
-#include <ms0515/memory.h>
+#include <ms0515/core/memory.h>
 #include <string.h>
 #include <assert.h>
 

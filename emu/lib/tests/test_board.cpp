@@ -1,7 +1,7 @@
 #include <doctest/doctest.h>
 
 extern "C" {
-#include <ms0515/board.h>
+#include <ms0515/core/board.h>
 }
 
 #include <ms0515/Emulator.hpp>

@@ -22,7 +22,7 @@
  *   - NS4 technical description, sections 4.8, 4.10
  */
 
-#include <ms0515/floppy.h>
+#include <ms0515/core/floppy.h>
 #include <string.h>
 
 /* ── WD1793 command codes (upper nibble) ─────────────────────────────────── */

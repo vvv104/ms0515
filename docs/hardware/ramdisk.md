@@ -141,6 +141,6 @@ initialization) returns 0x00. Real DRAM powers on with random content.
 
 ## Implementation
 
-- Header: `core/include/ms0515/ramdisk.h`
+- Header: `core/include/ms0515/core/ramdisk.h`
 - Source: `core/src/ramdisk.c`
 - Integration: `core/src/board.c` routes I/O to ramdisk module

@@ -25,8 +25,8 @@
  *   - T-11 User's Guide (EK-DCT11-UG)
  */
 
-#include <ms0515/cpu.h>
-#include <ms0515/board.h>
+#include <ms0515/core/cpu.h>
+#include <ms0515/core/board.h>
 #include <string.h>
 
 /* ── Handler type (same as in cpu.c) ──────────────────────────────────────── */

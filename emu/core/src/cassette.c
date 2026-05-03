@@ -8,7 +8,7 @@
  * support will plug into the same set/get hooks.
  */
 
-#include <ms0515/cassette.h>
+#include <ms0515/core/cassette.h>
 #include <string.h>
 
 void cassette_init(ms0515_cassette_t *c)

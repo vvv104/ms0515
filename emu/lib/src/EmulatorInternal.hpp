@@ -4,7 +4,7 @@
  * The public `Emulator.hpp` header is deliberately PIMPL-shaped: it
  * forward-declares `Emulator::Impl` and stores a `unique_ptr<Impl>` but
  * never lets callers dereference it.  That keeps frontend code entirely
- * free of `<ms0515/board.h>` / `<ms0515/ms7004.h>` even when it goes
+ * free of `<ms0515/core/*.h>` even when it goes
  * through the public lib API.
  *
  * Lib-internal code (Debugger, GdbStub, Disassembler, Emulator.cpp
@@ -27,8 +27,8 @@
 #include <span>
 
 extern "C" {
-#include "ms0515/board.h"
-#include "ms0515/ms7004.h"
+#include "ms0515/core/board.h"
+#include "ms0515/core/ms7004.h"
 }
 
 namespace ms0515 {
