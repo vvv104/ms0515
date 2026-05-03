@@ -110,10 +110,12 @@ jobs:
 
       - name: Run tests
         shell: bash
-        working-directory: emu/build/Release/tests
+        working-directory: emu/build/Release
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            ./ms0515_tests.exe
+            ./core/tests/ms0515_core_tests.exe
+            ./lib/tests/ms0515_lib_tests.exe
           else
-            ./ms0515_tests
+            ./core/tests/ms0515_core_tests
+            ./lib/tests/ms0515_lib_tests
           fi

@@ -1,9 +1,9 @@
 /*
  * Emulator.hpp — High-level C++ wrapper around the MS0515 core board.
  *
- * Deliberately self-contained: the public header pulls in NO C-side
- * core symbols (no <ms0515/core/*.h>, no scancode
- * macros).  Everything frontend-visible is expressed in plain C++ —
+ * Deliberately self-contained: the public header pulls in no C-side
+ * core symbols (no `<ms0515/core/...>` header, no scancode macros).
+ * Everything frontend-visible is expressed in plain C++ —
  * the strong `Key` enum mirrors the MS-7004 scancode set; ROM/disk
  * sizes and snapshot APIs use `std::span` / `std::expected`; pixel
  * iteration goes through visitor callbacks.
@@ -106,10 +106,10 @@ public:
     using SerialInCallback  = std::function<bool(uint8_t &byte)>;
 
     /* Forward-declared opaque state.  Defined in EmulatorInternal.hpp,
-     * reachable only from lib/src/*.  The struct is intentionally
+     * reachable only from lib/src.  The struct is intentionally
      * exposed *as a name* in the public header so the unique_ptr
-     * member type-checks; callers outside lib see it as incomplete and
-     * can't dereference the result of impl(). */
+     * member type-checks; callers outside lib see it as incomplete
+     * and can't dereference the result of impl(). */
     struct Impl;
 
     Emulator();

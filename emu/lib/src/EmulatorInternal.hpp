@@ -4,8 +4,8 @@
  * The public `Emulator.hpp` header is deliberately PIMPL-shaped: it
  * forward-declares `Emulator::Impl` and stores a `unique_ptr<Impl>` but
  * never lets callers dereference it.  That keeps frontend code entirely
- * free of `<ms0515/core/*.h>` even when it goes
- * through the public lib API.
+ * free of any `<ms0515/core/...>` header even when it goes through
+ * the public lib API.
  *
  * Lib-internal code (Debugger, GdbStub, Disassembler, Emulator.cpp
  * itself) still needs raw access to `ms0515_board_t` / `ms7004_t`.  This
@@ -14,7 +14,8 @@
  * units never need to touch the friend mechanism — `internal::cpu(emu)`
  * etc. read straight off the impl pointer.
  *
- * Usage rule: this header MUST be included only by `lib/src/*` sources.
+ * Usage rule: this header MUST be included only by `lib/src/`
+ * sources.
  * Any include from the frontend, tests, or another consumer is a
  * layering bug — the public API surface is `Emulator.hpp` alone.
  */
