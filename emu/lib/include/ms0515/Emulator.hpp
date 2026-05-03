@@ -32,6 +32,25 @@ extern "C" {
 
 namespace ms0515 {
 
+/* Frontend-facing alias for the C-side keyboard scancode enum.  Use
+ * this name in frontend code instead of `ms7004_key_t` so the
+ * frontend never has to include `<ms0515/ms7004.h>` directly. */
+using Key = ::ms7004_key_t;
+
+/* Frontend-facing constants mirroring the C-side hardware sizes. */
+inline constexpr std::size_t kFloppyDiskSize = FDC_DISK_SIZE;
+
+/* User-tunable keyboard timing settings.  Frontend reads/writes
+ * these via Emulator::keyboardSettings() / applyKeyboardConfig()
+ * — the underlying ms7004_t is not exposed. */
+struct KeyboardSettings {
+    bool     autoGameMode    = false;
+    uint32_t typingDelayMs   = 0;
+    uint32_t typingPeriodMs  = 0;
+    uint32_t gameDelayMs     = 0;
+    uint32_t gamePeriodMs    = 0;
+};
+
 class Emulator {
 public:
     using SoundCallback     = std::function<void(int value)>;
@@ -94,7 +113,7 @@ public:
 
     void keyEvent(uint8_t scancode);
 
-    void keyPress(ms7004_key_t key, bool down);
+    void keyPress(Key key, bool down);
 
     void keyReleaseAll();
 
@@ -102,27 +121,43 @@ public:
 
     [[nodiscard]] bool capsOn()   const noexcept;
     [[nodiscard]] bool ruslatOn() const noexcept;
-    [[nodiscard]] bool keyHeld(ms7004_key_t key) const noexcept;
+    [[nodiscard]] bool keyHeld(Key key) const noexcept;
 
-    const ms7004_t &keyboard() const noexcept { return kbd7004_; }
-    ms7004_t       &keyboard()       noexcept { return kbd7004_; }
+    /* User-tunable keyboard settings.  Frontend reads via
+     * keyboardSettings() and writes via applyKeyboardConfig()
+     * (which also resets the live repeat timers to the typing
+     * preset; the auto-game-mode heuristic flips them later). */
+    [[nodiscard]] KeyboardSettings keyboardSettings() const noexcept;
+    void                           applyKeyboardConfig(
+                                       const KeyboardSettings &s) noexcept;
+    [[nodiscard]] bool             keyboardInGameMode() const noexcept;
 
-    /* ── State accessors ───────────────────────────────────────────────── */
+    /* ── Internal-use accessors ────────────────────────────────────────── */
 
-    const ms0515_board_t &board() const noexcept { return *board_; }
-    ms0515_board_t       &board()       noexcept { return *board_; }
-
-    const ms0515_cpu_t   &cpu() const noexcept { return board_->cpu; }
-    ms0515_cpu_t         &cpu()       noexcept { return board_->cpu; }
+    /* These return raw C structs and exist for code that has to
+     * touch hardware directly (debugger, GDB stub, OnScreenKeyboard
+     * scancode injection).  Frontend should NOT use them — use the
+     * specific lib API methods below instead. */
+    const ms7004_t       &keyboard() const noexcept { return kbd7004_; }
+    ms7004_t             &keyboard()       noexcept { return kbd7004_; }
+    const ms0515_board_t &board()    const noexcept { return *board_; }
+    ms0515_board_t       &board()          noexcept { return *board_; }
+    const ms0515_cpu_t   &cpu()      const noexcept { return board_->cpu; }
+    ms0515_cpu_t         &cpu()            noexcept { return board_->cpu; }
 
     [[nodiscard]] uint16_t readWord(uint16_t address);
     [[nodiscard]] uint8_t  readByte(uint16_t address);
     void     writeWord(uint16_t address, uint16_t value);
     void     writeByte(uint16_t address, uint8_t value);
 
-    [[nodiscard]] const uint8_t *vram()        const noexcept;
-    [[nodiscard]] bool           isHires()     const noexcept;
-    [[nodiscard]] uint8_t        borderColor() const noexcept;
+    /* ── State accessors ───────────────────────────────────────────────── */
+
+    [[nodiscard]] std::span<const uint8_t> rom()  const noexcept;
+    [[nodiscard]] std::span<const uint8_t> vram() const noexcept;
+    [[nodiscard]] bool                     isHires()     const noexcept;
+    [[nodiscard]] uint8_t                  borderColor() const noexcept;
+    [[nodiscard]] uint16_t                 pc()          const noexcept;
+    [[nodiscard]] uint32_t                 frameCyclePos() const noexcept;
 
     /* ── Callbacks ──────────────────────────────────────────────────────── */
 

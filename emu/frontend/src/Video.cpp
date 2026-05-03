@@ -58,7 +58,7 @@ uint32_t Video::paletteColor(int grb, bool bright)
 
 void Video::render(const ms0515::Emulator &emu, uint32_t frameCounter)
 {
-    const uint8_t *vram = emu.vram();
+    const uint8_t *vram = emu.vram().data();
     if (emu.isHires()) {
         renderHiRes(vram, emu.borderColor());
     } else {

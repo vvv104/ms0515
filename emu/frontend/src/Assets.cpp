@@ -3,7 +3,7 @@
 #include "Config.hpp"
 #include "Video.hpp"
 
-#include <ms0515/floppy.h>     /* FDC_DISK_SIZE */
+#include <ms0515/Emulator.hpp>  /* ms0515::kFloppyDiskSize */
 
 /* stb is header-only; we own the single .cpp that supplies the
  * implementation symbols. */
@@ -33,19 +33,19 @@ validateDiskImage(const std::string &path, std::uintmax_t expected)
     if (sz == expected)
         return std::nullopt;
 
-    const bool wantedDouble = (expected == 2 * FDC_DISK_SIZE);
-    const bool sizeIsOther  = (sz == (wantedDouble ? FDC_DISK_SIZE
-                                                   : 2 * FDC_DISK_SIZE));
+    const bool wantedDouble = (expected == 2 * ms0515::kFloppyDiskSize);
+    const bool sizeIsOther  = (sz == (wantedDouble ? ms0515::kFloppyDiskSize
+                                                   : 2 * ms0515::kFloppyDiskSize));
     if (sizeIsOther) {
         return wantedDouble
             ? std::format(
                 "'{}' is a single-side image ({} bytes).  Use "
                 "--diskN-side0 (or -dNs0) to mount it on one side of "
-                "a drive.", path, FDC_DISK_SIZE)
+                "a drive.", path, ms0515::kFloppyDiskSize)
             : std::format(
                 "'{}' is a double-sided image ({} bytes).  Use "
                 "--diskN (or -dN) to mount a whole double-sided drive "
-                "from one image.", path, 2 * FDC_DISK_SIZE);
+                "from one image.", path, 2 * ms0515::kFloppyDiskSize);
     }
     return std::format(
         "'{}' has unrecognised disk format (size {} bytes; expected {} "
@@ -92,13 +92,13 @@ std::vector<std::string> discoverRoms()
 std::optional<std::string>
 validateSingleSideImage(const std::string &path)
 {
-    return validateDiskImage(path, FDC_DISK_SIZE);
+    return validateDiskImage(path, ms0515::kFloppyDiskSize);
 }
 
 std::optional<std::string>
 validateDoubleSidedImage(const std::string &path)
 {
-    return validateDiskImage(path, 2 * FDC_DISK_SIZE);
+    return validateDiskImage(path, 2 * ms0515::kFloppyDiskSize);
 }
 
 std::string saveScreenshot(const Video &video, const std::string &path)

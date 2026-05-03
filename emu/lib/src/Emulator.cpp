@@ -200,9 +200,14 @@ void Emulator::writeByte(uint16_t address, uint8_t value)
 
 /* ── Video state ────────────────────────────────────────────────────────── */
 
-const uint8_t *Emulator::vram() const noexcept
+std::span<const uint8_t> Emulator::vram() const noexcept
 {
-    return board_get_vram(board_.get());
+    return {board_get_vram(board_.get()), MEM_VRAM_SIZE};
+}
+
+std::span<const uint8_t> Emulator::rom() const noexcept
+{
+    return {board_->mem.rom, MEM_ROM_SIZE};
 }
 
 bool Emulator::isHires() const noexcept
@@ -213,6 +218,44 @@ bool Emulator::isHires() const noexcept
 uint8_t Emulator::borderColor() const noexcept
 {
     return board_get_border_color(board_.get());
+}
+
+uint16_t Emulator::pc() const noexcept
+{
+    return board_->cpu.r[CPU_REG_PC];
+}
+
+uint32_t Emulator::frameCyclePos() const noexcept
+{
+    return board_->frame_cycle_pos;
+}
+
+KeyboardSettings Emulator::keyboardSettings() const noexcept
+{
+    KeyboardSettings s;
+    s.autoGameMode    = kbd7004_.auto_game_mode;
+    s.typingDelayMs   = kbd7004_.repeat_typing_delay_ms;
+    s.typingPeriodMs  = kbd7004_.repeat_typing_period_ms;
+    s.gameDelayMs     = kbd7004_.repeat_game_delay_ms;
+    s.gamePeriodMs    = kbd7004_.repeat_game_period_ms;
+    return s;
+}
+
+void Emulator::applyKeyboardConfig(const KeyboardSettings &s) noexcept
+{
+    kbd7004_.auto_game_mode             = s.autoGameMode;
+    kbd7004_.repeat_typing_delay_ms     = s.typingDelayMs;
+    kbd7004_.repeat_typing_period_ms    = s.typingPeriodMs;
+    kbd7004_.repeat_game_delay_ms       = s.gameDelayMs;
+    kbd7004_.repeat_game_period_ms      = s.gamePeriodMs;
+    /* Pick typing or game preset based on whether the auto-game-mode
+     * heuristic has currently flipped us into game mode. */
+    ms7004_recompute_live_repeat(&kbd7004_);
+}
+
+bool Emulator::keyboardInGameMode() const noexcept
+{
+    return kbd7004_.in_game_mode;
 }
 
 /* ── Callbacks ──────────────────────────────────────────────────────────── */

@@ -8,7 +8,7 @@
 
 namespace ms0515_frontend {
 
-ms7004_key_t sdlToMs7004(SDL_Scancode phys, bool rusMode)
+ms0515::Key sdlToMs7004(SDL_Scancode phys, bool rusMode)
 {
     /* ── Mode-dependent letter and symbol mappings ──────────────────── */
 
@@ -196,7 +196,7 @@ ms7004_key_t sdlToMs7004(SDL_Scancode phys, bool rusMode)
 
 Ms7004Mapped sdlToMs7004Char(SDL_Scancode phys, bool shifted, bool rusMode)
 {
-    ms7004_key_t base = sdlToMs7004(phys, rusMode);
+    ms0515::Key base = sdlToMs7004(phys, rusMode);
 
     /* ── РУС mode: Russian PC keyboard symbol remapping ──────────────────
      *

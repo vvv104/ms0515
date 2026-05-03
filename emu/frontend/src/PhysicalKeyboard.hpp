@@ -21,7 +21,7 @@
 #include <unordered_map>
 
 extern "C" {
-#include <ms0515/ms7004.h>
+#include <ms0515/Emulator.hpp>  /* ms0515::Key */
 }
 
 namespace ms0515 { class Emulator; }
@@ -47,7 +47,7 @@ public:
 
 private:
     bool hostMode_ = false;
-    /* SDL scancode → ms7004_key_t that was pressed.  Used on key-up
+    /* SDL scancode → ms0515::Key that was pressed.  Used on key-up
      * to release the correct key even if RUS/LAT mode changed. */
     std::unordered_map<int, int> physToMs7004_;
 

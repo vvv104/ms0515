@@ -2,7 +2,7 @@
  * OnScreenKeyboard.cpp — MS7004 virtual keyboard.
  *
  * Layout is data-driven (ms7004_layout.txt).  Each cap is bound at load
- * time to an ms7004_key_t physical key identifier.  Clicks, highlight
+ * time to an ms0515::Key physical key identifier.  Clicks, highlight
  * state, and sticky modifier logic all route through the ms7004
  * microcontroller model — no raw scancode manipulation.
  */
@@ -25,11 +25,11 @@ namespace ms0515_frontend {
 
 namespace {
 
-/* ── Label → ms7004_key_t binding table ─────────────────────────────── */
+/* ── Label → ms0515::Key binding table ─────────────────────────────── */
 
 struct LabelKey {
     const char  *label;
-    ms7004_key_t key;
+    ms0515::Key key;
     bool         sticky;   /* modifier cap: ВР / СУ / КМП */
     bool         toggle;   /* toggle cap: ФКС / РУС-ЛАТ */
 };
@@ -163,7 +163,7 @@ const LabelKey kLabelKeys[] = {
  * columns in rows 1-5). */
 struct NumpadLabel {
     const char  *label;
-    ms7004_key_t key;
+    ms0515::Key key;
 };
 
 const NumpadLabel kNumpad[] = {
@@ -195,7 +195,7 @@ const NumpadLabel *findNumpad(const std::string &lbl)
  * purposes.  In РУС mode, the symbol-on-letter keys (Ш/[ Щ/] Э/\ Ч/¬
  * Ю/@ Ъ) also count — they produce Cyrillic letters in that mode.
  * See "UX convenience layer" in handleClick. */
-bool isLetterKey(ms7004_key_t k, bool rusMode)
+bool isLetterKey(ms0515::Key k, bool rusMode)
 {
     switch (k) {
     /* Pure letter keys: always letters in both modes. */
@@ -224,7 +224,7 @@ bool isLetterKey(ms7004_key_t k, bool rusMode)
 
 /* Symbol-on-letter keys that are immune to ВР (Shift) in ЛАТ mode.
  * In РУС mode they act as letters and respond to Shift normally. */
-bool isShiftImmuneSymbol(ms7004_key_t k, bool rusMode)
+bool isShiftImmuneSymbol(ms0515::Key k, bool rusMode)
 {
     if (rusMode) return false;
     return k == MS7004_KEY_LBRACKET    /* Ш/[  — Shift would give { */
@@ -545,7 +545,7 @@ void OnScreenKeyboard::handleClick(const Cap &c, ms0515::Emulator &emu)
         /* Release Shift sticky keys from the ms7004 model. */
         if (dropShift) {
             for (auto it = stickyKeys_.begin(); it != stickyKeys_.end(); ) {
-                auto mk = static_cast<ms7004_key_t>(*it);
+                auto mk = static_cast<ms0515::Key>(*it);
                 if (mk == MS7004_KEY_SHIFT_L || mk == MS7004_KEY_SHIFT_R) {
                     emu.keyPress(mk, false);
                     it = stickyKeys_.erase(it);
@@ -588,7 +588,7 @@ void OnScreenKeyboard::handleClick(const Cap &c, ms0515::Emulator &emu)
         /* Release any remaining sticky modifiers (Ctrl, Compose). */
         if (!stickyKeys_.empty()) {
             for (int k : stickyKeys_)
-                emu.keyPress(static_cast<ms7004_key_t>(k), false);
+                emu.keyPress(static_cast<ms0515::Key>(k), false);
             stickyKeys_.clear();
         }
         return;
@@ -601,7 +601,7 @@ void OnScreenKeyboard::handleClick(const Cap &c, ms0515::Emulator &emu)
 
     if (!stickyKeys_.empty()) {
         for (int k : stickyKeys_)
-            emu.keyPress(static_cast<ms7004_key_t>(k), false);
+            emu.keyPress(static_cast<ms0515::Key>(k), false);
         stickyKeys_.clear();
     }
 }

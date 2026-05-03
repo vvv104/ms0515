@@ -8,7 +8,6 @@
 #include <ms0515/Disassembler.hpp>
 #include <ms0515/Emulator.hpp>
 #include <ms0515/Terminal.hpp>
-#include <ms0515/board.h>
 
 #include <imgui.h>
 

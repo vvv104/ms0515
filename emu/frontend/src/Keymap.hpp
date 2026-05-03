@@ -1,7 +1,7 @@
 /*
  * Keymap.hpp — SDL physical scancode → MS7004 key mapping.
  *
- * Translates host keyboard events (SDL scancodes) into ms7004_key_t
+ * Translates host keyboard events (SDL scancodes) into ms0515::Key
  * physical key identifiers.  The ms7004 microcontroller model in core
  * handles all protocol details (modifier latching, ALL-UP, toggles,
  * auto-repeat); this module is a pure lookup table with no state.
@@ -18,9 +18,7 @@
 
 #include <SDL2/SDL_scancode.h>
 
-extern "C" {
-#include <ms0515/ms7004.h>
-}
+#include <ms0515/Emulator.hpp>  /* ms0515::Key */
 
 namespace ms0515_frontend {
 
@@ -32,7 +30,7 @@ namespace ms0515_frontend {
  *
  * Returns MS7004_KEY_NONE for unmapped scancodes.
  */
-ms7004_key_t sdlToMs7004(SDL_Scancode phys, bool rusMode);
+ms0515::Key sdlToMs7004(SDL_Scancode phys, bool rusMode);
 
 /*
  * Character-based mapping result.  For symbol keys in ЛАТ mode the
@@ -40,7 +38,7 @@ ms7004_key_t sdlToMs7004(SDL_Scancode phys, bool rusMode);
  * mapping so that the emulated output matches the PC keyboard label.
  */
 struct Ms7004Mapped {
-    ms7004_key_t key;
+    ms0515::Key key;
     bool withShift;   /* true = this key needs Shift on MS7004 to
                        * produce the intended character */
 };

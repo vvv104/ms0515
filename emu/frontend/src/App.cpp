@@ -5,8 +5,6 @@
 #include "Platform.hpp"
 #include "Ui.hpp"
 
-#include <ms0515/board.h>
-#include <ms0515/cpu.h>
 
 #include <imgui.h>
 #include "imgui_impl_sdl2.h"
@@ -288,21 +286,18 @@ void App::mountInitialDisks()
 
 void App::applyKeyboardConfig()
 {
-    auto &kbd = emu_.keyboard();
-    if (config_.kbdAutoGameMode >= 0)
-        kbd.auto_game_mode = (config_.kbdAutoGameMode != 0);
-    if (config_.kbdTypingDelayMs  >= 0) kbd.repeat_typing_delay_ms  = (uint32_t)config_.kbdTypingDelayMs;
-    if (config_.kbdTypingPeriodMs >= 0) kbd.repeat_typing_period_ms = (uint32_t)config_.kbdTypingPeriodMs;
-    if (config_.kbdGameDelayMs    >= 0) kbd.repeat_game_delay_ms    = (uint32_t)config_.kbdGameDelayMs;
-    if (config_.kbdGamePeriodMs   >= 0) kbd.repeat_game_period_ms   = (uint32_t)config_.kbdGamePeriodMs;
-    /* Live values follow the typing preset until a heuristic flips us. */
-    kbd.repeat_delay_ms  = kbd.repeat_typing_delay_ms;
-    kbd.repeat_period_ms = kbd.repeat_typing_period_ms;
+    auto s = emu_.keyboardSettings();
+    if (config_.kbdAutoGameMode    >= 0) s.autoGameMode    = (config_.kbdAutoGameMode != 0);
+    if (config_.kbdTypingDelayMs   >= 0) s.typingDelayMs   = (uint32_t)config_.kbdTypingDelayMs;
+    if (config_.kbdTypingPeriodMs  >= 0) s.typingPeriodMs  = (uint32_t)config_.kbdTypingPeriodMs;
+    if (config_.kbdGameDelayMs     >= 0) s.gameDelayMs     = (uint32_t)config_.kbdGameDelayMs;
+    if (config_.kbdGamePeriodMs    >= 0) s.gamePeriodMs    = (uint32_t)config_.kbdGamePeriodMs;
+    emu_.applyKeyboardConfig(s);
 }
 
 void App::initScreenReader()
 {
-    screenReader_.buildFont({emu_.board().mem.rom, MEM_ROM_SIZE});
+    screenReader_.buildFont(emu_.rom());
     if (cli_.screenDumpPath.empty()) return;
     if (cli_.screenDumpPath == "stderr")      screenDumpFile_ = stderr;
     else if (cli_.screenDumpPath == "stdout") screenDumpFile_ = stdout;
@@ -320,7 +315,7 @@ void App::initAudio()
     if (!audio_.init())
         std::fprintf(stderr, "warning: audio init failed, continuing without sound\n");
     emu_.setSoundCallback([this](int value) {
-        audio_.addTransition(emu_.board().frame_cycle_pos, value);
+        audio_.addTransition(emu_.frameCyclePos(), value);
     });
 }
 
@@ -551,7 +546,7 @@ void App::tick()
         while (emuTimeAccumMs_ >= kFrameMs && running_) {
             if (audioEnabled) audio_.beginFrame();
             bool ok = emu_.stepFrame();
-            if (audioEnabled) audio_.endFrame(emu_.board().frame_cycle_pos);
+            if (audioEnabled) audio_.endFrame(emu_.frameCyclePos());
             if (!ok) {
                 running_ = false;
                 emuTimeAccumMs_ = 0.0f;
@@ -584,15 +579,15 @@ void App::tick()
              * OSes that ship their own scroll in RAM still benefit
              * from the Terminal::feedSample gates (clean/progressing/
              * no-adjacent-duplicate) as a fallback. */
-            const uint16_t pc = emu_.cpu().r[CPU_REG_PC];
+            const uint16_t pc = emu_.pc();
             if ((pc >= 0165340u && pc <= 0165502u) ||
                 (pc >= 0167160u && pc <= 0167334u))
                 continue;
 
             const auto snap = screenReader_.readScreen(
-                {emu_.vram(), MEM_VRAM_SIZE}, emu_.isHires());
+                emu_.vram(), emu_.isHires());
             screenReader_.update(
-                {emu_.vram(), MEM_VRAM_SIZE}, emu_.isHires());
+                emu_.vram(), emu_.isHires());
             terminal_.feedSample(snap);
         }
     } else {
@@ -961,13 +956,13 @@ void App::drawComponentsMenu()
 void App::drawKeyboardSubmenu()
 {
     if (!ImGui::BeginMenu("Keyboard")) return;
-    auto &kbd = emu_.keyboard();
-    bool dirty = false;
+    auto    settings = emu_.keyboardSettings();
+    bool    dirty    = false;
 
-    bool autoGame = kbd.auto_game_mode;
+    bool autoGame = settings.autoGameMode;
     if (ImGui::MenuItem("Auto game-mode", nullptr, &autoGame)) {
-        kbd.auto_game_mode = autoGame;
-        config_.kbdAutoGameMode = autoGame ? 1 : 0;
+        settings.autoGameMode    = autoGame;
+        config_.kbdAutoGameMode  = autoGame ? 1 : 0;
         dirty = true;
     }
     if (ImGui::IsItemHovered()) {
@@ -986,13 +981,14 @@ void App::drawKeyboardSubmenu()
         return v;
     };
 
-    bool active_is_game = kbd.auto_game_mode && kbd.in_game_mode;
+    const bool active_is_game = settings.autoGameMode
+                             && emu_.keyboardInGameMode();
     ImGui::TextDisabled("Editing %s preset",
                         active_is_game ? "game" : "typing");
     uint32_t *p_delay  = active_is_game
-        ? &kbd.repeat_game_delay_ms  : &kbd.repeat_typing_delay_ms;
+        ? &settings.gameDelayMs  : &settings.typingDelayMs;
     uint32_t *p_period = active_is_game
-        ? &kbd.repeat_game_period_ms : &kbd.repeat_typing_period_ms;
+        ? &settings.gamePeriodMs : &settings.typingPeriodMs;
     int delay_min  = active_is_game ? 50  : 250;
     int delay_max  = active_is_game ? 500 : 1000;
     int delay_step = active_is_game ? 25  : 250;
@@ -1013,9 +1009,10 @@ void App::drawKeyboardSubmenu()
         else                config_.kbdTypingPeriodMs = p;
         dirty = true;
     }
-    ms7004_recompute_live_repeat(&kbd);
-
-    if (dirty) config_.save();
+    if (dirty) {
+        emu_.applyKeyboardConfig(settings);
+        config_.save();
+    }
     ImGui::EndMenu();
 }
 

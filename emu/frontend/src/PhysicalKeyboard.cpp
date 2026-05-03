@@ -15,7 +15,7 @@ namespace ms0515_frontend {
 
 /* Letter key classification for CapsLock+Shift inversion (DEVIATE 3).
  * Same logic as isLetterKey() in OnScreenKeyboard.cpp. */
-static bool isPhysLetterKey(ms7004_key_t k, bool rusMode)
+static bool isPhysLetterKey(ms0515::Key k, bool rusMode)
 {
     switch (k) {
     case MS7004_KEY_A: case MS7004_KEY_B: case MS7004_KEY_C:
@@ -131,7 +131,7 @@ void PhysicalKeyboard::handleKeyDown(SDL_Scancode phys,
     /* Character-based mapping: resolves the target MS7004 key AND
      * whether Shift should be active on the MS7004 side. */
     auto mapped = sdlToMs7004Char(phys, hostShift, rusMode);
-    ms7004_key_t key = mapped.key;
+    ms0515::Key key = mapped.key;
 
     if (key == MS7004_KEY_NONE)
         return;
@@ -216,7 +216,7 @@ void PhysicalKeyboard::handleKeyUp(SDL_Scancode phys,
     if (it == physToMs7004_.end())
         return;
 
-    emu.keyPress(static_cast<ms7004_key_t>(it->second), false);
+    emu.keyPress(static_cast<ms0515::Key>(it->second), false);
 
     /* Undo any Shift override from char remapping. */
     auto ov = shiftOverrides_.find((int)phys);

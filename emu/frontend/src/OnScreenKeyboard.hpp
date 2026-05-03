@@ -21,7 +21,7 @@
 #include <vector>
 
 extern "C" {
-#include <ms0515/ms7004.h>
+#include <ms0515/Emulator.hpp>  /* ms0515::Key */
 }
 
 namespace ms0515 { class Emulator; }
@@ -56,13 +56,13 @@ private:
         bool         drawn;       /* false = cosmetic gap */
         bool         dim;         /* drawn but inert on click */
         bool         gray;        /* gray chassis (fn / edit / arrow cluster) */
-        ms7004_key_t ms7004key;   /* physical key binding */
+        ms0515::Key ms7004key;   /* physical key binding */
         bool         sticky;      /* modifier cap: latch on click */
         bool         toggle;      /* toggle cap (ФКС / РУС-ЛАТ) */
     };
 
     std::vector<std::vector<Cap>>    rows_;
-    std::unordered_set<int>          stickyKeys_;   /* latched ms7004_key_t */
+    std::unordered_set<int>          stickyKeys_;   /* latched ms0515::Key */
     float                            unit_ = 40.0f;
 
     bool parseLine(const std::string &line, Cap &out) const;
