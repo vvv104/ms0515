@@ -13,7 +13,7 @@
 
 #include "ms0515/GdbStub.hpp"
 #include "ms0515/Debugger.hpp"
-#include "ms0515/Emulator.hpp"
+#include "EmulatorInternal.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -210,7 +210,7 @@ std::string GdbStub::handleHaltReason()
 
 std::string GdbStub::handleReadRegisters()
 {
-    const ms0515_cpu_t &cpu = dbg_.emulator().cpu();
+    const ms0515_cpu_t &cpu = internal::cpu(dbg_.emulator());
     std::string out;
     out.reserve(kGdbRegCount * 4);
     for (int i = 0; i < kGdbRegCount; ++i) {
@@ -224,7 +224,7 @@ std::string GdbStub::handleReadRegisters()
 std::string GdbStub::handleWriteRegisters(std::string_view body)
 {
     if (body.size() < kGdbRegCount * 4) return "E01";
-    ms0515_cpu_t &cpu = dbg_.emulator().cpu();
+    ms0515_cpu_t &cpu = internal::cpu(dbg_.emulator());
     for (int i = 0; i < kGdbRegCount; ++i) {
         uint16_t v = 0;
         if (!parseRegister16(body.substr(i * 4, 4), v)) return "E01";
@@ -238,7 +238,7 @@ std::string GdbStub::handleReadRegister(std::string_view body)
     uint32_t idx = 0;
     if (!parseHex(body, idx)) return "E01";
     uint16_t v = 0;
-    if (!readGdbRegister(dbg_.emulator().cpu(), static_cast<int>(idx), v)) {
+    if (!readGdbRegister(internal::cpu(dbg_.emulator()), static_cast<int>(idx), v)) {
         return "E01";
     }
     std::string out;
@@ -254,7 +254,7 @@ std::string GdbStub::handleWriteRegister(std::string_view body)
     if (!parseHex(body.substr(0, eq), idx)) return "E01";
     uint16_t v = 0;
     if (!parseRegister16(body.substr(eq + 1), v)) return "E01";
-    if (!writeGdbRegister(dbg_.emulator().cpu(),
+    if (!writeGdbRegister(internal::cpu(dbg_.emulator()),
                           static_cast<int>(idx), v)) {
         return "E01";
     }

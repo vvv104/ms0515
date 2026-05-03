@@ -24,6 +24,14 @@ add_executable(ms0515_lib_tests
 
 target_compile_features(ms0515_lib_tests PRIVATE cxx_std_23)
 
+# Lib tests live inside the lib layer, so they are allowed to reach
+# into `lib/src/EmulatorInternal.hpp` for the typed `internal::cpu()` /
+# `internal::board()` accessors.  Frontend code never gets this
+# include path — that's the structural seam the API revision keeps.
+target_include_directories(ms0515_lib_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/lib/src
+)
+
 target_compile_definitions(ms0515_lib_tests PRIVATE
     ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
     TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}"

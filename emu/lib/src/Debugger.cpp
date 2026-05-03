@@ -8,7 +8,7 @@
  */
 
 #include "ms0515/Debugger.hpp"
-#include "ms0515/Emulator.hpp"
+#include "EmulatorInternal.hpp"
 
 #include <format>
 
@@ -45,7 +45,7 @@ bool Debugger::hasBreakpoint(uint16_t address) const
 
 bool Debugger::checkBreakpoint()
 {
-    uint16_t pc = emu_.cpu().r[CPU_REG_PC];
+    uint16_t pc = internal::cpu(emu_).r[CPU_REG_PC];
     if (breakpoints_.contains(pc)) {
         lastStop_     = StopReason::Breakpoint;
         lastStopAddr_ = pc;
@@ -58,28 +58,28 @@ bool Debugger::checkBreakpoint()
 
 StopReason Debugger::stepInstruction()
 {
-    if (emu_.cpu().halted) {
+    if (internal::cpu(emu_).halted) {
         lastStop_     = StopReason::Halted;
-        lastStopAddr_ = emu_.cpu().r[CPU_REG_PC];
+        lastStopAddr_ = internal::cpu(emu_).r[CPU_REG_PC];
         return lastStop_;
     }
 
     emu_.stepInstruction();
 
-    if (emu_.cpu().halted) {
+    if (internal::cpu(emu_).halted) {
         lastStop_     = StopReason::Halted;
-        lastStopAddr_ = emu_.cpu().r[CPU_REG_PC];
+        lastStopAddr_ = internal::cpu(emu_).r[CPU_REG_PC];
         return lastStop_;
     }
 
     lastStop_     = StopReason::Step;
-    lastStopAddr_ = emu_.cpu().r[CPU_REG_PC];
+    lastStopAddr_ = internal::cpu(emu_).r[CPU_REG_PC];
     return lastStop_;
 }
 
 StopReason Debugger::stepOver()
 {
-    uint16_t pc      = emu_.cpu().r[CPU_REG_PC];
+    uint16_t pc      = internal::cpu(emu_).r[CPU_REG_PC];
     auto     decoded = Disassembler::decode(pc, emu_);
     bool     isCall  = (decoded.mnemonic == "JSR")  ||
                        (decoded.mnemonic == "CALL") ||
@@ -109,12 +109,12 @@ StopReason Debugger::run(int maxInstructions)
     while (true) {
         if (stopRequested_) {
             lastStop_     = StopReason::Manual;
-            lastStopAddr_ = emu_.cpu().r[CPU_REG_PC];
+            lastStopAddr_ = internal::cpu(emu_).r[CPU_REG_PC];
             return lastStop_;
         }
-        if (emu_.cpu().halted) {
+        if (internal::cpu(emu_).halted) {
             lastStop_     = StopReason::Halted;
-            lastStopAddr_ = emu_.cpu().r[CPU_REG_PC];
+            lastStopAddr_ = internal::cpu(emu_).r[CPU_REG_PC];
             return lastStop_;
         }
 
@@ -126,7 +126,7 @@ StopReason Debugger::run(int maxInstructions)
 
         if (maxInstructions > 0 && executed >= maxInstructions) {
             lastStop_     = StopReason::CycleLimit;
-            lastStopAddr_ = emu_.cpu().r[CPU_REG_PC];
+            lastStopAddr_ = internal::cpu(emu_).r[CPU_REG_PC];
             return lastStop_;
         }
     }
@@ -158,12 +158,12 @@ std::vector<DisassembledInstruction> Debugger::disassemble(uint16_t address,
 
 std::vector<DisassembledInstruction> Debugger::disassembleAtPc(int count) const
 {
-    return disassemble(emu_.cpu().r[CPU_REG_PC], count);
+    return disassemble(internal::cpu(emu_).r[CPU_REG_PC], count);
 }
 
 std::string Debugger::formatRegisters() const
 {
-    const auto &cpu = emu_.cpu();
+    const auto &cpu = internal::cpu(emu_);
     return std::format(
         "R0={:06o} R1={:06o} R2={:06o} R3={:06o}\n"
         "R4={:06o} R5={:06o} SP={:06o} PC={:06o}\n"

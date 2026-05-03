@@ -26,6 +26,7 @@
 
 #include <doctest/doctest.h>
 #include <ms0515/Emulator.hpp>
+#include "EmulatorInternal.hpp"
 #include <ms0515/ScreenReader.hpp>
 #include <ms0515/board.h>
 #include <ms0515/keyboard.h>
@@ -180,17 +181,17 @@ static int bootToPrompt(ms0515::Emulator &emu, ms0515::ScreenReader &sr,
  * because it is a toggle, not a modifier.
  */
 [[maybe_unused]]
-static void tapKey(ms0515::Emulator &emu, ms7004_key_t key,
+static void tapKey(ms0515::Emulator &emu, ms0515::Key key,
                    bool shift = false, bool ctrl = false,
                    int echoFrames = kEchoFrames)
 {
-    if (shift) emu.keyPress(MS7004_KEY_SHIFT_L, true);
-    if (ctrl)  emu.keyPress(MS7004_KEY_CTRL,    true);
+    if (shift) emu.keyPress(ms0515::Key::ShiftL, true);
+    if (ctrl)  emu.keyPress(ms0515::Key::Ctrl,    true);
     emu.keyPress(key, true);
     runFrames(emu, 1);
     emu.keyPress(key, false);
-    if (ctrl)  emu.keyPress(MS7004_KEY_CTRL,    false);
-    if (shift) emu.keyPress(MS7004_KEY_SHIFT_L, false);
+    if (ctrl)  emu.keyPress(ms0515::Key::Ctrl,    false);
+    if (shift) emu.keyPress(ms0515::Key::ShiftL, false);
     runFrames(emu, echoFrames);
 }
 
@@ -198,16 +199,16 @@ static void tapKey(ms0515::Emulator &emu, ms7004_key_t key,
 [[maybe_unused]]
 static void toggleRusLat(ms0515::Emulator &emu, int echoFrames = kEchoFrames)
 {
-    emu.keyPress(MS7004_KEY_RUSLAT, true);
+    emu.keyPress(ms0515::Key::RusLat, true);
     runFrames(emu, 1);
-    emu.keyPress(MS7004_KEY_RUSLAT, false);
+    emu.keyPress(ms0515::Key::RusLat, false);
     runFrames(emu, echoFrames);
 }
 
 /* ── Latin letter test data ─────────────────────────────────────────────── */
 
 struct LetterCase {
-    ms7004_key_t key;
+    ms0515::Key key;
     char         upper;   /* echo without Shift — monitor default */
     char         lower;   /* echo with Shift — Shift inverts case */
 };
@@ -220,19 +221,19 @@ struct LetterCase {
  * is covered by the unit tests in test_ms7004.cpp.
  */
 constexpr LetterCase kLetters[] = {
-    {MS7004_KEY_A, 'A', 'a'}, {MS7004_KEY_B, 'B', 'b'},
-    {MS7004_KEY_C, 'C', 'c'}, {MS7004_KEY_D, 'D', 'd'},
-    {MS7004_KEY_E, 'E', 'e'}, {MS7004_KEY_F, 'F', 'f'},
-    {MS7004_KEY_G, 'G', 'g'}, {MS7004_KEY_H, 'H', 'h'},
-    {MS7004_KEY_I, 'I', 'i'}, {MS7004_KEY_J, 'J', 'j'},
-    {MS7004_KEY_K, 'K', 'k'}, {MS7004_KEY_L, 'L', 'l'},
-    {MS7004_KEY_M, 'M', 'm'}, {MS7004_KEY_N, 'N', 'n'},
-    {MS7004_KEY_O, 'O', 'o'}, {MS7004_KEY_P, 'P', 'p'},
-    {MS7004_KEY_Q, 'Q', 'q'}, {MS7004_KEY_R, 'R', 'r'},
-    {MS7004_KEY_S, 'S', 's'}, {MS7004_KEY_T, 'T', 't'},
-    {MS7004_KEY_U, 'U', 'u'}, {MS7004_KEY_V, 'V', 'v'},
-    {MS7004_KEY_W, 'W', 'w'}, {MS7004_KEY_X, 'X', 'x'},
-    {MS7004_KEY_Y, 'Y', 'y'}, {MS7004_KEY_Z, 'Z', 'z'},
+    {ms0515::Key::A, 'A', 'a'}, {ms0515::Key::B, 'B', 'b'},
+    {ms0515::Key::C, 'C', 'c'}, {ms0515::Key::D, 'D', 'd'},
+    {ms0515::Key::E, 'E', 'e'}, {ms0515::Key::F, 'F', 'f'},
+    {ms0515::Key::G, 'G', 'g'}, {ms0515::Key::H, 'H', 'h'},
+    {ms0515::Key::I, 'I', 'i'}, {ms0515::Key::J, 'J', 'j'},
+    {ms0515::Key::K, 'K', 'k'}, {ms0515::Key::L, 'L', 'l'},
+    {ms0515::Key::M, 'M', 'm'}, {ms0515::Key::N, 'N', 'n'},
+    {ms0515::Key::O, 'O', 'o'}, {ms0515::Key::P, 'P', 'p'},
+    {ms0515::Key::Q, 'Q', 'q'}, {ms0515::Key::R, 'R', 'r'},
+    {ms0515::Key::S, 'S', 's'}, {ms0515::Key::T, 'T', 't'},
+    {ms0515::Key::U, 'U', 'u'}, {ms0515::Key::V, 'V', 'v'},
+    {ms0515::Key::W, 'W', 'w'}, {ms0515::Key::X, 'X', 'x'},
+    {ms0515::Key::Y, 'Y', 'y'}, {ms0515::Key::Z, 'Z', 'z'},
 };
 
 /*
@@ -259,7 +260,7 @@ struct TypingFixture {
         : disk{diskPath}
     {
         REQUIRE(emu.loadRomFile(romPath));
-        sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
+        sr.buildFont({ms0515::internal::board(emu).mem.rom, MEM_ROM_SIZE});
         const auto pathStr = disk.path().string();
         REQUIRE(emu.mountDisk(0, pathStr));
         /* Double-sided fixture: also mount the upper-side unit so the
@@ -311,9 +312,9 @@ TEST_SUITE("KeyboardEmulated") {
  */
 static void toggleCaps(ms0515::Emulator &emu, int echoFrames = kEchoFrames)
 {
-    emu.keyPress(MS7004_KEY_CAPS, true);
+    emu.keyPress(ms0515::Key::Caps, true);
     runFrames(emu, 1);
-    emu.keyPress(MS7004_KEY_CAPS, false);
+    emu.keyPress(ms0515::Key::Caps, false);
     runFrames(emu, echoFrames);
 }
 
@@ -337,8 +338,8 @@ TEST_CASE("ФКС inverts letter case in LAT mode (no Shift)") {
         constexpr int kCursorCol = 1;
 
         /* Pick a few letters; every Latin position behaves the same way. */
-        static const std::pair<ms7004_key_t, char> kCases[] = {
-            {MS7004_KEY_A, 'a'}, {MS7004_KEY_M, 'm'}, {MS7004_KEY_Z, 'z'},
+        static const std::pair<ms0515::Key, char> kCases[] = {
+            {ms0515::Key::A, 'a'}, {ms0515::Key::M, 'm'}, {ms0515::Key::Z, 'z'},
         };
         for (auto [key, expected] : kCases) {
             tapKey(fix.emu, key);
@@ -346,7 +347,7 @@ TEST_CASE("ФКС inverts letter case in LAT mode (no Shift)") {
             const char actual = cellAt(snap, kPromptRow, kCursorCol);
             CHECK_MESSAGE(actual == expected,
                           "ФКС+'", expected, "' produced '", actual, "'");
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }
@@ -359,8 +360,8 @@ TEST_CASE("ФКС + Shift cancel: LAT letter back to uppercase default") {
         const int kPromptRow = fix.promptRow;
         constexpr int kCursorCol = 1;
 
-        static const std::pair<ms7004_key_t, char> kCases[] = {
-            {MS7004_KEY_A, 'A'}, {MS7004_KEY_M, 'M'}, {MS7004_KEY_Z, 'Z'},
+        static const std::pair<ms0515::Key, char> kCases[] = {
+            {ms0515::Key::A, 'A'}, {ms0515::Key::M, 'M'}, {ms0515::Key::Z, 'Z'},
         };
         for (auto [key, expected] : kCases) {
             tapKey(fix.emu, key, /*shift=*/true);
@@ -368,7 +369,7 @@ TEST_CASE("ФКС + Shift cancel: LAT letter back to uppercase default") {
             const char actual = cellAt(snap, kPromptRow, kCursorCol);
             CHECK_MESSAGE(actual == expected,
                           "ФКС+Shift+'", expected, "' produced '", actual, "'");
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }
@@ -385,16 +386,16 @@ TEST_CASE("ФКС has no effect on non-letter keys in LAT") {
          * whole time, but the result must equal the no-ФКС behaviour
          * captured by the digit / symbol / shift-immune tests above. */
         struct NonLetter {
-            ms7004_key_t key;
+            ms0515::Key key;
             char         no_shift;
             char         shifted;
         };
         constexpr NonLetter kCases[] = {
-            {MS7004_KEY_1,           '1',  '!'},   /* digit */
-            {MS7004_KEY_SEMI_PLUS,   ';',  '+'},   /* punctuation */
-            {MS7004_KEY_LBRACKET,    '[',  '['},   /* shift-immune ШЩЭЧ */
-            {MS7004_KEY_RBRACKET,    ']',  ']'},
-            {MS7004_KEY_BACKSLASH,   '\\', '\\'},
+            {ms0515::Key::Digit1,           '1',  '!'},   /* digit */
+            {ms0515::Key::SemiPlus,   ';',  '+'},   /* punctuation */
+            {ms0515::Key::LBracket,    '[',  '['},   /* shift-immune ШЩЭЧ */
+            {ms0515::Key::RBracket,    ']',  ']'},
+            {ms0515::Key::Backslash,   '\\', '\\'},
         };
         for (const auto &nl : kCases) {
             tapKey(fix.emu, nl.key);
@@ -403,7 +404,7 @@ TEST_CASE("ФКС has no effect on non-letter keys in LAT") {
             CHECK_MESSAGE(actual == nl.no_shift,
                           "ФКС+key produced '", actual, "', expected '",
                           nl.no_shift, "'");
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
 
             tapKey(fix.emu, nl.key, /*shift=*/true);
             snap = readScreen(fix.emu, fix.sr);
@@ -411,7 +412,7 @@ TEST_CASE("ФКС has no effect on non-letter keys in LAT") {
             CHECK_MESSAGE(actual == nl.shifted,
                           "ФКС+Shift+key produced '", actual, "', expected '",
                           nl.shifted, "'");
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }
@@ -434,15 +435,15 @@ TEST_CASE("ФКС inverts letter case in RUS mode (no Shift)") {
             /* Sample of Russian letters — RUS default is lowercase, ФКС
              * should flip to uppercase.  KOI-8 uppercase codes 0xE0..0xFF. */
             struct CyrCase {
-                ms7004_key_t key;
+                ms0515::Key key;
                 const char  *name;
                 uint8_t      upper;   /* expected with ФКС on, no Shift */
             };
             constexpr CyrCase kCases[] = {
-                {MS7004_KEY_A,         "А", 0xE1},
-                {MS7004_KEY_M,         "М", 0xED},
-                {MS7004_KEY_Z,         "З", 0xFA},
-                {MS7004_KEY_LBRACKET,  "Ш", 0xFB},   /* symbol-on-letter is letter in RUS */
+                {ms0515::Key::A,         "А", 0xE1},
+                {ms0515::Key::M,         "М", 0xED},
+                {ms0515::Key::Z,         "З", 0xFA},
+                {ms0515::Key::LBracket,  "Ш", 0xFB},   /* symbol-on-letter is letter in RUS */
             };
             for (const auto &c : kCases) {
                 tapKey(fix.emu, c.key);
@@ -454,7 +455,7 @@ TEST_CASE("ФКС inverts letter case in RUS mode (no Shift)") {
                               std::hex, static_cast<int>(actual), std::dec,
                               " (expected 0x", std::hex, static_cast<int>(c.upper),
                               std::dec, ")");
-                tapKey(fix.emu, MS7004_KEY_BS);
+                tapKey(fix.emu, ms0515::Key::Backspace);
             }
         }
     }
@@ -476,15 +477,15 @@ TEST_CASE("ФКС + Shift cancel: RUS letter back to lowercase default") {
             constexpr int kCursorCol = 1;
 
             struct CyrCase {
-                ms7004_key_t key;
+                ms0515::Key key;
                 const char  *name;
                 uint8_t      lower;   /* expected with ФКС on AND Shift held */
             };
             constexpr CyrCase kCases[] = {
-                {MS7004_KEY_A,         "А", 0xC1},
-                {MS7004_KEY_M,         "М", 0xCD},
-                {MS7004_KEY_Z,         "З", 0xDA},
-                {MS7004_KEY_LBRACKET,  "Ш", 0xDB},
+                {ms0515::Key::A,         "А", 0xC1},
+                {ms0515::Key::M,         "М", 0xCD},
+                {ms0515::Key::Z,         "З", 0xDA},
+                {ms0515::Key::LBracket,  "Ш", 0xDB},
             };
             for (const auto &c : kCases) {
                 tapKey(fix.emu, c.key, /*shift=*/true);
@@ -496,7 +497,7 @@ TEST_CASE("ФКС + Shift cancel: RUS letter back to lowercase default") {
                               std::hex, static_cast<int>(actual), std::dec,
                               " (expected 0x", std::hex, static_cast<int>(c.lower),
                               std::dec, ")");
-                tapKey(fix.emu, MS7004_KEY_BS);
+                tapKey(fix.emu, ms0515::Key::Backspace);
             }
         }
     }
@@ -530,7 +531,7 @@ TEST_CASE("brute-force scancode → OS echo (diagnostic)" * doctest::skip()) {
         if (sc >= 0375) continue;
 
         TypingFixture fix{cfg.rom, cfg.disk};
-        auto &kbd = fix.emu.board().kbd;
+        auto &kbd = ms0515::internal::board(fix.emu).kbd;
 
         kbd_push_scancode(&kbd, static_cast<uint8_t>(sc));
         runFrames(fix.emu, 30);
@@ -572,7 +573,7 @@ TEST_CASE("boot to prompt") {
         REQUIRE(emu.loadRomFile(cfg.rom));
 
         ms0515::ScreenReader sr;
-        sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
+        sr.buildFont({ms0515::internal::board(emu).mem.rom, MEM_ROM_SIZE});
 
         const auto pathStr = td.path().string();
         REQUIRE(emu.mountDisk(0, pathStr));
@@ -609,7 +610,7 @@ TEST_CASE("Latin letter keys echo as uppercase at prompt") {
             CHECK_MESSAGE(actual == lc.upper,
                           "key for '", lc.upper, "' produced '", actual, "'");
 
-            tapKey(fix.emu, MS7004_KEY_BS);   /* erase to keep cursor at col 1 */
+            tapKey(fix.emu, ms0515::Key::Backspace);   /* erase to keep cursor at col 1 */
         }
     }
 }
@@ -636,7 +637,7 @@ TEST_CASE("Latin letter keys with Shift echo as lowercase at prompt") {
                           "Shift+'", lc.upper, "' produced '", actual,
                           "' (expected '", lc.lower, "')");
 
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }
@@ -644,7 +645,7 @@ TEST_CASE("Latin letter keys with Shift echo as lowercase at prompt") {
 /* ── Digit row test data ────────────────────────────────────────────────── */
 
 struct DigitCase {
-    ms7004_key_t key;
+    ms0515::Key key;
     char         digit;     /* echo without Shift */
     char         shifted;   /* echo with Shift held — Shift+0 is unchanged */
 };
@@ -659,11 +660,11 @@ struct DigitCase {
  * glyph-match resolves to that code.
  */
 constexpr DigitCase kDigits[] = {
-    {MS7004_KEY_1, '1', '!'}, {MS7004_KEY_2, '2', '"'},
-    {MS7004_KEY_3, '3', '#'}, {MS7004_KEY_4, '4', '$'},
-    {MS7004_KEY_5, '5', '%'}, {MS7004_KEY_6, '6', '&'},
-    {MS7004_KEY_7, '7', '\''}, {MS7004_KEY_8, '8', '('},
-    {MS7004_KEY_9, '9', ')'}, {MS7004_KEY_0, '0', '0'},
+    {ms0515::Key::Digit1, '1', '!'}, {ms0515::Key::Digit2, '2', '"'},
+    {ms0515::Key::Digit3, '3', '#'}, {ms0515::Key::Digit4, '4', '$'},
+    {ms0515::Key::Digit5, '5', '%'}, {ms0515::Key::Digit6, '6', '&'},
+    {ms0515::Key::Digit7, '7', '\''}, {ms0515::Key::Digit8, '8', '('},
+    {ms0515::Key::Digit9, '9', ')'}, {ms0515::Key::Digit0, '0', '0'},
 };
 
 /*
@@ -684,7 +685,7 @@ TEST_CASE("Digit keys echo at prompt") {
             CHECK_MESSAGE(actual == dc.digit,
                           "key for '", dc.digit, "' produced '", actual, "'");
 
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }
@@ -708,7 +709,7 @@ TEST_CASE("Shift + digit keys echo typewriter symbols at prompt") {
                           "Shift+'", dc.digit, "' produced '", actual,
                           "' (expected '", dc.shifted, "')");
 
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }
@@ -716,7 +717,7 @@ TEST_CASE("Shift + digit keys echo typewriter symbols at prompt") {
 /* ── Punctuation / symbol keys ──────────────────────────────────────────── */
 
 struct SymbolCase {
-    ms7004_key_t key;
+    ms0515::Key key;
     char         label;     /* convenience name for failure messages */
     char         unshifted;
     char         shifted;
@@ -731,13 +732,13 @@ struct SymbolCase {
  * the Russian-mode top label) are listed separately or left out.
  */
 constexpr SymbolCase kSymbols[] = {
-    {MS7004_KEY_SEMI_PLUS,    ';',  ';',  '+'},
-    {MS7004_KEY_MINUS_EQ,     '-',  '-',  '='},
-    {MS7004_KEY_COLON_STAR,   ':',  ':',  '*'},
-    {MS7004_KEY_PERIOD,       '.',  '.',  '>'},
-    {MS7004_KEY_COMMA,        ',',  ',',  '<'},
-    {MS7004_KEY_SLASH,        '/',  '/',  '?'},
-    {MS7004_KEY_LBRACE_PIPE,  '{',  '{',  '|'},
+    {ms0515::Key::SemiPlus,    ';',  ';',  '+'},
+    {ms0515::Key::MinusEq,     '-',  '-',  '='},
+    {ms0515::Key::ColonStar,   ':',  ':',  '*'},
+    {ms0515::Key::Period,       '.',  '.',  '>'},
+    {ms0515::Key::Comma,        ',',  ',',  '<'},
+    {ms0515::Key::Slash,        '/',  '/',  '?'},
+    {ms0515::Key::LBracePipe,  '{',  '{',  '|'},
 };
 
 TEST_CASE("Punctuation keys (unshifted) echo at prompt") {
@@ -754,7 +755,7 @@ TEST_CASE("Punctuation keys (unshifted) echo at prompt") {
             CHECK_MESSAGE(actual == sc.unshifted,
                           "key '", sc.label, "' produced '", actual,
                           "' (expected '", sc.unshifted, "')");
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }
@@ -773,7 +774,7 @@ TEST_CASE("Shift + punctuation keys echo at prompt") {
             CHECK_MESSAGE(actual == sc.shifted,
                           "Shift+'", sc.label, "' produced '", actual,
                           "' (expected '", sc.shifted, "')");
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }
@@ -794,16 +795,16 @@ TEST_CASE("Shift + punctuation keys echo at prompt") {
  * LAT mode.
  */
 struct LatSpecialCase {
-    ms7004_key_t key;
+    ms0515::Key key;
     const char  *name;
     char         glyph;     /* the one Latin glyph on the cap */
 };
 
 constexpr LatSpecialCase kLatSpecials[] = {
-    {MS7004_KEY_LBRACKET,    "[",   '['},
-    {MS7004_KEY_RBRACKET,    "]",   ']'},
-    {MS7004_KEY_BACKSLASH,   "\\",  '\\'},
-    {MS7004_KEY_AT,          "@",   '@'},
+    {ms0515::Key::LBracket,    "[",   '['},
+    {ms0515::Key::RBracket,    "]",   ']'},
+    {ms0515::Key::Backslash,   "\\",  '\\'},
+    {ms0515::Key::At,          "@",   '@'},
 };
 
 TEST_CASE("LAT-mode special keys (unshifted) echo cap symbol at prompt") {
@@ -820,7 +821,7 @@ TEST_CASE("LAT-mode special keys (unshifted) echo cap symbol at prompt") {
             CHECK_MESSAGE(actual == lc.glyph,
                           "key '", lc.name, "' produced '", actual,
                           "' (expected '", lc.glyph, "')");
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }
@@ -839,7 +840,7 @@ TEST_CASE("Shift + LAT-mode special keys echo same glyph as unshifted") {
             CHECK_MESSAGE(actual == lc.glyph,
                           "Shift+'", lc.name, "' produced '", actual,
                           "' (expected '", lc.glyph, "')");
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }
@@ -862,21 +863,21 @@ TEST_CASE("Shift + LAT-mode special keys echo same glyph as unshifted") {
  * the ambiguity in favour of the ASCII code (0x5F), so we expect
  * '_' here even though the cap label is Ъ.
  *
- * MS7004_KEY_UNDERSCORE shares scancode 0o361 with HARDSIGN in
+ * ms0515::Key::Underscore shares scancode 0o361 with HARDSIGN in
  * `ms7004.c` (the underscore key entry needs a different scancode
  * looked up from the MS7004 spec — for now it produces the same
  * '_' glyph as HARDSIGN, which happens to match its cap label).
  */
 struct SingleLabelCase {
-    ms7004_key_t key;
+    ms0515::Key key;
     const char  *name;
     uint8_t      koi8;     /* KOI-8 code expected on screen */
 };
 
 constexpr SingleLabelCase kSingleLabel[] = {
-    {MS7004_KEY_TILDE,      "~",  static_cast<uint8_t>('~')},
-    {MS7004_KEY_HARDSIGN,   "Ъ",  static_cast<uint8_t>('_')},  /* glyph collision */
-    {MS7004_KEY_UNDERSCORE, "_",  static_cast<uint8_t>('_')},  /* same scancode as HARDSIGN */
+    {ms0515::Key::Tilde,      "~",  static_cast<uint8_t>('~')},
+    {ms0515::Key::HardSign,   "Ъ",  static_cast<uint8_t>('_')},  /* glyph collision */
+    {ms0515::Key::Underscore, "_",  static_cast<uint8_t>('_')},  /* same scancode as HARDSIGN */
 };
 
 /* ── RUS-mode Cyrillic letters ──────────────────────────────────────────── */
@@ -895,44 +896,44 @@ constexpr SingleLabelCase kSingleLabel[] = {
  * case-inversion rule applies.
  */
 struct CyrLetterCase {
-    ms7004_key_t key;
+    ms0515::Key key;
     const char  *name;     /* Cyrillic letter, debug only */
     uint8_t      lower;    /* KOI-8 byte for lowercase */
     uint8_t      upper;    /* KOI-8 byte for uppercase */
 };
 
 constexpr CyrLetterCase kCyrLetters[] = {
-    {MS7004_KEY_J,         "Й", 0xCA, 0xEA},
-    {MS7004_KEY_C,         "Ц", 0xC3, 0xE3},
-    {MS7004_KEY_U,         "У", 0xD5, 0xF5},
-    {MS7004_KEY_K,         "К", 0xCB, 0xEB},
-    {MS7004_KEY_E,         "Е", 0xC5, 0xE5},
-    {MS7004_KEY_N,         "Н", 0xCE, 0xEE},
-    {MS7004_KEY_G,         "Г", 0xC7, 0xE7},
-    {MS7004_KEY_LBRACKET,  "Ш", 0xDB, 0xFB},
-    {MS7004_KEY_RBRACKET,  "Щ", 0xDD, 0xFD},
-    {MS7004_KEY_Z,         "З", 0xDA, 0xFA},
-    {MS7004_KEY_H,         "Х", 0xC8, 0xE8},
-    {MS7004_KEY_F,         "Ф", 0xC6, 0xE6},
-    {MS7004_KEY_Y,         "Ы", 0xD9, 0xF9},
-    {MS7004_KEY_W,         "В", 0xD7, 0xF7},
-    {MS7004_KEY_A,         "А", 0xC1, 0xE1},
-    {MS7004_KEY_P,         "П", 0xD0, 0xF0},
-    {MS7004_KEY_R,         "Р", 0xD2, 0xF2},
-    {MS7004_KEY_O,         "О", 0xCF, 0xEF},
-    {MS7004_KEY_L,         "Л", 0xCC, 0xEC},
-    {MS7004_KEY_D,         "Д", 0xC4, 0xE4},
-    {MS7004_KEY_V,         "Ж", 0xD6, 0xF6},
-    {MS7004_KEY_BACKSLASH, "Э", 0xDC, 0xFC},
-    {MS7004_KEY_Q,         "Я", 0xD1, 0xF1},
-    {MS7004_KEY_CHE,       "Ч", 0xDE, 0xFE},
-    {MS7004_KEY_S,         "С", 0xD3, 0xF3},
-    {MS7004_KEY_M,         "М", 0xCD, 0xED},
-    {MS7004_KEY_I,         "И", 0xC9, 0xE9},
-    {MS7004_KEY_T,         "Т", 0xD4, 0xF4},
-    {MS7004_KEY_X,         "Ь", 0xD8, 0xF8},
-    {MS7004_KEY_B,         "Б", 0xC2, 0xE2},
-    {MS7004_KEY_AT,        "Ю", 0xC0, 0xE0},
+    {ms0515::Key::J,         "Й", 0xCA, 0xEA},
+    {ms0515::Key::C,         "Ц", 0xC3, 0xE3},
+    {ms0515::Key::U,         "У", 0xD5, 0xF5},
+    {ms0515::Key::K,         "К", 0xCB, 0xEB},
+    {ms0515::Key::E,         "Е", 0xC5, 0xE5},
+    {ms0515::Key::N,         "Н", 0xCE, 0xEE},
+    {ms0515::Key::G,         "Г", 0xC7, 0xE7},
+    {ms0515::Key::LBracket,  "Ш", 0xDB, 0xFB},
+    {ms0515::Key::RBracket,  "Щ", 0xDD, 0xFD},
+    {ms0515::Key::Z,         "З", 0xDA, 0xFA},
+    {ms0515::Key::H,         "Х", 0xC8, 0xE8},
+    {ms0515::Key::F,         "Ф", 0xC6, 0xE6},
+    {ms0515::Key::Y,         "Ы", 0xD9, 0xF9},
+    {ms0515::Key::W,         "В", 0xD7, 0xF7},
+    {ms0515::Key::A,         "А", 0xC1, 0xE1},
+    {ms0515::Key::P,         "П", 0xD0, 0xF0},
+    {ms0515::Key::R,         "Р", 0xD2, 0xF2},
+    {ms0515::Key::O,         "О", 0xCF, 0xEF},
+    {ms0515::Key::L,         "Л", 0xCC, 0xEC},
+    {ms0515::Key::D,         "Д", 0xC4, 0xE4},
+    {ms0515::Key::V,         "Ж", 0xD6, 0xF6},
+    {ms0515::Key::Backslash, "Э", 0xDC, 0xFC},
+    {ms0515::Key::Q,         "Я", 0xD1, 0xF1},
+    {ms0515::Key::Che,       "Ч", 0xDE, 0xFE},
+    {ms0515::Key::S,         "С", 0xD3, 0xF3},
+    {ms0515::Key::M,         "М", 0xCD, 0xED},
+    {ms0515::Key::I,         "И", 0xC9, 0xE9},
+    {ms0515::Key::T,         "Т", 0xD4, 0xF4},
+    {ms0515::Key::X,         "Ь", 0xD8, 0xF8},
+    {ms0515::Key::B,         "Б", 0xC2, 0xE2},
+    {ms0515::Key::At,        "Ю", 0xC0, 0xE0},
 };
 
 TEST_CASE("RUS mode: letter keys echo lowercase Cyrillic at prompt") {
@@ -959,7 +960,7 @@ TEST_CASE("RUS mode: letter keys echo lowercase Cyrillic at prompt") {
                               std::hex, static_cast<int>(actual), std::dec,
                               " (expected lowercase 0x",
                               std::hex, static_cast<int>(cl.lower), std::dec, ")");
-                tapKey(fix.emu, MS7004_KEY_BS);
+                tapKey(fix.emu, ms0515::Key::Backspace);
             }
         }
     }
@@ -989,7 +990,7 @@ TEST_CASE("RUS mode: Shift + letter keys echo uppercase Cyrillic at prompt") {
                               std::hex, static_cast<int>(actual), std::dec,
                               " (expected uppercase 0x",
                               std::hex, static_cast<int>(cl.upper), std::dec, ")");
-                tapKey(fix.emu, MS7004_KEY_BS);
+                tapKey(fix.emu, ms0515::Key::Backspace);
             }
         }
     }
@@ -1012,7 +1013,7 @@ TEST_CASE("Single-label keys echo the same glyph with and without Shift") {
                           std::hex, static_cast<int>(actual), std::dec,
                           " (expected 0x", std::hex, static_cast<int>(sl.koi8),
                           std::dec, ")");
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
 
             tapKey(fix.emu, sl.key, /*shift=*/true);
             snap = readScreen(fix.emu, fix.sr);
@@ -1023,7 +1024,7 @@ TEST_CASE("Single-label keys echo the same glyph with and without Shift") {
                           std::hex, static_cast<int>(actual), std::dec,
                           " (expected 0x", std::hex, static_cast<int>(sl.koi8),
                           std::dec, ")");
-            tapKey(fix.emu, MS7004_KEY_BS);
+            tapKey(fix.emu, ms0515::Key::Backspace);
         }
     }
 }

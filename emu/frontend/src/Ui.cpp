@@ -32,11 +32,11 @@ void drawDebuggerWindow(ms0515::Debugger &dbg,
     }
 
     ImGui::TextUnformatted(romStatus.c_str());
-    const auto &cpu = dbg.emulator().cpu();
+    const auto &emu = dbg.emulator();
     ImGui::Text("CPU: PC=%06o  %s",
-                cpu.r[7],
-                cpu.halted  ? "HALTED" :
-                cpu.waiting ? "WAIT"   : "running");
+                emu.pc(),
+                emu.halted()  ? "HALTED" :
+                emu.waiting() ? "WAIT"   : "running");
     ImGui::Separator();
 
     if (ImGui::Button(running ? "Pause" : "Run"))
@@ -177,14 +177,15 @@ void drawStatusBar(const StatusBarState &s)
     }
 
     /* Line 1: CPU state | speed/fps | uptime | host-mode + modifier indicators. */
-    const auto &cpu = s.emu.cpu();
-    const char *state = cpu.halted  ? "HALT" :
-                        cpu.waiting ? "WAIT" :
-                        s.running   ? "RUN"  : "PAUSE";
-    ImVec4 col = cpu.halted  ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f) :
-                 cpu.waiting ? ImVec4(0.9f, 0.8f, 0.3f, 1.0f) :
-                 s.running   ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f) :
-                               ImVec4(0.8f, 0.8f, 0.8f, 1.0f);
+    const bool halted  = s.emu.halted();
+    const bool waiting = s.emu.waiting();
+    const char *state = halted   ? "HALT" :
+                        waiting  ? "WAIT" :
+                        s.running ? "RUN" : "PAUSE";
+    ImVec4 col = halted   ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f) :
+                 waiting  ? ImVec4(0.9f, 0.8f, 0.3f, 1.0f) :
+                 s.running ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f) :
+                            ImVec4(0.8f, 0.8f, 0.8f, 1.0f);
     ImGui::TextColored(col, "%s", state);
     ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
 
@@ -210,10 +211,10 @@ void drawStatusBar(const StatusBarState &s)
         return on ? ImVec4(1.0f, 1.0f, 0.4f, 1.0f)
                   : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
     };
-    bool vrOn  = s.emu.keyHeld(MS7004_KEY_SHIFT_L)
-              || s.emu.keyHeld(MS7004_KEY_SHIFT_R);
-    bool suOn  = s.emu.keyHeld(MS7004_KEY_CTRL);
-    bool kmpOn = s.emu.keyHeld(MS7004_KEY_COMPOSE);
+    bool vrOn  = s.emu.keyHeld(ms0515::Key::ShiftL)
+              || s.emu.keyHeld(ms0515::Key::ShiftR);
+    bool suOn  = s.emu.keyHeld(ms0515::Key::Ctrl);
+    bool kmpOn = s.emu.keyHeld(ms0515::Key::Compose);
     ImGui::TextColored(modCol(vrOn),         "\xd0\x92\xd0\xa0");        /* ВР */
     ImGui::SameLine();
     ImGui::TextColored(modCol(suOn),         "\xd0\xa1\xd0\xa3");        /* СУ */

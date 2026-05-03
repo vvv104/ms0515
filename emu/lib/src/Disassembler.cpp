@@ -6,7 +6,7 @@
  */
 
 #include "ms0515/Disassembler.hpp"
-#include "ms0515/Emulator.hpp"
+#include "EmulatorInternal.hpp"
 
 #include <array>
 #include <format>
@@ -364,7 +364,7 @@ DisassembledInstruction Disassembler::decode(uint16_t address, const Emulator &e
 {
     auto read = [&emu](uint16_t addr) -> uint16_t {
         return board_read_word(
-            const_cast<ms0515_board_t *>(&emu.board()), addr);
+            const_cast<ms0515_board_t *>(&internal::board(emu)), addr);
     };
     return decode(address, MemoryReader{read});
 }

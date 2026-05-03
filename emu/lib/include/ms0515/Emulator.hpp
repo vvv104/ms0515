@@ -1,16 +1,17 @@
 /*
  * Emulator.hpp — High-level C++ wrapper around the MS0515 core board.
  *
- * Provides a clean RAII interface for the frontend and debugger.  Hides
- * the C-style ms0515_board_t struct and exposes:
- *   - ROM loading from file or memory buffer
- *   - Disk image mounting
- *   - Frame-stepping and instruction-stepping
- *   - Read-only access to CPU/memory state for the UI
- *   - Sound and serial callback installation
+ * Deliberately self-contained: the public header pulls in NO C-side
+ * core symbols (no <ms0515/board.h>, no <ms0515/ms7004.h>, no scancode
+ * macros).  Everything frontend-visible is expressed in plain C++ —
+ * the strong `Key` enum mirrors the MS-7004 scancode set; ROM/disk
+ * sizes and snapshot APIs use `std::span` / `std::expected`; pixel
+ * iteration goes through visitor callbacks.
  *
- * The Emulator owns its underlying ms0515_board_t.  It is non-copyable
- * (the board contains internal back-pointers) but movable.
+ * The C-side board state lives behind a forward-declared `Impl` struct
+ * accessed through `unique_ptr<Impl>`.  Lib-internal code that needs
+ * raw access (Debugger, GdbStub, Disassembler) goes through
+ * `lib/src/EmulatorInternal.hpp`; frontends never see the C structs.
  */
 
 #ifndef MS0515_EMULATOR_HPP
@@ -25,20 +26,51 @@
 #include <string>
 #include <string_view>
 
-extern "C" {
-#include "ms0515/board.h"
-#include "ms0515/ms7004.h"
-}
-
 namespace ms0515 {
 
-/* Frontend-facing alias for the C-side keyboard scancode enum.  Use
- * this name in frontend code instead of `ms7004_key_t` so the
- * frontend never has to include `<ms0515/ms7004.h>` directly. */
-using Key = ::ms7004_key_t;
+/* Strong enum mirroring the MS-7004 physical key set.  Numeric values
+ * are positional and lock-step with the C-side `ms7004_key_t`; a
+ * static_assert in Emulator.cpp pins the relationship.  Defined as
+ * `enum class` (not `using ms7004_key_t`) so the public header carries
+ * its own self-contained type — the C enum stays an implementation
+ * detail of lib's input pipeline.  Naming follows C++ conventions:
+ * `Key::ShiftL` rather than `MS7004_KEY_SHIFT_L`, `Key::Digit1` for
+ * the digit row (a leading digit can't start an identifier). */
+enum class Key : uint8_t {
+    None = 0,
+    F1, F2, F3, F4, F5,
+    F6, F7, F8, F9, F10,
+    F11, F12, F13, F14,
+    Help,        /* ПМ */
+    Perform,     /* ИСП */
+    F17, F18, F19, F20,
+    LBracePipe, SemiPlus,
+    Digit1, Digit2, Digit3, Digit4, Digit5,
+    Digit6, Digit7, Digit8, Digit9, Digit0,
+    MinusEq, RBraceLeftUp, Backspace,
+    Tab, J, C, U, K, E, N, G,
+    LBracket, RBracket, Z, H, ColonStar, Tilde, Return,
+    Ctrl, Caps,
+    F,            /* letter F (distinct from F1..F20 above) */
+    Y, W, A, P, R, O, L, D,
+    V, Backslash, Period, HardSign,
+    ShiftL, RusLat, Q, Che,
+    S, M, I, T, X, B,
+    At, Comma, Slash, Underscore, ShiftR,
+    Compose, Space, Kp0Wide, KpEnter,
+    Find, Insert, Remove, Select, Prev, Next,
+    Up, Down, Left, Right,
+    Pf1, Pf2, Pf3, Pf4,
+    Kp1, Kp2, Kp3, Kp4, Kp5, Kp6, Kp7, Kp8, Kp9,
+    KpDot, KpComma, KpMinus,
+};
 
-/* Frontend-facing constants mirroring the C-side hardware sizes. */
-inline constexpr std::size_t kFloppyDiskSize = FDC_DISK_SIZE;
+/* MS0515 single-sided floppy image size in bytes (80 tracks ×
+ * 5120 bytes/track).  Asserted in Emulator.cpp to match the C-side
+ * `FDC_DISK_SIZE` so a hardware-config change there fails the build
+ * here instead of silently desyncing the validation the frontend
+ * builds on top of this constant. */
+inline constexpr std::size_t kFloppyDiskSize = 409600;
 
 /* User-tunable keyboard timing settings.  Frontend reads/writes
  * these via Emulator::keyboardSettings() / applyKeyboardConfig()
@@ -73,6 +105,13 @@ public:
     using SerialOutCallback = std::function<bool(uint8_t byte)>;
     using SerialInCallback  = std::function<bool(uint8_t &byte)>;
 
+    /* Forward-declared opaque state.  Defined in EmulatorInternal.hpp,
+     * reachable only from lib/src/*.  The struct is intentionally
+     * exposed *as a name* in the public header so the unique_ptr
+     * member type-checks; callers outside lib see it as incomplete and
+     * can't dereference the result of impl(). */
+    struct Impl;
+
     Emulator();
     ~Emulator();
 
@@ -80,6 +119,13 @@ public:
     Emulator &operator=(const Emulator &) = delete;
     Emulator(Emulator &&)                 = delete;
     Emulator &operator=(Emulator &&)      = delete;
+
+    /* Internal-use bridge to lib's typed accessors in
+     * `ms0515::internal::`.  Public so EmulatorInternal.hpp does not
+     * need a friend declaration; useless to non-lib callers because
+     * `Impl` is incomplete in this header. */
+    [[nodiscard]] Impl       *impl()       noexcept { return impl_.get(); }
+    [[nodiscard]] const Impl *impl() const noexcept { return impl_.get(); }
 
     /* ── Lifecycle ──────────────────────────────────────────────────────── */
 
@@ -148,18 +194,7 @@ public:
                                        const KeyboardSettings &s) noexcept;
     [[nodiscard]] bool             keyboardInGameMode() const noexcept;
 
-    /* ── Internal-use accessors ────────────────────────────────────────── */
-
-    /* These return raw C structs and exist for code that has to
-     * touch hardware directly (debugger, GDB stub, OnScreenKeyboard
-     * scancode injection).  Frontend should NOT use them — use the
-     * specific lib API methods below instead. */
-    const ms7004_t       &keyboard() const noexcept { return kbd7004_; }
-    ms7004_t             &keyboard()       noexcept { return kbd7004_; }
-    const ms0515_board_t &board()    const noexcept { return *board_; }
-    ms0515_board_t       &board()          noexcept { return *board_; }
-    const ms0515_cpu_t   &cpu()      const noexcept { return board_->cpu; }
-    ms0515_cpu_t         &cpu()            noexcept { return board_->cpu; }
+    /* ── Memory bus access ─────────────────────────────────────────────── */
 
     [[nodiscard]] uint16_t readWord(uint16_t address);
     [[nodiscard]] uint8_t  readByte(uint16_t address);
@@ -174,6 +209,8 @@ public:
     [[nodiscard]] uint8_t                  borderColor() const noexcept;
     [[nodiscard]] uint16_t                 pc()          const noexcept;
     [[nodiscard]] uint32_t                 frameCyclePos() const noexcept;
+    [[nodiscard]] bool                     halted()        const noexcept;
+    [[nodiscard]] bool                     waiting()       const noexcept;
 
     /* Visit every pixel of the current frame in raster-scan order
      * and invoke `cb` with its coordinates and decoded attributes.
@@ -191,19 +228,10 @@ public:
     void setSerialCallbacks(SerialInCallback in, SerialOutCallback out);
 
 private:
-    static void cSoundTrampoline(void *userdata, int value);
-    static bool cSerialOutTrampoline(void *userdata, uint8_t byte);
-    static bool cSerialInTrampoline(void *userdata, uint8_t *byte);
-
     void rewirePointers();
 
-    std::unique_ptr<ms0515_board_t> board_;
-    ms7004_t kbd7004_;
+    std::unique_ptr<Impl> impl_;
     std::array<std::string, 4> diskPath_;
-
-    SoundCallback     soundCb_;
-    SerialOutCallback serialOutCb_;
-    SerialInCallback  serialInCb_;
 };
 
 } /* namespace ms0515 */

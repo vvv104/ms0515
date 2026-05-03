@@ -28,7 +28,7 @@ namespace ms0515_frontend {
  *   phys    — SDL physical scancode (ev.key.keysym.scancode)
  *   rusMode — true when the emulated machine is in РУС mode
  *
- * Returns MS7004_KEY_NONE for unmapped scancodes.
+ * Returns ms0515::Key::None for unmapped scancodes.
  */
 ms0515::Key sdlToMs7004(SDL_Scancode phys, bool rusMode);
 

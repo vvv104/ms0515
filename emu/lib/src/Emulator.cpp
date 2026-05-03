@@ -2,7 +2,7 @@
  * Emulator.cpp — Implementation of the C++ wrapper around ms0515_board_t.
  */
 
-#include "ms0515/Emulator.hpp"
+#include "EmulatorInternal.hpp"  /* completes Emulator::Impl + C-side includes */
 
 #include <fstream>
 #include <string>
@@ -37,41 +37,108 @@ bool fstreamSeekIn(void *ctx, long offset)
     return s->good();
 }
 
+void cSoundTrampoline(void *userdata, int value)
+{
+    auto *self = static_cast<ms0515::Emulator *>(userdata);
+    if (auto &cb = self->impl()->soundCb)
+        cb(value);
+}
+
+bool cSerialOutTrampoline(void *userdata, uint8_t byte)
+{
+    auto *self = static_cast<ms0515::Emulator *>(userdata);
+    auto &cb = self->impl()->serialOutCb;
+    return cb ? cb(byte) : false;
+}
+
+bool cSerialInTrampoline(void *userdata, uint8_t *byte)
+{
+    auto *self = static_cast<ms0515::Emulator *>(userdata);
+    auto &cb = self->impl()->serialInCb;
+    return cb ? cb(*byte) : false;
+}
+
 } /* anonymous namespace */
 
 namespace ms0515 {
 
+/* Lock the public `Key` enum class to the C-side scancode-table indices
+ * in `ms7004.c::kScancode`.  If anyone reorders `ms7004_key_t` without
+ * mirroring the change in `Key`, the build fails here instead of
+ * silently misrouting key events.  We assert representative entries
+ * across each cluster plus the total count. */
+static_assert(static_cast<int>(Key::None)        == MS7004_KEY_NONE);
+static_assert(static_cast<int>(Key::F1)          == MS7004_KEY_F1);
+static_assert(static_cast<int>(Key::F14)         == MS7004_KEY_F14);
+static_assert(static_cast<int>(Key::Help)        == MS7004_KEY_HELP);
+static_assert(static_cast<int>(Key::Perform)     == MS7004_KEY_PERFORM);
+static_assert(static_cast<int>(Key::F20)         == MS7004_KEY_F20);
+static_assert(static_cast<int>(Key::Digit1)      == MS7004_KEY_1);
+static_assert(static_cast<int>(Key::Digit0)      == MS7004_KEY_0);
+static_assert(static_cast<int>(Key::Backspace)   == MS7004_KEY_BS);
+static_assert(static_cast<int>(Key::Tab)         == MS7004_KEY_TAB);
+static_assert(static_cast<int>(Key::Return)      == MS7004_KEY_RETURN);
+static_assert(static_cast<int>(Key::Ctrl)        == MS7004_KEY_CTRL);
+static_assert(static_cast<int>(Key::Caps)        == MS7004_KEY_CAPS);
+static_assert(static_cast<int>(Key::F)           == MS7004_KEY_F);
+static_assert(static_cast<int>(Key::HardSign)    == MS7004_KEY_HARDSIGN);
+static_assert(static_cast<int>(Key::ShiftL)      == MS7004_KEY_SHIFT_L);
+static_assert(static_cast<int>(Key::RusLat)      == MS7004_KEY_RUSLAT);
+static_assert(static_cast<int>(Key::Underscore)  == MS7004_KEY_UNDERSCORE);
+static_assert(static_cast<int>(Key::ShiftR)      == MS7004_KEY_SHIFT_R);
+static_assert(static_cast<int>(Key::Compose)     == MS7004_KEY_COMPOSE);
+static_assert(static_cast<int>(Key::Space)       == MS7004_KEY_SPACE);
+static_assert(static_cast<int>(Key::KpEnter)     == MS7004_KEY_KP_ENTER);
+static_assert(static_cast<int>(Key::Find)        == MS7004_KEY_FIND);
+static_assert(static_cast<int>(Key::Next)        == MS7004_KEY_NEXT);
+static_assert(static_cast<int>(Key::Up)          == MS7004_KEY_UP);
+static_assert(static_cast<int>(Key::Right)       == MS7004_KEY_RIGHT);
+static_assert(static_cast<int>(Key::Pf1)         == MS7004_KEY_PF1);
+static_assert(static_cast<int>(Key::Pf4)         == MS7004_KEY_PF4);
+static_assert(static_cast<int>(Key::Kp1)         == MS7004_KEY_KP_1);
+static_assert(static_cast<int>(Key::Kp9)         == MS7004_KEY_KP_9);
+static_assert(static_cast<int>(Key::KpMinus)     == MS7004_KEY_KP_MINUS);
+static_assert(static_cast<int>(Key::KpMinus) + 1 == MS7004_KEY__COUNT,
+              "Key enum is out of sync with ms7004_key_t");
+
+/* Pin the public floppy-image-size constant to the C-side hardware
+ * geometry.  If `FDC_DISK_SIZE` ever changes, the literal in
+ * Emulator.hpp must be updated to match (and the failing build line
+ * here is where to look). */
+static_assert(kFloppyDiskSize == FDC_DISK_SIZE,
+              "kFloppyDiskSize disagrees with core FDC_DISK_SIZE");
+
 Emulator::Emulator()
-    : board_(std::make_unique<ms0515_board_t>())
+    : impl_(std::make_unique<Impl>())
 {
-    board_init(board_.get());
-    ms7004_init(&kbd7004_, &board_->kbd);
+    board_init(&impl_->board);
+    ms7004_init(&impl_->kbd7004, &impl_->board.kbd);
 
     /* Wire USART TX → ms7004 command channel. */
-    board_->kbd.tx_callback = [](void *ctx, uint8_t byte) {
+    impl_->board.kbd.tx_callback = [](void *ctx, uint8_t byte) {
         ms7004_host_byte(static_cast<ms7004_t *>(ctx), byte);
     };
-    board_->kbd.tx_callback_ctx = &kbd7004_;
+    impl_->board.kbd.tx_callback_ctx = &impl_->kbd7004;
 }
 
 Emulator::~Emulator()
 {
     for (int i = 0; i < 4; ++i)
-        fdc_detach(&board_->fdc, i);
-    board_ramdisk_free(board_.get());
+        fdc_detach(&impl_->board.fdc, i);
+    board_ramdisk_free(&impl_->board);
 }
 
 /* ── Lifecycle ──────────────────────────────────────────────────────────── */
 
 void Emulator::reset()
 {
-    board_reset(board_.get());
-    ms7004_reset(&kbd7004_);
+    board_reset(&impl_->board);
+    ms7004_reset(&impl_->kbd7004);
 }
 
 void Emulator::loadRom(std::span<const uint8_t> data)
 {
-    board_load_rom(board_.get(), data.data(), static_cast<uint32_t>(data.size()));
+    board_load_rom(&impl_->board, data.data(), static_cast<uint32_t>(data.size()));
 }
 
 bool Emulator::loadRomFile(std::string_view path)
@@ -100,7 +167,7 @@ bool Emulator::mountDisk(int drive, std::string_view path)
     if (drive < 0 || drive >= 4)
         return false;
     std::string pathStr{path};
-    if (!fdc_attach(&board_->fdc, drive, pathStr.c_str(), /*read_only=*/false))
+    if (!fdc_attach(&impl_->board.fdc, drive, pathStr.c_str(), /*read_only=*/false))
         return false;
     diskPath_[drive] = std::move(pathStr);
     return true;
@@ -110,152 +177,162 @@ void Emulator::unmountDisk(int drive)
 {
     if (drive < 0 || drive >= 4)
         return;
-    fdc_detach(&board_->fdc, drive);
+    fdc_detach(&impl_->board.fdc, drive);
     diskPath_[drive].clear();
 }
 
 void Emulator::enableRamDisk()
 {
-    board_ramdisk_enable(board_.get());
+    board_ramdisk_enable(&impl_->board);
 }
 
 void Emulator::enableHistory(std::size_t nEvents)
 {
-    board_enable_history(board_.get(), nEvents);
+    board_enable_history(&impl_->board, nEvents);
 }
 
 void Emulator::setMemoryWatch(std::uint16_t addr, std::uint16_t len)
 {
-    board_set_memory_watch(board_.get(), addr, len);
+    board_set_memory_watch(&impl_->board, addr, len);
 }
 
 void Emulator::setReadWatch(std::uint16_t addr, std::uint16_t len)
 {
-    board_set_read_watch(board_.get(), addr, len);
+    board_set_read_watch(&impl_->board, addr, len);
 }
 
 /* ── Execution ──────────────────────────────────────────────────────────── */
 
 bool Emulator::stepFrame()
 {
-    return board_step_frame(board_.get());
+    return board_step_frame(&impl_->board);
 }
 
 void Emulator::stepInstruction()
 {
-    board_step_cpu(board_.get());
+    board_step_cpu(&impl_->board);
 }
 
 /* ── Input ──────────────────────────────────────────────────────────────── */
 
 void Emulator::keyEvent(uint8_t scancode)
 {
-    board_key_event(board_.get(), scancode);
+    board_key_event(&impl_->board, scancode);
 }
 
-void Emulator::keyPress(ms7004_key_t key, bool down)
+void Emulator::keyPress(Key key, bool down)
 {
-    ms7004_key(&kbd7004_, key, down);
+    ms7004_key(&impl_->kbd7004, static_cast<ms7004_key_t>(key), down);
 }
 
 void Emulator::keyReleaseAll()
 {
-    ms7004_release_all(&kbd7004_);
+    ms7004_release_all(&impl_->kbd7004);
 }
 
 void Emulator::keyTick(uint32_t now_ms)
 {
-    ms7004_tick(&kbd7004_, now_ms);
+    ms7004_tick(&impl_->kbd7004, now_ms);
 }
 
-bool Emulator::capsOn()   const noexcept { return ms7004_caps_on(&kbd7004_); }
-bool Emulator::ruslatOn() const noexcept { return ms7004_ruslat_on(&kbd7004_); }
+bool Emulator::capsOn()   const noexcept { return ms7004_caps_on(&impl_->kbd7004); }
+bool Emulator::ruslatOn() const noexcept { return ms7004_ruslat_on(&impl_->kbd7004); }
 
-bool Emulator::keyHeld(ms7004_key_t key) const noexcept
+bool Emulator::keyHeld(Key key) const noexcept
 {
-    return ms7004_is_held(&kbd7004_, key);
+    return ms7004_is_held(&impl_->kbd7004, static_cast<ms7004_key_t>(key));
 }
 
 /* ── Memory bus access ──────────────────────────────────────────────────── */
 
 uint16_t Emulator::readWord(uint16_t address)
 {
-    return board_read_word(board_.get(), address);
+    return board_read_word(&impl_->board, address);
 }
 
 uint8_t Emulator::readByte(uint16_t address)
 {
-    return board_read_byte(board_.get(), address);
+    return board_read_byte(&impl_->board, address);
 }
 
 void Emulator::writeWord(uint16_t address, uint16_t value)
 {
-    board_write_word(board_.get(), address, value);
+    board_write_word(&impl_->board, address, value);
 }
 
 void Emulator::writeByte(uint16_t address, uint8_t value)
 {
-    board_write_byte(board_.get(), address, value);
+    board_write_byte(&impl_->board, address, value);
 }
 
 /* ── Video state ────────────────────────────────────────────────────────── */
 
 std::span<const uint8_t> Emulator::vram() const noexcept
 {
-    return {board_get_vram(board_.get()), MEM_VRAM_SIZE};
+    return {board_get_vram(&impl_->board), MEM_VRAM_SIZE};
 }
 
 std::span<const uint8_t> Emulator::rom() const noexcept
 {
-    return {board_->mem.rom, MEM_ROM_SIZE};
+    return {impl_->board.mem.rom, MEM_ROM_SIZE};
 }
 
 bool Emulator::isHires() const noexcept
 {
-    return board_is_hires(board_.get());
+    return board_is_hires(&impl_->board);
 }
 
 uint8_t Emulator::borderColor() const noexcept
 {
-    return board_get_border_color(board_.get());
+    return board_get_border_color(&impl_->board);
 }
 
 uint16_t Emulator::pc() const noexcept
 {
-    return board_->cpu.r[CPU_REG_PC];
+    return impl_->board.cpu.r[CPU_REG_PC];
 }
 
 uint32_t Emulator::frameCyclePos() const noexcept
 {
-    return board_->frame_cycle_pos;
+    return impl_->board.frame_cycle_pos;
+}
+
+bool Emulator::halted() const noexcept
+{
+    return impl_->board.cpu.halted;
+}
+
+bool Emulator::waiting() const noexcept
+{
+    return impl_->board.cpu.waiting;
 }
 
 KeyboardSettings Emulator::keyboardSettings() const noexcept
 {
     KeyboardSettings s;
-    s.autoGameMode    = kbd7004_.auto_game_mode;
-    s.typingDelayMs   = kbd7004_.repeat_typing_delay_ms;
-    s.typingPeriodMs  = kbd7004_.repeat_typing_period_ms;
-    s.gameDelayMs     = kbd7004_.repeat_game_delay_ms;
-    s.gamePeriodMs    = kbd7004_.repeat_game_period_ms;
+    s.autoGameMode    = impl_->kbd7004.auto_game_mode;
+    s.typingDelayMs   = impl_->kbd7004.repeat_typing_delay_ms;
+    s.typingPeriodMs  = impl_->kbd7004.repeat_typing_period_ms;
+    s.gameDelayMs     = impl_->kbd7004.repeat_game_delay_ms;
+    s.gamePeriodMs    = impl_->kbd7004.repeat_game_period_ms;
     return s;
 }
 
 void Emulator::applyKeyboardConfig(const KeyboardSettings &s) noexcept
 {
-    kbd7004_.auto_game_mode             = s.autoGameMode;
-    kbd7004_.repeat_typing_delay_ms     = s.typingDelayMs;
-    kbd7004_.repeat_typing_period_ms    = s.typingPeriodMs;
-    kbd7004_.repeat_game_delay_ms       = s.gameDelayMs;
-    kbd7004_.repeat_game_period_ms      = s.gamePeriodMs;
+    impl_->kbd7004.auto_game_mode             = s.autoGameMode;
+    impl_->kbd7004.repeat_typing_delay_ms     = s.typingDelayMs;
+    impl_->kbd7004.repeat_typing_period_ms    = s.typingPeriodMs;
+    impl_->kbd7004.repeat_game_delay_ms       = s.gameDelayMs;
+    impl_->kbd7004.repeat_game_period_ms      = s.gamePeriodMs;
     /* Pick typing or game preset based on whether the auto-game-mode
      * heuristic has currently flipped us into game mode. */
-    ms7004_recompute_live_repeat(&kbd7004_);
+    ms7004_recompute_live_repeat(&impl_->kbd7004);
 }
 
 bool Emulator::keyboardInGameMode() const noexcept
 {
-    return kbd7004_.in_game_mode;
+    return impl_->kbd7004.in_game_mode;
 }
 
 /* ── Frame iteration ────────────────────────────────────────────────────── */
@@ -263,7 +340,7 @@ bool Emulator::keyboardInGameMode() const noexcept
 void Emulator::forEachHiResPixel(const HiResPixelCb &cb) const
 {
     if (!isHires()) return;
-    const uint8_t *vramBytes = board_get_vram(board_.get());
+    const uint8_t *vramBytes = board_get_vram(&impl_->board);
     /* 640 mono pixels per scanline, 200 scanlines.  Each 16-bit
      * word in VRAM holds 16 pixels: the low byte is shifted out
      * first (8 left pixels), then the high byte (8 right pixels),
@@ -284,7 +361,7 @@ void Emulator::forEachHiResPixel(const HiResPixelCb &cb) const
 void Emulator::forEachLoResPixel(const LoResPixelCb &cb) const
 {
     if (isHires()) return;
-    const uint8_t *vramBytes = board_get_vram(board_.get());
+    const uint8_t *vramBytes = board_get_vram(&impl_->board);
     /* 320 colour pixels per scanline, 200 scanlines.  Each 16-bit
      * word in VRAM = 8 pixels: low byte is the pixel data
      * (MSB = leftmost), high byte is the attribute byte
@@ -312,62 +389,43 @@ void Emulator::forEachLoResPixel(const LoResPixelCb &cb) const
 
 void Emulator::setSoundCallback(SoundCallback cb)
 {
-    soundCb_ = std::move(cb);
-    board_set_sound_callback(board_.get(),
-                             soundCb_ ? &Emulator::cSoundTrampoline : nullptr,
+    impl_->soundCb = std::move(cb);
+    board_set_sound_callback(&impl_->board,
+                             impl_->soundCb ? &cSoundTrampoline : nullptr,
                              this);
 }
 
 void Emulator::setSerialCallbacks(SerialInCallback in, SerialOutCallback out)
 {
-    serialInCb_  = std::move(in);
-    serialOutCb_ = std::move(out);
+    impl_->serialInCb  = std::move(in);
+    impl_->serialOutCb = std::move(out);
     board_set_serial_callbacks(
-        board_.get(),
-        serialInCb_  ? &Emulator::cSerialInTrampoline  : nullptr,
-        serialOutCb_ ? &Emulator::cSerialOutTrampoline : nullptr,
+        &impl_->board,
+        impl_->serialInCb  ? &cSerialInTrampoline  : nullptr,
+        impl_->serialOutCb ? &cSerialOutTrampoline : nullptr,
         this);
-}
-
-void Emulator::cSoundTrampoline(void *userdata, int value)
-{
-    auto *self = static_cast<Emulator *>(userdata);
-    if (self->soundCb_)
-        self->soundCb_(value);
-}
-
-bool Emulator::cSerialOutTrampoline(void *userdata, uint8_t byte)
-{
-    auto *self = static_cast<Emulator *>(userdata);
-    return self->serialOutCb_ ? self->serialOutCb_(byte) : false;
-}
-
-bool Emulator::cSerialInTrampoline(void *userdata, uint8_t *byte)
-{
-    auto *self = static_cast<Emulator *>(userdata);
-    return self->serialInCb_ ? self->serialInCb_(*byte) : false;
 }
 
 /* ── Internal pointer rewiring ──────────────────────────────────────────── */
 
 void Emulator::rewirePointers()
 {
-    board_->cpu.board = board_.get();
+    impl_->board.cpu.board = &impl_->board;
 
-    board_->kbd.tx_callback = [](void *ctx, uint8_t byte) {
+    impl_->board.kbd.tx_callback = [](void *ctx, uint8_t byte) {
         ms7004_host_byte(static_cast<ms7004_t *>(ctx), byte);
     };
-    board_->kbd.tx_callback_ctx = &kbd7004_;
+    impl_->board.kbd.tx_callback_ctx = &impl_->kbd7004;
 
-    kbd7004_.uart = &board_->kbd;
+    impl_->kbd7004.uart = &impl_->board.kbd;
 
-    if (soundCb_)
-        board_set_sound_callback(board_.get(), &Emulator::cSoundTrampoline, this);
-    if (serialInCb_ || serialOutCb_)
+    if (impl_->soundCb)
+        board_set_sound_callback(&impl_->board, &cSoundTrampoline, this);
+    if (impl_->serialInCb || impl_->serialOutCb)
         board_set_serial_callbacks(
-            board_.get(),
-            serialInCb_  ? &Emulator::cSerialInTrampoline  : nullptr,
-            serialOutCb_ ? &Emulator::cSerialOutTrampoline : nullptr,
+            &impl_->board,
+            impl_->serialInCb  ? &cSerialInTrampoline  : nullptr,
+            impl_->serialOutCb ? &cSerialOutTrampoline : nullptr,
             this);
 }
 
@@ -375,7 +433,7 @@ void Emulator::rewirePointers()
 
 uint32_t Emulator::romCrc32() const noexcept
 {
-    return snap_crc32(board_->mem.rom, MEM_ROM_SIZE);
+    return snap_crc32(impl_->board.mem.rom, MEM_ROM_SIZE);
 }
 
 std::expected<void, std::string> Emulator::saveState(std::string_view path)
@@ -391,7 +449,7 @@ std::expected<void, std::string> Emulator::saveState(std::string_view path)
     }
 
     snap_io_t io{fstreamWrite, nullptr, nullptr, &f};
-    snap_error_t err = snap_save(board_.get(), &kbd7004_,
+    snap_error_t err = snap_save(&impl_->board, &impl_->kbd7004,
                                  romCrc32(), paths, &io);
 
     if (err != SNAP_OK)
@@ -409,12 +467,12 @@ std::expected<void, std::string> Emulator::loadState(std::string_view path)
 
     /* Detach all disks before overwriting FDC state */
     for (int i = 0; i < 4; i++)
-        fdc_detach(&board_->fdc, i);
+        fdc_detach(&impl_->board.fdc, i);
 
     uint32_t saved_crc = 0;
     char *disk_paths[4] = {};
     snap_io_t io{nullptr, fstreamRead, fstreamSeekIn, &f};
-    snap_error_t err = snap_load(board_.get(), &kbd7004_,
+    snap_error_t err = snap_load(&impl_->board, &impl_->kbd7004,
                                  &saved_crc, disk_paths, &io);
 
     if (err != SNAP_OK) {
@@ -439,7 +497,7 @@ std::expected<void, std::string> Emulator::loadState(std::string_view path)
     for (int i = 0; i < 4; i++) {
         diskPath_[i].clear();
         if (disk_paths[i]) {
-            if (fdc_attach(&board_->fdc, i, disk_paths[i], false))
+            if (fdc_attach(&impl_->board.fdc, i, disk_paths[i], false))
                 diskPath_[i] = disk_paths[i];
             free(disk_paths[i]);  // NOLINT — allocated by C snap_load
         }

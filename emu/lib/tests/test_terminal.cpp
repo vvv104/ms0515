@@ -18,6 +18,7 @@ extern "C" {
 }
 
 #include <ms0515/Emulator.hpp>
+#include "EmulatorInternal.hpp"
 #include <ms0515/ScreenReader.hpp>
 #include <ms0515/Terminal.hpp>
 
@@ -577,7 +578,7 @@ TEST_CASE("DIAG: Rodionov OSA-B real boot — screen vs Terminal mirror"
     emu.reset();
 
     ScreenReader sr;
-    sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
+    sr.buildFont({ms0515::internal::board(emu).mem.rom, MEM_ROM_SIZE});
     Terminal term;
 
     /* Drive each tick's raw sample through Terminal::feedSample —

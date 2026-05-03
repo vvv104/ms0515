@@ -5,6 +5,7 @@ extern "C" {
 }
 
 #include <ms0515/Emulator.hpp>
+#include "EmulatorInternal.hpp"
 
 /*
  * Helpers: write a small program into RAM at `base`, set PC there,
@@ -34,8 +35,8 @@ static void run_at(ms0515::Emulator &emu, uint16_t addr,
                    std::initializer_list<uint16_t> words)
 {
     emit(emu, addr, words);
-    emu.cpu().r[CPU_REG_PC] = addr;
-    emu.cpu().halted = false;
+    ms0515::internal::cpu(emu).r[CPU_REG_PC] = addr;
+    ms0515::internal::cpu(emu).halted = false;
     emu.stepInstruction();
 }
 
@@ -47,7 +48,7 @@ TEST_CASE("initial state after reset") {
     ms0515::Emulator emu;
     emu.reset();
 
-    const auto &cpu = emu.cpu();
+    const auto &cpu = ms0515::internal::cpu(emu);
     CHECK(cpu.r[CPU_REG_PC] != 0);
     CHECK(cpu.halted == false);
     CHECK(cpu.waiting == false);
@@ -61,17 +62,17 @@ TEST_CASE("MOV #imm, R0") {
 
     /* MOV #042, R0  →  012700, 000042 */
     run_at(emu, BASE, {012700, 000042});
-    CHECK(emu.cpu().r[0] == 042);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 042);
 }
 
 TEST_CASE("MOV R0, R1") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x1234;
+    ms0515::internal::cpu(emu).r[0] = 0x1234;
 
     /* MOV R0, R1 → 010001 */
     run_at(emu, BASE, {010001});
-    CHECK(emu.cpu().r[1] == 0x1234);
+    CHECK(ms0515::internal::cpu(emu).r[1] == 0x1234);
 }
 
 TEST_CASE("MOV sets N flag for negative value") {
@@ -80,8 +81,8 @@ TEST_CASE("MOV sets N flag for negative value") {
 
     /* MOV #0x8000, R0 */
     run_at(emu, BASE, {012700, 0x8000});
-    CHECK((emu.cpu().psw & CPU_PSW_N) != 0);
-    CHECK((emu.cpu().psw & CPU_PSW_Z) == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_N) != 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_Z) == 0);
 }
 
 TEST_CASE("MOV sets Z flag for zero") {
@@ -90,8 +91,8 @@ TEST_CASE("MOV sets Z flag for zero") {
 
     /* MOV #0, R0 */
     run_at(emu, BASE, {012700, 0});
-    CHECK((emu.cpu().psw & CPU_PSW_Z) != 0);
-    CHECK((emu.cpu().psw & CPU_PSW_N) == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_Z) != 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_N) == 0);
 }
 
 /* ── MOVB ────────────────────────────────────────────────────────────────── */
@@ -103,7 +104,7 @@ TEST_CASE("MOVB sign-extends when dst is register") {
     /* MOVB #0xFF, R0 → 112700, 0x00FF */
     run_at(emu, BASE, {0112700, 0x00FF});
     /* MOVB to register sign-extends: 0xFF → 0xFFFF */
-    CHECK(emu.cpu().r[0] == 0xFFFF);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0xFFFF);
 }
 
 /* ── CLR ─────────────────────────────────────────────────────────────────── */
@@ -111,15 +112,15 @@ TEST_CASE("MOVB sign-extends when dst is register") {
 TEST_CASE("CLR R0") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0xBEEF;
+    ms0515::internal::cpu(emu).r[0] = 0xBEEF;
 
     /* CLR R0 → 005000 */
     run_at(emu, BASE, {005000});
-    CHECK(emu.cpu().r[0] == 0);
-    CHECK((emu.cpu().psw & CPU_PSW_Z) != 0);
-    CHECK((emu.cpu().psw & CPU_PSW_N) == 0);
-    CHECK((emu.cpu().psw & CPU_PSW_V) == 0);
-    CHECK((emu.cpu().psw & CPU_PSW_C) == 0);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_Z) != 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_N) == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_V) == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_C) == 0);
 }
 
 /* ── COM (one's complement) ──────────────────────────────────────────────── */
@@ -127,13 +128,13 @@ TEST_CASE("CLR R0") {
 TEST_CASE("COM R0") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x00FF;
+    ms0515::internal::cpu(emu).r[0] = 0x00FF;
 
     /* COM R0 → 005100 */
     run_at(emu, BASE, {005100});
-    CHECK(emu.cpu().r[0] == 0xFF00);
-    CHECK((emu.cpu().psw & CPU_PSW_C) != 0);  /* C always set */
-    CHECK((emu.cpu().psw & CPU_PSW_V) == 0);  /* V always cleared */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0xFF00);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_C) != 0);  /* C always set */
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_V) == 0);  /* V always cleared */
 }
 
 /* ── INC / DEC ───────────────────────────────────────────────────────────── */
@@ -141,41 +142,41 @@ TEST_CASE("COM R0") {
 TEST_CASE("INC R0") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 5;
+    ms0515::internal::cpu(emu).r[0] = 5;
 
     /* INC R0 → 005200 */
     run_at(emu, BASE, {005200});
-    CHECK(emu.cpu().r[0] == 6);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 6);
 }
 
 TEST_CASE("INC overflow sets V") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x7FFF;
+    ms0515::internal::cpu(emu).r[0] = 0x7FFF;
 
     run_at(emu, BASE, {005200});
-    CHECK(emu.cpu().r[0] == 0x8000);
-    CHECK((emu.cpu().psw & CPU_PSW_V) != 0);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0x8000);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_V) != 0);
 }
 
 TEST_CASE("DEC R0") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 5;
+    ms0515::internal::cpu(emu).r[0] = 5;
 
     /* DEC R0 → 005300 */
     run_at(emu, BASE, {005300});
-    CHECK(emu.cpu().r[0] == 4);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 4);
 }
 
 TEST_CASE("DEC zero wraps and sets N") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0;
+    ms0515::internal::cpu(emu).r[0] = 0;
 
     run_at(emu, BASE, {005300});
-    CHECK(emu.cpu().r[0] == 0xFFFF);
-    CHECK((emu.cpu().psw & CPU_PSW_N) != 0);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0xFFFF);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_N) != 0);
 }
 
 /* ── NEG (negate) ────────────────────────────────────────────────────────── */
@@ -183,24 +184,24 @@ TEST_CASE("DEC zero wraps and sets N") {
 TEST_CASE("NEG R0") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 1;
+    ms0515::internal::cpu(emu).r[0] = 1;
 
     /* NEG R0 → 005400 */
     run_at(emu, BASE, {005400});
-    CHECK(emu.cpu().r[0] == 0xFFFF);
-    CHECK((emu.cpu().psw & CPU_PSW_N) != 0);
-    CHECK((emu.cpu().psw & CPU_PSW_C) != 0);  /* C set when result != 0 */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0xFFFF);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_N) != 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_C) != 0);  /* C set when result != 0 */
 }
 
 TEST_CASE("NEG zero clears C") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0;
+    ms0515::internal::cpu(emu).r[0] = 0;
 
     run_at(emu, BASE, {005400});
-    CHECK(emu.cpu().r[0] == 0);
-    CHECK((emu.cpu().psw & CPU_PSW_Z) != 0);
-    CHECK((emu.cpu().psw & CPU_PSW_C) == 0);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_Z) != 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_C) == 0);
 }
 
 /* ── TST ─────────────────────────────────────────────────────────────────── */
@@ -208,15 +209,15 @@ TEST_CASE("NEG zero clears C") {
 TEST_CASE("TST R0 sets flags without modifying") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x8000;
+    ms0515::internal::cpu(emu).r[0] = 0x8000;
 
     /* TST R0 → 005700 */
     run_at(emu, BASE, {005700});
-    CHECK(emu.cpu().r[0] == 0x8000);  /* unchanged */
-    CHECK((emu.cpu().psw & CPU_PSW_N) != 0);
-    CHECK((emu.cpu().psw & CPU_PSW_Z) == 0);
-    CHECK((emu.cpu().psw & CPU_PSW_V) == 0);
-    CHECK((emu.cpu().psw & CPU_PSW_C) == 0);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0x8000);  /* unchanged */
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_N) != 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_Z) == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_V) == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_C) == 0);
 }
 
 /* ── ADD / SUB ───────────────────────────────────────────────────────────── */
@@ -224,35 +225,35 @@ TEST_CASE("TST R0 sets flags without modifying") {
 TEST_CASE("ADD R0, R1") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 100;
-    emu.cpu().r[1] = 200;
+    ms0515::internal::cpu(emu).r[0] = 100;
+    ms0515::internal::cpu(emu).r[1] = 200;
 
     /* ADD R0, R1 → 060001 */
     run_at(emu, BASE, {060001});
-    CHECK(emu.cpu().r[1] == 300);
+    CHECK(ms0515::internal::cpu(emu).r[1] == 300);
 }
 
 TEST_CASE("ADD overflow sets V and C") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x8000;
-    emu.cpu().r[1] = 0x8000;
+    ms0515::internal::cpu(emu).r[0] = 0x8000;
+    ms0515::internal::cpu(emu).r[1] = 0x8000;
 
     run_at(emu, BASE, {060001});
-    CHECK(emu.cpu().r[1] == 0);
-    CHECK((emu.cpu().psw & CPU_PSW_V) != 0);
-    CHECK((emu.cpu().psw & CPU_PSW_C) != 0);
+    CHECK(ms0515::internal::cpu(emu).r[1] == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_V) != 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_C) != 0);
 }
 
 TEST_CASE("SUB R0, R1") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 50;
-    emu.cpu().r[1] = 200;
+    ms0515::internal::cpu(emu).r[0] = 50;
+    ms0515::internal::cpu(emu).r[1] = 200;
 
     /* SUB R0, R1 → 160001 */
     run_at(emu, BASE, {0160001});
-    CHECK(emu.cpu().r[1] == 150);
+    CHECK(ms0515::internal::cpu(emu).r[1] == 150);
 }
 
 /* ── CMP ─────────────────────────────────────────────────────────────────── */
@@ -260,26 +261,26 @@ TEST_CASE("SUB R0, R1") {
 TEST_CASE("CMP equal values sets Z") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 42;
-    emu.cpu().r[1] = 42;
+    ms0515::internal::cpu(emu).r[0] = 42;
+    ms0515::internal::cpu(emu).r[1] = 42;
 
     /* CMP R0, R1 → 020001 */
     run_at(emu, BASE, {020001});
-    CHECK((emu.cpu().psw & CPU_PSW_Z) != 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_Z) != 0);
     /* Operands unchanged */
-    CHECK(emu.cpu().r[0] == 42);
-    CHECK(emu.cpu().r[1] == 42);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 42);
+    CHECK(ms0515::internal::cpu(emu).r[1] == 42);
 }
 
 TEST_CASE("CMP src > dst clears Z, clears N (unsigned)") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 100;
-    emu.cpu().r[1] = 50;
+    ms0515::internal::cpu(emu).r[0] = 100;
+    ms0515::internal::cpu(emu).r[1] = 50;
 
     run_at(emu, BASE, {020001});
-    CHECK((emu.cpu().psw & CPU_PSW_Z) == 0);
-    CHECK((emu.cpu().psw & CPU_PSW_N) == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_Z) == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_N) == 0);
 }
 
 /* ── BIT / BIC / BIS ────────────────────────────────────────────────────── */
@@ -287,36 +288,36 @@ TEST_CASE("CMP src > dst clears Z, clears N (unsigned)") {
 TEST_CASE("BIT R0, R1 tests bits without modifying") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x00F0;
-    emu.cpu().r[1] = 0x0030;
+    ms0515::internal::cpu(emu).r[0] = 0x00F0;
+    ms0515::internal::cpu(emu).r[1] = 0x0030;
 
     /* BIT R0, R1 → 030001 */
     run_at(emu, BASE, {030001});
     /* 0x00F0 & 0x0030 = 0x0030, non-zero → Z clear */
-    CHECK((emu.cpu().psw & CPU_PSW_Z) == 0);
-    CHECK(emu.cpu().r[1] == 0x0030);  /* unchanged */
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_Z) == 0);
+    CHECK(ms0515::internal::cpu(emu).r[1] == 0x0030);  /* unchanged */
 }
 
 TEST_CASE("BIC R0, R1 clears bits") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x00FF;
-    emu.cpu().r[1] = 0x1234;
+    ms0515::internal::cpu(emu).r[0] = 0x00FF;
+    ms0515::internal::cpu(emu).r[1] = 0x1234;
 
     /* BIC R0, R1 → 040001 */
     run_at(emu, BASE, {040001});
-    CHECK(emu.cpu().r[1] == 0x1200);
+    CHECK(ms0515::internal::cpu(emu).r[1] == 0x1200);
 }
 
 TEST_CASE("BIS R0, R1 sets bits") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x00FF;
-    emu.cpu().r[1] = 0x1200;
+    ms0515::internal::cpu(emu).r[0] = 0x00FF;
+    ms0515::internal::cpu(emu).r[1] = 0x1200;
 
     /* BIS R0, R1 → 050001 */
     run_at(emu, BASE, {050001});
-    CHECK(emu.cpu().r[1] == 0x12FF);
+    CHECK(ms0515::internal::cpu(emu).r[1] == 0x12FF);
 }
 
 /* ── XOR ─────────────────────────────────────────────────────────────────── */
@@ -324,12 +325,12 @@ TEST_CASE("BIS R0, R1 sets bits") {
 TEST_CASE("XOR R0, R1") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0xFF00;
-    emu.cpu().r[1] = 0x0FF0;
+    ms0515::internal::cpu(emu).r[0] = 0xFF00;
+    ms0515::internal::cpu(emu).r[1] = 0x0FF0;
 
     /* XOR R0, R1 → 074001 */
     run_at(emu, BASE, {074001});
-    CHECK(emu.cpu().r[1] == 0xF0F0);
+    CHECK(ms0515::internal::cpu(emu).r[1] == 0xF0F0);
 }
 
 /* ── ASR / ASL / ROR / ROL ───────────────────────────────────────────────── */
@@ -337,47 +338,47 @@ TEST_CASE("XOR R0, R1") {
 TEST_CASE("ASR R0 (arithmetic shift right)") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x8004;
+    ms0515::internal::cpu(emu).r[0] = 0x8004;
 
     /* ASR R0 → 006200 */
     run_at(emu, BASE, {006200});
-    CHECK(emu.cpu().r[0] == 0xC002);  /* sign bit preserved */
-    CHECK((emu.cpu().psw & CPU_PSW_C) == 0);  /* bit 0 was 0 */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0xC002);  /* sign bit preserved */
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_C) == 0);  /* bit 0 was 0 */
 }
 
 TEST_CASE("ASL R0 (arithmetic shift left)") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x4001;
+    ms0515::internal::cpu(emu).r[0] = 0x4001;
 
     /* ASL R0 → 006300 */
     run_at(emu, BASE, {006300});
-    CHECK(emu.cpu().r[0] == 0x8002);
-    CHECK((emu.cpu().psw & CPU_PSW_C) == 0);  /* bit 15 was 0 */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0x8002);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_C) == 0);  /* bit 15 was 0 */
 }
 
 TEST_CASE("ROR R0 (rotate right through carry)") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x0001;
-    emu.cpu().psw &= ~CPU_PSW_C;  /* C = 0 */
+    ms0515::internal::cpu(emu).r[0] = 0x0001;
+    ms0515::internal::cpu(emu).psw &= ~CPU_PSW_C;  /* C = 0 */
 
     /* ROR R0 → 006000 */
     run_at(emu, BASE, {006000});
-    CHECK(emu.cpu().r[0] == 0x0000);
-    CHECK((emu.cpu().psw & CPU_PSW_C) != 0);  /* old bit 0 → C */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0x0000);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_C) != 0);  /* old bit 0 → C */
 }
 
 TEST_CASE("ROL R0 (rotate left through carry)") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x8000;
-    emu.cpu().psw &= ~CPU_PSW_C;  /* C = 0 */
+    ms0515::internal::cpu(emu).r[0] = 0x8000;
+    ms0515::internal::cpu(emu).psw &= ~CPU_PSW_C;  /* C = 0 */
 
     /* ROL R0 → 006100 */
     run_at(emu, BASE, {006100});
-    CHECK(emu.cpu().r[0] == 0x0000);
-    CHECK((emu.cpu().psw & CPU_PSW_C) != 0);  /* old bit 15 → C */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0x0000);
+    CHECK((ms0515::internal::cpu(emu).psw & CPU_PSW_C) != 0);  /* old bit 15 → C */
 }
 
 /* ── ADC / SBC ───────────────────────────────────────────────────────────── */
@@ -385,23 +386,23 @@ TEST_CASE("ROL R0 (rotate left through carry)") {
 TEST_CASE("ADC R0 adds carry") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 10;
-    emu.cpu().psw |= CPU_PSW_C;
+    ms0515::internal::cpu(emu).r[0] = 10;
+    ms0515::internal::cpu(emu).psw |= CPU_PSW_C;
 
     /* ADC R0 → 005500 */
     run_at(emu, BASE, {005500});
-    CHECK(emu.cpu().r[0] == 11);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 11);
 }
 
 TEST_CASE("SBC R0 subtracts carry") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 10;
-    emu.cpu().psw |= CPU_PSW_C;
+    ms0515::internal::cpu(emu).r[0] = 10;
+    ms0515::internal::cpu(emu).psw |= CPU_PSW_C;
 
     /* SBC R0 → 005600 */
     run_at(emu, BASE, {005600});
-    CHECK(emu.cpu().r[0] == 9);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 9);
 }
 
 /* ── SXT (sign extend) ──────────────────────────────────────────────────── */
@@ -409,22 +410,22 @@ TEST_CASE("SBC R0 subtracts carry") {
 TEST_CASE("SXT R0 when N=0") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0xBEEF;
-    emu.cpu().psw &= ~CPU_PSW_N;
+    ms0515::internal::cpu(emu).r[0] = 0xBEEF;
+    ms0515::internal::cpu(emu).psw &= ~CPU_PSW_N;
 
     /* SXT R0 → 006700 */
     run_at(emu, BASE, {006700});
-    CHECK(emu.cpu().r[0] == 0);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0);
 }
 
 TEST_CASE("SXT R0 when N=1") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0;
-    emu.cpu().psw |= CPU_PSW_N;
+    ms0515::internal::cpu(emu).r[0] = 0;
+    ms0515::internal::cpu(emu).psw |= CPU_PSW_N;
 
     run_at(emu, BASE, {006700});
-    CHECK(emu.cpu().r[0] == 0xFFFF);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0xFFFF);
 }
 
 /* ── SWAB ────────────────────────────────────────────────────────────────── */
@@ -432,11 +433,11 @@ TEST_CASE("SXT R0 when N=1") {
 TEST_CASE("SWAB R0 swaps bytes") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x1234;
+    ms0515::internal::cpu(emu).r[0] = 0x1234;
 
     /* SWAB R0 → 000300 */
     run_at(emu, BASE, {000300});
-    CHECK(emu.cpu().r[0] == 0x3412);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0x3412);
 }
 
 /* ── Branch instructions ─────────────────────────────────────────────────── */
@@ -447,7 +448,7 @@ TEST_CASE("BR always branches") {
 
     /* BR +4 → 000402  (offset 2 words forward from PC after fetch) */
     run_at(emu, BASE, {000402});
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2 + 4);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2 + 4);
 }
 
 TEST_CASE("BR negative offset branches backward") {
@@ -458,76 +459,76 @@ TEST_CASE("BR negative offset branches backward") {
      * Actually: offset byte = 0xFF → sign-extend to -1, * 2 = -2
      * PC after fetch = BASE+2, so target = BASE+2 + (-2) = BASE */
     run_at(emu, BASE, {static_cast<uint16_t>(000400 | 0xFF)});
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE);
 }
 
 TEST_CASE("BNE branches when Z=0") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().psw &= ~CPU_PSW_Z;
+    ms0515::internal::cpu(emu).psw &= ~CPU_PSW_Z;
 
     /* BNE +4 → 001002 */
     run_at(emu, BASE, {001002});
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2 + 4);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2 + 4);
 }
 
 TEST_CASE("BNE does not branch when Z=1") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().psw |= CPU_PSW_Z;
+    ms0515::internal::cpu(emu).psw |= CPU_PSW_Z;
 
     run_at(emu, BASE, {001002});
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2);
 }
 
 TEST_CASE("BEQ branches when Z=1") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().psw |= CPU_PSW_Z;
+    ms0515::internal::cpu(emu).psw |= CPU_PSW_Z;
 
     /* BEQ +4 → 001402 */
     run_at(emu, BASE, {001402});
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2 + 4);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2 + 4);
 }
 
 TEST_CASE("BPL branches when N=0") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().psw &= ~CPU_PSW_N;
+    ms0515::internal::cpu(emu).psw &= ~CPU_PSW_N;
 
     /* BPL +4 → 100002 */
     run_at(emu, BASE, {0100002});
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2 + 4);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2 + 4);
 }
 
 TEST_CASE("BMI branches when N=1") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().psw |= CPU_PSW_N;
+    ms0515::internal::cpu(emu).psw |= CPU_PSW_N;
 
     /* BMI +4 → 100402 */
     run_at(emu, BASE, {0100402});
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2 + 4);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2 + 4);
 }
 
 TEST_CASE("BHI branches when C=0 and Z=0") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().psw &= ~(CPU_PSW_C | CPU_PSW_Z);
+    ms0515::internal::cpu(emu).psw &= ~(CPU_PSW_C | CPU_PSW_Z);
 
     /* BHI +4 → 101002 */
     run_at(emu, BASE, {0101002});
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2 + 4);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2 + 4);
 }
 
 TEST_CASE("BLOS branches when C=1 or Z=1") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().psw |= CPU_PSW_C;
+    ms0515::internal::cpu(emu).psw |= CPU_PSW_C;
 
     /* BLOS +4 → 101402 */
     run_at(emu, BASE, {0101402});
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2 + 4);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2 + 4);
 }
 
 /* ── SOB (subtract one and branch) ──────────────────────────────────────── */
@@ -535,22 +536,22 @@ TEST_CASE("BLOS branches when C=1 or Z=1") {
 TEST_CASE("SOB decrements and branches when non-zero") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 3;
+    ms0515::internal::cpu(emu).r[0] = 3;
 
     /* SOB R0, 2 → 077002 (reg=0, offset=2) */
     run_at(emu, BASE, {077002});
-    CHECK(emu.cpu().r[0] == 2);
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2 - 4);  /* offset*2 backward */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 2);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2 - 4);  /* offset*2 backward */
 }
 
 TEST_CASE("SOB does not branch when result is zero") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 1;
+    ms0515::internal::cpu(emu).r[0] = 1;
 
     run_at(emu, BASE, {077002});
-    CHECK(emu.cpu().r[0] == 0);
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2);  /* fall through */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2);  /* fall through */
 }
 
 /* ── JMP ─────────────────────────────────────────────────────────────────── */
@@ -558,11 +559,11 @@ TEST_CASE("SOB does not branch when result is zero") {
 TEST_CASE("JMP (R1)") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[1] = 0x2000;
+    ms0515::internal::cpu(emu).r[1] = 0x2000;
 
     /* JMP (R1) → 000111  (opcode 0001, mode=1, reg=1 → DD=011) */
     run_at(emu, BASE, {000111});
-    CHECK(emu.cpu().r[CPU_REG_PC] == 0x2000);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == 0x2000);
 }
 
 /* ── JSR / RTS ───────────────────────────────────────────────────────────── */
@@ -572,20 +573,20 @@ TEST_CASE("JSR PC,(R1) and RTS PC") {
     emu.reset();
 
     uint16_t subroutine = 0x2000;
-    emu.cpu().r[1] = subroutine;
-    emu.cpu().r[CPU_REG_SP] = 0x0800;
+    ms0515::internal::cpu(emu).r[1] = subroutine;
+    ms0515::internal::cpu(emu).r[CPU_REG_SP] = 0x0800;
 
     /* JSR PC, (R1) → 004711 */
     run_at(emu, BASE, {004711});
-    CHECK(emu.cpu().r[CPU_REG_PC] == subroutine);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == subroutine);
 
     /* Return address should be on stack */
-    uint16_t ret_addr = emu.readWord(emu.cpu().r[CPU_REG_SP]);
+    uint16_t ret_addr = emu.readWord(ms0515::internal::cpu(emu).r[CPU_REG_SP]);
     CHECK(ret_addr == BASE + 2);
 
     /* RTS PC → 000207 */
     run_at(emu, subroutine, {000207});
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2);
 }
 
 /* ── HALT / WAIT ─────────────────────────────────────────────────────────── */
@@ -599,20 +600,20 @@ TEST_CASE("HALT traps to restart vector 0172004") {
     /* Map full RAM through the dispatcher so the stack push lands in
      * writable memory.  Then point SP into the same window. */
     emu.writeWord(0177400, 0x007F);
-    emu.cpu().r[CPU_REG_SP] = 0x4000;
-    emu.cpu().psw = 0;                  /* known PSW for the push */
-    uint16_t old_sp = emu.cpu().r[CPU_REG_SP];
+    ms0515::internal::cpu(emu).r[CPU_REG_SP] = 0x4000;
+    ms0515::internal::cpu(emu).psw = 0;                  /* known PSW for the push */
+    uint16_t old_sp = ms0515::internal::cpu(emu).r[CPU_REG_SP];
 
     run_at(emu, BASE, {000000});
 
-    CHECK(emu.cpu().halted == false);   /* not stopped */
-    CHECK(emu.cpu().r[CPU_REG_PC] == 0172004);
-    CHECK(emu.cpu().psw == 0340);
-    CHECK(emu.cpu().r[CPU_REG_SP] == (uint16_t)(old_sp - 4));  /* PC + PSW */
+    CHECK(ms0515::internal::cpu(emu).halted == false);   /* not stopped */
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == 0172004);
+    CHECK(ms0515::internal::cpu(emu).psw == 0340);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_SP] == (uint16_t)(old_sp - 4));  /* PC + PSW */
     /* Pushed PC is the address AFTER the HALT word — would be the
      * return point if a handler at 0172004 RTI'd back. */
-    CHECK(emu.readWord(emu.cpu().r[CPU_REG_SP]) == BASE + 2);
-    CHECK(emu.readWord(emu.cpu().r[CPU_REG_SP] + 2) == 0);  /* old PSW */
+    CHECK(emu.readWord(ms0515::internal::cpu(emu).r[CPU_REG_SP]) == BASE + 2);
+    CHECK(emu.readWord(ms0515::internal::cpu(emu).r[CPU_REG_SP] + 2) == 0);  /* old PSW */
 }
 
 TEST_CASE("WAIT sets waiting flag") {
@@ -621,7 +622,7 @@ TEST_CASE("WAIT sets waiting flag") {
 
     /* WAIT → 000001 */
     run_at(emu, BASE, {000001});
-    CHECK(emu.cpu().waiting == true);
+    CHECK(ms0515::internal::cpu(emu).waiting == true);
 }
 
 /* ── NOP ─────────────────────────────────────────────────────────────────── */
@@ -629,14 +630,14 @@ TEST_CASE("WAIT sets waiting flag") {
 TEST_CASE("NOP does nothing") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x1234;
-    uint16_t old_psw = emu.cpu().psw;
+    ms0515::internal::cpu(emu).r[0] = 0x1234;
+    uint16_t old_psw = ms0515::internal::cpu(emu).psw;
 
     /* NOP → 000240 */
     run_at(emu, BASE, {000240});
-    CHECK(emu.cpu().r[0] == 0x1234);
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 2);
-    CHECK(emu.cpu().psw == old_psw);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0x1234);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 2);
+    CHECK(ms0515::internal::cpu(emu).psw == old_psw);
 }
 
 /* ── CCC / SCC (condition code control) ──────────────────────────────────── */
@@ -644,21 +645,21 @@ TEST_CASE("NOP does nothing") {
 TEST_CASE("SCC sets all condition codes") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().psw &= ~0x0F;
+    ms0515::internal::cpu(emu).psw &= ~0x0F;
 
     /* SCC (set all) → 000277 */
     run_at(emu, BASE, {000277});
-    CHECK((emu.cpu().psw & 0x0F) == 0x0F);
+    CHECK((ms0515::internal::cpu(emu).psw & 0x0F) == 0x0F);
 }
 
 TEST_CASE("CCC clears all condition codes") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().psw |= 0x0F;
+    ms0515::internal::cpu(emu).psw |= 0x0F;
 
     /* CCC (clear all) → 000257 */
     run_at(emu, BASE, {000257});
-    CHECK((emu.cpu().psw & 0x0F) == 0);
+    CHECK((ms0515::internal::cpu(emu).psw & 0x0F) == 0);
 }
 
 /* ── Addressing modes ────────────────────────────────────────────────────── */
@@ -669,12 +670,12 @@ TEST_CASE("autoincrement mode: MOV (R1)+, R0") {
 
     uint16_t data_addr = 0x2000;
     emu.writeWord(data_addr, 0x5678);
-    emu.cpu().r[1] = data_addr;
+    ms0515::internal::cpu(emu).r[1] = data_addr;
 
     /* MOV (R1)+, R0 → 012100 */
     run_at(emu, BASE, {012100});
-    CHECK(emu.cpu().r[0] == 0x5678);
-    CHECK(emu.cpu().r[1] == data_addr + 2);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0x5678);
+    CHECK(ms0515::internal::cpu(emu).r[1] == data_addr + 2);
 }
 
 TEST_CASE("autodecrement mode: MOV -(R1), R0") {
@@ -683,12 +684,12 @@ TEST_CASE("autodecrement mode: MOV -(R1), R0") {
 
     uint16_t data_addr = 0x2000;
     emu.writeWord(data_addr, 0xABCD);
-    emu.cpu().r[1] = data_addr + 2;
+    ms0515::internal::cpu(emu).r[1] = data_addr + 2;
 
     /* MOV -(R1), R0 → 014100 */
     run_at(emu, BASE, {014100});
-    CHECK(emu.cpu().r[0] == 0xABCD);
-    CHECK(emu.cpu().r[1] == data_addr);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0xABCD);
+    CHECK(ms0515::internal::cpu(emu).r[1] == data_addr);
 }
 
 TEST_CASE("register deferred mode: MOV (R1), R0") {
@@ -697,12 +698,12 @@ TEST_CASE("register deferred mode: MOV (R1), R0") {
 
     uint16_t data_addr = 0x2000;
     emu.writeWord(data_addr, 0x9999);
-    emu.cpu().r[1] = data_addr;
+    ms0515::internal::cpu(emu).r[1] = data_addr;
 
     /* MOV (R1), R0 → 011100 */
     run_at(emu, BASE, {011100});
-    CHECK(emu.cpu().r[0] == 0x9999);
-    CHECK(emu.cpu().r[1] == data_addr);  /* unchanged */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0x9999);
+    CHECK(ms0515::internal::cpu(emu).r[1] == data_addr);  /* unchanged */
 }
 
 TEST_CASE("immediate mode uses PC autoincrement: MOV #val, R0") {
@@ -712,8 +713,8 @@ TEST_CASE("immediate mode uses PC autoincrement: MOV #val, R0") {
     /* MOV #0x1234, R0 → 012700, 0x1234
      * mode 2 reg 7 = (PC)+ = immediate */
     run_at(emu, BASE, {012700, 0x1234});
-    CHECK(emu.cpu().r[0] == 0x1234);
-    CHECK(emu.cpu().r[CPU_REG_PC] == BASE + 4);
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0x1234);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_PC] == BASE + 4);
 }
 
 /* ── Memory write via addressing mode ────────────────────────────────────── */
@@ -721,10 +722,10 @@ TEST_CASE("immediate mode uses PC autoincrement: MOV #val, R0") {
 TEST_CASE("MOV R0, (R1) writes to memory") {
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0x4242;
+    ms0515::internal::cpu(emu).r[0] = 0x4242;
 
     uint16_t data_addr = 0x2000;
-    emu.cpu().r[1] = data_addr;
+    ms0515::internal::cpu(emu).r[1] = data_addr;
 
     /* MOV R0, (R1) → 010011 */
     run_at(emu, BASE, {010011});
@@ -739,7 +740,7 @@ TEST_CASE("EMT sets irq_emt flag") {
 
     /* EMT 0 → 104000 */
     run_at(emu, BASE, {0104000});
-    CHECK(emu.cpu().irq_emt == true);
+    CHECK(ms0515::internal::cpu(emu).irq_emt == true);
 }
 
 TEST_CASE("TRAP sets irq_trap flag") {
@@ -748,7 +749,7 @@ TEST_CASE("TRAP sets irq_trap flag") {
 
     /* TRAP 0 → 104400 */
     run_at(emu, BASE, {0104400});
-    CHECK(emu.cpu().irq_trap == true);
+    CHECK(ms0515::internal::cpu(emu).irq_trap == true);
 }
 
 TEST_CASE("BPT sets irq_bpt flag") {
@@ -757,7 +758,7 @@ TEST_CASE("BPT sets irq_bpt flag") {
 
     /* BPT → 000003 */
     run_at(emu, BASE, {000003});
-    CHECK(emu.cpu().irq_bpt == true);
+    CHECK(ms0515::internal::cpu(emu).irq_bpt == true);
 }
 
 TEST_CASE("IOT sets irq_iot flag") {
@@ -766,7 +767,7 @@ TEST_CASE("IOT sets irq_iot flag") {
 
     /* IOT → 000004 */
     run_at(emu, BASE, {000004});
-    CHECK(emu.cpu().irq_iot == true);
+    CHECK(ms0515::internal::cpu(emu).irq_iot == true);
 }
 
 /* ── Cycle-count audit (K1807VM1 spec via MAME T11) ─────────────────────── */
@@ -781,7 +782,7 @@ static int mov_cycles_full(int sm, int sr, int dm, int dr)
     ms0515::Emulator emu;
     emu.reset();
     emu.writeWord(0177400, 0x007F);          /* full RAM mapping */
-    emu.cpu().r[CPU_REG_SP] = 0x4000;
+    ms0515::internal::cpu(emu).r[CPU_REG_SP] = 0x4000;
 
     uint16_t instr = 010000u                 /* MOV opcode */
                    | (uint16_t)(sm << 9)
@@ -791,13 +792,13 @@ static int mov_cycles_full(int sm, int sr, int dm, int dr)
     emu.writeWord(BASE,     instr);
     emu.writeWord(BASE + 2, 0);
     emu.writeWord(BASE + 4, 0);
-    emu.cpu().r[CPU_REG_PC] = BASE;
-    emu.cpu().halted = false;
+    ms0515::internal::cpu(emu).r[CPU_REG_PC] = BASE;
+    ms0515::internal::cpu(emu).halted = false;
     /* Point R0/R1 (and R2-R5 for safety) at writable RAM. */
     for (int i = 0; i < 6; ++i)
-        emu.cpu().r[i] = (uint16_t)(0x3000 + i * 0x10);
+        ms0515::internal::cpu(emu).r[i] = (uint16_t)(0x3000 + i * 0x10);
     emu.stepInstruction();
-    return emu.cpu().cycles;
+    return ms0515::internal::cpu(emu).cycles;
 }
 
 static int mov_cycles(int sm, int dm)
@@ -828,10 +829,10 @@ TEST_CASE("MFPT writes K1807VM1 type code (4) to R0") {
      * K1807VM1 returns 4, matching the DEC T-11 / KDF-11 family.*/
     ms0515::Emulator emu;
     emu.reset();
-    emu.cpu().r[0] = 0xFFFF;                /* poison so we see the write */
+    ms0515::internal::cpu(emu).r[0] = 0xFFFF;                /* poison so we see the write */
     run_at(emu, BASE, {000007});
-    CHECK(emu.cpu().r[0] == 4);
-    CHECK(emu.cpu().irq_reserved == false); /* no trap */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 4);
+    CHECK(ms0515::internal::cpu(emu).irq_reserved == false); /* no trap */
 }
 
 /* ── Interrupt request API ───────────────────────────────────────────────── */
@@ -840,7 +841,7 @@ TEST_CASE("cpu_interrupt / cpu_clear_interrupt") {
     ms0515::Emulator emu;
     emu.reset();
 
-    auto &cpu = emu.cpu();
+    auto &cpu = ms0515::internal::cpu(emu);
 
     cpu_interrupt(&cpu, 3, CPU_VEC_KEYBOARD);
     CHECK(cpu.irq_virq[3] == true);
@@ -874,14 +875,14 @@ TEST_CASE("small loop: sum 1..5 using SOB") {
     addr = emit(emu, addr, {077002});          /* SOB R0, loop (offset=2 words back) */
     (void)loop;
 
-    emu.cpu().r[CPU_REG_PC] = BASE;
-    emu.cpu().halted = false;
+    ms0515::internal::cpu(emu).r[CPU_REG_PC] = BASE;
+    ms0515::internal::cpu(emu).halted = false;
 
     /* 2 setup MOVs + 5 iterations × (ADD + SOB) = 12 instructions. */
     for (int i = 0; i < 12; i++)
         emu.stepInstruction();
 
-    CHECK(emu.cpu().r[1] == 15);  /* 5+4+3+2+1 = 15 */
+    CHECK(ms0515::internal::cpu(emu).r[1] == 15);  /* 5+4+3+2+1 = 15 */
 }
 
 } /* TEST_SUITE */

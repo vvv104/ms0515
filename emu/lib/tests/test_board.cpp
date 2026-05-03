@@ -5,6 +5,7 @@ extern "C" {
 }
 
 #include <ms0515/Emulator.hpp>
+#include "EmulatorInternal.hpp"
 
 TEST_SUITE("Board") {
 
@@ -24,7 +25,7 @@ static constexpr uint16_t IO_PPI_CTRL   = 0177606;
 
 TEST_CASE("board_init produces clean state") {
     ms0515::Emulator emu;
-    const auto &b = emu.board();
+    const auto &b = ms0515::internal::board(emu);
 
     CHECK(b.reg_a == 0);
     CHECK(b.reg_c == 0);
@@ -38,8 +39,8 @@ TEST_CASE("board_reset resets CPU") {
     ms0515::Emulator emu;
     emu.reset();
 
-    CHECK(emu.cpu().halted == false);
-    CHECK(emu.cpu().waiting == false);
+    CHECK(ms0515::internal::cpu(emu).halted == false);
+    CHECK(ms0515::internal::cpu(emu).waiting == false);
 }
 
 /* ── Memory dispatcher I/O ───────────────────────────────────────────────── */
@@ -80,13 +81,13 @@ TEST_CASE("Reg A bit 7 controls extended ROM visibility") {
     ms0515::Emulator emu;
     emu.reset();
 
-    CHECK(emu.board().mem.rom_extended == false);
+    CHECK(ms0515::internal::board(emu).mem.rom_extended == false);
 
     emu.writeByte(IO_REG_A, 0x80);
-    CHECK(emu.board().mem.rom_extended == true);
+    CHECK(ms0515::internal::board(emu).mem.rom_extended == true);
 
     emu.writeByte(IO_REG_A, 0x00);
-    CHECK(emu.board().mem.rom_extended == false);
+    CHECK(ms0515::internal::board(emu).mem.rom_extended == false);
 }
 
 /* ── System Register B: status input ─────────────────────────────────────── */
@@ -100,7 +101,7 @@ TEST_CASE("Reg B reflects DIP switch setting") {
     CHECK(((val >> 3) & 0x03) == 0);
 
     /* Change dip to 72 Hz */
-    emu.board().dip_refresh = 1;
+    ms0515::internal::board(emu).dip_refresh = 1;
     val = emu.readByte(IO_REG_B);
     CHECK(((val >> 3) & 0x03) == 1);
 }
@@ -112,7 +113,7 @@ TEST_CASE("Reg C bits 0-2 set border color") {
     emu.reset();
 
     emu.writeByte(IO_REG_C, 0x05);
-    CHECK(emu.board().border_color == 5);
+    CHECK(ms0515::internal::board(emu).border_color == 5);
 }
 
 TEST_CASE("Reg C bit 3 controls hires mode") {
@@ -120,10 +121,10 @@ TEST_CASE("Reg C bit 3 controls hires mode") {
     emu.reset();
 
     emu.writeByte(IO_REG_C, 0x08);
-    CHECK(emu.board().hires_mode == true);
+    CHECK(ms0515::internal::board(emu).hires_mode == true);
 
     emu.writeByte(IO_REG_C, 0x00);
-    CHECK(emu.board().hires_mode == false);
+    CHECK(ms0515::internal::board(emu).hires_mode == false);
 }
 
 /* ── PPI bit set/reset ───────────────────────────────────────────────────── */
@@ -137,12 +138,12 @@ TEST_CASE("PPI control bit-set modifies Reg C") {
      * → control word = 0x07 */
     emu.writeByte(IO_PPI_CTRL, 0x07);
     CHECK((emu.readByte(IO_REG_C) & 0x08) != 0);
-    CHECK(emu.board().hires_mode == true);
+    CHECK(ms0515::internal::board(emu).hires_mode == true);
 
     /* Reset bit 3: bit0=0 → 0x06 */
     emu.writeByte(IO_PPI_CTRL, 0x06);
     CHECK((emu.readByte(IO_REG_C) & 0x08) == 0);
-    CHECK(emu.board().hires_mode == false);
+    CHECK(ms0515::internal::board(emu).hires_mode == false);
 }
 
 /* ── Timer I/O routing ───────────────────────────────────────────────────── */
@@ -160,7 +161,7 @@ TEST_CASE("timer control and read through board I/O") {
     emu.writeByte(IO_TIMER_W0, 0);
 
     /* Timer channel 0 OUT should go low after loading in mode 0 */
-    CHECK(timer_get_out(&emu.board().timer, 0) == false);
+    CHECK(timer_get_out(&ms0515::internal::board(emu).timer, 0) == false);
 }
 
 /* ── RAM bus: read/write round-trip ──────────────────────────────────────── */
@@ -218,17 +219,17 @@ TEST_CASE("board_get_vram returns non-null") {
     ms0515::Emulator emu;
     emu.reset();
 
-    CHECK(board_get_vram(&emu.board()) != nullptr);
+    CHECK(board_get_vram(&ms0515::internal::board(emu)) != nullptr);
 }
 
 TEST_CASE("board_is_hires reflects Reg C") {
     ms0515::Emulator emu;
     emu.reset();
 
-    CHECK(board_is_hires(&emu.board()) == false);
+    CHECK(board_is_hires(&ms0515::internal::board(emu)) == false);
 
     emu.writeByte(IO_REG_C, 0x08);
-    CHECK(board_is_hires(&emu.board()) == true);
+    CHECK(board_is_hires(&ms0515::internal::board(emu)) == true);
 }
 
 TEST_CASE("board_get_border_color reflects Reg C") {
@@ -236,7 +237,7 @@ TEST_CASE("board_get_border_color reflects Reg C") {
     emu.reset();
 
     emu.writeByte(IO_REG_C, 0x03);
-    CHECK(board_get_border_color(&emu.board()) == 3);
+    CHECK(board_get_border_color(&ms0515::internal::board(emu)) == 3);
 }
 
 /* ── Sound callback ──────────────────────────────────────────────────────── */
@@ -267,14 +268,14 @@ TEST_CASE("ramdisk enable/free through board API") {
     ms0515::Emulator emu;
     emu.reset();
 
-    CHECK(emu.board().ramdisk.enabled == false);
+    CHECK(ms0515::internal::board(emu).ramdisk.enabled == false);
 
-    board_ramdisk_enable(&emu.board());
-    CHECK(emu.board().ramdisk.enabled == true);
-    CHECK(emu.board().ramdisk.ram != nullptr);
+    board_ramdisk_enable(&ms0515::internal::board(emu));
+    CHECK(ms0515::internal::board(emu).ramdisk.enabled == true);
+    CHECK(ms0515::internal::board(emu).ramdisk.ram != nullptr);
 
-    board_ramdisk_free(&emu.board());
-    CHECK(emu.board().ramdisk.enabled == false);
+    board_ramdisk_free(&ms0515::internal::board(emu));
+    CHECK(ms0515::internal::board(emu).ramdisk.enabled == false);
 }
 
 } /* TEST_SUITE */

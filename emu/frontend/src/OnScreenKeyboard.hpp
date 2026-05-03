@@ -20,9 +20,7 @@
 #include <unordered_set>
 #include <vector>
 
-extern "C" {
 #include <ms0515/Emulator.hpp>  /* ms0515::Key */
-}
 
 namespace ms0515 { class Emulator; }
 

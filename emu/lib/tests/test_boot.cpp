@@ -31,6 +31,7 @@ extern "C" {
 
 #include <ms0515/Disassembler.hpp>
 #include <ms0515/Emulator.hpp>
+#include "EmulatorInternal.hpp"
 #include <ms0515/ScreenReader.hpp>
 
 #include "test_disk.hpp"
@@ -145,7 +146,7 @@ static BootResult runBoot(const std::string &romPath,
     emu.reset();
 
     /* Run frames, sampling PC periodically to detect tight loops. */
-    uint16_t prevPc = emu.cpu().r[CPU_REG_PC];
+    uint16_t prevPc = ms0515::internal::cpu(emu).r[CPU_REG_PC];
     int sameCount = 0;
 
     for (int i = 0; i < frames; i++) {
@@ -153,7 +154,7 @@ static BootResult runBoot(const std::string &romPath,
 
         /* Sample every 10 frames to detect stalls */
         if (i % 10 == 9) {
-            uint16_t curPc = emu.cpu().r[CPU_REG_PC];
+            uint16_t curPc = ms0515::internal::cpu(emu).r[CPU_REG_PC];
             if (curPc == prevPc)
                 sameCount++;
             else
@@ -163,15 +164,15 @@ static BootResult runBoot(const std::string &romPath,
     }
 
     BootResult r{};
-    r.halted     = emu.cpu().halted;
-    r.waiting    = emu.cpu().waiting;
-    r.pc         = emu.cpu().r[CPU_REG_PC];
-    r.psw        = emu.cpu().psw;
+    r.halted     = ms0515::internal::cpu(emu).halted;
+    r.waiting    = ms0515::internal::cpu(emu).waiting;
+    r.pc         = ms0515::internal::cpu(emu).r[CPU_REG_PC];
+    r.psw        = ms0515::internal::cpu(emu).psw;
     r.framesRun  = frames;
     r.tightLoop  = (sameCount >= 5);
 
     /* Check VRAM has some content (not all zeros) */
-    const uint8_t *vram = board_get_vram(&emu.board());
+    const uint8_t *vram = board_get_vram(&ms0515::internal::board(emu));
     r.vramPopulated = false;
     for (int i = 0; i < MEM_VRAM_SIZE; i++) {
         if (vram[i] != 0) {
@@ -181,7 +182,7 @@ static BootResult runBoot(const std::string &romPath,
     }
 
     /* Check keyboard USART was initialised */
-    r.kbdInitialised = (emu.board().kbd.init_step > 0);
+    r.kbdInitialised = (ms0515::internal::board(emu).kbd.init_step > 0);
 
     r.borderColor = emu.borderColor();
 
@@ -193,7 +194,7 @@ static BootResult runBoot(const std::string &romPath,
      */
     {
         ms0515::ScreenReader sr;
-        sr.buildFont({emu.board().mem.rom, MEM_ROM_SIZE});
+        sr.buildFont({ms0515::internal::board(emu).mem.rom, MEM_ROM_SIZE});
         auto snap = sr.readScreen({vram, MEM_VRAM_SIZE}, emu.isHires());
         r.reachedPrompt = false;
         for (int row = 0; row < ms0515::ScreenReader::kRows; ++row) {

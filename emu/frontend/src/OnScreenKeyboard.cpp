@@ -38,123 +38,123 @@ struct LabelKey {
  * what parseLine produces after newline expansion and quote stripping. */
 const LabelKey kLabelKeys[] = {
     /* ── Function strip ─────────────────────────────────────────── */
-    {"\xd0\xa4" "1",    MS7004_KEY_F1,  false, false},  /* Ф1 */
-    {"\xd0\xa4" "2",    MS7004_KEY_F2,  false, false},  /* Ф2 */
-    {"\xd0\xa4" "3",    MS7004_KEY_F3,  false, false},  /* Ф3 */
-    {"\xd0\xa4" "4",    MS7004_KEY_F4,  false, false},  /* Ф4 */
-    {"\xd0\xa4" "5",    MS7004_KEY_F5,  false, false},  /* Ф5 */
-    {"\xd0\xa4" "6",    MS7004_KEY_F6,  false, false},  /* Ф6 */
-    {"\xd0\xa4" "7",    MS7004_KEY_F7,  false, false},  /* Ф7 */
-    {"\xd0\xa4" "8",    MS7004_KEY_F8,  false, false},  /* Ф8 */
-    {"\xd0\xa4" "9",    MS7004_KEY_F9,  false, false},  /* Ф9 */
-    {"\xd0\xa4" "10",   MS7004_KEY_F10, false, false},  /* Ф10 */
-    {"\xd0\xa4" "11",   MS7004_KEY_F11, false, false},  /* Ф11 */
-    {"\xd0\xa4" "12",   MS7004_KEY_F12, false, false},  /* Ф12 */
-    {"\xd0\xa4" "13",   MS7004_KEY_F13, false, false},  /* Ф13 */
-    {"\xd0\xa4" "14",   MS7004_KEY_F14, false, false},  /* Ф14 */
-    {"\xd0\x9f\xd0\x9c", MS7004_KEY_HELP, false, false}, /* ПМ */
-    {"\xd0\x98\xd0\xa1\xd0\x9f", MS7004_KEY_PERFORM, false, false}, /* ИСП */
-    {"\xd0\xa4" "17",   MS7004_KEY_F17, false, false},  /* Ф17 */
-    {"\xd0\xa4" "18",   MS7004_KEY_F18, false, false},  /* Ф18 */
-    {"\xd0\xa4" "19",   MS7004_KEY_F19, false, false},  /* Ф19 */
-    {"\xd0\xa4" "20",   MS7004_KEY_F20, false, false},  /* Ф20 */
+    {"\xd0\xa4" "1",    ms0515::Key::F1,  false, false},  /* Ф1 */
+    {"\xd0\xa4" "2",    ms0515::Key::F2,  false, false},  /* Ф2 */
+    {"\xd0\xa4" "3",    ms0515::Key::F3,  false, false},  /* Ф3 */
+    {"\xd0\xa4" "4",    ms0515::Key::F4,  false, false},  /* Ф4 */
+    {"\xd0\xa4" "5",    ms0515::Key::F5,  false, false},  /* Ф5 */
+    {"\xd0\xa4" "6",    ms0515::Key::F6,  false, false},  /* Ф6 */
+    {"\xd0\xa4" "7",    ms0515::Key::F7,  false, false},  /* Ф7 */
+    {"\xd0\xa4" "8",    ms0515::Key::F8,  false, false},  /* Ф8 */
+    {"\xd0\xa4" "9",    ms0515::Key::F9,  false, false},  /* Ф9 */
+    {"\xd0\xa4" "10",   ms0515::Key::F10, false, false},  /* Ф10 */
+    {"\xd0\xa4" "11",   ms0515::Key::F11, false, false},  /* Ф11 */
+    {"\xd0\xa4" "12",   ms0515::Key::F12, false, false},  /* Ф12 */
+    {"\xd0\xa4" "13",   ms0515::Key::F13, false, false},  /* Ф13 */
+    {"\xd0\xa4" "14",   ms0515::Key::F14, false, false},  /* Ф14 */
+    {"\xd0\x9f\xd0\x9c", ms0515::Key::Help, false, false}, /* ПМ */
+    {"\xd0\x98\xd0\xa1\xd0\x9f", ms0515::Key::Perform, false, false}, /* ИСП */
+    {"\xd0\xa4" "17",   ms0515::Key::F17, false, false},  /* Ф17 */
+    {"\xd0\xa4" "18",   ms0515::Key::F18, false, false},  /* Ф18 */
+    {"\xd0\xa4" "19",   ms0515::Key::F19, false, false},  /* Ф19 */
+    {"\xd0\xa4" "20",   ms0515::Key::F20, false, false},  /* Ф20 */
 
     /* ── Digit row ──────────────────────────────────────────────── */
-    {"{\n|",           MS7004_KEY_LBRACE_PIPE,  false, false},
-    {";\n+",           MS7004_KEY_SEMI_PLUS,    false, false},
-    {"1\n!",           MS7004_KEY_1,            false, false},
-    {"2\n\"",          MS7004_KEY_2,            false, false},
-    {"3\n#",           MS7004_KEY_3,            false, false},
-    {"4\n\xc2\xa4",    MS7004_KEY_4,            false, false},  /* 4\n¤ */
-    {"5\n%",           MS7004_KEY_5,            false, false},
-    {"6\n&",           MS7004_KEY_6,            false, false},
-    {"7\n'",           MS7004_KEY_7,            false, false},
-    {"8\n(",           MS7004_KEY_8,            false, false},
-    {"9\n)",           MS7004_KEY_9,            false, false},
-    {"0",              MS7004_KEY_0,            false, false},
-    {"-\n=",           MS7004_KEY_MINUS_EQ,     false, false},
-    {"}\n\xe2\x86\x96", MS7004_KEY_RBRACE_LEFTUP, false, false},  /* }\n↖ */
+    {"{\n|",           ms0515::Key::LBracePipe,  false, false},
+    {";\n+",           ms0515::Key::SemiPlus,    false, false},
+    {"1\n!",           ms0515::Key::Digit1,            false, false},
+    {"2\n\"",          ms0515::Key::Digit2,            false, false},
+    {"3\n#",           ms0515::Key::Digit3,            false, false},
+    {"4\n\xc2\xa4",    ms0515::Key::Digit4,            false, false},  /* 4\n¤ */
+    {"5\n%",           ms0515::Key::Digit5,            false, false},
+    {"6\n&",           ms0515::Key::Digit6,            false, false},
+    {"7\n'",           ms0515::Key::Digit7,            false, false},
+    {"8\n(",           ms0515::Key::Digit8,            false, false},
+    {"9\n)",           ms0515::Key::Digit9,            false, false},
+    {"0",              ms0515::Key::Digit0,            false, false},
+    {"-\n=",           ms0515::Key::MinusEq,     false, false},
+    {"}\n\xe2\x86\x96", ms0515::Key::RBraceLeftUp, false, false},  /* }\n↖ */
 
     /* ── Whitespace / navigation ────────────────────────────────── */
-    {"\xd0\x97\xd0\x91",     MS7004_KEY_BS,     false, false},  /* ЗБ */
-    {"\xd0\xa2\xd0\x90\xd0\x91", MS7004_KEY_TAB, false, false}, /* ТАБ */
-    {"\xd0\x92\xd0\x9a",     MS7004_KEY_RETURN, false, false},  /* ВК */
+    {"\xd0\x97\xd0\x91",     ms0515::Key::Backspace,     false, false},  /* ЗБ */
+    {"\xd0\xa2\xd0\x90\xd0\x91", ms0515::Key::Tab, false, false}, /* ТАБ */
+    {"\xd0\x92\xd0\x9a",     ms0515::Key::Return, false, false},  /* ВК */
 
     /* ── Editing cluster ────────────────────────────────────────── */
-    {"\xd0\x9d\xd0\xa2",           MS7004_KEY_FIND,   false, false},  /* НТ */
-    {"\xd0\x92\xd0\xa1\xd0\xa2",   MS7004_KEY_INSERT, false, false},  /* ВСТ */
-    {"\xd0\xa3\xd0\x94\xd0\x90\xd0\x9b", MS7004_KEY_REMOVE, false, false}, /* УДАЛ */
-    {"\xd0\x92\xd0\xab\xd0\x91\xd0\xa0", MS7004_KEY_SELECT, false, false}, /* ВЫБР */
-    {"\xd0\x9f\xd0\xa0\xd0\x95\xd0\x94\n\xd0\x9a\xd0\x90\xd0\x94\xd0\xa0", MS7004_KEY_PREV, false, false}, /* ПРЕД\nКАДР */
-    {"\xd0\xa1\xd0\x9b\xd0\x95\xd0\x94\n\xd0\x9a\xd0\x90\xd0\x94\xd0\xa0", MS7004_KEY_NEXT, false, false}, /* СЛЕД\nКАДР */
+    {"\xd0\x9d\xd0\xa2",           ms0515::Key::Find,   false, false},  /* НТ */
+    {"\xd0\x92\xd0\xa1\xd0\xa2",   ms0515::Key::Insert, false, false},  /* ВСТ */
+    {"\xd0\xa3\xd0\x94\xd0\x90\xd0\x9b", ms0515::Key::Remove, false, false}, /* УДАЛ */
+    {"\xd0\x92\xd0\xab\xd0\x91\xd0\xa0", ms0515::Key::Select, false, false}, /* ВЫБР */
+    {"\xd0\x9f\xd0\xa0\xd0\x95\xd0\x94\n\xd0\x9a\xd0\x90\xd0\x94\xd0\xa0", ms0515::Key::Prev, false, false}, /* ПРЕД\nКАДР */
+    {"\xd0\xa1\xd0\x9b\xd0\x95\xd0\x94\n\xd0\x9a\xd0\x90\xd0\x94\xd0\xa0", ms0515::Key::Next, false, false}, /* СЛЕД\nКАДР */
 
     /* ── Arrows ─────────────────────────────────────────────────── */
-    {"\xe2\x86\x91",   MS7004_KEY_UP,    false, false},  /* ↑ */
-    {"\xe2\x86\x93",   MS7004_KEY_DOWN,  false, false},  /* ↓ */
-    {"\xe2\x86\x90",   MS7004_KEY_LEFT,  false, false},  /* ← */
-    {"\xe2\x86\x92",   MS7004_KEY_RIGHT, false, false},  /* → */
+    {"\xe2\x86\x91",   ms0515::Key::Up,    false, false},  /* ↑ */
+    {"\xe2\x86\x93",   ms0515::Key::Down,  false, false},  /* ↓ */
+    {"\xe2\x86\x90",   ms0515::Key::Left,  false, false},  /* ← */
+    {"\xe2\x86\x92",   ms0515::Key::Right, false, false},  /* → */
 
     /* ── PF keys ────────────────────────────────────────────────── */
-    {"\xd0\x9f\xd0\xa4" "1", MS7004_KEY_PF1, false, false}, /* ПФ1 */
-    {"\xd0\x9f\xd0\xa4" "2", MS7004_KEY_PF2, false, false}, /* ПФ2 */
-    {"\xd0\x9f\xd0\xa4" "3", MS7004_KEY_PF3, false, false}, /* ПФ3 */
-    {"\xd0\x9f\xd0\xa4" "4", MS7004_KEY_PF4, false, false}, /* ПФ4 */
+    {"\xd0\x9f\xd0\xa4" "1", ms0515::Key::Pf1, false, false}, /* ПФ1 */
+    {"\xd0\x9f\xd0\xa4" "2", ms0515::Key::Pf2, false, false}, /* ПФ2 */
+    {"\xd0\x9f\xd0\xa4" "3", ms0515::Key::Pf3, false, false}, /* ПФ3 */
+    {"\xd0\x9f\xd0\xa4" "4", ms0515::Key::Pf4, false, false}, /* ПФ4 */
 
     /* ── Top letter row: Й Ц У К Е Н Г Ш Щ З Х ──────────────── */
-    {"\xd0\x99\nJ",   MS7004_KEY_J,         false, false},  /* Й\nJ */
-    {"\xd0\xa6\nC",   MS7004_KEY_C,         false, false},  /* Ц\nC */
-    {"\xd0\xa3\nU",   MS7004_KEY_U,         false, false},  /* У\nU */
-    {"\xd0\x9a\nK",   MS7004_KEY_K,         false, false},  /* К\nK */
-    {"\xd0\x95\nE",   MS7004_KEY_E,         false, false},  /* Е\nE */
-    {"\xd0\x9d\nN",   MS7004_KEY_N,         false, false},  /* Н\nN */
-    {"\xd0\x93\nG",   MS7004_KEY_G,         false, false},  /* Г\nG */
-    {"\xd0\xa8\n[",   MS7004_KEY_LBRACKET,  false, false},  /* Ш\n[ */
-    {"\xd0\xa9\n]",   MS7004_KEY_RBRACKET,  false, false},  /* Щ\n] */
-    {"\xd0\x97\nZ",   MS7004_KEY_Z,         false, false},  /* З\nZ */
-    {"\xd0\xa5\nH",   MS7004_KEY_H,         false, false},  /* Х\nH */
-    {":\n*",           MS7004_KEY_COLON_STAR, false, false},
-    {"~",              MS7004_KEY_TILDE,      false, false},
+    {"\xd0\x99\nJ",   ms0515::Key::J,         false, false},  /* Й\nJ */
+    {"\xd0\xa6\nC",   ms0515::Key::C,         false, false},  /* Ц\nC */
+    {"\xd0\xa3\nU",   ms0515::Key::U,         false, false},  /* У\nU */
+    {"\xd0\x9a\nK",   ms0515::Key::K,         false, false},  /* К\nK */
+    {"\xd0\x95\nE",   ms0515::Key::E,         false, false},  /* Е\nE */
+    {"\xd0\x9d\nN",   ms0515::Key::N,         false, false},  /* Н\nN */
+    {"\xd0\x93\nG",   ms0515::Key::G,         false, false},  /* Г\nG */
+    {"\xd0\xa8\n[",   ms0515::Key::LBracket,  false, false},  /* Ш\n[ */
+    {"\xd0\xa9\n]",   ms0515::Key::RBracket,  false, false},  /* Щ\n] */
+    {"\xd0\x97\nZ",   ms0515::Key::Z,         false, false},  /* З\nZ */
+    {"\xd0\xa5\nH",   ms0515::Key::H,         false, false},  /* Х\nH */
+    {":\n*",           ms0515::Key::ColonStar, false, false},
+    {"~",              ms0515::Key::Tilde,      false, false},
 
     /* ── Home row: Ф Ы В А П Р О Л Д Ж Э ────────────────────── */
-    {"\xd0\xa4\nF",   MS7004_KEY_F,         false, false},  /* Ф\nF */
-    {"\xd0\xab\nY",   MS7004_KEY_Y,         false, false},  /* Ы\nY */
-    {"\xd0\x92\nW",   MS7004_KEY_W,         false, false},  /* В\nW */
-    {"\xd0\x90\nA",   MS7004_KEY_A,         false, false},  /* А\nA */
-    {"\xd0\x9f\nP",   MS7004_KEY_P,         false, false},  /* П\nP */
-    {"\xd0\xa0\nR",   MS7004_KEY_R,         false, false},  /* Р\nR */
-    {"\xd0\x9e\nO",   MS7004_KEY_O,         false, false},  /* О\nO */
-    {"\xd0\x9b\nL",   MS7004_KEY_L,         false, false},  /* Л\nL */
-    {"\xd0\x94\nD",   MS7004_KEY_D,         false, false},  /* Д\nD */
-    {"\xd0\x96\nV",   MS7004_KEY_V,         false, false},  /* Ж\nV */
-    {"\xd0\xad\n\\",  MS7004_KEY_BACKSLASH, false, false},  /* Э\n\ */
-    {".\n>",           MS7004_KEY_PERIOD,    false, false},
-    {"\xd0\xaa",       MS7004_KEY_HARDSIGN,  false, false},  /* Ъ */
+    {"\xd0\xa4\nF",   ms0515::Key::F,         false, false},  /* Ф\nF */
+    {"\xd0\xab\nY",   ms0515::Key::Y,         false, false},  /* Ы\nY */
+    {"\xd0\x92\nW",   ms0515::Key::W,         false, false},  /* В\nW */
+    {"\xd0\x90\nA",   ms0515::Key::A,         false, false},  /* А\nA */
+    {"\xd0\x9f\nP",   ms0515::Key::P,         false, false},  /* П\nP */
+    {"\xd0\xa0\nR",   ms0515::Key::R,         false, false},  /* Р\nR */
+    {"\xd0\x9e\nO",   ms0515::Key::O,         false, false},  /* О\nO */
+    {"\xd0\x9b\nL",   ms0515::Key::L,         false, false},  /* Л\nL */
+    {"\xd0\x94\nD",   ms0515::Key::D,         false, false},  /* Д\nD */
+    {"\xd0\x96\nV",   ms0515::Key::V,         false, false},  /* Ж\nV */
+    {"\xd0\xad\n\\",  ms0515::Key::Backslash, false, false},  /* Э\n\ */
+    {".\n>",           ms0515::Key::Period,    false, false},
+    {"\xd0\xaa",       ms0515::Key::HardSign,  false, false},  /* Ъ */
 
     /* ── Bottom letter row: Я Ч С М И Т Ь Б Ю ────────────────── */
-    {"\xd0\xaf\nQ",   MS7004_KEY_Q,         false, false},  /* Я\nQ */
-    {"\xd0\xa7\n\xc2\xac", MS7004_KEY_CHE,  false, false},  /* Ч\n¬ */
-    {"\xd0\xa1\nS",   MS7004_KEY_S,         false, false},  /* С\nS */
-    {"\xd0\x9c\nM",   MS7004_KEY_M,         false, false},  /* М\nM */
-    {"\xd0\x98\nI",   MS7004_KEY_I,         false, false},  /* И\nI */
-    {"\xd0\xa2\nT",   MS7004_KEY_T,         false, false},  /* Т\nT */
-    {"\xd0\xac\nX",   MS7004_KEY_X,         false, false},  /* Ь\nX */
-    {"\xd0\x91\nB",   MS7004_KEY_B,         false, false},  /* Б\nB */
-    {"\xd0\xae\n@",   MS7004_KEY_AT,        false, false},  /* Ю\n@ */
-    {",\n<",           MS7004_KEY_COMMA,     false, false},
-    {"/\n?",           MS7004_KEY_SLASH,     false, false},
-    {"_",              MS7004_KEY_UNDERSCORE, false, false},
+    {"\xd0\xaf\nQ",   ms0515::Key::Q,         false, false},  /* Я\nQ */
+    {"\xd0\xa7\n\xc2\xac", ms0515::Key::Che,  false, false},  /* Ч\n¬ */
+    {"\xd0\xa1\nS",   ms0515::Key::S,         false, false},  /* С\nS */
+    {"\xd0\x9c\nM",   ms0515::Key::M,         false, false},  /* М\nM */
+    {"\xd0\x98\nI",   ms0515::Key::I,         false, false},  /* И\nI */
+    {"\xd0\xa2\nT",   ms0515::Key::T,         false, false},  /* Т\nT */
+    {"\xd0\xac\nX",   ms0515::Key::X,         false, false},  /* Ь\nX */
+    {"\xd0\x91\nB",   ms0515::Key::B,         false, false},  /* Б\nB */
+    {"\xd0\xae\n@",   ms0515::Key::At,        false, false},  /* Ю\n@ */
+    {",\n<",           ms0515::Key::Comma,     false, false},
+    {"/\n?",           ms0515::Key::Slash,     false, false},
+    {"_",              ms0515::Key::Underscore, false, false},
 
     /* ── Modifiers ──────────────────────────────────────────────── */
-    {"\xd0\x92\xd0\xa0", MS7004_KEY_SHIFT_L, true, false},  /* ВР (first = left) */
-    {"\xd0\xa1\xd0\xa3", MS7004_KEY_CTRL,    true, false},  /* СУ */
-    {"\xd0\x9a\xd0\x9c\xd0\x9f", MS7004_KEY_COMPOSE, true, false}, /* КМП */
+    {"\xd0\x92\xd0\xa0", ms0515::Key::ShiftL, true, false},  /* ВР (first = left) */
+    {"\xd0\xa1\xd0\xa3", ms0515::Key::Ctrl,    true, false},  /* СУ */
+    {"\xd0\x9a\xd0\x9c\xd0\x9f", ms0515::Key::Compose, true, false}, /* КМП */
 
     /* ── Toggles ────────────────────────────────────────────────── */
-    {"\xd0\xa4\xd0\x9a\xd0\xa1", MS7004_KEY_CAPS, false, true},   /* ФКС */
-    {"\xd0\xa0\xd0\xa3\xd0\xa1\n\xd0\x9b\xd0\x90\xd0\xa2", MS7004_KEY_RUSLAT, false, true}, /* РУС\nЛАТ */
+    {"\xd0\xa4\xd0\x9a\xd0\xa1", ms0515::Key::Caps, false, true},   /* ФКС */
+    {"\xd0\xa0\xd0\xa3\xd0\xa1\n\xd0\x9b\xd0\x90\xd0\xa2", ms0515::Key::RusLat, false, true}, /* РУС\nЛАТ */
 
     /* ── Numpad enter ───────────────────────────────────────────── */
-    {"\xd0\x92\xd0\x92\xd0\x9e\xd0\x94", MS7004_KEY_KP_ENTER, false, false}, /* ВВОД */
+    {"\xd0\x92\xd0\x92\xd0\x9e\xd0\x94", ms0515::Key::KpEnter, false, false}, /* ВВОД */
 };
 
 /* Numpad digit/symbol labels are single characters that collide with
@@ -167,13 +167,13 @@ struct NumpadLabel {
 };
 
 const NumpadLabel kNumpad[] = {
-    {"7", MS7004_KEY_KP_7}, {"8", MS7004_KEY_KP_8}, {"9", MS7004_KEY_KP_9},
-    {"4", MS7004_KEY_KP_4}, {"5", MS7004_KEY_KP_5}, {"6", MS7004_KEY_KP_6},
-    {"1", MS7004_KEY_KP_1}, {"2", MS7004_KEY_KP_2}, {"3", MS7004_KEY_KP_3},
-    {"0", MS7004_KEY_KP0_WIDE},
-    {",", MS7004_KEY_KP_COMMA},
-    {".", MS7004_KEY_KP_DOT},
-    {"-", MS7004_KEY_KP_MINUS},
+    {"7", ms0515::Key::Kp7}, {"8", ms0515::Key::Kp8}, {"9", ms0515::Key::Kp9},
+    {"4", ms0515::Key::Kp4}, {"5", ms0515::Key::Kp5}, {"6", ms0515::Key::Kp6},
+    {"1", ms0515::Key::Kp1}, {"2", ms0515::Key::Kp2}, {"3", ms0515::Key::Kp3},
+    {"0", ms0515::Key::Kp0Wide},
+    {",", ms0515::Key::KpComma},
+    {".", ms0515::Key::KpDot},
+    {"-", ms0515::Key::KpMinus},
 };
 
 const LabelKey *findByLabel(const std::string &lbl)
@@ -199,23 +199,23 @@ bool isLetterKey(ms0515::Key k, bool rusMode)
 {
     switch (k) {
     /* Pure letter keys: always letters in both modes. */
-    case MS7004_KEY_A: case MS7004_KEY_B: case MS7004_KEY_C:
-    case MS7004_KEY_D: case MS7004_KEY_E: case MS7004_KEY_F:
-    case MS7004_KEY_G: case MS7004_KEY_H: case MS7004_KEY_I:
-    case MS7004_KEY_J: case MS7004_KEY_K: case MS7004_KEY_L:
-    case MS7004_KEY_M: case MS7004_KEY_N: case MS7004_KEY_O:
-    case MS7004_KEY_P: case MS7004_KEY_Q: case MS7004_KEY_R:
-    case MS7004_KEY_S: case MS7004_KEY_T: case MS7004_KEY_U:
-    case MS7004_KEY_V: case MS7004_KEY_W: case MS7004_KEY_X:
-    case MS7004_KEY_Y: case MS7004_KEY_Z:
+    case ms0515::Key::A: case ms0515::Key::B: case ms0515::Key::C:
+    case ms0515::Key::D: case ms0515::Key::E: case ms0515::Key::F:
+    case ms0515::Key::G: case ms0515::Key::H: case ms0515::Key::I:
+    case ms0515::Key::J: case ms0515::Key::K: case ms0515::Key::L:
+    case ms0515::Key::M: case ms0515::Key::N: case ms0515::Key::O:
+    case ms0515::Key::P: case ms0515::Key::Q: case ms0515::Key::R:
+    case ms0515::Key::S: case ms0515::Key::T: case ms0515::Key::U:
+    case ms0515::Key::V: case ms0515::Key::W: case ms0515::Key::X:
+    case ms0515::Key::Y: case ms0515::Key::Z:
         return true;
     /* Symbol-on-letter: Cyrillic letter in РУС, symbol in ЛАТ. */
-    case MS7004_KEY_LBRACKET:   /* Ш/[ */
-    case MS7004_KEY_RBRACKET:   /* Щ/] */
-    case MS7004_KEY_BACKSLASH:  /* Э/\ */
-    case MS7004_KEY_CHE:        /* Ч/¬ */
-    case MS7004_KEY_AT:         /* Ю/@ */
-    case MS7004_KEY_HARDSIGN:   /* Ъ   */
+    case ms0515::Key::LBracket:   /* Ш/[ */
+    case ms0515::Key::RBracket:   /* Щ/] */
+    case ms0515::Key::Backslash:  /* Э/\ */
+    case ms0515::Key::Che:        /* Ч/¬ */
+    case ms0515::Key::At:         /* Ю/@ */
+    case ms0515::Key::HardSign:   /* Ъ   */
         return rusMode;
     default:
         return false;
@@ -227,10 +227,10 @@ bool isLetterKey(ms0515::Key k, bool rusMode)
 bool isShiftImmuneSymbol(ms0515::Key k, bool rusMode)
 {
     if (rusMode) return false;
-    return k == MS7004_KEY_LBRACKET    /* Ш/[  — Shift would give { */
-        || k == MS7004_KEY_RBRACKET    /* Щ/]  — Shift would give } */
-        || k == MS7004_KEY_BACKSLASH   /* Э/\  — Shift would give | */
-        || k == MS7004_KEY_CHE;        /* Ч/¬  — Shift would give ~ */
+    return k == ms0515::Key::LBracket    /* Ш/[  — Shift would give { */
+        || k == ms0515::Key::RBracket    /* Щ/]  — Shift would give } */
+        || k == ms0515::Key::Backslash   /* Э/\  — Shift would give | */
+        || k == ms0515::Key::Che;        /* Ч/¬  — Shift would give ~ */
 }
 
 } /* anonymous namespace */
@@ -298,7 +298,7 @@ void OnScreenKeyboard::bindCap(Cap &k, int &shiftCountInRow,
 
     /* Wide blank cap = spacebar. */
     if (k.label.empty() && k.w >= 5.0f) {
-        k.ms7004key = MS7004_KEY_SPACE;
+        k.ms7004key = ms0515::Key::Space;
         return;
     }
 
@@ -317,8 +317,8 @@ void OnScreenKeyboard::bindCap(Cap &k, int &shiftCountInRow,
         k.sticky    = m->sticky;
         k.toggle    = m->toggle;
         /* Second ВР cap on the same row = right Shift. */
-        if (k.ms7004key == MS7004_KEY_SHIFT_L && shiftCountInRow++ > 0)
-            k.ms7004key = MS7004_KEY_SHIFT_R;
+        if (k.ms7004key == ms0515::Key::ShiftL && shiftCountInRow++ > 0)
+            k.ms7004key = ms0515::Key::ShiftR;
         return;
     }
 
@@ -418,7 +418,7 @@ bool OnScreenKeyboard::loadLayout(const std::string &path)
                 if (c == '\n') label += "\\n";
                 else           label += c;
             }
-            if (k.ms7004key != MS7004_KEY_NONE) {
+            if (k.ms7004key != ms0515::Key::None) {
                 uint8_t sc = ms7004_scancode(k.ms7004key);
                 std::fprintf(stderr,
                     "  [%2zu] %-16s key=%d sc=0%o%s%s\n",
@@ -462,13 +462,13 @@ float OnScreenKeyboard::pixelHeight() const
 
 void OnScreenKeyboard::handleClick(const Cap &c, ms0515::Emulator &emu)
 {
-    if (c.dim || c.ms7004key == MS7004_KEY_NONE) return;
+    if (c.dim || c.ms7004key == ms0515::Key::None) return;
 
     /* Ъ and _ share scancode 0o361.  The ROM renders it as Ъ in РУС
      * and _ in ЛАТ.  Suppress Ъ in ЛАТ (it has no Latin equivalent).
      * _ in РУС is handled by RUSLAT-immunity below (temporarily
      * switches to ЛАТ so the ROM outputs _). */
-    if (c.ms7004key == MS7004_KEY_HARDSIGN && !emu.ruslatOn())
+    if (c.ms7004key == ms0515::Key::HardSign && !emu.ruslatOn())
         return;
 
     /* Sticky modifier cap: toggle latch. */
@@ -522,8 +522,8 @@ void OnScreenKeyboard::handleClick(const Cap &c, ms0515::Emulator &emu)
      * ──────────────────────────────────────────────────────────────── */
 
     const bool rusMode      = emu.ruslatOn();
-    const bool shiftLatched = stickyKeys_.count((int)MS7004_KEY_SHIFT_L)
-                           || stickyKeys_.count((int)MS7004_KEY_SHIFT_R);
+    const bool shiftLatched = stickyKeys_.count((int)ms0515::Key::ShiftL)
+                           || stickyKeys_.count((int)ms0515::Key::ShiftR);
     const bool capsOn       = emu.capsOn();
     const bool letter       = isLetterKey(c.ms7004key, rusMode);
     const bool shiftImmune  = isShiftImmuneSymbol(c.ms7004key, rusMode);
@@ -546,7 +546,7 @@ void OnScreenKeyboard::handleClick(const Cap &c, ms0515::Emulator &emu)
         if (dropShift) {
             for (auto it = stickyKeys_.begin(); it != stickyKeys_.end(); ) {
                 auto mk = static_cast<ms0515::Key>(*it);
-                if (mk == MS7004_KEY_SHIFT_L || mk == MS7004_KEY_SHIFT_R) {
+                if (mk == ms0515::Key::ShiftL || mk == ms0515::Key::ShiftR) {
                     emu.keyPress(mk, false);
                     it = stickyKeys_.erase(it);
                 } else {
@@ -558,15 +558,15 @@ void OnScreenKeyboard::handleClick(const Cap &c, ms0515::Emulator &emu)
         /* Temporarily switch to ЛАТ so the ROM outputs the Latin
          * symbol, not a Cyrillic letter for this scancode. */
         if (toggleRusOff) {
-            emu.keyPress(MS7004_KEY_RUSLAT, true);
-            emu.keyPress(MS7004_KEY_RUSLAT, false);
+            emu.keyPress(ms0515::Key::RusLat, true);
+            emu.keyPress(ms0515::Key::RusLat, false);
         }
 
         /* Temporarily flip CAPS off in both the ms7004 model and the
          * guest ROM (they track toggle state independently). */
         if (toggleCapsOff) {
-            emu.keyPress(MS7004_KEY_CAPS, true);
-            emu.keyPress(MS7004_KEY_CAPS, false);
+            emu.keyPress(ms0515::Key::Caps, true);
+            emu.keyPress(ms0515::Key::Caps, false);
         }
 
         /* Emit the key itself. */
@@ -575,14 +575,14 @@ void OnScreenKeyboard::handleClick(const Cap &c, ms0515::Emulator &emu)
 
         /* Restore CAPS to its original state. */
         if (toggleCapsOff) {
-            emu.keyPress(MS7004_KEY_CAPS, true);
-            emu.keyPress(MS7004_KEY_CAPS, false);
+            emu.keyPress(ms0515::Key::Caps, true);
+            emu.keyPress(ms0515::Key::Caps, false);
         }
 
         /* Restore РУС mode. */
         if (toggleRusOff) {
-            emu.keyPress(MS7004_KEY_RUSLAT, true);
-            emu.keyPress(MS7004_KEY_RUSLAT, false);
+            emu.keyPress(ms0515::Key::RusLat, true);
+            emu.keyPress(ms0515::Key::RusLat, false);
         }
 
         /* Release any remaining sticky modifiers (Ctrl, Compose). */
@@ -611,12 +611,12 @@ void OnScreenKeyboard::handleClick(const Cap &c, ms0515::Emulator &emu)
 bool OnScreenKeyboard::highlighted(const Cap &c,
                                    const ms0515::Emulator &emu) const
 {
-    if (c.ms7004key == MS7004_KEY_NONE) return false;
+    if (c.ms7004key == ms0515::Key::None) return false;
 
     /* Toggle caps: lit when the toggle is on. */
     if (c.toggle) {
-        if (c.ms7004key == MS7004_KEY_CAPS)   return emu.capsOn();
-        if (c.ms7004key == MS7004_KEY_RUSLAT) return emu.ruslatOn();
+        if (c.ms7004key == ms0515::Key::Caps)   return emu.capsOn();
+        if (c.ms7004key == ms0515::Key::RusLat) return emu.ruslatOn();
     }
 
     /* Sticky modifiers: lit when latched OR held physically. */
