@@ -30,10 +30,14 @@ of System Register A; the emulator refers to these four slots as FD0..FD3.
 | FD2          | 0              | Upper   |
 | FD3          | 1              | Upper   |
 
-(The RT-11 / OSA operating-system drivers for this hardware use the names
-`DZ`, `MZ`, `MY`, `MD` depending on the OS build — those are driver-level
-names, not hardware designations, and the emulator deliberately avoids
-them.)
+(The OS-level driver name for the FDC on every observed MS0515 system —
+OSA, Omega, Mihin, rodionov — is `DZ.SYS`.  Other two-letter device
+names that appear in the same driver set are unrelated to the floppy:
+`VM` is the built-in RAM disk, `VS` is the sound-playback driver,
+`TT` is the console, `LD` is the file-backed logical-disk driver,
+`EX` is the optional 512 KB expansion RAM disk, `LP` is the line
+printer, and so on.  The `DZ` name is RT-11 / OSA convention, not a
+hardware designation, and the emulator deliberately avoids it.)
 
 The user-facing emulator CLI / YAML / GUI describe each unit as
 "drive N, side M" (e.g. `--disk0-side0`, `disk0_side0:` in the YAML
@@ -123,9 +127,12 @@ Track 79, Sectors 1–10 (5120 bytes)
 
 Total image size: **409,600 bytes** (400 KB, 800 sectors).
 
-Sectors within a track are stored in physical order (1–10).  The OS
-uses 2:1 sector interleave when mapping logical blocks to physical
-sectors — see `docs/filesystem.md` for the block-to-sector mapping.
+Sectors within a track are stored in physical order (1–10).  The
+mapping from RT-11 logical blocks to physical sectors depends on
+which OS driver wrote the disk — OSA / Omega / Mihin add a +2
+per-track skew on top of 2:1 interleave, rodionov uses bare 2:1,
+and a handful of disks use no interleave at all.  See
+[`filesystem.md`](filesystem.md) for the per-layout formulas.
 
 ### Double-sided raw images
 
@@ -144,9 +151,7 @@ units (FD2/FD3) by FDC_TRACK_SIZE (= 5120) into each track slot.
 
 Mount via `--disk0 path` / `-d0 path` (similarly for drive 1) and
 both sides become readable through one open file with writes
-routed to the right halves.  `tools/split_double_sided.py` is no
-longer needed for emulator playback; it remains as a convenience
-for tools that only consume single-sided images.
+routed to the right halves.
 
 ## MFM Encoding
 

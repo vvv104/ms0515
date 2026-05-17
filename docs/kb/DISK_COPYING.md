@@ -80,9 +80,10 @@ For completeness:
    .COPY/DEVICE DZ0: DZ1:
    .COPY/DEVICE DZ2: DZ3:
    ```
-   Driver letter pairs differ between OS builds (`DZ`, `MZ`, `MY`,
-   `MD`); see `docs/hardware/floppy.md` for the mapping between
-   driver names and our FD0..FD3 logical units.
+   The floppy-driver device name is `DZ` on every observed MS0515
+   system (OSA, Omega, Mihin, rodionov); see
+   [`docs/hardware/floppy.md`](../hardware/floppy.md) for the
+   mapping between DZ unit numbers and the emulator's FD0..FD3.
 
 A device-level copy reads every block, including sectors not assigned
 to any file, so the protection sector is preserved.  A file-level
@@ -96,8 +97,11 @@ Out of scope for the emulator itself, but for the record:
   5.25" 80 × 2 × 10 × 512 geometry produces a track-interleaved
   819200-byte image directly mountable via `--disk0`.
 - **Write**: the same tools write the `.dsk` back to physical media.
-- The 2:1 sector skew used by Soviet RT-11 derivatives lives at the
-  filesystem layer; on-disk physical sectors are 1..10 in order.
+- The block-to-sector mapping (2:1 interleave, +2 per-track skew on
+  OSA-family drivers, no-interleave on some others) lives at the
+  filesystem layer; on-disk physical sectors are still 1..10 in
+  order — see [`filesystem.md`](../hardware/filesystem.md) for the
+  per-OS formulas.
 
 ## See also
 
