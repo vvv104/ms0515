@@ -108,6 +108,22 @@ typedef struct ms0515_board ms0515_board_t;
 
 /* ── CPU state structure ──────────────────────────────────────────────────── */
 
+struct ms0515_cpu;
+
+/*
+ * trap_thunk — optional hook fired in place of the standard EMT/TRAP/IOT
+ * service path.  When set, the CPU clears the pending irq flag and invokes
+ * the thunk WITHOUT pushing PSW/PC or loading from the guest vector, so the
+ * host runtime can read the EMT/TRAP number from `cpu->instruction & 0xFF`,
+ * inspect/modify registers and PSW, and let execution resume at whatever
+ * the trap instruction left as PC (typically the byte after the EMT/TRAP).
+ *
+ * Used by the user-mode emulator (emu/usermode) to redirect RT-11 EMTs to
+ * host syscalls.  Not used by the system emulator — when NULL, EMT/TRAP/IOT
+ * service normally through the guest vector table.
+ */
+typedef void (*ms0515_trap_thunk_fn)(struct ms0515_cpu *cpu, uint16_t vector);
+
 typedef struct ms0515_cpu {
     /* Registers */
     uint16_t r[8];              /* R0–R7 (R6=SP, R7=PC)                      */
@@ -139,6 +155,9 @@ typedef struct ms0515_cpu {
 
     /* Back-pointer to the motherboard (set once at init, never changes) */
     ms0515_board_t *board;
+
+    /* Optional EMT/TRAP/IOT hook — see ms0515_trap_thunk_fn above. */
+    ms0515_trap_thunk_fn trap_thunk;
 } ms0515_cpu_t;
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
