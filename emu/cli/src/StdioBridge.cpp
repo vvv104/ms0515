@@ -66,11 +66,21 @@ size_t                 g_utf8PendingLen = 0;
  *     the dot prompt.
  *
  * To decide which, we hold a pending CR until we see the next byte. */
-bool g_koi7N2    = false;   /* SO has been seen, SI not yet */
-bool g_pendingCr = false;   /* last byte was CR; awaiting disambiguation */
+bool g_koi7N2             = false;   /* SO has been seen, SI not yet */
+bool g_pendingCr          = false;   /* last byte was CR; awaiting disambiguation */
+bool g_lastWasNewline     = true;    /* last emitted byte completed a line break */
+bool g_lastPrintWasPrompt = false;   /* last .PRINT emitted a single printable
+                                      * char without a newline (dot prompt etc.);
+                                      * suppress the NEXT empty .PRINT's auto-
+                                      * newline so the cursor stays next to the
+                                      * prompt char — matches RT-11 TT.SYS */
 
 void writeBareCr() { cli::writeStdout("\r",   1); }
-void writeCrLf()   { cli::writeStdout("\r\n", 2); }
+void writeCrLf()
+{
+    cli::writeStdout("\r\n", 2);
+    g_lastWasNewline = true;
+}
 
 /* Convert R0's low byte (KOI-8R or KOI-7 N2 depending on shift state)
  * to UTF-8 and write to stdout.  Handles ASCII control characters
@@ -136,15 +146,12 @@ void emitGuestByte(uint8_t b)
         koi8::appendAsUtf8(utf8, b);
     }
     cli::writeStdout(utf8.data(), utf8.size());
+    g_lastWasNewline = false;
 }
 
 bool handleTtyout(ms0515_cpu_t *cpu)
 {
-    /* .TTYOUT — R0 low byte → terminal.  Carry cleared on success.
-     * Stdout flushing is amortised — pumpInput() flushes once per
-     * frame, so a stream of .TTYOUT calls within a single frame all
-     * share one fflush.  Per-byte fflush was 50–100x slower on
-     * Windows because each call hit the VT parser. */
+    /* .TTYOUT — R0 low byte → terminal. */
     emitGuestByte(static_cast<uint8_t>(cpu->r[0] & 0xFFu));
     cpu->psw &= static_cast<uint16_t>(~CPU_PSW_C);
     g_kernelReady = true;
@@ -162,6 +169,7 @@ bool handlePrint(ms0515_cpu_t *cpu)
     /* Cap the walk so a bad pointer can't pin the cli forever. */
     constexpr int kMaxBytes = 16384;
     bool addNewline = true;
+    int  printableCount = 0;
     for (int i = 0; i < kMaxBytes; ++i) {
         uint8_t b = board_read_byte(cpu->board, addr);
         addr = static_cast<uint16_t>(addr + 1u);
@@ -174,18 +182,36 @@ bool handlePrint(ms0515_cpu_t *cpu)
             break;
         }
         emitGuestByte(b);
+        /* Count non-control payload chars: SSM .PRINT calls used as a
+         * prompt typically have a single printable char (".", "*", ">",
+         * "$", "?"); we suppress auto-CRLF for those so the cursor
+         * stays right next to the prompt, matching real-RT-11 TT.SYS
+         * behaviour. */
+        if (b >= 0x20 && b != 0x7F) ++printableCount;
     }
+    /* A "prompt" is a single printable char terminated with the
+     * high-bit byte (addNewline=false) — that's how the RT-11 / Mihin
+     * kernel signals "stay on this line, no auto-CRLF".  A NUL-
+     * terminated single-char .PRINT (e.g. the "." that ends "161.")
+     * is a message and needs the auto-CRLF for separation. */
+    bool thisWasSinglePrompt = (printableCount == 1 && !addNewline);
+
     if (addNewline) {
-        /* SSM-mandated CR + LF on NUL terminator.  Resolve any
-         * pending bare CR carried over from the message's last byte
-         * first (treat it as a newline) so we don't double-space,
-         * then emit the terminator explicitly.  Bypasses the
-         * pendingCr lookahead because we KNOW this is a newline. */
-        if (g_pendingCr) {
-            g_pendingCr = false;
-        }
-        writeCrLf();
+        /* SSM auto-CRLF on NUL terminator.  Skip in two cases:
+         *   1. The string already ended in a newline (embedded \r\n
+         *      or bare CR + visible text) — don't double-space.
+         *   2. The string was empty AND the previous .PRINT was a
+         *      high-bit-terminated prompt char.  The kernel calls
+         *      empty .PRINTs right after the dot prompt (buffer
+         *      flush or some bookkeeping); suppressing their CRLF
+         *      keeps the cursor on the prompt line. */
+        if (g_pendingCr) g_pendingCr = false;
+        bool skip = g_lastWasNewline
+                 || (printableCount == 0 && g_lastPrintWasPrompt);
+        if (!skip) writeCrLf();
     }
+
+    g_lastPrintWasPrompt = thisWasSinglePrompt;
     cpu->psw &= static_cast<uint16_t>(~CPU_PSW_C);
     return true;
 }
