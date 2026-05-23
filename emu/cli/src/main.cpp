@@ -115,12 +115,10 @@ int main(int argc, char *argv[])
 
     ms0515::cli::installInterruptHandler();
     ms0515::cli::setTerminalRawMode();
-    /* Force unbuffered stdout so each .TTYOUT / .PRINT byte reaches
-     * the terminal as soon as it's written.  Without this Windows'
-     * line-buffering hides incremental output (each chunk of the
-     * boot banner waits for the next line break or for a keypress
-     * to nudge the buffer). */
-    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    /* Line-buffered stdout: each \n flushes automatically, and the
+     * bridge's per-frame fflush() in pumpInput() handles partial
+     * lines (e.g. the bare "." prompt with no trailing newline). */
+    std::setvbuf(stdout, nullptr, _IOLBF, 4096);
 
     ms0515::Emulator emu;
     if (!emu.loadRomFile(args.rom)) {

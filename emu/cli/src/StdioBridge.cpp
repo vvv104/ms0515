@@ -106,7 +106,11 @@ void emitGuestByte(uint8_t b)
 
 bool handleTtyout(ms0515_cpu_t *cpu)
 {
-    /* .TTYOUT — R0 low byte → terminal.  Carry cleared on success. */
+    /* .TTYOUT — R0 low byte → terminal.  Carry cleared on success.
+     * Stdout flushing is amortised — pumpInput() flushes once per
+     * frame, so a stream of .TTYOUT calls within a single frame all
+     * share one fflush.  Per-byte fflush was 50–100x slower on
+     * Windows because each call hit the VT parser. */
     emitGuestByte(static_cast<uint8_t>(cpu->r[0] & 0xFFu));
     cpu->psw &= static_cast<uint16_t>(~CPU_PSW_C);
     g_kernelReady = true;
@@ -298,6 +302,11 @@ void readBytesFromHost()
 void pumpInput()
 {
     if (g_emu == nullptr) return;
+    /* Drain anything the kernel emitted during the previous frame to
+     * the host terminal.  One fflush per frame amortises Windows-
+     * console VT-parser cost across however many .TTYOUT/.PRINT
+     * bytes fired this frame. */
+    cli::flushStdout();
     readBytesFromHost();
 
     /* Hold off on keypress injection until the kernel has produced

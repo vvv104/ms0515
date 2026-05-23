@@ -41,9 +41,14 @@ size_t readStdinNonBlocking(uint8_t *buf, size_t cap);
 /* True once stdin has reached EOF. */
 bool isStdinEof();
 
-/* Write a buffer to stdout and flush.  Used by the .TTYOUT / .PRINT
- * hooks so we don't depend on libc's iostream-level flushing. */
+/* Write a buffer to stdout.  Used by the .TTYOUT / .PRINT hooks.
+ * Does NOT flush — callers must invoke flushStdout() at meaningful
+ * boundaries (end of each .TTYOUT / .PRINT call) so each guest-side
+ * I/O syscall flushes once instead of once per byte. */
 void writeStdout(const char *data, size_t n);
+
+/* Force any buffered stdout bytes out to the host terminal. */
+void flushStdout();
 
 }  /* namespace ms0515::cli */
 

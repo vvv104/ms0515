@@ -84,49 +84,53 @@ namespace {
  *
  * Bytes 0x20..0x3F (space + digits + most ASCII punctuation) pass
  * through unchanged: they map to the same printable glyph in both N1
- * and N2.  The Cyrillic substitutions start at 0x40 (which holds
- * 'Ю' in N2) and run through 0x7F.
+ * and N2.  The Cyrillic substitutions start at 0x40 and run through
+ * 0x7F.
  *
- * Table cross-checked against the Mihin boot banner: byte 'D' (0x44)
- * → Cyrillic 'Д', 'P' → 'П', 'C' → 'Ц', 'Q' → 'Я', 'F' → 'Ф',
- * '^' → 'Ч', '[' → 'Ш', etc. */
+ * Case is INVERTED relative to ASCII: lowercase Latin positions
+ * (0x60..0x7F) hold UPPERCASE Cyrillic, uppercase Latin positions
+ * (0x40..0x5F) hold LOWERCASE Cyrillic.  This is the MS-0515
+ * convention (per user report) and matches what produces e.g.
+ * "Адаптация" rather than "АДАПТАЦИЯ" out of the boot banner
+ * bytes "aDAPTACIQ" — the lowercase 'a' is the capital 'А' and the
+ * uppercase 'D' is the lowercase 'д'. */
 constexpr uint32_t kKoi7N2[0x60] = {
     /* 0x20.. */ 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
     /* 0x28.. */ 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
     /* 0x30.. */ 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
     /* 0x38.. */ 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-    /* 0x40.. */
-    0x042E, /* @ → Ю */ 0x0410, /* A → А */ 0x0411, /* B → Б */
-    0x0426, /* C → Ц */ 0x0414, /* D → Д */ 0x0415, /* E → Е */
-    0x0424, /* F → Ф */ 0x0413, /* G → Г */
+    /* 0x40.. uppercase Latin → lowercase Cyrillic */
+    0x044E, /* @ → ю */ 0x0430, /* A → а */ 0x0431, /* B → б */
+    0x0446, /* C → ц */ 0x0434, /* D → д */ 0x0435, /* E → е */
+    0x0444, /* F → ф */ 0x0433, /* G → г */
     /* 0x48.. */
-    0x0425, /* H → Х */ 0x0418, /* I → И */ 0x0419, /* J → Й */
-    0x041A, /* K → К */ 0x041B, /* L → Л */ 0x041C, /* M → М */
-    0x041D, /* N → Н */ 0x041E, /* O → О */
+    0x0445, /* H → х */ 0x0438, /* I → и */ 0x0439, /* J → й */
+    0x043A, /* K → к */ 0x043B, /* L → л */ 0x043C, /* M → м */
+    0x043D, /* N → н */ 0x043E, /* O → о */
     /* 0x50.. */
-    0x041F, /* P → П */ 0x042F, /* Q → Я */ 0x0420, /* R → Р */
-    0x0421, /* S → С */ 0x0422, /* T → Т */ 0x0423, /* U → У */
-    0x0416, /* V → Ж */ 0x0412, /* W → В */
+    0x043F, /* P → п */ 0x044F, /* Q → я */ 0x0440, /* R → р */
+    0x0441, /* S → с */ 0x0442, /* T → т */ 0x0443, /* U → у */
+    0x0436, /* V → ж */ 0x0432, /* W → в */
     /* 0x58.. */
-    0x042C, /* X → Ь */ 0x042B, /* Y → Ы */ 0x0417, /* Z → З */
-    0x0428, /* [ → Ш */ 0x042D, /* \ → Э */ 0x0429, /* ] → Щ */
-    0x0427, /* ^ → Ч */ 0x042A, /* _ → Ъ */
-    /* 0x60.. — lowercase Cyrillic, parallel to 0x40.. but lowercase. */
-    0x044E, /* ` → ю */ 0x0430, /* a → а */ 0x0431, /* b → б */
-    0x0446, /* c → ц */ 0x0434, /* d → д */ 0x0435, /* e → е */
-    0x0444, /* f → ф */ 0x0433, /* g → г */
+    0x044C, /* X → ь */ 0x044B, /* Y → ы */ 0x0437, /* Z → з */
+    0x0448, /* [ → ш */ 0x044D, /* \ → э */ 0x0449, /* ] → щ */
+    0x0447, /* ^ → ч */ 0x044A, /* _ → ъ */
+    /* 0x60.. lowercase Latin → uppercase Cyrillic */
+    0x042E, /* ` → Ю */ 0x0410, /* a → А */ 0x0411, /* b → Б */
+    0x0426, /* c → Ц */ 0x0414, /* d → Д */ 0x0415, /* e → Е */
+    0x0424, /* f → Ф */ 0x0413, /* g → Г */
     /* 0x68.. */
-    0x0445, /* h → х */ 0x0438, /* i → и */ 0x0439, /* j → й */
-    0x043A, /* k → к */ 0x043B, /* l → л */ 0x043C, /* m → м */
-    0x043D, /* n → н */ 0x043E, /* o → о */
+    0x0425, /* h → Х */ 0x0418, /* i → И */ 0x0419, /* j → Й */
+    0x041A, /* k → К */ 0x041B, /* l → Л */ 0x041C, /* m → М */
+    0x041D, /* n → Н */ 0x041E, /* o → О */
     /* 0x70.. */
-    0x043F, /* p → п */ 0x044F, /* q → я */ 0x0440, /* r → р */
-    0x0441, /* s → с */ 0x0442, /* t → т */ 0x0443, /* u → у */
-    0x0436, /* v → ж */ 0x0432, /* w → в */
+    0x041F, /* p → П */ 0x042F, /* q → Я */ 0x0420, /* r → Р */
+    0x0421, /* s → С */ 0x0422, /* t → Т */ 0x0423, /* u → У */
+    0x0416, /* v → Ж */ 0x0412, /* w → В */
     /* 0x78.. */
-    0x044C, /* x → ь */ 0x044B, /* y → ы */ 0x0437, /* z → з */
-    0x0448, /* { → ш */ 0x044D, /* | → э */ 0x0449, /* } → щ */
-    0x0447, /* ~ → ч */ 0x044A, /* DEL → ъ (or space) */
+    0x042C, /* x → Ь */ 0x042B, /* y → Ы */ 0x0417, /* z → З */
+    0x0428, /* { → Ш */ 0x042D, /* | → Э */ 0x0429, /* } → Щ */
+    0x0427, /* ~ → Ч */ 0x042A, /* DEL → Ъ */
 };
 
 }  /* namespace */

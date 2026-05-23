@@ -113,6 +113,10 @@ void writeStdout(const char *data, size_t n)
 {
     if (n == 0) return;
     std::fwrite(data, 1, n, stdout);
+}
+
+void flushStdout()
+{
     std::fflush(stdout);
 }
 

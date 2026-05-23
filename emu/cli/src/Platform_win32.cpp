@@ -115,26 +115,59 @@ size_t readStdinNonBlocking(uint8_t *buf, size_t cap)
     if (g_stdin == INVALID_HANDLE_VALUE) return 0;
 
     DWORD ftype = GetFileType(g_stdin);
-    DWORD want  = 0;
 
     if (ftype == FILE_TYPE_CHAR) {
-        /* Console input — read 1 byte at a time so blocking happens
-         * only when there is no input available.  ReadFile on a
-         * console handle in this mode returns ASCII bytes; with raw
-         * mode (no line-input) it returns each keystroke immediately. */
-        DWORD avail = 0;
-        if (!GetNumberOfConsoleInputEvents(g_stdin, &avail) || avail == 0) {
-            return 0;
+        /* Console input — pull events directly via ReadConsoleInputW
+         * so we can filter out focus / mouse / window-resize records
+         * that the GetNumberOfConsoleInputEvents-+-ReadFile path would
+         * otherwise stall on.  We translate each KEY_EVENT with
+         * bKeyDown == TRUE into UTF-8 bytes; key-up events are
+         * silently dropped (the guest just needs the keystroke). */
+        size_t out = 0;
+        DWORD  avail = 0;
+        while (out < cap
+               && GetNumberOfConsoleInputEvents(g_stdin, &avail)
+               && avail > 0)
+        {
+            INPUT_RECORD rec{};
+            DWORD got = 0;
+            if (!ReadConsoleInputW(g_stdin, &rec, 1, &got) || got == 0) {
+                break;
+            }
+            if (rec.EventType != KEY_EVENT) continue;
+            if (!rec.Event.KeyEvent.bKeyDown) continue;
+            WCHAR wc = rec.Event.KeyEvent.uChar.UnicodeChar;
+            if (wc == 0) continue;
+            /* Encode the UTF-16 code unit into UTF-8 bytes for the
+             * shared UTF-8 → KOI-8 decoder downstream.  Surrogate
+             * pairs are uncommon enough on console input that we
+             * accept a one-shot loss on lone surrogates. */
+            uint32_t cp = static_cast<uint32_t>(wc);
+            uint8_t enc[4];
+            size_t  encLen = 0;
+            if (cp < 0x80u) {
+                enc[encLen++] = static_cast<uint8_t>(cp);
+            } else if (cp < 0x800u) {
+                enc[encLen++] = static_cast<uint8_t>(0xC0u | (cp >> 6));
+                enc[encLen++] = static_cast<uint8_t>(0x80u | (cp & 0x3Fu));
+            } else {
+                enc[encLen++] = static_cast<uint8_t>(0xE0u | (cp >> 12));
+                enc[encLen++] = static_cast<uint8_t>(0x80u | ((cp >> 6) & 0x3Fu));
+                enc[encLen++] = static_cast<uint8_t>(0x80u | (cp & 0x3Fu));
+            }
+            for (size_t i = 0; i < encLen && out < cap; ++i) {
+                buf[out++] = enc[i];
+            }
         }
-        want = 1;
-    } else if (ftype == FILE_TYPE_PIPE) {
+        return out;
+    }
+
+    DWORD want = 0;
+    if (ftype == FILE_TYPE_PIPE) {
         DWORD pending = 0;
         if (!PeekNamedPipe(g_stdin, nullptr, 0, nullptr, &pending, nullptr)
             || pending == 0)
         {
-            /* PeekNamedPipe returns false if the write end has been
-             * closed.  Distinguish EOF from "no data yet" via
-             * GetLastError. */
             if (GetLastError() == ERROR_BROKEN_PIPE) {
                 g_eof.store(true, std::memory_order_release);
             }
@@ -142,7 +175,6 @@ size_t readStdinNonBlocking(uint8_t *buf, size_t cap)
         }
         want = static_cast<DWORD>(pending < cap ? pending : cap);
     } else if (ftype == FILE_TYPE_DISK) {
-        /* Regular file — read up to cap, which never blocks. */
         want = static_cast<DWORD>(cap > 4096 ? 4096 : cap);
     } else {
         return 0;
@@ -168,6 +200,10 @@ void writeStdout(const char *data, size_t n)
 {
     if (n == 0) return;
     std::fwrite(data, 1, n, stdout);
+}
+
+void flushStdout()
+{
     std::fflush(stdout);
 }
 
