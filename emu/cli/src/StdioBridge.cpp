@@ -56,9 +56,21 @@ bool g_traceEmt = false;
 std::array<uint8_t, 4> g_utf8Pending{};
 size_t                 g_utf8PendingLen = 0;
 
-/* Output state — KOI-7 shift mode + CR/LF coalescing. */
-bool g_koi7N2     = false;   /* SO has been seen, SI not yet */
-bool g_afterCr    = false;   /* last byte emitted was CR; swallow next LF */
+/* Output state — KOI-7 shift mode + CR-followed-by handling.
+ *
+ * Bare CR (0x0D) has two meanings in the RT-11 / Mihin output stream:
+ *   - When followed by LF or visible text: line separator (\r\n).
+ *   - When followed by another CR or by a control sequence (ESC, BS):
+ *     cursor reset only (just "\r", do NOT advance the line) — this
+ *     is how the kernel positions the cursor for echo overwrite at
+ *     the dot prompt.
+ *
+ * To decide which, we hold a pending CR until we see the next byte. */
+bool g_koi7N2    = false;   /* SO has been seen, SI not yet */
+bool g_pendingCr = false;   /* last byte was CR; awaiting disambiguation */
+
+void writeBareCr() { cli::writeStdout("\r",   1); }
+void writeCrLf()   { cli::writeStdout("\r\n", 2); }
 
 /* Convert R0's low byte (KOI-8R or KOI-7 N2 depending on shift state)
  * to UTF-8 and write to stdout.  Handles ASCII control characters
@@ -74,26 +86,43 @@ void emitGuestByte(uint8_t b)
     if (b == 0x0Eu) { g_koi7N2 = true;  return; }   /* SO */
     if (b == 0x0Fu) { g_koi7N2 = false; return; }   /* SI */
 
-    /* Drop bytes that real terminals would silently consume but
-     * cmd.exe used to render as visible junk before we enabled VT
-     * processing.  NULs in particular are sprinkled throughout the
-     * Mihin TT driver's char-echo path. */
+    /* NUL: silently consume.  Doesn't move cursor → leave g_pendingCr
+     * alone, so a CR that immediately precedes a NUL-padded ESC
+     * sequence is still classified as "CR for cursor positioning". */
     if (b == 0x00u) return;
 
-    /* CR/LF coalescing: a CR-LF pair, or a doubled CR, or a doubled
-     * LF, collapse to a single "\r\n" output.  Prevents .PRINT's
-     * appended CR+LF from stacking on top of CR+LF already embedded
-     * in the string the guest passed. */
-    if (g_afterCr && (b == 0x0Au || b == 0x0Du)) {
-        g_afterCr = (b == 0x0Du);
+    /* Resolve any pending bare CR based on the byte that follows. */
+    if (g_pendingCr) {
+        g_pendingCr = false;
+        if (b == 0x0Au) {
+            /* Classic CR + LF newline — emit once. */
+            writeCrLf();
+            return;
+        }
+        if (b == 0x0Du || b == 0x1Bu /*ESC*/ || b == 0x08u /*BS*/) {
+            /* Cursor positioning: CR followed by another CR, by ESC
+             * (cursor / erase sequences), or by BS.  Emit "\r" alone
+             * and continue processing this byte normally (it may be
+             * a CR that opens another pending sequence). */
+            writeBareCr();
+        } else {
+            /* CR followed by visible text — kernel-emitted line
+             * separator.  Emit full newline. */
+            writeCrLf();
+        }
+        /* Fall through and process `b` as the byte after the CR. */
+    }
+
+    if (b == 0x0Du) {
+        /* Buffer this CR until we see the next byte. */
+        g_pendingCr = true;
         return;
     }
-    if (b == 0x0Du || b == 0x0Au) {
-        cli::writeStdout("\r\n", 2);
-        g_afterCr = (b == 0x0Du);
+    if (b == 0x0Au) {
+        /* Bare LF — treat as full newline. */
+        writeCrLf();
         return;
     }
-    g_afterCr = false;
 
     std::string utf8;
     if (g_koi7N2) {
