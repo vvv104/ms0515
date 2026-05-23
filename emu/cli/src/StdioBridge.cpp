@@ -100,11 +100,16 @@ void emitGuestByte(uint8_t b)
             return;
         }
         if (b == 0x0Du || b == 0x1Bu /*ESC*/ || b == 0x08u /*BS*/) {
-            /* Cursor positioning: CR followed by another CR, by ESC
-             * (cursor / erase sequences), or by BS.  Emit "\r" alone
-             * and continue processing this byte normally (it may be
-             * a CR that opens another pending sequence). */
-            writeBareCr();
+            /* Cursor positioning sequence: the kernel uses bare CR
+             * to fence ESC K (erase EOL) at the dot prompt — it
+             * wants the cursor to STAY where it is (right after the
+             * just-printed prompt char), not go back to column 0
+             * where the ESC K would then erase the prompt itself.
+             * So we DROP the pending CR entirely.  ESC K then erases
+             * only what's beyond the cursor (typically nothing), the
+             * prompt remains visible, and the next echoed char
+             * appears next to it. */
+            /* fall through to process `b`. */
         } else {
             /* CR followed by visible text — kernel-emitted line
              * separator.  Emit full newline. */
@@ -171,10 +176,15 @@ bool handlePrint(ms0515_cpu_t *cpu)
         emitGuestByte(b);
     }
     if (addNewline) {
-        /* Synthesise the SSM-mandated CR + LF via emitGuestByte so it
-         * coalesces correctly with any CR/LF the string itself ended
-         * with. */
-        emitGuestByte(0x0Du);
+        /* SSM-mandated CR + LF on NUL terminator.  Resolve any
+         * pending bare CR carried over from the message's last byte
+         * first (treat it as a newline) so we don't double-space,
+         * then emit the terminator explicitly.  Bypasses the
+         * pendingCr lookahead because we KNOW this is a newline. */
+        if (g_pendingCr) {
+            g_pendingCr = false;
+        }
+        writeCrLf();
     }
     cpu->psw &= static_cast<uint16_t>(~CPU_PSW_C);
     return true;
