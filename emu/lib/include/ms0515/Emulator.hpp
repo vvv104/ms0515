@@ -26,6 +26,15 @@
 #include <string>
 #include <string_view>
 
+/* Forward declaration of the C-side CPU struct.  Visible at namespace
+ * scope so the public TrapThunkFn typedef below can name it without
+ * pulling in the full <ms0515/core/cpu.h> from this header.  Frontends
+ * that install a thunk include cpu.h themselves to dereference the
+ * pointer. */
+extern "C" {
+struct ms0515_cpu;
+}
+
 namespace ms0515 {
 
 /* Strong enum mirroring the MS-7004 physical key set.  Numeric values
@@ -226,6 +235,25 @@ public:
 
     void setSoundCallback(SoundCallback cb);
     void setSerialCallbacks(SerialInCallback in, SerialOutCallback out);
+
+    /* Install a hook that intercepts programmed requests (EMT/TRAP/
+     * IOT/BPT and the T-bit single-step trap, which uses the BPT
+     * vector) before the default push-PSW/load-vector service runs.
+     *
+     * The thunk receives the would-be vector (CPU_VEC_EMT etc.) and
+     * a pointer to the C-side CPU struct — `cpu->instruction` holds
+     * the trapping opcode (low byte = EMT/TRAP number), `cpu->r[]` /
+     * `cpu->psw` are the register file at trap time.  Frontends that
+     * install a thunk include `<ms0515/core/cpu.h>` themselves to
+     * read those fields.
+     *
+     * Return `true` to suppress the default service (hook has fully
+     * handled the request, e.g. by setting result registers and PSW).
+     * Return `false` to let the standard cpu_service_interrupt() run.
+     *
+     * Pass `nullptr` to clear a previously-installed thunk. */
+    using TrapThunkFn = bool (*)(struct ms0515_cpu *cpu, uint16_t vector);
+    void setTrapThunk(TrapThunkFn thunk);
 
 private:
     void rewirePointers();

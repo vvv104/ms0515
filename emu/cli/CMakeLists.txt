@@ -13,6 +13,8 @@ endif()
 
 add_executable(ms0515-cli
     src/main.cpp
+    src/Koi8.cpp
+    src/StdioBridge.cpp
     ${CLI_PLATFORM_SRC}
 )
 

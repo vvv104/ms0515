@@ -1,8 +1,5 @@
 /*
- * Platform_win32.cpp — Windows console + signal handling.
- *
- * Stage 2 scope: just SIGINT.  Raw-mode stdin handling lands in Stage 3
- * together with the EMT hook bridge.
+ * Platform_win32.cpp — Windows console + signal handling + raw stdin.
  */
 
 #include "Platform.hpp"
@@ -11,6 +8,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cstdio>
 
 namespace ms0515::cli {
 
@@ -18,12 +16,21 @@ namespace {
 
 std::atomic<bool> g_quit{false};
 
+HANDLE g_stdin       = INVALID_HANDLE_VALUE;
+HANDLE g_stdout      = INVALID_HANDLE_VALUE;
+DWORD  g_stdinModeIn = 0;
+UINT   g_prevOutCp   = 0;
+UINT   g_prevInCp    = 0;
+bool   g_rawSet      = false;
+std::atomic<bool> g_eof{false};
+
 BOOL WINAPI consoleHandler(DWORD signal)
 {
     if (signal == CTRL_C_EVENT || signal == CTRL_BREAK_EVENT
         || signal == CTRL_CLOSE_EVENT)
     {
         g_quit.store(true, std::memory_order_release);
+        restoreTerminal();
         return TRUE;
     }
     return FALSE;
@@ -39,6 +46,119 @@ bool installInterruptHandler()
 bool shouldQuit()
 {
     return g_quit.load(std::memory_order_acquire);
+}
+
+bool setTerminalRawMode()
+{
+    if (g_rawSet) return true;
+
+    g_stdin  = GetStdHandle(STD_INPUT_HANDLE);
+    g_stdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (g_stdin == INVALID_HANDLE_VALUE || g_stdout == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    /* Save current input mode (we only mutate stdin's mode). */
+    if (!GetConsoleMode(g_stdin, &g_stdinModeIn)) {
+        /* stdin might be a pipe — treat as already-raw. */
+        g_stdinModeIn = 0;
+    } else {
+        /* Strip line-input + echo, keep processed-input so the console
+         * driver still converts Ctrl-C into a SIGINT-equivalent event
+         * that our CtrlHandler catches. */
+        DWORD mode = g_stdinModeIn;
+        mode &= ~(DWORD)(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
+        mode |=  ENABLE_PROCESSED_INPUT;
+        SetConsoleMode(g_stdin, mode);
+    }
+
+    /* UTF-8 output + input.  The guest produces KOI-8R (we convert
+     * before writing); receiving UTF-8 input lets us round-trip
+     * Cyrillic typed at the host shell back to KOI-8 for .TTYIN. */
+    g_prevOutCp = GetConsoleOutputCP();
+    g_prevInCp  = GetConsoleCP();
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+
+    g_rawSet = true;
+    return true;
+}
+
+void restoreTerminal()
+{
+    if (!g_rawSet) return;
+    if (g_stdinModeIn != 0) {
+        SetConsoleMode(g_stdin, g_stdinModeIn);
+    }
+    if (g_prevOutCp != 0) {
+        SetConsoleOutputCP(g_prevOutCp);
+    }
+    if (g_prevInCp != 0) {
+        SetConsoleCP(g_prevInCp);
+    }
+    g_rawSet = false;
+}
+
+size_t readStdinNonBlocking(uint8_t *buf, size_t cap)
+{
+    if (g_eof.load(std::memory_order_acquire) || cap == 0) return 0;
+    if (g_stdin == INVALID_HANDLE_VALUE) return 0;
+
+    DWORD ftype = GetFileType(g_stdin);
+    DWORD want  = 0;
+
+    if (ftype == FILE_TYPE_CHAR) {
+        /* Console input — read 1 byte at a time so blocking happens
+         * only when there is no input available.  ReadFile on a
+         * console handle in this mode returns ASCII bytes; with raw
+         * mode (no line-input) it returns each keystroke immediately. */
+        DWORD avail = 0;
+        if (!GetNumberOfConsoleInputEvents(g_stdin, &avail) || avail == 0) {
+            return 0;
+        }
+        want = 1;
+    } else if (ftype == FILE_TYPE_PIPE) {
+        DWORD pending = 0;
+        if (!PeekNamedPipe(g_stdin, nullptr, 0, nullptr, &pending, nullptr)
+            || pending == 0)
+        {
+            /* PeekNamedPipe returns false if the write end has been
+             * closed.  Distinguish EOF from "no data yet" via
+             * GetLastError. */
+            if (GetLastError() == ERROR_BROKEN_PIPE) {
+                g_eof.store(true, std::memory_order_release);
+            }
+            return 0;
+        }
+        want = static_cast<DWORD>(pending < cap ? pending : cap);
+    } else if (ftype == FILE_TYPE_DISK) {
+        /* Regular file — read up to cap, which never blocks. */
+        want = static_cast<DWORD>(cap > 4096 ? 4096 : cap);
+    } else {
+        return 0;
+    }
+
+    DWORD n = 0;
+    if (!ReadFile(g_stdin, buf, want, &n, nullptr)) {
+        g_eof.store(true, std::memory_order_release);
+        return 0;
+    }
+    if (n == 0) {
+        g_eof.store(true, std::memory_order_release);
+    }
+    return n;
+}
+
+bool isStdinEof()
+{
+    return g_eof.load(std::memory_order_acquire);
+}
+
+void writeStdout(const char *data, size_t n)
+{
+    if (n == 0) return;
+    std::fwrite(data, 1, n, stdout);
+    std::fflush(stdout);
 }
 
 }  /* namespace ms0515::cli */

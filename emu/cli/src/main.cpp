@@ -20,6 +20,7 @@
 #include <string_view>
 
 #include "Platform.hpp"
+#include "StdioBridge.hpp"
 
 namespace fs = std::filesystem;
 
@@ -113,42 +114,46 @@ int main(int argc, char *argv[])
     }
 
     ms0515::cli::installInterruptHandler();
+    ms0515::cli::setTerminalRawMode();
 
     ms0515::Emulator emu;
     if (!emu.loadRomFile(args.rom)) {
+        ms0515::cli::restoreTerminal();
         std::println(stderr, "error: failed to load ROM: {}", args.rom);
         return 1;
     }
     if (!emu.mountDisk(0, args.disk)) {
+        ms0515::cli::restoreTerminal();
         std::println(stderr, "error: failed to mount disk: {}", args.disk);
         return 1;
     }
     emu.reset();
-
-    std::println(stderr,
-        "ms0515-cli: booting ROM={} disk={}",
-        args.rom, args.disk);
+    ms0515::cli::bridge::install(emu);
 
     long frame_count = 0;
     while (!emu.halted() && !ms0515::cli::shouldQuit()) {
         if (args.frames >= 0 && frame_count >= args.frames) {
-            std::println(stderr,
-                "ms0515-cli: stopped after {} frames (--frames cap)",
-                frame_count);
             break;
         }
+        ms0515::cli::bridge::pumpInput();
         (void)emu.stepFrame();
         ++frame_count;
     }
 
+    ms0515::cli::restoreTerminal();
+    ms0515::cli::bridge::dumpEmtCounts();
     if (emu.halted()) {
         std::println(stderr,
-            "ms0515-cli: CPU halted after {} frames (PC=0{:06o})",
+            "\nms0515-cli: CPU halted after {} frames (PC=0{:06o})",
             frame_count, emu.pc());
     } else if (ms0515::cli::shouldQuit()) {
         std::println(stderr,
-            "ms0515-cli: interrupted after {} frames (PC=0{:06o})",
+            "\nms0515-cli: interrupted after {} frames (PC=0{:06o})",
             frame_count, emu.pc());
+    } else if (args.frames >= 0) {
+        std::println(stderr,
+            "\nms0515-cli: stopped after {} frames (--frames cap)",
+            frame_count);
     }
     return 0;
 }

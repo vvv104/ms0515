@@ -387,6 +387,13 @@ void Emulator::setSerialCallbacks(SerialInCallback in, SerialOutCallback out)
         this);
 }
 
+void Emulator::setTrapThunk(TrapThunkFn thunk)
+{
+    /* Thread-trivial assignment — the hook is invoked between
+     * instructions on the same thread that calls stepFrame(). */
+    impl_->board.cpu.trap_thunk = thunk;
+}
+
 /* ── Internal pointer rewiring ──────────────────────────────────────────── */
 
 void Emulator::rewirePointers()
