@@ -317,6 +317,13 @@ void install(ms0515::Emulator &emu)
     g_traceEmt = (trace != nullptr && trace[0] != '\0');
 }
 
+bool serialOutByte(uint8_t byte)
+{
+    emitGuestByte(byte);
+    g_kernelReady = true;
+    return true;
+}
+
 void dumpEmtCounts()
 {
     if (!g_traceEmt) return;

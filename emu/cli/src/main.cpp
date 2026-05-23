@@ -134,6 +134,16 @@ int main(int argc, char *argv[])
     emu.reset();
     ms0515::cli::bridge::install(emu);
 
+    /* Bridge the secondary serial port too: some RT-11 variants (OSA,
+     * notably) don't use .TTYOUT for typed-char echo or other quick
+     * terminal writes — they go straight at the i8251 TX register.
+     * Forwarding the serial-out callback into our same emitter funnel
+     * makes typed text visible without losing Mihin's .TTYOUT-driven
+     * echo. */
+    emu.setSerialCallbacks(
+        /*in =*/ nullptr,
+        /*out=*/ ms0515::cli::bridge::serialOutByte);
+
     long frame_count = 0;
     while (!emu.halted() && !ms0515::cli::shouldQuit()) {
         if (args.frames >= 0 && frame_count >= args.frames) {

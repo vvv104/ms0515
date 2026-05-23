@@ -28,6 +28,13 @@ namespace ms0515::cli::bridge {
  * stdin pump can drive emu.keyPress() between frames. */
 void install(ms0515::Emulator &emu);
 
+/* Bridge for the i8251 serial-TX register.  OSA's monitor writes
+ * typed-char echo straight here (bypassing .TTYOUT); forwarding the
+ * byte through the same KOI-7 / VT-aware emitter makes echo visible
+ * without losing Mihin's .TTYOUT-driven echo (Mihin doesn't use the
+ * serial TX path so there's no double-emit). */
+bool serialOutByte(uint8_t byte);
+
 /* Pump host stdin → MS-7004 keypress sequence.  Called once per
  * frame from main.  Reads available bytes, converts UTF-8 → KOI-8R,
  * queues them as keystrokes, and feeds one keystroke into the
