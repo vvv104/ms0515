@@ -25,6 +25,14 @@ void appendAsUtf8(std::string &out, uint8_t b);
  * the input is too short to hold a complete code-point. */
 size_t utf8ToKoi8(const uint8_t *data, size_t size, uint8_t *out);
 
+/* KOI-7 (GOST 13052-67) N2 mode: Latin letter glyphs at 0x40..0x5F
+ * and 0x60..0x7F double as Cyrillic glyphs (phonetic mapping).
+ * `b` must be in 0x20..0x7F; bytes outside that range are returned
+ * as-is via appendAsUtf8.  Used when the guest has emitted SO (0x0E)
+ * to switch the terminal into Cyrillic mode.  Switches back on SI
+ * (0x0F). */
+void appendAsKoi7N2(std::string &out, uint8_t b);
+
 }  /* namespace ms0515::cli::koi8 */
 
 #endif  /* MS0515_CLI_KOI8_HPP */

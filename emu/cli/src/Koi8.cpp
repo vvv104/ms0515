@@ -77,6 +77,69 @@ void appendAsUtf8(std::string &out, uint8_t b)
     encodeUtf8(out, cp);
 }
 
+namespace {
+
+/* KOI-7 N2 (GOST 13052-67) mapping for printable ASCII positions to
+ * Cyrillic.  Indices are byte - 0x20 (so kKoi7N2[0] = byte 0x20 = space).
+ *
+ * Bytes 0x20..0x3F (space + digits + most ASCII punctuation) pass
+ * through unchanged: they map to the same printable glyph in both N1
+ * and N2.  The Cyrillic substitutions start at 0x40 (which holds
+ * 'Ю' in N2) and run through 0x7F.
+ *
+ * Table cross-checked against the Mihin boot banner: byte 'D' (0x44)
+ * → Cyrillic 'Д', 'P' → 'П', 'C' → 'Ц', 'Q' → 'Я', 'F' → 'Ф',
+ * '^' → 'Ч', '[' → 'Ш', etc. */
+constexpr uint32_t kKoi7N2[0x60] = {
+    /* 0x20.. */ 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    /* 0x28.. */ 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
+    /* 0x30.. */ 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+    /* 0x38.. */ 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+    /* 0x40.. */
+    0x042E, /* @ → Ю */ 0x0410, /* A → А */ 0x0411, /* B → Б */
+    0x0426, /* C → Ц */ 0x0414, /* D → Д */ 0x0415, /* E → Е */
+    0x0424, /* F → Ф */ 0x0413, /* G → Г */
+    /* 0x48.. */
+    0x0425, /* H → Х */ 0x0418, /* I → И */ 0x0419, /* J → Й */
+    0x041A, /* K → К */ 0x041B, /* L → Л */ 0x041C, /* M → М */
+    0x041D, /* N → Н */ 0x041E, /* O → О */
+    /* 0x50.. */
+    0x041F, /* P → П */ 0x042F, /* Q → Я */ 0x0420, /* R → Р */
+    0x0421, /* S → С */ 0x0422, /* T → Т */ 0x0423, /* U → У */
+    0x0416, /* V → Ж */ 0x0412, /* W → В */
+    /* 0x58.. */
+    0x042C, /* X → Ь */ 0x042B, /* Y → Ы */ 0x0417, /* Z → З */
+    0x0428, /* [ → Ш */ 0x042D, /* \ → Э */ 0x0429, /* ] → Щ */
+    0x0427, /* ^ → Ч */ 0x042A, /* _ → Ъ */
+    /* 0x60.. — lowercase Cyrillic, parallel to 0x40.. but lowercase. */
+    0x044E, /* ` → ю */ 0x0430, /* a → а */ 0x0431, /* b → б */
+    0x0446, /* c → ц */ 0x0434, /* d → д */ 0x0435, /* e → е */
+    0x0444, /* f → ф */ 0x0433, /* g → г */
+    /* 0x68.. */
+    0x0445, /* h → х */ 0x0438, /* i → и */ 0x0439, /* j → й */
+    0x043A, /* k → к */ 0x043B, /* l → л */ 0x043C, /* m → м */
+    0x043D, /* n → н */ 0x043E, /* o → о */
+    /* 0x70.. */
+    0x043F, /* p → п */ 0x044F, /* q → я */ 0x0440, /* r → р */
+    0x0441, /* s → с */ 0x0442, /* t → т */ 0x0443, /* u → у */
+    0x0436, /* v → ж */ 0x0432, /* w → в */
+    /* 0x78.. */
+    0x044C, /* x → ь */ 0x044B, /* y → ы */ 0x0437, /* z → з */
+    0x0448, /* { → ш */ 0x044D, /* | → э */ 0x0449, /* } → щ */
+    0x0447, /* ~ → ч */ 0x044A, /* DEL → ъ (or space) */
+};
+
+}  /* namespace */
+
+void appendAsKoi7N2(std::string &out, uint8_t b)
+{
+    if (b < 0x20u || b > 0x7Fu) {
+        appendAsUtf8(out, b);
+        return;
+    }
+    encodeUtf8(out, kKoi7N2[b - 0x20u]);
+}
+
 size_t utf8ToKoi8(const uint8_t *data, size_t size, uint8_t *out)
 {
     if (size == 0) return 0;

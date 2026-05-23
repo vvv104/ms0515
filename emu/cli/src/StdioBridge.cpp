@@ -56,23 +56,51 @@ bool g_traceEmt = false;
 std::array<uint8_t, 4> g_utf8Pending{};
 size_t                 g_utf8PendingLen = 0;
 
-/* Convert R0's low byte (KOI-8R) to UTF-8 and write to stdout. */
+/* Output state — KOI-7 shift mode + CR/LF coalescing. */
+bool g_koi7N2     = false;   /* SO has been seen, SI not yet */
+bool g_afterCr    = false;   /* last byte emitted was CR; swallow next LF */
+
+/* Convert R0's low byte (KOI-8R or KOI-7 N2 depending on shift state)
+ * to UTF-8 and write to stdout.  Handles ASCII control characters
+ * SO/SI for KOI-7 shift, CR+LF pairing for single line breaks, and
+ * a hex trace mode (MS0515_CLI_OUT_TRACE env var) for diagnostics. */
 void emitGuestByte(uint8_t b)
 {
-    /* RT-11 / Omega send a bare CR (0x0D) at end-of-line; modern
-     * terminals expect LF or CRLF.  Emit CRLF so the host scrolls. */
-    if (b == 0x0Du) {
+    if (g_traceEmt) {
+        std::fprintf(stderr, " <%03o>", b);
+    }
+
+    /* KOI-7 mode toggles. */
+    if (b == 0x0Eu) { g_koi7N2 = true;  return; }   /* SO */
+    if (b == 0x0Fu) { g_koi7N2 = false; return; }   /* SI */
+
+    /* Drop bytes that real terminals would silently consume but
+     * cmd.exe used to render as visible junk before we enabled VT
+     * processing.  NULs in particular are sprinkled throughout the
+     * Mihin TT driver's char-echo path. */
+    if (b == 0x00u) return;
+
+    /* CR/LF coalescing: a CR-LF pair, or a doubled CR, or a doubled
+     * LF, collapse to a single "\r\n" output.  Prevents .PRINT's
+     * appended CR+LF from stacking on top of CR+LF already embedded
+     * in the string the guest passed. */
+    if (g_afterCr && (b == 0x0Au || b == 0x0Du)) {
+        g_afterCr = (b == 0x0Du);
+        return;
+    }
+    if (b == 0x0Du || b == 0x0Au) {
         cli::writeStdout("\r\n", 2);
+        g_afterCr = (b == 0x0Du);
         return;
     }
-    /* The guest occasionally sends a literal LF too (e.g. inside an
-     * already-CRLF sequence from a file).  Pass it through verbatim. */
-    if (b == 0x0Au) {
-        cli::writeStdout("\n", 1);
-        return;
-    }
+    g_afterCr = false;
+
     std::string utf8;
-    koi8::appendAsUtf8(utf8, b);
+    if (g_koi7N2) {
+        koi8::appendAsKoi7N2(utf8, b);
+    } else {
+        koi8::appendAsUtf8(utf8, b);
+    }
     cli::writeStdout(utf8.data(), utf8.size());
 }
 
@@ -110,7 +138,10 @@ bool handlePrint(ms0515_cpu_t *cpu)
         emitGuestByte(b);
     }
     if (addNewline) {
-        cli::writeStdout("\r\n", 2);
+        /* Synthesise the SSM-mandated CR + LF via emitGuestByte so it
+         * coalesces correctly with any CR/LF the string itself ended
+         * with. */
+        emitGuestByte(0x0Du);
     }
     cpu->psw &= static_cast<uint16_t>(~CPU_PSW_C);
     return true;

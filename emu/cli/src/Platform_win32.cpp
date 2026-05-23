@@ -80,6 +80,16 @@ bool setTerminalRawMode()
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 
+    /* Enable virtual-terminal processing on stdout so ESC sequences
+     * and bare backspaces emitted by the guest's TT driver (RT-11 uses
+     * ESC K = erase-to-EOL when echoing typed chars, plus BS to undo
+     * pre-echoed space) are interpreted as cursor controls instead of
+     * being printed as literal `?K` / `^H` glyphs. */
+    DWORD outMode = 0;
+    if (GetConsoleMode(g_stdout, &outMode)) {
+        SetConsoleMode(g_stdout, outMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
+
     g_rawSet = true;
     return true;
 }
