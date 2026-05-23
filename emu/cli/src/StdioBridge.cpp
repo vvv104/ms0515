@@ -74,12 +74,33 @@ bool g_lastPrintWasPrompt = false;   /* last .PRINT emitted a single printable
                                       * suppress the NEXT empty .PRINT's auto-
                                       * newline so the cursor stays next to the
                                       * prompt char — matches RT-11 TT.SYS */
+int  g_framesSinceOutput  = 0;       /* frames since the kernel last wrote a
+                                      * byte — used to gate the echo timeout
+                                      * (only decrement framesLeft while the
+                                      * kernel is silent, so we don't time
+                                      * out a typed char mid-kernel-echo). */
+bool g_typingActive       = false;   /* once a keypress has been injected
+                                      * and we still have queued chars or
+                                      * an active tap, keep injecting back-
+                                      * to-back; once nothing is left to
+                                      * type we wait for the kernel to
+                                      * surface the next prompt before
+                                      * starting another typing burst. */
+
+/* Echo tracker — see the larger comment in pumpInput's neighbourhood. */
+struct ExpectedEcho {
+    uint8_t ch;
+    int     framesLeft;
+};
+std::deque<ExpectedEcho> g_echoQueue;
+constexpr int kEchoTimeoutFrames = 8;
 
 void writeBareCr() { cli::writeStdout("\r",   1); }
 void writeCrLf()
 {
     cli::writeStdout("\r\n", 2);
-    g_lastWasNewline = true;
+    g_lastWasNewline    = true;
+    g_framesSinceOutput = 0;
 }
 
 /* Convert R0's low byte (KOI-8R or KOI-7 N2 depending on shift state)
@@ -90,6 +111,14 @@ void emitGuestByte(uint8_t b)
 {
     if (g_traceEmt) {
         std::fprintf(stderr, " <%03o>", b);
+    }
+
+    /* Echo-tracker match: if the kernel just sent us the byte we're
+     * expecting back from a recent keystroke, consume the queue front.
+     * Then we won't self-echo it on timeout.  Check before any
+     * filtering so the match works regardless of what the byte is. */
+    if (!g_echoQueue.empty() && g_echoQueue.front().ch == b) {
+        g_echoQueue.pop_front();
     }
 
     /* KOI-7 mode toggles. */
@@ -146,7 +175,8 @@ void emitGuestByte(uint8_t b)
         koi8::appendAsUtf8(utf8, b);
     }
     cli::writeStdout(utf8.data(), utf8.size());
-    g_lastWasNewline = false;
+    g_lastWasNewline    = false;
+    g_framesSinceOutput = 0;
 }
 
 bool handleTtyout(ms0515_cpu_t *cpu)
@@ -211,7 +241,17 @@ bool handlePrint(ms0515_cpu_t *cpu)
         if (!skip) writeCrLf();
     }
 
-    g_lastPrintWasPrompt = thisWasSinglePrompt;
+    /* Only update the prompt-flag when the .PRINT actually emitted
+     * a payload char.  Empty .PRINT calls (printableCount == 0) are
+     * the kernel's TT-buffer bookkeeping (we use them as a hint to
+     * suppress auto-CRLF after a prompt char); they should NOT erase
+     * the "we just saw a prompt" signal — otherwise the gate that
+     * decides "is the kernel waiting for input?" closes one frame
+     * after every dot prompt because Mihin fires an empty .PRINT
+     * right after. */
+    if (printableCount > 0) {
+        g_lastPrintWasPrompt = thisWasSinglePrompt;
+    }
     cpu->psw &= static_cast<uint16_t>(~CPU_PSW_C);
     return true;
 }
@@ -307,6 +347,33 @@ int          g_phaseFrames = 0;
 ms0515::Key  g_phaseKey    = ms0515::Key::None;
 bool         g_phaseShift  = false;
 
+/* Compute the byte the kernel is most likely to echo for a typed
+ * character.  ASCII letters get uppercased — RT-11 monitors universally
+ * uppercase commands and echo the uppercased glyph.  Everything else
+ * passes through unchanged. */
+uint8_t echoCharFor(uint8_t typed)
+{
+    if (typed >= 'a' && typed <= 'z') {
+        return static_cast<uint8_t>(typed - 'a' + 'A');
+    }
+    return typed;
+}
+
+void selfEchoByte(uint8_t b)
+{
+    /* Direct write — bypass emitGuestByte's state machine so we don't
+     * accidentally reset g_lastWasNewline or trigger the KOI-7-mode
+     * branch for a typed ASCII char.  For Cyrillic we'd want the
+     * mode-aware path, but typed input is ASCII in practice. */
+    std::string utf8;
+    if (g_koi7N2) {
+        koi8::appendAsKoi7N2(utf8, b);
+    } else {
+        koi8::appendAsUtf8(utf8, b);
+    }
+    cli::writeStdout(utf8.data(), utf8.size());
+}
+
 }  /* namespace */
 
 void install(ms0515::Emulator &emu)
@@ -374,6 +441,24 @@ void readBytesFromHost()
 void pumpInput()
 {
     if (g_emu == nullptr) return;
+    ++g_framesSinceOutput;
+
+    /* Tick the echo-expectation queue, but only while the kernel is
+     * silent (g_framesSinceOutput > 0).  If the kernel just emitted a
+     * byte this frame, the echo we're waiting for might still arrive
+     * via emitGuestByte momentarily — don't time out under it.  Once
+     * the kernel has been silent for kEchoTimeoutFrames frames in a
+     * row after a keystroke, self-echo: kernel writes the typed char
+     * only to VRAM (OSA / Omega convention) and we have to fill in
+     * the gap. */
+    while (!g_echoQueue.empty() && g_framesSinceOutput > 0) {
+        auto &front = g_echoQueue.front();
+        if (--front.framesLeft > 0) break;
+        uint8_t ch = front.ch;
+        g_echoQueue.pop_front();
+        selfEchoByte(ch);
+    }
+
     /* Drain anything the kernel emitted during the previous frame to
      * the host terminal.  One fflush per frame amortises Windows-
      * console VT-parser cost across however many .TTYOUT/.PRINT
@@ -381,10 +466,26 @@ void pumpInput()
     cli::flushStdout();
     readBytesFromHost();
 
-    /* Hold off on keypress injection until the kernel has produced
-     * some output — pressing keys during the pre-banner boot phase
-     * disrupts the kernel's TT/MS-7004 initialisation. */
+    /* Track whether we're in an active typing session.  While we've
+     * still got queued chars or are mid-tap, keep going uninterrupted.
+     * Once nothing is left to type, fall back to waiting for the next
+     * prompt before injecting again. */
+    if (g_phase == TapPhase::Idle && g_stdinQueue.empty()) {
+        g_typingActive = false;
+    }
+
+    /* Hold off on keypress injection until the kernel has actually
+     * reached the monitor's command prompt.  Best signal we have is
+     * g_lastPrintWasPrompt — set by handlePrint when the kernel emits
+     * a single printable char via .PRINT with a high-bit terminator
+     * (the SSM convention for "no auto-CRLF, leave cursor here").
+     * Every RT-11 variant we've seen (Mihin, Omega, OSA) emits the
+     * dot prompt exactly that way.  This gate cleanly opens AT the
+     * prompt and re-closes the moment a non-prompt .PRINT runs (e.g.
+     * a command's output), so subsequent typing sessions also wait
+     * for the next prompt. */
     if (!g_kernelReady) return;
+    if (!g_typingActive && !g_lastPrintWasPrompt) return;
 
     switch (g_phase) {
     case TapPhase::Holding:
@@ -417,10 +518,17 @@ void pumpInput()
         }
         if (km.shift) g_emu->keyPress(ms0515::Key::ShiftL, true);
         g_emu->keyPress(km.key, true);
-        g_phaseKey    = km.key;
-        g_phaseShift  = km.shift;
-        g_phase       = TapPhase::Holding;
-        g_phaseFrames = kHoldFrames;
+        /* Track the expected kernel echo: if a matching byte arrives
+         * via emitGuestByte within kEchoTimeoutFrames frames we
+         * consume the queue (Mihin-style — kernel echoes via .TTYOUT,
+         * we don't need to self-echo).  Otherwise we self-echo on
+         * timeout (OSA / Omega-style — kernel writes only to VRAM). */
+        g_echoQueue.push_back({echoCharFor(c), kEchoTimeoutFrames});
+        g_phaseKey     = km.key;
+        g_phaseShift   = km.shift;
+        g_phase        = TapPhase::Holding;
+        g_phaseFrames  = kHoldFrames;
+        g_typingActive = true;
         return;
     }
 }
