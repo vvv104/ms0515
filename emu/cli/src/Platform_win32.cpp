@@ -9,6 +9,8 @@
 
 #include <atomic>
 #include <cstdio>
+#include <fcntl.h>
+#include <io.h>
 
 namespace ms0515::cli {
 
@@ -89,6 +91,14 @@ bool setTerminalRawMode()
     if (GetConsoleMode(g_stdout, &outMode)) {
         SetConsoleMode(g_stdout, outMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     }
+
+    /* Set stdout to BINARY mode so the C runtime doesn't translate
+     * our "\r\n" pairs to "\r\r\n" on the way out (Windows CRT's
+     * default text mode adds \r before every \n).  We already emit
+     * a literal CR+LF where we want one, and a bare CR where we want
+     * cursor-only — translation would silently break the latter and
+     * double the former. */
+    _setmode(_fileno(stdout), _O_BINARY);
 
     g_rawSet = true;
     return true;
