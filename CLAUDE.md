@@ -15,6 +15,7 @@ Three-layer emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Test-driven development**: after designing the interface, write unit tests first, then implement. Run tests at each stage.
 - **Revert failed attempts**: always roll back changes from unsuccessful approaches to avoid accumulating dead code and clutter.
 - **Zero compiler warnings**: all code must compile without warnings. Use modern C++ idioms and features (C++20/23) in lib and frontend layers.
+- **Never suppress warnings**: do not silence `/W4 /WX` (MSVC) or `-Werror` (gcc/clang) with `_CRT_SECURE_NO_WARNINGS`, `#pragma warning(disable: ...)`, or equivalents. Rewrite the offending call instead — replace deprecated CRT functions with their safe siblings (`_dupenv_s` over `getenv`, `fopen_s` over `fopen`, ...) or drop the call entirely (e.g. move runtime config from env vars to CLI flags).
 - **No vendored third-party sources**: never store external source files in the repo. All dependencies must be managed through Conan.
 
 ## Project structure
