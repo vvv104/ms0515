@@ -82,6 +82,20 @@ typedef enum {
 #define MEM_DISP_PAR0        0x1000  /* Bit 12: Parallel port control       */
 #define MEM_DISP_PAR1        0x2000  /* Bit 13: Parallel port control       */
 
+/* ── VRAM write hook ─────────────────────────────────────────────────────── */
+
+/*
+ * Optional observation callback fired after every byte written into
+ * VRAM (mem_write_word fires it twice — low byte then high byte).
+ * Used by VramMirror to track exactly which cells the CPU has just
+ * touched without polling the whole VRAM each frame.
+ *
+ * The hook is OBSERVATION only — the byte has already landed in
+ * mem->vram[offset] by the time it runs.  Returning is the only
+ * action; modifying memory from inside the hook is unsupported.
+ */
+typedef void (*ms0515_vram_write_fn)(uint16_t offset, uint8_t value, void *userdata);
+
 /* ── Memory state structure ───────────────────────────────────────────────── */
 
 typedef struct ms0515_memory {
@@ -103,6 +117,10 @@ typedef struct ms0515_memory {
 
     /* Extended ROM flag — mirrors System Register A bit 7 */
     bool     rom_extended;
+
+    /* Optional VRAM-write observer.  NULL by default — no overhead. */
+    ms0515_vram_write_fn vram_write_hook;
+    void                *vram_write_hook_ud;
 } ms0515_memory_t;
 
 /* ── Translation result ───────────────────────────────────────────────────── */
@@ -152,6 +170,15 @@ void     mem_write_word(ms0515_memory_t *mem, mem_translation_t tr, uint16_t val
  * mem_get_vram — Direct pointer to VRAM for the video renderer.
  */
 const uint8_t *mem_get_vram(const ms0515_memory_t *mem);
+
+/*
+ * mem_set_vram_write_hook — Install (or clear) the VRAM-write
+ * observer.  Pass `fn = NULL` to detach; `userdata` is delivered to
+ * the callback on every event.
+ */
+void mem_set_vram_write_hook(ms0515_memory_t *mem,
+                             ms0515_vram_write_fn fn,
+                             void *userdata);
 
 #ifdef __cplusplus
 }

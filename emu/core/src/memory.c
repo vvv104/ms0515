@@ -23,8 +23,18 @@ void mem_init(ms0515_memory_t *mem)
     memset(mem->ram,  0, sizeof(mem->ram));
     memset(mem->rom,  0, sizeof(mem->rom));
     memset(mem->vram, 0, sizeof(mem->vram));
-    mem->dispatcher   = 0x007F;   /* All primary banks selected by default */
-    mem->rom_extended = false;
+    mem->dispatcher        = 0x007F;   /* All primary banks selected by default */
+    mem->rom_extended      = false;
+    mem->vram_write_hook   = NULL;
+    mem->vram_write_hook_ud = NULL;
+}
+
+void mem_set_vram_write_hook(ms0515_memory_t *mem,
+                             ms0515_vram_write_fn fn,
+                             void *userdata)
+{
+    mem->vram_write_hook    = fn;
+    mem->vram_write_hook_ud = userdata;
 }
 
 void mem_load_rom(ms0515_memory_t *mem, const uint8_t *data, uint32_t size)
@@ -160,6 +170,10 @@ void mem_write_byte(ms0515_memory_t *mem, mem_translation_t tr, uint8_t val)
     case ADDR_TYPE_VRAM:
         assert(tr.offset < MEM_VRAM_SIZE);
         mem->vram[tr.offset] = val;
+        if (mem->vram_write_hook) {
+            mem->vram_write_hook((uint16_t)tr.offset, val,
+                                 mem->vram_write_hook_ud);
+        }
         break;
     case ADDR_TYPE_ROM:
         /* Writes to ROM are silently ignored */

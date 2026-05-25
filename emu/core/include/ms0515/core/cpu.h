@@ -118,11 +118,17 @@ struct ms0515_cpu;
  * inspect/modify registers and PSW, and let execution resume at whatever
  * the trap instruction left as PC (typically the byte after the EMT/TRAP).
  *
- * Used by the user-mode emulator (emu/usermode) to redirect RT-11 EMTs to
- * host syscalls.  Not used by the system emulator — when NULL, EMT/TRAP/IOT
- * service normally through the guest vector table.
+ * Return value:
+ *   true  — host handled the trap; skip the standard guest-vector service.
+ *   false — fall through to the standard service path (push PSW+PC, load
+ *           vector).  Lets a thunk handle only the requests it cares about
+ *           and leave the rest to the guest kernel.
+ *
+ * Used by the CLI bridge (emu/cli) to intercept just .TTYIN/.TTYOUT/.PRINT
+ * and pass everything else to the real RT-11 kernel.  Not used by the
+ * system emulator — when NULL, EMT/TRAP/IOT service normally.
  */
-typedef void (*ms0515_trap_thunk_fn)(struct ms0515_cpu *cpu, uint16_t vector);
+typedef bool (*ms0515_trap_thunk_fn)(struct ms0515_cpu *cpu, uint16_t vector);
 
 typedef struct ms0515_cpu {
     /* Registers */

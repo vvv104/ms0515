@@ -102,29 +102,26 @@ static bool cpu_check_interrupts(ms0515_cpu_t *cpu)
     }
     if (cpu->irq_iot) {
         cpu->irq_iot = false;
-        if (cpu->trap_thunk) {
-            cpu->trap_thunk(cpu, CPU_VEC_IOT);
-        } else {
-            cpu_service_interrupt(cpu, CPU_VEC_IOT);
+        if (cpu->trap_thunk && cpu->trap_thunk(cpu, CPU_VEC_IOT)) {
+            return true;
         }
+        cpu_service_interrupt(cpu, CPU_VEC_IOT);
         return true;
     }
     if (cpu->irq_emt) {
         cpu->irq_emt = false;
-        if (cpu->trap_thunk) {
-            cpu->trap_thunk(cpu, CPU_VEC_EMT);
-        } else {
-            cpu_service_interrupt(cpu, CPU_VEC_EMT);
+        if (cpu->trap_thunk && cpu->trap_thunk(cpu, CPU_VEC_EMT)) {
+            return true;
         }
+        cpu_service_interrupt(cpu, CPU_VEC_EMT);
         return true;
     }
     if (cpu->irq_trap) {
         cpu->irq_trap = false;
-        if (cpu->trap_thunk) {
-            cpu->trap_thunk(cpu, CPU_VEC_TRAP);
-        } else {
-            cpu_service_interrupt(cpu, CPU_VEC_TRAP);
+        if (cpu->trap_thunk && cpu->trap_thunk(cpu, CPU_VEC_TRAP)) {
+            return true;
         }
+        cpu_service_interrupt(cpu, CPU_VEC_TRAP);
         return true;
     }
 

@@ -40,7 +40,7 @@ struct ThunkRecord {
 
 ThunkRecord g_thunk{};
 
-extern "C" void test_thunk(ms0515_cpu_t *cpu, uint16_t vector)
+extern "C" bool test_thunk(ms0515_cpu_t *cpu, uint16_t vector)
 {
     g_thunk.count++;
     g_thunk.vector         = vector;
@@ -48,6 +48,18 @@ extern "C" void test_thunk(ms0515_cpu_t *cpu, uint16_t vector)
     g_thunk.instruction_pc = cpu->instruction_pc;
     std::memcpy(g_thunk.r, cpu->r, sizeof(cpu->r));
     g_thunk.psw            = cpu->psw;
+    return true;  /* swallow the trap — skip standard vector service. */
+}
+
+extern "C" bool test_thunk_passthrough(ms0515_cpu_t *cpu, uint16_t vector)
+{
+    g_thunk.count++;
+    g_thunk.vector         = vector;
+    g_thunk.instruction    = cpu->instruction;
+    g_thunk.instruction_pc = cpu->instruction_pc;
+    std::memcpy(g_thunk.r, cpu->r, sizeof(cpu->r));
+    g_thunk.psw            = cpu->psw;
+    return false; /* let the standard vector service run after we look. */
 }
 
 /*
@@ -240,6 +252,32 @@ TEST_CASE("thunk is also used for IOT instructions") {
     CHECK(board.cpu.psw == 0);
     CHECK(board.cpu.r[CPU_REG_PC] == CODE_BASE + 4);
     CHECK(board.cpu.irq_iot == false);
+}
+
+TEST_CASE("thunk returning false falls through to the standard vector service") {
+    ms0515_board_t board{};
+    prepare_board(board);
+    board.cpu.trap_thunk = test_thunk_passthrough;
+
+    /* EMT 7 at CODE_BASE.  Standard service should push PSW+PC and jump
+     * to VECTOR_TGT, exactly as if no thunk were installed. */
+    write_word(board, CODE_BASE,  0104007);
+    write_word(board, VECTOR_TGT, NOP_OPCODE);
+    write_word(board, CPU_VEC_EMT,     VECTOR_TGT);
+    write_word(board, CPU_VEC_EMT + 2, VECTOR_PSW);
+
+    cpu_step(&board.cpu);  /* execute EMT */
+    cpu_step(&board.cpu);  /* thunk fires, returns false, default service runs */
+
+    /* Thunk observed the trap. */
+    CHECK(g_thunk.count == 1);
+    CHECK(g_thunk.vector == CPU_VEC_EMT);
+
+    /* Default service path ran: PC landed at the vector target's NOP. */
+    CHECK(board.cpu.r[CPU_REG_PC] == VECTOR_TGT + 2);
+    CHECK(board.cpu.r[CPU_REG_SP] == INITIAL_SP - 4);
+    CHECK(read_word(board, INITIAL_SP - 4) == CODE_BASE + 2);
+    CHECK(board.cpu.psw == VECTOR_PSW);
 }
 
 }  // TEST_SUITE
