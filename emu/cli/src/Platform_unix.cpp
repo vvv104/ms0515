@@ -43,6 +43,11 @@ bool shouldQuit()
     return g_quit.load(std::memory_order_acquire);
 }
 
+void requestQuit()
+{
+    g_quit.store(true, std::memory_order_release);
+}
+
 bool setTerminalRawMode()
 {
     if (g_rawSet) return true;
@@ -56,10 +61,11 @@ bool setTerminalRawMode()
 
     struct termios raw = g_orig;
     cfmakeraw(&raw);
-    /* Keep ISIG so Ctrl-C still raises SIGINT (our handler sets
-     * g_quit; the alternative is the guest seeing a literal 0x03
-     * byte, which we may want later but for now is unhelpful). */
-    raw.c_lflag |= ISIG;
+    /* ISIG OFF so Ctrl-C lands as a literal 0x03 byte for the guest
+     * (RT-11 СУ/C interrupt).  cfmakeraw clears ISIG by default —
+     * stating it explicitly so the intent is obvious.  The CLI's own
+     * quit escape is Ctrl-]  (handled at the bridge layer). */
+    raw.c_lflag &= ~static_cast<tcflag_t>(ISIG);
     /* CRLF translation: leave OPOST off (raw) — we manage line
      * endings explicitly in the .PRINT hook. */
     if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) != 0) return false;

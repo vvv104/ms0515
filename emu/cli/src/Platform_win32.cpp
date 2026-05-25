@@ -28,8 +28,13 @@ std::atomic<bool> g_eof{false};
 
 BOOL WINAPI consoleHandler(DWORD signal)
 {
-    if (signal == CTRL_C_EVENT || signal == CTRL_BREAK_EVENT
-        || signal == CTRL_CLOSE_EVENT)
+    /* CTRL_C_EVENT and CTRL_BREAK_EVENT only fire when
+     * ENABLE_PROCESSED_INPUT is set — which we deliberately clear so
+     * Ctrl-C reaches the guest as СУ/C.  The handler still catches
+     * window-close / logoff / shutdown so the CLI can restore the
+     * terminal before the process dies. */
+    if (signal == CTRL_CLOSE_EVENT || signal == CTRL_LOGOFF_EVENT
+        || signal == CTRL_SHUTDOWN_EVENT)
     {
         g_quit.store(true, std::memory_order_release);
         restoreTerminal();
@@ -50,6 +55,11 @@ bool shouldQuit()
     return g_quit.load(std::memory_order_acquire);
 }
 
+void requestQuit()
+{
+    g_quit.store(true, std::memory_order_release);
+}
+
 bool setTerminalRawMode()
 {
     if (g_rawSet) return true;
@@ -65,12 +75,16 @@ bool setTerminalRawMode()
         /* stdin might be a pipe — treat as already-raw. */
         g_stdinModeIn = 0;
     } else {
-        /* Strip line-input + echo, keep processed-input so the console
-         * driver still converts Ctrl-C into a SIGINT-equivalent event
-         * that our CtrlHandler catches. */
+        /* Strip line-input, echo AND processed-input.  Without
+         * ENABLE_PROCESSED_INPUT, Ctrl-C lands as a regular KEY_EVENT
+         * with UnicodeChar = 0x03 instead of triggering the
+         * Ctrl-handler — the guest then sees СУ/C as RT-11 expects.
+         * The CLI's own quit escape is Ctrl-] (0x1D); window-close
+         * events still route through SetConsoleCtrlHandler regardless
+         * of this flag. */
         DWORD mode = g_stdinModeIn;
-        mode &= ~(DWORD)(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
-        mode |=  ENABLE_PROCESSED_INPUT;
+        mode &= ~(DWORD)(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT
+                       | ENABLE_PROCESSED_INPUT);
         SetConsoleMode(g_stdin, mode);
     }
 
@@ -146,7 +160,44 @@ size_t readStdinNonBlocking(uint8_t *buf, size_t cap)
             }
             if (rec.EventType != KEY_EVENT) continue;
             if (!rec.Event.KeyEvent.bKeyDown) continue;
-            WCHAR wc = rec.Event.KeyEvent.uChar.UnicodeChar;
+            WCHAR wc   = rec.Event.KeyEvent.uChar.UnicodeChar;
+            WORD  vkey = rec.Event.KeyEvent.wVirtualKeyCode;
+
+            /* Arrow keys deliver UnicodeChar = 0 on Windows consoles.
+             * Synthesise the same ESC[A/B/C/D sequences that POSIX
+             * terminals emit in raw mode, so the bridge's ESC state
+             * machine sees a uniform byte stream from both platforms. */
+            if (wc == 0) {
+                const char *seq = nullptr;
+                switch (vkey) {
+                case VK_UP:    seq = "\x1B[A"; break;
+                case VK_DOWN:  seq = "\x1B[B"; break;
+                case VK_RIGHT: seq = "\x1B[C"; break;
+                case VK_LEFT:  seq = "\x1B[D"; break;
+                default: break;
+                }
+                if (seq != nullptr) {
+                    for (const char *p = seq; *p != '\0' && out < cap; ++p)
+                        buf[out++] = static_cast<uint8_t>(*p);
+                    continue;
+                }
+            }
+
+            /* Fall back to the physical-key VK code only when the OS
+             * gave us no Unicode character at all — typically because
+             * a layout doesn't define one for a particular key.  We
+             * deliberately respect the active layout when it does
+             * produce a char: a Russian-layout user pressing the 'D'
+             * physical key gets Cyrillic в (0x0432), and the bridge
+             * will route that to the MS-7004 'W' key under RUS mode.
+             * The earlier "always force vkey for letters" override
+             * blocked Cyrillic input entirely. */
+            if (wc == 0 &&
+                ((vkey >= '0' && vkey <= '9') ||
+                 (vkey >= 'A' && vkey <= 'Z')))
+            {
+                wc = static_cast<WCHAR>(vkey);
+            }
             if (wc == 0) continue;
             /* Encode the UTF-16 code unit into UTF-8 bytes for the
              * shared UTF-8 → KOI-8 decoder downstream.  Surrogate

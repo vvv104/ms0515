@@ -24,10 +24,19 @@ target_include_directories(ms0515-cli PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_compile_definitions(ms0515-cli PRIVATE
-    MS0515_DEFAULT_ROM="${CMAKE_SOURCE_DIR}/assets/rom/ms0515-romb.rom"
-)
-
 target_link_libraries(ms0515-cli
     PRIVATE ms0515_lib
+    PRIVATE ms0515_libapp
+)
+
+# ── Package output ──────────────────────────────────────────────────────────
+# Drop the .exe next to ms0515.exe in package/ so users get both binaries
+# side-by-side (sharing assets/ and ms0515.yaml).  The frontend's POST_BUILD
+# step is what creates package/ and copies assets in; we only need to add
+# our exe.
+set(PACKAGE_DIR "${CMAKE_SOURCE_DIR}/package")
+add_custom_command(TARGET ms0515-cli POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ms0515-cli>" "${PACKAGE_DIR}/"
+    COMMENT "Copying ms0515-cli into ${PACKAGE_DIR}"
 )

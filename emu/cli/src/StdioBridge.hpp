@@ -1,20 +1,21 @@
 /*
- * StdioBridge.hpp — wires host stdin/stdout to the guest kernel via
- * the cpu->trap_thunk hook.
+ * StdioBridge.hpp — host-stdin → MS-7004 keyboard bridge for ms0515-cli.
  *
- * Intercepts exactly three EMTs:
- *   EMT 0o340 (.TTYIN)  — pop a byte from the stdin queue into R0
- *   EMT 0o341 (.TTYOUT) — write R0's low byte to stdout (KOI-8 → UTF-8)
- *   EMT 0o351 (.PRINT)  — walk an ASCIZ string at R0 to stdout
+ * The CLI's output is taken from VRAM via the Terminal class (set up
+ * in main.cpp), so this module no longer intercepts .TTYIN/.TTYOUT/
+ * .PRINT — the kernel routes those through its own TT.SYS, and the
+ * resulting screen draws land in VRAM where the Terminal mirror picks
+ * them up.
  *
- * Every other EMT/TRAP/IOT/BPT is left for the standard kernel handler
- * (the thunk returns false in those cases, so cpu_service_interrupt()
- * runs as usual).
+ * What's left here is the input side: drain host stdin into a KOI-8
+ * byte queue, then feed those bytes into the emulated keyboard as
+ * key-press / release pairs.  The kernel echoes typed characters
+ * through TT.SYS like any other output, so no host-side echo is
+ * needed either.
  *
- * Singleton: the trap_thunk has no user-data slot, so this module
- * owns process-global state (the stdin queue + whether the bridge is
- * active).  main() calls install() once; readBytesFromHost() should be
- * called once per frame to pump host stdin into the queue.
+ * Singleton: the trap_thunk and emu pointer have no user-data slot,
+ * so this module owns process-global state.  main() calls install()
+ * once; pumpInput() once per frame.
  */
 
 #ifndef MS0515_CLI_STDIO_BRIDGE_HPP
@@ -24,30 +25,31 @@
 
 namespace ms0515::cli::bridge {
 
-/* Install the trap_thunk on `emu` and remember the emu pointer so the
- * stdin pump can drive emu.keyPress() between frames. */
+/* Install the (diagnostic-only) trap_thunk on `emu` and remember the
+ * emu pointer for pumpInput(). */
 void install(ms0515::Emulator &emu);
 
-/* Bridge for the i8251 serial-TX register.  OSA's monitor writes
- * typed-char echo straight here (bypassing .TTYOUT); forwarding the
- * byte through the same KOI-7 / VT-aware emitter makes echo visible
- * without losing Mihin's .TTYOUT-driven echo (Mihin doesn't use the
- * serial TX path so there's no double-emit). */
-bool serialOutByte(uint8_t byte);
-
-/* Pump host stdin → MS-7004 keypress sequence.  Called once per
- * frame from main.  Reads available bytes, converts UTF-8 → KOI-8R,
- * queues them as keystrokes, and feeds one keystroke into the
- * MS-7004 emulation per few frames (down → release timing).
+/* Pump host stdin → MS-7004 keypress sequence.  Reads available bytes,
+ * converts UTF-8 → KOI-8R, queues them as keystrokes, then feeds one
+ * keystroke into the emulated keyboard per few frames.  Input flows
+ * through the keyboard hardware path (i8251 ISR fills TT.SYS buffer);
+ * a direct .TTYIN hook would short-circuit that.
  *
- * Input goes through the keyboard hardware path because the Omega
- * monitor reads commands from MS-7004 / i8251 (the hardware ISR fills
- * the TT.SYS buffer); our EMT 0o340 hook would only catch direct
- * user-program polling, which the monitor doesn't use. */
+ * Injection is gated by a "kernel is ready" flag — main.cpp watches
+ * the VramMirror's idle counter and calls setInputReady(true) once
+ * the kernel is parked at a prompt.  Before that, typed bytes are
+ * still queued but not delivered, so a user typing during boot
+ * sees their input land once the OS is ready. */
 void pumpInput();
 
-/* When the MS0515_CLI_EMT_TRACE env var is set, write a per-EMT
- * histogram to stderr.  No-op otherwise. */
+void setInputReady(bool ready);
+
+/* Enable a histogram of EMT request counts (printed by dumpEmtCounts()
+ * at exit) and a per-byte trace of .TTYOUT to stderr.  Diagnostic only;
+ * the CLI's --emt-trace flag turns it on. */
+void setEmtTrace(bool enabled);
+
+/* Print the EMT histogram if tracing is enabled.  No-op otherwise. */
 void dumpEmtCounts();
 
 }  /* namespace ms0515::cli::bridge */

@@ -15,11 +15,20 @@
 namespace ms0515::cli {
 
 /* Install a SIGINT handler that sets a global "quit requested" flag.
- * Returns true on success.  The flag is observable via shouldQuit(). */
+ * Returns true on success.  The flag is observable via shouldQuit().
+ * Ctrl-C from the host is NOT routed here — it's passed through to
+ * the guest as СУ/C; the CLI's own quit escape is Ctrl-] (handled at
+ * the bridge layer via requestQuit()).  The OS-level signal handler
+ * only fires for window-close / SIGTERM / etc. */
 bool installInterruptHandler();
 
-/* True after the user has hit Ctrl-C (or sent SIGINT). */
+/* True after the user has hit the CLI quit hotkey OR the host signalled
+ * a window-close / SIGTERM.  Polled by the main loop to exit cleanly. */
 bool shouldQuit();
+
+/* Set the quit flag from inside the bridge — used by the Ctrl-]
+ * detection in StdioBridge::enqueueKoi8. */
+void requestQuit();
 
 /* Put the controlling terminal into raw-ish mode: no line buffering,
  * no host echo (so the guest can echo via .TTYOUT), but ISIG kept
