@@ -9,6 +9,7 @@ add_library(ms0515_lib STATIC
     src/GdbStub.cpp
     src/KeyboardLayout.cpp
     src/Terminal.cpp
+    src/VramMirror.cpp
 )
 
 if(WIN32)

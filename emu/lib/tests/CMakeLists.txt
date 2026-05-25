@@ -20,6 +20,8 @@ add_executable(ms0515_lib_tests
     test_keyboard_emulated.cpp
     test_keyboard_layout.cpp
     test_terminal.cpp
+    test_vram_write_callback.cpp
+    test_vram_mirror.cpp
 )
 
 target_compile_features(ms0515_lib_tests PRIVATE cxx_std_23)

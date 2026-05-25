@@ -41,6 +41,7 @@ struct Emulator::Impl {
     Emulator::SoundCallback     soundCb;
     Emulator::SerialOutCallback serialOutCb;
     Emulator::SerialInCallback  serialInCb;
+    Emulator::VramWriteCallback vramWriteCb;
 };
 
 namespace internal {

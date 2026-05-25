@@ -58,6 +58,13 @@ bool cSerialInTrampoline(void *userdata, uint8_t *byte)
     return cb ? cb(*byte) : false;
 }
 
+void cVramWriteTrampoline(uint16_t offset, uint8_t value, void *userdata)
+{
+    auto *self = static_cast<ms0515::Emulator *>(userdata);
+    if (auto &cb = self->impl()->vramWriteCb)
+        cb(offset, value);
+}
+
 } /* anonymous namespace */
 
 namespace ms0515 {
@@ -394,6 +401,15 @@ void Emulator::setTrapThunk(TrapThunkFn thunk)
     impl_->board.cpu.trap_thunk = thunk;
 }
 
+void Emulator::setVramWriteCallback(VramWriteCallback cb)
+{
+    impl_->vramWriteCb = std::move(cb);
+    mem_set_vram_write_hook(
+        &impl_->board.mem,
+        impl_->vramWriteCb ? &cVramWriteTrampoline : nullptr,
+        this);
+}
+
 /* ── Internal pointer rewiring ──────────────────────────────────────────── */
 
 void Emulator::rewirePointers()
@@ -414,6 +430,11 @@ void Emulator::rewirePointers()
             &impl_->board,
             impl_->serialInCb  ? &cSerialInTrampoline  : nullptr,
             impl_->serialOutCb ? &cSerialOutTrampoline : nullptr,
+            this);
+    if (impl_->vramWriteCb)
+        mem_set_vram_write_hook(
+            &impl_->board.mem,
+            &cVramWriteTrampoline,
             this);
 }
 

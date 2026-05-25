@@ -236,6 +236,19 @@ public:
     void setSoundCallback(SoundCallback cb);
     void setSerialCallbacks(SerialInCallback in, SerialOutCallback out);
 
+    /* Observation callback for every byte the CPU writes into VRAM.
+     * Fires AFTER the byte has been stored in the VRAM array — the
+     * observer can read the byte through `vram[offset]` itself or
+     * use the delivered `value` argument.
+     *
+     * Word writes route through two byte writes (low first, high
+     * second) so the callback fires twice with offsets N and N+1.
+     *
+     * Pass an empty std::function to detach.  This is the lib-side
+     * passthrough to mem_set_vram_write_hook in core. */
+    using VramWriteCallback = std::function<void(uint16_t offset, uint8_t value)>;
+    void setVramWriteCallback(VramWriteCallback cb);
+
     /* Install a hook that intercepts programmed requests (EMT/TRAP/
      * IOT/BPT and the T-bit single-step trap, which uses the BPT
      * vector) before the default push-PSW/load-vector service runs.
