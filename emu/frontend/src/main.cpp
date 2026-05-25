@@ -38,7 +38,7 @@
  * entry point. */
 
 #include "App.hpp"
-#include "Cli.hpp"
+#include "Config.hpp"   /* parseArgs lives here now */
 
 int main(int argc, char **argv)
 {

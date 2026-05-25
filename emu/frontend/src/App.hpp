@@ -13,8 +13,7 @@
 #pragma once
 
 #include "Audio.hpp"
-#include "Cli.hpp"
-#include "Config.hpp"
+#include "Config.hpp"   /* re-exports CliArgs/Config from libapp */
 #include "OnScreenKeyboard.hpp"
 #include "PhysicalKeyboard.hpp"
 #include "Video.hpp"

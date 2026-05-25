@@ -70,20 +70,13 @@ bool App::initSdl()
         return false;
     }
 
-    /* Now that SDL is up (so SDL_GetBasePath works), load config and
-     * fold its values into cli_ — CLI args take precedence, config
-     * fills in anything left empty. */
+    /* Load YAML config and fold its disk/ROM paths into cli_ — CLI args
+     * take precedence, config fills in anything left empty.  Then pick
+     * the ROM (cli → config → default search) via libapp so the GUI
+     * and ms0515-cli use identical resolution. */
     config_ = Config::load();
-    for (int i = 0; i < 4; ++i)
-        if (cli_.fdPath[i].empty() && !config_.fdPath[i].empty())
-            cli_.fdPath[i] = config_.fdPath[i];
-    for (int i = 0; i < 2; ++i)
-        if (cli_.dsPath[i].empty() && !config_.dsPath[i].empty())
-            cli_.dsPath[i] = config_.dsPath[i];
-    if (cli_.romPath.empty() && !config_.romPath.empty())
-        cli_.romPath = config_.romPath;
-    if (cli_.romPath.empty())
-        cli_.romPath = findDefaultRom();
+    cli_ = ms0515::app::mergeCliOverConfig(std::move(cli_), config_);
+    cli_.romPath = ms0515::app::resolveRom(cli_.romPath, config_.romPath);
     showDebugger_ = config_.showDebugger;
     showKeyboard_ = config_.showKeyboard;
 
@@ -228,59 +221,23 @@ void App::initEmulator()
 
 void App::mountInitialDisks()
 {
-    /* CLI / config disk mounts.  Errors are reported on stderr but
-     * don't abort startup — the user can mount via the menu. */
-    for (int drive = 0; drive < 2; ++drive) {
-        const bool wantDs    = !cli_.dsPath[drive].empty();
-        const bool wantSide0 = !cli_.fdPath[fdcUnitFor(drive, 0)].empty();
-        const bool wantSide1 = !cli_.fdPath[fdcUnitFor(drive, 1)].empty();
+    /* The actual validate + mount work lives in libapp so ms0515-cli
+     * sees identical behaviour.  Errors are logged to stderr; we don't
+     * abort here because the user can still mount through the menu. */
+    (void)ms0515::app::mountDisksFromCli(emu_, cli_);
 
-        if (wantDs && (wantSide0 || wantSide1)) {
-            std::fprintf(stderr,
-                "error: --disk%d (-d%d) is mutually exclusive with "
-                "--disk%d-sideN (-d%dsN); pick one.  Skipping drive %d.\n",
-                drive, drive, drive, drive, drive);
-            continue;
-        }
-        if (wantDs) {
-            if (auto err = validateDoubleSidedImage(cli_.dsPath[drive])) {
-                std::fprintf(stderr,
-                    "error: cannot mount disk %d (double-sided): %s\n",
-                    drive, err->c_str());
-                continue;
-            }
-            int u0 = fdcUnitFor(drive, 0), u1 = fdcUnitFor(drive, 1);
-            bool ok0 = emu_.mountDisk(u0, cli_.dsPath[drive]);
-            bool ok1 = emu_.mountDisk(u1, cli_.dsPath[drive]);
-            if (ok0 && ok1) {
-                config_.dsPath[drive] = cli_.dsPath[drive];
-                config_.fdPath[u0].clear();
-                config_.fdPath[u1].clear();
-            } else {
-                std::fprintf(stderr,
-                    "error: failed to mount double-sided '%s' on drive %d\n",
-                    cli_.dsPath[drive].c_str(), drive);
-                if (ok0) emu_.unmountDisk(u0);
-                if (ok1) emu_.unmountDisk(u1);
-            }
-            continue;
-        }
-        for (int side = 0; side < 2; ++side) {
-            int unit = fdcUnitFor(drive, side);
-            if (cli_.fdPath[unit].empty()) continue;
-            if (auto err = validateSingleSideImage(cli_.fdPath[unit])) {
-                std::fprintf(stderr,
-                    "error: cannot mount disk %d side %d: %s\n",
-                    drive, side, err->c_str());
-                continue;
-            }
-            if (emu_.mountDisk(unit, cli_.fdPath[unit])) {
-                config_.fdPath[unit] = cli_.fdPath[unit];
-            } else {
-                std::fprintf(stderr,
-                    "error: failed to mount '%s' on disk %d side %d\n",
-                    cli_.fdPath[unit].c_str(), drive, side);
-            }
+    /* Sync the in-memory Config so the next save() reflects what the
+     * user just requested.  DS overrides side-N for the same drive. */
+    for (int drive = 0; drive < 2; ++drive) {
+        const int u0 = fdcUnitFor(drive, 0);
+        const int u1 = fdcUnitFor(drive, 1);
+        if (!cli_.dsPath[drive].empty()) {
+            config_.dsPath[drive] = cli_.dsPath[drive];
+            config_.fdPath[u0].clear();
+            config_.fdPath[u1].clear();
+        } else {
+            if (!cli_.fdPath[u0].empty()) config_.fdPath[u0] = cli_.fdPath[u0];
+            if (!cli_.fdPath[u1].empty()) config_.fdPath[u1] = cli_.fdPath[u1];
         }
     }
 }

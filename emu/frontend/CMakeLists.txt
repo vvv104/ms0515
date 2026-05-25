@@ -35,7 +35,6 @@ add_executable(ms0515 WIN32
     src/App.cpp
     src/Assets.cpp
     src/Audio.cpp
-    src/Cli.cpp
     src/Config.cpp
     src/Video.cpp
     src/Keymap.cpp
@@ -55,6 +54,7 @@ target_include_directories(ms0515 PRIVATE
 
 target_link_libraries(ms0515
     PRIVATE ms0515_lib
+    PRIVATE ms0515_libapp
     PRIVATE SDL2::SDL2 SDL2::SDL2main
     PRIVATE imgui::imgui
     PRIVATE stb::stb
