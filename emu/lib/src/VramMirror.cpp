@@ -515,14 +515,51 @@ void VramMirror::flushFrame()
         }
     }
 
-    /* Emit pass — write out every cell whose code or inversion flag
-     * differs from the pre-flush snapshot. */
-    for (int r = 0; r < kRows; ++r) {
+    /* Check whether any cell needs emitting.  Used to decide if the
+     * synchronized-output begin/end pair is worth emitting — also
+     * lets us skip the cursor re-park if there's nothing to redraw
+     * and the cursor cell hasn't moved either, which avoids resetting
+     * the terminal's blink phase every frame while the OS quietly
+     * pings the cursor cell with the same '_'. */
+    bool anyEmit = false;
+    for (int r = 0; r < kRows && !anyEmit; ++r) {
         for (int c = 0; c < kCols; ++c) {
             const int idx = r * kCols + c;
-            if (shadow_[idx]   == prev_shadow[idx] &&
-                inverted_[idx] == prev_inverted[idx]) continue;
-            emitCellChange(r, c, shadow_[idx], inverted_[idx]);
+            if (shadow_[idx]   != prev_shadow[idx] ||
+                inverted_[idx] != prev_inverted[idx]) {
+                anyEmit = true; break;
+            }
+        }
+    }
+
+    const bool cursorMoved =
+        osCursorRow_ >= 0 &&
+        (hostCursorRow_ != osCursorRow_ || hostCursorCol_ != osCursorCol_);
+    const bool cursorVisibilityChange =
+        (osCursorRow_ >= 0) != hostCursorVisible_;
+
+    if (!anyEmit && !cursorMoved && !cursorVisibilityChange) {
+        return;     /* Nothing to flush — leave the host stream alone. */
+    }
+
+    /* Bracket the actual output with DEC Mode 2026 (synchronized
+     * output): cooperating terminals (Windows Terminal 1.16+, kitty,
+     * konsole, foot, alacritty, …) render only the final frame state
+     * instead of redrawing on every escape.  That hides the cursor
+     * wandering through the cells during emitCellChange's per-cell
+     * positioning, which otherwise reads as a flicker every time the
+     * OS does any background paint.  Terminals that don't recognise
+     * the mode silently ignore it. */
+    emitAnsi("\x1B[?2026h");
+
+    if (anyEmit) {
+        for (int r = 0; r < kRows; ++r) {
+            for (int c = 0; c < kCols; ++c) {
+                const int idx = r * kCols + c;
+                if (shadow_[idx]   == prev_shadow[idx] &&
+                    inverted_[idx] == prev_inverted[idx]) continue;
+                emitCellChange(r, c, shadow_[idx], inverted_[idx]);
+            }
         }
     }
 
@@ -532,7 +569,7 @@ void VramMirror::flushFrame()
      * POST or a TUI app has hidden its own cursor — hide the host
      * cursor too. */
     if (osCursorRow_ >= 0) {
-        if (hostCursorRow_ != osCursorRow_ || hostCursorCol_ != osCursorCol_) {
+        if (cursorMoved || anyEmit /* emit pass moved hostCursor */) {
             char buf[16];
             int n = std::snprintf(buf, sizeof(buf), "\x1B[%d;%dH",
                                   osCursorRow_ + 1, osCursorCol_ + 1);
@@ -548,6 +585,8 @@ void VramMirror::flushFrame()
         emitAnsi("\x1B[?25l");
         hostCursorVisible_ = false;
     }
+
+    emitAnsi("\x1B[?2026l");
 
     if (out_) std::fflush(out_);
 }

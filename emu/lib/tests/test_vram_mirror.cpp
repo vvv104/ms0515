@@ -225,13 +225,11 @@ TEST_CASE("FILE* output writes ANSI cursor positioning + UTF-8 char") {
     std::fclose(tmp);
     std::filesystem::remove(tmpPath);
 
-    /* Expect ESC[5;8H Z — the position-and-emit pair for the single
-     * cell change.  No trailing cursor park, no cursor show/hide
-     * sequence: the OS-cursor detector only triggers on a '_' write
-     * (the kernel's blink glyph), which this synthetic single-cell
-     * 'Z' paint never produces, so the host cursor stays in
-     * whatever state setTerminalRawMode left it. */
-    CHECK(out == "\x1B[5;8HZ");
+    /* Expect ESC[?2026h ESC[5;8H Z ESC[?2026l — the cell paint
+     * sandwiched between the DEC 2026 synchronized-output begin/end
+     * pair.  No '_' write happened so the OS cursor detector never
+     * fires; no cursor positioning escape, no '?25h' / '?25l'. */
+    CHECK(out == "\x1B[?2026h\x1B[5;8HZ\x1B[?2026l");
 }
 
 TEST_CASE("invalidate() forces a re-decode on next flush") {
