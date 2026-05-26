@@ -327,18 +327,22 @@ void enqueueLetterByte(uint8_t b)
  * (0xC0..0xDF) and uppercase (0xE0..0xFF) halves; shift differentiates.
  * Layout matches `emu/lib/src/KeyboardLayout.cpp` — each Russian
  * letter sits on the physical key its name shares with a Latin
- * counterpart in YЦUKEN-style mapping (Й→J, Ц→C, ... Ъ→HardSign). */
+ * counterpart in YЦUKEN-style mapping (Й→J, Ц→C, ... Ъ→HardSign).
+ *
+ * РУС mode follows normal PC convention: bare key = lowercase,
+ * Shift+key = uppercase.  Only ЛАТ mode has the OS-design quirk
+ * where Shift inverts (handled in asciiToKey). */
 KeyMapping koi8CyrillicToKey(uint8_t b)
 {
     using Key = ms0515::Key;
     int idx = -1;
-    bool upper = false;
+    bool shifted = false;
     if (b >= 0xC0 && b <= 0xDF) {
         idx = b - 0xC0;
-        upper = false;
+        shifted = false;    /* lowercase Cyrillic → bare key */
     } else if (b >= 0xE0 && b <= 0xFF) {
         idx = b - 0xE0;
-        upper = true;
+        shifted = true;     /* uppercase Cyrillic → Shift+key */
     } else {
         return {Key::None, false};
     }
@@ -357,7 +361,7 @@ KeyMapping koi8CyrillicToKey(uint8_t b)
         Key::X,         Key::Y,         Key::Z,         Key::LBracket,
         Key::Backslash, Key::RBracket,  Key::Che,       Key::HardSign,
     };
-    return {kCyrillic[idx], upper};
+    return {kCyrillic[idx], shifted};
 }
 
 KeyMapping asciiToKey(uint8_t c)
@@ -369,8 +373,18 @@ KeyMapping asciiToKey(uint8_t c)
         Key::O, Key::P, Key::Q, Key::R, Key::S, Key::T, Key::U,
         Key::V, Key::W, Key::X, Key::Y, Key::Z,
     };
-    if (c >= 'a' && c <= 'z') return {kLetters[c - 'a'], false};
-    if (c >= 'A' && c <= 'Z') return {kLetters[c - 'A'], true};
+    /* ЛАТ mode of the MS-0515 monitor inverts Shift sense: a bare
+     * key press echoes UPPERCASE, Shift+key echoes lowercase.  That's
+     * the OS's deliberate design (not a CAPS Lock state we could
+     * toggle off), so a clipboard paste of "Hello" would arrive
+     * here as bytes 0x48/0x65/… and need:
+     *   uppercase host byte → bare key  → OS echoes uppercase
+     *   lowercase host byte → Shift+key → OS echoes lowercase
+     * Keeps paste case-faithful at the cost of changing the typing
+     * convention (host without caps now lands in lowercase, matching
+     * PC expectations of "what I see in stdin is what shows up"). */
+    if (c >= 'A' && c <= 'Z') return {kLetters[c - 'A'], false};
+    if (c >= 'a' && c <= 'z') return {kLetters[c - 'a'], true};
     if (c >= '1' && c <= '9') {
         static const Key digits[9] = {
             Key::Digit1, Key::Digit2, Key::Digit3, Key::Digit4,
