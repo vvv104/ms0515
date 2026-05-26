@@ -20,6 +20,16 @@ namespace ms0515_frontend {
  * Call early in main(), before any output. */
 void platformInit();
 
+/* Bind the C runtime's stdout / stderr to whatever output channel
+ * the launching shell set up (pipe, file redirect, or the parent
+ * process's console).  Only meaningful for GUI-subsystem binaries
+ * on Windows, where the C runtime otherwise leaves these streams
+ * detached and `--help` / `--version` print into the void; on POSIX
+ * it's a no-op since stdio is already connected.  The frontend
+ * calls this only when argc > 1 so a plain GUI double-click never
+ * gets a stray console window. */
+void attachConsoleForOutput();
+
 /* What kind of file the dialog is picking — selects the filter and
  * (together with initialDir) the default starting folder. */
 enum class FileDialogKind { Disk, Rom, State };

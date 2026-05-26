@@ -14,6 +14,15 @@
 
 namespace ms0515::cli {
 
+/* Make stdout / stderr emit UTF-8 multibyte sequences correctly on
+ * the host console.  On Windows that means SetConsoleOutputCP(CP_UTF8);
+ * on POSIX it's a no-op since UTF-8 is the default locale.  Call
+ * before printing any non-ASCII text (e.g. the --help block, which
+ * has em/en-dashes); setTerminalRawMode() also sets the codepage as
+ * part of going raw, but the help / version paths exit before
+ * reaching that. */
+void enableUtf8Output();
+
 /* Install a SIGINT handler that sets a global "quit requested" flag.
  * Returns true on success.  The flag is observable via shouldQuit().
  * Ctrl-C from the host is NOT routed here — it's passed through to

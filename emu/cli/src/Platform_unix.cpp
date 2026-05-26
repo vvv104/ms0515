@@ -29,6 +29,11 @@ void handleSigint(int /*signo*/)
 
 }  /* namespace */
 
+void enableUtf8Output()
+{
+    /* POSIX terminals already speak UTF-8 by default — nothing to do. */
+}
+
 bool installInterruptHandler()
 {
     struct sigaction sa{};

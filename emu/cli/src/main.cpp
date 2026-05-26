@@ -60,11 +60,12 @@ options:
                           (stderr at exit).  Diagnostic only.
   --realtime              Throttle the emulator to the MS-0515's
                           original 50 Hz refresh, so OS-side timing
-                          (cursor blink rate, sleep-driven UIs)
+                          (sleep-driven UIs, timer-based code)
                           matches the hardware.  Without this flag
                           the loop runs as fast as the host CPU
-                          allows — usually 10–50× real speed.
+                          allows.
   -h, --help              Show this help and exit.
+  -V, --version           Print version and exit.
 
 Persistent config: ms0515.yaml in the same directory as the binary;
 written by ms0515.exe when settings change in the UI.  CLI args override
@@ -77,20 +78,22 @@ Quit hotkey (interactive session):  Ctrl-]
 /* Per-binary local flags that aren't part of the shared `CliArgs`
  * schema.  Currently just --help and --emt-trace; everything else
  * comes through libapp. */
-struct LocalFlags {
+struct CliLocalFlags {
     bool help     = false;
+    bool version  = false;
     bool emtTrace = false;
     bool realtime = false;
 };
 
-LocalFlags pickLocalFlags(int argc, char **argv)
+CliLocalFlags pickCliLocalFlags(int argc, char **argv)
 {
-    LocalFlags out;
+    CliLocalFlags out;
     for (int i = 1; i < argc; ++i) {
         std::string_view a = argv[i];
-        if (a == "-h" || a == "--help")  out.help     = true;
-        if (a == "--emt-trace")          out.emtTrace = true;
-        if (a == "--realtime")           out.realtime = true;
+        if (a == "-h" || a == "--help")     out.help     = true;
+        if (a == "-V" || a == "--version")  out.version  = true;
+        if (a == "--emt-trace")             out.emtTrace = true;
+        if (a == "--realtime")              out.realtime = true;
     }
     return out;
 }
@@ -99,9 +102,19 @@ LocalFlags pickLocalFlags(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-    const LocalFlags local = pickLocalFlags(argc, argv);
+    /* Switch the host console to UTF-8 early so the help text's
+     * en/em dashes render instead of CP437 mojibake.
+     * setTerminalRawMode() sets the same codepage later, but we
+     * exit on --help / --version before reaching that. */
+    ms0515::cli::enableUtf8Output();
+
+    const CliLocalFlags local = pickCliLocalFlags(argc, argv);
     if (local.help) {
         std::fputs(kHelp.data(), stdout);
+        return 0;
+    }
+    if (local.version) {
+        std::println("ms0515-cli {}", MS0515_VERSION_STRING);
         return 0;
     }
 

@@ -14,6 +14,11 @@
 
 namespace ms0515::cli {
 
+void enableUtf8Output()
+{
+    SetConsoleOutputCP(CP_UTF8);
+}
+
 namespace {
 
 std::atomic<bool> g_quit{false};

@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(ms0515 VERSION 0.4.0 LANGUAGES C CXX)
 
+# ── Version macro for --version flag ─────────────────────────────────────────
+# Push the CMake project version through to C++ so both binaries can echo it
+# without anyone having to bump a stand-alone string literal.
+add_compile_definitions(MS0515_VERSION_STRING="${PROJECT_VERSION}")
+
 # ── Build options ────────────────────────────────────────────────────────────
 option(MS0515_BUILD_FRONTEND "Build the SDL2/ImGui frontend"  ON)
 option(MS0515_BUILD_TESTS    "Build unit tests"               OFF)
