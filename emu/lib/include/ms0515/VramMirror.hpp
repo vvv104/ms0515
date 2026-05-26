@@ -55,10 +55,14 @@ public:
 
     /* Up/down arrows drawn by Rodionov ROSA Commander between the
      * file panels.  KOI-8R has no codepoint for these so we steal
-     * unused control-char slots; the emitter converts them to
-     * U+25B2/U+25BC. */
-    static constexpr uint8_t kArrowDown = 0x1A;
-    static constexpr uint8_t kArrowUp   = 0x1B;
+     * unused control-char slots.  Two variants per direction:
+     *   pure triangle ▲ / ▼ — standalone shapes in OS dialogs.
+     *   thick stem-arrow ⬆ / ⬇ — the between-panel scroll hints
+     *   (triangle + vertical stem). */
+    static constexpr uint8_t kArrowDownTri    = 0x1A;  /* ▼ */
+    static constexpr uint8_t kArrowUpTri      = 0x1B;  /* ▲ */
+    static constexpr uint8_t kArrowDownThick  = 0x1C;  /* ⬇ */
+    static constexpr uint8_t kArrowUpThick    = 0x1D;  /* ⬆ */
 
     VramMirror();
     ~VramMirror();
@@ -139,6 +143,14 @@ public:
      * was emitted up to the most recent flushFrame(). */
     [[nodiscard]] Snapshot snapshot() const;
 
+    /* Convert a single Snapshot cell code to its UTF-8 byte sequence.
+     * Returns "█" for kUnknownGlyph, "©" for kCopyrightSign,
+     * "▼"/"▲" for kArrowDown/kArrowUp, single ASCII char for printable
+     * 0x20..0x7E, and the kKoi8Hi[] codepoint for any byte 0x80..0xFF.
+     * Public so UI layers can render snapshots without re-implementing
+     * the KOI-8 → Unicode table. */
+    [[nodiscard]] static std::string utf8FromKoi8(uint8_t code);
+
 private:
     void onVramWrite(uint16_t offset, uint8_t value);
     void rebuildFontIfNeeded();
@@ -162,7 +174,6 @@ private:
     void emitCellChange(int row, int col, uint8_t newCode, bool inverted);
     void emitAnsi(std::string_view s);
     void emitKoi8(uint8_t code);
-    [[nodiscard]] static std::string utf8FromKoi8(uint8_t code);
 
     Emulator *emu_ = nullptr;
     FILE     *out_ = nullptr;

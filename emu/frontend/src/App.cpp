@@ -41,7 +41,6 @@ int App::run()
     prevShowScreen_     = !showScreen_;   /* force first-frame resize */
     prevShowDebugger_   = showDebugger_;
     prevShowKeyboard_   = showKeyboard_;
-    prevShowTerminal_   = showTerminal_;
 
     quit_ = false;
     while (!quit_) {
@@ -131,8 +130,6 @@ void App::initImGui()
         0x0020, 0x00FF,   /* Latin + Latin-1 */
         0x0400, 0x04FF,   /* Cyrillic */
         0x2190, 0x2199,   /* Arrows ← ↑ → ↓ ↖ ↗ ↘ ↙ */
-        0x2580, 0x259F,   /* Block elements (█ ▌ ▀ …) — Terminal
-                             window's unknown-glyph marker is U+2588 */
         0,
     };
     for (const auto &path : systemFontCandidates()) {
@@ -150,21 +147,6 @@ void App::initImGui()
     for (const auto &path : symbolFontCandidates()) {
         if (std::filesystem::exists(path)) {
             io.Fonts->AddFontFromFileTTF(path.c_str(), 15.0f, &sym, rangesSym);
-            break;
-        }
-    }
-
-    /* Separate monospace font for the Terminal window — the OS draws on
-     * a fixed 80-column grid, so the host-side mirror needs a fixed-pitch
-     * face for columns to line up.  Reuses the same Latin + Cyrillic
-     * range as the proportional UI font. */
-    ImFontConfig mono;
-    mono.OversampleH = 2;
-    mono.OversampleV = 2;
-    for (const auto &path : monoFontCandidates()) {
-        if (std::filesystem::exists(path)) {
-            terminalFont_ = io.Fonts->AddFontFromFileTTF(
-                path.c_str(), 15.0f, &mono, rangesMain);
             break;
         }
     }
@@ -494,36 +476,6 @@ void App::tick()
             emuTimeAccumMs_ -= kFrameMs;
             ++emuFramesSinceReset_;
             ++emuFramesInWindow_;
-            /* Skip sampling while the CPU is inside the BIOS scroll
-             * routines.  Disasm of ROM-A located two address ranges
-             * that perform mass VRAM copy:
-             *
-             *   - 0o165340–0o165502: scroll-up-by-1-cell-row (entry
-             *     from 0o165324 when row counter reaches 030).
-             *     Copies 1920 bytes from VRAM+1200 to VRAM+0
-             *     (8 scanlines × 80 bytes × 24 cell rows of source),
-             *     then clears the new bottom row.
-             *
-             *   - 0o167160–0o167334: coordinate-based scroll variant
-             *     used by the OS terminal driver when scrolling a
-             *     specific region.  Same MOV (R5)+,(R4)+ pattern.
-             *
-             * Sampling mid-routine catches partial states where some
-             * cells have been copied but others haven't — exactly the
-             * "      .SYS     2P 27-12-90" mid-scroll-copy garbage.
-             * Skip those frames; the next emu frame after the routine
-             * exits will be a clean post-scroll state.
-             *
-             * Address ranges are ROM-A specific.  ROM-B / different
-             * OSes that ship their own scroll in RAM still benefit
-             * from the Terminal::feedSample gates (clean/progressing/
-             * no-adjacent-duplicate) as a fallback. */
-            const uint16_t pc = emu_.pc();
-            if ((pc >= 0165340u && pc <= 0165502u) ||
-                (pc >= 0167160u && pc <= 0167334u))
-                continue;
-
-            terminal_.update(emu_);
         }
     } else {
         lastTickMs_     = SDL_GetTicks();
@@ -578,22 +530,16 @@ void App::renderFrame()
     const int scrWinH = screenContentH + (int)(imstyle.WindowPadding.y * 2.0f + titleBarH) + 2;
     const int dbgWinW  = 380;
     const int dbgWinH  = std::max(scrWinH, 360);
-    const int termWinW = 690;
-    const int termWinH = scrWinH;
     const int oskWinW  = (int)osk_.pixelWidth();
     const int oskWinH  = (int)osk_.pixelHeight();
 
     drawScreenWindow(window_, frameTex_, screenContentW, screenContentH,
                      menuBarHeight_, fullscreenOn_, showScreen_);
 
-    /* Debugger and Terminal both anchor to the right of the screen
-     * window — same x position, occupying the same slot in the
-     * layout.  When both are visible they overlap (z-order picks the
-     * focused one); the host window only has to be wide enough for
-     * the bigger of the two.  Use `Appearing` rather than
-     * `FirstUseEver` for the position/size so a hide-then-show
-     * sequence puts the window back at the calculated slot instead
-     * of a stale internal ImGui position. */
+    /* Debugger anchors to the right of the screen window.  Use
+     * `Appearing` rather than `FirstUseEver` for the position/size
+     * so a hide-then-show sequence puts the window back at the
+     * calculated slot instead of a stale internal ImGui position. */
     const int rightPanelX = 8 + (showScreen_ ? scrWinW + 8 : 0);
 
     if (showDebugger_ && !fullscreenOn_) {
@@ -606,8 +552,7 @@ void App::renderFrame()
         drawDebuggerWindow(dbg_, running_, romStatus_, showDebugger_);
     }
     if (showKeyboard_ && !fullscreenOn_) {
-        const int rightPanelH = std::max(showDebugger_ ? dbgWinH  : 0,
-                                         showTerminal_ ? termWinH : 0);
+        const int rightPanelH = showDebugger_ ? dbgWinH : 0;
         const int topRowH = std::max(showScreen_ ? scrWinH : 0, rightPanelH);
         ImGui::SetNextWindowPos(
             ImVec2(8.0f, (float)(menuBarHeight_ + 8 + topRowH + 8)),
@@ -616,16 +561,6 @@ void App::renderFrame()
             ImVec2((float)oskWinW, (float)oskWinH),
             ImGuiCond_Appearing);
         osk_.draw(emu_, showKeyboard_);
-    }
-
-    if (showTerminal_ && !fullscreenOn_) {
-        ImGui::SetNextWindowPos(
-            ImVec2((float)rightPanelX, (float)(menuBarHeight_ + 8)),
-            ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize(
-            ImVec2((float)termWinW, (float)termWinH),
-            ImGuiCond_Appearing);
-        drawTerminalWindow(terminal_, showTerminal_, terminalFont_);
     }
 
     if (!fullscreenOn_) resizeHostWindow();
@@ -654,8 +589,7 @@ void App::resizeHostWindow()
      * windows changes, sized to exactly contain them. */
     if (showScreen_   == prevShowScreen_   &&
         showDebugger_ == prevShowDebugger_ &&
-        showKeyboard_ == prevShowKeyboard_ &&
-        showTerminal_ == prevShowTerminal_) return;
+        showKeyboard_ == prevShowKeyboard_) return;
 
     const ImGuiStyle &imstyle = ImGui::GetStyle();
     const float titleBarH = ImGui::GetFontSize() + imstyle.FramePadding.y * 2.0f;
@@ -663,25 +597,17 @@ void App::resizeHostWindow()
     const int scrWinH  = kScreenHeight + (int)(imstyle.WindowPadding.y * 2.0f + titleBarH) + 2;
     const int dbgWinW  = 380;
     const int dbgWinH  = std::max(scrWinH, 360);
-    const int termWinW = 690;
-    const int termWinH = scrWinH;
     const int oskWinW  = (int)osk_.pixelWidth();
     const int oskWinH  = (int)osk_.pixelHeight();
     const int statusBarH = (int)(ImGui::GetTextLineHeightWithSpacing() * 2.0f
                                  + imstyle.WindowPadding.y * 2.0f + 2.0f);
-    /* Debugger and Terminal share the same right-of-screen slot, so
-     * the host width grows by the WIDER of the two — not by the
-     * sum.  When neither is shown, the right-panel slot disappears
-     * entirely and the host shrinks back to just-the-screen. */
-    const int rightPanelW = std::max(showDebugger_ ? dbgWinW : 0,
-                                     showTerminal_ ? termWinW : 0);
-    const int rightPanelH = std::max(showDebugger_ ? dbgWinH : 0,
-                                     showTerminal_ ? termWinH : 0);
+
     int topRowW = 8
-                + (showScreen_                       ? scrWinW     + 8 : 0)
-                + ((showDebugger_ || showTerminal_)  ? rightPanelW + 8 : 0);
-    if (!showScreen_ && !showDebugger_ && !showTerminal_) topRowW = 16;
-    int topRowH = std::max(showScreen_ ? scrWinH : 0, rightPanelH);
+                + (showScreen_   ? scrWinW + 8 : 0)
+                + (showDebugger_ ? dbgWinW + 8 : 0);
+    if (!showScreen_ && !showDebugger_) topRowW = 16;
+    int topRowH = std::max(showScreen_   ? scrWinH : 0,
+                           showDebugger_ ? dbgWinH : 0);
     int totalW  = std::max(topRowW, showKeyboard_ ? oskWinW + 16 : 0);
     if (totalW < 320) totalW = 320;
     int totalH  = menuBarHeight_ + 8 + topRowH
@@ -692,7 +618,6 @@ void App::resizeHostWindow()
     prevShowScreen_   = showScreen_;
     prevShowDebugger_ = showDebugger_;
     prevShowKeyboard_ = showKeyboard_;
-    prevShowTerminal_ = showTerminal_;
 }
 
 /* ── Menu rendering ─────────────────────────────────────────────────── */
@@ -972,7 +897,6 @@ void App::drawViewMenu()
     ImGui::MenuItem("Screen",             nullptr, &showScreen_);
     ImGui::MenuItem("Debugger",           nullptr, &showDebugger_);
     ImGui::MenuItem("On-screen keyboard", nullptr, &showKeyboard_);
-    ImGui::MenuItem("Terminal",           nullptr, &showTerminal_);
     ImGui::EndMenu();
 }
 

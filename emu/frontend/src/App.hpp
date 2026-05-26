@@ -20,7 +20,6 @@
 
 #include <ms0515/Debugger.hpp>
 #include <ms0515/Emulator.hpp>
-#include <ms0515/Terminal.hpp>
 
 #include <SDL.h>
 
@@ -101,9 +100,7 @@ private:
     /* ── Emulator + companions ──────────────────────────────────────── */
     ms0515::Emulator     emu_;
     ms0515::Debugger     dbg_{emu_};
-    ms0515::Terminal     terminal_;
     Video                video_;
-    ImFont              *terminalFont_ = nullptr;
     Audio                audio_;
     PhysicalKeyboard     physKbd_;
     OnScreenKeyboard     osk_;
@@ -144,8 +141,6 @@ private:
     bool prevShowDebugger_ = false;
     bool showKeyboard_ = false;
     bool prevShowKeyboard_ = false;
-    bool showTerminal_ = false;
-    bool prevShowTerminal_ = false;
     bool audioOn_      = true;
     bool ramDiskOn_    = true;
     bool fullscreenOn_ = false;

@@ -314,12 +314,14 @@ void VramMirror::buildFont(const uint8_t *rom, size_t romSize)
         { 0x66666666FF666666ULL, 0xBD },  /* ╫ */
         { 0x666666E700E76666ULL, 0xBE },  /* ╬ */
         /* Between-panel scroll arrows.  Two variants per direction:
-         *   ↓ pure: just the triangle (drawn standalone)
-         *   ↓ thick: triangle on top of a vertical stem (between panels) */
-        { 0x0000FFFF7E3C1800ULL, kArrowUp   },  /* ▲ pure (RAM 0xC37E) */
-        { 0x0000183C7EFFFF00ULL, kArrowDown },  /* ▼ pure (RAM 0xC386) */
-        { 0x183C7EFF18181818ULL, kArrowDown },  /* ↓ thick (RAM 0xC39E) */
-        { 0x18181818FF7E3C18ULL, kArrowUp   },  /* ↑ thick (RAM 0xC3A6) */
+         *   pure   — just the triangle (drawn standalone)
+         *   thick  — triangle on top of a vertical stem (between
+         *            panels in ROSA Commander, indicating "more
+         *            files in the panel above / below") */
+        { 0x0000FFFF7E3C1800ULL, kArrowUpTri     },  /* ▲ pure  (RAM 0xC37E) */
+        { 0x0000183C7EFFFF00ULL, kArrowDownTri   },  /* ▼ pure  (RAM 0xC386) */
+        { 0x183C7EFF18181818ULL, kArrowDownThick },  /* ⬇ thick (RAM 0xC39E) */
+        { 0x18181818FF7E3C18ULL, kArrowUpThick   },  /* ⬆ thick (RAM 0xC3A6) */
     };
     for (const auto &g : kCustomGlyphs)
         glyphMap_.try_emplace(g.key, g.code);
@@ -327,10 +329,12 @@ void VramMirror::buildFont(const uint8_t *rom, size_t romSize)
 
 std::string VramMirror::utf8FromKoi8(uint8_t code)
 {
-    if (code == kUnknownGlyph) return "\xE2\x96\x88";       /* █ */
-    if (code == kCopyrightSign) return "\xC2\xA9";          /* © */
-    if (code == kArrowDown) return "\xE2\x96\xBC";          /* ▼ */
-    if (code == kArrowUp)   return "\xE2\x96\xB2";          /* ▲ */
+    if (code == kUnknownGlyph)    return "\xE2\x96\x88";   /* █ U+2588 */
+    if (code == kCopyrightSign)   return "\xC2\xA9";       /* © U+00A9 */
+    if (code == kArrowDownTri)    return "\xE2\x96\xBC";   /* ▼ U+25BC */
+    if (code == kArrowUpTri)      return "\xE2\x96\xB2";   /* ▲ U+25B2 */
+    if (code == kArrowDownThick)  return "\xE2\xAC\x87";   /* ⬇ U+2B07 */
+    if (code == kArrowUpThick)    return "\xE2\xAC\x86";   /* ⬆ U+2B06 */
     if (code >= 0x20 && code < 0x7F)
         return std::string(1, static_cast<char>(code));
     if (code >= 0x80) return encodeUtf8(kKoi8Hi[code - 0x80]);
