@@ -30,6 +30,15 @@
  *     `--diskN` and `--diskN-sideM` for the same N are mutually
  *     exclusive.
  *
+ * There is intentionally no --help / --version on the GUI binary.
+ * GUI-subsystem programs can't print to PowerShell cleanly (the
+ * shell returns control to the user before our output arrives), and
+ * the obvious workarounds (modal dialog, AttachConsole + synthesised
+ * Enter, dual-subsystem stub binary) all looked worse than just
+ * pointing curious users at `ms0515-cli --help`.  Unknown arguments
+ * trigger a silent early exit so a typo on the command line doesn't
+ * bring up a half-configured emulator window.
+ *
  * Defaults: looks for assets/rom/ms0515-roma.rom (the patched ROM-A,
  * relative to either the executable directory or the current working
  * directory) when --rom is not given.
@@ -39,85 +48,19 @@
 
 #include "App.hpp"
 #include "Config.hpp"   /* parseArgs lives here now */
-#include "Platform.hpp" /* attachConsoleForOutput */
-
-#include <cstdio>
-#include <print>
-#include <string_view>
-
-namespace {
-
-constexpr std::string_view kHelp = R"(usage: ms0515 [options]
-
-SDL2 + Dear ImGui frontend for the MS-0515 emulator.  Same disk /
-ROM flag schema as ms0515-cli; either binary's last-used mounts
-are picked up by the other via the shared ms0515.yaml settings file.
-
-options:
-  --rom <path>            ROM image (defaults to whatever's in
-                          ms0515.yaml, falling back to
-                          assets/rom/ms0515-roma.rom under the
-                          binary's directory).
-  --disk0 <path>          Mount double-sided image on drive 0.
-                          (alias: -d0)
-  --disk1 <path>          Mount double-sided image on drive 1.
-                          (alias: -d1)
-  --disk0-side0 <path>    Mount single-side image on drive 0 side 0.
-                          (alias: -d0s0)
-  --disk0-side1 <path>    Mount single-side image on drive 0 side 1.
-                          (alias: -d0s1)
-  --disk1-side0 <path>    Mount single-side image on drive 1 side 0.
-                          (alias: -d1s0)
-  --disk1-side1 <path>    Mount single-side image on drive 1 side 1.
-                          (alias: -d1s1)
-  --frames <N>            Stop after N emu frames (default: unlimited).
-  --screenshot <path>     Save a PNG of the framebuffer at exit and
-                          terminate; pairs naturally with --frames.
-  --screenshot-frame <N>  Take the screenshot at exactly frame N.
-  --history-size <N>      CPU trace ring buffer length (0 = off).
-  --history-watch-addr <A> [--history-watch-len <L>]
-                          Record a write-watch trace ring for the
-                          memory range starting at A.
-  --history-read-watch-addr <A> [--history-read-watch-len <L>]
-                          Same idea for read-watches.
-  -h, --help              Show this help and exit.
-  -V, --version           Print version and exit.
-)";
-
-bool wantsHelp(int argc, char **argv)
-{
-    for (int i = 1; i < argc; ++i) {
-        std::string_view a = argv[i];
-        if (a == "-h" || a == "--help") return true;
-    }
-    return false;
-}
-
-bool wantsVersion(int argc, char **argv)
-{
-    for (int i = 1; i < argc; ++i) {
-        std::string_view a = argv[i];
-        if (a == "-V" || a == "--version") return true;
-    }
-    return false;
-}
-
-}  /* namespace */
 
 int main(int argc, char **argv)
 {
-    if (argc > 1) ms0515_frontend::attachConsoleForOutput();
+    auto args = ms0515_frontend::parseArgs(argc, argv);
+    if (args.unknownArgSeen) {
+        /* Fail fast on typos — better a silent exit than booting the
+         * emulator with a partly-applied config the user didn't ask
+         * for.  The warning that parseArgs emits to stderr disappears
+         * into a detached stdio for a GUI-subsystem binary, which is
+         * fine: the visible signal is the absence of a window. */
+        return 1;
+    }
 
-    if (wantsHelp(argc, argv)) {
-        std::fputs(kHelp.data(), stdout);
-        std::fflush(stdout);
-        return 0;
-    }
-    if (wantsVersion(argc, argv)) {
-        std::println("ms0515 {}", MS0515_VERSION_STRING);
-        std::fflush(stdout);
-        return 0;
-    }
-    ms0515_frontend::App app(ms0515_frontend::parseArgs(argc, argv));
+    ms0515_frontend::App app(std::move(args));
     return app.run();
 }

@@ -31,6 +31,13 @@ struct CliArgs {
     int         historyWatchLen  = -1;
     int         historyReadWatchAddr = -1;
     int         historyReadWatchLen  = -1;
+    /* Set by parseArgs when it walks argv and hits a token it
+     * doesn't recognise (after retired-alias translation).  The GUI
+     * uses this to bail out without opening a window — a typo in
+     * the launcher command should fail fast, not boot the emulator
+     * with a partly-applied config.  The CLI ignores the flag and
+     * just leaves the stderr warning on the user's screen. */
+    bool        unknownArgSeen = false;
 };
 
 /* Parse argv into CliArgs.  Unknown flags emit a warning to stderr but

@@ -106,6 +106,7 @@ CliArgs parseArgs(int argc, char **argv)
             out.historyReadWatchLen  = Paths::parseNumber(argv[++i]);
         } else {
             std::fprintf(stderr, "warning: unknown argument '%s'\n", a.c_str());
+            out.unknownArgSeen = true;
         }
     }
     /* If a screenshot frame is set but no explicit --frames, auto-stop

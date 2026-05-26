@@ -9,10 +9,6 @@
 
 #include <windows.h>
 #include <commdlg.h>
-#include <fcntl.h>
-#include <io.h>
-
-#include <cstdio>
 
 namespace {
 
@@ -64,62 +60,6 @@ namespace ms0515_frontend {
 void platformInit()
 {
     SetConsoleOutputCP(65001);
-}
-
-namespace {
-
-/* Bind a Win32 standard handle to a C runtime FILE*.  Used by
- * attachConsoleForOutput() to wire up stdout/stderr when the OS
- * gave us valid handles but the C runtime (in GUI-subsystem mode)
- * didn't initialise the FILE* slots itself. */
-void rebindToHandle(HANDLE h, FILE *cstream, const char *mode)
-{
-    if (h == nullptr || h == INVALID_HANDLE_VALUE) return;
-    int flags = (mode[0] == 'r') ? _O_RDONLY : _O_WRONLY;
-    int fd = _open_osfhandle(reinterpret_cast<intptr_t>(h), flags);
-    if (fd < 0) return;
-    FILE *fp = _fdopen(fd, mode);
-    if (fp == nullptr) { _close(fd); return; }
-    /* MSVC-supported way of swapping out a FILE* without losing
-     * client pointers to `stdout` / `stderr`. */
-    *cstream = *fp;
-    setvbuf(cstream, nullptr, _IONBF, 0);
-}
-
-}  /* anonymous namespace */
-
-void attachConsoleForOutput()
-{
-    /* Idempotent — multiple calls would otherwise keep re-binding
-     * stdout / leaking file descriptors. */
-    static bool s_done = false;
-    if (s_done) return;
-    s_done = true;
-
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD  ftypeOut = (hOut && hOut != INVALID_HANDLE_VALUE)
-                      ? GetFileType(hOut) : FILE_TYPE_UNKNOWN;
-
-    const bool stdoutUsable =
-        ftypeOut == FILE_TYPE_DISK ||
-        ftypeOut == FILE_TYPE_PIPE ||
-        ftypeOut == FILE_TYPE_CHAR;
-
-    if (stdoutUsable) {
-        rebindToHandle(hOut, stdout, "w");
-        rebindToHandle(GetStdHandle(STD_ERROR_HANDLE), stderr, "w");
-        if (ftypeOut == FILE_TYPE_CHAR) SetConsoleOutputCP(CP_UTF8);
-        return;
-    }
-
-    /* No inherited stdio — attach the parent process's console, or
-     * spin up a fresh window if there isn't one. */
-    if (!AttachConsole(ATTACH_PARENT_PROCESS) && !AllocConsole())
-        return;
-    SetConsoleOutputCP(CP_UTF8);
-    FILE *dummy = nullptr;
-    (void)freopen_s(&dummy, "CONOUT$", "w", stdout);
-    (void)freopen_s(&dummy, "CONOUT$", "w", stderr);
 }
 
 std::string openFileDialog(SDL_Window *owner, const char *title,

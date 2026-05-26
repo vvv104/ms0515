@@ -13,15 +13,6 @@ void platformInit()
     /* No special init needed on Unix. */
 }
 
-void attachConsoleForOutput()
-{
-    /* POSIX shells always wire stdout / stderr through to whatever
-     * the launcher set up (pipe, file, terminal), and the C runtime
-     * initialises the FILE* slots correctly for console-subsystem
-     * binaries.  GUI-subsystem is a Windows concept, so nothing to
-     * do here. */
-}
-
 std::string openFileDialog(SDL_Window * /*owner*/, const char * /*title*/,
                            FileDialogKind /*kind*/,
                            const std::string & /*initialDir*/)
