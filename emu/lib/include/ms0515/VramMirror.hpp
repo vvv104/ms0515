@@ -190,10 +190,26 @@ private:
     int  cursorCol_     = -1;
     int  hostCursorRow_ = -1;                       /* where host cursor is now */
     int  hostCursorCol_ = -1;
+    bool hostCursorVisible_ = false;                /* `\x1B[?25h` last sent */
     int  lastWriteRow_  = -1;                       /* most recent VRAM write */
     int  lastWriteCol_  = -1;
     int  framesIdle_    = 0;                        /* frames since last write */
     int  writesThisFlush_ = 0;                      /* byte writes since last flush */
+
+    /* OS-side cursor — the cell where the kernel currently draws its
+     * blinking `_`.  Detected on the fly: any cell that resolves to
+     * '_' (KOI-8 0x5F) is treated as the cursor.  We suppress the
+     * `_` glyph in the host stream and park the host terminal's
+     * native cursor at this position instead, so:
+     *   - the cursor blinks at the host's native rate (independent
+     *     of emu speed, no more "super-fast blink in fast mode");
+     *   - we don't double-render the cursor as glyph + host cursor.
+     * When the OS moves the cursor (writes '_' to a different cell),
+     * the previous cell is committed to host with whatever VRAM byte
+     * the user actually typed there (which is usually the typed
+     * character, not '_'). */
+    int  osCursorRow_ = -1;
+    int  osCursorCol_ = -1;
 };
 
 } /* namespace ms0515 */

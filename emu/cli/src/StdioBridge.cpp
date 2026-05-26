@@ -46,13 +46,27 @@ std::deque<KeyMapping> g_tapQueue;
  * stays out of sync and may flip the wrong direction. */
 bool g_assumedRusMode = false;
 
-/* Host arrow keys arrive as the standard ANSI CSI sequence ESC[A/B/C/D
- * (POSIX terminals emit it natively; Platform_win32 synthesises it on
- * Windows when ReadConsoleInput delivers a VK_UP/etc with no Unicode
- * char).  We track a small state machine to recognise the three-byte
- * burst and emit a single Key::Up/Down/Right/Left tap instead. */
-enum class EscState : uint8_t { None, AfterEsc, AfterCsi };
-EscState g_escState = EscState::None;
+/* Host arrow / F-keys arrive as ANSI escape sequences:
+ *   arrows : ESC [ A/B/C/D
+ *   F1..F4 : ESC O P/Q/R/S    (xterm SS3 form, some POSIX terminals)
+ *   F1..F12: ESC [ N ~        (linux-console form, what Platform_win32
+ *                              synthesises and what most modern terminals
+ *                              — Windows Terminal, xterm with rmkx —
+ *                              send by default).
+ * The state machine threads each ESC-prefixed burst through a small
+ * pipeline and emits the matching MS-7004 Key tap.  Any sequence the
+ * MS-0515 keyboard has no key for (Home, End, PgUp, …) is silently
+ * dropped — better than letting a tilde-terminator slip through as
+ * literal user input. */
+enum class EscState : uint8_t {
+    None,             /* not inside an ESC sequence */
+    AfterEsc,         /* saw ESC, waiting for '[' / 'O' / other */
+    AfterCsi,         /* saw ESC [ */
+    CollectingCsiNum, /* saw ESC [ <digit>, accumulating until '~' */
+    AfterSs3,         /* saw ESC O, waiting for P/Q/R/S */
+};
+EscState g_escState  = EscState::None;
+int      g_csiAccum  = 0;       /* digits accumulated under CollectingCsiNum */
 
 /* Active emulator pointer — pumpInput() calls emu.keyPress(). */
 ms0515::Emulator *g_emu = nullptr;
@@ -106,6 +120,45 @@ ms0515::Key csiArrow(uint8_t b)
     }
 }
 
+/* "ESC [ N ~" — linux-console / xterm-rmkx style F-key sequence.
+ * The numbers match the convention every modern terminal agrees on;
+ * gaps in the sequence (16, 22, 25, …) are historical from VT-220
+ * keypad codes that aren't used for F-keys. */
+ms0515::Key csiNumToKey(int n)
+{
+    using Key = ms0515::Key;
+    switch (n) {
+    case 11: return Key::F1;
+    case 12: return Key::F2;
+    case 13: return Key::F3;
+    case 14: return Key::F4;
+    case 15: return Key::F5;
+    case 17: return Key::F6;
+    case 18: return Key::F7;
+    case 19: return Key::F8;
+    case 20: return Key::F9;
+    case 21: return Key::F10;
+    case 23: return Key::F11;
+    case 24: return Key::F12;
+    default: return Key::None;
+    }
+}
+
+/* "ESC O P/Q/R/S" — xterm SS3 form for F1..F4.  F5+ aren't reachable
+ * through this prefix; terminals that use SS3 for the low four switch
+ * to the CSI ~ form for the rest, which csiNumToKey() handles. */
+ms0515::Key ss3ToKey(uint8_t b)
+{
+    using Key = ms0515::Key;
+    switch (b) {
+    case 'P': return Key::F1;
+    case 'Q': return Key::F2;
+    case 'R': return Key::F3;
+    case 'S': return Key::F4;
+    default:  return Key::None;
+    }
+}
+
 void enqueueLetterByte(uint8_t b);
 
 /* Run incoming KOI-8 bytes through the ESC-sequence state machine.
@@ -135,28 +188,70 @@ void enqueueKoi8(uint8_t b)
         return;
 
     case EscState::AfterEsc:
-        if (b == '[') {
-            g_escState = EscState::AfterCsi;
-            return;
-        }
-        /* ESC followed by something other than '[' — flush both as
-         * plain bytes and reset.  The guest may use bare ESC for some
-         * monitors (e.g. as command-cancel), so we don't drop it. */
+        if (b == '[') { g_escState = EscState::AfterCsi; return; }
+        if (b == 'O') { g_escState = EscState::AfterSs3; return; }
+        /* ESC followed by something else — flush both as plain bytes
+         * and reset.  The guest may use bare ESC for some monitors
+         * (e.g. as command-cancel), so we don't drop it. */
         g_escState = EscState::None;
         enqueueLetterByte(0x1Bu);
         enqueueLetterByte(b);
         return;
 
     case EscState::AfterCsi:
-        g_escState = EscState::None;
         if (Key arrow = csiArrow(b); arrow != Key::None) {
+            g_escState = EscState::None;
             g_tapQueue.push_back({arrow, false});
             return;
         }
-        /* Unknown CSI sequence — flush the prefix we'd swallowed and
-         * the terminator byte as plain bytes; better than silent drop. */
+        if (b >= '0' && b <= '9') {
+            g_csiAccum = b - '0';
+            g_escState = EscState::CollectingCsiNum;
+            return;
+        }
+        /* Unknown CSI final byte — flush the prefix and the byte. */
+        g_escState = EscState::None;
         enqueueLetterByte(0x1Bu);
         enqueueLetterByte('[');
+        enqueueLetterByte(b);
+        return;
+
+    case EscState::CollectingCsiNum:
+        if (b >= '0' && b <= '9') {
+            g_csiAccum = g_csiAccum * 10 + (b - '0');
+            return;
+        }
+        if (b == '~') {
+            const Key fkey = csiNumToKey(g_csiAccum);
+            g_escState = EscState::None;
+            if (fkey != Key::None) g_tapQueue.push_back({fkey, false});
+            /* Otherwise this is a Home / End / Ins / Del / PgUp / PgDn
+             * style sequence the MS-0515 keyboard has no equivalent
+             * for — silently drop it. */
+            return;
+        }
+        /* Sequence broke off mid-number — flush what we'd swallowed. */
+        g_escState = EscState::None;
+        enqueueLetterByte(0x1Bu);
+        enqueueLetterByte('[');
+        if (g_csiAccum >= 10) {
+            enqueueLetterByte(static_cast<uint8_t>('0' + g_csiAccum / 10));
+            enqueueLetterByte(static_cast<uint8_t>('0' + g_csiAccum % 10));
+        } else {
+            enqueueLetterByte(static_cast<uint8_t>('0' + g_csiAccum));
+        }
+        enqueueLetterByte(b);
+        return;
+
+    case EscState::AfterSs3:
+        g_escState = EscState::None;
+        if (Key fkey = ss3ToKey(b); fkey != Key::None) {
+            g_tapQueue.push_back({fkey, false});
+            return;
+        }
+        /* Unknown SS3 final byte — flush. */
+        enqueueLetterByte(0x1Bu);
+        enqueueLetterByte('O');
         enqueueLetterByte(b);
         return;
     }

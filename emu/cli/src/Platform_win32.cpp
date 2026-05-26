@@ -163,17 +163,33 @@ size_t readStdinNonBlocking(uint8_t *buf, size_t cap)
             WCHAR wc   = rec.Event.KeyEvent.uChar.UnicodeChar;
             WORD  vkey = rec.Event.KeyEvent.wVirtualKeyCode;
 
-            /* Arrow keys deliver UnicodeChar = 0 on Windows consoles.
-             * Synthesise the same ESC[A/B/C/D sequences that POSIX
-             * terminals emit in raw mode, so the bridge's ESC state
-             * machine sees a uniform byte stream from both platforms. */
+            /* Non-character keys (arrows, F-keys, …) deliver
+             * UnicodeChar = 0 on Windows consoles.  Synthesise the
+             * same ESC sequences POSIX terminals emit in raw mode so
+             * the bridge's ESC state machine sees a uniform byte
+             * stream from both platforms.  F1..F12 use the "linux
+             * console" CSI ~ form across all twelve, which the
+             * bridge unifies with the xterm SS3 form (ESC O P/Q/R/S
+             * for F1..F4) some POSIX terminals send instead. */
             if (wc == 0) {
                 const char *seq = nullptr;
                 switch (vkey) {
-                case VK_UP:    seq = "\x1B[A"; break;
-                case VK_DOWN:  seq = "\x1B[B"; break;
-                case VK_RIGHT: seq = "\x1B[C"; break;
-                case VK_LEFT:  seq = "\x1B[D"; break;
+                case VK_UP:    seq = "\x1B[A";   break;
+                case VK_DOWN:  seq = "\x1B[B";   break;
+                case VK_RIGHT: seq = "\x1B[C";   break;
+                case VK_LEFT:  seq = "\x1B[D";   break;
+                case VK_F1:    seq = "\x1B[11~"; break;
+                case VK_F2:    seq = "\x1B[12~"; break;
+                case VK_F3:    seq = "\x1B[13~"; break;
+                case VK_F4:    seq = "\x1B[14~"; break;
+                case VK_F5:    seq = "\x1B[15~"; break;
+                case VK_F6:    seq = "\x1B[17~"; break;
+                case VK_F7:    seq = "\x1B[18~"; break;
+                case VK_F8:    seq = "\x1B[19~"; break;
+                case VK_F9:    seq = "\x1B[20~"; break;
+                case VK_F10:   seq = "\x1B[21~"; break;
+                case VK_F11:   seq = "\x1B[23~"; break;
+                case VK_F12:   seq = "\x1B[24~"; break;
                 default: break;
                 }
                 if (seq != nullptr) {

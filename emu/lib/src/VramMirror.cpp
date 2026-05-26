@@ -406,7 +406,24 @@ void VramMirror::flushFrame()
     auto prev_shadow   = shadow_;
     auto prev_inverted = inverted_;
 
-    /* Decode pass — fill shadow_/inverted_ for every dirty cell. */
+    /* Decode pass — fill shadow_/inverted_ for every dirty cell.
+     *
+     * The pass also runs the OS-cursor detector.  Any cell that
+     * decodes to '_' (KOI-8 0x5F) is treated as the kernel's current
+     * cursor position; we suppress its glyph (the host terminal's
+     * native cursor will overlay that cell at end-of-flush instead)
+     * and commit the *previous* cursor cell with whatever VRAM byte
+     * happens to be there now.  That commit step is what lets a
+     * user-typed '_' reach the host — when the OS advances the
+     * cursor, the old cell still holds the typed character (or '_'
+     * if the user actually typed an underscore) and the commit emits
+     * it to the host like any other character.
+     *
+     * A non-'_' write into the current cursor cell clears the
+     * cursor tracking — that's the typing path (user typed a
+     * letter, OS overwrote '_' with the letter) and the BS path
+     * (OS erased the cursor with ' ' while shadow_ still held the
+     * typed character). */
     for (int r = 0; r < kRows; ++r) {
         for (int c = 0; c < kCols; ++c) {
             const int idx = r * kCols + c;
@@ -419,7 +436,46 @@ void VramMirror::flushFrame()
              * states decode as kUnknownGlyph.  Re-flushing next frame
              * picks up the settled glyph. */
             if (code == kUnknownGlyph) continue;
-            dirty_[idx]    = false;
+            dirty_[idx] = false;
+
+            if (code == 0x5F /* '_' */) {
+                if (osCursorRow_ != r || osCursorCol_ != c) {
+                    /* Cursor moved.  Commit the previous cursor cell
+                     * by re-decoding its current VRAM state — that
+                     * picks up a user-typed '_' (still in VRAM) and
+                     * an OS-side blink-off ' ' alike. */
+                    if (osCursorRow_ >= 0) {
+                        const int oldIdx =
+                            osCursorRow_ * kCols + osCursorCol_;
+                        const uint64_t oldKey =
+                            readGlyphKey(osCursorRow_, osCursorCol_);
+                        const auto [oldCode, oldInv] =
+                            lookupWithInvert(oldKey);
+                        if (oldCode != kUnknownGlyph) {
+                            shadow_[oldIdx]   = oldCode;
+                            inverted_[oldIdx] = oldInv;
+                        }
+                    }
+                    osCursorRow_ = r;
+                    osCursorCol_ = c;
+                }
+                /* Suppress the '_' glyph at the new cursor cell —
+                 * the host cursor will overlay it at end of flush.
+                 * Force the cell to a blank in shadow_ so any
+                 * pre-existing content (e.g. cursor moved over a
+                 * typed letter via Left arrow) is cleared from the
+                 * host display. */
+                shadow_[idx]   = 0x20;
+                inverted_[idx] = false;
+                continue;
+            }
+
+            /* Non-'_' write into the cursor cell — cursor is no
+             * longer drawn here. */
+            if (osCursorRow_ == r && osCursorCol_ == c) {
+                osCursorRow_ = -1;
+                osCursorCol_ = -1;
+            }
             shadow_[idx]   = code;
             inverted_[idx] = inverted;
         }
@@ -470,22 +526,27 @@ void VramMirror::flushFrame()
         }
     }
 
-    /* Park the host-terminal cursor at the last cell the OS wrote to.
-     * The OS's own cursor-glyph (block / underline / blink) often
-     * doesn't decode to a font code we emit, so the host cursor is
-     * our only visible cursor.  Re-positioning every flush makes the
-     * cursor follow what the guest is doing — including the case
-     * where the user types a space (no character delta emitted, but
-     * the OS still advanced its cursor and we mirror that). */
-    if (lastWriteRow_ >= 0 &&
-        (hostCursorRow_ != lastWriteRow_ || hostCursorCol_ != lastWriteCol_))
-    {
-        char buf[16];
-        int n = std::snprintf(buf, sizeof(buf), "\x1B[%d;%dH",
-                              lastWriteRow_ + 1, lastWriteCol_ + 1);
-        if (n > 0) emitAnsi(std::string_view(buf, static_cast<size_t>(n)));
-        hostCursorRow_ = lastWriteRow_;
-        hostCursorCol_ = lastWriteCol_;
+    /* Park the host-terminal cursor at the OS cursor cell (the one
+     * the kernel is drawing its '_' on right now) and show it.  When
+     * no '_' has been seen — typically because the kernel is still in
+     * POST or a TUI app has hidden its own cursor — hide the host
+     * cursor too. */
+    if (osCursorRow_ >= 0) {
+        if (hostCursorRow_ != osCursorRow_ || hostCursorCol_ != osCursorCol_) {
+            char buf[16];
+            int n = std::snprintf(buf, sizeof(buf), "\x1B[%d;%dH",
+                                  osCursorRow_ + 1, osCursorCol_ + 1);
+            if (n > 0) emitAnsi(std::string_view(buf, static_cast<size_t>(n)));
+            hostCursorRow_ = osCursorRow_;
+            hostCursorCol_ = osCursorCol_;
+        }
+        if (!hostCursorVisible_) {
+            emitAnsi("\x1B[?25h");
+            hostCursorVisible_ = true;
+        }
+    } else if (hostCursorVisible_) {
+        emitAnsi("\x1B[?25l");
+        hostCursorVisible_ = false;
     }
 
     if (out_) std::fflush(out_);

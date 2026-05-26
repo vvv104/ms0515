@@ -16,11 +16,13 @@
 #include <ms0515/app/Disks.hpp>
 #include <ms0515/app/Paths.hpp>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <print>
 #include <string>
 #include <string_view>
+#include <thread>
 
 #include "Platform.hpp"
 #include "StdioBridge.hpp"
@@ -56,6 +58,12 @@ options:
                           Useful for smoke-testing.
   --emt-trace             Per-byte trace of .TTYOUT + EMT histogram
                           (stderr at exit).  Diagnostic only.
+  --realtime              Throttle the emulator to the MS-0515's
+                          original 50 Hz refresh, so OS-side timing
+                          (cursor blink rate, sleep-driven UIs)
+                          matches the hardware.  Without this flag
+                          the loop runs as fast as the host CPU
+                          allows — usually 10–50× real speed.
   -h, --help              Show this help and exit.
 
 Persistent config: ms0515.yaml in the same directory as the binary;
@@ -72,6 +80,7 @@ Quit hotkey (interactive session):  Ctrl-]
 struct LocalFlags {
     bool help     = false;
     bool emtTrace = false;
+    bool realtime = false;
 };
 
 LocalFlags pickLocalFlags(int argc, char **argv)
@@ -81,6 +90,7 @@ LocalFlags pickLocalFlags(int argc, char **argv)
         std::string_view a = argv[i];
         if (a == "-h" || a == "--help")  out.help     = true;
         if (a == "--emt-trace")          out.emtTrace = true;
+        if (a == "--realtime")           out.realtime = true;
     }
     return out;
 }
@@ -145,12 +155,30 @@ int main(int argc, char **argv)
     ms0515::VramMirror mirror;
     mirror.attach(emu);
     mirror.setOutput(stdout);
-    std::fputs("\x1B[2J\x1B[H", stdout);
+    /* Clear screen, home cursor, and hide the host-terminal cursor.
+     * The guest OS draws its own cursor as a blinking `_` glyph in
+     * VRAM (which the mirror renders cell-by-cell like any other
+     * char); leaving the host cursor visible on top of that gives
+     * two cursors and the host one lags a frame behind the guest one
+     * because we park it at the last cell we wrote, not the cell the
+     * guest currently considers "next". */
+    std::fputs("\x1B[2J\x1B[H\x1B[?25l", stdout);
 
     /* Permit keystroke injection once VRAM has been quiet (no
      * substantial paint activity) for a while — that's our "kernel
      * sits at a prompt" signal.  See VramMirror::framesIdle. */
     constexpr int kInputReadyIdleFrames = 200;
+
+    /* --realtime pace: cap the loop at the MS-0515's 50 Hz refresh
+     * so OS timing (cursor blink, sleep-driven UIs) matches the
+     * hardware.  Without the flag the loop runs flat-out — useful
+     * for compile / batch jobs where wall-clock fidelity doesn't
+     * matter and the host CPU should crunch frames as fast as it
+     * can.  Floppy operations are unaffected either way (the FDC
+     * emulator never simulated real seek/read delays). */
+    using Clock = std::chrono::steady_clock;
+    constexpr auto kFramePeriod = std::chrono::microseconds(20'000);  /* 50 Hz */
+    auto nextFrameAt = Clock::now();
 
     long frame_count = 0;
     while (!emu.halted() && !ms0515::cli::shouldQuit()) {
@@ -162,8 +190,24 @@ int main(int argc, char **argv)
             ms0515::cli::bridge::setInputReady(true);
         }
         ++frame_count;
+
+        if (local.realtime) {
+            nextFrameAt += kFramePeriod;
+            const auto now = Clock::now();
+            if (now < nextFrameAt) {
+                std::this_thread::sleep_until(nextFrameAt);
+            } else {
+                /* Fell behind by more than a frame — reset the
+                 * schedule so we don't "catch up" by running flat-
+                 * out, which would defeat the throttle. */
+                nextFrameAt = now;
+            }
+        }
     }
 
+    /* Show the host cursor again before handing the terminal back. */
+    std::fputs("\x1B[?25h", stdout);
+    std::fflush(stdout);
     ms0515::cli::restoreTerminal();
     ms0515::cli::bridge::dumpEmtCounts();
 
