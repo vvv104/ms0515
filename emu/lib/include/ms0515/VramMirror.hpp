@@ -105,6 +105,23 @@ public:
     [[nodiscard]] int lastWriteRow() const noexcept { return lastWriteRow_; }
     [[nodiscard]] int lastWriteCol() const noexcept { return lastWriteCol_; }
 
+    /* Detected OS cursor cell (whichever cell currently decodes to '_').
+     * Both -1 if no '_' has been seen yet, or if the cursor cell got
+     * overwritten by a non-'_' glyph and a fresh '_' hasn't reappeared. */
+    [[nodiscard]] int osCursorRow() const noexcept { return osCursorRow_; }
+    [[nodiscard]] int osCursorCol() const noexcept { return osCursorCol_; }
+
+    /* Raw 8-byte glyph bitmap at the (row, col) cell, packed by
+     * glyphKey()'s convention (byte 0 = scanline 0 = least-significant
+     * byte of the uint64_t).  Returns 0 if (row, col) is out of range
+     * or no emulator is attached.  Used by diagnostic tooling to dump
+     * what the OS actually painted into the cursor cell. */
+    [[nodiscard]] uint64_t cellBitmap(int row, int col) const {
+        if (row < 0 || row >= kRows || col < 0 || col >= kCols) return 0;
+        if (emu_ == nullptr) return 0;
+        return readGlyphKey(row, col);
+    }
+
     /* Number of consecutive flushFrame() calls with zero VRAM writes
      * observed in between.  Reaches a non-trivial value while the
      * kernel is parked at a prompt and goes back to 0 the moment new
@@ -160,11 +177,17 @@ private:
     [[nodiscard]] uint8_t lookup(uint64_t key) const;
 
     /* Like lookup() but also reports whether the resolution required
-     * inverting the bitmap (Rodionov highlight).  `inverted=true`
-     * means the underlying glyph was found via XOR fallback; the
-     * emit path is expected to wrap the cell with reverse-video
-     * SGR codes. */
-    struct LookupResult { uint8_t code; bool inverted; };
+     * inverting the bitmap.
+     *   - `inverted=true`: matched only after a *full* XOR (every pixel
+     *     flipped).  Rodionov ROSA Commander uses this for the
+     *     highlighted file row; the emit path wraps such cells with
+     *     reverse-video SGR escapes.
+     *   - `hasCursor=true`: matched after XOR-ing only the bottom two
+     *     scanlines (bytes 6..7 of the 8-byte glyph).  Mihin RT-11
+     *     draws its cursor this way — `code` is the letter beneath the
+     *     cursor and the flushFrame cursor-detection path treats the
+     *     cell exactly like a '_' decode at non-Mihin OSes. */
+    struct LookupResult { uint8_t code; bool inverted; bool hasCursor; };
     [[nodiscard]] LookupResult lookupWithInvert(uint64_t key) const;
 
     /* Pack the eight bytes of the (row, col) cell from VRAM into a

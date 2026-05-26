@@ -166,8 +166,8 @@ uint8_t VramMirror::lookup(uint64_t key) const
 VramMirror::LookupResult VramMirror::lookupWithInvert(uint64_t key) const
 {
     if (auto it = glyphMap_.find(key); it != glyphMap_.end())
-        return {it->second, false};
-    if (key == 0) return {0x20, false};                /* all-zero = blank */
+        return {it->second, false, false};
+    if (key == 0) return {0x20, false, false};         /* all-zero = blank */
 
     /* Rodionov ROSA Commander draws the highlighted file by XOR-
      * inverting each cell's bitmap on the fly (the OS toggles every
@@ -178,14 +178,29 @@ VramMirror::LookupResult VramMirror::lookupWithInvert(uint64_t key) const
      * the cell with `\x1B[7m`…`\x1B[27m`. */
     if (auto it = glyphMap_.find(key ^ 0xFFFFFFFFFFFFFFFFULL);
         it != glyphMap_.end())
-        return {it->second, true};
+        return {it->second, true, false};
+
+    /* Mihin RT-11 cursor: a non-blinking, thick inverted underline
+     * overlaid on the underlying letter.  Empirically (--debug-vram
+     * trace from a live SL session, 2026-05-26) the cursor flips the
+     * bottom *two* scanlines of the cell — bytes 6 and 7 in our
+     * scanline-LSB packing, or the high two bytes of the uint64_t
+     * key.  XOR with 0xFFFF000000000000 recovers the underlying
+     * letter (or 0 for an empty cell, which resolves to ' ').
+     * Tried before the sparse-pixel fallback because a cursor on an
+     * empty cell has popcount 16 — exactly the threshold the fallback
+     * would silently swallow as blank. */
+    constexpr uint64_t kMihinCursorMask = 0xFFFF000000000000ULL;
+    if (auto it = glyphMap_.find(key ^ kMihinCursorMask);
+        it != glyphMap_.end())
+        return {it->second, false, true};
 
     /* Sparse-pixel fallback: <17 of 64 set pixels = visual noise = blank.
      * Threshold and reasoning copied from Terminal::lookup — the
      * OS scatters thin 1-2 pixel leftover patterns into otherwise
      * blank cells; emitting █ for those would mangle scrollback. */
-    if (std::popcount(key) < 17) return {0x20, false};
-    return {kUnknownGlyph, false};
+    if (std::popcount(key) < 17) return {0x20, false, false};
+    return {kUnknownGlyph, false, false};
 }
 
 void VramMirror::rebuildFontIfNeeded()
@@ -429,7 +444,7 @@ void VramMirror::flushFrame()
             const int idx = r * kCols + c;
             if (!dirty_[idx]) continue;
             const uint64_t key = readGlyphKey(r, c);
-            const auto [code, inverted] = lookupWithInvert(key);
+            const auto [code, inverted, hasCursor] = lookupWithInvert(key);
             /* Skip unknown glyphs and leave the cell dirty — the most
              * common cause is "caught mid-paint": the OS writes the
              * eight scanline bytes of a glyph one at a time, partial
@@ -438,7 +453,9 @@ void VramMirror::flushFrame()
             if (code == kUnknownGlyph) continue;
             dirty_[idx] = false;
 
-            if (code == 0x5F /* '_' */) {
+            const bool isCursor = (code == 0x5F) || hasCursor;
+
+            if (isCursor) {
                 if (osCursorRow_ != r || osCursorCol_ != c) {
                     /* Cursor moved.  Commit the previous cursor cell
                      * by re-decoding its current VRAM state — that
@@ -449,7 +466,7 @@ void VramMirror::flushFrame()
                             osCursorRow_ * kCols + osCursorCol_;
                         const uint64_t oldKey =
                             readGlyphKey(osCursorRow_, osCursorCol_);
-                        const auto [oldCode, oldInv] =
+                        const auto [oldCode, oldInv, oldHasCursor] =
                             lookupWithInvert(oldKey);
                         if (oldCode != kUnknownGlyph) {
                             shadow_[oldIdx]   = oldCode;
@@ -459,18 +476,24 @@ void VramMirror::flushFrame()
                     osCursorRow_ = r;
                     osCursorCol_ = c;
                 }
-                /* Suppress the '_' glyph at the new cursor cell —
-                 * the host cursor will overlay it at end of flush.
-                 * Force the cell to a blank in shadow_ so any
-                 * pre-existing content (e.g. cursor moved over a
-                 * typed letter via Left arrow) is cleared from the
-                 * host display. */
-                shadow_[idx]   = 0x20;
-                inverted_[idx] = false;
+                /* For Mihin's partial-XOR cursor the decode already
+                 * tells us the underlying letter (carried in `code`);
+                 * stash it in shadow_ so the host shows the letter and
+                 * the host's native cursor draws on top.  For the
+                 * RT-11 '_' cursor there's no underlying letter to
+                 * preserve — the cell content IS '_' — so fall back
+                 * to the historical "blank the cell" behaviour. */
+                if (hasCursor) {
+                    shadow_[idx]   = code;
+                    inverted_[idx] = inverted;
+                } else {
+                    shadow_[idx]   = 0x20;
+                    inverted_[idx] = false;
+                }
                 continue;
             }
 
-            /* Non-'_' write into the cursor cell — cursor is no
+            /* Non-cursor write into the cursor cell — cursor is no
              * longer drawn here. */
             if (osCursorRow_ == r && osCursorCol_ == c) {
                 osCursorRow_ = -1;
