@@ -1,11 +1,11 @@
 /*
  * StdioBridge.hpp — host-stdin → MS-7004 keyboard bridge for ms0515-cli.
  *
- * The CLI's output is taken from VRAM via the Terminal class (set up
- * in main.cpp), so this module no longer intercepts .TTYIN/.TTYOUT/
- * .PRINT — the kernel routes those through its own TT.SYS, and the
- * resulting screen draws land in VRAM where the Terminal mirror picks
- * them up.
+ * The CLI's output is taken from VRAM via the VramMirror (set up in
+ * main.cpp), so this module doesn't intercept .TTYIN/.TTYOUT/.PRINT —
+ * the kernel routes those through its own TT.SYS, the resulting screen
+ * draws land in VRAM, and VramMirror's hook-driven decoder turns them
+ * into ANSI-positioned UTF-8 on stdout.
  *
  * What's left here is the input side: drain host stdin into a KOI-8
  * byte queue, then feed those bytes into the emulated keyboard as
@@ -13,9 +13,9 @@
  * through TT.SYS like any other output, so no host-side echo is
  * needed either.
  *
- * Singleton: the trap_thunk and emu pointer have no user-data slot,
- * so this module owns process-global state.  main() calls install()
- * once; pumpInput() once per frame.
+ * Singleton: the emu pointer has no user-data slot, so this module
+ * owns process-global state.  main() calls install() once; pumpInput()
+ * once per frame.
  */
 
 #ifndef MS0515_CLI_STDIO_BRIDGE_HPP
@@ -25,8 +25,7 @@
 
 namespace ms0515::cli::bridge {
 
-/* Install the (diagnostic-only) trap_thunk on `emu` and remember the
- * emu pointer for pumpInput(). */
+/* Remember the emu pointer for pumpInput(). */
 void install(ms0515::Emulator &emu);
 
 /* Pump host stdin → MS-7004 keypress sequence.  Reads available bytes,
@@ -43,14 +42,6 @@ void install(ms0515::Emulator &emu);
 void pumpInput();
 
 void setInputReady(bool ready);
-
-/* Enable a histogram of EMT request counts (printed by dumpEmtCounts()
- * at exit) and a per-byte trace of .TTYOUT to stderr.  Diagnostic only;
- * the CLI's --emt-trace flag turns it on. */
-void setEmtTrace(bool enabled);
-
-/* Print the EMT histogram if tracing is enabled.  No-op otherwise. */
-void dumpEmtCounts();
 
 }  /* namespace ms0515::cli::bridge */
 

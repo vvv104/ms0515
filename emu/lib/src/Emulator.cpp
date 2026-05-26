@@ -213,11 +213,6 @@ void Emulator::stepInstruction()
 
 /* ── Input ──────────────────────────────────────────────────────────────── */
 
-void Emulator::keyEvent(uint8_t scancode)
-{
-    board_key_event(&impl_->board, scancode);
-}
-
 void Emulator::keyPress(Key key, bool down)
 {
     ms7004_key(&impl_->kbd7004, static_cast<ms7004_key_t>(key), down);

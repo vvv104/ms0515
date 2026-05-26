@@ -1,19 +1,14 @@
 /*
  * StdioBridge.cpp — host stdin → MS-7004 keyboard bridge.
  *
- * Output is handled in main.cpp via Terminal::setOutput(stdout).  This
- * module only feeds keystrokes; the diagnostic EMT trap_thunk is here
- * because it touches the same Emulator and the same singleton flags.
+ * Output is handled in main.cpp via VramMirror::setOutput(stdout); this
+ * module only feeds keystrokes.
  */
 
 #include "StdioBridge.hpp"
 
 #include "Koi8.hpp"
 #include "Platform.hpp"
-
-extern "C" {
-#include <ms0515/core/cpu.h>
-}
 
 #include <array>
 #include <cstdio>
@@ -78,30 +73,10 @@ ms0515::Emulator *g_emu = nullptr;
  * observing VramMirror's idle counter passing a threshold. */
 bool g_inputReady = false;
 
-/* Optional EMT histogram for diagnostics — enabled by --emt-trace. */
-int g_emtCount[256] = {};
-bool g_traceEmt = false;
-
 /* Leftover UTF-8 bytes from the previous host read that didn't form
  * a complete code-point yet. */
 std::array<uint8_t, 4> g_utf8Pending{};
 size_t                 g_utf8PendingLen = 0;
-
-extern "C" bool stdioThunk(ms0515_cpu_t *cpu, uint16_t vector)
-{
-    /* Diagnostic only — count the EMT and optionally trace .TTYOUT
-     * bytes, then return false so the kernel's standard service path
-     * runs and TT.SYS routes the byte to VRAM / serial as configured.
-     * Returning true here is what previously hid OSA / Omega output
-     * from the CLI ([[project-cli-vram-mirror]]). */
-    if (vector != CPU_VEC_EMT || !g_traceEmt) return false;
-    uint8_t req = static_cast<uint8_t>(cpu->instruction & 0xFFu);
-    g_emtCount[req]++;
-    if (req == 0341u /*.TTYOUT*/) {
-        std::fprintf(stderr, " <%03o>", static_cast<uint8_t>(cpu->r[0] & 0xFFu));
-    }
-    return false;
-}
 
 /* Forward declarations — full bodies appear immediately below. */
 KeyMapping asciiToKey(uint8_t c);
@@ -496,25 +471,7 @@ void readBytesFromHost()
 
 void install(ms0515::Emulator &emu)
 {
-    emu.setTrapThunk(stdioThunk);
     g_emu = &emu;
-}
-
-void setEmtTrace(bool enabled)
-{
-    g_traceEmt = enabled;
-}
-
-void dumpEmtCounts()
-{
-    if (!g_traceEmt) return;
-    std::fprintf(stderr, "\nms0515-cli: EMT counts:");
-    for (int i = 0; i < 256; ++i) {
-        if (g_emtCount[i] > 0) {
-            std::fprintf(stderr, " 0o%03o:%d", i, g_emtCount[i]);
-        }
-    }
-    std::fprintf(stderr, "\n");
 }
 
 void setInputReady(bool ready)

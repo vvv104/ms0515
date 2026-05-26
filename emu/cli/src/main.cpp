@@ -56,8 +56,6 @@ options:
                           (alias: -d1s1)
   --frames <N>            Stop after N emu frames (default: unlimited).
                           Useful for smoke-testing.
-  --emt-trace             Per-byte trace of .TTYOUT + EMT histogram
-                          (stderr at exit).  Diagnostic only.
   --realtime              Throttle the emulator to the MS-0515's
                           original 50 Hz refresh, so OS-side timing
                           (sleep-driven UIs, timer-based code)
@@ -76,12 +74,10 @@ Quit hotkey (interactive session):  Ctrl-]
 )";
 
 /* Per-binary local flags that aren't part of the shared `CliArgs`
- * schema.  Currently just --help and --emt-trace; everything else
- * comes through libapp. */
+ * schema.  Everything else comes through libapp. */
 struct CliLocalFlags {
     bool help     = false;
     bool version  = false;
-    bool emtTrace = false;
     bool realtime = false;
 };
 
@@ -92,7 +88,6 @@ CliLocalFlags pickCliLocalFlags(int argc, char **argv)
         std::string_view a = argv[i];
         if (a == "-h" || a == "--help")     out.help     = true;
         if (a == "-V" || a == "--version")  out.version  = true;
-        if (a == "--emt-trace")             out.emtTrace = true;
         if (a == "--realtime")              out.realtime = true;
     }
     return out;
@@ -160,7 +155,6 @@ int main(int argc, char **argv)
     }
     emu.reset();
     ms0515::cli::bridge::install(emu);
-    ms0515::cli::bridge::setEmtTrace(local.emtTrace);
 
     /* VramMirror — hook-driven cell-by-cell mirror of the hires text
      * plane.  Per-frame flushFrame emits ANSI cursor-positioned UTF-8
@@ -222,7 +216,6 @@ int main(int argc, char **argv)
     std::fputs("\x1B[?25h", stdout);
     std::fflush(stdout);
     ms0515::cli::restoreTerminal();
-    ms0515::cli::bridge::dumpEmtCounts();
 
     if (emu.halted()) {
         std::println(stderr,

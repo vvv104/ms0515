@@ -105,23 +105,6 @@ public:
     [[nodiscard]] int lastWriteRow() const noexcept { return lastWriteRow_; }
     [[nodiscard]] int lastWriteCol() const noexcept { return lastWriteCol_; }
 
-    /* Detected OS cursor cell (whichever cell currently decodes to '_').
-     * Both -1 if no '_' has been seen yet, or if the cursor cell got
-     * overwritten by a non-'_' glyph and a fresh '_' hasn't reappeared. */
-    [[nodiscard]] int osCursorRow() const noexcept { return osCursorRow_; }
-    [[nodiscard]] int osCursorCol() const noexcept { return osCursorCol_; }
-
-    /* Raw 8-byte glyph bitmap at the (row, col) cell, packed by
-     * glyphKey()'s convention (byte 0 = scanline 0 = least-significant
-     * byte of the uint64_t).  Returns 0 if (row, col) is out of range
-     * or no emulator is attached.  Used by diagnostic tooling to dump
-     * what the OS actually painted into the cursor cell. */
-    [[nodiscard]] uint64_t cellBitmap(int row, int col) const {
-        if (row < 0 || row >= kRows || col < 0 || col >= kCols) return 0;
-        if (emu_ == nullptr) return 0;
-        return readGlyphKey(row, col);
-    }
-
     /* Number of consecutive flushFrame() calls with zero VRAM writes
      * observed in between.  Reaches a non-trivial value while the
      * kernel is parked at a prompt and goes back to 0 the moment new

@@ -178,8 +178,6 @@ public:
 
     /* ── Input ──────────────────────────────────────────────────────────── */
 
-    void keyEvent(uint8_t scancode);
-
     void keyPress(Key key, bool down);
 
     void keyReleaseAll();

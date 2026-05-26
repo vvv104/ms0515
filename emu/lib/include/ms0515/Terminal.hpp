@@ -28,7 +28,7 @@
  *     does not have on its own 25-line display.
  *   - Reflect cursor blink (the OS draws a '_' that toggles on/off).
  *     The cursor character is treated as a transparent blank for
- *     diffing — see `setCursorChar`.
+ *     diffing — see `setTransparentChars`.
  *
  * Lifecycle: a single `Terminal` instance lives for the life of the
  * Emulator.  Call `update(emu)` once per emulator frame; the font map
@@ -111,11 +111,6 @@ public:
      * diff classification.  Default is `_` (the OS-drawn cursor). */
     void setTransparentChars(std::string_view chars)
         { transparentChars_ = chars; }
-
-    /* Backwards-compatible single-char setter. */
-    void setCursorChar(uint8_t c) {
-        transparentChars_.assign(1, static_cast<char>(c));
-    }
 
     /* Drop the diff shadow so the next update emits the full current
      * screen as the new initial state. */

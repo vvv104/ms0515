@@ -181,15 +181,15 @@ VramMirror::LookupResult VramMirror::lookupWithInvert(uint64_t key) const
         return {it->second, true, false};
 
     /* Mihin RT-11 cursor: a non-blinking, thick inverted underline
-     * overlaid on the underlying letter.  Empirically (--debug-vram
-     * trace from a live SL session, 2026-05-26) the cursor flips the
-     * bottom *two* scanlines of the cell — bytes 6 and 7 in our
-     * scanline-LSB packing, or the high two bytes of the uint64_t
-     * key.  XOR with 0xFFFF000000000000 recovers the underlying
-     * letter (or 0 for an empty cell, which resolves to ' ').
-     * Tried before the sparse-pixel fallback because a cursor on an
-     * empty cell has popcount 16 — exactly the threshold the fallback
-     * would silently swallow as blank. */
+     * overlaid on the underlying letter.  Captured from a live SL
+     * session on 2026-05-26 — the cursor flips the bottom *two*
+     * scanlines of the cell (bytes 6 and 7 in our scanline-LSB
+     * packing, the high two bytes of the uint64_t key).  XOR with
+     * 0xFFFF000000000000 recovers the underlying letter, or 0 for an
+     * empty cell which resolves to ' '.  Tried before the sparse-
+     * pixel fallback because a cursor on an empty cell has popcount
+     * 16 — exactly the threshold the fallback would silently swallow
+     * as blank. */
     constexpr uint64_t kMihinCursorMask = 0xFFFF000000000000ULL;
     if (auto it = glyphMap_.find(key ^ kMihinCursorMask);
         it != glyphMap_.end())
