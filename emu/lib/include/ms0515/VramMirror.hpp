@@ -53,6 +53,13 @@ public:
      * so the emitter stack can stay byte-based. */
     static constexpr uint8_t kCopyrightSign = 0xA9;
 
+    /* Up/down arrows drawn by Rodionov ROSA Commander between the
+     * file panels.  KOI-8R has no codepoint for these so we steal
+     * unused control-char slots; the emitter converts them to
+     * U+25B2/U+25BC. */
+    static constexpr uint8_t kArrowDown = 0x1A;
+    static constexpr uint8_t kArrowUp   = 0x1B;
+
     VramMirror();
     ~VramMirror();
 
@@ -117,6 +124,12 @@ public:
 
     struct Snapshot {
         std::array<uint8_t, kCols * kRows> cells{};
+        /* True if the cell at index `i` is XOR-inverted on the source
+         * screen.  Rodionov ROSA Commander uses this for the
+         * highlighted file entry; we resolve such cells to the
+         * underlying glyph code and flag the inversion so the emit
+         * path can wrap the cell with `\x1B[7m`…`\x1B[27m`. */
+        std::array<bool, kCols * kRows> inverted{};
 
         /* Row `r` as a string with trailing blanks removed (KOI-8). */
         [[nodiscard]] std::string row(int r) const;
@@ -134,11 +147,19 @@ private:
     [[nodiscard]] static uint64_t glyphKey(const uint8_t glyph[8]);
     [[nodiscard]] uint8_t lookup(uint64_t key) const;
 
+    /* Like lookup() but also reports whether the resolution required
+     * inverting the bitmap (Rodionov highlight).  `inverted=true`
+     * means the underlying glyph was found via XOR fallback; the
+     * emit path is expected to wrap the cell with reverse-video
+     * SGR codes. */
+    struct LookupResult { uint8_t code; bool inverted; };
+    [[nodiscard]] LookupResult lookupWithInvert(uint64_t key) const;
+
     /* Pack the eight bytes of the (row, col) cell from VRAM into a
      * 64-bit glyph key. */
     [[nodiscard]] uint64_t readGlyphKey(int row, int col) const;
 
-    void emitCellChange(int row, int col, uint8_t newCode);
+    void emitCellChange(int row, int col, uint8_t newCode, bool inverted);
     void emitAnsi(std::string_view s);
     void emitKoi8(uint8_t code);
     [[nodiscard]] static std::string utf8FromKoi8(uint8_t code);
@@ -152,6 +173,7 @@ private:
     bool                                  fontBuilt_  = false;
 
     std::array<uint8_t, kCols * kRows> shadow_{};   /* current cell content */
+    std::array<bool,    kCols * kRows> inverted_{}; /* parallel inversion flag */
     std::array<bool,    kCols * kRows> dirty_{};    /* changed since last flush */
     int  cursorRow_     = -1;                       /* last-emitted cell */
     int  cursorCol_     = -1;

@@ -160,15 +160,32 @@ uint64_t VramMirror::readGlyphKey(int row, int col) const
 
 uint8_t VramMirror::lookup(uint64_t key) const
 {
-    auto it = glyphMap_.find(key);
-    if (it != glyphMap_.end()) return it->second;
-    if (key == 0) return 0x20;                  /* all-zero = blank */
+    return lookupWithInvert(key).code;
+}
+
+VramMirror::LookupResult VramMirror::lookupWithInvert(uint64_t key) const
+{
+    if (auto it = glyphMap_.find(key); it != glyphMap_.end())
+        return {it->second, false};
+    if (key == 0) return {0x20, false};                /* all-zero = blank */
+
+    /* Rodionov ROSA Commander draws the highlighted file by XOR-
+     * inverting each cell's bitmap on the fly (the OS toggles every
+     * pixel through the video controller; no separate inverted-font
+     * table exists).  Try the inverted bitmap against the font map —
+     * if it resolves, the cell IS inverted; we return the underlying
+     * glyph code and flag the inversion so the emit path can wrap
+     * the cell with `\x1B[7m`…`\x1B[27m`. */
+    if (auto it = glyphMap_.find(key ^ 0xFFFFFFFFFFFFFFFFULL);
+        it != glyphMap_.end())
+        return {it->second, true};
+
     /* Sparse-pixel fallback: <17 of 64 set pixels = visual noise = blank.
      * Threshold and reasoning copied from Terminal::lookup — the
      * OS scatters thin 1-2 pixel leftover patterns into otherwise
      * blank cells; emitting █ for those would mangle scrollback. */
-    if (std::popcount(key) < 17) return 0x20;
-    return kUnknownGlyph;
+    if (std::popcount(key) < 17) return {0x20, false};
+    return {kUnknownGlyph, false};
 }
 
 void VramMirror::rebuildFontIfNeeded()
@@ -230,10 +247,79 @@ void VramMirror::buildFont(const uint8_t *rom, size_t romSize)
 
     /* OS-drawn glyphs not in either ROM font.  Each extracted from a
      * real boot trace; try_emplace so a ROM glyph with the same shape
-     * still wins. */
+     * still wins.
+     *
+     * Key encoding: glyphKey() packs the 8 scanline bytes little-
+     * endian into a uint64_t (byte 0 = LSB).  The hex literal below
+     * therefore reads BOTTOM-to-TOP — `0x...XXYY` means scanline 0 is
+     * `0xYY`, scanline 1 is `0xXX`. */
     static constexpr struct { uint64_t key; uint8_t code; } kCustomGlyphs[] = {
         /* © as drawn by the Rodionov 1992 OSA boot banner. */
         { 0x3C4299A1A199423CULL, kCopyrightSign },
+
+        /* ── Rodionov RT-15SJ / ROSA Commander pseudographics.  Lifted
+         * verbatim from the in-RAM font table the monitor builds at
+         * boot (mapped to RAM[0xC1DE..0xC3A6]).  All 32 KOI-8R box-
+         * drawing code points + half/quarter blocks + shades are
+         * represented; codes correspond to the Unicode points already
+         * tabulated in `kKoi8Hi[]`, so no emitter changes needed. */
+        /* Single-line frame */
+        { 0x000000FF00000000ULL, 0x80 },  /* ─ */
+        { 0x1818181818181818ULL, 0x81 },  /* │ */
+        { 0x1818181F00000000ULL, 0x82 },  /* ┌ */
+        { 0x181818F800000000ULL, 0x83 },  /* ┐ */
+        { 0x0000001F18181818ULL, 0x84 },  /* └ */
+        { 0x000000F818181818ULL, 0x85 },  /* ┘ */
+        { 0x1818181F18181818ULL, 0x86 },  /* ├ */
+        { 0x181818F818181818ULL, 0x87 },  /* ┤ */
+        { 0x181818FF00000000ULL, 0x88 },  /* ┬ */
+        { 0x000000FF18181818ULL, 0x89 },  /* ┴ */
+        { 0x181818FF18181818ULL, 0x8A },  /* ┼ */
+        /* Half / quarter blocks + full block + shades */
+        { 0x00000000FFFFFFFFULL, 0x8B },  /* ▀ upper half */
+        { 0xFFFFFFFF00000000ULL, 0x8C },  /* ▄ lower half */
+        { 0xFFFFFFFFFFFFFFFFULL, 0x8D },  /* █ full block */
+        { 0xF0F0F0F0F0F0F0F0ULL, 0x8E },  /* ▌ left half */
+        { 0x0F0F0F0F0F0F0F0FULL, 0x8F },  /* ▐ right half */
+        { 0xAA55AA55AA55AA55ULL, 0x90 },  /* ░ light shade */
+        { 0xEEDB77DBEEDB77DBULL, 0x91 },  /* ▒ medium shade */
+        /* Double-line frame */
+        { 0x000000FF00FF0000ULL, 0xA0 },  /* ═ */
+        { 0x6666666666666666ULL, 0xA1 },  /* ║ */
+        { 0x1818181F181F0000ULL, 0xA2 },  /* ╒ */
+        { 0x6666667F00000000ULL, 0xA4 },  /* ╓ */
+        { 0x66666667607F0000ULL, 0xA5 },  /* ╔ */
+        { 0x181818F818F80000ULL, 0xA6 },  /* ╕ */
+        { 0x666666FE00000000ULL, 0xA7 },  /* ╖ */
+        { 0x666666E606FE0000ULL, 0xA8 },  /* ╗ */
+        { 0x0000001F181F1818ULL, 0xA9 },  /* ╘ */
+        { 0x0000007F66666666ULL, 0xAA },  /* ╙ */
+        { 0x0000007F60676666ULL, 0xAB },  /* ╚ */
+        { 0x0000F818F8181818ULL, 0xAC },  /* ╛ */
+        { 0x000000FE66666666ULL, 0xAD },  /* ╜ */
+        { 0x000000FE06E66666ULL, 0xAE },  /* ╝ */
+        { 0x1818181F181F1818ULL, 0xAF },  /* ╞ */
+        { 0x6666666766666666ULL, 0xB0 },  /* ╟ */
+        { 0x6666666760676666ULL, 0xB1 },  /* ╠ */
+        { 0x181818F818F81818ULL, 0xB2 },  /* ╡ */
+        { 0x666666E666666666ULL, 0xB4 },  /* ╢ */
+        { 0x666666E606E66666ULL, 0xB5 },  /* ╣ */
+        { 0x181818FF00FF0000ULL, 0xB6 },  /* ╤ */
+        { 0x666666FF00000000ULL, 0xB7 },  /* ╥ */
+        { 0x666666E700FF0000ULL, 0xB8 },  /* ╦ */
+        { 0x000000FF00FF1818ULL, 0xB9 },  /* ╧ */
+        { 0x000000FF66666666ULL, 0xBA },  /* ╨ */
+        { 0x000000FF00E76666ULL, 0xBB },  /* ╩ */
+        { 0x181818FF18FF1818ULL, 0xBC },  /* ╪ */
+        { 0x66666666FF666666ULL, 0xBD },  /* ╫ */
+        { 0x666666E700E76666ULL, 0xBE },  /* ╬ */
+        /* Between-panel scroll arrows.  Two variants per direction:
+         *   ↓ pure: just the triangle (drawn standalone)
+         *   ↓ thick: triangle on top of a vertical stem (between panels) */
+        { 0x0000FFFF7E3C1800ULL, kArrowUp   },  /* ▲ pure (RAM 0xC37E) */
+        { 0x0000183C7EFFFF00ULL, kArrowDown },  /* ▼ pure (RAM 0xC386) */
+        { 0x183C7EFF18181818ULL, kArrowDown },  /* ↓ thick (RAM 0xC39E) */
+        { 0x18181818FF7E3C18ULL, kArrowUp   },  /* ↑ thick (RAM 0xC3A6) */
     };
     for (const auto &g : kCustomGlyphs)
         glyphMap_.try_emplace(g.key, g.code);
@@ -243,6 +329,8 @@ std::string VramMirror::utf8FromKoi8(uint8_t code)
 {
     if (code == kUnknownGlyph) return "\xE2\x96\x88";       /* █ */
     if (code == kCopyrightSign) return "\xC2\xA9";          /* © */
+    if (code == kArrowDown) return "\xE2\x96\xBC";          /* ▼ */
+    if (code == kArrowUp)   return "\xE2\x96\xB2";          /* ▲ */
     if (code >= 0x20 && code < 0x7F)
         return std::string(1, static_cast<char>(code));
     if (code >= 0x80) return encodeUtf8(kKoi8Hi[code - 0x80]);
@@ -261,7 +349,7 @@ void VramMirror::emitKoi8(uint8_t code)
     if (out_) std::fwrite(utf.data(), 1, utf.size(), out_);
 }
 
-void VramMirror::emitCellChange(int row, int col, uint8_t newCode)
+void VramMirror::emitCellChange(int row, int col, uint8_t newCode, bool inverted)
 {
     /* Position the host cursor at (row, col) if we're not already
      * there.  ANSI is 1-based on both axes. */
@@ -273,7 +361,14 @@ void VramMirror::emitCellChange(int row, int col, uint8_t newCode)
         hostCursorRow_ = row;
         hostCursorCol_ = col;
     }
+    /* Wrap inverted cells with SGR reverse-video pair.  Done per-cell
+     * because emit order is dirty-driven, not left-to-right, so we
+     * can't easily batch contiguous spans without keeping more state.
+     * Escapes go only to the FILE* (via emitAnsi); history_ keeps
+     * plain KOI-8 text from emitKoi8. */
+    if (inverted) emitAnsi("\x1B[7m");
     emitKoi8(newCode);
+    if (inverted) emitAnsi("\x1B[27m");
     /* After emit, host's terminal advances by one column. */
     hostCursorCol_++;
     cursorRow_ = row;
@@ -301,28 +396,73 @@ void VramMirror::flushFrame()
     }
     writesThisFlush_ = 0;
 
+    /* Snapshot the pre-flush state — used as the diff baseline for the
+     * emit pass, so the span-extension below can change cells without
+     * having to re-walk the decoding state machine. */
+    auto prev_shadow   = shadow_;
+    auto prev_inverted = inverted_;
+
+    /* Decode pass — fill shadow_/inverted_ for every dirty cell. */
     for (int r = 0; r < kRows; ++r) {
         for (int c = 0; c < kCols; ++c) {
             const int idx = r * kCols + c;
             if (!dirty_[idx]) continue;
             const uint64_t key = readGlyphKey(r, c);
-            const uint8_t  code = lookup(key);
+            const auto [code, inverted] = lookupWithInvert(key);
             /* Skip unknown glyphs and leave the cell dirty — the most
              * common cause is "caught mid-paint": the OS writes the
              * eight scanline bytes of a glyph one at a time, partial
              * states decode as kUnknownGlyph.  Re-flushing next frame
-             * picks up the settled glyph.  A genuinely-custom glyph
-             * (RAM-loaded font, OS-drawn icon) just stays invisible
-             * for now — better than a screenful of █ markers while
-             * boot ROM paints character by character.
-             *
-             * TODO: shadow-RAM font for OSes like Rodionov that load
-             * a custom font into RAM at boot. */
+             * picks up the settled glyph. */
             if (code == kUnknownGlyph) continue;
-            dirty_[idx] = false;
-            if (shadow_[idx] == code) continue;
-            shadow_[idx] = code;
-            emitCellChange(r, c, code);
+            dirty_[idx]    = false;
+            shadow_[idx]   = code;
+            inverted_[idx] = inverted;
+        }
+    }
+
+    /* Inversion-span extension.  A Rodionov highlight bar mixes
+     * "inverted letters" (resolved via XOR fallback, code = letter,
+     * inverted = true) with "inverted spaces" — whose VRAM bitmap is
+     * 0xFFFFFFFFFFFFFFFF and looks identical to a real █ block.  The
+     * decode pass classifies those as non-inverted █ on first sight;
+     * we recover the highlight by walking each row and turning any
+     * █ adjacent to an inverted cell into an inverted space (0x20,
+     * inverted=true).  Two passes (LR + RL) catch blocks that lead
+     * or trail the highlight. */
+    for (int r = 0; r < kRows; ++r) {
+        bool span = false;
+        for (int c = 0; c < kCols; ++c) {
+            const int idx = r * kCols + c;
+            if (inverted_[idx]) { span = true; continue; }
+            if (shadow_[idx] == 0x8D && span) {
+                shadow_[idx]   = 0x20;
+                inverted_[idx] = true;
+            } else {
+                span = false;
+            }
+        }
+        span = false;
+        for (int c = kCols - 1; c >= 0; --c) {
+            const int idx = r * kCols + c;
+            if (inverted_[idx]) { span = true; continue; }
+            if (shadow_[idx] == 0x8D && span) {
+                shadow_[idx]   = 0x20;
+                inverted_[idx] = true;
+            } else {
+                span = false;
+            }
+        }
+    }
+
+    /* Emit pass — write out every cell whose code or inversion flag
+     * differs from the pre-flush snapshot. */
+    for (int r = 0; r < kRows; ++r) {
+        for (int c = 0; c < kCols; ++c) {
+            const int idx = r * kCols + c;
+            if (shadow_[idx]   == prev_shadow[idx] &&
+                inverted_[idx] == prev_inverted[idx]) continue;
+            emitCellChange(r, c, shadow_[idx], inverted_[idx]);
         }
     }
 
@@ -362,7 +502,8 @@ std::string VramMirror::Snapshot::row(int r) const
 VramMirror::Snapshot VramMirror::snapshot() const
 {
     Snapshot s;
-    s.cells = shadow_;
+    s.cells    = shadow_;
+    s.inverted = inverted_;
     return s;
 }
 
