@@ -10,13 +10,6 @@ find_package(stb REQUIRED)
 # The variable imgui_PACKAGE_FOLDER_RELEASE is set by Conan's CMakeDeps.
 set(IMGUI_BACKENDS_DIR "${imgui_PACKAGE_FOLDER_RELEASE}/res/bindings")
 
-# Platform-specific source file.
-if(WIN32)
-    set(PLATFORM_SRC src/Platform_win32.cpp)
-else()
-    set(PLATFORM_SRC src/Platform_unix.cpp)
-endif()
-
 # Windows version resource: embeds VERSIONINFO (Publisher, FileVersion,
 # ProductVersion, etc.) so the SmartScreen dialog and Explorer's
 # Properties → Details pane show real metadata instead of
@@ -41,7 +34,6 @@ add_executable(ms0515 WIN32
     src/PhysicalKeyboard.cpp
     src/OnScreenKeyboard.cpp
     src/Ui.cpp
-    ${PLATFORM_SRC}
     ${IMGUI_BACKENDS_DIR}/imgui_impl_sdl2.cpp
     ${IMGUI_BACKENDS_DIR}/imgui_impl_sdlrenderer2.cpp
     ${VERSION_RC}
@@ -55,6 +47,7 @@ target_include_directories(ms0515 PRIVATE
 target_link_libraries(ms0515
     PRIVATE ms0515_lib
     PRIVATE ms0515_libapp
+    PRIVATE ms0515_platform_gui
     PRIVATE SDL2::SDL2 SDL2::SDL2main
     PRIVATE imgui::imgui
     PRIVATE stb::stb

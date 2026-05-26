@@ -11,7 +11,7 @@
 
 #include <doctest/doctest.h>
 
-#include "../src/Platform.hpp"
+#include "Platform.hpp"
 
 #include <cstdio>
 

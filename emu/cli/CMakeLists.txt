@@ -5,17 +5,10 @@
 # console process that exposes the kernel as if it were a serial session.
 # ─────────────────────────────────────────────────────────────────────────────
 
-if(WIN32)
-    set(CLI_PLATFORM_SRC src/Platform_win32.cpp)
-else()
-    set(CLI_PLATFORM_SRC src/Platform_unix.cpp)
-endif()
-
 add_executable(ms0515-cli
     src/main.cpp
     src/Koi8.cpp
     src/StdioBridge.cpp
-    ${CLI_PLATFORM_SRC}
 )
 
 target_compile_features(ms0515-cli PRIVATE cxx_std_23)
@@ -27,6 +20,7 @@ target_include_directories(ms0515-cli PRIVATE
 target_link_libraries(ms0515-cli
     PRIVATE ms0515_lib
     PRIVATE ms0515_libapp
+    PRIVATE ms0515_platform_cli
 )
 
 # ── Package output ──────────────────────────────────────────────────────────
