@@ -19,7 +19,6 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <print>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -109,7 +108,7 @@ int main(int argc, char **argv)
         return 0;
     }
     if (local.version) {
-        std::println("ms0515-cli {}", MS0515_VERSION_STRING);
+        std::fprintf(stdout, "ms0515-cli %s\n", MS0515_VERSION_STRING);
         return 0;
     }
 
@@ -133,9 +132,10 @@ int main(int argc, char **argv)
 
     const std::string rom = app::resolveRom(cli.romPath, cfg.romPath);
     if (rom.empty()) {
-        std::println(stderr,
+        std::fputs(
             "error: ROM not found.  Pass --rom <path> or put "
-            "ms0515-roma.rom under assets/rom/ next to the binary.");
+            "ms0515-roma.rom under assets/rom/ next to the binary.\n",
+            stderr);
         return 1;
     }
 
@@ -146,7 +146,7 @@ int main(int argc, char **argv)
     ms0515::Emulator emu;
     if (!emu.loadRomFile(rom)) {
         ms0515::cli::restoreTerminal();
-        std::println(stderr, "error: failed to load ROM: {}", rom);
+        std::fprintf(stderr, "error: failed to load ROM: %s\n", rom.c_str());
         return 1;
     }
     if (!app::mountDisksFromCli(emu, cli)) {
@@ -218,16 +218,16 @@ int main(int argc, char **argv)
     ms0515::cli::restoreTerminal();
 
     if (emu.halted()) {
-        std::println(stderr,
-            "\nms0515-cli: CPU halted after {} frames (PC=0{:06o})",
+        std::fprintf(stderr,
+            "\nms0515-cli: CPU halted after %ld frames (PC=0%06o)\n",
             frame_count, emu.pc());
     } else if (ms0515::cli::shouldQuit()) {
-        std::println(stderr,
-            "\nms0515-cli: interrupted after {} frames (PC=0{:06o})",
+        std::fprintf(stderr,
+            "\nms0515-cli: interrupted after %ld frames (PC=0%06o)\n",
             frame_count, emu.pc());
     } else if (cli.maxFrames > 0) {
-        std::println(stderr,
-            "\nms0515-cli: stopped after {} frames (--frames cap)",
+        std::fprintf(stderr,
+            "\nms0515-cli: stopped after %ld frames (--frames cap)\n",
             frame_count);
     }
     return 0;

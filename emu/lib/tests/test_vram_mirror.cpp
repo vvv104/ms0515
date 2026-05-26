@@ -20,6 +20,7 @@ extern "C" {
 #include <ms0515/core/memory.h>
 }
 
+#include <cstring>
 #include <filesystem>
 #include <string>
 
