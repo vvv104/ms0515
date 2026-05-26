@@ -315,7 +315,9 @@ KeyMapping koi8CyrillicToKey(uint8_t b)
     if (b >= 0xC0 && b <= 0xDF) {
         idx = b - 0xC0;
         shifted = false;    /* lowercase Cyrillic → bare key */
-    } else if (b >= 0xE0 && b <= 0xFF) {
+    } else if (b >= 0xE0) {
+        /* uint8_t guarantees the upper bound — `b <= 0xFF` would draw
+         * a -Wtype-limits warning under -Wextra. */
         idx = b - 0xE0;
         shifted = true;     /* uppercase Cyrillic → Shift+key */
     } else {
