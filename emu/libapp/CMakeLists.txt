@@ -26,3 +26,7 @@ target_include_directories(ms0515_libapp
 target_link_libraries(ms0515_libapp
     PUBLIC ms0515_lib
 )
+
+if(MS0515_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
