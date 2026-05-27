@@ -172,6 +172,17 @@ typedef struct ms0515_board {
     uint16_t read_watch_addr;
     uint16_t read_watch_len;
 
+    /* Transient bus-cycle context (NOT emulator state — never observed
+     * outside an in-flight bus operation, intentionally excluded from
+     * snapshot serialisation).  Raised by board_datio_begin and lowered
+     * by board_datio_end to mark that the next read+write pair belong
+     * to a single atomic T-11 DATIO cycle.  Peripherals that distinguish
+     * atomic cycles from sub-strobes — currently just the K555IE19
+     * counter on the EX RAM-disk expansion board — observe this flag
+     * to avoid double-ticking; most peripherals ignore it and see two
+     * normal events. */
+    bool     _datio_active;
+
 } ms0515_board_t;
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
@@ -223,6 +234,40 @@ uint16_t board_read_word(ms0515_board_t *board, uint16_t address);
 void     board_write_word(ms0515_board_t *board, uint16_t address, uint16_t value);
 uint8_t  board_read_byte(ms0515_board_t *board, uint16_t address);
 void     board_write_byte(ms0515_board_t *board, uint16_t address, uint8_t value);
+
+/*
+ * Atomic T-11 DATIO bus cycle bracket.  The K1801VM1 / DEC T-11 has
+ * no standalone DATO at the chip level — every write-bearing
+ * instruction (CLR, MOV, ADD, BIS, …) goes out on the bus as a
+ * single DATIO: one BSYNC assertion with BDIN (read phase) and BDOUT
+ * (write phase) on the same address.  Stack pushes are the only
+ * exception (pure DATO per the T-11 spec — they go through `push`
+ * and bypass this bracket entirely).
+ *
+ * Usage at the CPU layer:
+ *
+ *     board_datio_begin(board);
+ *     uint8_t old = board_read_byte (board, addr);  // BDIN phase
+ *     ...                                           // modify / discard
+ *     board_write_byte(board, addr, newv);          // BDOUT phase
+ *     board_datio_end(board);
+ *
+ * Peripherals see the read and write as two separate handler calls
+ * but may consult the in-flight DATIO flag to recognise that they
+ * belong to one atomic cycle.  Most peripherals ignore it — auto-
+ * clear-on-read, FIFO pops, latch-on-read fire on the read phase
+ * exactly as they would on a DATI.  The K555IE19 counter on the EX
+ * RAM-disk uses it to skip the read-phase tick (the real counter is
+ * clocked once per bus cycle, not once per sub-strobe).  Skipping
+ * the bracket would make every other byte of EX.SYS's MOVB-based
+ * format silently land on the wrong DRAM offset.
+ *
+ * Bracket is harmless if the destination operand resolves to a
+ * register (mode 0) — no bus cycle happens — but the CPU op handler
+ * should still skip the call in that case for clarity.
+ */
+void     board_datio_begin(ms0515_board_t *board);
+void     board_datio_end  (ms0515_board_t *board);
 
 /* ── Callback registration ────────────────────────────────────────────────── */
 

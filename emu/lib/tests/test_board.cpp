@@ -278,4 +278,105 @@ TEST_CASE("ramdisk enable/free through board API") {
     CHECK(ms0515::internal::board(emu).ramdisk.enabled == false);
 }
 
+/* ── T-11 DATIO bus cycle ─────────────────────────────────────────────────── */
+
+/*
+ * Helper: configure the EX RAM disk for sequential access starting
+ * at DRAM byte address (bank<<16 | page<<8 | 0), counter=0.  Mirrors
+ * the setup that EX.SYS performs before each 256-byte transfer.
+ */
+static void exDriveSetupPage(ms0515::Emulator &emu, uint8_t page,
+                             uint8_t bank = 0)
+{
+    constexpr uint16_t PPI_CTRL = 0177536;
+    constexpr uint16_t PPI_A    = 0177530;
+    constexpr uint16_t PPI_B    = 0177532;
+
+    emu.writeByte(PPI_CTRL, 0x80);                       /* all outputs */
+    emu.writeByte(PPI_A,    page);                       /* MA08-MA15 */
+    emu.writeByte(PPI_B, (uint8_t)(RAMDISK_PB_START      /* zero counter */
+                                 | RAMDISK_PB_RESET
+                                 | (bank & 7)));
+    emu.writeByte(PPI_B, (uint8_t)(RAMDISK_PB_START
+                                 | (bank & 7)));
+}
+
+/*
+ * The K555IE19 counter on the EX expansion board is clocked once per
+ * atomic bus cycle, not once per sub-strobe.  A T-11 DATIO appears
+ * to it as one tick — even though the CPU layer issues the read and
+ * write phases separately through board_read_byte/board_write_byte.
+ * board_datio_begin/end bracket the pair so peripherals can tell.
+ */
+TEST_CASE("DATIO bracket: ramdisk counter ticks once per atomic cycle") {
+    ms0515::Emulator emu;
+    emu.reset();
+    emu.enableRamDisk();
+    auto &board = ms0515::internal::board(emu);
+    exDriveSetupPage(emu, 0);
+    REQUIRE(board.ramdisk.counter == 0);
+
+    /* One DATIO: read phase (counter must not tick), then write phase
+     * (counter ticks here).  Net: counter = 1, byte written at DRAM
+     * offset 0 — NOT offset 1 as would happen without the bracket. */
+    board_datio_begin(&board);
+    (void)emu.readByte(0177550);
+    emu.writeByte(0177550, 0x42);
+    board_datio_end(&board);
+
+    CHECK(board.ramdisk.counter == 1);
+    CHECK(board.ramdisk.ram[0]  == 0x42);
+}
+
+/*
+ * 256 sequential DATIOs fill an entire 256-byte page.  Mirrors the
+ * EX.SYS format pattern (`MOVB (R3)+, (R5)` × 256) at the bus
+ * level — without the bracket every other byte would be lost because
+ * each MOVB's discard-read would double-tick the counter.
+ */
+TEST_CASE("DATIO bracket: 256 sequential writes fill a full page") {
+    ms0515::Emulator emu;
+    emu.reset();
+    emu.enableRamDisk();
+    auto &board = ms0515::internal::board(emu);
+    exDriveSetupPage(emu, 0);
+
+    for (int i = 0; i < 256; ++i) {
+        board_datio_begin(&board);
+        (void)emu.readByte(0177550);
+        emu.writeByte(0177550, (uint8_t)i);
+        board_datio_end(&board);
+    }
+
+    for (int i = 0; i < 256; ++i) {
+        const uint8_t got = board.ramdisk.ram[i];
+        CHECK_MESSAGE(got == (uint8_t)i,
+            "byte ", i, " is ", (unsigned)got,
+            " (expected ", i, ")");
+    }
+}
+
+/*
+ * Sequential reads without a DATIO bracket — the existing access
+ * pattern EX.SYS uses for its read path — must continue to advance
+ * the counter once per access.  Guards against an overzealous fix
+ * that would suppress the counter on every read.
+ */
+TEST_CASE("DATI (no bracket): counter ticks once per standalone read") {
+    ms0515::Emulator emu;
+    emu.reset();
+    emu.enableRamDisk();
+    auto &board = ms0515::internal::board(emu);
+    exDriveSetupPage(emu, 0);
+
+    for (int i = 0; i < 256; ++i) board.ramdisk.ram[i] = (uint8_t)(i ^ 0x42);
+
+    for (int i = 0; i < 256; ++i) {
+        const uint8_t got = emu.readByte(0177550);
+        CHECK_MESSAGE(got == (uint8_t)(i ^ 0x42),
+            "read ", i, " returned ", (unsigned)got);
+    }
+    CHECK(board.ramdisk.counter == 0);  /* wrapped 256→0 */
+}
+
 } /* TEST_SUITE */

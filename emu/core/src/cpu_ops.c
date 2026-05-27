@@ -298,6 +298,24 @@ static void discard_read_byte(ms0515_cpu_t *cpu, int mode, uint16_t addr)
     (void)board_read_byte(cpu->board, addr);
 }
 
+/*
+ * DATIO bracket helpers — open and close an atomic T-11 read-modify-
+ * write bus cycle around any non-register destination access.  See
+ * board_datio_begin/end for the full hardware story.  Mode 0
+ * (register direct) bypasses the bus, so the bracket would be a
+ * no-op; we still check here so each caller can stay
+ * mode-agnostic.
+ */
+static void datio_begin(ms0515_cpu_t *cpu, int mode)
+{
+    if (mode != 0) board_datio_begin(cpu->board);
+}
+
+static void datio_end(ms0515_cpu_t *cpu, int mode)
+{
+    if (mode != 0) board_datio_end(cpu->board);
+}
+
 /* ── Opcode field extraction macros ───────────────────────────────────────── */
 
 #define DST_MODE(op)   (((op) >> 3) & 7)
@@ -462,8 +480,10 @@ static void op_clr(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
-    discard_read_word(cpu, mode, addr);     /* K1807VM1: read-then-write */
-    write_word_op(cpu, mode, reg, addr, 0);
+    datio_begin(cpu, mode);
+    discard_read_word(cpu, mode, addr);     /* BDIN phase of DATIO */
+    write_word_op(cpu, mode, reg, addr, 0); /* BDOUT phase of DATIO */
+    datio_end(cpu, mode);
     cpu->psw = (cpu->psw & ~(CPU_PSW_N | CPU_PSW_V | CPU_PSW_C)) | CPU_PSW_Z;
 }
 
@@ -472,8 +492,10 @@ static void op_clrb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
-    discard_read_byte(cpu, mode, addr);     /* K1807VM1: read-then-write */
-    write_byte_op(cpu, mode, reg, addr, 0);
+    datio_begin(cpu, mode);
+    discard_read_byte(cpu, mode, addr);     /* BDIN phase of DATIO */
+    write_byte_op(cpu, mode, reg, addr, 0); /* BDOUT phase of DATIO */
+    datio_end(cpu, mode);
     cpu->psw = (cpu->psw & ~(CPU_PSW_N | CPU_PSW_V | CPU_PSW_C)) | CPU_PSW_Z;
 }
 
@@ -484,8 +506,10 @@ static void op_com(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = ~read_word_op(cpu, mode, reg, addr);
     write_word_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_word(cpu, val);
     set_v(cpu, false);
     set_c(cpu, true);
@@ -496,8 +520,10 @@ static void op_comb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint8_t val   = ~read_byte_op(cpu, mode, reg, addr);
     write_byte_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, val);
     set_v(cpu, false);
     set_c(cpu, true);
@@ -510,10 +536,12 @@ static void op_inc(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = read_word_op(cpu, mode, reg, addr);
     set_v(cpu, val == 077777);  /* 0x7FFF → overflow */
     val++;
     write_word_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_word(cpu, val);
     /* C not affected */
 }
@@ -523,10 +551,12 @@ static void op_incb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
     set_v(cpu, val == 0177);  /* 0x7F → overflow */
     val++;
     write_byte_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, val);
 }
 
@@ -537,10 +567,12 @@ static void op_dec(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = read_word_op(cpu, mode, reg, addr);
     set_v(cpu, val == 0100000);  /* 0x8000 → overflow */
     val--;
     write_word_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_word(cpu, val);
 }
 
@@ -549,10 +581,12 @@ static void op_decb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
     set_v(cpu, val == 0200);  /* 0x80 → overflow */
     val--;
     write_byte_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, val);
 }
 
@@ -563,9 +597,11 @@ static void op_neg(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = read_word_op(cpu, mode, reg, addr);
     uint16_t result = (uint16_t)(-(int16_t)val);
     write_word_op(cpu, mode, reg, addr, result);
+    datio_end(cpu, mode);
     set_nz_word(cpu, result);
     set_v(cpu, result == 0100000);
     set_c(cpu, result != 0);
@@ -576,9 +612,11 @@ static void op_negb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
     uint8_t result = (uint8_t)(-(int8_t)val);
     write_byte_op(cpu, mode, reg, addr, result);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, result);
     set_v(cpu, result == 0200);
     set_c(cpu, result != 0);
@@ -615,10 +653,12 @@ static void op_asr(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = read_word_op(cpu, mode, reg, addr);
     set_c(cpu, val & 1);
     val = (uint16_t)((int16_t)val >> 1);
     write_word_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_word(cpu, val);
     set_v(cpu, ((cpu->psw & CPU_PSW_N) != 0) ^ ((cpu->psw & CPU_PSW_C) != 0));
 }
@@ -628,10 +668,12 @@ static void op_asrb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
     set_c(cpu, val & 1);
     val = (uint8_t)((int8_t)val >> 1);
     write_byte_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, val);
     set_v(cpu, ((cpu->psw & CPU_PSW_N) != 0) ^ ((cpu->psw & CPU_PSW_C) != 0));
 }
@@ -643,10 +685,12 @@ static void op_asl(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = read_word_op(cpu, mode, reg, addr);
     set_c(cpu, (val & 0x8000) != 0);
     val <<= 1;
     write_word_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_word(cpu, val);
     set_v(cpu, ((cpu->psw & CPU_PSW_N) != 0) ^ ((cpu->psw & CPU_PSW_C) != 0));
 }
@@ -656,10 +700,12 @@ static void op_aslb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
     set_c(cpu, (val & 0x80) != 0);
     val <<= 1;
     write_byte_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, val);
     set_v(cpu, ((cpu->psw & CPU_PSW_N) != 0) ^ ((cpu->psw & CPU_PSW_C) != 0));
 }
@@ -671,11 +717,13 @@ static void op_ror(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = read_word_op(cpu, mode, reg, addr);
     bool old_c = get_c(cpu);
     set_c(cpu, val & 1);
     val = (val >> 1) | (old_c ? 0x8000 : 0);
     write_word_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_word(cpu, val);
     set_v(cpu, ((cpu->psw & CPU_PSW_N) != 0) ^ ((cpu->psw & CPU_PSW_C) != 0));
 }
@@ -685,11 +733,13 @@ static void op_rorb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
     bool old_c = get_c(cpu);
     set_c(cpu, val & 1);
     val = (val >> 1) | (old_c ? 0x80 : 0);
     write_byte_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, val);
     set_v(cpu, ((cpu->psw & CPU_PSW_N) != 0) ^ ((cpu->psw & CPU_PSW_C) != 0));
 }
@@ -701,11 +751,13 @@ static void op_rol(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = read_word_op(cpu, mode, reg, addr);
     bool old_c = get_c(cpu);
     set_c(cpu, (val & 0x8000) != 0);
     val = (val << 1) | (old_c ? 1 : 0);
     write_word_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_word(cpu, val);
     set_v(cpu, ((cpu->psw & CPU_PSW_N) != 0) ^ ((cpu->psw & CPU_PSW_C) != 0));
 }
@@ -715,11 +767,13 @@ static void op_rolb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
     bool old_c = get_c(cpu);
     set_c(cpu, (val & 0x80) != 0);
     val = (val << 1) | (old_c ? 1 : 0);
     write_byte_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, val);
     set_v(cpu, ((cpu->psw & CPU_PSW_N) != 0) ^ ((cpu->psw & CPU_PSW_C) != 0));
 }
@@ -731,12 +785,14 @@ static void op_adc(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = read_word_op(cpu, mode, reg, addr);
     bool c = get_c(cpu);
     set_v(cpu, c && val == 077777);
     set_c(cpu, c && val == 0177777);
     if (c) val++;
     write_word_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_word(cpu, val);
 }
 
@@ -745,12 +801,14 @@ static void op_adcb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
     bool c = get_c(cpu);
     set_v(cpu, c && val == 0177);
     set_c(cpu, c && val == 0377);
     if (c) val++;
     write_byte_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, val);
 }
 
@@ -761,12 +819,14 @@ static void op_sbc(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = read_word_op(cpu, mode, reg, addr);
     bool c = get_c(cpu);
     set_v(cpu, val == 0100000);
     set_c(cpu, c && val == 0);
     if (c) val--;
     write_word_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_word(cpu, val);
 }
 
@@ -775,12 +835,14 @@ static void op_sbcb(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
     bool c = get_c(cpu);
     set_v(cpu, val == 0200);
     set_c(cpu, c && val == 0);
     if (c) val--;
     write_byte_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, val);
 }
 
@@ -792,8 +854,10 @@ static void op_sxt(ms0515_cpu_t *cpu)
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
     uint16_t val  = (cpu->psw & CPU_PSW_N) ? 0xFFFF : 0;
-    discard_read_word(cpu, mode, addr);     /* K1807VM1: read-then-write */
-    write_word_op(cpu, mode, reg, addr, val);
+    datio_begin(cpu, mode);
+    discard_read_word(cpu, mode, addr);       /* BDIN phase of DATIO */
+    write_word_op(cpu, mode, reg, addr, val); /* BDOUT phase of DATIO */
+    datio_end(cpu, mode);
     set_nz_word(cpu, val);
     set_v(cpu, false);
 }
@@ -805,9 +869,11 @@ static void op_swab(ms0515_cpu_t *cpu)
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
+    datio_begin(cpu, mode);
     uint16_t val  = read_word_op(cpu, mode, reg, addr);
     val = (val >> 8) | (val << 8);
     write_word_op(cpu, mode, reg, addr, val);
+    datio_end(cpu, mode);
     set_nz_byte(cpu, (uint8_t)(val & 0xFF));  /* Flags set on low byte */
     set_v(cpu, false);
     set_c(cpu, false);
@@ -838,8 +904,10 @@ static void op_mfps(ms0515_cpu_t *cpu)
         cpu->r[reg] = (val & 0x80) ? (0xFF00 | val) : val;
     } else {
         uint16_t addr = get_byte_addr(cpu, mode, reg);
-        discard_read_byte(cpu, mode, addr); /* K1807VM1: read-then-write */
-        write_byte_op(cpu, mode, reg, addr, val);
+        datio_begin(cpu, mode);
+        discard_read_byte(cpu, mode, addr);       /* BDIN phase of DATIO */
+        write_byte_op(cpu, mode, reg, addr, val); /* BDOUT phase of DATIO */
+        datio_end(cpu, mode);
     }
     set_nz_byte(cpu, val);
     set_v(cpu, false);
@@ -856,8 +924,10 @@ static void op_mov(ms0515_cpu_t *cpu)
     uint16_t val   = read_word_op(cpu, sm, sr, saddr);
 
     uint16_t daddr = get_word_addr(cpu, dm, dr);
-    discard_read_word(cpu, dm, daddr);  /* K1807VM1: read-then-write */
-    write_word_op(cpu, dm, dr, daddr, val);
+    datio_begin(cpu, dm);
+    discard_read_word(cpu, dm, daddr);          /* BDIN phase of DATIO */
+    write_word_op(cpu, dm, dr, daddr, val);     /* BDOUT phase of DATIO */
+    datio_end(cpu, dm);
 
     set_nz_word(cpu, val);
     set_v(cpu, false);
@@ -876,8 +946,10 @@ static void op_movb(ms0515_cpu_t *cpu)
         cpu->r[dr] = (val & 0x80) ? (0xFF00 | val) : val;
     } else {
         uint16_t daddr = get_byte_addr(cpu, dm, dr);
-        discard_read_byte(cpu, dm, daddr);  /* K1807VM1: read-then-write */
-        write_byte_op(cpu, dm, dr, daddr, val);
+        datio_begin(cpu, dm);
+        discard_read_byte(cpu, dm, daddr);      /* BDIN phase of DATIO */
+        write_byte_op(cpu, dm, dr, daddr, val); /* BDOUT phase of DATIO */
+        datio_end(cpu, dm);
     }
 
     set_nz_byte(cpu, val);
@@ -929,10 +1001,12 @@ static void op_add(ms0515_cpu_t *cpu)
     uint16_t saddr = get_word_addr(cpu, sm, sr);
     uint16_t s     = read_word_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    datio_begin(cpu, dm);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
     uint32_t result = (uint32_t)s + (uint32_t)d;
     write_word_op(cpu, dm, dr, daddr, (uint16_t)result);
+    datio_end(cpu, dm);
 
     set_nz_word(cpu, (uint16_t)result);
     set_v(cpu, ((~(s ^ d)) & (s ^ (uint16_t)result) & 0x8000) != 0);
@@ -949,10 +1023,12 @@ static void op_sub(ms0515_cpu_t *cpu)
     uint16_t saddr = get_word_addr(cpu, sm, sr);
     uint16_t s     = read_word_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    datio_begin(cpu, dm);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
     uint16_t result = d - s;
     write_word_op(cpu, dm, dr, daddr, result);
+    datio_end(cpu, dm);
 
     set_nz_word(cpu, result);
     set_v(cpu, ((d ^ s) & (~s ^ result) & 0x8000) != 0);
@@ -1001,10 +1077,12 @@ static void op_bic(ms0515_cpu_t *cpu)
     uint16_t saddr = get_word_addr(cpu, sm, sr);
     uint16_t s     = read_word_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    datio_begin(cpu, dm);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
     uint16_t result = d & ~s;
     write_word_op(cpu, dm, dr, daddr, result);
+    datio_end(cpu, dm);
     set_nz_word(cpu, result);
     set_v(cpu, false);
 }
@@ -1017,10 +1095,12 @@ static void op_bicb(ms0515_cpu_t *cpu)
     uint16_t saddr = get_byte_addr(cpu, sm, sr);
     uint8_t s      = read_byte_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_byte_addr(cpu, dm, dr);
+    datio_begin(cpu, dm);
     uint8_t d      = read_byte_op(cpu, dm, dr, daddr);
 
     uint8_t result = d & ~s;
     write_byte_op(cpu, dm, dr, daddr, result);
+    datio_end(cpu, dm);
     set_nz_byte(cpu, result);
     set_v(cpu, false);
 }
@@ -1035,10 +1115,12 @@ static void op_bis(ms0515_cpu_t *cpu)
     uint16_t saddr = get_word_addr(cpu, sm, sr);
     uint16_t s     = read_word_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    datio_begin(cpu, dm);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
     uint16_t result = d | s;
     write_word_op(cpu, dm, dr, daddr, result);
+    datio_end(cpu, dm);
     set_nz_word(cpu, result);
     set_v(cpu, false);
 }
@@ -1051,10 +1133,12 @@ static void op_bisb(ms0515_cpu_t *cpu)
     uint16_t saddr = get_byte_addr(cpu, sm, sr);
     uint8_t s      = read_byte_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_byte_addr(cpu, dm, dr);
+    datio_begin(cpu, dm);
     uint8_t d      = read_byte_op(cpu, dm, dr, daddr);
 
     uint8_t result = d | s;
     write_byte_op(cpu, dm, dr, daddr, result);
+    datio_end(cpu, dm);
     set_nz_byte(cpu, result);
     set_v(cpu, false);
 }
@@ -1068,10 +1152,12 @@ static void op_xor(ms0515_cpu_t *cpu)
 
     uint16_t s = cpu->r[sr];
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    datio_begin(cpu, dm);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
     uint16_t result = s ^ d;
     write_word_op(cpu, dm, dr, daddr, result);
+    datio_end(cpu, dm);
     set_nz_word(cpu, result);
     set_v(cpu, false);
 }
