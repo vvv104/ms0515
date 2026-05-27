@@ -153,6 +153,13 @@ int main(int argc, char **argv)
         ms0515::cli::restoreTerminal();
         return 1;
     }
+    /* Enable the EX RAM-disk expansion (EX0:, 512 KB).  Matches the
+     * GUI's always-on default — RT-11 driver EX.SYS only sees the
+     * board when the I/O range is alive.  The GUI exposes a
+     * menu-level toggle for parity but disabling is not yet
+     * implemented in the core, so the CLI just enables it
+     * unconditionally for now. */
+    emu.enableRamDisk();
     emu.reset();
     ms0515::cli::bridge::install(emu);
 
