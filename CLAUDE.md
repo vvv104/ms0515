@@ -3,10 +3,15 @@
 **Read this first after compacting!**
 
 ## Architecture
-Three-layer emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
+Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Core** (`emu/core/`) — Pure C11, zero OS deps. Fully implemented and verified.
 - **Lib** (`emu/lib/`) — C++ wrapper: Emulator, Debugger, Disassembler, GDB RSP.
-- **Frontend** (`emu/frontend/`) — C++ SDL2 + ImGui.
+- **Libapp** (`emu/libapp/`) — Shared host-side app utilities: filesystem paths, YAML config loader/writer, CLI argument parser, disk-mount helpers. Linked by both binaries so any flag added to one is automatically supported by the other. Strictly host-app code — no emulation primitives, no core API.
+- **Platform** (`emu/platform/`) — Host abstractions kept out of binary sources. Split into two sublibs because needs barely overlap:
+  - `platform/cli/` — raw stdin, signal handling, UTF-8 console setup.
+  - `platform/gui/` — file dialogs, font discovery, GUI-subsystem console attach.
+- **CLI** (`emu/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer.
+- **Frontend** (`emu/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
 
 ## Key rules
 - All code, comments, and documentation must be in **English only**.
@@ -26,10 +31,19 @@ emu/                — emulator source code and build files
   core/tests/       — pure-core unit tests (link only against ms0515_core)
   lib/              — C++ wrapper (Emulator, Debugger, Disassembler, GdbStub)
   lib/tests/        — lib-level tests (Emulator/Terminal/KeyboardLayout/...) + disk fixtures
+  libapp/           — shared host-app utilities (Paths, Config, Cli, Disks)
+  libapp/tests/     — libapp unit tests (paths/config/cli/disks)
+  platform/cli/     — CLI host abstractions (Platform_unix.cpp / Platform_win32.cpp)
+  platform/gui/     — GUI host abstractions (file dialogs, fonts, console attach) + tests/
+  cli/              — text-mode binary (main.cpp, StdioBridge, Koi8)
   frontend/         — SDL2 + ImGui application
   frontend/tests/   — placeholder for future frontend tests
   assets/           — runtime resources (ROM files, keyboard layout, disk images)
+  package/          — build output: ms0515.exe, ms0515-cli.exe, ms0515.yaml, assets/
 docs/               — architecture and subsystem documentation
   kb/              — knowledge base (references, verification, known issues)
 tools/              — utility scripts (disassembler, disk tools)
 ```
+
+The top-level `tests/` folder is intentionally gone — each layer owns its own
+`tests/` subdir, which keeps the dependency direction enforced at link time.
