@@ -9,35 +9,49 @@ the PDP-11 instruction set.
 
 ## Emulator Architecture
 
-The emulator is structured as three independent layers:
+The emulator is structured as a stack of libraries with two binaries on top:
 
 ```
-  ┌─────────────────────────────────────────┐
-  │  Frontend (C++ / SDL2 / ImGui)          │
-  │  - Window management, rendering         │
-  │  - Input handling (keyboard, mouse)     │
-  │  - Audio output (SDL2 audio)            │
-  │  - Interactive debugger UI              │
-  └──────────────┬──────────────────────────┘
-                 │
-  ┌──────────────┴──────────────────────────┐
-  │  Lib (C++)                              │
-  │  - Emulator wrapper (lifecycle, ROM)    │
-  │  - Debugger (breakpoints, single-step)  │
-  │  - Disassembler (PDP-11 mnemonics)      │
-  │  - GDB RSP stub (remote debugging)      │
-  └──────────────┬──────────────────────────┘
-                 │
-  ┌──────────────┴──────────────────────────┐
-  │  Core (C11)                             │
-  │  - CPU emulation (66 instructions)      │
-  │  - Memory (128K RAM, bank switching)    │
-  │  - Timer (8253 PIT, 3 channels)         │
-  │  - Keyboard (MS7004 model + 8251 USART) │
-  │  - Floppy (WD1793 FDC)                  │
-  │  - Board (system integration, I/O bus)  │
-  └─────────────────────────────────────────┘
+  ┌──────────────────────────────┐  ┌──────────────────────────────┐
+  │  Frontend  (ms0515.exe)      │  │  CLI  (ms0515-cli.exe)       │
+  │  - SDL2 window, ImGui UI     │  │  - stdio bridge over lib     │
+  │  - audio, on-screen keyboard │  │  - KOI-8 ↔ host encoding     │
+  │  - interactive debugger UI   │  │  - text-mode session         │
+  └────────────┬──────────┬──────┘  └───────┬────────────┬─────────┘
+               │          │                 │            │
+               ▼          ▼                 ▼            ▼
+       ┌──────────────┐ ┌─────────────────────────┐ ┌──────────────┐
+       │ platform/gui │ │  Libapp  (host-app)     │ │ platform/cli │
+       │ file dialogs │ │  - paths, config (YAML) │ │ raw stdin    │
+       │ fonts, attach│ │  - CLI arg parser       │ │ signals      │
+       │ console      │ │  - disk mount helpers   │ │ UTF-8 console│
+       └──────────────┘ └────────────┬────────────┘ └──────────────┘
+                                     │
+                ┌────────────────────┴────────────────────┐
+                │  Lib (C++)                              │
+                │  - Emulator wrapper (lifecycle, ROM)    │
+                │  - Debugger (breakpoints, single-step)  │
+                │  - Disassembler (PDP-11 mnemonics)      │
+                │  - GDB RSP stub (remote debugging)      │
+                └────────────────────┬────────────────────┘
+                                     │
+                ┌────────────────────┴────────────────────┐
+                │  Core (C11)                             │
+                │  - CPU emulation (66 instructions)      │
+                │  - Memory (128K RAM, bank switching)    │
+                │  - Timer (8253 PIT, 3 channels)         │
+                │  - Keyboard (MS7004 model + 8251 USART) │
+                │  - Floppy (WD1793 FDC)                  │
+                │  - Board (system integration, I/O bus)  │
+                └─────────────────────────────────────────┘
 ```
+
+`libapp` is linked by both binaries, so any host-app feature added to one
+(new CLI flag, new config field, new mount helper) becomes available in the
+other automatically.  `platform/` is split into two sublibs because the
+CLI's needs (raw stdin, signals, UTF-8 console) and the GUI's needs (file
+dialogs, fonts, console-attach) have very little overlap — pulling SDL
+into the CLI link would just be dead weight.
 
 ### Core Layer (C11)
 
@@ -66,7 +80,24 @@ C++ wrapper providing higher-level features:
 - `Disassembler` — PDP-11 instruction decoding to human-readable text
 - GDB RSP stub — allows remote debugging with standard GDB
 
-### Frontend Layer (C++ / SDL2 / ImGui)
+### Libapp Layer (C++)
+
+Host-side application utilities shared by both binaries.  Strictly host-app
+code — no emulation primitives, no `core` API:
+- `Paths` — exe directory, asset/config search roots
+- `Config` — YAML config file load/save (disk paths, window state, options)
+- `Cli` — command-line argument parser (shared flag set across binaries)
+- `Disks` — disk-mounting helpers operating on `ms0515::Emulator`
+
+### Platform Layer (C++)
+
+Host OS abstractions kept out of the binary sources so `cli/` and
+`frontend/` proper do not pull `<windows.h>` / `<commdlg.h>` / `<termios.h>`
+directly.  Two sublibs, one per binary:
+- `platform/cli/` — raw stdin reading, signal handling, UTF-8 console setup
+- `platform/gui/` — file dialogs, font discovery, GUI-subsystem console attach
+
+### Frontend Binary — `ms0515.exe` (C++ / SDL2 / ImGui)
 
 Desktop application with:
 - Video display (320x200 color, 640x200 mono)
@@ -74,8 +105,15 @@ Desktop application with:
 - Physical keyboard input mapping (host keyboard → MS7004 scancodes)
 - Audio output (1-bit speaker via SDL2)
 - ImGui-based debugger windows (registers, memory, disassembly, breakpoints)
-- YAML config file for persistent settings (disk paths, window state)
-- Platform abstraction (Windows/Linux/macOS) for file dialogs and fonts
+- Persistent settings and file dialogs via `libapp` + `platform/gui`
+
+### CLI Binary — `ms0515-cli.exe` (C++)
+
+Headless text-mode session over the same emulator core:
+- Stdio bridge — host `stdin`/`stdout` ↔ emulated terminal
+- KOI-8R ↔ host encoding conversion
+- Same argument parser and config loader as the frontend (via `libapp`)
+- Console setup, signal handling via `platform/cli`
 
 ## Hardware Summary
 
