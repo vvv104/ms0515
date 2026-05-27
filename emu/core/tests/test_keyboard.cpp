@@ -179,4 +179,30 @@ TEST_CASE("kbd_reset clears state but keeps TX ready") {
     CHECK((kbd_read(&kbd, 1) & KBD_STATUS_TXRDY) != 0);
 }
 
+/* ── TXRDY status-bit semantics ──────────────────────────────────────────── */
+
+/*
+ * Per the Intel 8251 datasheet, the TxRDY *pin* is gated by TxEN
+ * (and CTS/DSR), but the STATUS REGISTER bit that the CPU reads is
+ * independent of TxEN — it reflects only the transmitter buffer
+ * state.  Rodionov's keyboard driver clears the command register
+ * (TxEN=0) before its host→keyboard transmit routine and then polls
+ * the status TXRDY bit waiting for buffer-empty; if we gate the bit
+ * on TxEN, the loop never exits and the shell hangs the first time
+ * the user types anything after the date prompt.
+ */
+TEST_CASE("TXRDY status bit is independent of TxEN") {
+    auto kbd = make_kbd();
+    init_usart(&kbd);
+    CHECK((kbd_read(&kbd, 1) & KBD_STATUS_TXRDY) != 0);
+
+    /* Clear command register — both TxEN and RxEN drop to 0. */
+    kbd_write(&kbd, 1, 0x00);
+    CHECK(kbd.command == 0x00);
+
+    /* TXRDY status bit must still be set: the transmitter buffer is
+     * empty regardless of the enable bits. */
+    CHECK((kbd_read(&kbd, 1) & KBD_STATUS_TXRDY) != 0);
+}
+
 } /* TEST_SUITE */
