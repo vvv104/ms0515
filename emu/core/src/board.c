@@ -207,8 +207,22 @@ static uint8_t io_read_byte(ms0515_board_t *board, uint16_t offset)
     }
 
     /* Expansion RAM disk (EX0:) */
-    if (board->ramdisk.enabled && ramdisk_handles(offset))
+    if (board->ramdisk.enabled && ramdisk_handles(offset)) {
+        /* T-11 DATIO read-phase bypass for the data port.  The
+         * K555IE19 counter on the EX board is clocked once per
+         * atomic bus cycle, not once per sub-strobe; letting the
+         * BDIN sub-strobe of a DATIO tick the counter would make
+         * EX.SYS's MOVB-based format land every other byte at the
+         * wrong DRAM offset.  PPI register reads have no counter
+         * side-effect and stay routed unconditionally. */
+        if (board->_datio_active &&
+            (offset == RAMDISK_IO_DATA       ||
+             offset == (RAMDISK_IO_DATA + 1) ||
+             offset == RAMDISK_IO_DATA_ALIAS ||
+             offset == (RAMDISK_IO_DATA_ALIAS + 1)))
+            return 0xFF;
         return ramdisk_read(&board->ramdisk, offset);
+    }
 
     /* Unhandled — return 0 (no bus error emulation yet) */
     return 0;
@@ -335,6 +349,18 @@ static void io_write_word(ms0515_board_t *board, uint16_t offset, uint16_t value
 
     /* For other registers, write low byte only (most peripherals are 8-bit) */
     io_write_byte(board, offset, (uint8_t)(value & 0xFF));
+}
+
+/* ── T-11 DATIO bracket ──────────────────────────────────────────────────── */
+
+void board_datio_begin(ms0515_board_t *board)
+{
+    board->_datio_active = true;
+}
+
+void board_datio_end(ms0515_board_t *board)
+{
+    board->_datio_active = false;
 }
 
 /* ── Memory bus interface ────────────────────────────────────────────────── */
