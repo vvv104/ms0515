@@ -100,8 +100,17 @@ static void update_status(ms0515_keyboard_t *kbd)
     else
         kbd->status &= ~KBD_STATUS_RXRDY;
 
-    /* TXRDY — transmitter can accept a byte (and TxEN is set) */
-    if (kbd->tx_ready && (kbd->command & CMD_TXEN))
+    /* TXRDY status bit — set whenever the transmitter buffer is
+     * empty.  Per the Intel 8251 datasheet the STATUS register's
+     * TxRDY bit (bit 0) is independent of TxEN; only the external
+     * TxRDY *pin* is gated on TxEN && CTS && DSR.  Rodionov's
+     * keyboard driver clears the command register (command=0) before
+     * its scancode-transmit routine and then polls the status bit,
+     * expecting buffer-empty to surface even though TxEN is off.
+     * Gating the status bit on TxEN here wedges that driver in a
+     * tight TXRDY poll the moment the user types anything on the
+     * shell (PC stuck at 0o166350 in ms0515-roma.rom). */
+    if (kbd->tx_ready)
         kbd->status |= KBD_STATUS_TXRDY;
     else
         kbd->status &= ~KBD_STATUS_TXRDY;
