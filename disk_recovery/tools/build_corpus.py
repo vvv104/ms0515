@@ -81,6 +81,8 @@ def main():
                      if p.is_file() and p.suffix.lower() in (".dsk", ".raw", ".td0")
                      and "corpus" not in p.parts)
 
+    OUT.mkdir(exist_ok=True)
+    store = OUT / "files"; store.mkdir(exist_ok=True)   # content store: sha -> bytes
     corpus, flagged = {}, []
     with tempfile.TemporaryDirectory() as tmpd:
         tmp = Path(tmpd)
@@ -98,10 +100,13 @@ def main():
                     any_ok = True
                     for name, data in files.items():
                         h = hashlib.sha256(data).hexdigest()
-                        rec = corpus.setdefault(h, {
-                            "sha": h, "names": [], "size": len(data),
-                            "blocks": len(data)//512, "category": categorize(name),
-                            "provenance": []})
+                        if h not in corpus:
+                            corpus[h] = {
+                                "sha": h, "names": [], "size": len(data),
+                                "blocks": len(data)//512, "category": categorize(name),
+                                "provenance": []}
+                            (store / f"{h}.bin").write_bytes(data)
+                        rec = corpus[h]
                         if name not in rec["names"]:
                             rec["names"].append(name)
                         rec["provenance"].append({"capture": rel, "side": s, "name": name})
