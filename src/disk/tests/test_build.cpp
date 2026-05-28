@@ -11,8 +11,10 @@
 #include <ms0515/disk/Build.hpp>
 #include <ms0515/disk/Image.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <numeric>
+#include <optional>
 #include <vector>
 
 using namespace ms0515::disk;
@@ -79,6 +81,35 @@ TEST_CASE("round-trip ss-canonical") { checkRoundTrip(Layout::SsCanonical); }
 TEST_CASE("round-trip ss-cyl0last-noil") { checkRoundTrip(Layout::SsCyl0LastNoIl); }
 TEST_CASE("round-trip ss-osa-skew") { checkRoundTrip(Layout::SsOsaSkew); }
 TEST_CASE("round-trip ds-cyl0last-noil") { checkRoundTrip(Layout::DsCyl0LastNoIl); }
+
+TEST_CASE("double-sided dump: write + read back both sides byte-exact") {
+    const Layout L = Layout::SsCyl0LastNoIl;   /* rodionov-style per-side */
+    const auto side0 = diverseFiles();
+    const std::vector<BuildFile> side1 = {
+        {"MAGIC.DAT", pattern(900, 7)},            /* protection-side payload */
+        {"BOOT2.SYS", std::vector<uint8_t>(2048, 0x5A)},
+    };
+
+    auto ds = buildDoubleSided(L, side0, side1);
+    REQUIRE(ds.size() == static_cast<std::size_t>(kDoubleSize));
+
+    auto verify = [&](int side, const std::vector<BuildFile> &files) {
+        const auto begin = ds.begin() + static_cast<std::ptrdiff_t>(side) * kSideSize;
+        auto img = openImage(std::vector<uint8_t>(begin, begin + kSideSize), side);
+        REQUIRE_MESSAGE(img.has_value(), "side " << side << " did not open");
+        REQUIRE_MESSAGE(img->hasDirectory, "side " << side << " has no directory");
+        REQUIRE(img->directory.permanentFiles().size() == files.size());
+        for (const auto &f : files) {
+            auto got = img->readFile(f.name);
+            const auto want = (f.data.size() + kBlock - 1) / kBlock * kBlock;
+            REQUIRE(got.size() == want);
+            CHECK_MESSAGE(std::equal(f.data.begin(), f.data.end(), got.begin()),
+                          "side " << side << " file " << f.name << " mismatch");
+        }
+    };
+    verify(0, side0);
+    verify(1, side1);
+}
 
 TEST_CASE("layoutFromTag is the inverse of layoutTag") {
     using enum Layout;

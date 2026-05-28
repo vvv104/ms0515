@@ -77,12 +77,18 @@ ms0515::Key letterKey(char c)
 void typeLine(ms0515::Emulator &emu, ms0515::VramMirror &mirror, const char *s)
 {
     using K = ms0515::Key;
+    static constexpr K digits[10] = {
+        K::Digit0, K::Digit1, K::Digit2, K::Digit3, K::Digit4,
+        K::Digit5, K::Digit6, K::Digit7, K::Digit8, K::Digit9,
+    };
     for (const char *p = s; *p; ++p) {
         char c = *p;
         if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
         if (c >= 'A' && c <= 'Z') tap(emu, mirror, letterKey(c));
+        else if (c >= '0' && c <= '9') tap(emu, mirror, digits[c - '0']);
         else if (c == ' ')        tap(emu, mirror, K::Space);
         else if (c == ':')        tap(emu, mirror, K::ColonStar);
+        else if (c == '.')        tap(emu, mirror, K::Period);
     }
     tap(emu, mirror, K::Return);
 }

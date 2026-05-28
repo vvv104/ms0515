@@ -24,8 +24,15 @@
 
 namespace ms0515::disk {
 
+/* One single-sided RT-11 volume.  An MS-0515 double-sided dump (819200
+ * bytes) is two independent SS volumes — side 0 and side 1 — each its
+ * own device (the sides are NOT one spanning filesystem; some disks put
+ * a copy-protection magic on side 1 with no directory at all).  An
+ * Image always holds exactly one side's 409600 bytes; pick the side at
+ * load time. */
 struct Image {
-    std::vector<uint8_t> data;
+    std::vector<uint8_t> data;        /* this side's bytes (<=409600) */
+    int                  side = 0;    /* 0 or 1 (1 only for DS dumps) */
     Layout               layout = Layout::SsCanonical;  /* detected */
     bool                 hasDirectory = false;
     Directory            directory;
@@ -39,14 +46,20 @@ struct Image {
 };
 
 /* Pick the layout whose directory parses with the most permanent files.
- * Candidate set depends on the image size (SS vs DS).  nullopt if none
- * yield a valid directory. */
+ * Only single-sided mappings are tried — MS-0515 sides are separate
+ * volumes, never a spanning filesystem.  nullopt if none validate. */
 [[nodiscard]] std::optional<Layout> detectLayout(std::span<const uint8_t> data);
 
-/* Load `path`, detect layout, parse directory.  nullopt on read error.
- * A loaded Image with hasDirectory==false means the bytes were read but
- * no layout produced a valid directory. */
-[[nodiscard]] std::optional<Image> loadImage(const std::string &path);
+/* Detect + parse a single side already isolated in `bytes`. */
+[[nodiscard]] std::optional<Image> openImage(std::vector<uint8_t> bytes,
+                                             int side = 0);
+
+/* Load `path`, select `side` (0/1; 1 valid only for an 819200 dump),
+ * detect layout, parse directory.  nullopt on read error or bad side.
+ * hasDirectory==false means the side was read but holds no RT-11
+ * directory (e.g. a copy-protection side). */
+[[nodiscard]] std::optional<Image> loadImage(const std::string &path,
+                                             int side = 0);
 
 } /* namespace ms0515::disk */
 

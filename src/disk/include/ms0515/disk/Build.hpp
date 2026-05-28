@@ -23,11 +23,19 @@ struct BuildFile {
     std::vector<uint8_t> data;   /* raw bytes; padded to a block boundary */
 };
 
-/* Assemble `files` into an image written through `layout`.  Image size
- * is 409600 (SS) or 819200 (DS) per the layout.  Throws std::runtime_error
+/* Assemble `files` into a single-sided 409600-byte volume written
+ * through `layout` (must be an SS layout).  Throws std::runtime_error
  * if the files do not fit or a name is not RAD50-encodable. */
 [[nodiscard]] std::vector<uint8_t>
 buildVolume(Layout layout, const std::vector<BuildFile> &files);
+
+/* Assemble an MS-0515 double-sided 819200-byte dump: two independent SS
+ * volumes (side 0 then side 1) back to back, each built via `layout`.
+ * Either side may be empty (e.g. a bare copy-protection side). */
+[[nodiscard]] std::vector<uint8_t>
+buildDoubleSided(Layout layout,
+                 const std::vector<BuildFile> &side0,
+                 const std::vector<BuildFile> &side1);
 
 } /* namespace ms0515::disk */
 

@@ -133,4 +133,16 @@ std::vector<uint8_t> buildVolume(Layout layout, const std::vector<BuildFile> &fi
     return image;
 }
 
+std::vector<uint8_t> buildDoubleSided(Layout layout,
+                                      const std::vector<BuildFile> &side0,
+                                      const std::vector<BuildFile> &side1)
+{
+    if (isDoubleSided(layout))
+        throw std::runtime_error("buildDoubleSided needs a single-sided layout");
+    std::vector<uint8_t> img = buildVolume(layout, side0);   /* 409600 */
+    std::vector<uint8_t> s1  = buildVolume(layout, side1);   /* 409600 */
+    img.insert(img.end(), s1.begin(), s1.end());             /* -> 819200 */
+    return img;
+}
+
 } /* namespace ms0515::disk */

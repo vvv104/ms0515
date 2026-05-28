@@ -11,18 +11,12 @@ namespace ms0515::disk {
 
 namespace {
 
-/* Layouts worth trying for a given image size.  DS-spanning is tried
- * first on double-sided images; the SS canonical fallback also reads a
- * DS-two-volume disk's side-0 directory. */
-std::vector<Layout> candidates(std::size_t size)
-{
-    if (size == static_cast<std::size_t>(kDoubleSize))
-        return {Layout::DsCyl0LastNoIl, Layout::SsCanonical,
-                Layout::SsCyl0LastNoIl, Layout::SsLbnLinear};
-    /* Treat any other size as single-sided / linear and try the SS set. */
-    return {Layout::SsCanonical, Layout::SsCyl0LastNoIl,
-            Layout::SsCyl0FirstNoIl, Layout::SsOsaSkew, Layout::SsLbnLinear};
-}
+/* Single-sided candidate mappings, in detection order.  MS-0515 sides
+ * are always separate SS volumes — there is no spanning layout to try. */
+constexpr Layout kCandidates[] = {
+    Layout::SsCanonical, Layout::SsCyl0LastNoIl, Layout::SsCyl0FirstNoIl,
+    Layout::SsOsaSkew,   Layout::SsLbnLinear,
+};
 
 }  /* namespace */
 
@@ -30,7 +24,7 @@ std::optional<Layout> detectLayout(std::span<const uint8_t> data)
 {
     std::optional<Layout> best;
     std::size_t bestPerm = 0;
-    for (Layout l : candidates(data.size())) {
+    for (Layout l : kCandidates) {
         auto dir = parseDirectory(data, l);
         if (!dir) continue;
         const std::size_t perm = dir->permanentFiles().size();
@@ -61,14 +55,11 @@ std::vector<uint8_t> Image::readFile(std::string_view name) const
     return out;
 }
 
-std::optional<Image> loadImage(const std::string &path)
+std::optional<Image> openImage(std::vector<uint8_t> bytes, int side)
 {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return std::nullopt;
-
     Image img;
-    img.data.assign(std::istreambuf_iterator<char>(f),
-                    std::istreambuf_iterator<char>());
+    img.data = std::move(bytes);
+    img.side = side;
     if (img.data.empty()) return std::nullopt;
 
     if (auto l = detectLayout(img.data)) {
@@ -79,6 +70,26 @@ std::optional<Image> loadImage(const std::string &path)
         }
     }
     return img;
+}
+
+std::optional<Image> loadImage(const std::string &path, int side)
+{
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return std::nullopt;
+    std::vector<uint8_t> raw;
+    raw.assign(std::istreambuf_iterator<char>(f),
+               std::istreambuf_iterator<char>());
+    if (raw.empty()) return std::nullopt;
+
+    /* Isolate the requested side.  A 819200 dump is two SS volumes back
+     * to back; anything else is single-sided (side 1 invalid). */
+    if (raw.size() == static_cast<std::size_t>(kDoubleSize)) {
+        if (side != 0 && side != 1) return std::nullopt;
+        const auto begin = raw.begin() + static_cast<std::ptrdiff_t>(side) * kSideSize;
+        return openImage(std::vector<uint8_t>(begin, begin + kSideSize), side);
+    }
+    if (side != 0) return std::nullopt;
+    return openImage(std::move(raw), 0);
 }
 
 } /* namespace ms0515::disk */
