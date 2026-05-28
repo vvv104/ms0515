@@ -77,8 +77,16 @@ with its three-state model.
   or a readable-text check applies.  Raw-only binaries with no second copy are
   unverifiable — they may be silently corrupt and the tool cannot tell; the
   summary prints how many files are in that blind spot.
+- **DS-spanning read-status is linked.**  A spanning volume (one ~1600-block
+  RT-11 filesystem addressed across both sides as a single device — the writing
+  machine treats the floppy as one drive, which the MS-0515 FDC does not) is
+  read by `read_spanning`; build_corpus maps each spanning file's blocks through
+  the spanning mapping to the capture's physical bad-map, so TeleDisk flags
+  (ARCSAV.TD0) and Extended-CPC ST1/ST2 (disk5-final, rebuilt by interleaving
+  its two per-side images) now carry over.  Spanning files are also donors for
+  the same files on normal disks.
 - Still to do: donor recovery for the `corrupt` blocks — matching orphaned data
   in **free space** (e.g. a file's blocks left behind after an `INIT`) by
-  surrounding-block context (anchor-pair search, METHODOLOGY Step 6); and using
-  `disk5-final`'s ST1/ST2 status (it's Extended-CPC but its spanning directory
-  won't read out, so its read-status isn't yet linked to disk5's files).
+  surrounding-block context (anchor-pair search, METHODOLOGY Step 6).  Note some
+  lost text (BASICO.DOC) is byte-identical across every capture with the dead
+  sectors NOT CRC-flagged, so it needs an EXTERNAL donor disk, not a re-read.

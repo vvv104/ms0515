@@ -99,8 +99,10 @@ def extract(img, to_byte, start, length):
 
 def read_spanning(img):
     """Read a spanning volume with the best structurally-valid mapping.
-    Returns (mapping_tag, {name: bytes}) or None.  Used by build_corpus as a
-    fallback for 819200 images that ms0515-disk cannot read."""
+    Returns (mapping_tag, {name: bytes}, [(name, start, length)], to_byte) or
+    None.  The entries and the to_byte mapping let the caller link a physical
+    bad-map to each file's blocks (phys_block = to_byte(lbn)//512).  Used by
+    build_corpus as a fallback for 819200 images that ms0515-disk cannot read."""
     if len(img) != 819200:
         return None
     best = None
@@ -111,7 +113,8 @@ def read_spanning(img):
     if not best:
         return None
     tag, fn, files = best
-    return tag, {nm: extract(img, fn, st, ln) for nm, st, ln in files}
+    return (tag, {nm: extract(img, fn, st, ln) for nm, st, ln in files},
+            files, fn)
 
 def main():
     ap = argparse.ArgumentParser()

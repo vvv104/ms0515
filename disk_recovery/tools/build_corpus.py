@@ -155,6 +155,35 @@ def raw_images_for(src, tmp):
                 for p in sorted(work.parent.glob(work.stem + "_s*.img"))]
     return []
 
+def spanning_candidate(imgs):
+    """Build one track-interleaved 819200 image (+ its physical flagged set) for
+    a DS-spanning volume that ms0515-disk can't read.  A converted DS image
+    (raw/TeleDisk) is used directly; an Extended-CPC arrives as two per-side
+    409600 images which are interleaved by cylinder (and their per-side bad-maps
+    merged into one physical set).  Returns (image_bytes, flagged_set_or_None)
+    or None."""
+    ds = [(i, f) for i, _, f in imgs if i.stat().st_size == DS]
+    if ds:
+        img, flagged = ds[0]
+        return img.read_bytes(), flagged
+    ss = sorted((p, f) for p, s, f in imgs if p.stat().st_size == SS)
+    if len(ss) == 2:                              # Extended-CPC: _s0 + _s1
+        (p0, f0), (p1, f1) = ss
+        s0, s1 = p0.read_bytes(), p1.read_bytes()
+        merged = bytearray(DS)
+        for cyl in range(80):
+            merged[(cyl*2)*5120:(cyl*2)*5120+5120]   = s0[cyl*5120:(cyl+1)*5120]
+            merged[(cyl*2+1)*5120:(cyl*2+1)*5120+5120] = s1[cyl*5120:(cyl+1)*5120]
+        flagged = None
+        if f0 is not None or f1 is not None:
+            flagged = set()
+            for head, sset in ((0, f0), (1, f1)):
+                for idx in (sset or ()):
+                    t, sec = divmod(idx, 10)       # per-side track*10+sec
+                    flagged.add(t*20 + head*10 + sec)   # -> physical block
+        return bytes(merged), flagged
+    return None
+
 def get_side(img, side):
     with tempfile.TemporaryDirectory() as td:
         r = subprocess.run([str(TOOL), "get", str(img), "--side", str(side),
@@ -214,16 +243,22 @@ def main():
                         ingest(name, data, rel, s, bad, status)
             if not any_ok:
                 # Fall back to the DS-spanning reader (one ~1600-block volume
-                # across both sides) for 819200 images ms0515-disk can't read.
-                for img, _, _ in imgs:
-                    if img.stat().st_size != DS:
-                        continue
-                    res = read_spanning(img.read_bytes())
+                # across both sides) ms0515-disk can't read; link the spanning
+                # capture's physical bad-map to each file's blocks.
+                cand = spanning_candidate(imgs)
+                if cand:
+                    img_bytes, flagset = cand
+                    res = read_spanning(img_bytes)
                     if res:
                         any_ok = True
-                        for name, data in res[1].items():
-                            ingest(name, data, rel, "span")
-                        break
+                        _, files, entries, to_byte = res
+                        status = flagset is not None
+                        for name, start, length in entries:
+                            bad = None
+                            if status:
+                                bad = [i for i in range(length)
+                                       if to_byte(start + i)//512 in flagset]
+                            ingest(name, files[name], rel, "span", bad, status)
             if not any_ok:
                 flagged.append({"capture": rel,
                                 "reason": "no readable directory (unknown layout)"})
