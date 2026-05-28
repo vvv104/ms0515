@@ -1,34 +1,35 @@
 #!/usr/bin/env python3
 """
-consensus.py — group corpus files by LOGICAL identity (name + block length),
-not by exact sha, and reconcile the variants using the bad-maps.
+consensus.py — group corpus files by LOGICAL identity (name + block length) and
+reconcile the variants using a THREE-STATE per-block read-status.
 
-sha-dedup (build_corpus) only finds byte-identical copies; one flipped byte
-makes a different sha.  So a file that survives on several disks with a little
-decay shows up as several "unique" records.  This tool regroups them and
-folds in the per-block read-status that build_corpus linked from the capture
-bad-maps (provenance "bad" = file-block indices on a flagged sector):
+build_corpus records, per file occurrence, whether the capture carries
+per-sector read-status (`status`) and which file blocks sat on a flagged sector
+(`bad`).  From that, every block of every variant is one of:
 
-  1. group by (name, blocks) — candidate variants of one logical file;
-  2. per variant, the SUSPECT blocks = blocks flagged on EVERY capture that
-     produced that exact content (a block read clean even once is trusted);
-  3. two variants are the SAME file (decayed) when every block they DIFFER on
-     is suspect on at least one of them — i.e. the disagreement sits in
-     flagged sectors, not clean data.  (A small clean-block difference still
-     counts as decay via the bit-rot metric, METHODOLOGY Step 5; a large
-     difference in CLEAN blocks is a genuinely different version.)  This is
-     what rescues a heavily-damaged copy from the "multi-version" bucket;
-  4. reconcile a same-file cluster block-by-block: for each block take the
-     capture-weighted majority among the variants whose copy of that block is
-     NOT flagged; a block flagged on ALL variants is LOST (no clean copy) and
-     becomes the donor worklist (METHODOLOGY Step 6);
-  5. classify: verified / recovered / partial (lost blocks remain) /
-     multi-version / single.
+  CLEAN    — a read-status capture (Extended-CPC ST1/ST2, TeleDisk flags, or a
+             .dat re-read set) read it WITHOUT a flag → trusted.
+  FLAGGED  — flagged by a read-status capture and never read clean → suspect.
+  UNKNOWN  — only ever read by a plain raw dump (no read-status) → can't say.
 
-Donor recovery for the lost blocks — matching orphaned data in free space by
-surrounding-block context — is the next stage; this tool emits the worklist.
+A plain raw read has NO read-status, so it can neither flag a block nor vouch
+for one — it must not cancel a real flag (PITFALLS #3).  Reconciliation picks,
+per block, the best available tier (CLEAN > UNKNOWN > FLAGGED), capture-weighted
+majority within it.  For text files it additionally refuses to emit a garbage
+block while any variant holds readable content (PITFALLS #4) — agreement does
+NOT prove correctness when every copy shares a dead sector (e.g. BASICO.DOC).
 
-Output: work/corpus/consensus.json + an ASCII summary.
+Per-block outcome:
+  clean    chosen from a confirmed-clean copy
+  unknown  no clean copy; bytes from a statusless raw (unverified)
+  flagged  no clean/unknown copy; every copy is CRC-flagged (suspect) — binary
+           corruption signal, since content can't be judged
+  corrupt  text only: garbage on every copy (lost data, donor needed)
+
+Tiers: verified / recovered / corrupt / multi-version / single.
+
+Output: work/corpus/consensus.json + a reconciled content store + a summary
+that answers how much text AND binary data is still corrupt.
 """
 
 import json, hashlib
@@ -42,14 +43,26 @@ RECOV = OUT / "recovered"
 BLOCK = 512
 
 BITS = bytes(bin(i).count("1") for i in range(256))
+# Content-plausibility applies only to genuinely-textual files; tokenized BASIC
+# (.BAS) and binary command scripts are not byte-text, so they are excluded.
+TEXT_EXT = {"DOC", "TXT", "PAS", "FOR", "MAC", "C", "LST", "MAP"}
+BINARY_CAT = {"system", "exec", "aux"}
+
+def is_text(name):
+    return (name.rsplit(".", 1)[1].upper() if "." in name else "") in TEXT_EXT
+
+def readable(b):
+    return (0x20 <= b <= 0x7E) or b in (9, 10, 13) or (0xC0 <= b <= 0xFF)
+
+def is_garbage(seg):
+    n = sum(1 for b in seg if not (readable(b) or b == 0))
+    return n / len(seg) > 0.25 if seg else False
 
 def diff_stats(a, b):
-    n = min(len(a), len(b))
-    d = bits = 0
+    n = min(len(a), len(b)); d = bits = 0
     for i in range(n):
         if a[i] != b[i]:
-            d += 1
-            bits += BITS[a[i] ^ b[i]]
+            d += 1; bits += BITS[a[i] ^ b[i]]
     d += abs(len(a) - len(b))
     return d, (bits / d if d else 0.0)
 
@@ -57,98 +70,122 @@ def is_decay(a, b):
     d, bpb = diff_stats(a, b)
     return d <= 30 and bpb <= 2.5
 
-def variant_flagged(rec):
-    """Suspect blocks of one content: flagged on EVERY occurrence that produced
-    it.  A provenance entry without "bad" (raw dump, or a converted capture that
-    flagged none of this file's blocks) is a clean read and clears all flags."""
-    fl = None
+def variant_quality(rec, blocks):
+    """CLEAN and FLAGGED block sets for one content (UNKNOWN = the rest)."""
+    clean, flagged = set(), set()
+    allb = set(range(blocks))
     for p in rec["provenance"]:
-        b = set(p.get("bad", []))
-        fl = b if fl is None else (fl & b)
-        if not fl:
-            break
-    return fl or set()
+        if p.get("status"):
+            bad = set(p.get("bad", []))
+            clean |= allb - bad
+            flagged |= bad
+    flagged -= clean
+    return clean, flagged
 
 def differing_blocks(a, b, blocks):
     return {i for i in range(blocks)
             if a[i*BLOCK:(i+1)*BLOCK] != b[i*BLOCK:(i+1)*BLOCK]}
 
-def same_file(va, vb, blocks):
-    diff = differing_blocks(va["data"], vb["data"], blocks)
+def same_file(a, b, blocks):
+    diff = differing_blocks(a["data"], b["data"], blocks)
     if not diff:
         return True
-    if diff <= (va["flagged"] | vb["flagged"]):   # all disagreement in flagged sectors
+    if diff & (a["clean"] & b["clean"]):      # both read it CLEAN yet differ = real version
+        return False
+    if diff <= (a["flagged"] | b["flagged"]):  # all disagreement sits in flagged sectors = decay
         return True
-    return is_decay(va["data"], vb["data"])        # small clean-block decay
-
-def reconcile(variants, blocks):
-    """Block-by-block capture-weighted majority among variants whose copy of the
-    block is not flagged.  Returns (bytes, [lost block indices])."""
-    out, lost = bytearray(), []
-    for b in range(blocks):
-        clean = [v for v in variants if b not in v["flagged"]]
-        pool = clean or variants
-        cnt = Counter()
-        for v in pool:
-            cnt[v["data"][b*BLOCK:(b+1)*BLOCK]] += v["weight"]
-        out += cnt.most_common(1)[0][0]
-        if not clean:
-            lost.append(b)
-    return bytes(out), lost
+    return is_decay(a["data"], b["data"])      # no read-status to judge: bit-rot metric decides
 
 def cluster(variants, blocks):
-    """Greedy same-file clustering; returns list of clusters (index lists)."""
-    clusters, assigned = [], [False] * len(variants)
+    out, used = [], [False]*len(variants)
     for i in range(len(variants)):
-        if assigned[i]:
+        if used[i]:
             continue
-        cl = [i]; assigned[i] = True
-        for j in range(i + 1, len(variants)):
-            if not assigned[j] and any(same_file(variants[k], variants[j], blocks)
-                                       for k in cl):
-                cl.append(j); assigned[j] = True
-        clusters.append(cl)
-    return clusters
+        cl = [i]; used[i] = True
+        for j in range(i+1, len(variants)):
+            if not used[j] and any(same_file(variants[k], variants[j], blocks) for k in cl):
+                cl.append(j); used[j] = True
+        out.append(cl)
+    return out
+
+def pick_block(variants, b, text):
+    """Choose block b: best tier (clean>unknown>flagged), capture-weighted
+    majority; text refuses garbage while any variant is readable."""
+    seg = lambda v: v["data"][b*BLOCK:(b+1)*BLOCK]
+    def rank(v):
+        if b in v["clean"]:   return 0
+        if b not in v["flagged"]: return 1
+        return 2
+    cands, corrupt = variants, False
+    if text:
+        good = [v for v in variants if not is_garbage(seg(v))]
+        if good:
+            cands = good
+        else:
+            corrupt = True            # garbage on every copy
+    best = min(rank(v) for v in cands)
+    pool = [v for v in cands if rank(v) == best]
+    cnt = Counter()
+    for v in pool:
+        cnt[seg(v)] += v["weight"]
+    chosen = cnt.most_common(1)[0][0]
+    tag = "corrupt" if corrupt else ("clean", "unknown", "flagged")[best]
+    return chosen, tag
+
+def reconcile(variants, blocks, text):
+    out, tags = bytearray(), []
+    for b in range(blocks):
+        seg, tag = pick_block(variants, b, text)
+        out += seg; tags.append(tag)
+    return bytes(out), tags
 
 def main():
     corpus = json.load(open(OUT / "corpus.json", encoding="utf-8"))["records"]
     RECOV.mkdir(exist_ok=True)
-
     groups = defaultdict(list)
     for r in corpus:
         groups[(r["names"][0], r["blocks"])].append(r)
 
     out, tiers = [], Counter()
     for (name, blocks), recs in sorted(groups.items()):
+        text = is_text(name)
         variants = []
         for r in recs:
             caps = sorted({p["capture"] for p in r["provenance"]})
-            variants.append({"sha": r["sha"], "captures": caps,
-                             "weight": len(caps), "flagged": variant_flagged(r),
+            clean, flagged = variant_quality(r, blocks)
+            variants.append({"sha": r["sha"], "weight": len(caps), "captures": caps,
+                             "clean": clean, "flagged": flagged,
                              "data": (STORE / f"{r['sha']}.bin").read_bytes()})
 
-        clusters = cluster(variants, blocks) if len(variants) > 1 else [[0]]
-        # primary = best-supported cluster
-        clusters.sort(key=lambda cl: -sum(variants[i]["weight"] for i in cl))
-        main_cl = [variants[i] for i in clusters[0]]
-        data, lost = reconcile(main_cl, blocks)
+        idx = cluster(variants, blocks) if len(variants) > 1 else [[0]]
+        clusters = [[variants[i] for i in cl] for cl in idx]
+        clusters.sort(key=lambda cl: sum(v["weight"] for v in cl), reverse=True)
+        main_cl = clusters[0]
+        data, tags = reconcile(main_cl, blocks, text)
+
+        tagc = Counter(tags)
         total_caps = sum(v["weight"] for v in variants)
+        corrupt = tagc["corrupt"] + tagc["flagged"]   # lost-text + suspect (flagged-everywhere)
 
         if len(clusters) > 1:
             tier = "multi-version"
-        elif lost:
-            tier = "partial"
-        elif len(variants) > 1 or any(v["flagged"] for v in main_cl):
+        elif corrupt:
+            tier = "corrupt"
+        elif len(variants) > 1:
             tier = "recovered"
         else:
             tier = "verified" if total_caps >= 2 else "single"
 
-        rec = {"name": name, "blocks": blocks, "variants": len(variants),
-               "captures": total_caps, "versions": len(clusters),
-               "lost": len(lost), "tier": tier}
-        if lost:
-            rec["lost_blocks"] = lost
-        if tier in ("recovered", "partial", "verified"):
+        rec = {"name": name, "blocks": blocks, "category": recs[0]["category"],
+               "is_binary": recs[0]["category"] in BINARY_CAT,
+               "variants": len(variants), "captures": total_caps,
+               "versions": len(clusters),
+               "clean": tagc["clean"], "unknown": tagc["unknown"],
+               "flagged": tagc["flagged"], "corrupt": tagc["corrupt"],
+               "tier": tier}
+        if tagc["corrupt"] or tagc["flagged"]:
+            rec["bad_blocks"] = [i for i, t in enumerate(tags) if t in ("corrupt", "flagged")]
+        if tier != "multi-version":
             h = hashlib.sha256(data).hexdigest()
             (RECOV / f"{h}.bin").write_bytes(data)
             rec["recovered_sha"] = h
@@ -161,24 +198,22 @@ def main():
     print(f"logical files (name+blocks): {len(out)}   (vs {len(corpus)} sha-unique)")
     print("tiers:", dict(tiers))
 
-    rec = [r for r in out if r["tier"] == "recovered"]
-    print(f"\nrecovered (decay reconciled, fully clean): {len(rec)}")
-    for r in sorted(rec, key=lambda r: -r["captures"])[:8]:
-        print(f"  {r['name']:14s} {r['blocks']:3d} blk: "
-              f"{r['variants']} variants / {r['captures']} captures")
+    corr = [r for r in out if r["tier"] == "corrupt"]
+    ct = [r for r in corr if not r["is_binary"]]
+    cb = [r for r in corr if r["is_binary"]]
+    print(f"\ncorrupt: {len(corr)}  (text {len(ct)}, binary {len(cb)}) — still need recovery")
+    print("  TEXT (garbage content on every copy):")
+    for r in sorted(ct, key=lambda r: -(r["corrupt"]+r["flagged"]))[:15]:
+        print(f"    {r['name']:14s} {r['blocks']:4d}blk  corrupt={r['corrupt']} flagged={r['flagged']}  ({r['captures']} captures)")
+    print("  BINARY (CRC-flagged on every copy, no clean read anywhere):")
+    for r in sorted(cb, key=lambda r: -r["flagged"])[:20]:
+        print(f"    {r['name']:14s} {r['blocks']:4d}blk  flagged={r['flagged']}  cat={r['category']}  ({r['captures']} captures)")
 
-    part = [r for r in out if r["tier"] == "partial"]
-    print(f"\npartial (blocks lost on every copy -> donor worklist): {len(part)}")
-    for r in sorted(part, key=lambda r: -r["lost"])[:12]:
-        print(f"  {r['name']:14s} {r['blocks']:3d} blk: "
-              f"{r['lost']} lost, {r['variants']} variants / {r['captures']} captures")
-
-    mv = [r for r in out if r["tier"] == "multi-version"]
-    print(f"\nmulti-version (distinct builds share name+size): {len(mv)}")
-    for r in sorted(mv, key=lambda r: -r["versions"])[:8]:
-        print(f"  {r['name']:14s} {r['blocks']:3d} blk: "
-              f"{r['versions']} versions, {r['captures']} captures")
-    print(f"\nwrote {OUT/'consensus.json'}")
+    # coverage: how much can we even judge?
+    no_status = sum(1 for r in out if r["clean"] == 0 and r["flagged"] == 0 and r["corrupt"] == 0)
+    print(f"\ncoverage: {len(out)-no_status} files have some read-status; "
+          f"{no_status} are raw-only (corruption undetectable without a status capture)")
+    print(f"wrote {OUT/'consensus.json'}")
 
 if __name__ == "__main__":
     main()

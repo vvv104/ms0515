@@ -14,12 +14,13 @@ Paths are derived from the script location — no absolute paths.
 | Script | Job |
 |--------|-----|
 | `import_images.py <src-dir>...` | Pull images/archives from an external source into `work/data/`, deduplicated by content (recursively extracts .rar/.7z/.zip, skips anything already under `work/`). |
+| `identify.py` | Classify every image in `work/` by its **content** (signature/size/geometry), never its name: format (extended-cpc / teledisk / raw), geometry (ss / ds-twosided / ds-spanning / ld-container), whether an RT-11 directory actually reads out, and what carries read-status (ST1/ST2, TD0 flags, `.dat` re-reads).  Writes a persistent manifest `work/corpus/formats.json` so the identification is never lost. |
 | `convert_samdisk.py <file.dsk>...` | Convert a SAMdisk **Extended-CPC DSK** container to per-side raw `_s0/_s1.img` + a per-side `.badmap` (read status from the FDC ST1/ST2 bytes). |
 | `convert_teledisk.py <file.TD0>...` | Decode a Sydex **TeleDisk** image to a raw physical-sector image + a `.badmap` (read status from the TD0 sector flags). |
 | `read_spanning.py <image>` | Read a **DS-spanning** RT-11 volume (one ~1600-block filesystem across both sides), which `ms0515-disk` cannot.  Tries candidate LBN→byte mappings and keeps the one that structurally validates (confirmed against the corpus). |
-| `build_corpus.py` | Extract every readable disk in `work/` (raw directly; TeleDisk / Extended-CPC via the converters; DS-spanning via `read_spanning`), hash (sha-256), and write `work/corpus/corpus.json` + a sha content store: one record per unique file with provenance (capture + side) and a type-based category.  For converted captures it also links each file's blocks through the capture `.badmap` (LBN→physical via the FDC/osa-skew map) and records, per occurrence, which file blocks sat on a flagged sector. |
+| `build_corpus.py` | Extract every readable disk in `work/` (format by content; DS-spanning via `read_spanning`), hash (sha-256), and write `work/corpus/corpus.json` + a sha content store: one record per unique file with provenance and a type-based category.  Unifies read-status into a flagged physical-block set from ANY source — Extended-CPC ST1/ST2, TeleDisk flags, and sibling `.dat` re-reads (whose multiple attempts are majority-voted to overlay recovered sector bytes) — links it to each file's blocks (LBN→physical via the FDC/osa-skew map), and marks each occurrence `status` (capture had read-status) + `bad` (which file blocks were flagged). |
 | `analyze_corpus.py` | Second pass over the corpus: group captures into **monitor-generation** families (by the `.SYS` monitor build), list version-split files, and analyse content (readable-byte fraction; printable strings for executables).  Writes `work/corpus/analysis.json`. |
-| `consensus.py` | Regroup the corpus by **logical** identity (name + block length, not sha) and reconcile variants using the linked bad-maps: a byte-difference inside a sector flagged on one variant counts as decay (not a different version), so a heavily-damaged copy collapses onto its clean siblings; blocks flagged on *every* variant are LOST (the donor worklist).  Block-by-block capture-weighted majority among clean copies gives the reconciled file; tiers = verified / recovered / partial / multi-version / single.  Writes `work/corpus/consensus.json` + a reconciled content store. |
+| `consensus.py` | Regroup the corpus by **logical** identity (name + block length, not sha) and reconcile variants with a **three-state** per-block read-status — CLEAN (a status capture read it unflagged) > UNKNOWN (raw, no status) > FLAGGED (CRC-bad).  A statusless raw can't cancel a real flag, and the best tier wins per block; for text files a garbage block is never emitted while any copy is readable.  Per-block outcome = clean / unknown / flagged (binary corruption signal) / corrupt (text garbage everywhere).  Tiers = verified / recovered / corrupt / multi-version / single.  Writes `work/corpus/consensus.json` + a reconciled content store, and reports remaining text **and** binary corruption. |
 
 ## Typical flow
 
@@ -30,16 +31,24 @@ Paths are derived from the script location — no absolute paths.
    `ms0515-disk merge` if a single double-sided image is wanted.
 3. **build the corpus**: `python build_corpus.py`.
 
-## Read-status (bad-maps)
+## Read-status (three sources)
 
-Both capture formats record which sectors the controller flagged on read, and
-both converters now emit a `.badmap` (one byte per sector, 0 = good, 1 =
-flagged): TeleDisk from its per-sector flags, Extended-CPC from the FDC ST1/ST2
-status bytes (CRC/data error, missing address mark, no data).  These maps are
-the input to the consensus layer's natural-vs-lost-zero verdict (`METHODOLOGY.md`
-Step 7) — they tell which sectors are trustworthy versus disputed.  Raw `.raw`
-dumps carry no such metadata, so a disk's read-status comes from its TD0 /
-Extended-CPC capture or from majority vote across per-sector re-reads (`.dat`).
+A sector's read-status — did the controller flag it on read — comes from three
+places, all unified by `build_corpus` into one flagged physical-block set per
+image:
+
+- **Extended-CPC** ST1/ST2 status bytes (CRC/data error, missing address mark,
+  no data) → `.badmap` from `convert_samdisk`.
+- **TeleDisk** per-sector flags → `.badmap` from `convert_teledisk`.
+- **`.dat` re-reads** — sibling `<disk>_crc_error_Head_Track_Sector_*.dat` files
+  are per-sector re-read attempts of CRC-flagged sectors on an otherwise
+  statusless raw dump.  Their presence flags the sector; their multiple attempts
+  are **majority-voted** to overlay recovered bytes into the extraction image.
+
+A plain raw dump with none of the above carries no read-status: its blocks are
+UNKNOWN, neither trusted nor flagged.  Crucially a raw read must never *cancel*
+a flag raised by a status capture (PITFALLS #3) — `consensus.py` enforces this
+with its three-state model.
 
 ## Notes / gaps
 
@@ -54,13 +63,22 @@ Extended-CPC capture or from majority vote across per-sector re-reads (`.dat`).
   the structurally-valid one.  A lone per-side half of a spanning disk
   (`*_Head0/_Head1`, an Extended-CPC of a spanning disk) is not a complete
   volume and is still flagged — its files come from the full 819200 capture.
-- The heuristic recovery: the consensus core (logical grouping, decay-vs-
-  version split, per-byte majority) is in `consensus.py`.  The `.badmap`s are
-  now linked to file blocks (`build_corpus`) and used by consensus, so a
-  difference at a *flagged* byte counts as decay, not a different version —
-  this rescued the heavily-damaged copies that were mis-bucketed as
-  "multi-version".  Still to do: donor recovery for blocks lost across all
-  variants (consensus emits this worklist as the `partial` tier +
-  `lost_blocks`), including matching orphaned data in **free space** (e.g. a
-  file's blocks left behind after an `INIT`) by surrounding-block context
-  (anchor-pair search, METHODOLOGY Step 6).
+- The collection holds **only original reads**.  Prior-recovery outputs
+  (`*_authoritative.dsk` and the like) are not guarded against in code — they're
+  simply not present (`work/recovered/` was removed).  Don't re-import derived
+  builds (PITFALLS #1, #6).
+- **Corruption ≠ disagreement.**  A file can be byte-identical across captures
+  yet still corrupt, because a dead sector reads the same garbage every time
+  (PITFALLS #3 — confirmed live: `BASICO.DOC` is identical on two captures and
+  still has 11 garbage blocks).  `consensus.py` therefore reports a `corrupt`
+  tier from CONTENT (text garbage on every copy) and from STATUS (binary blocks
+  CRC-flagged on every copy, no clean read anywhere), independent of agreement.
+- **Detectability caveat:** corruption can only be *detected* where read-status
+  or a readable-text check applies.  Raw-only binaries with no second copy are
+  unverifiable — they may be silently corrupt and the tool cannot tell; the
+  summary prints how many files are in that blind spot.
+- Still to do: donor recovery for the `corrupt` blocks — matching orphaned data
+  in **free space** (e.g. a file's blocks left behind after an `INIT`) by
+  surrounding-block context (anchor-pair search, METHODOLOGY Step 6); and using
+  `disk5-final`'s ST1/ST2 status (it's Extended-CPC but its spanning directory
+  won't read out, so its read-status isn't yet linked to disk5's files).
