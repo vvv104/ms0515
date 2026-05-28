@@ -91,4 +91,13 @@ std::string_view layoutTag(Layout layout) noexcept
     return "?";
 }
 
+std::optional<Layout> layoutFromTag(std::string_view tag) noexcept
+{
+    using enum Layout;
+    for (Layout l : {SsCanonical, SsOsaSkew, SsCyl0LastNoIl,
+                     SsCyl0FirstNoIl, SsLbnLinear, DsCyl0LastNoIl})
+        if (layoutTag(l) == tag) return l;
+    return std::nullopt;
+}
+
 } /* namespace ms0515::disk */

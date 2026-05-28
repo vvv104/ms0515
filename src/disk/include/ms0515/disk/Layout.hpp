@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace ms0515::disk {
@@ -57,6 +58,9 @@ enum class Layout {
 /* Lower-case tag matching the names used in filesystem.md / the Python
  * reference (e.g. "ss-canonical", "ds-cyl0last-noil"). */
 [[nodiscard]] std::string_view layoutTag(Layout layout) noexcept;
+
+/* Inverse of layoutTag; nullopt for an unknown tag. */
+[[nodiscard]] std::optional<Layout> layoutFromTag(std::string_view tag) noexcept;
 
 } /* namespace ms0515::disk */
 

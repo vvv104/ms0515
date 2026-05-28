@@ -11,13 +11,16 @@
  * disk_recovery/, on top of these primitives.
  */
 
+#include <ms0515/disk/Build.hpp>
 #include <ms0515/disk/Image.hpp>
 
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace fs = std::filesystem;
 using namespace ms0515::disk;
@@ -28,11 +31,23 @@ int usage()
 {
     std::fputs(
         "usage: ms0515-disk <command> [args]\n"
-        "  dir     <image>                  list the directory\n"
-        "  extract <image> [name] [outdir]  extract one file, or all if no name\n"
-        "  build                            (not yet implemented)\n",
+        "  dir     <image>                       list the directory\n"
+        "  extract <image> [name] [outdir]       extract one file, or all\n"
+        "  build   <out.dsk> [--layout <tag>] <file>...\n"
+        "                                        assemble files into a volume\n"
+        "          layout tags: ss-canonical (default), ss-osa-skew,\n"
+        "          ss-cyl0last-noil, ss-cyl0first-noil, ss-lbn-linear,\n"
+        "          ds-cyl0last-noil\n",
         stderr);
     return 2;
+}
+
+std::optional<std::vector<uint8_t>> readHostFile(const std::string &path)
+{
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return std::nullopt;
+    return std::vector<uint8_t>(std::istreambuf_iterator<char>(f),
+                                std::istreambuf_iterator<char>());
 }
 
 int cmdDir(const std::string &path)
@@ -123,8 +138,40 @@ int main(int argc, char **argv)
         return cmdExtract(argv[2], name, outdir);
     }
     if (cmd == "build") {
-        std::fputs("ms0515-disk: 'build' not yet implemented\n", stderr);
-        return 2;
+        if (argc < 4) return usage();
+        const std::string out = argv[2];
+        Layout layout = Layout::SsCanonical;
+        std::vector<BuildFile> files;
+        for (int i = 3; i < argc; ++i) {
+            std::string_view a = argv[i];
+            if (a == "--layout" && i + 1 < argc) {
+                auto l = layoutFromTag(argv[++i]);
+                if (!l) { std::fprintf(stderr, "error: unknown layout %s\n", argv[i]);
+                          return 2; }
+                layout = *l;
+                continue;
+            }
+            auto bytes = readHostFile(std::string(a));
+            if (!bytes) { std::fprintf(stderr, "error: cannot read %.*s\n",
+                                       static_cast<int>(a.size()), a.data()); return 1; }
+            files.push_back({fs::path(a).filename().string(), std::move(*bytes)});
+        }
+        if (files.empty()) return usage();
+        try {
+            auto image = buildVolume(layout, files);
+            if (!writeFile(out, image)) {
+                std::fprintf(stderr, "error: cannot write %s\n", out.c_str());
+                return 1;
+            }
+            std::printf("wrote %s (%zu B, %d files, layout=%.*s)\n",
+                        out.c_str(), image.size(), static_cast<int>(files.size()),
+                        static_cast<int>(layoutTag(layout).size()),
+                        layoutTag(layout).data());
+        } catch (const std::exception &e) {
+            std::fprintf(stderr, "error: %s\n", e.what());
+            return 1;
+        }
+        return 0;
     }
     return usage();
 }

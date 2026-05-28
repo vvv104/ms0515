@@ -10,6 +10,7 @@ add_executable(ms0515_disk_tests
     test_main.cpp
     test_layout.cpp
     test_directory.cpp
+    test_build.cpp
 )
 
 target_compile_features(ms0515_disk_tests PRIVATE cxx_std_23)
