@@ -23,6 +23,7 @@ add_executable(ms0515_lib_tests
     test_vram_write_callback.cpp
     test_vram_mirror.cpp
     test_ex_disk.cpp
+    test_dir_vs_os.cpp
 )
 
 target_compile_features(ms0515_lib_tests PRIVATE cxx_std_23)
@@ -44,6 +45,7 @@ target_compile_definitions(ms0515_lib_tests PRIVATE
 target_link_libraries(ms0515_lib_tests
     PRIVATE
         ms0515_lib
+        ms0515_disk
         doctest::doctest
 )
 
