@@ -1,18 +1,18 @@
 /*
  * ms0515-disk — offline RT-11 / MS-0515 disk utility.
  *
- * Subcommands:
- *   dir     <image> [--side N]      list a capture's directory
- *   extract <image> [--side N] [name] [outdir]  extract one file (or all)
- *   build   <out.dsk> [--ds] <file>...          assemble files into a volume
+ * Commands mirror the OS workflow:
+ *   create <out.dsk> [--ds]                 raw blank media (no filesystem)
+ *   init   <image> [--side N] [opts]        format a side (like INITIALIZE)
+ *   put    <image> [--side N] <file>...     add host files (like PIP, in)
+ *   get    <image> [--side N] [--out D] [pat]...  extract files (like PIP, out)
+ *   dir    <image> [--side N]               list the directory
  *
- * There is no layout option: the geometry follows from the image size
- * (409600 = single-sided, 819200 = double-sided) and matches the emulator
- * FDC exactly.  --side picks a side of an 800 KB dump.
+ * The geometry follows from the image size (409600 = single-sided, 819200 =
+ * double-sided) and matches the emulator FDC.  Wildcards use '*' only.
  *
- * Format-level operations only.  The heuristic multi-source recovery
- * (consensus, donor matching, confidence tiers) lives in Python under
- * disk_recovery/, on top of these primitives.
+ * Format-level operations only.  Heuristic multi-source recovery lives in
+ * Python under disk_recovery/, on top of these primitives.
  */
 
 #include <ms0515/disk/Build.hpp>
@@ -37,16 +37,15 @@ int usage()
 {
     std::fputs(
         "usage: ms0515-disk <command> [args]\n"
-        "  dir     <image> [--side 0|1]          list the directory\n"
-        "  extract <image> [--side 0|1] [name] [outdir]\n"
-        "                                        extract one file, or all\n"
-        "  build   <out.dsk> [--ds] <file>...    assemble files into a volume\n"
+        "  create <out.dsk> [--ds]               raw blank media\n"
+        "  init   <image> [--side 0|1] [--volume-id ID] [--owner NAME] [--segments N]\n"
+        "                                        format a side (empty volume)\n"
+        "  put    <image> [--side 0|1] <file|glob>...   add host files\n"
+        "  get    <image> [--side 0|1] [--out DIR] [pattern]...  extract files\n"
+        "  dir    <image> [--side 0|1]           list the directory\n"
         "\n"
-        "  Two image kinds, by file size: 409600 B (400 KB) single-sided,\n"
-        "  819200 B (800 KB) double-sided.  The physical layout follows from\n"
-        "  the size (matching the emulator FDC), so there is no layout option.\n"
-        "  --side selects a side of an 800 KB dump (0 = lower/boot, 1 = upper).\n"
-        "  build writes 400 KB unless --ds is given.\n",
+        "  Image kind follows the size: 409600 B single-sided, 819200 B double-\n"
+        "  sided (--side picks a side, default 0 = lower/boot).  Wildcards: '*'.\n",
         stderr);
     return 2;
 }
@@ -59,13 +58,42 @@ std::optional<std::vector<uint8_t>> readHostFile(const std::string &path)
                                 std::istreambuf_iterator<char>());
 }
 
-bool writeFile(const fs::path &out, const std::vector<uint8_t> &bytes)
+bool writeWholeFile(const std::string &path, const std::vector<uint8_t> &bytes)
 {
-    std::ofstream f(out, std::ios::binary);
+    std::ofstream f(path, std::ios::binary);
     if (!f) return false;
     f.write(reinterpret_cast<const char *>(bytes.data()),
             static_cast<std::streamsize>(bytes.size()));
     return static_cast<bool>(f);
+}
+
+/* '*'-only glob, case-insensitive (RT-11 names are upper-case). */
+bool globMatch(std::string_view pat, std::string_view s)
+{
+    auto up = [](char c) { return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 32) : c; };
+    std::size_t pi = 0, si = 0, star = std::string_view::npos, mark = 0;
+    while (si < s.size()) {
+        if (pi < pat.size() && pat[pi] == '*') { star = pi++; mark = si; }
+        else if (pi < pat.size() && up(pat[pi]) == up(s[si])) { ++pi; ++si; }
+        else if (star != std::string_view::npos) { pi = star + 1; si = ++mark; }
+        else return false;
+    }
+    while (pi < pat.size() && pat[pi] == '*') ++pi;
+    return pi == pat.size();
+}
+
+/* Read an existing image to modify in place; validate its size. */
+std::optional<std::vector<uint8_t>> readImage(const std::string &path, bool &ds)
+{
+    auto raw = readHostFile(path);
+    if (!raw) { std::fprintf(stderr, "error: cannot read %s\n", path.c_str()); return std::nullopt; }
+    if (raw->size() != kSideSize && raw->size() != kDoubleSize) {
+        std::fprintf(stderr, "error: %s is %zu B, not a 400 KB or 800 KB image\n",
+                     path.c_str(), raw->size());
+        return std::nullopt;
+    }
+    ds = isDoubleSidedSize(raw->size());
+    return raw;
 }
 
 int cmdDir(const std::string &path, int side)
@@ -75,27 +103,23 @@ int cmdDir(const std::string &path, int side)
                              path.c_str()); return 1; }
     std::printf("%s\n  size %zu B  (%s, side %d)\n", path.c_str(), img->data.size(),
                 img->ds ? "double-sided" : "single-sided", img->side);
-    if (!img->hasDirectory) {
-        std::printf("  no RT-11 directory on this side\n");
-        return 1;
-    }
+    if (!img->hasDirectory) { std::printf("  no RT-11 directory on this side\n"); return 1; }
     const auto &d = img->directory;
     std::printf("  dir@LBN %d  segs=%d  data_start=%d\n",
                 d.dirStartLbn, d.segsTotal, d.dataStart);
     int n = 0;
-    for (const auto &e : d.entries) {
+    for (const auto &e : d.entries)
         if (e.isPermanent()) {
             std::printf("    %-14s blk=%5d  len=%5d blocks  (%d B)\n",
                         e.name.c_str(), e.startBlock, e.length, e.length * kBlock);
             ++n;
         }
-    }
     std::printf("  %d permanent file(s)\n", n);
     return 0;
 }
 
-int cmdExtract(const std::string &path, int side,
-               std::string_view name, const std::string &outdir)
+int cmdGet(const std::string &path, int side, const std::string &outdir,
+           const std::vector<std::string> &patterns)
 {
     auto img = loadImage(path, side);
     if (!img) { std::fprintf(stderr, "error: cannot read %s (bad --side?)\n",
@@ -108,27 +132,94 @@ int cmdExtract(const std::string &path, int side,
     std::error_code ec;
     fs::create_directories(outdir, ec);
 
-    auto dump = [&](const DirEntry &e) -> bool {
+    auto matches = [&](const std::string &name) {
+        if (patterns.empty()) return true;            /* no pattern => all */
+        for (const auto &p : patterns) if (globMatch(p, name)) return true;
+        return false;
+    };
+
+    int got = 0, fails = 0;
+    for (const auto &e : img->directory.entries) {
+        if (!e.isPermanent() || !matches(e.name)) continue;
         auto bytes = img->readFile(e.name);
         const fs::path out = fs::path(outdir) / e.name;
-        if (!writeFile(out, bytes)) {
+        if (!writeWholeFile(out.string(), bytes)) {
             std::fprintf(stderr, "error: cannot write %s\n", out.string().c_str());
-            return false;
+            ++fails; continue;
         }
         std::printf("  %-14s -> %s (%zu B)\n", e.name.c_str(),
                     out.string().c_str(), bytes.size());
-        return true;
-    };
-
-    if (!name.empty()) {
-        const DirEntry *e = img->directory.find(name);
-        if (!e) { std::fprintf(stderr, "error: %.*s not found\n",
-                               static_cast<int>(name.size()), name.data()); return 1; }
-        return dump(*e) ? 0 : 1;
+        ++got;
     }
-    int fails = 0;
-    for (const auto &e : img->directory.entries)
-        if (e.isPermanent() && !dump(e)) ++fails;
+    if (got == 0) std::fprintf(stderr, "warning: no files matched\n");
+    return fails ? 1 : 0;
+}
+
+int cmdInit(const std::string &path, int side, const InitOptions &opts)
+{
+    bool ds = false;
+    auto image = readImage(path, ds);
+    if (!image) return 1;
+    try {
+        initVolume(*image, side, ds, opts);
+    } catch (const std::exception &e) {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return 1;
+    }
+    if (!writeWholeFile(path, *image)) {
+        std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
+        return 1;
+    }
+    std::printf("initialised %s (side %d, %s)\n", path.c_str(), side,
+                ds ? "double-sided" : "single-sided");
+    return 0;
+}
+
+int cmdPut(const std::string &path, int side, const std::vector<std::string> &args)
+{
+    bool ds = false;
+    auto image = readImage(path, ds);
+    if (!image) return 1;
+
+    /* Expand '*' globs against the host filesystem; plain paths pass through. */
+    std::vector<fs::path> hostFiles;
+    for (const auto &a : args) {
+        if (a.find('*') == std::string::npos) { hostFiles.emplace_back(a); continue; }
+        const fs::path pat(a);
+        const fs::path dir = pat.has_parent_path() ? pat.parent_path() : fs::path(".");
+        const std::string fpat = pat.filename().string();
+        std::error_code ec;
+        bool any = false;
+        if (fs::is_directory(dir, ec))
+            for (const auto &de : fs::directory_iterator(dir, ec))
+                if (de.is_regular_file(ec) &&
+                    globMatch(fpat, de.path().filename().string())) {
+                    hostFiles.push_back(de.path()); any = true;
+                }
+        if (!any) std::fprintf(stderr, "warning: no host files match %s\n", a.c_str());
+    }
+    if (hostFiles.empty()) { std::fprintf(stderr, "error: no input files\n"); return 1; }
+
+    int added = 0, fails = 0;
+    for (const auto &hf : hostFiles) {
+        auto bytes = readHostFile(hf.string());
+        if (!bytes) { std::fprintf(stderr, "error: cannot read %s\n", hf.string().c_str());
+                      ++fails; continue; }
+        const std::string name = hf.filename().string();
+        try {
+            putFile(*image, side, ds, name, *bytes);
+            std::printf("  %s -> %s (%zu B)\n", hf.string().c_str(), name.c_str(),
+                        bytes->size());
+            ++added;
+        } catch (const std::exception &e) {
+            std::fprintf(stderr, "error: %s\n", e.what());
+            ++fails;
+        }
+    }
+    if (added && !writeWholeFile(path, *image)) {
+        std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
+        return 1;
+    }
     return fails ? 1 : 0;
 }
 
@@ -139,54 +230,74 @@ int main(int argc, char **argv)
     if (argc < 2) return usage();
     const std::string cmd = argv[1];
 
-    if (cmd == "dir" || cmd == "extract") {
-        std::string image, name, outdir = ".";
-        int side = 0, positional = 0;
-        for (int i = 2; i < argc; ++i) {
-            std::string_view a = argv[i];
-            if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
-            switch (positional++) {
-            case 0: image  = std::string(a); break;
-            case 1: name   = std::string(a); break;   /* extract only */
-            case 2: outdir = std::string(a); break;   /* extract only */
-            default: return usage();
-            }
-        }
-        if (image.empty()) return usage();
-        return cmd == "dir" ? cmdDir(image, side)
-                            : cmdExtract(image, side, name, outdir);
-    }
-
-    if (cmd == "build") {
-        if (argc < 3) return usage();
-        std::string out;
-        bool ds = false;
-        std::vector<BuildFile> files;
+    if (cmd == "create") {
+        std::string out; bool ds = false;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--ds") { ds = true; continue; }
             if (out.empty()) { out = std::string(a); continue; }
-            auto bytes = readHostFile(std::string(a));
-            if (!bytes) { std::fprintf(stderr, "error: cannot read %.*s\n",
-                                       static_cast<int>(a.size()), a.data()); return 1; }
-            files.push_back({fs::path(a).filename().string(), std::move(*bytes)});
+            return usage();
         }
-        if (out.empty() || files.empty()) return usage();
-        try {
-            auto image = ds ? buildDoubleSided(files, {})
-                            : buildVolume(files);
-            if (!writeFile(out, image)) {
-                std::fprintf(stderr, "error: cannot write %s\n", out.c_str());
-                return 1;
-            }
-            std::printf("wrote %s (%zu B, %zu files, %s)\n",
-                        out.c_str(), image.size(), files.size(),
-                        ds ? "double-sided" : "single-sided");
-        } catch (const std::exception &e) {
-            std::fprintf(stderr, "error: %s\n", e.what());
-            return 1;
-        }
+        if (out.empty()) return usage();
+        auto image = blankImage(ds);
+        if (!writeWholeFile(out, image)) {
+            std::fprintf(stderr, "error: cannot write %s\n", out.c_str()); return 1; }
+        std::printf("created %s (%zu B, %s, unformatted)\n", out.c_str(),
+                    image.size(), ds ? "double-sided" : "single-sided");
         return 0;
     }
+
+    if (cmd == "init") {
+        std::string image; int side = 0; InitOptions opts;
+        for (int i = 2; i < argc; ++i) {
+            std::string_view a = argv[i];
+            if      (a == "--side"      && i + 1 < argc) side = std::atoi(argv[++i]);
+            else if (a == "--volume-id" && i + 1 < argc) opts.volumeId = argv[++i];
+            else if (a == "--owner"     && i + 1 < argc) opts.owner = argv[++i];
+            else if (a == "--segments"  && i + 1 < argc) opts.segments = std::atoi(argv[++i]);
+            else if (image.empty()) image = std::string(a);
+            else return usage();
+        }
+        if (image.empty()) return usage();
+        return cmdInit(image, side, opts);
+    }
+
+    if (cmd == "put") {
+        std::string image; int side = 0; std::vector<std::string> files;
+        for (int i = 2; i < argc; ++i) {
+            std::string_view a = argv[i];
+            if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (image.empty()) { image = std::string(a); continue; }
+            files.emplace_back(a);
+        }
+        if (image.empty() || files.empty()) return usage();
+        return cmdPut(image, side, files);
+    }
+
+    if (cmd == "get") {
+        std::string image, outdir = "."; int side = 0; std::vector<std::string> pats;
+        for (int i = 2; i < argc; ++i) {
+            std::string_view a = argv[i];
+            if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (a == "--out"  && i + 1 < argc) { outdir = argv[++i]; continue; }
+            if (image.empty()) { image = std::string(a); continue; }
+            pats.emplace_back(a);
+        }
+        if (image.empty()) return usage();
+        return cmdGet(image, side, outdir, pats);
+    }
+
+    if (cmd == "dir") {
+        std::string image; int side = 0;
+        for (int i = 2; i < argc; ++i) {
+            std::string_view a = argv[i];
+            if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (image.empty()) { image = std::string(a); continue; }
+            return usage();
+        }
+        if (image.empty()) return usage();
+        return cmdDir(image, side);
+    }
+
     return usage();
 }

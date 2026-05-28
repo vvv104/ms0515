@@ -1,8 +1,8 @@
 /*
- * test_build.cpp — buildVolume / buildDoubleSided round-trip through the
- * parser.  Files written must read back with identical names, lengths and
- * (block-padded) bytes, for single- and double-sided images.  This catches
- * writer bugs; the "does a real OS agree" check lives in the lib tests.
+ * test_build.cpp — create / init / put primitives round-trip through the
+ * parser, plus error handling.  Files written must read back with identical
+ * names, lengths and (block-padded) bytes, single- and double-sided.  The
+ * "does a real OS agree" checks live in the lib tests.
  */
 
 #include <doctest/doctest.h>
@@ -12,11 +12,15 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 using namespace ms0515::disk;
 
 namespace {
+
+struct BuildFile { std::string name; std::vector<uint8_t> data; };
 
 std::vector<uint8_t> pattern(std::size_t n, uint8_t seed)
 {
@@ -35,6 +39,15 @@ std::vector<BuildFile> diverseFiles()
         {"RND.BIN",   pattern(1500, 42)},                 /* 3 blocks */
         {"ONE.B",     std::vector<uint8_t>{0xAB}},         /* 1 byte -> 1 block */
     };
+}
+
+std::vector<uint8_t> makeVolume(bool ds, int side, const std::vector<BuildFile> &files)
+{
+    auto img = blankImage(ds);
+    if (ds) { initVolume(img, 0, true); initVolume(img, 1, true); }
+    else      initVolume(img, 0, false);
+    for (const auto &f : files) putFile(img, side, ds, f.name, f.data);
+    return img;
 }
 
 void verifyFiles(const Image &img, const std::vector<BuildFile> &files)
@@ -60,9 +73,9 @@ void verifyFiles(const Image &img, const std::vector<BuildFile> &files)
 
 TEST_SUITE("Build") {
 
-TEST_CASE("single-sided round-trip") {
+TEST_CASE("single-sided init + put round-trip") {
     const auto files = diverseFiles();
-    auto image = buildVolume(files);
+    auto image = makeVolume(false, 0, files);
     REQUIRE(image.size() == kSideSize);
     auto img = openImage(image, 0);
     REQUIRE(img.has_value());
@@ -72,28 +85,73 @@ TEST_CASE("single-sided round-trip") {
 TEST_CASE("double-sided: write + read back both sides byte-exact") {
     const auto side0 = diverseFiles();
     const std::vector<BuildFile> side1 = {
-        {"MAGIC.DAT", pattern(900, 7)},            /* protection-side payload */
+        {"MAGIC.DAT", pattern(900, 7)},
         {"BOOT2.SYS", std::vector<uint8_t>(2048, 0x5A)},
     };
+    auto img = blankImage(true);
+    initVolume(img, 0, true);
+    initVolume(img, 1, true);
+    for (const auto &f : side0) putFile(img, 0, true, f.name, f.data);
+    for (const auto &f : side1) putFile(img, 1, true, f.name, f.data);
+    REQUIRE(img.size() == kDoubleSize);
 
-    auto ds = buildDoubleSided(side0, side1);
-    REQUIRE(ds.size() == kDoubleSize);
-
-    auto s0 = openImage(ds, 0);
-    auto s1 = openImage(ds, 1);
+    auto s0 = openImage(img, 0);
+    auto s1 = openImage(img, 1);
     REQUIRE(s0.has_value());
     REQUIRE(s1.has_value());
     verifyFiles(*s0, side0);
     verifyFiles(*s1, side1);
 }
 
-TEST_CASE("build leaves free sectors as the B6 6D blank pattern") {
-    auto image = buildVolume(diverseFiles());   /* few small files near LBN 8 */
+TEST_CASE("init leaves free sectors as the B6 6D blank pattern") {
+    auto image = makeVolume(false, 0, diverseFiles());
     const std::size_t off = lbnToByte(300, 0, false);   /* well past the files */
     CHECK(image[off + 0] == 0xB6);
     CHECK(image[off + 1] == 0x6D);
     CHECK(image[off + 2] == 0xB6);
     CHECK(image[off + 3] == 0x6D);
+}
+
+TEST_CASE("init options: volume id and segment count") {
+    auto img = blankImage(false);
+    InitOptions opts; opts.volumeId = "MYDISK"; opts.owner = "VVV"; opts.segments = 2;
+    initVolume(img, 0, false, opts);
+
+    const std::size_t home = lbnToByte(1, 0, false);
+    CHECK(std::string(reinterpret_cast<const char *>(&img[home + 0x1D8]), 6) == "MYDISK");
+    CHECK(std::string(reinterpret_cast<const char *>(&img[home + 0x1E4]), 3) == "VVV");
+
+    const std::size_t seg = lbnToByte(6, 0, false);
+    CHECK(img[seg + 0] == 2);     /* segTotal */
+    CHECK(img[seg + 8] == 10);    /* data start = 6 + 2*segments */
+
+    putFile(img, 0, false, "X.DAT", std::vector<uint8_t>(10, 1));
+    auto im = openImage(img, 0);
+    REQUIRE(im.has_value());
+    const DirEntry *e = im->directory.find("X.DAT");
+    REQUIRE(e != nullptr);
+    CHECK(e->startBlock == 10);
+}
+
+TEST_CASE("putFile errors") {
+    auto img = blankImage(false);
+    initVolume(img, 0, false);
+    const std::vector<uint8_t> d{1, 2, 3};
+
+    SUBCASE("does not fit") {
+        std::vector<uint8_t> big(800 * kBlock, 0);   /* bigger than the volume */
+        CHECK_THROWS_AS(putFile(img, 0, false, "BIG.DAT", big), std::runtime_error);
+    }
+    SUBCASE("name longer than 6.3") {
+        CHECK_THROWS_AS(putFile(img, 0, false, "TOOLONGNM.TXT", d), std::runtime_error);
+    }
+    SUBCASE("illegal (non-RAD50) character in name") {
+        CHECK_THROWS_AS(putFile(img, 0, false, "BAD-NM.TXT", d), std::runtime_error);
+    }
+    SUBCASE("not initialised") {
+        auto raw = blankImage(false);   /* never init'd */
+        CHECK_THROWS_AS(putFile(raw, 0, false, "X.DAT", d), std::runtime_error);
+    }
 }
 
 } /* TEST_SUITE */

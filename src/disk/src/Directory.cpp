@@ -99,6 +99,7 @@ std::optional<Directory> parseSegment(std::span<const uint8_t> seg)
     const size_t entrySize = 14 + extra;
     int curBlock = dataBlk;
     size_t p = 10;
+    bool sawEos = false;
     while (p + entrySize <= 1024) {
         const uint16_t status = rd16(seg, p);
         if (status == 0) return std::nullopt;  /* malformed */
@@ -114,13 +115,13 @@ std::optional<Directory> parseSegment(std::span<const uint8_t> seg)
 
         curBlock += e.length;
         p += entrySize;
-        if (status & kStatusEndOfSeg) break;
+        if (status & kStatusEndOfSeg) { sawEos = true; break; }
     }
 
-    bool anyPerm = false;
-    for (const auto &e : dir.entries)
-        if (e.isPermanent()) { anyPerm = true; break; }
-    if (!anyPerm) return std::nullopt;
+    /* A well-formed segment ends with an end-of-segment entry.  Requiring it
+     * (rather than "has a permanent file") lets a freshly INIT'd empty volume
+     * parse, while the strict header validation above still rejects garbage. */
+    if (!sawEos) return std::nullopt;
 
     return dir;
 }

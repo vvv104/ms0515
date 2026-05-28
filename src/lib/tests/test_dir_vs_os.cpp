@@ -17,6 +17,7 @@
 #include <ms0515/Emulator.hpp>
 #include <ms0515/Terminal.hpp>
 #include <ms0515/VramMirror.hpp>
+#include <ms0515/disk/Build.hpp>
 #include <ms0515/disk/Image.hpp>
 
 #include "test_disk.hpp"
@@ -252,6 +253,89 @@ TEST_CASE("OS DIR matches ms0515_disk parse across reference disks") {
                           label << ": OS DIR vs tool file-list/size mismatch");
         }
     }
+}
+
+/* buildVolume must produce exactly what the OS's INIT writes, so a built disk
+ * is mountable AND writable by the OS (PIP into our blank used to HALT because
+ * our format diverged).  All RT-11 variants here INIT identically except the
+ * volume/system-ID strings (OSA/Omega/Mihin use "RT11A"/"DECRT11A", which is
+ * what buildVolume writes; rod/FODOS uses "ФОДОС"), so we compare against OSA. */
+TEST_CASE("buildVolume is byte-identical to the OS's INIT (OSA)") {
+    namespace disk = ms0515::disk;
+    const std::string sysPath = std::string(TESTS_DIR) + "/disks/test_osa.dsk";
+    const std::string dstPath = std::string(TESTS_BUILD_DIR) + "/init_blank.dsk";
+
+    ms0515_test::TempDisk sys{sysPath};
+    std::vector<uint8_t> raw(disk::kSideSize);
+    for (std::size_t i = 0; i < raw.size(); ++i) raw[i] = (i & 1) ? 0x6D : 0xB6;
+    writeImage(dstPath, raw);
+
+    ms0515::Emulator emu; REQUIRE(emu.loadRomFile(kRomA));
+    REQUIRE(emu.mountDisk(0, sys.path().string()));
+    REQUIRE(emu.mountDisk(3, dstPath));
+    ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
+    emu.reset(); waitForIdle(emu, mirror, 120, 3500);
+    typeLine(emu, mirror, "INIT DZ3:"); waitForIdle(emu, mirror, 80, 2500);
+    typeLine(emu, mirror, "Y");
+    waitForDiskIdle(emu, mirror, 200, 60000); waitForIdle(emu, mirror, 150, 6000);
+
+    auto osInit = readFileBytes(dstPath);
+    auto built  = disk::blankImage(false);
+    disk::initVolume(built, 0, false);
+    REQUIRE(osInit.size() == built.size());
+    if (osInit != built) {
+        for (std::size_t i = 0; i < built.size(); ++i)
+            if (osInit[i] != built[i]) {
+                std::fprintf(stderr, "first diff @0x%zX: OS=%02X built=%02X\n",
+                             i, osInit[i], built[i]);
+                break;
+            }
+    }
+    CHECK(osInit == built);
+}
+
+/* Same check for a double-sided dump: the OS INITs each side independently
+ * (DZ1: lower, DZ3: upper of the second drive), and buildDoubleSided must
+ * reproduce both sides at their track-interleaved offsets byte-for-byte. */
+TEST_CASE("buildDoubleSided is byte-identical to the OS's INIT of both sides (OSA)") {
+    namespace disk = ms0515::disk;
+    const std::string sysPath = std::string(TESTS_DIR) + "/disks/test_osa.dsk";
+    const std::string dstPath = std::string(TESTS_BUILD_DIR) + "/init_ds.dsk";
+
+    ms0515_test::TempDisk sys{sysPath};
+    std::vector<uint8_t> raw(disk::kDoubleSize);
+    for (std::size_t i = 0; i < raw.size(); ++i) raw[i] = (i & 1) ? 0x6D : 0xB6;
+    writeImage(dstPath, raw);
+
+    ms0515::Emulator emu; REQUIRE(emu.loadRomFile(kRomA));
+    REQUIRE(emu.mountDisk(0, sys.path().string()));
+    REQUIRE(emu.mountDisk(1, dstPath));        /* DZ1: side 0 */
+    REQUIRE(emu.mountDisk(3, dstPath));        /* DZ3: side 1 */
+    ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
+    emu.reset(); waitForIdle(emu, mirror, 120, 3500);
+
+    for (const char *dev : {"DZ1:", "DZ3:"}) {
+        typeLine(emu, mirror, (std::string("INIT ") + dev).c_str());
+        waitForIdle(emu, mirror, 80, 2500);
+        typeLine(emu, mirror, "Y");
+        waitForDiskIdle(emu, mirror, 200, 60000);
+        waitForIdle(emu, mirror, 150, 6000);
+    }
+
+    auto osInit = readFileBytes(dstPath);
+    auto built  = disk::blankImage(true);
+    disk::initVolume(built, 0, true);
+    disk::initVolume(built, 1, true);
+    REQUIRE(osInit.size() == built.size());
+    if (osInit != built) {
+        for (std::size_t i = 0; i < built.size(); ++i)
+            if (osInit[i] != built[i]) {
+                std::fprintf(stderr, "first diff @0x%zX: OS=%02X built=%02X\n",
+                             i, osInit[i], built[i]);
+                break;
+            }
+    }
+    CHECK(osInit == built);
 }
 
 /* The authoritative content oracle: the OS itself lays out the bytes, and we
