@@ -32,3 +32,6 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/
+
+# Local recovery working data (raw captures, merges — may hold personal data)
+disk_recovery/work/
