@@ -13,7 +13,7 @@ Library **`ms0515_disk`** — [`../src/disk/`](../src/disk/):
 |--------|-----|
 | `Layout` | `LBN → byte` geometry, mirroring the emulator FDC: size picks SS/DS, and one universal driver mapping (2:1 interleave + per-track skew). The source of truth is [`../src/core/src/floppy.c`](../src/core/src/floppy.c); see [`../docs/hardware/filesystem.md`](../docs/hardware/filesystem.md). |
 | `Directory` | RT-11 home block + segment chain + RAD50 parse. |
-| `Image` | Load a capture (size selects SS/DS + side), read files. |
+| `Image` | Load a capture (size selects SS/DS + side), read files; `splitDoubleSided` / `mergeSides` reshape between an 800 KB DS image and two 400 KB SS images. |
 | `Build` | `blankImage` (raw media), `initVolume` (format a side, byte-identical to OS INIT), `putFile` (add a file, like PIP). |
 
 Binary **`ms0515-disk`** — [`../src/tools/disk/`](../src/tools/disk/):
@@ -25,6 +25,8 @@ Binary **`ms0515-disk`** — [`../src/tools/disk/`](../src/tools/disk/):
 | `put <img> [--side N] <file\|glob>...` | Add host files (like PIP, inbound); `*` globs. |
 | `get <img> [--side N] [--out DIR] [pattern]...` | Extract files (PIP, outbound); `*` patterns. |
 | `dir <img> [--side N]` | List the directory. |
+| `split <ds> <s0> <s1>` | Split an 800 KB double-sided image into two 400 KB single-sided images. |
+| `merge <s0> <s1> <ds>` | Merge two 400 KB single-sided images into one 800 KB double-sided image. |
 
 Geometry follows the image **size** (409600 = single-sided, 819200 = double-
 sided; `--side` picks a side).  There is no layout flag — the physical

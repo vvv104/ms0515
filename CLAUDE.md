@@ -12,6 +12,8 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
   - `platform/gui/` — file dialogs, font discovery, GUI-subsystem console attach.
 - **CLI** (`src/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer.
 - **Frontend** (`src/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
+- **Disk** (`src/disk/`) — Offline RT-11 / MS-0515 disk-image library (lib `ms0515_disk`): LBN→byte geometry mirroring the emulator FDC, directory parse, file read, and volume create/init/put. No emulator dependency.
+- **Tools** (`src/tools/`) — Standalone offline binaries over the libs. `tools/disk/` builds `ms0515-disk` (`create/init/put/get/dir/split/merge`). Heuristic recovery (consensus/donor) stays out — see `disk_recovery/`.
 
 ## Key rules
 - All code, comments, and documentation must be in **English only**.
@@ -33,6 +35,9 @@ src/                — emulator source code and build files
   lib/tests/        — lib-level tests (Emulator/Terminal/KeyboardLayout/...) + disk fixtures
   libapp/           — shared host-app utilities (Paths, Config, Cli, Disks)
   libapp/tests/     — libapp unit tests (paths/config/cli/disks)
+  disk/             — offline RT-11 disk-image lib (Layout, Directory, Image, Build)
+  disk/tests/       — disk lib unit tests
+  tools/disk/       — ms0515-disk binary (offline disk utility)
   platform/cli/     — CLI host abstractions (Platform_unix.cpp / Platform_win32.cpp)
   platform/gui/     — GUI host abstractions (file dialogs, fonts, console attach) + tests/
   cli/              — text-mode binary (main.cpp, StdioBridge, Koi8)
@@ -42,7 +47,8 @@ src/                — emulator source code and build files
   package/          — build output: ms0515.exe, ms0515-cli.exe, ms0515.yaml, assets/
 docs/               — architecture and subsystem documentation
   kb/              — knowledge base (references, verification, known issues)
-tools/              — utility scripts (disassembler, disk tools)
+disk_recovery/      — disk-recovery knowledge base + verified-image vault (no build inputs)
+tools/              — misc Python utilities (pdp11 disassembler, Extended-CPC convert, state dump)
 ```
 
 The top-level `tests/` folder is intentionally gone — each layer owns its own

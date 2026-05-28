@@ -115,6 +115,25 @@ Headless text-mode session over the same emulator core:
 - Same argument parser and config loader as the frontend (via `libapp`)
 - Console setup, signal handling via `platform/cli`
 
+### Offline Disk Tooling — `ms0515-disk` (C++)
+
+Separate from the emulator: an offline RT-11 / MS-0515 disk-image library and
+tool that read and write images directly, without running the machine.
+
+- Lib `ms0515_disk` (`src/disk/`) — `Layout` (LBN→byte geometry mirroring the
+  FDC; the image size selects single- vs double-sided), `Directory` (home
+  block + segment chain + RAD50), `Image` (load a capture, read files,
+  split/merge sides), `Build` (create blank media, init a volume byte-identical
+  to the OS's `INIT`, put a file like PIP).
+- Binary `ms0515-disk` (`src/tools/disk/`) — `create / init / put / get / dir /
+  split / merge`.  Geometry follows the image size; there is no layout flag.
+
+The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
+is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified
+against the real OS in the emulator (`src/lib/tests/test_dir_vs_os.cpp`).
+Heuristic multi-source recovery (consensus, donor matching, confidence tiers)
+is kept out of these primitives — its knowledge base lives in `disk_recovery/`.
+
 ## Hardware Summary
 
 | Component      | Chip               | Clone of      |
