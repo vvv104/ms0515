@@ -46,8 +46,11 @@ def parse_extended_dsk(path):
     # Track size table: one byte per track-side, value * 256 = track block size
     track_sizes = data[52:52 + num_tracks * num_sides]
 
-    # Initialize output arrays (one per side)
+    # Initialize output arrays (one per side) + per-side read-status maps
+    # (0 = good, 1 = the controller flagged the read — CRC/data error or
+    # missing data, from the FDC ST1/ST2 status bytes).
     sides = [bytearray(SIDE_SIZE) for _ in range(num_sides)]
+    badmaps = [bytearray(TRACKS * SECTORS_PER_TRACK) for _ in range(num_sides)]
 
     # Parse each track
     offset = 256  # skip main header
@@ -81,9 +84,10 @@ def parse_extended_dsk(path):
         for s in range(min(num_sectors, SECTORS_PER_TRACK)):
             si_off = 24 + s * 8
             sector_id = track_info[si_off + 2]   # 1-based sector ID
-            actual_size = struct.unpack_from('<H', track_info, si_off + 6)[0]
-            if actual_size == 0:
-                actual_size = SECTOR_SIZE
+            st1 = track_info[si_off + 4]         # FDC status register 1
+            st2 = track_info[si_off + 5]         # FDC status register 2
+            raw_len = struct.unpack_from('<H', track_info, si_off + 6)[0]
+            actual_size = raw_len or SECTOR_SIZE
 
             if sector_id < 1 or sector_id > SECTORS_PER_TRACK:
                 sector_data_offset += actual_size
@@ -99,11 +103,16 @@ def parse_extended_dsk(path):
             if dst_off + SECTOR_SIZE <= SIDE_SIZE:
                 sides[side_num][dst_off:dst_off + len(src)] = src
 
+            # ST1 bit5 / ST2 bit5 = data CRC error; bit0 = missing address mark;
+            # raw_len 0 = no data read.  Any of these = a disputed/bad read.
+            bad = bool((st1 & 0x21) or (st2 & 0x21) or raw_len == 0)
+            badmaps[side_num][track_num * SECTORS_PER_TRACK + sector_idx] = 1 if bad else 0
+
             sector_data_offset += actual_size
 
         offset += track_block_size
 
-    return sides, num_sides
+    return sides, badmaps, num_sides
 
 
 def main():
@@ -120,15 +129,18 @@ def main():
         if result is None:
             continue
 
-        sides, num_sides = result
+        sides, badmaps, num_sides = result
         base = os.path.splitext(path)[0]
 
         for side in range(num_sides):
-            suffix = f"_s{side}.img"
-            out_path = base + suffix
-            with open(out_path, 'wb') as f:
+            img_path = f"{base}_s{side}.img"
+            with open(img_path, 'wb') as f:
                 f.write(sides[side])
-            print(f"  Wrote: {os.path.basename(out_path)} ({len(sides[side])} bytes)")
+            bm_path = f"{base}_s{side}.badmap"
+            with open(bm_path, 'wb') as f:
+                f.write(badmaps[side])
+            print(f"  Wrote: {os.path.basename(img_path)} ({len(sides[side])} bytes), "
+                  f"{os.path.basename(bm_path)} ({sum(badmaps[side])} sectors flagged)")
 
 
 if __name__ == '__main__':

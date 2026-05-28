@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-td0_decode.py - Decode Sydex Teledisk (.TD0) images into raw physical-sector
-                images plus a bad-sector map.
+convert_td0.py - Decode Sydex TeleDisk (.TD0) images into raw physical-sector
+                 images plus a bad-sector map.
 
-Supports only the un-LZSS-compressed variant (signature 'TD').  Both ARCSAV.TD0
-and LANG.TD0 in our dump set are of this kind.  Sector data encoding methods
-0, 1, 2 are implemented; bad-sector flags propagate into the .badmap output.
+Supports only the un-LZSS-compressed variant (signature 'TD'); all TD0s in our
+dump set are of this kind.  Sector data encoding methods 0, 1, 2 are
+implemented; bad-sector flags propagate into the .badmap output.
 
 CLI:
-    python td0_decode.py <file.TD0> [<file2.TD0> ...]
+    python convert_td0.py <file.TD0> [<file2.TD0> ...]
 
 For each input writes alongside it:
     <stem>_td0.dsk    - track-interleaved DS or single-sided SS image
@@ -95,12 +95,14 @@ def _read_sector_data(buf: bytes, off: int, data_len: int,
                 out += body[i:i + length]
                 i += length
             elif block_type == 1:
-                # 1, count_lo, count_hi, pat0, pat1
-                if i + 4 > len(body):
+                # 1, count (1 byte), pat0, pat1 — repeat the 2-byte pattern
+                # `count` times (TeleDisk "normal" method-2 sub-block; the
+                # count is one byte, not two).
+                if i + 3 > len(body):
                     break
-                count = body[i] | (body[i + 1] << 8)
-                pat = bytes([body[i + 2], body[i + 3]])
-                i += 4
+                count = body[i]
+                pat = bytes([body[i + 1], body[i + 2]])
+                i += 3
                 out += pat * count
             else:
                 # Unknown subblock type - bail out, mark sector zero.
