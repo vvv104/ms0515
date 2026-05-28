@@ -7,6 +7,8 @@
 
 add_library(ms0515_disk STATIC
     src/Layout.cpp
+    src/Directory.cpp
+    src/Image.cpp
 )
 
 target_compile_features(ms0515_disk PUBLIC cxx_std_23)

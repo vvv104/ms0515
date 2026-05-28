@@ -32,6 +32,7 @@ add_subdirectory(libapp)
 add_subdirectory(disk)
 add_subdirectory(platform)
 add_subdirectory(cli)
+add_subdirectory(tools)
 
 if(MS0515_BUILD_FRONTEND)
     add_subdirectory(frontend)
