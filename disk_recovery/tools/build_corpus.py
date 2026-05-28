@@ -191,6 +191,20 @@ def get_side(img, side):
         files = {p.name: p.read_bytes() for p in Path(td).iterdir() if p.is_file()}
         return files if (files or r.returncode == 0) else None
 
+PAIR_RE = re.compile(r"^(.*)_(?:Head|S|s)([01])$")
+
+def head_pairs(sources):
+    """Group raw sources stored as separate physical sides (`*_Head0/_Head1`)
+    by their base name, so a spanning volume split across two files can be
+    rejoined."""
+    g = defaultdict(dict)
+    for p in sources:
+        if p.suffix.lower() in (".dsk", ".raw"):
+            m = PAIR_RE.match(p.stem)
+            if m:
+                g[(p.parent, m.group(1))][int(m.group(2))] = p
+    return g
+
 def main():
     if not TOOL.exists():
         sys.exit(f"ms0515-disk not built at {TOOL} — build src/ first")
@@ -218,9 +232,36 @@ def main():
         if bad:                       # file-block indices on a flagged sector
             prov["bad"] = bad
         rec["provenance"].append(prov)
+
+    # Rejoin spanning volumes split into separate per-side files (raw
+    # _Head0/_Head1 that don't read individually) — interleave and read spanning.
+    consumed = set()
+    for (parent, base), sd in head_pairs(sources).items():
+        if set(sd) != {0, 1}:
+            continue
+        p0, p1 = sd[0], sd[1]
+        if not (sniff(p0) == "raw" == sniff(p1)
+                and p0.stat().st_size == SS == p1.stat().st_size):
+            continue
+        if get_side(p0, 0) or get_side(p1, 0):     # genuine independent sides — leave alone
+            continue
+        cand = spanning_candidate([(p0, [0], None), (p1, [0], None)])
+        if not cand:
+            continue
+        res = read_spanning(cand[0])
+        if not res:
+            continue
+        _, files, entries, _ = res
+        rel = str((parent / f"{base}_Head0+1").relative_to(WORK)).replace("\\", "/")
+        for name, start, length in entries:
+            ingest(name, files[name], rel, "span")
+        consumed |= {p0, p1}
+
     with tempfile.TemporaryDirectory() as tmpd:
         tmp = Path(tmpd)
         for src in sources:
+            if src in consumed:
+                continue
             rel = str(src.relative_to(WORK)).replace("\\", "/")
             imgs = raw_images_for(src, tmp)
             if not imgs:
