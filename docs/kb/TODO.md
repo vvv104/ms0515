@@ -60,7 +60,7 @@ Outcomes:
    bytes coming from a real-firmware source rather than from
    the state machine.
 5. Bundle `mc7004_keyboard_original.rom` as an asset in
-   `emu/assets/rom/`.  The licensing is the same kind of
+   `src/assets/rom/`.  The licensing is the same kind of
    gray-zone preservation as the system ROMs we already ship.
 6. Update tests:
    - `tests/test_ms7004.cpp` — current unit tests assert specific

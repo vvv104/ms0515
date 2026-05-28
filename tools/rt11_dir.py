@@ -36,7 +36,7 @@ depending on which OS wrote the disk:
 
 The right mapping is chosen by matching the boot block (bytes
 5120..5631) against the reference disks bundled with the emulator
-(emu/lib/tests/disks/ + emu/assets/disks/).  Unknown boots fall
+(src/lib/tests/disks/ + src/assets/disks/).  Unknown boots fall
 back to ss-canonical and the tool prints a warning - the listing
 usually still works (metadata is at canonical positions on every
 known MS-0515 variant) but extracted file content may be wrong.
@@ -118,8 +118,8 @@ SS_MAPPINGS = {
 #
 # Paths are resolved relative to this script's repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_TESTS_DISKS = _REPO_ROOT / "emu" / "lib" / "tests" / "disks"
-_ASSETS_DISKS = _REPO_ROOT / "emu" / "assets" / "disks"
+_TESTS_DISKS = _REPO_ROOT / "src" / "lib" / "tests" / "disks"
+_ASSETS_DISKS = _REPO_ROOT / "src" / "assets" / "disks"
 
 _REFERENCE_DISKS = [
     # (path, system, dir_layout, file_layout, is_ds)

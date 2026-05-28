@@ -8,7 +8,7 @@
  *   3. removes the copy on destruction.
  *
  * Tests must NEVER mount their fixture disks (the .dsk files under
- * emu/tests/disks/) directly — some Soviet OSes flush dirty buffer
+ * src/tests/disks/) directly — some Soviet OSes flush dirty buffer
  * pages back on close and can corrupt the image (see
  * KNOWN_ISSUES.md, "type STARTS.COM disk-corruption").  The
  * fixtures stay pristine; each test gets a writeable copy and lets

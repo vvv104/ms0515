@@ -4,14 +4,14 @@
 
 ## Architecture
 Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
-- **Core** (`emu/core/`) — Pure C11, zero OS deps. Fully implemented and verified.
-- **Lib** (`emu/lib/`) — C++ wrapper: Emulator, Debugger, Disassembler, GDB RSP.
-- **Libapp** (`emu/libapp/`) — Shared host-side app utilities: filesystem paths, YAML config loader/writer, CLI argument parser, disk-mount helpers. Linked by both binaries so any flag added to one is automatically supported by the other. Strictly host-app code — no emulation primitives, no core API.
-- **Platform** (`emu/platform/`) — Host abstractions kept out of binary sources. Split into two sublibs because needs barely overlap:
+- **Core** (`src/core/`) — Pure C11, zero OS deps. Fully implemented and verified.
+- **Lib** (`src/lib/`) — C++ wrapper: Emulator, Debugger, Disassembler, GDB RSP.
+- **Libapp** (`src/libapp/`) — Shared host-side app utilities: filesystem paths, YAML config loader/writer, CLI argument parser, disk-mount helpers. Linked by both binaries so any flag added to one is automatically supported by the other. Strictly host-app code — no emulation primitives, no core API.
+- **Platform** (`src/platform/`) — Host abstractions kept out of binary sources. Split into two sublibs because needs barely overlap:
   - `platform/cli/` — raw stdin, signal handling, UTF-8 console setup.
   - `platform/gui/` — file dialogs, font discovery, GUI-subsystem console attach.
-- **CLI** (`emu/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer.
-- **Frontend** (`emu/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
+- **CLI** (`src/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer.
+- **Frontend** (`src/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
 
 ## Key rules
 - All code, comments, and documentation must be in **English only**.
@@ -25,7 +25,7 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 
 ## Project structure
 ```
-emu/                — emulator source code and build files
+src/                — emulator source code and build files
   core/src/         — cpu.c, cpu_ops.c, memory.c, timer.c, keyboard.c, floppy.c, board.c
   core/include/     — ms0515/core/*.h headers
   core/tests/       — pure-core unit tests (link only against ms0515_core)

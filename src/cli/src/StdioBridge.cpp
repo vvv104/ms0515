@@ -300,7 +300,7 @@ void enqueueLetterByte(uint8_t b)
 
 /* KOI-8R 0xC0..0xFF → MS-7004 Key.  Same Key for the lowercase
  * (0xC0..0xDF) and uppercase (0xE0..0xFF) halves; shift differentiates.
- * Layout matches `emu/lib/src/KeyboardLayout.cpp` — each Russian
+ * Layout matches `src/lib/src/KeyboardLayout.cpp` — each Russian
  * letter sits on the physical key its name shares with a Latin
  * counterpart in YЦUKEN-style mapping (Й→J, Ц→C, ... Ъ→HardSign).
  *

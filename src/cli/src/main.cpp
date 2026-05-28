@@ -4,7 +4,7 @@
  * Same flag schema and same YAML config (`ms0515.yaml`) as the SDL
  * frontend; the two binaries are interchangeable for everything that
  * doesn't involve a graphical screen.  Mounts disks per CliArgs + Config
- * (CLI args win), boots the RT-11 kernel through emu/lib/, and presents
+ * (CLI args win), boots the RT-11 kernel through src/lib/, and presents
  * VRAM through ms0515::VramMirror on the host terminal.  Input flows
  * the other way: bridge.cpp drains stdin into the MS-7004 emulation.
  */

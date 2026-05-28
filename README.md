@@ -24,7 +24,7 @@ T-11), produced in the late 1980s.
 
 ```
 docs/           Technical documentation (architecture, hardware, kb, TODO)
-emu/            Emulator source code and build system
+src/            Emulator source code and build system
   core/         Hardware emulation in pure C11
     tests/      Unit tests for the C core (cpu, memory, timer, …)
   lib/          C++ wrapper (Emulator, Debugger, Disassembler, GDB stub)
@@ -48,22 +48,22 @@ tools/          Utility scripts (PDP-11 disassembler, disk tools)
 - [Conan 2](https://conan.io/) package manager
 - CMake 3.16+ and Ninja (Conan installs Ninja automatically if missing)
 
-See `emu/README.md` for the full set-up guide and Conan profile tips.
+See `src/README.md` for the full set-up guide and Conan profile tips.
 
 ### Build steps
 
 ```bash
-cd emu
+cd src
 conan build . --build=missing
 ```
 
-The build produces a self-contained `emu/package/` directory with the
+The build produces a self-contained `src/package/` directory with the
 executable and all required assets.
 
 ### Running
 
 ```bash
-cd emu/package
+cd src/package
 ms0515.exe --disk0-side0 path/to/disk.dsk
 ```
 
@@ -82,7 +82,7 @@ Command-line options:
 `--diskN` and `--diskN-sideM` for the same N are mutually exclusive.
 Diagnostic flags for headless / debugging runs (`--frames`,
 `--screenshot`, `--screenshot-frame`, `--history-*`) are documented in
-the source comment at the top of `emu/frontend/src/main.cpp`.
+the source comment at the top of `src/frontend/src/main.cpp`.
 
 Disks can also be mounted at runtime via the File menu.
 

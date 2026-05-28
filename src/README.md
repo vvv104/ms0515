@@ -34,7 +34,7 @@ tools.cmake.cmaketoolchain:generator=Ninja
 ## Build
 
 ```bash
-cd emu
+cd src
 conan build . --build=missing
 ```
 

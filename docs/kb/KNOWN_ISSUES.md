@@ -156,7 +156,7 @@
   (409600 bytes) contain only the boot side and trip the protection;
   the genuine track-interleaved double-sided dump (819200 bytes)
   carries the protection payload on side 1 and boots cleanly.  Shipped
-  in the repo as `emu/assets/disks/rodionov.dsk`.
+  in the repo as `src/assets/disks/rodionov.dsk`.
 - **Status**: solved.  Mounted via `--disk0 path/to/065_full.dsk`, the
   disk boots into ROSA Commander with no visual artefacts and reaches
   the RT-11 date prompt normally.
@@ -383,7 +383,7 @@ side so the protection's sector read returns real bytes.
 - **Side effect**: tracks 2-8 of `mihin.dsk` end up overwritten with
   zeros — about 26 KB of damage out of a 410 KB image.  The OS-level
   loader subsequently fails to boot from this corrupted image until
-  the disk is restored from `emu/assets/disks/mihin.dsk` (or a backup).
+  the disk is restored from `src/assets/disks/mihin.dsk` (or a backup).
 - **What we know**:
   - Our `write_sector()` only runs when the CPU has issued `WRITE_SECTOR`
     (cmd 0xA0/0xB0) — the FDC cannot write to disk on its own, so the
@@ -396,7 +396,7 @@ side so the protection's sector read returns real bytes.
   it may flush uninitialised (zero-filled) buffer pages back to disk,
   corrupting unrelated tracks.
 - **Mitigations**:
-  - Restore `package/assets/disks/mihin.dsk` from `emu/assets/disks/`
+  - Restore `package/assets/disks/mihin.dsk` from `src/assets/disks/`
     after an incident (`cp` or `Copy-Item`).
   - Consider adding a "read-only mount by default" frontend setting,
     or a "snapshot the disk on mount" feature that keeps the original

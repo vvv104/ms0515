@@ -18,7 +18,7 @@ namespace ms0515 {
 
 namespace {
 
-/* Same KOI-8R high-half table that emu/cli/src/Koi8.cpp ships — kept
+/* Same KOI-8R high-half table that src/cli/src/Koi8.cpp ships — kept
  * inline here so VramMirror doesn't depend on the CLI module.  Entry 0
  * corresponds to byte 0x80. */
 constexpr uint32_t kKoi8Hi[128] = {

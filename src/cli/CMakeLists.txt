@@ -1,5 +1,5 @@
 # ── ms0515_cli ─────────────────────────────────────────────────────────────
-# Text-mode frontend.  Boots the real Omega RT-11 kernel via emu/lib/,
+# Text-mode frontend.  Boots the real Omega RT-11 kernel via src/lib/,
 # replacing CRT + keyboard with a stdio bridge installed via the
 # cpu->trap_thunk hook (added in Stage 1).  No SDL, no ImGui — just a
 # console process that exposes the kernel as if it were a serial session.

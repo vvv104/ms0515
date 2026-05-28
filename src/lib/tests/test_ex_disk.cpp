@@ -9,7 +9,7 @@
  * counter on the EX board double-ticks every MOVB and `DIR EX:`
  * surfaces `?DIR-F-Invalid directory`.
  *
- * Test fixture lives in `emu/assets/disks/` instead of the usual
+ * Test fixture lives in `src/assets/disks/` instead of the usual
  * `lib/tests/disks/` tree: disk2.dsk is the shipped EX-capable image
  * end-users get, the test rides on top of it through a TempDisk copy
  * so the original stays pristine.

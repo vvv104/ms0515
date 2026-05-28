@@ -20,7 +20,7 @@
  * Reference disks: `tests/disks/test_osa.dsk` and
  * `tests/disks/test_omega.dsk` — both boot straight to the dot
  * prompt with echo enabled.  These trimmed-OS images live under the
- * tests tree (rather than emu/assets/disks/) because they're for
+ * tests tree (rather than src/assets/disks/) because they're for
  * test fixtures, not for end-user runtime.
  */
 

@@ -60,16 +60,16 @@ Pure emulation logic with zero OS dependencies.  Only uses `<stdint.h>`,
 portable and can be compiled for any platform.
 
 Files:
-- `emu/core/include/ms0515/` — public headers
-- `emu/core/src/cpu.c`, `cpu_ops.c` — CPU core and instruction handlers
-- `emu/core/src/memory.c` — address translation and bank switching
-- `emu/core/src/timer.c` — Intel 8253 PIT emulation
-- `emu/core/src/keyboard.c` — Intel 8251 USART for keyboard
-- `emu/core/src/ms7004.c` — MS7004 keyboard microcontroller model
-- `emu/core/src/floppy.c` — WD1793 floppy disk controller
-- `emu/core/src/ramdisk.c` — 512 KB RAM disk expansion
-- `emu/core/src/board.c` — system integration and I/O dispatch
-- `emu/core/src/snapshot.c` — machine state snapshot serialization
+- `src/core/include/ms0515/` — public headers
+- `src/core/src/cpu.c`, `cpu_ops.c` — CPU core and instruction handlers
+- `src/core/src/memory.c` — address translation and bank switching
+- `src/core/src/timer.c` — Intel 8253 PIT emulation
+- `src/core/src/keyboard.c` — Intel 8251 USART for keyboard
+- `src/core/src/ms7004.c` — MS7004 keyboard microcontroller model
+- `src/core/src/floppy.c` — WD1793 floppy disk controller
+- `src/core/src/ramdisk.c` — 512 KB RAM disk expansion
+- `src/core/src/board.c` — system integration and I/O dispatch
+- `src/core/src/snapshot.c` — machine state snapshot serialization
 
 ### Lib Layer (C++)
 

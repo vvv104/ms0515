@@ -8,7 +8,7 @@
  * ROMs are discovered from ASSETS_DIR/rom (.rom files); disks from
  * TESTS_DIR/disks (.dsk files).  Adding a new ROM or test-fixture
  * disk to the corresponding directory automatically creates new
- * test cases.  emu/assets/disks/ is reserved for the original-OS
+ * test cases.  src/assets/disks/ is reserved for the original-OS
  * images shipped to end users and is intentionally not exercised
  * by the suite.
  *
@@ -48,7 +48,7 @@ TEST_SUITE("Boot") {
 
 /* ROMs come from the release-side assets tree (where they ride along
  * to end users); disk fixtures come from the tests tree.  The boot
- * suite never touches emu/assets/disks/ — that directory is reserved
+ * suite never touches src/assets/disks/ — that directory is reserved
  * for the original-OS images that ship in the package, and we
  * exercise the emulator against the trimmed-OS test_*.dsk fixtures
  * instead. */

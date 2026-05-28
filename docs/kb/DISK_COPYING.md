@@ -45,9 +45,9 @@ ms0515.exe --disk0-side0 dst.dsk      # for a 409600-byte SS image
 
 ## Test fixtures: TempDisk
 
-The unit tests under `emu/tests/` never mount fixture `.dsk` files
+The unit tests under `src/tests/` never mount fixture `.dsk` files
 directly, for the corruption reason above.  They use the RAII helper
-`TempDisk` defined in `emu/tests/test_disk.hpp`:
+`TempDisk` defined in `src/tests/test_disk.hpp`:
 
 - The constructor copies the source fixture to a unique file under
   `TESTS_BUILD_DIR/temp/`.

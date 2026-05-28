@@ -124,7 +124,7 @@ struct ms0515_cpu;
  *           vector).  Lets a thunk handle only the requests it cares about
  *           and leave the rest to the guest kernel.
  *
- * Used by the CLI bridge (emu/cli) to intercept just .TTYIN/.TTYOUT/.PRINT
+ * Used by the CLI bridge (src/cli) to intercept just .TTYIN/.TTYOUT/.PRINT
  * and pass everything else to the real RT-11 kernel.  Not used by the
  * system emulator — when NULL, EMT/TRAP/IOT service normally.
  */
