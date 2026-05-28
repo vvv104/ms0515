@@ -35,8 +35,8 @@ from typing import Callable
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SS_DIR = REPO_ROOT / "collection" / "ss"
 OUT_ROOT = REPO_ROOT / "collection" / "extracted"
-ASSETS_DIR = REPO_ROOT / "emu" / "assets" / "disks"
-TESTS_DISKS_DIR = REPO_ROOT / "emu" / "lib" / "tests" / "disks"
+ASSETS_DIR = REPO_ROOT / "src" / "assets" / "disks"
+TESTS_DISKS_DIR = REPO_ROOT / "src" / "lib" / "tests" / "disks"
 
 BLOCK = 512
 SECTORS_PER_TRACK = 10
@@ -654,7 +654,7 @@ def write_index(results: list[dict]) -> None:
     lines = []
     lines.append("# Extraction index\n")
     lines.append("`System` = identified via boot-block hash matching reference")
-    lines.append("disks (`emu/lib/tests/disks/` + `emu/assets/disks/`).")
+    lines.append("disks (`src/lib/tests/disks/` + `src/assets/disks/`).")
     lines.append("`(heuristic)` means we fell back to chain-validation guessing.\n")
     lines.append("| Image | Status | System | Layout | Dir LBN | Files | Skipped |")
     lines.append("|-------|--------|--------|--------|--------:|------:|--------:|")

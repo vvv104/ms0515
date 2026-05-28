@@ -3,19 +3,16 @@
 How the methodology is executed in code. The recovery tools are being
 built in **C++**, in the same style as the rest of the project (C11
 core idioms, C++23, CMake + Conan, doctest), and live **inside
-`emu/`** as a new sublibrary + binaries — no dependency on any
+`src/`** as a new sublibrary + binaries — no dependency on any
 directory above the source tree. `disk_recovery/` holds knowledge and
 the verified-image vault only; it contains no build inputs.
-
-> If `emu/` is later renamed to `src/`, the tool location moves with
-> it — nothing here points outside the source tree.
 
 ## Target C++ architecture
 
 A new disk-tooling layer alongside `core/` / `lib/` / `libapp/`:
 
 ```
-emu/disk/                  (proposed name)
+src/disk/                  (proposed name)
   include/ms0515/disk/     RT-11 image model — public headers
   src/
     Layout.cpp             the five LBN→byte mappings + DS-spanning
