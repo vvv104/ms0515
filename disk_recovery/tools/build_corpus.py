@@ -1,31 +1,34 @@
 #!/usr/bin/env python3
 """
-build_corpus.py — unique-file corpus over the disk images in
+build_corpus.py — unique-file corpus over every readable disk in
 disk_recovery/work/, using the verified ms0515-disk tool for extraction.
 
-For every standard diskette image (409600 SS / 819200 DS) it extracts each
-side's files via `ms0515-disk get`, hashes them (sha-256), and consolidates:
-one record per unique content, with provenance (which image+side it came
-from), a type-based category, and flags for images we cannot read yet
-(DS-spanning, odd sizes — convert them first with the convert tools).
+Ingests all three capture kinds: raw images directly, and TeleDisk / SAMdisk
+Extended-CPC captures by converting them to raw first (via convert_teledisk /
+convert_samdisk, in a temp dir).  Each side's files are extracted via
+`ms0515-disk get`, hashed (sha-256), and consolidated: one record per unique
+content, with provenance (which capture + side) and a type-based category.
+DS-spanning and other non-readable images are flagged.
 
-Output: work/corpus/corpus.json + a printed summary.  The category is a
-type-based hint only; the real system/generation grouping is derived later
-from co-occurrence (provenance), since even standard .SAV utilities are
-version-bound to a monitor generation (see disk_recovery/METHODOLOGY.md).
+Output: work/corpus/corpus.json + a printed summary.  The category is a type
+hint only; the real system/generation grouping is derived later from
+co-occurrence (provenance), since even standard .SAV utilities are version-
+bound to a monitor generation (see ../METHODOLOGY.md).
 
 Usage: python build_corpus.py
 """
 
-import subprocess, hashlib, json, tempfile, sys
+import subprocess, hashlib, json, tempfile, shutil, sys
 from pathlib import Path
 from collections import defaultdict
 
-ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
 WORK = ROOT / "disk_recovery" / "work"
 _tool = ROOT / "src/build/Release/tools/disk/ms0515-disk.exe"
 TOOL = _tool if _tool.exists() else _tool.with_suffix("")
 OUT  = WORK / "corpus"
+PY   = sys.executable
 
 SS, DS = 409600, 819200
 
@@ -40,8 +43,31 @@ def categorize(name):
     ext = name.rsplit(".", 1)[1].upper() if "." in name else ""
     return CATEGORY.get(ext, "other")
 
+def is_extended_cpc(p):
+    try:
+        with open(p, "rb") as f:
+            return f.read(21).startswith(b"EXTENDED CPC DSK")
+    except OSError:
+        return False
+
+def raw_images_for(src, tmp):
+    """Return [(raw_image_path, [sides])] for a capture, converting TeleDisk /
+    Extended-CPC to raw in `tmp` first.  Empty list if not convertible."""
+    ext = src.suffix.lower()
+    if ext in (".dsk", ".raw") and src.stat().st_size in (SS, DS) and not is_extended_cpc(src):
+        return [(src, [0] if src.stat().st_size == SS else [0, 1])]
+    if ext == ".td0":
+        work = tmp / src.name; shutil.copy2(src, work)
+        subprocess.run([PY, str(HERE/"convert_teledisk.py"), str(work)], capture_output=True)
+        out = work.with_name(work.stem + "_td0.dsk")
+        return [(out, [0, 1] if out.stat().st_size == DS else [0])] if out.exists() else []
+    if ext == ".dsk" and is_extended_cpc(src):
+        work = tmp / src.name; shutil.copy2(src, work)
+        subprocess.run([PY, str(HERE/"convert_samdisk.py"), str(work)], capture_output=True)
+        return [(p, [0]) for p in sorted(work.parent.glob(work.stem + "_s*.img"))]
+    return []
+
 def get_side(img, side):
-    """Extract one side's files; return {name: bytes} or None if unreadable."""
     with tempfile.TemporaryDirectory() as td:
         r = subprocess.run([str(TOOL), "get", str(img), "--side", str(side),
                             "--out", td], capture_output=True, text=True)
@@ -51,33 +77,38 @@ def get_side(img, side):
 def main():
     if not TOOL.exists():
         sys.exit(f"ms0515-disk not built at {TOOL} — build src/ first")
-    images = sorted(p for p in WORK.rglob("*")
-                    if p.is_file() and p.suffix.lower() in (".dsk", ".raw")
-                    and p.stat().st_size in (SS, DS) and "corpus" not in p.parts)
+    sources = sorted(p for p in WORK.rglob("*")
+                     if p.is_file() and p.suffix.lower() in (".dsk", ".raw", ".td0")
+                     and "corpus" not in p.parts)
 
     corpus, flagged = {}, []
-    for img in images:
-        rel = str(img.relative_to(WORK)).replace("\\", "/")
-        sides = [0] if img.stat().st_size == SS else [0, 1]
-        any_ok = False
-        for s in sides:
-            files = get_side(img, s)
-            if not files:
+    with tempfile.TemporaryDirectory() as tmpd:
+        tmp = Path(tmpd)
+        for src in sources:
+            rel = str(src.relative_to(WORK)).replace("\\", "/")
+            imgs = raw_images_for(src, tmp)
+            if not imgs:
                 continue
-            any_ok = True
-            for name, data in files.items():
-                h = hashlib.sha256(data).hexdigest()
-                rec = corpus.setdefault(h, {
-                    "sha": h, "names": [], "size": len(data),
-                    "blocks": len(data) // 512, "category": categorize(name),
-                    "provenance": []})
-                if name not in rec["names"]:
-                    rec["names"].append(name)
-                rec["provenance"].append({"image": rel, "side": s, "name": name})
-        if not any_ok:
-            flagged.append({"image": rel,
-                            "reason": "no readable directory — DS-spanning or "
-                                      "non-emulator format; convert first"})
+            any_ok = False
+            for img, sides in imgs:
+                for s in sides:
+                    files = get_side(img, s)
+                    if not files:
+                        continue
+                    any_ok = True
+                    for name, data in files.items():
+                        h = hashlib.sha256(data).hexdigest()
+                        rec = corpus.setdefault(h, {
+                            "sha": h, "names": [], "size": len(data),
+                            "blocks": len(data)//512, "category": categorize(name),
+                            "provenance": []})
+                        if name not in rec["names"]:
+                            rec["names"].append(name)
+                        rec["provenance"].append({"capture": rel, "side": s, "name": name})
+            if not any_ok:
+                flagged.append({"capture": rel,
+                                "reason": "no readable directory — DS-spanning or "
+                                          "unsupported; needs a spanning reader"})
 
     OUT.mkdir(exist_ok=True)
     records = sorted(corpus.values(), key=lambda r: (r["category"], r["names"][0]))
@@ -88,14 +119,14 @@ def main():
     by_cat = defaultdict(int)
     for r in records:
         by_cat[r["category"]] += 1
-    shared = sum(1 for r in records if len({p["image"] for p in r["provenance"]}) > 1)
-    print(f"images scanned: {len(images)}   unique files: {len(records)}")
+    shared = sum(1 for r in records if len({p["capture"] for p in r["provenance"]}) > 1)
+    print(f"captures: {len(sources)}   unique files: {len(records)}")
     print("by category:", dict(sorted(by_cat.items())))
-    print(f"shared across >1 image: {shared}")
+    print(f"shared across >1 capture: {shared}")
     if flagged:
-        print("flagged (need conversion):")
+        print("flagged (need a spanning reader):")
         for f in flagged:
-            print(f"  {f['image']}")
+            print(f"  {f['capture']}")
     print(f"wrote {OUT/'corpus.json'}")
 
 if __name__ == "__main__":
