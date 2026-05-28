@@ -17,9 +17,9 @@ Paths are derived from the script location — no absolute paths.
 | `convert_samdisk.py <file.dsk>...` | Convert a SAMdisk **Extended-CPC DSK** container to per-side raw `_s0/_s1.img` + a per-side `.badmap` (read status from the FDC ST1/ST2 bytes). |
 | `convert_teledisk.py <file.TD0>...` | Decode a Sydex **TeleDisk** image to a raw physical-sector image + a `.badmap` (read status from the TD0 sector flags). |
 | `read_spanning.py <image>` | Read a **DS-spanning** RT-11 volume (one ~1600-block filesystem across both sides), which `ms0515-disk` cannot.  Tries candidate LBN→byte mappings and keeps the one that structurally validates (confirmed against the corpus). |
-| `build_corpus.py` | Extract every readable disk in `work/` (raw directly; TeleDisk / Extended-CPC via the converters; DS-spanning via `read_spanning`), hash (sha-256), and write `work/corpus/corpus.json` + a sha content store: one record per unique file with provenance (capture + side) and a type-based category. |
+| `build_corpus.py` | Extract every readable disk in `work/` (raw directly; TeleDisk / Extended-CPC via the converters; DS-spanning via `read_spanning`), hash (sha-256), and write `work/corpus/corpus.json` + a sha content store: one record per unique file with provenance (capture + side) and a type-based category.  For converted captures it also links each file's blocks through the capture `.badmap` (LBN→physical via the FDC/osa-skew map) and records, per occurrence, which file blocks sat on a flagged sector. |
 | `analyze_corpus.py` | Second pass over the corpus: group captures into **monitor-generation** families (by the `.SYS` monitor build), list version-split files, and analyse content (readable-byte fraction; printable strings for executables).  Writes `work/corpus/analysis.json`. |
-| `consensus.py` | Regroup the corpus by **logical** identity (name + block length, not sha), split decay from a genuinely different version (bit-rot metric), reconcile decayed copies by per-byte majority, and assign a confidence tier.  Writes `work/corpus/consensus.json`. |
+| `consensus.py` | Regroup the corpus by **logical** identity (name + block length, not sha) and reconcile variants using the linked bad-maps: a byte-difference inside a sector flagged on one variant counts as decay (not a different version), so a heavily-damaged copy collapses onto its clean siblings; blocks flagged on *every* variant are LOST (the donor worklist).  Block-by-block capture-weighted majority among clean copies gives the reconciled file; tiers = verified / recovered / partial / multi-version / single.  Writes `work/corpus/consensus.json` + a reconciled content store. |
 
 ## Typical flow
 
@@ -54,11 +54,13 @@ Extended-CPC capture or from majority vote across per-sector re-reads (`.dat`).
   the structurally-valid one.  A lone per-side half of a spanning disk
   (`*_Head0/_Head1`, an Extended-CPC of a spanning disk) is not a complete
   volume and is still flagged — its files come from the full 819200 capture.
-- The heuristic recovery: the consensus core (logical grouping, bit-rot
-  decay-vs-version split, per-byte majority) is in `consensus.py`.  Still to do:
-  (a) link the `.badmap`s to file blocks so a difference at a *flagged* byte
-  counts as decay, not a different version — this rescues heavily-damaged
-  copies now mis-bucketed as "multi-version"; (b) donor recovery for blocks
-  lost across all variants, including matching orphaned data in **free space**
-  (e.g. a file's blocks left behind after an `INIT`) by surrounding-block
-  context (anchor-pair search, METHODOLOGY Step 6).
+- The heuristic recovery: the consensus core (logical grouping, decay-vs-
+  version split, per-byte majority) is in `consensus.py`.  The `.badmap`s are
+  now linked to file blocks (`build_corpus`) and used by consensus, so a
+  difference at a *flagged* byte counts as decay, not a different version —
+  this rescued the heavily-damaged copies that were mis-bucketed as
+  "multi-version".  Still to do: donor recovery for blocks lost across all
+  variants (consensus emits this worklist as the `partial` tier +
+  `lost_blocks`), including matching orphaned data in **free space** (e.g. a
+  file's blocks left behind after an `INIT`) by surrounding-block context
+  (anchor-pair search, METHODOLOGY Step 6).

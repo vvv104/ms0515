@@ -18,7 +18,7 @@ bound to a monitor generation (see ../METHODOLOGY.md).
 Usage: python build_corpus.py
 """
 
-import subprocess, hashlib, json, tempfile, shutil, sys
+import subprocess, hashlib, json, tempfile, shutil, sys, re
 from pathlib import Path
 from collections import defaultdict
 
@@ -46,6 +46,42 @@ def categorize(name):
     ext = name.rsplit(".", 1)[1].upper() if "." in name else ""
     return CATEGORY.get(ext, "other")
 
+IL = [0, 2, 4, 6, 8, 1, 3, 5, 7, 9]
+
+def lbn_phys(lbn, side, ds):
+    """Physical block index of an LBN under the FDC + osa-skew driver.
+
+    Equals lbnToByte(lbn, side, ds) // 512 — which is exactly how both
+    converters index their bad-maps (one byte per physical sector: TeleDisk
+    track_index*10+sec, Extended-CPC per-side track*10+sec).  So this is the
+    bridge from a file's directory LBN to the bad-map slot for that block."""
+    n = lbn % 800
+    track = (n // 10 + 1) % 80
+    sec = (IL[n % 10] + 2 * track - 2) % 10
+    return track * 20 + side * 10 + sec if ds else track * 10 + sec
+
+DIR_RE = re.compile(r"^\s+(\S+)\s+blk=\s*(\d+)\s+len=\s*(\d+)")
+
+def dir_entries(img, side):
+    """name -> (start_block, length) parsed from `ms0515-disk dir`."""
+    r = subprocess.run([str(TOOL), "dir", str(img), "--side", str(side)],
+                       capture_output=True, text=True)
+    ents = {}
+    for line in r.stdout.splitlines():
+        m = DIR_RE.match(line)
+        if m:
+            ents[m.group(1)] = (int(m.group(2)), int(m.group(3)))
+    return ents
+
+def flagged_blocks(start, length, side, ds, badmap):
+    """Indices (0-based, within the file) of blocks on a flagged sector."""
+    out = []
+    for i in range(length):
+        idx = lbn_phys(start + i, side, ds)
+        if idx < len(badmap) and badmap[idx]:
+            out.append(i)
+    return out
+
 def is_extended_cpc(p):
     try:
         with open(p, "rb") as f:
@@ -54,20 +90,28 @@ def is_extended_cpc(p):
         return False
 
 def raw_images_for(src, tmp):
-    """Return [(raw_image_path, [sides])] for a capture, converting TeleDisk /
-    Extended-CPC to raw in `tmp` first.  Empty list if not convertible."""
+    """Return [(raw_image_path, [sides], badmap_path_or_None)] for a capture,
+    converting TeleDisk / Extended-CPC to raw in `tmp` first.  Raw dumps carry
+    no read-status (badmap=None); the converters emit a per-physical-sector
+    .badmap alongside their output.  Empty list if not convertible."""
     ext = src.suffix.lower()
     if ext in (".dsk", ".raw") and src.stat().st_size in (SS, DS) and not is_extended_cpc(src):
-        return [(src, [0] if src.stat().st_size == SS else [0, 1])]
+        return [(src, [0] if src.stat().st_size == SS else [0, 1], None)]
     if ext == ".td0":
         work = tmp / src.name; shutil.copy2(src, work)
         subprocess.run([PY, str(HERE/"convert_teledisk.py"), str(work)], capture_output=True)
         out = work.with_name(work.stem + "_td0.dsk")
-        return [(out, [0, 1] if out.stat().st_size == DS else [0])] if out.exists() else []
+        bm = work.with_name(work.stem + "_td0.badmap")
+        return [(out, [0, 1] if out.stat().st_size == DS else [0],
+                 bm if bm.exists() else None)] if out.exists() else []
     if ext == ".dsk" and is_extended_cpc(src):
         work = tmp / src.name; shutil.copy2(src, work)
         subprocess.run([PY, str(HERE/"convert_samdisk.py"), str(work)], capture_output=True)
-        return [(p, [0]) for p in sorted(work.parent.glob(work.stem + "_s*.img"))]
+        out = []
+        for p in sorted(work.parent.glob(work.stem + "_s*.img")):
+            bm = p.with_suffix(".badmap")
+            out.append((p, [0], bm if bm.exists() else None))
+        return out
     return []
 
 def get_side(img, side):
@@ -88,7 +132,7 @@ def main():
     store = OUT / "files"; store.mkdir(exist_ok=True)   # content store: sha -> bytes
     corpus, flagged = {}, []
 
-    def ingest(name, data, rel, side):
+    def ingest(name, data, rel, side, bad=None):
         h = hashlib.sha256(data).hexdigest()
         if h not in corpus:
             corpus[h] = {"sha": h, "names": [], "size": len(data),
@@ -98,7 +142,10 @@ def main():
         rec = corpus[h]
         if name not in rec["names"]:
             rec["names"].append(name)
-        rec["provenance"].append({"capture": rel, "side": side, "name": name})
+        prov = {"capture": rel, "side": side, "name": name}
+        if bad:                       # block indices on a flagged sector (decay)
+            prov["bad"] = bad
+        rec["provenance"].append(prov)
     with tempfile.TemporaryDirectory() as tmpd:
         tmp = Path(tmpd)
         for src in sources:
@@ -107,18 +154,25 @@ def main():
             if not imgs:
                 continue
             any_ok = False
-            for img, sides in imgs:
+            for img, sides, bmpath in imgs:
+                badmap = bmpath.read_bytes() if bmpath else None
+                ds_img = img.stat().st_size == DS
                 for s in sides:
                     files = get_side(img, s)
                     if not files:
                         continue
                     any_ok = True
+                    dents = dir_entries(img, s) if badmap else {}
                     for name, data in files.items():
-                        ingest(name, data, rel, s)
+                        bad = None
+                        if badmap and name in dents:
+                            start, length = dents[name]
+                            bad = flagged_blocks(start, length, s, ds_img, badmap)
+                        ingest(name, data, rel, s, bad)
             if not any_ok:
                 # Fall back to the DS-spanning reader (one ~1600-block volume
                 # across both sides) for 819200 images ms0515-disk can't read.
-                for img, _ in imgs:
+                for img, _, _ in imgs:
                     if img.stat().st_size != DS:
                         continue
                     res = read_spanning(img.read_bytes())
