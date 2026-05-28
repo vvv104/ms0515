@@ -1,13 +1,17 @@
 /*
  * Build.cpp — RT-11 volume writer.  Inverse of Directory/Extract.
+ * Addresses through the FDC geometry (Layout.hpp) so output matches the
+ * emulator byte-for-byte.
  */
 
 #include "ms0515/disk/Build.hpp"
 #include "ms0515/disk/Directory.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace ms0515::disk {
 
@@ -53,26 +57,13 @@ void putw(uint8_t *p, uint16_t v)
     p[1] = static_cast<uint8_t>(v >> 8);
 }
 
-}  /* namespace */
-
-std::vector<uint8_t> buildVolume(Layout layout, const std::vector<BuildFile> &files)
+/* Write one RT-11 volume (home block + 1 dir segment + file data) into
+ * `image` for the given side, addressing through the FDC geometry. */
+void writeVolume(std::vector<uint8_t> &image, int side, bool ds,
+                 const std::vector<BuildFile> &files)
 {
-    const int totalBlocks = volumeBlocks(layout);
-    const std::size_t imageSize =
-        isDoubleSided(layout) ? static_cast<std::size_t>(kDoubleSize)
-                              : static_cast<std::size_t>(kSideSize);
-
-    /* Start from a real blank: MS-0515 floppies power up / format with
-     * the uninitialised pattern 0xB6 0x6D repeated.  Build writes the
-     * home block, directory and file data on top; sectors left unused
-     * keep this pattern, matching a genuine disk byte-for-byte (an
-     * all-zero fill would not). */
-    std::vector<uint8_t> image(imageSize);
-    for (std::size_t i = 0; i < imageSize; ++i)
-        image[i] = (i & 1) ? 0x6D : 0xB6;
-
     auto writeBlock = [&](int lbn, const uint8_t *src, std::size_t n) {
-        const std::size_t off = lbnToByte(layout, lbn);
+        const std::size_t off = lbnToByte(lbn, side, ds);
         if (off + kBlock > image.size()) return;
         std::memcpy(image.data() + off, src, n > kBlock ? kBlock : n);
     };
@@ -80,7 +71,6 @@ std::vector<uint8_t> buildVolume(Layout layout, const std::vector<BuildFile> &fi
     constexpr int kDirLbn    = 6;
     constexpr int kDataStart = 8;   /* one directory segment at LBN 6-7 */
 
-    /* ── Home block (LBN 1): just enough for an OS to mount ── */
     {
         std::vector<uint8_t> home(kBlock, 0);
         putw(&home[0x1D2], 1);          /* cluster size */
@@ -88,7 +78,6 @@ std::vector<uint8_t> buildVolume(Layout layout, const std::vector<BuildFile> &fi
         writeBlock(1, home.data(), home.size());
     }
 
-    /* ── File data + directory entries ── */
     std::vector<uint8_t> seg(1024, 0);
     putw(&seg[0], 1);                   /* segments total */
     putw(&seg[2], 0);                   /* next segment (none) */
@@ -100,7 +89,7 @@ std::vector<uint8_t> buildVolume(Layout layout, const std::vector<BuildFile> &fi
     int cur = kDataStart;
     for (const auto &f : files) {
         const int nblk = static_cast<int>((f.data.size() + kBlock - 1) / kBlock);
-        if (cur + nblk > totalBlocks)
+        if (cur + nblk > kSsBlocks)
             throw std::runtime_error("files do not fit in the volume");
 
         for (int i = 0; i < nblk; ++i) {
@@ -126,9 +115,7 @@ std::vector<uint8_t> buildVolume(Layout layout, const std::vector<BuildFile> &fi
         cur += nblk;
     }
 
-    /* Trailing free-space marker: one EMPTY entry covering the rest,
-     * flagged end-of-segment. */
-    const int free = totalBlocks - cur;
+    const int free = kSsBlocks - cur;
     putw(&seg[p + 0], static_cast<uint16_t>(kStatusEmpty | kStatusEndOfSeg));
     putw(&seg[p + 2], 0);
     putw(&seg[p + 4], 0);
@@ -137,20 +124,35 @@ std::vector<uint8_t> buildVolume(Layout layout, const std::vector<BuildFile> &fi
 
     writeBlock(kDirLbn,     seg.data(),         kBlock);
     writeBlock(kDirLbn + 1, seg.data() + kBlock, kBlock);
+}
 
+/* A real blank: MS-0515 floppies power up / format with the pattern
+ * 0xB6 0x6D repeated.  Build writes structures on top; unused sectors keep
+ * the pattern, matching a genuine disk (an all-zero fill would not). */
+std::vector<uint8_t> blankImage(std::size_t size)
+{
+    std::vector<uint8_t> img(size);
+    for (std::size_t i = 0; i < size; ++i)
+        img[i] = (i & 1) ? 0x6D : 0xB6;
+    return img;
+}
+
+}  /* namespace */
+
+std::vector<uint8_t> buildVolume(const std::vector<BuildFile> &files)
+{
+    auto image = blankImage(kSideSize);
+    writeVolume(image, /*side=*/0, /*ds=*/false, files);
     return image;
 }
 
-std::vector<uint8_t> buildDoubleSided(Layout layout,
-                                      const std::vector<BuildFile> &side0,
+std::vector<uint8_t> buildDoubleSided(const std::vector<BuildFile> &side0,
                                       const std::vector<BuildFile> &side1)
 {
-    if (isDoubleSided(layout))
-        throw std::runtime_error("buildDoubleSided needs a single-sided layout");
-    std::vector<uint8_t> img = buildVolume(layout, side0);   /* 409600 */
-    std::vector<uint8_t> s1  = buildVolume(layout, side1);   /* 409600 */
-    img.insert(img.end(), s1.begin(), s1.end());             /* -> 819200 */
-    return img;
+    auto image = blankImage(kDoubleSize);
+    writeVolume(image, /*side=*/0, /*ds=*/true, side0);
+    writeVolume(image, /*side=*/1, /*ds=*/true, side1);
+    return image;
 }
 
 } /* namespace ms0515::disk */

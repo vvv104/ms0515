@@ -1,10 +1,10 @@
 /*
  * Build.hpp — assemble an RT-11 volume image from a set of files.
  *
- * Writes a minimal but valid RT-11 data volume (home block + one
- * directory segment + contiguous file data) through a chosen physical
- * Layout, so the resulting image is mountable by an OS that uses that
- * layout.  The inverse of Image/Extract.
+ * Writes a minimal but valid RT-11 data volume (home block + one directory
+ * segment + contiguous file data) addressed through the FDC geometry, so the
+ * result is byte-compatible with what the emulator reads.  The inverse of
+ * Image/Extract.
  */
 
 #ifndef MS0515_DISK_BUILD_HPP
@@ -23,18 +23,16 @@ struct BuildFile {
     std::vector<uint8_t> data;   /* raw bytes; padded to a block boundary */
 };
 
-/* Assemble `files` into a single-sided 409600-byte volume written
- * through `layout` (must be an SS layout).  Throws std::runtime_error
- * if the files do not fit or a name is not RAD50-encodable. */
+/* Assemble `files` into a single-sided 409600-byte volume.  Throws
+ * std::runtime_error if the files do not fit or a name is not RAD50. */
 [[nodiscard]] std::vector<uint8_t>
-buildVolume(Layout layout, const std::vector<BuildFile> &files);
+buildVolume(const std::vector<BuildFile> &files);
 
-/* Assemble an MS-0515 double-sided 819200-byte dump: two independent SS
- * volumes (side 0 then side 1) back to back, each built via `layout`.
+/* Assemble an 819200-byte double-sided dump: two independent volumes
+ * (side 0 then side 1), track-interleaved on disk per the FDC geometry.
  * Either side may be empty (e.g. a bare copy-protection side). */
 [[nodiscard]] std::vector<uint8_t>
-buildDoubleSided(Layout layout,
-                 const std::vector<BuildFile> &side0,
+buildDoubleSided(const std::vector<BuildFile> &side0,
                  const std::vector<BuildFile> &side1);
 
 } /* namespace ms0515::disk */

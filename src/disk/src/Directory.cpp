@@ -88,7 +88,7 @@ std::optional<Directory> parseSegment(std::span<const uint8_t> seg)
     if (segTotal == 0 || segTotal > 31)        return std::nullopt;
     if (segHigh == 0 || segHigh > segTotal)    return std::nullopt;
     if ((extra & 1) || extra > 64)             return std::nullopt;
-    if (dataBlk < 1 || dataBlk > kDsBlocks)    return std::nullopt;
+    if (dataBlk < 1 || dataBlk > kSsBlocks)    return std::nullopt;
 
     Directory dir;
     dir.segsTotal  = segTotal;
@@ -126,11 +126,11 @@ std::optional<Directory> parseSegment(std::span<const uint8_t> seg)
 }
 
 std::optional<Directory>
-parseDirectory(std::span<const uint8_t> data, Layout layout)
+parseDirectory(std::span<const uint8_t> data, int side, bool ds)
 {
     auto readSegmentBytes = [&](int lbn, std::array<uint8_t, 1024> &buf) {
         for (int half = 0; half < 2; ++half) {
-            const std::size_t off = lbnToByte(layout, lbn + half);
+            const std::size_t off = lbnToByte(lbn + half, side, ds);
             if (off + kBlock <= data.size())
                 std::memcpy(buf.data() + half * kBlock, data.data() + off, kBlock);
             else

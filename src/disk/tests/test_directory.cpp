@@ -101,17 +101,18 @@ TEST_CASE("parseSegment rejects a non-directory block") {
     CHECK_FALSE(parseSegment(zeros).has_value());
 }
 
-TEST_CASE("parseDirectory finds a segment through a layout") {
-    /* Place a valid segment at the bytes ss-lbn-linear maps LBN 6 to,
-     * i.e. byte 6*512=3072, and LBN 7 right after. */
+TEST_CASE("parseDirectory finds a segment through the FDC geometry") {
+    /* Place the segment's two blocks where the single-sided geometry maps
+     * LBN 6 and 7 — non-contiguous, because of the interleave. */
     std::vector<uint8_t> img(kSideSize, 0);
     auto seg = makeSegment(8, {
         {kStatusPermanent, "ONE", "   ", "TXT", 2},
         {static_cast<uint16_t>(kStatusEmpty | kStatusEndOfSeg),
          "   ", "   ", "   ", 50},
     });
-    std::copy(seg.begin(), seg.end(), img.begin() + 6 * 512);
-    auto d = parseDirectory(img, Layout::SsLbnLinear);
+    std::copy(seg.begin(), seg.begin() + 512, img.begin() + lbnToByte(6, 0, false));
+    std::copy(seg.begin() + 512, seg.end(),   img.begin() + lbnToByte(7, 0, false));
+    auto d = parseDirectory(img, /*side=*/0, /*ds=*/false);
     REQUIRE(d.has_value());
     CHECK(d->dirStartLbn == 6);
     REQUIRE(d->permanentFiles().size() == 1);

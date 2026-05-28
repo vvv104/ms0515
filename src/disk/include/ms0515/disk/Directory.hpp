@@ -5,8 +5,8 @@
  * (2 blocks / 1024 bytes each).  Each segment has a 5-word header and a
  * run of fixed-size entries terminated by an end-of-segment marker.
  * Filenames are RAD50.  See docs/hardware/filesystem.md for the wire
- * format; this reads it through a ms0515::disk::Layout so it works on
- * any of the observed physical mappings (including DS-spanning).
+ * format; this reads it through the FDC geometry (side + single/double-sided)
+ * so it matches exactly what the emulator reads.
  */
 
 #ifndef MS0515_DISK_DIRECTORY_HPP
@@ -61,11 +61,12 @@ struct Directory {
 [[nodiscard]] std::optional<Directory>
 parseSegment(std::span<const uint8_t> segment);
 
-/* Locate and parse the directory in `data` read through `layout`,
- * following the segment chain.  Searches the usual candidate start LBNs
- * (6, 13, 8, 10, 12).  Returns nullopt if none parse. */
+/* Locate and parse the directory in `data` read through the FDC geometry
+ * for `side` (0/1) of a single- or double-sided image (`ds`), following the
+ * segment chain.  Searches the usual candidate start LBNs (6, 13, 8, 10, 12).
+ * Returns nullopt if none parse. */
 [[nodiscard]] std::optional<Directory>
-parseDirectory(std::span<const uint8_t> data, Layout layout);
+parseDirectory(std::span<const uint8_t> data, int side, bool ds);
 
 /* Decode a 3-word RAD50 filename triple to "NAME.EXT". */
 [[nodiscard]] std::string decodeRad50Name(uint16_t n1, uint16_t n2, uint16_t ext);

@@ -1,66 +1,48 @@
 /*
- * Layout.hpp — MS-0515 floppy LBN→byte mappings.
+ * Layout.hpp — MS-0515 floppy LBN→byte geometry.
  *
- * A logical block number (LBN) lands at different byte offsets inside a
- * raw image depending on which OS driver wrote the disk.  These are the
- * physical layouts observed across surviving MS-0515 disks; the formulas
- * are specified in docs/hardware/filesystem.md and validated against the
- * vvv104 disk family.
+ * Single source of truth: the emulator FDC (src/core/src/floppy.c).  The FDC
+ * itself does no interleave/skew — it is pure
+ *     byte = side*kTrackSize + track*track_stride + (sector-1)*kBlock,
+ * with track_stride = kTrackSize for a 400 KB single-sided image and
+ * 2*kTrackSize for an 800 KB double-sided image (track-interleaved: each
+ * cylinder stores side 0 then side 1 back to back).  The interleave + skew
+ * live in the OS driver, which is the same for every disk:
+ *     track  = (LBN/10 + 1) % 80        (cyl-0-last)
+ *     sector = (IL[LBN%10] + 2*track-2) % 10   (2:1 interleave + per-track skew)
  *
- * Pure functions, no I/O — the building block the directory parser and
- * file extractor read through.
+ * So a disk is fully described by its size (single- vs double-sided) and,
+ * for a double-sided image, which side — there is no per-OS "layout" choice.
  */
 
 #ifndef MS0515_DISK_LAYOUT_HPP
 #define MS0515_DISK_LAYOUT_HPP
 
 #include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <string_view>
 
 namespace ms0515::disk {
 
-/* Geometry of an MS-0515 5.25" floppy. */
-inline constexpr int kBlock          = 512;
-inline constexpr int kSectorsPerTrack = 10;
-inline constexpr int kTracks         = 80;
-inline constexpr int kTrackSize      = kSectorsPerTrack * kBlock;  /* 5120   */
-inline constexpr int kSideSize       = kTracks * kTrackSize;       /* 409600 */
-inline constexpr int kDoubleSize     = 2 * kSideSize;              /* 819200 */
-inline constexpr int kSsBlocks       = kTracks * kSectorsPerTrack; /* 800    */
-inline constexpr int kDsBlocks       = 2 * kSsBlocks;              /* 1600   */
+/* Geometry of an MS-0515 5.25" floppy (mirrors core/floppy.h). */
+inline constexpr int         kBlock           = 512;
+inline constexpr int         kSectorsPerTrack = 10;
+inline constexpr int         kTracks          = 80;
+inline constexpr int         kTrackSize       = kSectorsPerTrack * kBlock;  /* 5120   */
+inline constexpr std::size_t kSideSize        = static_cast<std::size_t>(kTracks) * kTrackSize; /* 409600 */
+inline constexpr std::size_t kDoubleSize      = 2 * kSideSize;             /* 819200 */
+inline constexpr int         kSsBlocks        = kTracks * kSectorsPerTrack;/* 800    */
 
-enum class Layout {
-    SsCanonical,      /* 2:1 interleave, cyl-0-last — metadata of every OS,
-                         and rodionov file data */
-    SsOsaSkew,        /* canonical + +2-sectors-per-track skew — OSA/Omega/
-                         Mihin file data */
-    SsCyl0LastNoIl,   /* cyl-0-last, no interleave */
-    SsCyl0FirstNoIl,  /* cyl-0-first, no interleave */
-    SsLbnLinear,      /* block N at byte N*512 */
-    DsCyl0LastNoIl,   /* double-sided spanning FS (~1600-block volume):
-                         per-track side interleave, cyl-0-last, no interleave */
-};
+/* Map a logical block number to its byte offset within a raw image, exactly
+ * as the emulator (FDC + OS driver) would address it.  `side` selects a side
+ * of a double-sided (800 KB) image (0 = lower/boot, 1 = upper); it is ignored
+ * when `ds` is false.  `lbn` is taken modulo the 800-block side, so callers
+ * may pass raw block numbers without bounds-checking the wrap. */
+[[nodiscard]] std::size_t lbnToByte(int lbn, int side, bool ds) noexcept;
 
-/* Map a logical block number to its byte offset within the image.
- * `lbn` is taken modulo the volume's block count, so callers may pass
- * raw block numbers without bounds-checking the wrap. */
-[[nodiscard]] std::size_t lbnToByte(Layout layout, int lbn) noexcept;
-
-/* True for layouts that address the double-sided spanning volume
- * (1600 blocks across both physical sides). */
-[[nodiscard]] bool isDoubleSided(Layout layout) noexcept;
-
-/* Number of logical blocks the layout's volume holds (800 or 1600). */
-[[nodiscard]] int volumeBlocks(Layout layout) noexcept;
-
-/* Lower-case tag matching the names used in filesystem.md / the Python
- * reference (e.g. "ss-canonical", "ds-cyl0last-noil"). */
-[[nodiscard]] std::string_view layoutTag(Layout layout) noexcept;
-
-/* Inverse of layoutTag; nullopt for an unknown tag. */
-[[nodiscard]] std::optional<Layout> layoutFromTag(std::string_view tag) noexcept;
+/* True when a file of this byte size is a double-sided (800 KB) dump. */
+[[nodiscard]] inline bool isDoubleSidedSize(std::size_t fileSize) noexcept
+{
+    return fileSize == kDoubleSize;
+}
 
 } /* namespace ms0515::disk */
 

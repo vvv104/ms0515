@@ -1,12 +1,12 @@
 /*
- * Image.hpp — load an MS-0515 capture and auto-detect its physical layout.
+ * Image.hpp — load an MS-0515 capture and read its files.
  *
- * Wraps a raw disk image (the byte-for-byte sector dump) together with
- * the Layout its directory parses under.  Detection is structural: try
- * the candidate layouts appropriate to the image size and keep the one
- * whose RT-11 directory validates with the most permanent files.  This
- * is what lets the same code read SS canonical disks and the DS-spanning
- * vvv104 family without a hand-given layout.
+ * Wraps a raw disk image (the byte-for-byte sector dump).  There is no
+ * layout to detect: the geometry follows from the file size — 409600 bytes
+ * is single-sided, 819200 bytes is double-sided (two independent sides,
+ * track-interleaved on disk).  All addressing goes through lbnToByte, which
+ * replicates the emulator FDC + OS driver (see Layout.hpp), so reads match
+ * the emulator byte-for-byte.
  */
 
 #ifndef MS0515_DISK_IMAGE_HPP
@@ -24,40 +24,32 @@
 
 namespace ms0515::disk {
 
-/* One single-sided RT-11 volume.  An MS-0515 double-sided dump (819200
- * bytes) is two independent SS volumes — side 0 and side 1 — each its
- * own device (the sides are NOT one spanning filesystem; some disks put
- * a copy-protection magic on side 1 with no directory at all).  An
- * Image always holds exactly one side's 409600 bytes; pick the side at
- * load time. */
+/* One RT-11 volume = one side of an image.  The struct keeps the WHOLE raw
+ * image (a double-sided dump is track-interleaved, so a side is not a
+ * contiguous slice) and addresses into it via `side` + `ds`. */
 struct Image {
-    std::vector<uint8_t> data;        /* this side's bytes (<=409600) */
-    int                  side = 0;    /* 0 or 1 (1 only for DS dumps) */
-    Layout               layout = Layout::SsCanonical;  /* detected */
+    std::vector<uint8_t> data;          /* full raw image (409600 or 819200) */
+    int                  side = 0;      /* 0 lower/boot, 1 upper (DS only)    */
+    bool                 ds   = false;  /* true for an 819200 double-sided    */
     bool                 hasDirectory = false;
     Directory            directory;
 
-    /* Read a file's raw bytes (length rounded up to whole blocks) through
-     * the detected layout.  Empty vector if the file is not present. */
+    /* Read a file's raw bytes (length rounded up to whole blocks).  Empty
+     * vector if the file is not present. */
     [[nodiscard]] std::vector<uint8_t> readFile(std::string_view name) const;
 
-    /* Read one logical block via the detected layout. */
+    /* Read one logical block. */
     [[nodiscard]] std::span<const uint8_t> block(int lbn) const;
 };
 
-/* Pick the layout whose directory parses with the most permanent files.
- * Only single-sided mappings are tried — MS-0515 sides are separate
- * volumes, never a spanning filesystem.  nullopt if none validate. */
-[[nodiscard]] std::optional<Layout> detectLayout(std::span<const uint8_t> data);
-
-/* Detect + parse a single side already isolated in `bytes`. */
+/* Wrap a full raw image and parse the directory of `side`.  `bytes` is the
+ * whole file; double-sided is inferred from its size.  hasDirectory==false
+ * means the side holds no RT-11 directory (e.g. a copy-protection side). */
 [[nodiscard]] std::optional<Image> openImage(std::vector<uint8_t> bytes,
                                              int side = 0);
 
-/* Load `path`, select `side` (0/1; 1 valid only for an 819200 dump),
- * detect layout, parse directory.  nullopt on read error or bad side.
- * hasDirectory==false means the side was read but holds no RT-11
- * directory (e.g. a copy-protection side). */
+/* Load `path` (whole file), select `side` (1 valid only for an 819200 dump),
+ * parse its directory.  nullopt on read error or invalid side. */
 [[nodiscard]] std::optional<Image> loadImage(const std::string &path,
                                              int side = 0);
 
