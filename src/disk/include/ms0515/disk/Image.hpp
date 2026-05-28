@@ -20,6 +20,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace ms0515::disk {
@@ -52,6 +53,19 @@ struct Image {
  * parse its directory.  nullopt on read error or invalid side. */
 [[nodiscard]] std::optional<Image> loadImage(const std::string &path,
                                              int side = 0);
+
+/* Split an 819200-byte track-interleaved double-sided image into its two
+ * 409600-byte single-sided images (lower side 0 first, upper side 1).  Pure
+ * byte de-interleave per the FDC geometry — no RT-11 parsing.  nullopt if the
+ * input is not 819200 bytes. */
+[[nodiscard]] std::optional<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>
+splitDoubleSided(std::span<const uint8_t> ds);
+
+/* Merge two 409600-byte single-sided images into one 819200-byte
+ * track-interleaved double-sided image (inverse of splitDoubleSided).
+ * nullopt unless both inputs are 409600 bytes. */
+[[nodiscard]] std::optional<std::vector<uint8_t>>
+mergeSides(std::span<const uint8_t> side0, std::span<const uint8_t> side1);
 
 } /* namespace ms0515::disk */
 

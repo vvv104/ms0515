@@ -33,28 +33,35 @@ Independence is what makes agreement meaningful.
 Build a `sources.json`-style manifest: `{capture, family, tier, kind}`
 where `tier ∈ {own, foreign}` per the trust model.
 
-## Step 1 — Detect the layout of each capture
+## Step 1 — Classify each capture by image kind
 
-Identify, per side, which LBN→byte mapping the disk uses, so the
-directory and file bytes can be read. Use both signals:
+The physical geometry is **not** a per-OS choice — it follows from the
+image size, exactly as the emulator FDC reads it (see
+[`../docs/hardware/filesystem.md`](../docs/hardware/filesystem.md)):
 
-1. **Boot-block hash** against a reference table of known-provenance
-   disks (the emulator ships OSA / Omega / Mihin / rodionov references).
-   A match fixes both the directory layout and the (possibly different)
-   file-data layout.
-2. **Structural fallback** when the boot block is unknown or damaged:
-   try each candidate mapping and keep the one whose directory segment
-   chain validates and exposes the most `PERM` entries. Metadata (boot,
-   home, directory) is at `ss-canonical` positions on *every* known
-   MS-0515 variant, so the directory usually parses even when file data
-   needs a different mapping.
+- **409,600 B** → single-sided diskette.
+- **819,200 B** → double-sided diskette = **two independent 800-block
+  sides**, track-interleaved on disk (read side 0 and side 1 separately).
 
-A directory whose entries point past 800 blocks is **DS-spanning** —
-the filesystem covers both sides as one ~1600-block volume and must be
-read with `ds-cyl0last-noil`, not as two back-to-back SS volumes. (This
-is the layout the legacy Python `rt11_dir.py` does *not* implement and
-why it fails on those disks; the formula is in
-[`../docs/hardware/filesystem.md`](../docs/hardware/filesystem.md).)
+Both use the *same* `LBN → (track, sector)` driver mapping (2:1
+interleave + per-track skew); there is nothing to "detect" per OS. The
+`ms0515-disk` tool reads both directly. Metadata (boot/home/directory)
+sits on track 1 where the skew is 0, so it parses regardless — but that
+also means a *wrong* mapping still parses the directory, so never infer
+the data mapping from "the directory parsed" (see PITFALLS).
+
+Anything else is **not a plain diskette** and must be normalised before
+the format tools see it:
+
+- a directory whose entries point past 800 blocks → a **DS-spanning**
+  whole-disk volume (one ~1600-block filesystem), which the emulator
+  does **not** support and which is unverified under the FDC model —
+  recombine it offline and validate against a known file (PITFALLS §5);
+- a size that is a multiple of 512 but strictly smaller than a diskette
+  → likely a **logical-disk (LD) container** (linear addressing,
+  `byte = N*512`);
+- Extended-CPC `.dsk` / TeleDisk `.TD0` → decode to a plain physical
+  SS/DS image first.
 
 ## Step 2 — Adjudicate raw vs final per capture
 
@@ -146,6 +153,18 @@ it with TeleDisk sector flags when a `.TD0` capture exists:
 
 Without a TD0, a zero block agreed by independent sources is probably
 natural but cannot be *proven* so — record it as such.
+
+**Last-block padding is a known natural zero.** RT-11 records file length
+in whole blocks only, so the tail of a file's final block — from the
+logical end of the content to the 512-byte boundary — is filled with NUL
+by the OS. Verified on real OS-written text files: `STARTS.COM` 92 B
+content + 420×`00`, `STARTE.COM` 80 B + 432×`00`, `K.COM` 99 B + 413×`00`
+(content ends `CR LF`, then pure `00`, no `^Z`). Zeros in that trailing
+region are authentic padding — never flag them as damage or hunt a donor
+for them. Caveat: confirmed for **text** files; the slack of a **binary**
+file's last block is not yet verified (open — create a known partial-length
+file inside the OS and inspect). This says nothing about zeros *inside* a
+file's data range, which stay ambiguous per the rules above.
 
 ## Output — confidence classification
 

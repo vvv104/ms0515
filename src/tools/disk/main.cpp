@@ -43,6 +43,8 @@ int usage()
         "  put    <image> [--side 0|1] <file|glob>...   add host files\n"
         "  get    <image> [--side 0|1] [--out DIR] [pattern]...  extract files\n"
         "  dir    <image> [--side 0|1]           list the directory\n"
+        "  split  <ds.dsk> <side0.dsk> <side1.dsk>   split an 800 KB DS into two 400 KB SS\n"
+        "  merge  <side0.dsk> <side1.dsk> <ds.dsk>   merge two 400 KB SS into an 800 KB DS\n"
         "\n"
         "  Image kind follows the size: 409600 B single-sided, 819200 B double-\n"
         "  sided (--side picks a side, default 0 = lower/boot).  Wildcards: '*'.\n",
@@ -297,6 +299,35 @@ int main(int argc, char **argv)
         }
         if (image.empty()) return usage();
         return cmdDir(image, side);
+    }
+
+    if (cmd == "split") {
+        if (argc != 5) return usage();
+        auto ds = readHostFile(argv[2]);
+        if (!ds) { std::fprintf(stderr, "error: cannot read %s\n", argv[2]); return 1; }
+        auto sides = splitDoubleSided(*ds);
+        if (!sides) { std::fprintf(stderr, "error: %s is not an 819200-byte DS image\n",
+                                   argv[2]); return 1; }
+        if (!writeWholeFile(argv[3], sides->first) ||
+            !writeWholeFile(argv[4], sides->second)) {
+            std::fprintf(stderr, "error: cannot write output\n"); return 1; }
+        std::printf("split %s -> %s (side 0) + %s (side 1)\n", argv[2], argv[3], argv[4]);
+        return 0;
+    }
+
+    if (cmd == "merge") {
+        if (argc != 5) return usage();
+        auto s0 = readHostFile(argv[2]);
+        auto s1 = readHostFile(argv[3]);
+        if (!s0) { std::fprintf(stderr, "error: cannot read %s\n", argv[2]); return 1; }
+        if (!s1) { std::fprintf(stderr, "error: cannot read %s\n", argv[3]); return 1; }
+        auto ds = mergeSides(*s0, *s1);
+        if (!ds) { std::fprintf(stderr, "error: both inputs must be 409600-byte SS images\n");
+                   return 1; }
+        if (!writeWholeFile(argv[4], *ds)) {
+            std::fprintf(stderr, "error: cannot write %s\n", argv[4]); return 1; }
+        std::printf("merged %s + %s -> %s\n", argv[2], argv[3], argv[4]);
+        return 0;
     }
 
     return usage();

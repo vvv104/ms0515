@@ -97,11 +97,10 @@ Out of scope for the emulator itself, but for the record:
   5.25" 80 × 2 × 10 × 512 geometry produces a track-interleaved
   819200-byte image directly mountable via `--disk0`.
 - **Write**: the same tools write the `.dsk` back to physical media.
-- The block-to-sector mapping (2:1 interleave, +2 per-track skew on
-  OSA-family drivers, no-interleave on some others) lives at the
-  filesystem layer; on-disk physical sectors are still 1..10 in
-  order — see [`filesystem.md`](../hardware/filesystem.md) for the
-  per-OS formulas.
+- The block-to-sector mapping (one universal 2:1 interleave + +2
+  per-track skew, applied by the OS driver) lives at the filesystem
+  layer; on-disk physical sectors are still 1..10 in order — see
+  [`filesystem.md`](../hardware/filesystem.md) for the formula.
 
 ## See also
 

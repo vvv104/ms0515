@@ -133,6 +133,38 @@ TEST_CASE("init options: volume id and segment count") {
     CHECK(e->startBlock == 10);
 }
 
+TEST_CASE("split / merge round-trip is the identity") {
+    /* Build a DS image with distinct files on each side, split it, and
+     * confirm each side is the standalone SS volume; merge back == original. */
+    const auto s0files = diverseFiles();
+    const std::vector<BuildFile> s1files = {{"MAGIC.DAT", pattern(900, 7)}};
+    auto ds = blankImage(true);
+    initVolume(ds, 0, true); initVolume(ds, 1, true);
+    for (const auto &f : s0files) putFile(ds, 0, true, f.name, f.data);
+    for (const auto &f : s1files) putFile(ds, 1, true, f.name, f.data);
+
+    auto sides = splitDoubleSided(ds);
+    REQUIRE(sides.has_value());
+    REQUIRE(sides->first.size()  == kSideSize);
+    REQUIRE(sides->second.size() == kSideSize);
+
+    /* Each split side reads as a standalone single-sided volume. */
+    auto a = openImage(sides->first, 0);
+    auto b = openImage(sides->second, 0);
+    REQUIRE(a.has_value());
+    REQUIRE(b.has_value());
+    verifyFiles(*a, s0files);
+    verifyFiles(*b, s1files);
+
+    /* Merge restores the exact original DS bytes. */
+    auto back = mergeSides(sides->first, sides->second);
+    REQUIRE(back.has_value());
+    CHECK(*back == ds);
+
+    CHECK_FALSE(splitDoubleSided(blankImage(false)).has_value());   /* wrong size */
+    CHECK_FALSE(mergeSides(ds, ds).has_value());                    /* wrong size */
+}
+
 TEST_CASE("putFile errors") {
     auto img = blankImage(false);
     initVolume(img, 0, false);

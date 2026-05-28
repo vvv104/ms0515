@@ -1,78 +1,69 @@
 # Toolkit
 
-How the methodology is executed in code. The recovery tools are being
-built in **C++**, in the same style as the rest of the project (C11
-core idioms, C++23, CMake + Conan, doctest), and live **inside
-`src/`** as a new sublibrary + binaries — no dependency on any
-directory above the source tree. `disk_recovery/` holds knowledge and
-the verified-image vault only; it contains no build inputs.
+How the methodology is executed in code.  The **format layer** is built in
+C++ inside `src/`, in the project's style (C++23, CMake + Conan, doctest,
+`/W4 /WX`).  `disk_recovery/` holds knowledge and the verified-image vault
+only — no build inputs, no scripts.
 
-## Target C++ architecture
+## Format tools (built and verified)
 
-A new disk-tooling layer alongside `core/` / `lib/` / `libapp/`:
+Library **`ms0515_disk`** — [`../src/disk/`](../src/disk/):
 
-```
-src/disk/                  (proposed name)
-  include/ms0515/disk/     RT-11 image model — public headers
-  src/
-    Layout.cpp             the five LBN→byte mappings + DS-spanning
-                           recombine (formulas: docs/hardware/filesystem.md)
-    Image.cpp              load a capture, classify size/geometry
-    Directory.cpp          RT-11 home block + segment chain + RAD50 parse
-    Extract.cpp            pull a file's blocks through the file-layout
-    Td0.cpp                TeleDisk decoder + per-sector flag map
-    Consensus.cpp          per-byte multi-source vote (independence-aware)
-    Donor.cpp              anchor-pair search + ≥80% / uniqueness gates
-    Readability.cpp        KOI-8R + ASCII readable-byte score
-  tests/                   doctest, mirrors the layering elsewhere
-```
-
-Binaries (thin, over the lib):
-
-| Binary | Job |
+| Module | Job |
 |--------|-----|
-| `ms0515-dir` | List a volume's directory (any layout / DS-spanning). |
-| `ms0515-extract` | Pull files out of one capture into a folder. |
-| `ms0515-recover` | Run the full per-file consensus over a `sources.json` manifest; emit the confidence matrix + clean files. |
+| `Layout` | `LBN → byte` geometry, mirroring the emulator FDC: size picks SS/DS, and one universal driver mapping (2:1 interleave + per-track skew). The source of truth is [`../src/core/src/floppy.c`](../src/core/src/floppy.c); see [`../docs/hardware/filesystem.md`](../docs/hardware/filesystem.md). |
+| `Directory` | RT-11 home block + segment chain + RAD50 parse. |
+| `Image` | Load a capture (size selects SS/DS + side), read files. |
+| `Build` | `blankImage` (raw media), `initVolume` (format a side, byte-identical to OS INIT), `putFile` (add a file, like PIP). |
 
-### What is reused from the emulator
+Binary **`ms0515-disk`** — [`../src/tools/disk/`](../src/tools/disk/):
 
-- **Layout formulas** — pure functions, ported 1:1 from
-  `docs/hardware/filesystem.md` (and the legacy `tools/rt11_dir.py`).
-- **`libapp`** — filesystem path helpers, config/manifest loading.
-- **Build + test idioms** — the same CMake targets, `/W4 /WX` clean,
-  doctest suites per the project rules.
-- The emulator's FDC is **not** reused for offline extraction: file
-  recovery does not run the machine, it reads sectors directly. (The
-  emulator only ever feeds raw physical sectors to the guest OS; RT-11
-  filesystem parsing has never lived in the core, so it is new here —
-  but small, ~250 lines of logic in the Python reference.)
+| Command | Job |
+|---------|-----|
+| `create <out> [--ds]` | Raw blank media (0xB6 0x6D), 400 KB or 800 KB. |
+| `init <img> [--side N] [--volume-id ID] [--owner NAME] [--segments N]` | Format one side — byte-identical to the OS `INITIALIZE`. |
+| `put <img> [--side N] <file\|glob>...` | Add host files (like PIP, inbound); `*` globs. |
+| `get <img> [--side N] [--out DIR] [pattern]...` | Extract files (PIP, outbound); `*` patterns. |
+| `dir <img> [--side N]` | List the directory. |
 
-## Legacy Python reference (in `../tools/`)
+Geometry follows the image **size** (409600 = single-sided, 819200 = double-
+sided; `--side` picks a side).  There is no layout flag — the physical
+mapping is not a per-OS choice (see filesystem.md).
 
-These are the working *reference implementation* to port from, not the
-long-term tools. They are collection-oriented (operate over a
-populated `collection/ss/`), and notably the DS-spanning extractor was
-disabled (see PITFALLS §5).
+## Verified against the OS, not just self-consistent
 
-| Script | Role | Port target |
-|--------|------|-------------|
-| `rt11_dir.py` | Layout mappings + directory/RAD50 parse + single-file extract. | `Layout` + `Directory` + `Extract` |
-| `td0_decode.py` | TeleDisk reader (methods 0/1/2, `.badmap` flags). | `Td0` |
-| `extract_files.py` | Bulk file extraction with mapping auto-detect. | `ms0515-extract` |
-| `fingerprint_systems.py` | Cluster disks by boot-block hash. | `ms0515-dir --scan` |
-| `build_collection.py` | Ingest raw/TD0/Extended-DSK into a normalised collection. | ingest path of `ms0515-recover` |
-| `convert_extended_dsk.py` | SAMdisk Extended-CPC-DSK parser. | `Image` (final-dsk path) |
+The format tools are cross-checked against the real OS running in the
+emulator (the authoritative oracle), in
+[`../src/lib/tests/test_dir_vs_os.cpp`](../src/lib/tests/test_dir_vs_os.cpp):
 
-The recovery-specific logic (consensus, donor gating, readability,
-bit-rot classifier, TD0 verdict) has **no** Python reference that
-survived — it must be written fresh in C++ from METHODOLOGY.
+- **DIR vs OS** — the tool's directory parse matches the OS's own `DIR`
+  for OSA / Omega / Mihin (SS) and rodionov (DS).
+- **content oracle** — the OS INITs a blank and PIPs a real file onto it;
+  the tool extracts byte-for-byte identical content (only the OS's true
+  geometry makes this hold).
+- **build == INIT** — `blankImage + initVolume` reproduces a real OS
+  `INIT` byte-for-byte, for SS and DS, so a built volume is readable *and*
+  writable by the OS.
+
+## Recovery heuristics — not yet built
+
+The recovery-specific logic — multi-source consensus, donor gating,
+readability scoring, the bit-rot classifier, the TD0 natural-zero verdict
+(all in [`METHODOLOGY.md`](METHODOLOGY.md)) — is **not** implemented.  It is
+meant to live in Python under `disk_recovery/`, layered on the C++ format
+primitives, and must be written fresh from the methodology: no committed
+reference survives (earlier restored extraction scripts were removed once
+`ms0515-disk` covered the format layer).
+
+Ingest of other containers (TeleDisk `.TD0`, Extended-CPC `.dsk`, an LD
+container, a DS-spanning whole-disk volume, an LBN-linear flat dump) also
+belongs to that future layer: normalise to a plain SS/DS physical image
+first, then run the format tools on it.
 
 ## Validation discipline
 
-Per the project's TDD rule: design the `disk/` interface, write doctest
-cases first (a known file extracted byte-for-byte; a synthetic bit-rot
-block classified correctly; a circular-donor rejected), then implement.
-A DS-spanning extractor must reproduce a file already known from an
-independent source before any of its other output is trusted
-(PITFALLS §5).
+Per the project's TDD rule: design the interface, write doctest cases
+first, then implement.  Format behaviour is additionally pinned against the
+OS oracle above.  Any new recovery code must reproduce a file already known
+from an independent source before its other output is trusted (see
+[`PITFALLS.md`](PITFALLS.md)).

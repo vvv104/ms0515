@@ -50,14 +50,17 @@ See METHODOLOGY Step 4.
 
 ## 5. DS-spanning recombine is easy to get subtly wrong
 
-The double-sided spanning filesystem (`ds-cyl0last-noil`) interleaves
-sides per track and wraps cylinder 0 to the end. A recombine that gets
-the head/track order or the cyl-0 wrap wrong yields files that *look*
-plausible but disagree with confirmed disks. The legacy Python
-`extract_files.py` had its DS-recombine branch **disabled** for exactly
-this reason. Validate any DS-spanning extractor by re-extracting a file
-known from another source and checking it byte-for-byte before trusting
-the rest.
+A **DS-spanning** disk addresses both sides as one ~1600-block volume
+(distinct from a normal double-sided diskette, which is two independent
+800-block sides — see filesystem.md). Recombining it interleaves sides
+per track and wraps cylinder 0 to the end; getting the head/track order
+or the cyl-0 wrap wrong yields files that *look* plausible but disagree
+with confirmed disks. An earlier Python extractor had its DS-spanning
+branch **disabled** for exactly this reason. The emulator does not read
+spanning volumes at all, and the format has not been re-verified under
+the FDC model — so validate any spanning extractor by re-extracting a
+file known from another source and checking it byte-for-byte before
+trusting the rest.
 
 ## 6. The word "authoritative" is a label, not a proof
 

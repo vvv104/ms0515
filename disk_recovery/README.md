@@ -18,7 +18,7 @@ in the repo.
 | `README.md` | This file — orientation + the trust model. |
 | `METHODOLOGY.md` | The recovery playbook: source taxonomy, the consensus ladder, scoring metrics, donor rules, confidence tiers. General to any disk. |
 | `PITFALLS.md` | Anti-patterns that produced wrong "recoveries" in the past. Read before trusting any merge. |
-| `TOOLKIT.md` | The tooling: what each step needs, the target C++ architecture, and the legacy Python reference implementation. |
+| `TOOLKIT.md` | The tooling: the built `ms0515-disk` format tools (create/init/put/get/dir), how they are verified against the OS, and what recovery logic is still to be written. |
 | `authoritative/` | Vault of disk images that have *passed* the bar in METHODOLOGY. These — and only these — may be used as donors for other recoveries. Starts empty until images are re-verified under the documented method. |
 
 ## On-disk format spec
@@ -26,10 +26,11 @@ in the repo.
 This directory does **not** re-document the RT-11 / MS-0515 on-disk
 format — that already lives in
 [`../docs/hardware/filesystem.md`](../docs/hardware/filesystem.md):
-sector geometry, the five LBN→byte layout mappings (`ss-canonical`,
-`ss-osa-skew`, `ss-cyl0last-noil`, `ss-cyl0first-noil`,
-`ds-cyl0last-noil`), the home block, directory segments, RAD50, and
-the status-word bits.  Recovery code reads from that spec; this
+the FDC physical geometry (size → single/double-sided), the one
+universal `LBN → byte` driver mapping (2:1 interleave + per-track
+skew), the home block, directory segments, RAD50, and the status-word
+bits.  It also notes the two non-diskette container kinds (DS-spanning
+volumes, LD containers).  Recovery code reads from that spec; this
 directory is about *process*, not format.
 
 ## The trust model (read this first)

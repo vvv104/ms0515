@@ -4,7 +4,9 @@
 
 #include "ms0515/disk/Image.hpp"
 
+#include <algorithm>
 #include <fstream>
+#include <utility>
 
 namespace ms0515::disk {
 
@@ -56,6 +58,34 @@ std::optional<Image> loadImage(const std::string &path, int side)
                std::istreambuf_iterator<char>());
     if (raw.empty()) return std::nullopt;
     return openImage(std::move(raw), side);
+}
+
+std::optional<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>
+splitDoubleSided(std::span<const uint8_t> ds)
+{
+    if (ds.size() != kDoubleSize) return std::nullopt;
+    std::vector<uint8_t> s0(kSideSize), s1(kSideSize);
+    for (int t = 0; t < kTracks; ++t) {
+        const std::size_t src = static_cast<std::size_t>(t) * 2 * kTrackSize;
+        const std::size_t dst = static_cast<std::size_t>(t) * kTrackSize;
+        std::copy_n(ds.begin() + src,             kTrackSize, s0.begin() + dst);
+        std::copy_n(ds.begin() + src + kTrackSize, kTrackSize, s1.begin() + dst);
+    }
+    return std::make_pair(std::move(s0), std::move(s1));
+}
+
+std::optional<std::vector<uint8_t>>
+mergeSides(std::span<const uint8_t> side0, std::span<const uint8_t> side1)
+{
+    if (side0.size() != kSideSize || side1.size() != kSideSize) return std::nullopt;
+    std::vector<uint8_t> ds(kDoubleSize);
+    for (int t = 0; t < kTracks; ++t) {
+        const std::size_t src = static_cast<std::size_t>(t) * kTrackSize;
+        const std::size_t dst = static_cast<std::size_t>(t) * 2 * kTrackSize;
+        std::copy_n(side0.begin() + src, kTrackSize, ds.begin() + dst);
+        std::copy_n(side1.begin() + src, kTrackSize, ds.begin() + dst + kTrackSize);
+    }
+    return ds;
 }
 
 } /* namespace ms0515::disk */

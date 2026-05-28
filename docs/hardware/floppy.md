@@ -128,11 +128,12 @@ Track 79, Sectors 1–10 (5120 bytes)
 Total image size: **409,600 bytes** (400 KB, 800 sectors).
 
 Sectors within a track are stored in physical order (1–10).  The
-mapping from RT-11 logical blocks to physical sectors depends on
-which OS driver wrote the disk — OSA / Omega / Mihin add a +2
-per-track skew on top of 2:1 interleave, rodionov uses bare 2:1,
-and a handful of disks use no interleave at all.  See
-[`filesystem.md`](filesystem.md) for the per-layout formulas.
+mapping from RT-11 logical blocks to physical sectors is the **same**
+on every MS0515 diskette — a 2:1 interleave plus a +2-sectors-per-track
+skew (OSA, Omega, Mihin and rodionov were all verified byte-for-byte to
+use it; the FDC itself does no interleave — it serves physical sectors,
+and the OS driver applies the mapping).  See
+[`filesystem.md`](filesystem.md) for the formula.
 
 ### Double-sided raw images
 
