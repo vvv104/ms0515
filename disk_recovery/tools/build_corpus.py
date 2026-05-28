@@ -22,6 +22,9 @@ import subprocess, hashlib, json, tempfile, shutil, sys
 from pathlib import Path
 from collections import defaultdict
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from read_spanning import read_spanning
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 WORK = ROOT / "disk_recovery" / "work"
@@ -84,6 +87,18 @@ def main():
     OUT.mkdir(exist_ok=True)
     store = OUT / "files"; store.mkdir(exist_ok=True)   # content store: sha -> bytes
     corpus, flagged = {}, []
+
+    def ingest(name, data, rel, side):
+        h = hashlib.sha256(data).hexdigest()
+        if h not in corpus:
+            corpus[h] = {"sha": h, "names": [], "size": len(data),
+                         "blocks": len(data)//512, "category": categorize(name),
+                         "provenance": []}
+            (store / f"{h}.bin").write_bytes(data)
+        rec = corpus[h]
+        if name not in rec["names"]:
+            rec["names"].append(name)
+        rec["provenance"].append({"capture": rel, "side": side, "name": name})
     with tempfile.TemporaryDirectory() as tmpd:
         tmp = Path(tmpd)
         for src in sources:
@@ -99,21 +114,22 @@ def main():
                         continue
                     any_ok = True
                     for name, data in files.items():
-                        h = hashlib.sha256(data).hexdigest()
-                        if h not in corpus:
-                            corpus[h] = {
-                                "sha": h, "names": [], "size": len(data),
-                                "blocks": len(data)//512, "category": categorize(name),
-                                "provenance": []}
-                            (store / f"{h}.bin").write_bytes(data)
-                        rec = corpus[h]
-                        if name not in rec["names"]:
-                            rec["names"].append(name)
-                        rec["provenance"].append({"capture": rel, "side": s, "name": name})
+                        ingest(name, data, rel, s)
+            if not any_ok:
+                # Fall back to the DS-spanning reader (one ~1600-block volume
+                # across both sides) for 819200 images ms0515-disk can't read.
+                for img, _ in imgs:
+                    if img.stat().st_size != DS:
+                        continue
+                    res = read_spanning(img.read_bytes())
+                    if res:
+                        any_ok = True
+                        for name, data in res[1].items():
+                            ingest(name, data, rel, "span")
+                        break
             if not any_ok:
                 flagged.append({"capture": rel,
-                                "reason": "no readable directory — DS-spanning or "
-                                          "unsupported; needs a spanning reader"})
+                                "reason": "no readable directory — unknown layout"})
 
     OUT.mkdir(exist_ok=True)
     records = sorted(corpus.values(), key=lambda r: (r["category"], r["names"][0]))
