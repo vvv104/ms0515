@@ -61,7 +61,15 @@ std::vector<uint8_t> buildVolume(Layout layout, const std::vector<BuildFile> &fi
     const std::size_t imageSize =
         isDoubleSided(layout) ? static_cast<std::size_t>(kDoubleSize)
                               : static_cast<std::size_t>(kSideSize);
-    std::vector<uint8_t> image(imageSize, 0);
+
+    /* Start from a real blank: MS-0515 floppies power up / format with
+     * the uninitialised pattern 0xB6 0x6D repeated.  Build writes the
+     * home block, directory and file data on top; sectors left unused
+     * keep this pattern, matching a genuine disk byte-for-byte (an
+     * all-zero fill would not). */
+    std::vector<uint8_t> image(imageSize);
+    for (std::size_t i = 0; i < imageSize; ++i)
+        image[i] = (i & 1) ? 0x6D : 0xB6;
 
     auto writeBlock = [&](int lbn, const uint8_t *src, std::size_t n) {
         const std::size_t off = lbnToByte(layout, lbn);

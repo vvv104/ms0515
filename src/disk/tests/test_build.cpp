@@ -111,6 +111,17 @@ TEST_CASE("double-sided dump: write + read back both sides byte-exact") {
     verify(1, side1);
 }
 
+TEST_CASE("build leaves free sectors as the B6 6D blank pattern") {
+    const Layout L = Layout::SsCyl0LastNoIl;
+    auto image = buildVolume(L, diverseFiles());   /* few small files near LBN 8 */
+    /* LBN 300 is well past the file area -> a free sector. */
+    const std::size_t off = lbnToByte(L, 300);
+    CHECK(image[off + 0] == 0xB6);
+    CHECK(image[off + 1] == 0x6D);
+    CHECK(image[off + 2] == 0xB6);
+    CHECK(image[off + 3] == 0x6D);
+}
+
 TEST_CASE("layoutFromTag is the inverse of layoutTag") {
     using enum Layout;
     for (Layout l : {SsCanonical, SsOsaSkew, SsCyl0LastNoIl,
