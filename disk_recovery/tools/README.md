@@ -19,6 +19,7 @@ Paths are derived from the script location — no absolute paths.
 | `read_spanning.py <image>` | Read a **DS-spanning** RT-11 volume (one ~1600-block filesystem across both sides), which `ms0515-disk` cannot.  Tries candidate LBN→byte mappings and keeps the one that structurally validates (confirmed against the corpus). |
 | `build_corpus.py` | Extract every readable disk in `work/` (raw directly; TeleDisk / Extended-CPC via the converters; DS-spanning via `read_spanning`), hash (sha-256), and write `work/corpus/corpus.json` + a sha content store: one record per unique file with provenance (capture + side) and a type-based category. |
 | `analyze_corpus.py` | Second pass over the corpus: group captures into **monitor-generation** families (by the `.SYS` monitor build), list version-split files, and analyse content (readable-byte fraction; printable strings for executables).  Writes `work/corpus/analysis.json`. |
+| `consensus.py` | Regroup the corpus by **logical** identity (name + block length, not sha), split decay from a genuinely different version (bit-rot metric), reconcile decayed copies by per-byte majority, and assign a confidence tier.  Writes `work/corpus/consensus.json`. |
 
 ## Typical flow
 
@@ -53,6 +54,11 @@ Extended-CPC capture or from majority vote across per-sector re-reads (`.dat`).
   the structurally-valid one.  A lone per-side half of a spanning disk
   (`*_Head0/_Head1`, an Extended-CPC of a spanning disk) is not a complete
   volume and is still flagged — its files come from the full 819200 capture.
-- The heuristic recovery itself (per-byte consensus, donor gating, readability
-  scoring, bit-rot classifier, TD0 natural-zero verdict) is specified in
-  `../METHODOLOGY.md` and not yet implemented here.
+- The heuristic recovery: the consensus core (logical grouping, bit-rot
+  decay-vs-version split, per-byte majority) is in `consensus.py`.  Still to do:
+  (a) link the `.badmap`s to file blocks so a difference at a *flagged* byte
+  counts as decay, not a different version — this rescues heavily-damaged
+  copies now mis-bucketed as "multi-version"; (b) donor recovery for blocks
+  lost across all variants, including matching orphaned data in **free space**
+  (e.g. a file's blocks left behind after an `INIT`) by surrounding-block
+  context (anchor-pair search, METHODOLOGY Step 6).
