@@ -14,8 +14,8 @@ Paths are derived from the script location — no absolute paths.
 | Script | Job |
 |--------|-----|
 | `import_images.py <src-dir>...` | Pull images/archives from an external source into `work/data/`, deduplicated by content (recursively extracts .rar/.7z/.zip, skips anything already under `work/`). |
-| `convert_extended_dsk.py <file.dsk>...` | Convert a SAMdisk **Extended-CPC DSK** container to per-side raw `_s0/_s1.img` + a per-side `.badmap` (read status from the FDC ST1/ST2 bytes). |
-| `convert_td0.py <file.TD0>...` | Decode a Sydex **TeleDisk** image to a raw physical-sector image + a `.badmap` (read status from the TD0 sector flags). |
+| `convert_samdisk.py <file.dsk>...` | Convert a SAMdisk **Extended-CPC DSK** container to per-side raw `_s0/_s1.img` + a per-side `.badmap` (read status from the FDC ST1/ST2 bytes). |
+| `convert_teledisk.py <file.TD0>...` | Decode a Sydex **TeleDisk** image to a raw physical-sector image + a `.badmap` (read status from the TD0 sector flags). |
 | `build_corpus.py` | Extract every readable diskette in `work/` via `ms0515-disk get`, hash (sha-256), and write `work/corpus/corpus.json`: one record per unique file with provenance (image+side) and a type-based category. |
 
 ## Typical flow

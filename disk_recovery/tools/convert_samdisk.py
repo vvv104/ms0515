@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-convert_extended_dsk.py — Convert Extended CPC DSK images to raw format.
+convert_samdisk.py — Convert SAMdisk Extended-CPC DSK images to raw format.
 
-The Extended CPC DSK format (used by SAMdisk and nzeemin's ms0515btl
-emulator, by Nikita Zimin) wraps raw sector data in a structured container
-with per-track headers and per-sector metadata.
+The Extended CPC DSK format (produced by SAMdisk, and by nzeemin's ms0515btl
+emulator — Nikita Zimin) wraps raw sector data in a structured container with
+per-track headers and per-sector metadata (including the FDC ST1/ST2 read
+status used for the bad-map).
 
-This tool extracts the raw sector data and writes single-sided .img
-files in the same physical-order format used by the MS0515 emulator.
+This tool extracts the raw sector data and writes per-side .img files in the
+same physical-order format used by the MS0515 emulator, plus a .badmap.
 
 Usage:
-    python convert_extended_dsk.py disk5-final.dsk
-    python convert_extended_dsk.py *.dsk
+    python convert_samdisk.py disk5-final.dsk
+    python convert_samdisk.py *.dsk
 """
 
 import sys

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-convert_td0.py - Decode Sydex TeleDisk (.TD0) images into raw physical-sector
-                 images plus a bad-sector map.
+convert_teledisk.py - Decode Sydex TeleDisk (.TD0) images into raw physical-
+                      sector images plus a bad-sector map.
 
 Supports only the un-LZSS-compressed variant (signature 'TD'); all TD0s in our
 dump set are of this kind.  Sector data encoding methods 0, 1, 2 are
 implemented; bad-sector flags propagate into the .badmap output.
 
 CLI:
-    python convert_td0.py <file.TD0> [<file2.TD0> ...]
+    python convert_teledisk.py <file.TD0> [<file2.TD0> ...]
 
 For each input writes alongside it:
     <stem>_td0.dsk    - track-interleaved DS or single-sided SS image
