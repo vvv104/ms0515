@@ -45,7 +45,17 @@ def verdict_text(r, band, recs_by_key, recovered, corro, sha, own):
     if band == "UNVERIFIED":
         return "UNVERIFIED — single disk, no read-status, no 2nd copy: cannot be checked"
     if band == "AMBIGUOUS":
-        return f"AMBIGUOUS — this disk has version {sha[:8]} of {r['versions']} distinct builds; pick canonical"
+        versions = []
+        for cr in recs_by_key[key]:
+            disks = sorted({V.base_disk(p["capture"]) for p in cr["provenance"]} - {None})
+            versions.append((cr["sha"], disks))
+        versions.sort(key=lambda v: v[0] != sha)          # this disk's version first
+        parts = []
+        for vsha, disks in versions:
+            dl = ", ".join(disks[:3]) + (f" +{len(disks)-3}" if len(disks) > 3 else "")
+            parts.append(f"{vsha[:8]}{'*(this)' if vsha == sha else ''} @ {dl}")
+        return (f"AMBIGUOUS — {len(versions)} builds; compare export/<disk>/{r['name']}:  "
+                + "  |  ".join(parts))
     if band == "LOST":
         return f"LOST — {r['corrupt']+r['flagged']} bad blocks on every copy; needs an external donor disk"
     return band
