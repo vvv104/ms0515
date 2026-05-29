@@ -325,6 +325,106 @@ def run_gui(model):
         settext(t if t is not None else hexdump(voted))
         status.config(text=f"byte-vote -> {sha[:8]} of {len(v)} versions; review, then Set canonical")
 
+    def do_zeroes():
+        r = state["rec"]
+        if not r:
+            status.config(text="select a file first"); return
+        key = (r["name"], r["blocks"])
+        recs = model.recs_by_key.get(key, [])
+        if not recs:
+            status.config(text="no corpus records for this file"); return
+        BLK, ZERO = 512, b"\x00"*512
+        nblk = r["blocks"]
+        # gather per-variant: data + per-capture (status, bad set)
+        vars_ = []
+        for cr in recs:
+            d = model.content(cr["sha"])
+            caps = [(p["capture"], p.get("status", False), set(p.get("bad", [])))
+                    for p in cr["provenance"]]
+            vars_.append({"sha": cr["sha"], "data": d, "caps": caps})
+        lines = [f"Zero-block analysis: {r['name']}  ({nblk} blocks, {len(vars_)} raw variants)", ""]
+        lost = nat = contr = 0
+        for b in range(nblk):
+            zeros = [v for v in vars_ if v["data"][b*BLK:(b+1)*BLK] == ZERO]
+            datas = [v for v in vars_ if v not in zeros]
+            if not zeros:
+                continue
+            if not datas:                                      # all-zero everywhere
+                any_flagged = any(b in bad for v in vars_ for _, _, bad in v["caps"])
+                if any_flagged:
+                    lines.append(f"  block {b:4d}: all-zero on every variant, BUT some captures flagged it — could be wholly lost")
+                    contr += 1
+                else:
+                    nat += 1
+                continue
+            # both data and zero exist for this block: classify each zero-variant
+            lines.append(f"  block {b:4d}: {len(zeros)} zero / {len(datas)} data")
+            for zv in zeros:
+                fl = [c for c, _, bad in zv["caps"] if b in bad]
+                cl = [c for c, st, bad in zv["caps"] if st and b not in bad]
+                nr = [c for c, st, bad in zv["caps"] if not st]
+                if fl:
+                    verdict = f"FLAGGED on {fl[0]} -> LOST (CRC failed, zero-fill); others have data, take data"
+                    lost += 1
+                elif cl and not fl:
+                    verdict = f"CRC-clean on {cl[0]} yet zero & others differ -> CONTRADICTION (edit? false-clean?)"
+                    contr += 1
+                else:
+                    verdict = f"raw on {(nr or ['?'])[0]}, no status; others have data -> LIKELY LOST"
+                    lost += 1
+                lines.append(f"      {zv['sha'][:8]}: {verdict}")
+        lines += ["",
+                  f"summary: {lost} likely-LOST zeros, {nat} likely-NATURAL (all-zero everywhere clean), {contr} contradictions"]
+        settext("\n".join(lines))
+        status.config(text=f"zero analysis: {lost} LOST, {nat} NATURAL, {contr} contradiction")
+
+    def do_disasm():
+        v = selected_versions()
+        if len(v) < 2:
+            status.config(text="select >=2 versions to compare PDP-11 disassembly"); return
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+        try:
+            from pdp11_disasm import Disassembler
+        except Exception as e:
+            status.config(text=f"pdp11_disasm not available: {e}"); return
+        datas = [(s, model.content(s)) for s, _ in v]
+        if len({len(d[1]) for d in datas}) != 1:
+            status.config(text="versions differ in length"); return
+        n = len(datas[0][1]) // 512
+        lines = [f"PDP-11 disasm comparison: {n} blocks, {len(datas)} versions",
+                 "( .WORD ratio = illegal/data words; lower = looks like code )", ""]
+        shown = 0
+        for b in range(n):
+            segs = [d[1][b*512:(b+1)*512] for d in datas]
+            if len(set(segs)) == 1:
+                continue
+            scores = []
+            for sha, full in datas:
+                seg = full[b*512:(b+1)*512]
+                try:
+                    items = Disassembler(seg, 0).disassemble_all()
+                    wcnt = sum(1 for it in items if str(it[-1]).startswith(".WORD"))
+                    scores.append((sha, wcnt, len(items)))
+                except Exception:
+                    scores.append((sha, None, 0))
+            parts = "  ".join(f"{s[:8]}={(w/t):.0%}" if w is not None and t
+                              else f"{s[:8]}=?" for s, w, t in scores)
+            valid = [(s, w/t) for s, w, t in scores if w is not None and t]
+            hint = ""
+            if len(valid) >= 2:
+                lo = min(valid, key=lambda x: x[1]); hi = max(valid, key=lambda x: x[1])
+                if hi[1] - lo[1] > 0.20:
+                    hint = f"  -> {lo[0][:8]} cleanest; {hi[0][:8]} likely garbage"
+            lines.append(f"block {b:4d}: {parts}{hint}")
+            shown += 1
+            if shown >= 60:
+                lines.append("(stopped at 60 differing blocks)"); break
+        if shown == 0:
+            lines.append("no differing blocks")
+        settext("\n".join(lines))
+        status.config(text=f"disasm compare: {shown} differing blocks analysed")
+
     def do_textmerge():
         v = selected_versions()
         r = state["rec"]
@@ -381,6 +481,9 @@ def run_gui(model):
     ttk.Button(btns, text="View", command=do_view).pack(side="left")
     ttk.Button(btns, text="Diff 2", command=do_diff).pack(side="left", padx=4)
     ttk.Button(btns, text="Byte-vote sel", command=do_bytevote).pack(side="left")
+    ttk.Button(btns, text="Text-merge sel", command=do_textmerge).pack(side="left", padx=4)
+    ttk.Button(btns, text="Zero analysis", command=do_zeroes).pack(side="left")
+    ttk.Button(btns, text="Disasm cmp", command=do_disasm).pack(side="left", padx=4)
     ttk.Button(btns, text="✓ Set canonical", command=do_set).pack(side="left", padx=4)
     ttk.Button(btns, text="Clear", command=do_clear).pack(side="left")
 
