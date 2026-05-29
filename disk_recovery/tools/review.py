@@ -229,8 +229,12 @@ def run_gui(model):
 
     def do_textmerge():
         v = selected_versions()
-        if len(v) < 2:
-            status.config(text="select >=2 versions to text-merge"); return
+        r = state["rec"]
+        if not r or len(v) < 2:
+            status.config(text="select a file and >=2 versions to text-merge"); return
+        if r.get("is_binary") or r.get("category") not in ("text", "other"):
+            status.config(text=f"{r['name']} is {r.get('category','?')} — text-merge prefers readable bytes "
+                               "and would corrupt a binary file; use Byte-vote sel instead"); return
         datas = [model.content(s) for s, _ in v]
         if len({len(d) for d in datas}) != 1:
             status.config(text="versions differ in length — cannot text-merge"); return
