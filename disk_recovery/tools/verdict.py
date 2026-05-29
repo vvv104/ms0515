@@ -49,18 +49,25 @@ def _block_garbage(seg):
     return bool(seg) and sum(1 for x in seg if not (_readable(x) or x == 0)) / len(seg) > 0.5
 
 def block_merge(datas):
-    """For a TEXT file, reconcile copies block-by-block: take the readable block
-    where another copy has binary garbage (majority among the readable ones).
-    Returns (merged_bytes, [rescued block indices]).  Use only when the copies
-    are the SAME document with complementary damage."""
-    n = min(len(d) for d in datas) // 512
-    out, rescued = bytearray(), []
+    """Per-BYTE text-preferring merge: at each byte position, prefer a readable
+    byte over a non-readable one (majority among readable ones if several;
+    overall majority if all-readable or all-binary).  Recovers the common
+    bit-rot pattern where one copy turns to binary garbage *partway through* a
+    block — block-level "is it >50% garbage" misses it because most of the block
+    is still text.  Returns (merged_bytes, rescued_byte_count)."""
+    n = min(len(d) for d in datas)
+    out = bytearray(n)
+    rescued = 0
     for i in range(n):
-        blks = [d[i*512:(i+1)*512] for d in datas]
-        good = [b for b in blks if not _block_garbage(b)]
-        out += Counter(good or blks).most_common(1)[0][0]
-        if good and len(good) < len(blks):
-            rescued.append(i)
+        bs = [d[i] for d in datas]
+        if len(set(bs)) == 1:
+            out[i] = bs[0]; continue
+        good = [b for b in bs if _readable(b) or b == 0]
+        if good and len(good) < len(bs):           # some readable, some not -> rescue
+            out[i] = Counter(good).most_common(1)[0][0]
+            rescued += 1
+        else:
+            out[i] = Counter(bs).most_common(1)[0][0]
     return bytes(out), rescued
 
 def store_content(data):

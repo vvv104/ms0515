@@ -237,11 +237,11 @@ def run_gui(model):
         merged, rescued = V.block_merge(datas)
         sha = V.store_content(merged)
         state["vers"].append((sha, [f"text-merge of {len(v)}"]))
-        vbox.insert("end", f"{sha[:8]}  on: (text-merge of {len(v)}; {len(rescued)} blocks rescued)")
+        vbox.insert("end", f"{sha[:8]}  on: (text-merge of {len(v)}; {rescued} bytes rescued)")
         vbox.selection_clear(0, "end"); vbox.selection_set("end")
         t = as_text(merged)
         settext(t if t is not None else hexdump(merged))
-        status.config(text=f"text-merge -> {sha[:8]}; {len(rescued)} blocks taken from a readable copy; review, then Set canonical")
+        status.config(text=f"text-merge -> {sha[:8]}; {rescued} bytes taken from a readable copy; review, then Set canonical")
 
     def refresh():
         bands = model.by_band()
