@@ -78,17 +78,59 @@ def phys_disks(key, recs_by_key, corro, disk_of):
         best = max(best, len(disks))
     return best
 
-def classify(r, recs_by_key, recovered, corro, disk_of):
+def version_disks(key, recs_by_key, disk_of):
+    """[(sha, [physical disks]), ...] for a file — its distinct content versions
+    and where each lives, for the human to compare and pick."""
+    out = []
+    for cr in recs_by_key.get(key, []):
+        disks = sorted({disk_of.get(p["capture"]) for p in cr["provenance"]} - {None})
+        out.append((cr["sha"], disks))
+    return out
+
+def resolve_choice(choose, versions):
+    """Map a user's pick (sha8 prefix or a disk label) to a full sha, or None."""
+    choose = choose.strip()
+    if not choose:
+        return None
+    for sha, disks in versions:
+        if sha.startswith(choose) or any(choose == d for d in disks):
+            return sha
+    return None
+
+def load_decisions(path, recs_by_key, disk_of):
+    """Parse the human decisions file -> {(name,blocks): chosen_sha}."""
+    chosen = {}
+    p = Path(path)
+    if not p.exists():
+        return chosen
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        cells = line.split("\t")
+        if len(cells) < 3 or not cells[2].strip():
+            continue
+        name = cells[0].strip()
+        try:
+            blocks = int(cells[1].strip().replace("blk", ""))
+        except ValueError:
+            continue
+        sha = resolve_choice(cells[2], version_disks((name, blocks), recs_by_key, disk_of))
+        if sha:
+            chosen[(name, blocks)] = sha
+    return chosen
+
+def classify(r, recs_by_key, recovered, corro, disk_of, chosen=frozenset()):
     """Confidence band for a consensus file record `r`.
-    recovered = set of (name,blocks) donor-recovered; corro = {(name,blocks): src};
-    disk_of = capture -> physical-disk label (from physical_disks())."""
+    recovered = donor-recovered (name,blocks); corro = {(name,blocks): src};
+    disk_of = capture -> physical-disk label; chosen = (name,blocks) the human
+    picked a canonical version for."""
     key = (r["name"], r["blocks"])
     if key in recovered:
         return "GOOD"                            # donor-recovered + verified
     if r["tier"] == "corrupt":
         return "LOST"
     if r["tier"] == "multi-version":
-        return "AMBIGUOUS"
+        return "CHOSEN" if key in chosen else "AMBIGUOUS"
     if phys_disks(key, recs_by_key, corro, disk_of) >= 2:
         return "GUARANTEED"
     if r["tier"] == "verified":
@@ -99,10 +141,11 @@ def classify(r, recs_by_key, recovered, corro, disk_of):
         return "MEDIUM"
     return "UNVERIFIED"
 
-BANDS = ["GUARANTEED", "HIGH", "GOOD", "MEDIUM", "UNVERIFIED", "AMBIGUOUS", "LOST"]
-HEALTHY = {"GUARANTEED", "HIGH", "GOOD", "MEDIUM"}
+BANDS = ["GUARANTEED", "CHOSEN", "HIGH", "GOOD", "MEDIUM", "UNVERIFIED", "AMBIGUOUS", "LOST"]
+HEALTHY = {"GUARANTEED", "CHOSEN", "HIGH", "GOOD", "MEDIUM"}
 MEANING = {
     "GUARANTEED": "byte-identical on >=2 DIFFERENT physical disks",
+    "CHOSEN":     "you picked the canonical version (decisions.tsv)",
     "HIGH":       "identical across >=2 reads of the SAME disk",
     "GOOD":       "reconciled clean / donor-recovered",
     "MEDIUM":     "single disk, every sector CRC-clean",
@@ -112,10 +155,13 @@ MEANING = {
 }
 ACTION = {
     "GUARANTEED": "-",
+    "CHOSEN":     "-",
     "HIGH":       "confirm with a different physical disk",
     "GOOD":       "-",
     "MEDIUM":     "find a 2nd copy on another disk",
     "UNVERIFIED": "find a 2nd copy or a read-status capture",
-    "AMBIGUOUS":  "pick the canonical build (by monitor generation)",
+    "AMBIGUOUS":  "pick the canonical build in decisions.tsv",
     "LOST":       "external donor disk / free-space anchor search",
 }
+
+DECISIONS = Path(__file__).resolve().parents[2] / "disk_recovery" / "decisions.tsv"

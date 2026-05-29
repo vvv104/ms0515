@@ -30,9 +30,14 @@ BAD = re.compile(r'[<>:"/\\|?*]')
 def safe(name):
     return BAD.sub("_", name)
 
-def verdict_text(r, band, recs_by_key, recovered, corro, disk_of, sha, own):
+def verdict_text(r, band, recs_by_key, recovered, corro, disk_of, chosen, sha, own):
     key = (r["name"], r["blocks"])
     note = "" if own else "  [this disk's copy was damaged; exported the recovered version]"
+    if band == "CHOSEN":
+        csha = chosen[key]
+        where = next((",".join(d) for s, d in V.version_disks(key, recs_by_key, disk_of) if s == csha), "?")
+        mine = " (this disk's)" if csha == sha else ""
+        return f"CHOSEN — you picked version {csha[:8]} @ {where}{mine}; exported that version"
     if band == "GUARANTEED":
         return f"GUARANTEED — byte-identical on {V.phys_disks(key, recs_by_key, corro, disk_of)} different physical disks" + note
     if band == "HIGH":
@@ -75,6 +80,7 @@ def main():
     cap_fp = json.load(open(OUT / "captures.json", encoding="utf-8")) \
         if (OUT / "captures.json").exists() else {}
     disk_of = V.physical_disks(corpus, cap_fp)
+    chosen = V.load_decisions(V.DECISIONS, recs_by_key, disk_of)
 
     # physical disk -> {(name, blocks): sha this disk carried}
     disk_files = defaultdict(dict)
@@ -95,10 +101,13 @@ def main():
         rows, bandc = [], defaultdict(int)
         for (name, blocks), sha in sorted(disk_files[disk].items()):
             r = cons.get(sha2canon.get(sha, (name, blocks)))
-            band = V.classify(r, recs_by_key, recovered, corro, disk_of) if r else "UNVERIFIED"
+            band = V.classify(r, recs_by_key, recovered, corro, disk_of, chosen) if r else "UNVERIFIED"
             # choose best content
             prop = PROP / name
-            if (name, blocks) in recovered and prop.exists():
+            ckey = (name, blocks)
+            if ckey in chosen:                              # human-picked canonical version
+                csha = chosen[ckey]; data = (STORE/f"{csha}.bin").read_bytes()
+            elif ckey in recovered and prop.exists():
                 data, csha = prop.read_bytes(), None
             elif r and r.get("recovered_sha") and (RECOV/f"{r['recovered_sha']}.bin").exists():
                 csha = r["recovered_sha"]; data = (RECOV/f"{csha}.bin").read_bytes()
@@ -107,7 +116,7 @@ def main():
             own = (csha == sha)
             (ddir / safe(name)).write_bytes(data)
             rows.append((name, blocks, r["category"] if r else "?", band,
-                         verdict_text(r, band, recs_by_key, recovered, corro, disk_of, sha, own)))
+                         verdict_text(r, band, recs_by_key, recovered, corro, disk_of, chosen, sha, own)))
             bandc[band] += 1
         # VERDICT.txt
         lines = [f"disk: {disk}", f"files: {len(rows)}",
