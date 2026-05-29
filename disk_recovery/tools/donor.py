@@ -139,14 +139,33 @@ def find_oneside(seqs, index, anchor, gap, before):
 def dedup(cands):
     return {bytes(b"".join(c)): lbl for lbl, c in cands}
 
+def corroborate(seqs, index, blks, own_labels):
+    """Find a full identical second copy of a file's block sequence in some
+    OTHER source (a different disk's free space, or another file).  Binaries
+    can't be checked by content, so a matching orphaned copy is the only way to
+    raise confidence on a single-source file (or to expose a discrepancy)."""
+    seed = next((j for j, b in enumerate(blks) if not trivial(b)), None)
+    if seed is None:
+        return None
+    for si, pos in index.get(blks[seed], ()):
+        label, hb = seqs[si]
+        if label in own_labels:
+            continue
+        start = pos - seed
+        if 0 <= start and start + len(blks) <= len(hb) and hb[start:start+len(blks)] == blks:
+            return label
+    return None
+
 def main():
     files = json.load(open(OUT / "consensus.json", encoding="utf-8"))["files"]
+    corpus = {(r["names"][0], r["blocks"]): r
+              for r in json.load(open(OUT/"corpus.json", encoding="utf-8"))["records"]}
     lost = [r for r in files if r["tier"] == "corrupt" and "bad_blocks" in r]
-    if not lost:
-        print("no LOST files"); return
-    print("building haystack (content store + raw images)...")
+    print("building haystack (content store + de-skewed disk streams)...")
     seqs, index = build_haystack()
     print(f"  {len(seqs)} sequences, {len(index)} distinct blocks\n")
+    if not lost:
+        print("no LOST (corrupt) files\n")
 
     proposed = OUT / "donor_proposed"; proposed.mkdir(exist_ok=True)
     summary = []
@@ -195,13 +214,39 @@ def main():
         summary.append((name, len(nruns), confident))
         print()
 
-    print("=== summary ===")
+    print("=== LOST summary ===")
     for name, nr, conf in summary:
         tag = "RECOVERED" if conf == nr else f"{conf}/{nr} runs"
         print(f"  {name:14s} {tag}")
     rec = sum(1 for _, nr, c in summary if c == nr)
-    print(f"\n{rec}/{len(lost)} LOST files fully recovered from in-corpus donors "
-          f"(proposals in {proposed}); the rest need an EXTERNAL disk.")
+    print(f"{rec}/{len(lost)} LOST files fully recovered from in-corpus donors "
+          f"(proposals in {proposed}); the rest need an EXTERNAL disk.\n")
+
+    # --- second-copy corroboration for UNVERIFIED single-source files ---
+    # (the binary analogue: no content check is possible, so a matching orphaned
+    #  copy is the only in-corpus way to confirm — or contradict — them).
+    unv = [r for r in files if r["tier"] == "single"
+           and (r["clean"] + r["flagged"] + r["corrupt"]) == 0]
+    print(f"=== second-copy hunt for {len(unv)} UNVERIFIED single-source files ===")
+    hits = {"binary": [], "text": []}
+    for r in unv:
+        cr = corpus.get((r["name"], r["blocks"]))
+        if not cr:
+            continue
+        blks = blocks_of((STORE / f"{cr['sha']}.bin").read_bytes())
+        own = {f"content:{cr['sha'][:8]}"}
+        own |= {lbl for lbl, _ in seqs
+                if any(p["capture"].split("#")[0] in lbl for p in cr["provenance"])}
+        lbl = corroborate(seqs, index, blks, own)
+        if lbl:
+            hits["binary" if r["is_binary"] else "text"].append((r["name"], r["blocks"], lbl))
+    for kind in ("binary", "text"):
+        print(f"  {kind}: {len(hits[kind])} corroborated by a 2nd copy (incl. free space)")
+        for n, b, lbl in hits[kind]:
+            print(f"      {n:14s} {b:4d}blk  <- {lbl}")
+    nb = sum(1 for r in unv if r["is_binary"])
+    print(f"\nbinary blind spot: {nb} unverifiable -> {nb-len(hits['binary'])} still need an "
+          f"external disk ({len(hits['binary'])} corroborated from free space).")
 
 if __name__ == "__main__":
     main()
