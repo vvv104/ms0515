@@ -41,7 +41,7 @@ def main():
     for r in files:
         r["band"] = V.classify(r, recs_by_key, recovered, corro, disk_of, chosen)
 
-    cols = ["name", "blocks", "category", "is_binary", "tier", "band",
+    cols = ["name", "blocks", "verified_blocks", "category", "is_binary", "tier", "band",
             "captures", "versions", "clean", "unknown", "flagged", "corrupt"]
     with open(OUT / "report.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)

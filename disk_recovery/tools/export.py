@@ -111,15 +111,18 @@ def main():
                 csha = sha; data = (STORE/f"{sha}.bin").read_bytes()
             own = (csha == sha)
             (ddir / safe(name)).write_bytes(data)
+            vrfd = f"{r.get('verified_blocks', 0)}/{blocks}" if r else "?"
             rows.append((name, blocks, r["category"] if r else "?", band,
-                         verdict_text(r, band, recs_by_key, recovered, corro, disk_of, chosen, sha, own)))
+                         verdict_text(r, band, recs_by_key, recovered, corro, disk_of, chosen, sha, own),
+                         vrfd))
             bandc[band] += 1
         # VERDICT.txt
         lines = [f"disk: {disk}", f"files: {len(rows)}",
                  "  " + "  ".join(f"{b}={bandc[b]}" for b in V.BANDS if bandc[b]), "",
-                 f"{'FILE':<16}{'BLK':>5}  {'CAT':<7} VERDICT", "-"*78]
-        for name, blocks, cat, band, txt in rows:
-            lines.append(f"{name:<16}{blocks:>5}  {cat:<7} {txt}")
+                 "VRFD = blocks byte-identical on >=2 different physical disks",
+                 f"{'FILE':<16}{'BLK':>5} {'VRFD':>8}  {'CAT':<7} VERDICT", "-"*82]
+        for name, blocks, cat, band, txt, vrfd in rows:
+            lines.append(f"{name:<16}{blocks:>5} {vrfd:>8}  {cat:<7} {txt}")
         (ddir / "VERDICT.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
         index.append((disk, len(rows), bandc))
 

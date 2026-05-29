@@ -174,14 +174,25 @@ def main():
         # read-status), stored so the GUI offers genuine versions, not raw shas.
         builds = []
         primary = None
+        recon = []                                   # (cdata, disks) per build
         for cl in clusters:
             cdata, ctags = reconcile(cl, blocks, text)
             csha = hashlib.sha256(cdata).hexdigest()
             (STORE / f"{csha}.bin").write_bytes(cdata)
             disks = sorted({disk_of.get(c) for v in cl for c in v["captures"]} - {None})
             builds.append({"sha": csha, "disks": disks, "copies": len(cl)})
+            recon.append((cdata, set(disks)))
             if primary is None:
                 primary, data, tags = cl, cdata, ctags
+
+        # block-level GUARANTEED = ALL builds agree on this block AND it sits on
+        # >=2 different physical disks.  A block where the builds DIFFER is a
+        # real version-split, not bit-rot.
+        verified_blocks = 0
+        for b in range(blocks):
+            segs = [d[b*BLOCK:(b+1)*BLOCK] for d, _ in recon]
+            if len(set(segs)) == 1 and len(set().union(*(ds for _, ds in recon))) >= 2:
+                verified_blocks += 1
 
         tagc = Counter(tags)
         total_caps = sum(v["weight"] for v in variants)
@@ -200,6 +211,7 @@ def main():
                "is_binary": recs[0]["category"] in BINARY_CAT,
                "variants": len(variants), "captures": total_caps,
                "versions": len(clusters), "builds": builds,
+               "verified_blocks": verified_blocks,
                "clean": tagc["clean"], "unknown": tagc["unknown"],
                "flagged": tagc["flagged"], "corrupt": tagc["corrupt"],
                "tier": tier}

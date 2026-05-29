@@ -120,11 +120,12 @@ def run_gui(model):
     trees = {}
     for band in V.BANDS:
         frame = ttk.Frame(nb)
-        tv = ttk.Treeview(frame, columns=("blk", "vers", "chosen"), show="tree headings")
-        tv.heading("#0", text="file"); tv.column("#0", width=180)
-        tv.heading("blk", text="blk"); tv.column("blk", width=50, anchor="e")
-        tv.heading("vers", text="versions"); tv.column("vers", width=70, anchor="e")
-        tv.heading("chosen", text="chosen"); tv.column("chosen", width=90)
+        tv = ttk.Treeview(frame, columns=("blk", "vrfd", "vers", "chosen"), show="tree headings")
+        tv.heading("#0", text="file"); tv.column("#0", width=170)
+        tv.heading("blk", text="blk"); tv.column("blk", width=45, anchor="e")
+        tv.heading("vrfd", text="vrfd"); tv.column("vrfd", width=60, anchor="e")
+        tv.heading("vers", text="versions"); tv.column("vers", width=65, anchor="e")
+        tv.heading("chosen", text="chosen"); tv.column("chosen", width=85)
         sb = ttk.Scrollbar(frame, orient="vertical", command=tv.yview)
         tv.configure(yscrollcommand=sb.set)
         tv.pack(side="left", fill="both", expand=True); sb.pack(side="right", fill="y")
@@ -251,7 +252,9 @@ def run_gui(model):
                 ch = model.chosen.get(key, "")
                 idx = model.files.index(r)
                 tv.insert("", "end", text=r["name"],
-                          values=(r["blocks"], len(model.versions(r)), ch[:8]),
+                          values=(r["blocks"],
+                                  f"{r.get('verified_blocks', 0)}/{r['blocks']}",
+                                  len(model.versions(r)), ch[:8]),
                           tags=(str(idx),))
             ti = V.BANDS.index(band)
             nb.tab(ti, text=f"{band} ({len(bands.get(band, []))})")
