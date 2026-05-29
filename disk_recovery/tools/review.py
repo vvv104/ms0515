@@ -31,7 +31,9 @@ OUT = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus"
 STORE = OUT / "files"
 
 def _readable(b):
-    return (0x20 <= b <= 0x7E) or b in (9, 10, 13) or (0xC0 <= b <= 0xFF)
+    # printable ASCII; CR/LF/TAB; BS/VT/FF; SO/SI (KOI-7 РУС/ЛАТ shifts); ESC.
+    return ((0x20 <= b <= 0x7E) or b in (8, 9, 10, 11, 12, 13, 14, 15, 27)
+            or (0xC0 <= b <= 0xFF))
 
 def as_text(data):
     end = len(data)
@@ -223,6 +225,22 @@ def run_gui(model):
         t = as_text(voted)
         settext(t if t is not None else hexdump(voted))
         status.config(text=f"byte-vote -> {sha[:8]} of {len(v)} versions; review, then Set canonical")
+
+    def do_textmerge():
+        v = selected_versions()
+        if len(v) < 2:
+            status.config(text="select >=2 versions to text-merge"); return
+        datas = [model.content(s) for s, _ in v]
+        if len({len(d) for d in datas}) != 1:
+            status.config(text="versions differ in length — cannot text-merge"); return
+        merged, rescued = V.block_merge(datas)
+        sha = V.store_content(merged)
+        state["vers"].append((sha, [f"text-merge of {len(v)}"]))
+        vbox.insert("end", f"{sha[:8]}  on: (text-merge of {len(v)}; {len(rescued)} blocks rescued)")
+        vbox.selection_clear(0, "end"); vbox.selection_set("end")
+        t = as_text(merged)
+        settext(t if t is not None else hexdump(merged))
+        status.config(text=f"text-merge -> {sha[:8]}; {len(rescued)} blocks taken from a readable copy; review, then Set canonical")
 
     def refresh():
         bands = model.by_band()

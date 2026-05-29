@@ -36,14 +36,43 @@ def byte_majority(datas):
         out[i] = Counter(d[i] for d in datas).most_common(1)[0][0]
     return bytes(out)
 
-def store_voted(datas):
-    """Compute the byte-majority of `datas`, save it into the content store, and
-    return its sha (so a voted result is a first-class, selectable version)."""
-    voted = byte_majority(datas)
-    sha = hashlib.sha256(voted).hexdigest()
+def _readable(b):
+    # printable ASCII; CR/LF/TAB; BS, VT, FF; SO/SI (KOI-7 РУС/ЛАТ shifts); ESC
+    # (RUNOFF/terminal escapes); KOI-8 high range (Cyrillic).
+    return ((0x20 <= b <= 0x7E) or b in (8, 9, 10, 11, 12, 13, 14, 15, 27)
+            or (0xC0 <= b <= 0xFF))
+
+def _block_garbage(seg):
+    """A block is binary garbage iff more than half its bytes are non-readable
+    (and non-NUL).  Below 50% non-readable can still be legitimate text — control
+    bytes (SO/SI/ESC/...) are already counted as readable."""
+    return bool(seg) and sum(1 for x in seg if not (_readable(x) or x == 0)) / len(seg) > 0.5
+
+def block_merge(datas):
+    """For a TEXT file, reconcile copies block-by-block: take the readable block
+    where another copy has binary garbage (majority among the readable ones).
+    Returns (merged_bytes, [rescued block indices]).  Use only when the copies
+    are the SAME document with complementary damage."""
+    n = min(len(d) for d in datas) // 512
+    out, rescued = bytearray(), []
+    for i in range(n):
+        blks = [d[i*512:(i+1)*512] for d in datas]
+        good = [b for b in blks if not _block_garbage(b)]
+        out += Counter(good or blks).most_common(1)[0][0]
+        if good and len(good) < len(blks):
+            rescued.append(i)
+    return bytes(out), rescued
+
+def store_content(data):
+    """Save a (reconciled/voted/merged) content into the store; return its sha,
+    so it is a first-class, selectable version."""
+    sha = hashlib.sha256(data).hexdigest()
     _STORE.mkdir(parents=True, exist_ok=True)
-    (_STORE / f"{sha}.bin").write_bytes(voted)
+    (_STORE / f"{sha}.bin").write_bytes(data)
     return sha
+
+def store_voted(datas):
+    return store_content(byte_majority(datas))
 
 # capture/source suffixes that denote a different CAPTURE of the same disk
 _SUFFIX = re.compile(r"(-final|_Head0\+1|_Head[01]|_s[01])$", re.I)

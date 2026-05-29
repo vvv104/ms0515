@@ -55,11 +55,14 @@ def is_text(name):
     return (name.rsplit(".", 1)[1].upper() if "." in name else "") in TEXT_EXT
 
 def readable(b):
-    return (0x20 <= b <= 0x7E) or b in (9, 10, 13) or (0xC0 <= b <= 0xFF)
+    # printable ASCII; CR/LF/TAB; BS/VT/FF; SO/SI (KOI-7 РУС/ЛАТ shifts); ESC
+    # (RUNOFF/terminal escapes); KOI-8 high range (Cyrillic).
+    return ((0x20 <= b <= 0x7E) or b in (8, 9, 10, 11, 12, 13, 14, 15, 27)
+            or (0xC0 <= b <= 0xFF))
 
 def is_garbage(seg):
     n = sum(1 for b in seg if not (readable(b) or b == 0))
-    return n / len(seg) > 0.25 if seg else False
+    return n / len(seg) > 0.5 if seg else False
 
 def diff_stats(a, b):
     n = min(len(a), len(b)); d = bits = 0
