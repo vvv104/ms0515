@@ -30,11 +30,11 @@ BAD = re.compile(r'[<>:"/\\|?*]')
 def safe(name):
     return BAD.sub("_", name)
 
-def verdict_text(r, band, recs_by_key, recovered, corro, sha, own):
+def verdict_text(r, band, recs_by_key, recovered, corro, disk_of, sha, own):
     key = (r["name"], r["blocks"])
     note = "" if own else "  [this disk's copy was damaged; exported the recovered version]"
     if band == "GUARANTEED":
-        return f"GUARANTEED — byte-identical on {V.phys_disks(key, recs_by_key, corro)} different physical disks" + note
+        return f"GUARANTEED — byte-identical on {V.phys_disks(key, recs_by_key, corro, disk_of)} different physical disks" + note
     if band == "HIGH":
         return f"HIGH — identical across {r['captures']} reads, but only this physical disk" + note
     if band == "GOOD":
@@ -47,7 +47,7 @@ def verdict_text(r, band, recs_by_key, recovered, corro, sha, own):
     if band == "AMBIGUOUS":
         versions = []
         for cr in recs_by_key[key]:
-            disks = sorted({V.base_disk(p["capture"]) for p in cr["provenance"]} - {None})
+            disks = sorted({disk_of.get(p["capture"]) for p in cr["provenance"]} - {None})
             versions.append((cr["sha"], disks))
         versions.sort(key=lambda v: v[0] != sha)          # this disk's version first
         parts = []
@@ -72,12 +72,15 @@ def main():
         else {"recovered": [], "corroborated": []}
     recovered = {(d["name"], d["blocks"]) for d in donor["recovered"]}
     corro = {(d["name"], d["blocks"]): d["source"] for d in donor["corroborated"]}
+    cap_fp = json.load(open(OUT / "captures.json", encoding="utf-8")) \
+        if (OUT / "captures.json").exists() else {}
+    disk_of = V.physical_disks(corpus, cap_fp)
 
     # physical disk -> {(name, blocks): sha this disk carried}
     disk_files = defaultdict(dict)
     for r in corpus:
         for p in r["provenance"]:
-            base = V.base_disk(p["capture"])
+            base = disk_of.get(p["capture"])
             if base:
                 disk_files[base][(p["name"], r["blocks"])] = r["sha"]
 
@@ -92,7 +95,7 @@ def main():
         rows, bandc = [], defaultdict(int)
         for (name, blocks), sha in sorted(disk_files[disk].items()):
             r = cons.get(sha2canon.get(sha, (name, blocks)))
-            band = V.classify(r, recs_by_key, recovered, corro) if r else "UNVERIFIED"
+            band = V.classify(r, recs_by_key, recovered, corro, disk_of) if r else "UNVERIFIED"
             # choose best content
             prop = PROP / name
             if (name, blocks) in recovered and prop.exists():
@@ -104,7 +107,7 @@ def main():
             own = (csha == sha)
             (ddir / safe(name)).write_bytes(data)
             rows.append((name, blocks, r["category"] if r else "?", band,
-                         verdict_text(r, band, recs_by_key, recovered, corro, sha, own)))
+                         verdict_text(r, band, recs_by_key, recovered, corro, disk_of, sha, own)))
             bandc[band] += 1
         # VERDICT.txt
         lines = [f"disk: {disk}", f"files: {len(rows)}",

@@ -214,7 +214,15 @@ def main():
 
     OUT.mkdir(exist_ok=True)
     store = OUT / "files"; store.mkdir(exist_ok=True)   # content store: sha -> bytes
-    corpus, flagged = {}, []
+    corpus, flagged, cap_fp = {}, [], {}   # cap_fp: capture -> directory fingerprint
+
+    def dir_sig(entries):
+        """Fingerprint a volume's DIRECTORY (ordered files + start blocks + sizes),
+        as the layout-correct tool reads it.  Two captures of one physical disk
+        share this even if bad blocks read differently; different disks differ."""
+        items = sorted((side, name, start, length)
+                       for (side, name), (start, length) in entries.items())
+        return hashlib.sha256(repr(items).encode()).hexdigest()[:16]
 
     def ingest(name, data, rel, side, bad=None, status=False):
         h = hashlib.sha256(data).hexdigest()
@@ -255,6 +263,7 @@ def main():
         rel = str((parent / f"{base}_Head0+1").relative_to(WORK)).replace("\\", "/")
         for name, start, length in entries:
             ingest(name, files[name], rel, "span")
+        cap_fp[rel] = dir_sig({("span", n): (s, l) for n, s, l in entries})
         consumed |= {p0, p1}
 
     with tempfile.TemporaryDirectory() as tmpd:
@@ -267,6 +276,7 @@ def main():
             if not imgs:
                 continue
             any_ok = False
+            cap_entries = {}
             for img, sides, flagset in imgs:
                 status = flagset is not None
                 ds_img = img.stat().st_size == DS
@@ -275,13 +285,17 @@ def main():
                     if not files:
                         continue
                     any_ok = True
-                    dents = dir_entries(img, s) if status else {}
+                    dents = dir_entries(img, s)
+                    for n, (start, length) in dents.items():
+                        cap_entries[(s, n)] = (start, length)
                     for name, data in files.items():
                         bad = None
                         if status and name in dents:
                             start, length = dents[name]
                             bad = flagged_blocks(start, length, s, ds_img, flagset)
                         ingest(name, data, rel, s, bad, status)
+            if any_ok and cap_entries:
+                cap_fp[rel] = dir_sig(cap_entries)
             if not any_ok:
                 # Fall back to the DS-spanning reader (one ~1600-block volume
                 # across both sides) ms0515-disk can't read; link the spanning
@@ -300,6 +314,7 @@ def main():
                                 bad = [i for i in range(length)
                                        if to_byte(start + i)//512 in flagset]
                             ingest(name, files[name], rel, "span", bad, status)
+                        cap_fp[rel] = dir_sig({("span", n): (s, l) for n, s, l in entries})
             if not any_ok:
                 flagged.append({"capture": rel,
                                 "reason": "no readable directory (unknown layout)"})
@@ -309,6 +324,10 @@ def main():
     (OUT / "corpus.json").write_text(
         json.dumps({"records": records, "flagged": flagged}, indent=1,
                    ensure_ascii=False), encoding="utf-8")
+    # capture -> directory fingerprint; captures sharing one are the same physical
+    # disk (used by verdict.py to count distinct disks for the GUARANTEED bar).
+    (OUT / "captures.json").write_text(
+        json.dumps(cap_fp, indent=1, ensure_ascii=False), encoding="utf-8")
 
     by_cat = defaultdict(int)
     for r in records:

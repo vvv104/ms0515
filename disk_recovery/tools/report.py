@@ -32,9 +32,12 @@ def main():
         donor = json.load(open(OUT / "donor.json", encoding="utf-8"))
     recovered = {(d["name"], d["blocks"]) for d in donor["recovered"]}
     corro = {(d["name"], d["blocks"]): d["source"] for d in donor["corroborated"]}
+    cap_fp = json.load(open(OUT / "captures.json", encoding="utf-8")) \
+        if (OUT / "captures.json").exists() else {}
+    disk_of = V.physical_disks(corpus, cap_fp)
 
     for r in files:
-        r["band"] = V.classify(r, recs_by_key, recovered, corro)
+        r["band"] = V.classify(r, recs_by_key, recovered, corro, disk_of)
 
     cols = ["name", "blocks", "category", "is_binary", "tier", "band",
             "captures", "versions", "clean", "unknown", "flagged", "corrupt"]

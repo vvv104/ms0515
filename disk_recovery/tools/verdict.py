@@ -22,12 +22,13 @@ cross-disk guarantee.
 
 import re
 from pathlib import Path
+from collections import defaultdict
 
 # capture/source suffixes that denote a different CAPTURE of the same disk
 _SUFFIX = re.compile(r"(-final|_Head0\+1|_Head[01]|_s[01])$", re.I)
 
 def base_disk(source):
-    """Physical-disk key for a capture string or a donor source label.
+    """Readable physical-disk label from a capture / donor source string.
     Returns None for a content-store reference (not a physical disk)."""
     s = source.rsplit("#", 1)[0]                 # drop side marker
     if s.startswith("content:"):
@@ -38,23 +39,49 @@ def base_disk(source):
     stem = p.stem if p.suffix else p.name
     return str(p.parent / _SUFFIX.sub("", stem)).replace("\\", "/")
 
-def phys_disks(key, recs_by_key, corro):
+def physical_disks(corpus, cap_fp):
+    """Map every capture -> a physical-disk label.  Two captures are the SAME
+    physical disk when their DIRECTORY fingerprints match (same file list, order,
+    start blocks, sizes — written once at create time, immune to bad-block read
+    variance).  Captures with no fingerprint stand alone.  This is what the
+    GUARANTEED bar counts: identical content on >=2 DIFFERENT physical disks."""
+    caps = {p["capture"] for r in corpus for p in r["provenance"]}
+    groups = defaultdict(list)
+    for c in caps:
+        groups[cap_fp.get(c) or f"__{c}"].append(c)
+    disk_of = {}
+    for members in groups.values():
+        label = base_disk(min(members, key=lambda m: (len(m), m))) or members[0]
+        for c in members:
+            disk_of[c] = label
+    return disk_of
+
+def _disk(disk_of, source):
+    s = source.rsplit("#", 1)[0]
+    if s.startswith("content:"):
+        return None
+    if ":" in s:
+        s = s.split(":", 1)[1]
+    return disk_of.get(s, base_disk(source))
+
+def phys_disks(key, recs_by_key, corro, disk_of):
     """Max number of DISTINCT physical disks carrying one identical content of
     this file (any single sha), plus a free-space corroboration disk if any."""
     best = 0
     for cr in recs_by_key.get(key, []):
-        disks = {base_disk(p["capture"]) for p in cr["provenance"]}
+        disks = {disk_of.get(p["capture"]) for p in cr["provenance"]}
         disks.discard(None)
         if key in corro:
-            d = base_disk(corro[key])
+            d = _disk(disk_of, corro[key])
             if d:
                 disks.add(d)
         best = max(best, len(disks))
     return best
 
-def classify(r, recs_by_key, recovered, corro):
+def classify(r, recs_by_key, recovered, corro, disk_of):
     """Confidence band for a consensus file record `r`.
-    recovered = set of (name,blocks) donor-recovered; corro = {(name,blocks): src}."""
+    recovered = set of (name,blocks) donor-recovered; corro = {(name,blocks): src};
+    disk_of = capture -> physical-disk label (from physical_disks())."""
     key = (r["name"], r["blocks"])
     if key in recovered:
         return "GOOD"                            # donor-recovered + verified
@@ -62,7 +89,7 @@ def classify(r, recs_by_key, recovered, corro):
         return "LOST"
     if r["tier"] == "multi-version":
         return "AMBIGUOUS"
-    if phys_disks(key, recs_by_key, corro) >= 2:
+    if phys_disks(key, recs_by_key, corro, disk_of) >= 2:
         return "GUARANTEED"
     if r["tier"] == "verified":
         return "HIGH"
