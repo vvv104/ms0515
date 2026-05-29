@@ -44,6 +44,115 @@ def as_text(data):
         return body.decode("koi8-r", "replace")
     return None
 
+def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
+    """Side-by-side hex diff popup with synchronised scrolling and red-highlight
+    on differing bytes (both hex and ASCII columns).  Next/Prev jump between
+    differing rows."""
+    import tkinter as tk
+    from tkinter import ttk
+    BPR = 16
+    n = max(len(data_a), len(data_b))
+    rows = (n + BPR - 1) // BPR
+    diff_rows = []
+
+    win = tk.Toplevel(parent)
+    win.title(f"Compare: {name}  —  {sha_a[:8]} vs {sha_b[:8]}")
+    win.geometry("1500x820")
+
+    bar = ttk.Frame(win); bar.pack(fill="x", padx=4, pady=2)
+    info = ttk.Label(bar, text="rendering...", font=("", 9))
+    info.pack(side="left", padx=8)
+    nxt_btn = ttk.Button(bar, text="Next diff ↓", width=14); nxt_btn.pack(side="right", padx=2)
+    prv_btn = ttk.Button(bar, text="Prev diff ↑", width=14); prv_btn.pack(side="right", padx=2)
+
+    hdr = ttk.Frame(win); hdr.pack(fill="x", padx=4)
+    ttk.Label(hdr, text=f"{sha_a[:8]}  ({len(data_a)} B)", foreground="#444",
+              font=("", 9, "bold")).pack(side="left", padx=8)
+    ttk.Label(hdr, text=f"{sha_b[:8]}  ({len(data_b)} B)", foreground="#444",
+              font=("", 9, "bold")).pack(side="right", padx=8)
+
+    body = ttk.Frame(win); body.pack(fill="both", expand=True, padx=4, pady=2)
+    sb = ttk.Scrollbar(body, orient="vertical"); sb.pack(side="right", fill="y")
+    ta = tk.Text(body, wrap="none", font=("Consolas", 10), padx=4)
+    tb = tk.Text(body, wrap="none", font=("Consolas", 10), padx=4)
+    ta.pack(side="left", fill="both", expand=True)
+    tb.pack(side="left", fill="both", expand=True)
+    for t in (ta, tb):
+        t.tag_configure("diff", foreground="red")
+        t.tag_configure("addr", foreground="#888")
+
+    # synced scrolling: any scroll on one side mirrors to the other
+    syncing = [False]
+    def make_yscroll(other):
+        def cb(*args):
+            sb.set(*args)
+            if not syncing[0]:
+                syncing[0] = True
+                other.yview_moveto(float(args[0]))
+                syncing[0] = False
+        return cb
+    ta.configure(yscrollcommand=make_yscroll(tb))
+    tb.configure(yscrollcommand=make_yscroll(ta))
+    sb.configure(command=lambda *a: (ta.yview(*a), tb.yview(*a)))
+    def mwheel(e):
+        d = -1 * (e.delta // 120)
+        ta.yview_scroll(d, "units"); tb.yview_scroll(d, "units")
+        return "break"
+    for t in (ta, tb):
+        t.bind("<MouseWheel>", mwheel)
+
+    def build_line(off, seg, oth_len):
+        n_ = len(seg)
+        addr = f"{off:08x}  "
+        hex_parts = []
+        for i in range(BPR):
+            hex_parts.append(f"{seg[i]:02x} " if i < n_ else "   ")
+            if i == 7:
+                hex_parts.append(" ")
+        asc = "".join(chr(seg[i]) if i < n_ and 32 <= seg[i] <= 126 else
+                      ("." if i < n_ else " ") for i in range(BPR))
+        return addr + "".join(hex_parts) + "|" + asc + "|\n"
+
+    def render(t, data, other):
+        for r in range(rows):
+            off = r * BPR
+            seg = data[off:off+BPR]; oth = other[off:off+BPR]
+            t.insert("end", build_line(off, seg, len(oth)))
+            ln = r + 1
+            t.tag_add("addr", f"{ln}.0", f"{ln}.10")
+            for i in range(BPR):
+                a_has = i < len(seg); b_has = i < len(oth)
+                if a_has and b_has and seg[i] == oth[i]:
+                    continue
+                if not a_has and not b_has:
+                    continue
+                hpos = 10 + i*3 + (1 if i >= 8 else 0)
+                t.tag_add("diff", f"{ln}.{hpos}", f"{ln}.{hpos+2}")
+                apos = 60 + i               # 10 addr + 49 hex + 1 sep
+                t.tag_add("diff", f"{ln}.{apos}", f"{ln}.{apos+1}")
+    render(ta, data_a, data_b)
+    render(tb, data_b, data_a)
+    for r in range(rows):
+        off = r*BPR
+        if data_a[off:off+BPR] != data_b[off:off+BPR]:
+            diff_rows.append(r)
+    for t in (ta, tb): t.configure(state="disabled")
+    info.config(text=f"{len(diff_rows)} differing rows of {rows} (BPR={BPR})")
+
+    def jump(direction):
+        if not diff_rows or rows == 0: return
+        cur = int(ta.yview()[0] * rows)
+        if direction > 0:
+            nxt = next((r for r in diff_rows if r > cur), diff_rows[0])
+        else:
+            nxt = next((r for r in reversed(diff_rows) if r < cur), diff_rows[-1])
+        frac = nxt / rows if rows else 0
+        ta.yview_moveto(frac); tb.yview_moveto(frac)
+    nxt_btn.config(command=lambda: jump(1))
+    prv_btn.config(command=lambda: jump(-1))
+    if diff_rows:
+        jump(1)                                 # auto-jump to first difference
+
 def hexdump(data, limit=4096):
     out = []
     for off in range(0, min(len(data), limit), 16):
@@ -193,23 +302,12 @@ def run_gui(model):
             d = list(difflib.unified_diff(ta.splitlines(), tb.splitlines(),
                                           v[0][0][:8], v[1][0][:8], lineterm=""))
             settext("\n".join(d) if d else "(identical as text)")
+            status.config(text=f"text diff {v[0][0][:8]} vs {v[1][0][:8]}")
         else:
-            nblk = max(len(a), len(b)) // 512 + 1
-            diff = [i for i in range(nblk) if a[i*512:(i+1)*512] != b[i*512:(i+1)*512]]
+            r = state["rec"]; nm = r["name"] if r else "?"
+            hex_diff_window(root, nm, v[0][0], a, v[1][0], b)
             total = sum(1 for i in range(min(len(a), len(b))) if a[i] != b[i])
-            lines = [f"binary diff {v[0][0][:8]} vs {v[1][0][:8]} — "
-                     f"{len(diff)} differing block(s), {total} byte(s) total\n"]
-            for blk in diff:
-                sa, sb = a[blk*512:(blk+1)*512], b[blk*512:(blk+1)*512]
-                bd = [(k, sa[k], sb[k]) for k in range(min(len(sa), len(sb))) if sa[k] != sb[k]]
-                tag = "  <= likely bit-rot" if len(bd) <= 8 else ""
-                lines.append(f"block {blk}: {len(bd)} byte(s) differ{tag}")
-                for off, x, y in bd[:32]:
-                    lines.append(f"    +0x{off:03x}: {x:02x} vs {y:02x}  ('{chr(x) if 32<=x<=126 else '.'}' '{chr(y) if 32<=y<=126 else '.'}')")
-                if len(bd) > 32:
-                    lines.append(f"    ... +{len(bd)-32} more bytes")
-            settext("\n".join(lines))
-        status.config(text=f"diff {v[0][0][:8]} vs {v[1][0][:8]}")
+            status.config(text=f"hex diff popup opened ({total} byte(s) differ)")
 
     def do_bytevote():
         v = selected_versions()
