@@ -27,16 +27,22 @@ from collections import Counter
 OUT = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus"
 
 ACTION = {
-    "HIGH":       "-",
-    "GOOD":       "-",
-    "MEDIUM":     "find a 2nd independent copy to confirm",
-    "UNVERIFIED": "find a 2nd copy or a read-status capture",
-    "AMBIGUOUS":  "pick the canonical build (by monitor generation)",
-    "LOST":       "external donor disk / free-space anchor search",
+    "HIGH":        "-",
+    "GOOD":        "-",
+    "CORROBORATED":"-",
+    "MEDIUM":      "find a 2nd independent copy to confirm",
+    "UNVERIFIED":  "find a 2nd copy or a read-status capture",
+    "AMBIGUOUS":   "pick the canonical build (by monitor generation)",
+    "LOST":        "external donor disk / free-space anchor search",
 }
-ORDER = ["LOST", "AMBIGUOUS", "UNVERIFIED", "MEDIUM", "GOOD", "HIGH"]
+ORDER = ["LOST", "AMBIGUOUS", "UNVERIFIED", "MEDIUM", "CORROBORATED", "GOOD", "HIGH"]
+# Bands we trust as healthy (no corruption indicator + positive corroboration).
+HEALTHY = {"HIGH", "GOOD", "CORROBORATED", "MEDIUM"}
 
-def confidence(r):
+def confidence(r, recovered, corroborated):
+    key = (r["name"], r["blocks"])
+    if key in recovered:     return "GOOD"          # donor-recovered + verified
+    if key in corroborated:  return "CORROBORATED"  # single, but a 2nd copy was found
     t = r["tier"]
     if t == "corrupt":       return "LOST"
     if t == "multi-version": return "AMBIGUOUS"
@@ -49,8 +55,13 @@ def confidence(r):
 
 def main():
     files = json.load(open(OUT / "consensus.json", encoding="utf-8"))["files"]
+    donor = {"recovered": [], "corroborated": []}
+    if (OUT / "donor.json").exists():
+        donor = json.load(open(OUT / "donor.json", encoding="utf-8"))
+    recovered = {(d["name"], d["blocks"]) for d in donor["recovered"]}
+    corroborated = {(d["name"], d["blocks"]) for d in donor["corroborated"]}
     for r in files:
-        r["confidence"] = confidence(r)
+        r["confidence"] = confidence(r, recovered, corroborated)
 
     # full matrix -> CSV
     cols = ["name", "blocks", "category", "is_binary", "tier", "confidence",
@@ -82,8 +93,9 @@ def main():
           "|---|--:|--:|--:|---|"]
     MEANING = {
         "HIGH": "verified, >=2 captures identical — no action",
-        "GOOD": "recovered from clean copies — no action",
-        "MEDIUM": "single source, read-status clean — confirm with a 2nd copy",
+        "GOOD": "recovered from clean copies / donor — no action",
+        "CORROBORATED": "single source, but a 2nd copy confirms it — no action",
+        "MEDIUM": "single source, every sector CRC-clean — confirm with a 2nd copy",
         "UNVERIFIED": "single raw read, no status — blind spot",
         "AMBIGUOUS": "several builds share the name — pick canonical",
         "LOST": "bad on every copy — needs external donor",
@@ -109,12 +121,31 @@ def main():
     md += section("UNVERIFIED — single source, no way to check (blind spot)",
                   unv, lambda r: "binary" if r["is_binary"] else "text")
 
+    # --- healthy set: files we can trust (no corruption + positive corroboration) ---
+    healthy = sorted([r for r in files if r["confidence"] in HEALTHY],
+                     key=lambda r: (not r["is_binary"], r["name"]))
+    (OUT / "healthy.txt").write_text(
+        "\n".join(f"{r['name']}\t{r['blocks']}blk\t{r['category']}\t{r['confidence']}"
+                  for r in healthy) + "\n", encoding="utf-8")
+    hb = sum(1 for r in healthy if r["is_binary"])
+    md += ["## Healthy files (safe to trust)", "",
+           f"**{len(healthy)} of {len(files)}** logical files are healthy "
+           f"({len(healthy)-hb} text, {hb} binary): no corruption indicator and at least one "
+           "positive corroboration — full list in `healthy.txt`.", "",
+           "Confidence basis: HIGH = >=2 captures byte-identical; GOOD = reconciled clean / "
+           "donor-recovered; CORROBORATED = single source with a matching 2nd copy; "
+           "MEDIUM = single source, every sector CRC-clean.", "",
+           "_Caveat: this is the strongest **automated** guarantee (cross-read agreement, "
+           "hardware CRC, second copy, text content).  The only literal 100% is running each "
+           "file in the emulator.  A binary verified by agreement across captures of the **same "
+           "physical disk** could in principle share a silent error (rare)._", ""]
     (OUT / "REPORT.md").write_text("\n".join(md), encoding="utf-8")
 
     print("confidence bands (all / text / binary):")
     for b in ORDER:
-        print(f"  {b:11s} {band.get(b,0):4d}   {band_txt.get(b,0):4d}   {band_bin.get(b,0):4d}   {MEANING[b]}")
-    print(f"\nwrote {OUT/'REPORT.md'} and {OUT/'report.csv'}")
+        print(f"  {b:12s} {band.get(b,0):4d}   {band_txt.get(b,0):4d}   {band_bin.get(b,0):4d}   {MEANING[b]}")
+    print(f"\nHEALTHY (trustworthy): {len(healthy)}/{len(files)}  ({len(healthy)-hb} text, {hb} binary) -> healthy.txt")
+    print(f"wrote {OUT/'REPORT.md'}, {OUT/'report.csv'}, {OUT/'healthy.txt'}")
 
 if __name__ == "__main__":
     main()

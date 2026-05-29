@@ -211,14 +211,14 @@ def main():
         if confident == len(nruns):                    # every run resolved -> write proposal
             (proposed / name).write_bytes(b"".join(blks))
             print(f"   -> FULLY RECOVERED, wrote {proposed/name}")
-        summary.append((name, len(nruns), confident))
+        summary.append((name, blocks, len(nruns), confident))
         print()
 
     print("=== LOST summary ===")
-    for name, nr, conf in summary:
+    for name, b, nr, conf in summary:
         tag = "RECOVERED" if conf == nr else f"{conf}/{nr} runs"
         print(f"  {name:14s} {tag}")
-    rec = sum(1 for _, nr, c in summary if c == nr)
+    rec = sum(1 for _, _, nr, c in summary if c == nr)
     print(f"{rec}/{len(lost)} LOST files fully recovered from in-corpus donors "
           f"(proposals in {proposed}); the rest need an EXTERNAL disk.\n")
 
@@ -247,6 +247,15 @@ def main():
     nb = sum(1 for r in unv if r["is_binary"])
     print(f"\nbinary blind spot: {nb} unverifiable -> {nb-len(hits['binary'])} still need an "
           f"external disk ({len(hits['binary'])} corroborated from free space).")
+
+    # Persist results so report.py can fold them into the confidence matrix.
+    (OUT / "donor.json").write_text(json.dumps({
+        "recovered":    [{"name": n, "blocks": b}
+                         for n, b, nr, c in summary if c == nr],
+        "corroborated": [{"name": n, "blocks": b, "source": s}
+                         for kind in hits for n, b, s in hits[kind]],
+    }, indent=1, ensure_ascii=False), encoding="utf-8")
+    print(f"wrote {OUT/'donor.json'}")
 
 if __name__ == "__main__":
     main()
