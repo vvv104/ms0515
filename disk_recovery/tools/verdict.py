@@ -21,8 +21,29 @@ cross-disk guarantee.
 """
 
 import re
+import hashlib
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict, Counter
+
+_STORE = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus" / "files"
+
+def byte_majority(datas):
+    """Per-byte majority across copies of one file (for reconciling bit-rot).
+    Apply only to copies of the SAME build — across different builds it blends."""
+    n = min(len(d) for d in datas)
+    out = bytearray(n)
+    for i in range(n):
+        out[i] = Counter(d[i] for d in datas).most_common(1)[0][0]
+    return bytes(out)
+
+def store_voted(datas):
+    """Compute the byte-majority of `datas`, save it into the content store, and
+    return its sha (so a voted result is a first-class, selectable version)."""
+    voted = byte_majority(datas)
+    sha = hashlib.sha256(voted).hexdigest()
+    _STORE.mkdir(parents=True, exist_ok=True)
+    (_STORE / f"{sha}.bin").write_bytes(voted)
+    return sha
 
 # capture/source suffixes that denote a different CAPTURE of the same disk
 _SUFFIX = re.compile(r"(-final|_Head0\+1|_Head[01]|_s[01])$", re.I)
@@ -114,7 +135,12 @@ def load_decisions(path, recs_by_key, disk_of):
             blocks = int(cells[1].strip().replace("blk", ""))
         except ValueError:
             continue
-        sha = resolve_choice(cells[2], version_disks((name, blocks), recs_by_key, disk_of))
+        choose = cells[2].strip()
+        sha = resolve_choice(choose, version_disks((name, blocks), recs_by_key, disk_of))
+        if not sha:                              # a voted/synthetic content in the store
+            hits = list(_STORE.glob(choose + "*.bin")) if len(choose) >= 6 else []
+            if len(hits) == 1:
+                sha = hits[0].stem
         if sha:
             chosen[(name, blocks)] = sha
     return chosen

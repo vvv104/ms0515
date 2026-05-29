@@ -190,15 +190,38 @@ def run_gui(model):
                                           v[0][0][:8], v[1][0][:8], lineterm=""))
             settext("\n".join(d) if d else "(identical as text)")
         else:
-            n = max(len(a), len(b)) // 512 + 1
-            diff = [i for i in range(n) if a[i*512:(i+1)*512] != b[i*512:(i+1)*512]]
-            s = f"binary diff — {len(diff)} differing block(s): {diff[:40]}\n"
-            if diff:
-                i = diff[0]
-                s += f"\n--- {v[0][0][:8]} block {i} ---\n" + hexdump(a[i*512:(i+1)*512])
-                s += f"\n\n--- {v[1][0][:8]} block {i} ---\n" + hexdump(b[i*512:(i+1)*512])
-            settext(s)
+            nblk = max(len(a), len(b)) // 512 + 1
+            diff = [i for i in range(nblk) if a[i*512:(i+1)*512] != b[i*512:(i+1)*512]]
+            total = sum(1 for i in range(min(len(a), len(b))) if a[i] != b[i])
+            lines = [f"binary diff {v[0][0][:8]} vs {v[1][0][:8]} — "
+                     f"{len(diff)} differing block(s), {total} byte(s) total\n"]
+            for blk in diff:
+                sa, sb = a[blk*512:(blk+1)*512], b[blk*512:(blk+1)*512]
+                bd = [(k, sa[k], sb[k]) for k in range(min(len(sa), len(sb))) if sa[k] != sb[k]]
+                tag = "  <= likely bit-rot" if len(bd) <= 8 else ""
+                lines.append(f"block {blk}: {len(bd)} byte(s) differ{tag}")
+                for off, x, y in bd[:32]:
+                    lines.append(f"    +0x{off:03x}: {x:02x} vs {y:02x}  ('{chr(x) if 32<=x<=126 else '.'}' '{chr(y) if 32<=y<=126 else '.'}')")
+                if len(bd) > 32:
+                    lines.append(f"    ... +{len(bd)-32} more bytes")
+            settext("\n".join(lines))
         status.config(text=f"diff {v[0][0][:8]} vs {v[1][0][:8]}")
+
+    def do_bytevote():
+        v = selected_versions()
+        if len(v) < 2:
+            status.config(text="select >=2 versions (you judge SAME build) to byte-vote"); return
+        datas = [model.content(s) for s, _ in v]
+        if len({len(d) for d in datas}) != 1:
+            status.config(text="versions differ in length — cannot byte-vote"); return
+        sha = V.store_voted(datas)
+        state["vers"].append((sha, [f"byte-vote of {len(v)}"]))
+        vbox.insert("end", f"{sha[:8]}  on: (byte-vote of {len(v)})")
+        vbox.selection_clear(0, "end"); vbox.selection_set("end")
+        voted = model.content(sha)
+        t = as_text(voted)
+        settext(t if t is not None else hexdump(voted))
+        status.config(text=f"byte-vote -> {sha[:8]} of {len(v)} versions; review, then Set canonical")
 
     def refresh():
         bands = model.by_band()
@@ -233,6 +256,7 @@ def run_gui(model):
 
     ttk.Button(btns, text="View", command=do_view).pack(side="left")
     ttk.Button(btns, text="Diff 2", command=do_diff).pack(side="left", padx=4)
+    ttk.Button(btns, text="Byte-vote sel", command=do_bytevote).pack(side="left")
     ttk.Button(btns, text="✓ Set canonical", command=do_set).pack(side="left", padx=4)
     ttk.Button(btns, text="Clear", command=do_clear).pack(side="left")
 
