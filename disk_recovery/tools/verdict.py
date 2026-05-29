@@ -165,3 +165,22 @@ ACTION = {
 }
 
 DECISIONS = Path(__file__).resolve().parents[2] / "disk_recovery" / "decisions.tsv"
+
+DECISION_HEADER = (
+    "# Pick the canonical version for each AMBIGUOUS file.\n"
+    "# Put the sha8 (or a disk it is on) in CHOOSE; blank = undecided.\n"
+    "# Compare the bytes in export/<disk>/<file>.  Tab-separated; keep the columns.\n"
+    "# NAME\tBLK\tCHOOSE\tVERSIONS (sha8 @ disks)\n")
+
+def write_decisions(path, amb_records, recs_by_key, disk_of, chosen):
+    """Write the decisions file for the AMBIGUOUS records, filling CHOOSE from
+    `chosen` ({(name,blocks): sha}).  Used by decide.py and the review GUI so the
+    format stays identical."""
+    lines = [DECISION_HEADER]
+    for r in sorted(amb_records, key=lambda r: r["name"]):
+        key = (r["name"], r["blocks"])
+        vers = version_disks(key, recs_by_key, disk_of)
+        opts = " ;; ".join(f"{s[:8]} @ {','.join(d)}" for s, d in vers)
+        ch = chosen.get(key, "")
+        lines.append(f"{r['name']}\t{r['blocks']}\t{ch[:8]}\t{opts}\n")
+    Path(path).write_text("".join(lines), encoding="utf-8")
