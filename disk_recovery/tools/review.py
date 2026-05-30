@@ -270,33 +270,66 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
         text_a, text_b = dec(data_a), dec(data_b)
         lines_a = text_a.splitlines()
         lines_b = text_b.splitlines()
-        n_lines = max(len(lines_a), len(lines_b), 1)
+        # Align line lists via difflib so a divergent run (e.g. bit-rot that
+        # injected stray 0x0A bytes and split a region into N junk lines on one
+        # side) does NOT shift everything after it — without LCS alignment,
+        # post-divergence lines on the longer side all looked "different" even
+        # though they matched their counterparts further down.  Empty cells pad
+        # the shorter side so common lines line up across the gap.
+        matcher = difflib.SequenceMatcher(None, lines_a, lines_b, autojunk=False)
+        rows = []                                       # (ln_a, ln_b, la, lb, is_diff)
+        for op, i1, i2, j1, j2 in matcher.get_opcodes():
+            if op == "equal":
+                for k in range(i2 - i1):
+                    rows.append((i1+k+1, j1+k+1, lines_a[i1+k], lines_b[j1+k], False))
+            elif op == "replace":
+                span_a, span_b = i2 - i1, j2 - j1
+                for k in range(max(span_a, span_b)):
+                    la = lines_a[i1+k] if k < span_a else ""
+                    lb = lines_b[j1+k] if k < span_b else ""
+                    ln_a = i1+k+1 if k < span_a else None
+                    ln_b = j1+k+1 if k < span_b else None
+                    rows.append((ln_a, ln_b, la, lb, True))
+            elif op == "delete":
+                for k in range(i2 - i1):
+                    rows.append((i1+k+1, None, lines_a[i1+k], "", True))
+            elif op == "insert":
+                for k in range(j2 - j1):
+                    rows.append((None, j1+k+1, "", lines_b[j1+k], True))
+
         diff_set = set()
         LN_W = 5
-        PREFIX = LN_W + 2     # "%5d  " column width
-        for i in range(n_lines):
-            la = lines_a[i] if i < len(lines_a) else ""
-            lb = lines_b[i] if i < len(lines_b) else ""
-            ta.insert("end", f"{i+1:{LN_W}d}  {la}\n")
-            tb.insert("end", f"{i+1:{LN_W}d}  {lb}\n")
-            ln = i + 1
+        PREFIX = LN_W + 2
+        blank_ln = " " * LN_W
+        for r_idx, (ln_a, ln_b, la, lb, is_diff) in enumerate(rows):
+            la_n = f"{ln_a:{LN_W}d}" if ln_a is not None else blank_ln
+            lb_n = f"{ln_b:{LN_W}d}" if ln_b is not None else blank_ln
+            ta.insert("end", f"{la_n}  {la}\n")
+            tb.insert("end", f"{lb_n}  {lb}\n")
+            ln = r_idx + 1
             ta.tag_add("addr", f"{ln}.0", f"{ln}.{PREFIX-1}")
             tb.tag_add("addr", f"{ln}.0", f"{ln}.{PREFIX-1}")
-            if la != lb:
-                diff_set.add(i)
-                # Character-level inline highlighting via difflib opcodes.
-                matcher = difflib.SequenceMatcher(None, la, lb, autojunk=False)
-                for op, i1, i2, j1, j2 in matcher.get_opcodes():
-                    if op == "equal":
-                        continue
-                    if i2 > i1:
-                        ta.tag_add("diff", f"{ln}.{PREFIX+i1}", f"{ln}.{PREFIX+i2}")
-                    if j2 > j1:
-                        tb.tag_add("diff", f"{ln}.{PREFIX+j1}", f"{ln}.{PREFIX+j2}")
+            if is_diff:
+                diff_set.add(r_idx)
+                if la and lb:
+                    inner = difflib.SequenceMatcher(None, la, lb, autojunk=False)
+                    for op2, i1, i2, j1, j2 in inner.get_opcodes():
+                        if op2 == "equal":
+                            continue
+                        if i2 > i1:
+                            ta.tag_add("diff", f"{ln}.{PREFIX+i1}", f"{ln}.{PREFIX+i2}")
+                        if j2 > j1:
+                            tb.tag_add("diff", f"{ln}.{PREFIX+j1}", f"{ln}.{PREFIX+j2}")
+                else:
+                    # One side empty (pad row) — paint the non-empty side red.
+                    if la:
+                        ta.tag_add("diff", f"{ln}.{PREFIX}", f"{ln}.end")
+                    if lb:
+                        tb.tag_add("diff", f"{ln}.{PREFIX}", f"{ln}.end")
         vstate["diff_items"] = sorted(diff_set)
-        vstate["total_lines"] = n_lines
-        info.config(text=f"[{enc}]  {len(vstate['diff_items'])} differing lines "
-                         f"(of {n_lines} total)")
+        vstate["total_lines"] = len(rows)
+        info.config(text=f"[{enc}]  {len(vstate['diff_items'])} differing rows "
+                         f"(of {len(rows)} aligned; {len(lines_a)}/{len(lines_b)} src lines)")
 
     def clear_panes():
         for t in (ta, tb):
