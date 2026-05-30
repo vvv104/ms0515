@@ -1218,16 +1218,25 @@ def run_gui(model):
                 if p.exists(): return p.read_bytes()
         return None
 
+    SEG_RE = re.compile(r"segs=\s*(\d+)\s+data_start=\s*(\d+)")
     def read_directory(image_path, side):
-        """[(name, start, length)] from `ms0515-disk dir`."""
+        """Parse `ms0515-disk dir` output -> (segs, [(name, start, length)]).
+        `segs` (the number of directory segments the OS allocated when this
+        volume was INIT'd) drives data_start: each segment costs 2 blocks,
+        so re-initialising the rebuilt volume must use the SAME segs or
+        files won't fit (the original may have packed close to the end).
+        Returns (None, []) if the side isn't readable."""
         r = subprocess.run([str(DISK_TOOL), "dir", str(image_path),
                             "--side", str(side)], capture_output=True, text=True)
-        out = []
+        segs, out = None, []
         for line in r.stdout.splitlines():
+            mh = SEG_RE.search(line)
+            if mh:
+                segs = int(mh.group(1))
             m = DIR_RE.match(line)
             if m:
                 out.append((m.group(1), int(m.group(2)), int(m.group(3))))
-        return out
+        return segs, out
 
     def do_build_disk():
         from tkinter import filedialog, messagebox
@@ -1244,7 +1253,7 @@ def run_gui(model):
         captures = sorted(c for c, d in model.disk_of.items() if d == canon)
         # Read every available capture, side-by-side; keep the listing with the
         # most entries per side (closest to the original directory state).
-        best_dir = {}            # side -> [(name, start, length)]
+        best_dir = {}            # side -> (segs, [(name, start, length)])
         is_ds = False
         for cap in captures:
             cap_path = WORK / cap
@@ -1255,9 +1264,9 @@ def run_gui(model):
             if sz == 819200:
                 is_ds = True
             for side in sides:
-                entries = read_directory(cap_path, side)
-                if entries and len(entries) > len(best_dir.get(side, [])):
-                    best_dir[side] = entries
+                segs, entries = read_directory(cap_path, side)
+                if entries and len(entries) > len(best_dir.get(side, (None, []))[1]):
+                    best_dir[side] = (segs, entries)
         if not best_dir:
             status.config(text=f"no readable directory among captures of {canon}"); return
 
@@ -1276,9 +1285,17 @@ def run_gui(model):
             if is_ds:
                 create_cmd.append("--ds")
             subprocess.run(create_cmd, check=True, capture_output=True)
-            for side in sorted(best_dir):
-                subprocess.run([str(DISK_TOOL), "init", str(out_path),
-                                "--side", str(side)], check=True, capture_output=True)
+            for side, (segs, _) in sorted(best_dir.items()):
+                # Match the ORIGINAL volume's segment count: each segment costs
+                # 2 blocks of data area, so initialising with the default 4
+                # segments when the original had 1 leaves files 6 blocks short
+                # of fitting (the side0 of vvv104/disk1 used segs=1 and packed
+                # right up to the end).
+                init_cmd = [str(DISK_TOOL), "init", str(out_path),
+                            "--side", str(side)]
+                if segs:
+                    init_cmd += ["--segments", str(segs)]
+                subprocess.run(init_cmd, check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             status.config(text=f"create/init failed: {e.stderr.decode(errors='replace')[:80]}")
             return
@@ -1311,7 +1328,7 @@ def run_gui(model):
         missing, written, recovered_names = [], 0, []
         with tempfile.TemporaryDirectory() as tmpd:
             tmp = Path(tmpd)
-            for side, entries in sorted(best_dir.items()):
+            for side, (segs, entries) in sorted(best_dir.items()):
                 entries.sort(key=lambda e: e[1])             # by start block
                 paths = []
                 for orig_name, start, length in entries:
@@ -1364,8 +1381,10 @@ def run_gui(model):
                                        check=True, capture_output=True)
                         written += len(paths)
                     except subprocess.CalledProcessError as e:
-                        missing.extend(f"put-failed-side{side}: " +
-                                       e.stderr.decode(errors="replace")[:60])
+                        # extend(str) splits characters — append the full
+                        # message as one line so the error stays legible.
+                        missing.append(f"put-failed-side{side}: " +
+                                       e.stderr.decode(errors="replace").strip()[:120])
         msg = f"built {out_path.name}: {written} files"
         if recovered_names:
             msg += (f"\n\nRecovered from bit-rotted directory entries "
