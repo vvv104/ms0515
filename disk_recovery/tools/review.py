@@ -56,18 +56,19 @@ def _is_textual(data):
     return bool(body) and sum(1 for x in body if _readable(x)) / len(body) > 0.7
 
 def detect_encoding(data):
-    """Best guess at the bytes' source encoding.  KOI-7 uses 7-bit ASCII with
-    SO (0x0E) / SI (0x0F) shifting between Latin and Cyrillic registers, so
-    its presence is the strongest signal (and it has no high bytes).  Anything
-    8-bit with set high bits is treated as KOI-8R (the RT-11 / MS-0515 default);
-    purely 7-bit ASCII without shifts falls through to 'ASCII'."""
+    """Best guess at the bytes' source encoding.  KOI-7 is 7-bit by definition
+    (Cyrillic lives in 0x40..0x7E behind SO/SI shifts), so the presence of ANY
+    high byte rules it out — without this, a stray 0x0E/0x0F from bit-rot in a
+    damaged KOI-8R file mis-tagged it as KOI-7 (e.g. two of three PASGR.DOC
+    versions on disk5).  Order: high bytes -> KOI-8R; no high bytes + SO/SI ->
+    KOI-7; else ASCII."""
     body = _strip_trailing_zeros(data)
     if not body:
         return "ASCII"
-    if any(b in (0x0E, 0x0F) for b in body):
-        return "KOI-7"
     if any(b >= 0x80 for b in body):
         return "KOI-8R"
+    if any(b in (0x0E, 0x0F) for b in body):
+        return "KOI-7"
     return "ASCII"
 
 def decode_koi7(data):
