@@ -73,8 +73,10 @@ def detect_encoding(data):
 def decode_koi7(data):
     """Apply a KOI-7 SO/SI shift state machine.  Default register is Latin;
     SO -> Cyrillic, SI -> Latin.  In the Cyrillic register, 0x40..0x5F map to
-    KOI-8R uppercase Cyrillic (0xE0..0xFF) and 0x60..0x7E to lowercase
-    (0xC0..0xDE).  Shift bytes themselves are consumed (not displayed)."""
+    KOI-8R LOWERCASE Cyrillic (0xC0..0xDF) and 0x60..0x7E to UPPERCASE
+    (0xE0..0xFE).  Empirically confirmed on UKCALC.DOC: 0x77 there is 'В' and
+    0x57 is 'в', i.e. KOI-7 is KOI-8R minus 0x80 with the same byte placement.
+    Shift bytes themselves are consumed (not displayed)."""
     body = _strip_trailing_zeros(data)
     out = []
     cyrillic = False
@@ -84,9 +86,9 @@ def decode_koi7(data):
         elif b == 0x0F:
             cyrillic = False
         elif cyrillic and 0x40 <= b <= 0x5F:
-            out.append(bytes([0xE0 + (b - 0x40)]).decode("koi8-r"))
+            out.append(bytes([0xC0 + (b - 0x40)]).decode("koi8-r"))
         elif cyrillic and 0x60 <= b <= 0x7E:
-            out.append(bytes([0xC0 + (b - 0x60)]).decode("koi8-r"))
+            out.append(bytes([0xE0 + (b - 0x60)]).decode("koi8-r"))
         elif b in (9, 10, 13) or 0x20 <= b <= 0x7E:
             out.append(chr(b))
         else:
