@@ -367,10 +367,10 @@ def run_gui(model):
         vbox.delete(0, "end")
         for i, (sha, disks) in enumerate(vers):
             if sha in chosen_set:
-                vbox.insert("end", f"✓ CHOSEN  {sha[:8]}  on: {', '.join(disks)}")
+                vbox.insert("end", f"✓ {sha[:8]}  on: {', '.join(disks)}")
                 vbox.itemconfig(i, background="#d0f0d0", foreground="#0a4f0a")
             else:
-                vbox.insert("end", f"          {sha[:8]}  on: {', '.join(disks)}")
+                vbox.insert("end", f"{sha[:8]}  on: {', '.join(disks)}")
         canon_txt = ("  — canonical: " + "+".join(s[:8] for s in sorted(chosen_set))) if chosen_set else ""
         info.config(text=f"{r['name']}  {r['blocks']} blk  [{r['band']}]  "
                          f"{len(state['vers'])} version(s){canon_txt}")
