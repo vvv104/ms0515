@@ -105,7 +105,8 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
                 elif zb:
                     lines.append(f"  block {blk}: {sha_b[:8]} = ZERO, {sha_a[:8]} = data  ->  {sha_b[:8]} likely LOST")
             messagebox.showinfo(f"Zero analysis: {name}",
-                                "\n".join(lines) if lines else "no zero blocks in either version")
+                                "\n".join(lines) if lines else "no zero blocks in either version",
+                                parent=win)
         zero_btn.config(command=do_zero)
 
     hdr = ttk.Frame(win); hdr.pack(fill="x", padx=4)
@@ -395,16 +396,18 @@ def run_gui(model):
     def settext(s):
         text.delete("1.0", "end"); text.insert("1.0", s)
 
-    def display_versions():
+    def display_versions(preserve_selection=True):
         """Redraw the right-side version list from state["rec"]/state["vers"].
         Keeps the original (unsorted) order so a version doesn't jump when its
         canonical state is toggled; chosen ones just get a green row + ✓ mark.
-        Preserves the listbox selection across the redraw."""
+        Preserves the listbox selection across the redraw unless
+        preserve_selection=False (used when switching to a different file —
+        carrying the old file's selection indices over would be a bug)."""
         r = state["rec"]
         if not r:
             return
         chosen_set = model.chosen_for(r)
-        cur_sel = list(vbox.curselection())
+        cur_sel = list(vbox.curselection()) if preserve_selection else []
         vbox.delete(0, "end")
         for i, (sha, disks) in enumerate(state["vers"]):
             on = ", ".join(disks)
@@ -435,7 +438,7 @@ def run_gui(model):
             return
         state["rec"] = r
         state["vers"] = list(model.all_versions(r))   # builds + session synthetics
-        display_versions()
+        display_versions(preserve_selection=False)    # drop old file's selection
         settext("")
         status.config(text="")
 
