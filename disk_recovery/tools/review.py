@@ -292,17 +292,24 @@ class Model:
         return p.read_bytes() if p.exists() else b""
 
     def set_choice(self, r, shas):
-        """ADD `shas` to the file's canonical set (union with existing).  Use
-        clear_choice() to drop all canonicals if you want to start over."""
+        """TOGGLE each sha in the file's canonical set: add if not present,
+        remove if already canonical.  Returns (added, removed) sha lists."""
         key = (r["name"], r["blocks"])
         existing = self.chosen.get(key, [])
         if isinstance(existing, str): existing = [existing]
         combined = list(existing)
+        added, removed = [], []
         for s in shas:
-            if s not in combined:
-                combined.append(s)
-        self.chosen[key] = combined
+            if s in combined:
+                combined.remove(s); removed.append(s)
+            else:
+                combined.append(s); added.append(s)
+        if combined:
+            self.chosen[key] = combined
+        else:
+            self.chosen.pop(key, None)
         self._save(); self._reclassify()
+        return added, removed
 
     def clear_choice(self, r):
         self.chosen.pop((r["name"], r["blocks"]), None)
@@ -583,14 +590,16 @@ def run_gui(model):
         v = selected_versions()
         r = state["rec"]
         if not r or not v:
-            status.config(text="select a file and >=1 version to set canonical"); return
-        shas = [s for s, _ in v]
-        model.set_choice(r, shas)        # ADDS to existing canonicals (union)
+            status.config(text="select a file and >=1 version to toggle canonical"); return
+        added, removed = model.set_choice(r, [s for s, _ in v])
         refresh()
-        total = len(model.chosen_for(r))
-        status.config(text=f"added {len(shas)} -> {r['name']} now has {total} canonical(s): "
-                           + "+".join(s[:8] for s in model.chosen.get((r['name'], r['blocks']), []))
-                           + "  (Clear to reset)")
+        cur = list(model.chosen.get((r["name"], r["blocks"]), []))
+        bits = []
+        if added:   bits.append("+" + "+".join(s[:8] for s in added))
+        if removed: bits.append("-" + "-".join(s[:8] for s in removed))
+        status.config(text=f"{r['name']}: " + "  ".join(bits)
+                           + f"   -> {len(cur)} canonical now"
+                           + (": " + "+".join(s[:8] for s in cur) if cur else ""))
 
     def do_clear():
         r = state["rec"]
@@ -603,8 +612,8 @@ def run_gui(model):
     ttk.Button(btns, text="Diff 2", command=do_diff).pack(side="left", padx=4)
     ttk.Button(btns, text="Byte-vote sel", command=do_bytevote).pack(side="left")
     ttk.Button(btns, text="Text-merge sel", command=do_textmerge).pack(side="left", padx=4)
-    ttk.Button(btns, text="✓ Set canonical", command=do_set).pack(side="left", padx=4)
-    ttk.Button(btns, text="Clear", command=do_clear).pack(side="left")
+    ttk.Button(btns, text="✓ Toggle canonical", command=do_set).pack(side="left", padx=4)
+    ttk.Button(btns, text="Clear all", command=do_clear).pack(side="left")
 
     def on_version_select(event):
         sel = vbox.curselection()
