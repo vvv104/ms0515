@@ -328,13 +328,20 @@ def run_gui(model):
         idx = int(tv.item(sel[0], "tags")[0])
         r = model.files[idx]
         state["rec"] = r
-        state["vers"] = model.versions(r)
+        chosen_sha = model.chosen.get((r["name"], r["blocks"]))
+        # chosen variant comes first; others keep original order
+        vers = sorted(model.versions(r), key=lambda v: v[0] != chosen_sha)
+        state["vers"] = vers
         vbox.delete(0, "end")
-        for sha, disks in state["vers"]:
-            mark = " <= chosen" if model.chosen.get((r["name"], r["blocks"])) == sha else ""
-            vbox.insert("end", f"{sha[:8]}  on: {', '.join(disks)}{mark}")
+        for i, (sha, disks) in enumerate(vers):
+            if sha == chosen_sha:
+                vbox.insert("end", f"✓ CHOSEN  {sha[:8]}  on: {', '.join(disks)}")
+                vbox.itemconfig(i, background="#d0f0d0", foreground="#0a4f0a")
+            else:
+                vbox.insert("end", f"          {sha[:8]}  on: {', '.join(disks)}")
         info.config(text=f"{r['name']}  {r['blocks']} blk  [{r['band']}]  "
-                         f"{len(state['vers'])} version(s)")
+                         f"{len(state['vers'])} version(s)"
+                         + (f"  — canonical: {chosen_sha[:8]}" if chosen_sha else ""))
         settext("")
         status.config(text="")
 
