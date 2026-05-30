@@ -31,6 +31,29 @@ from consensus import canonical_name
 OUT = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus"
 STORE = OUT / "files"
 
+# Display-only band consolidation for the GUI.  The model (verdict.py /
+# consensus.py / report.py / export.py) keeps the full 8-band scheme.  Here
+# we fold MEDIUM into HIGH, LOST into UNVERIFIED, and rename two bands to
+# describe outcome instead of method, because for the human reviewer:
+#   - HIGH and MEDIUM both mean "one disk, read clean" — the technical
+#     distinction (matching captures vs CRC-clean status) is not actionable.
+#   - LOST is just "couldn't verify" — same blind spot as UNVERIFIED, with no
+#     separate action (after the pseudographics fix, LOST is empty anyway).
+#   - GOOD -> RECOVERED reads as "we got it back" instead of a vague grade.
+#   - AMBIGUOUS -> MANUAL says what's needed (your decision) instead of the
+#     internal cause (several builds).
+DISPLAY_BANDS = ["GUARANTEED", "CHOSEN", "VERIFIED", "RECOVERED", "MANUAL", "UNVERIFIED"]
+MODEL_TO_DISPLAY = {
+    "GUARANTEED": "GUARANTEED",
+    "CHOSEN":     "CHOSEN",
+    "HIGH":       "VERIFIED",
+    "MEDIUM":     "VERIFIED",
+    "GOOD":       "RECOVERED",
+    "AMBIGUOUS":  "MANUAL",
+    "UNVERIFIED": "UNVERIFIED",
+    "LOST":       "UNVERIFIED",
+}
+
 def _readable(b):
     # printable ASCII; CR/LF/TAB; BS/VT/FF; SO/SI (KOI-7 РУС/ЛАТ shifts); ESC;
     # full KOI-8R high half (0x80..0xBF = box-drawing / pseudographics; 0xC0..0xFF
@@ -541,7 +564,7 @@ def run_gui(model):
     nb = ttk.Notebook(paned)
     paned.add(nb, weight=3)
     trees = {}
-    for band in V.BANDS:
+    for band in DISPLAY_BANDS:
         frame = ttk.Frame(nb)
         tv = ttk.Treeview(frame, columns=("blk", "vrfd", "vers", "chosen"), show="tree headings")
         tv.heading("#0", text="file"); tv.column("#0", width=170)
@@ -644,7 +667,8 @@ def run_gui(model):
             if i < vbox.size():
                 vbox.selection_set(i)
         canon_txt = ("  — canonical: " + "+".join(s[:8] for s in sorted(chosen_set))) if chosen_set else ""
-        info.config(text=f"{r['name']}  {r['blocks']} blk  [{r['band']}]  "
+        disp_band = MODEL_TO_DISPLAY.get(r["band"], r["band"])
+        info.config(text=f"{r['name']}  {r['blocks']} blk  [{disp_band}]  "
                          f"{len(state['vers'])} version(s){canon_txt}")
 
     def on_select_file(event):
@@ -668,11 +692,11 @@ def run_gui(model):
 
     def go_to(r):
         """Switch to r's current-band tab and select its row, so a file that
-        just moved (e.g. AMBIGUOUS -> CHOSEN after a toggle) stays on screen."""
-        band = r.get("band")
+        just moved (e.g. MANUAL -> CHOSEN after a toggle) stays on screen."""
+        band = MODEL_TO_DISPLAY.get(r.get("band"), r.get("band"))
         if band not in trees:
             return
-        nb.select(V.BANDS.index(band))
+        nb.select(DISPLAY_BANDS.index(band))
         tv = trees[band]
         idx_str = str(model.files.index(r))
         for iid in tv.get_children():
@@ -858,10 +882,16 @@ def run_gui(model):
         status.config(text=f"text-merge -> {sha[:8]}; {rescued} bytes taken from a readable copy; review, then Set canonical")
 
     def refresh():
-        bands = model.by_band()
+        model_bands = model.by_band()
+        # Fold the 8 model bands into the 6 display bands.
+        disp_files = {b: [] for b in DISPLAY_BANDS}
+        for mb, files in model_bands.items():
+            disp_files[MODEL_TO_DISPLAY.get(mb, mb)].extend(files)
+        for db in disp_files:
+            disp_files[db].sort(key=lambda r: r["name"])
         for band, tv in trees.items():
             tv.delete(*tv.get_children())
-            for r in bands.get(band, []):
+            for r in disp_files.get(band, []):
                 key = (r["name"], r["blocks"])
                 cl = model.chosen.get(key, [])
                 if isinstance(cl, str): cl = [cl]
@@ -877,8 +907,8 @@ def run_gui(model):
                                   f"{r.get('verified_blocks', 0)}/{r['blocks']}",
                                   len(model.versions(r)), ch_disp),
                           tags=tuple(row_tags))
-            ti = V.BANDS.index(band)
-            nb.tab(ti, text=f"{band} ({len(bands.get(band, []))})")
+            ti = DISPLAY_BANDS.index(band)
+            nb.tab(ti, text=f"{band} ({len(disp_files.get(band, []))})")
 
     def do_set():
         v = selected_versions()
@@ -925,8 +955,7 @@ def run_gui(model):
 
     refresh()
     try:
-        amb_i = V.BANDS.index("AMBIGUOUS")
-        nb.select(amb_i)
+        nb.select(DISPLAY_BANDS.index("MANUAL"))
     except Exception:
         pass
     root.mainloop()
