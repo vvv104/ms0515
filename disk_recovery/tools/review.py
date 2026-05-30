@@ -20,16 +20,23 @@ of AMBIGUOUS) and rewrites it on every choice.  Stdlib only (tkinter).
   python review.py --selftest load the model and print band counts (no window)
 """
 
-import json, sys, difflib
+import json, sys, difflib, re, subprocess, tempfile
 from pathlib import Path
 from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verdict as V
 from consensus import canonical_name
+from build_corpus import alias_name
 
-OUT = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus"
+ROOT  = Path(__file__).resolve().parents[2]
+OUT   = ROOT / "disk_recovery" / "work" / "corpus"
 STORE = OUT / "files"
+RECOV = OUT / "recovered"
+PROP  = OUT / "donor_proposed"
+_DISK_TOOL = ROOT / "src/build/Release/tools/disk/ms0515-disk.exe"
+DISK_TOOL  = _DISK_TOOL if _DISK_TOOL.exists() else _DISK_TOOL.with_suffix("")
+DIR_RE = re.compile(r"^\s+(\S+)\s+blk=\s*(\d+)\s+len=\s*(\d+)")
 
 # Display-only band consolidation for the GUI.  The model (verdict.py /
 # consensus.py / report.py / export.py) keeps the full 8-band scheme.  Here
@@ -620,6 +627,8 @@ def run_gui(model):
     disk_cb = ttk.Combobox(disk_bar, textvariable=disk_var, state="readonly",
                            values=["(all)"] + [disk_label(c) for c in canon_disks])
     disk_cb.pack(side="left", padx=4, fill="x", expand=True)
+    build_btn = ttk.Button(disk_bar, text="Build disk", width=12)
+    build_btn.pack(side="left", padx=(4, 0))
 
     nb = ttk.Notebook(left); nb.pack(fill="both", expand=True)
     trees = {}
@@ -1114,6 +1123,132 @@ def run_gui(model):
         status.config(text="")
         refresh()
     disk_cb.bind("<<ComboboxSelected>>", on_disk_change)
+
+    def pick_canonical_content(name, blocks, this_disk):
+        """Best available bytes for (name, blocks) when rebuilding this_disk:
+        chosen canonical > donor proposal > consensus recovered_sha > the
+        build that lives on this_disk > the first build."""
+        key = (name, blocks)
+        chosen = model.chosen.get(key, [])
+        if isinstance(chosen, str): chosen = [chosen]
+        for sha in chosen:
+            p = STORE / f"{sha}.bin"
+            if p.exists(): return p.read_bytes()
+        prop = PROP / name
+        if prop.exists():
+            return prop.read_bytes()
+        cons = model.cons_by_key.get(key)
+        if cons:
+            rsha = cons.get("recovered_sha")
+            if rsha:
+                p = RECOV / f"{rsha}.bin"
+                if p.exists(): return p.read_bytes()
+            for b in cons.get("builds", []):
+                if this_disk in b.get("disks", []):
+                    p = STORE / f"{b['sha']}.bin"
+                    if p.exists(): return p.read_bytes()
+            if cons.get("builds"):
+                p = STORE / f"{cons['builds'][0]['sha']}.bin"
+                if p.exists(): return p.read_bytes()
+        return None
+
+    def read_directory(image_path, side):
+        """[(name, start, length)] from `ms0515-disk dir`."""
+        r = subprocess.run([str(DISK_TOOL), "dir", str(image_path),
+                            "--side", str(side)], capture_output=True, text=True)
+        out = []
+        for line in r.stdout.splitlines():
+            m = DIR_RE.match(line)
+            if m:
+                out.append((m.group(1), int(m.group(2)), int(m.group(3))))
+        return out
+
+    def do_build_disk():
+        from tkinter import filedialog, messagebox
+        sel = disk_var.get()
+        if sel == "(all)":
+            status.config(text="pick a specific disk in the filter to build"); return
+        canon = label_to_canon.get(sel)
+        if not canon:
+            status.config(text=f"unknown disk: {sel}"); return
+        if not DISK_TOOL.exists():
+            status.config(text=f"ms0515-disk tool not built at {DISK_TOOL}"); return
+
+        WORK = OUT.parent
+        captures = sorted(c for c, d in model.disk_of.items() if d == canon)
+        # Read every available capture, side-by-side; keep the listing with the
+        # most entries per side (closest to the original directory state).
+        best_dir = {}            # side -> [(name, start, length)]
+        is_ds = False
+        for cap in captures:
+            cap_path = WORK / cap
+            if not cap_path.is_file():
+                continue
+            sz = cap_path.stat().st_size
+            sides = [0, 1] if sz == 819200 else [0] if sz == 409600 else []
+            if sz == 819200:
+                is_ds = True
+            for side in sides:
+                entries = read_directory(cap_path, side)
+                if entries and len(entries) > len(best_dir.get(side, [])):
+                    best_dir[side] = entries
+        if not best_dir:
+            status.config(text=f"no readable directory among captures of {canon}"); return
+
+        default = canon.replace("/", "_").replace("\\", "_") + "_built.dsk"
+        out_path = filedialog.asksaveasfilename(
+            parent=root, title=f"Build {canon}",
+            defaultextension=".dsk", initialfile=default,
+            filetypes=[("RT-11 disk image", "*.dsk"), ("All files", "*.*")])
+        if not out_path:
+            return
+        out_path = Path(out_path)
+
+        status.config(text=f"building {out_path.name}..."); root.update_idletasks()
+        try:
+            create_cmd = [str(DISK_TOOL), "create", str(out_path)]
+            if is_ds:
+                create_cmd.append("--ds")
+            subprocess.run(create_cmd, check=True, capture_output=True)
+            for side in sorted(best_dir):
+                subprocess.run([str(DISK_TOOL), "init", str(out_path),
+                                "--side", str(side)], check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            status.config(text=f"create/init failed: {e.stderr.decode(errors='replace')[:80]}")
+            return
+
+        missing, written = [], 0
+        with tempfile.TemporaryDirectory() as tmpd:
+            tmp = Path(tmpd)
+            for side, entries in sorted(best_dir.items()):
+                entries.sort(key=lambda e: e[1])             # by start block
+                paths = []
+                for orig_name, start, length in entries:
+                    name = alias_name(orig_name)             # .EXE -> .SAV etc.
+                    data = pick_canonical_content(name, length, canon)
+                    if data is None:
+                        # last resort: original name might not have been aliased
+                        data = pick_canonical_content(orig_name, length, canon)
+                    if data is None:
+                        missing.append(f"side{side}:{orig_name}"); continue
+                    fp = tmp / name
+                    fp.write_bytes(data)
+                    paths.append(str(fp))
+                if paths:
+                    try:
+                        subprocess.run([str(DISK_TOOL), "put", str(out_path),
+                                        "--side", str(side)] + paths,
+                                       check=True, capture_output=True)
+                        written += len(paths)
+                    except subprocess.CalledProcessError as e:
+                        missing.extend(f"put-failed-side{side}: " +
+                                       e.stderr.decode(errors="replace")[:60])
+        msg = f"built {out_path.name}: {written} files"
+        if missing:
+            msg += f"  (missing {len(missing)}: {', '.join(missing[:3])})"
+        status.config(text=msg)
+        messagebox.showinfo("Build disk", msg, parent=root)
+    build_btn.configure(command=do_build_disk)
     refresh()
     try:
         nb.select(DISPLAY_BANDS.index("MANUAL"))
