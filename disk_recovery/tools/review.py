@@ -51,9 +51,17 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
     import tkinter as tk
     from tkinter import ttk
     BPR = 16
+    ROWS_PER_BLOCK = 512 // BPR                  # = 32: one RT-11 block per group
     n = max(len(data_a), len(data_b))
     rows = (n + BPR - 1) // BPR
+    blocks = (rows + ROWS_PER_BLOCK - 1) // ROWS_PER_BLOCK
     diff_rows = []
+    # Layout: before each block group of <=32 data lines we insert a header
+    # line, so the absolute Text-widget line number for data row r is:
+    #   line(r) = (r // ROWS_PER_BLOCK) + r + 1     (Text lines are 1-indexed)
+    def line_of(r):
+        return (r // ROWS_PER_BLOCK) + r + 1
+    total_lines = rows + blocks                  # data lines + block-header lines
 
     win = tk.Toplevel(parent)
     win.title(f"Compare: {name}  —  {sha_a[:8]} vs {sha_b[:8]}")
@@ -80,6 +88,8 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
     for t in (ta, tb):
         t.tag_configure("diff", foreground="red")
         t.tag_configure("addr", foreground="#888")
+        t.tag_configure("blocksep", foreground="#666",
+                        background="#eef0f8", font=("Consolas", 9, "bold"))
 
     # synced scrolling: any scroll on one side mirrors to the other
     syncing = [False]
@@ -114,22 +124,27 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
         return addr + "".join(hex_parts) + "|" + asc + "|\n"
 
     def render(t, data, other):
-        for r in range(rows):
-            off = r * BPR
-            seg = data[off:off+BPR]; oth = other[off:off+BPR]
-            t.insert("end", build_line(off, seg, len(oth)))
-            ln = r + 1
-            t.tag_add("addr", f"{ln}.0", f"{ln}.10")
-            for i in range(BPR):
-                a_has = i < len(seg); b_has = i < len(oth)
-                if a_has and b_has and seg[i] == oth[i]:
-                    continue
-                if not a_has and not b_has:
-                    continue
-                hpos = 10 + i*3 + (1 if i >= 8 else 0)
-                t.tag_add("diff", f"{ln}.{hpos}", f"{ln}.{hpos+2}")
-                apos = 60 + i               # 10 addr + 49 hex + 1 sep
-                t.tag_add("diff", f"{ln}.{apos}", f"{ln}.{apos+1}")
+        for blk in range(blocks):
+            t.insert("end", f"────────── block {blk} ──────────\n", "blocksep")
+            for sub in range(ROWS_PER_BLOCK):
+                r = blk * ROWS_PER_BLOCK + sub
+                if r >= rows:
+                    break
+                off = r * BPR
+                seg = data[off:off+BPR]; oth = other[off:off+BPR]
+                t.insert("end", build_line(off, seg, len(oth)))
+                ln = line_of(r)
+                t.tag_add("addr", f"{ln}.0", f"{ln}.10")
+                for i in range(BPR):
+                    a_has = i < len(seg); b_has = i < len(oth)
+                    if a_has and b_has and seg[i] == oth[i]:
+                        continue
+                    if not a_has and not b_has:
+                        continue
+                    hpos = 10 + i*3 + (1 if i >= 8 else 0)
+                    t.tag_add("diff", f"{ln}.{hpos}", f"{ln}.{hpos+2}")
+                    apos = 60 + i           # 10 addr + 49 hex + 1 sep
+                    t.tag_add("diff", f"{ln}.{apos}", f"{ln}.{apos+1}")
     render(ta, data_a, data_b)
     render(tb, data_b, data_a)
     for r in range(rows):
@@ -137,17 +152,21 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
         if data_a[off:off+BPR] != data_b[off:off+BPR]:
             diff_rows.append(r)
     for t in (ta, tb): t.configure(state="disabled")
-    info.config(text=f"{len(diff_rows)} differing rows of {rows} (BPR={BPR})")
+    diff_blocks = len({r // ROWS_PER_BLOCK for r in diff_rows})
+    info.config(text=f"{len(diff_rows)} differing rows in {diff_blocks} blocks (of {rows} rows / {blocks} blocks)")
 
+    # navigation: track current index in diff_rows explicitly (round-trip via
+    # scroll-position lost precision when sitting on a diff row).
+    idx = [-1]
     def jump(direction):
-        if not diff_rows or rows == 0: return
-        cur = int(ta.yview()[0] * rows)
-        if direction > 0:
-            nxt = next((r for r in diff_rows if r > cur), diff_rows[0])
-        else:
-            nxt = next((r for r in reversed(diff_rows) if r < cur), diff_rows[-1])
-        frac = nxt / rows if rows else 0
+        if not diff_rows: return
+        idx[0] = (idx[0] + direction) % len(diff_rows)
+        r = diff_rows[idx[0]]
+        target_line = line_of(r) - 2     # show header + previous data line above
+        frac = max(0, target_line) / total_lines
         ta.yview_moveto(frac); tb.yview_moveto(frac)
+        info.config(text=f"diff {idx[0]+1}/{len(diff_rows)}  (row {r}, block {r//ROWS_PER_BLOCK})  —  "
+                         f"{len(diff_rows)} rows / {diff_blocks} blocks differ")
     nxt_btn.config(command=lambda: jump(1))
     prv_btn.config(command=lambda: jump(-1))
     if diff_rows:
