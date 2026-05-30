@@ -45,6 +45,54 @@ def _ascii_cell(b):
         return bytes([b]).decode("koi8-r")
     return "."
 
+def _strip_trailing_zeros(data):
+    end = len(data)
+    while end and data[end-1] == 0:
+        end -= 1
+    return data[:end]
+
+def _is_textual(data):
+    body = _strip_trailing_zeros(data)
+    return bool(body) and sum(1 for x in body if _readable(x)) / len(body) > 0.7
+
+def detect_encoding(data):
+    """Best guess at the bytes' source encoding.  KOI-7 uses 7-bit ASCII with
+    SO (0x0E) / SI (0x0F) shifting between Latin and Cyrillic registers, so
+    its presence is the strongest signal (and it has no high bytes).  Anything
+    8-bit with set high bits is treated as KOI-8R (the RT-11 / MS-0515 default);
+    purely 7-bit ASCII without shifts falls through to 'ASCII'."""
+    body = _strip_trailing_zeros(data)
+    if not body:
+        return "ASCII"
+    if any(b in (0x0E, 0x0F) for b in body):
+        return "KOI-7"
+    if any(b >= 0x80 for b in body):
+        return "KOI-8R"
+    return "ASCII"
+
+def decode_koi7(data):
+    """Apply a KOI-7 SO/SI shift state machine.  Default register is Latin;
+    SO -> Cyrillic, SI -> Latin.  In the Cyrillic register, 0x40..0x5F map to
+    KOI-8R uppercase Cyrillic (0xE0..0xFF) and 0x60..0x7E to lowercase
+    (0xC0..0xDE).  Shift bytes themselves are consumed (not displayed)."""
+    body = _strip_trailing_zeros(data)
+    out = []
+    cyrillic = False
+    for b in body:
+        if b == 0x0E:
+            cyrillic = True
+        elif b == 0x0F:
+            cyrillic = False
+        elif cyrillic and 0x40 <= b <= 0x5F:
+            out.append(bytes([0xE0 + (b - 0x40)]).decode("koi8-r"))
+        elif cyrillic and 0x60 <= b <= 0x7E:
+            out.append(bytes([0xC0 + (b - 0x60)]).decode("koi8-r"))
+        elif b in (9, 10, 13) or 0x20 <= b <= 0x7E:
+            out.append(chr(b))
+        else:
+            out.append("?")
+    return "".join(out)
+
 def as_text(data):
     end = len(data)
     while end and data[end-1] == 0:
@@ -386,15 +434,61 @@ def run_gui(model):
     vbox = tk.Listbox(right, selectmode="extended", height=7, font=("Consolas", 9))
     vbox.pack(fill="x", padx=6)
     btns = ttk.Frame(right); btns.pack(fill="x", padx=6, pady=4)
+    preview_bar = ttk.Frame(right); preview_bar.pack(fill="x", padx=6, pady=(0, 2))
+    ttk.Label(preview_bar, text="view as:").pack(side="left")
+    text_mode = tk.StringVar(value="auto")
+    mode_cb = ttk.Combobox(preview_bar, textvariable=text_mode, state="readonly",
+                           values=["auto", "original"], width=22)
+    mode_cb.pack(side="left", padx=4)
     text = scrolledtext.ScrolledText(right, wrap="none", font=("Consolas", 9))
     text.pack(fill="both", expand=True, padx=6, pady=4)
     status = ttk.Label(right, text="", foreground="#066")
     status.pack(anchor="w", padx=6, pady=2)
 
-    state = {"rec": None, "vers": []}
+    state = {"rec": None, "vers": [], "preview_data": b""}
 
     def settext(s):
         text.delete("1.0", "end"); text.insert("1.0", s)
+
+    def _show_in_mode(data, enc, is_text):
+        if text_mode.get() == "original":
+            settext(_strip_trailing_zeros(data).decode("latin-1", "replace"))
+            return
+        if not is_text:
+            settext(hexdump(data)); return
+        body = _strip_trailing_zeros(data)
+        if enc == "KOI-7":
+            settext(decode_koi7(body))
+        elif enc == "KOI-8R":
+            settext(body.decode("koi8-r", "replace"))
+        else:
+            settext(body.decode("latin-1", "replace"))
+
+    def render_preview(data):
+        """Show `data` in the text panel using the current view-as mode.  Stores
+        the bytes so a later combobox change can re-render without re-reading
+        the store, and updates the 'auto (...)' label to the detected format."""
+        state["preview_data"] = data or b""
+        if not data:
+            settext("")
+            mode_cb.configure(values=["auto", "original"])
+            if text_mode.get() != "original":
+                text_mode.set("auto")
+            return
+        enc = detect_encoding(data)
+        is_text = _is_textual(data)
+        auto_label = f"auto ({enc if is_text else 'binary -> hex'})"
+        mode_cb.configure(values=[auto_label, "original"])
+        if text_mode.get() != "original":
+            text_mode.set(auto_label)
+        _show_in_mode(data, enc, is_text)
+
+    def on_mode_change(event=None):
+        data = state.get("preview_data") or b""
+        if not data:
+            return
+        _show_in_mode(data, detect_encoding(data), _is_textual(data))
+    mode_cb.bind("<<ComboboxSelected>>", on_mode_change)
 
     def display_versions(preserve_selection=True):
         """Redraw the right-side version list from state["rec"]/state["vers"].
@@ -439,7 +533,7 @@ def run_gui(model):
         state["rec"] = r
         state["vers"] = list(model.all_versions(r))   # builds + session synthetics
         display_versions(preserve_selection=False)    # drop old file's selection
-        settext("")
+        render_preview(b"")
         status.config(text="")
 
     def go_to(r):
@@ -468,8 +562,7 @@ def run_gui(model):
         if not v:
             status.config(text="select one version"); return
         data = model.content(v[0][0])
-        t = as_text(data)
-        settext(t if t is not None else hexdump(data))
+        render_preview(data)
         status.config(text=f"{v[0][0][:8]}  {len(data)} bytes")
 
     def do_diff():
@@ -478,8 +571,7 @@ def run_gui(model):
             status.config(text="select exactly two versions"); return
         a, b = model.content(v[0][0]), model.content(v[1][0])
         if a == b:
-            t = as_text(a)
-            settext(t if t is not None else hexdump(a))
+            render_preview(a)
             status.config(text=f"versions {v[0][0][:8]} and {v[1][0][:8]} are IDENTICAL "
                                f"({len(a)} bytes) — content shown above")
             return
@@ -508,9 +600,7 @@ def run_gui(model):
         for i, (s, _) in enumerate(state["vers"]):
             if s == sha:
                 vbox.selection_clear(0, "end"); vbox.selection_set(i); vbox.see(i); break
-        voted = model.content(sha)
-        t = as_text(voted)
-        settext(t if t is not None else hexdump(voted))
+        render_preview(model.content(sha))
         eq_note = " (= existing variant)" if matches_existing else " (synthetic)"
         status.config(text=f"byte-vote -> {sha[:8]}{eq_note}; {vote_status}")
 
@@ -634,8 +724,7 @@ def run_gui(model):
         for i, (s, _) in enumerate(state["vers"]):
             if s == sha:
                 vbox.selection_clear(0, "end"); vbox.selection_set(i); vbox.see(i); break
-        t = as_text(merged)
-        settext(t if t is not None else hexdump(merged))
+        render_preview(merged)
         status.config(text=f"text-merge -> {sha[:8]}; {rescued} bytes taken from a readable copy; review, then Set canonical")
 
     def refresh():
@@ -700,8 +789,7 @@ def run_gui(model):
             return                              # don't auto-view on multi-select
         sha = state["vers"][sel[0]][0]
         data = model.content(sha)
-        t = as_text(data)
-        settext(t if t is not None else hexdump(data))
+        render_preview(data)
         status.config(text=f"viewing {sha[:8]}  ({len(data)} bytes)")
     vbox.bind("<<ListboxSelect>>", on_version_select)
 
