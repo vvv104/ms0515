@@ -561,8 +561,44 @@ def run_gui(model):
     paned = ttk.PanedWindow(root, orient="horizontal")
     paned.pack(fill="both", expand=True)
 
-    nb = ttk.Notebook(paned)
-    paned.add(nb, weight=3)
+    left = ttk.Frame(paned); paned.add(left, weight=3)
+    # Disk filter: restrict every tab to files carried by ONE physical disk so
+    # a per-disk review (a single floppy's worth of files at a time) is doable
+    # without hunting across all 200+ files in mixed tabs.  "(all)" reverts.
+    # Two disks that carry the SAME files with the SAME content sha are most
+    # likely the same physical media captured twice under different names (or
+    # byte-identical backups), so they collapse into one combo entry — picking
+    # the canonical one filters across the whole group.
+    disk_sig = defaultdict(set)
+    for cr in model.corpus:
+        for p in cr["provenance"]:
+            d = model.disk_of.get(p["capture"])
+            if d:
+                disk_sig[d].add((p["name"], cr["sha"]))
+    sig_groups = defaultdict(list)
+    for d, sig in disk_sig.items():
+        sig_groups[frozenset(sig)].append(d)
+    alias_to_canonical = {}
+    for group in sig_groups.values():
+        canon = sorted(group)[0]
+        for d in group:
+            alias_to_canonical[d] = canon
+
+    def disk_label(canon):
+        aliases = sorted([d for d, c in alias_to_canonical.items() if c == canon])
+        return canon if len(aliases) == 1 else f"{canon}  (+{len(aliases)-1} identical)"
+
+    canon_disks = sorted({c for c in alias_to_canonical.values()})
+    label_to_canon = {disk_label(c): c for c in canon_disks}
+
+    disk_bar = ttk.Frame(left); disk_bar.pack(fill="x", padx=4, pady=(4, 2))
+    ttk.Label(disk_bar, text="disk:").pack(side="left")
+    disk_var = tk.StringVar(value="(all)")
+    disk_cb = ttk.Combobox(disk_bar, textvariable=disk_var, state="readonly",
+                           values=["(all)"] + [disk_label(c) for c in canon_disks])
+    disk_cb.pack(side="left", padx=4, fill="x", expand=True)
+
+    nb = ttk.Notebook(left); nb.pack(fill="both", expand=True)
     trees = {}
     for band in DISPLAY_BANDS:
         frame = ttk.Frame(nb)
@@ -899,8 +935,18 @@ def run_gui(model):
         model_bands = model.by_band()
         # Fold the 8 model bands into the 6 display bands.
         disp_files = {b: [] for b in DISPLAY_BANDS}
+        sel = disk_var.get()
+        canon = label_to_canon.get(sel) if sel != "(all)" else None
+        def on_canon(r):
+            if canon is None:
+                return True
+            for _sha, disks in model.versions(r):
+                for d in disks:
+                    if alias_to_canonical.get(d) == canon:
+                        return True
+            return False
         for mb, files in model_bands.items():
-            disp_files[MODEL_TO_DISPLAY.get(mb, mb)].extend(files)
+            disp_files[MODEL_TO_DISPLAY.get(mb, mb)].extend(r for r in files if on_canon(r))
         for db in disp_files:
             disp_files[db].sort(key=lambda r: r["name"])
         for band, tv in trees.items():
@@ -967,6 +1013,7 @@ def run_gui(model):
         status.config(text=f"viewing {sha[:8]}  ({len(data)} bytes)")
     vbox.bind("<<ListboxSelect>>", on_version_select)
 
+    disk_cb.bind("<<ComboboxSelected>>", lambda e: refresh())
     refresh()
     try:
         nb.select(DISPLAY_BANDS.index("MANUAL"))
