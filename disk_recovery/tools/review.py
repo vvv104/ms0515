@@ -401,11 +401,32 @@ def run_gui(model):
             return
         idx = int(tv.item(sel[0], "tags")[0])
         r = model.files[idx]
+        # When go_to() re-selects the same file in a different tab after a
+        # toggle moved it between bands, do_set has already updated the right
+        # panel — don't tear down state (it would lose synthetic byte-vote /
+        # text-merge entries we just appended to vbox).
+        if state.get("rec") is r:
+            return
         state["rec"] = r
         state["vers"] = list(model.versions(r))   # original order, no reordering
         display_versions()
         settext("")
         status.config(text="")
+
+    def go_to(r):
+        """Switch to r's current-band tab and select its row, so a file that
+        just moved (e.g. AMBIGUOUS -> CHOSEN after a toggle) stays on screen."""
+        band = r.get("band")
+        if band not in trees:
+            return
+        nb.select(V.BANDS.index(band))
+        tv = trees[band]
+        idx_str = str(model.files.index(r))
+        for iid in tv.get_children():
+            tags = tv.item(iid, "tags")
+            if tags and tags[0] == idx_str:
+                tv.selection_set(iid); tv.focus(iid); tv.see(iid)
+                break
 
     for tv in trees.values():
         tv.bind("<<TreeviewSelect>>", on_select_file)
@@ -611,6 +632,7 @@ def run_gui(model):
         added, removed = model.set_choice(r, [s for s, _ in v])
         refresh()                 # repaint left tree (band + chosen column + row colour)
         display_versions()        # repaint vbox marks/colours for this file
+        go_to(r)                  # follow the file to whatever band it lives in now
         cur = list(model.chosen.get((r["name"], r["blocks"]), []))
         bits = []
         if added:   bits.append("+" + "+".join(s[:8] for s in added))
@@ -626,6 +648,7 @@ def run_gui(model):
         model.clear_choice(r)
         refresh()
         display_versions()
+        go_to(r)
         status.config(text=f"cleared {r['name']}")
 
     ttk.Button(btns, text="Diff 2", command=do_diff).pack(side="left", padx=4)
