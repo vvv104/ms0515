@@ -1090,7 +1090,18 @@ def run_gui(model):
         status.config(text=f"viewing {sha[:8]}  ({len(data)} bytes)")
     vbox.bind("<<ListboxSelect>>", on_version_select)
 
-    disk_cb.bind("<<ComboboxSelected>>", lambda e: refresh())
+    def on_disk_change(event=None):
+        # Old file's version list belongs to a (possibly hidden) other disk —
+        # drop the selection so the user re-picks from the new filter rather
+        # than seeing stale bytes from the previous disk's file.
+        state["rec"] = None
+        state["vers"] = []
+        vbox.delete(0, "end")
+        render_preview(b"")
+        info.config(text="select a file")
+        status.config(text="")
+        refresh()
+    disk_cb.bind("<<ComboboxSelected>>", on_disk_change)
     refresh()
     try:
         nb.select(DISPLAY_BANDS.index("MANUAL"))
