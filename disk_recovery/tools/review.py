@@ -36,6 +36,15 @@ def _readable(b):
     return ((0x20 <= b <= 0x7E) or b in (8, 9, 10, 11, 12, 13, 14, 15, 27)
             or (0xC0 <= b <= 0xFF))
 
+def _ascii_cell(b):
+    """One character for a hex-dump ASCII column: printable ASCII as is,
+    KOI-8R high range as Cyrillic, everything else as '.'."""
+    if 32 <= b <= 126:
+        return chr(b)
+    if 0xC0 <= b <= 0xFF:
+        return bytes([b]).decode("koi8-r")
+    return "."
+
 def as_text(data):
     end = len(data)
     while end and data[end-1] == 0:
@@ -147,8 +156,7 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
             hex_parts.append(f"{seg[i]:02x} " if i < n_ else "   ")
             if i == 7:
                 hex_parts.append(" ")
-        asc = "".join(chr(seg[i]) if i < n_ and 32 <= seg[i] <= 126 else
-                      ("." if i < n_ else " ") for i in range(BPR))
+        asc = "".join(_ascii_cell(seg[i]) if i < n_ else " " for i in range(BPR))
         return addr + "".join(hex_parts) + "|" + asc + "|\n"
 
     def render(t, data, other):
@@ -244,7 +252,7 @@ def hexdump(data, limit=4096):
     for off in range(0, min(len(data), limit), 16):
         chunk = data[off:off+16]
         hexs = " ".join(f"{b:02x}" for b in chunk)
-        asci = "".join(chr(b) if 32 <= b <= 126 else "." for b in chunk)
+        asci = "".join(_ascii_cell(b) for b in chunk)
         out.append(f"{off:06x}  {hexs:<47}  {asci}")
     if len(data) > limit:
         out.append(f"... ({len(data)} bytes total)")
