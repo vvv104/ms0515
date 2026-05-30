@@ -563,6 +563,17 @@ class Model:
             self.recs_by_key[(canonical_name(r["names"]), r["blocks"])].append(r)
         self.disk_of = V.physical_disks(self.corpus, cap_fp)
         self.cons_by_key = {(r["name"], r["blocks"]): r for r in self.files}
+        # Extend the index with every alternate name a corpus record carries
+        # (e.g. a single sha appearing as "DIR.SAV" on most disks and as the
+        # bit-rotted "DIR.SG8" in one capture's directory).  The merge here
+        # is content-identity (same sha == same record), so the lookup is a
+        # confirmed alias, not a guess — no need to ask the user later.
+        for cr in self.corpus:
+            canon = canonical_name(cr["names"])
+            cons = self.cons_by_key.get((canon, cr["blocks"]))
+            if cons:
+                for n in cr["names"]:
+                    self.cons_by_key.setdefault((n, cr["blocks"]), cons)
         self.chosen = V.load_decisions(V.DECISIONS, self.cons_by_key)
         # session-only synthetic variants (byte-vote / text-merge results) kept
         # per-file so they persist across reselection — without this they were
@@ -1305,7 +1316,15 @@ def run_gui(model):
                 paths = []
                 for orig_name, start, length in entries:
                     name = alias_name(orig_name)             # .EXE -> .SAV etc.
-                    if (name, length) not in model.cons_by_key:
+                    cons = model.cons_by_key.get((name, length))
+                    if cons and cons["name"] != name:
+                        # Alias resolved via sha-identity in the corpus: same
+                        # bytes already known under the canonical name.  Use
+                        # silently — no dialog needed.
+                        recovered_names.append(
+                            f"{orig_name} -> {cons['name']}  (sha-confirmed alias)")
+                        name = cons["name"]
+                    elif cons is None:
                         proposal = resolve_rotted(name, length)
                         if proposal:
                             new_name, n_bits = proposal
