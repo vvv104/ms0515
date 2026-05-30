@@ -81,7 +81,18 @@ def _strip_trailing_zeros(data):
 
 def _is_textual(data):
     body = _strip_trailing_zeros(data)
-    return bool(body) and sum(1 for x in body if _readable(x)) / len(body) > 0.7
+    if not body:
+        return False
+    n = len(body)
+    # Inline NUL bytes are a strong binary signal: PDP-11 / RT-11 .SYS, .SAV,
+    # .OBJ are packed with NUL operand bytes and address-word halves, so
+    # ~15-30% of a typical driver is 0x00.  Plain text has essentially zero
+    # mid-file zeros (trailing padding was already stripped above).  Without
+    # this filter the expanded _readable range (0x80..0xFF) lets PDP-11 code
+    # cross the 70% readable threshold and SL.SYS-class files mis-detect.
+    if sum(1 for b in body if b == 0) / n > 0.05:
+        return False
+    return sum(1 for b in body if _readable(b)) / n > 0.7
 
 def detect_encoding(data):
     """Best guess at the bytes' source encoding.
