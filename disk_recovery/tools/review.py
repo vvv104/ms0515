@@ -97,23 +97,30 @@ def _is_textual(data):
 def detect_encoding(data):
     """Best guess at the bytes' source encoding.
       KOI-8R+gfx — high bytes in the pseudographics range 0x80..0xBF are
-                   present (box-drawing, blocks, math symbols); used by
-                   Rodionov-style screens.  Decoded via the same KOI-8R codec.
+                   present (box-drawing, blocks, math symbols).
       KOI-8R     — high bytes only in the Cyrillic range 0xC0..0xFF.
-      KOI-7      — purely 7-bit (no high bytes) with at least one SO/SI shift.
+      KOI-7      — Cyrillic encoded as 0x40..0x7E behind SO/SI shifts.
       ASCII      — 7-bit, no shifts.
-    KOI-7 is 7-bit by definition, so any high byte rules it out (without this
-    a stray 0x0E/0x0F from bit-rot would flip a damaged KOI-8R to KOI-7)."""
+    A high count of SO/SI shifts (>=10) is the KOI-7 structural signature
+    and beats stray high bytes that may come from bit-rot in the tail
+    (ROK.TXT carries 169 SO/SI plus 350 high bytes confined to a corrupt
+    tail in 5718..6652; without this it mis-detected as KOI-8R).  Fewer
+    than 10 SO/SIs only count when there are no high bytes at all, so
+    one or two stray 0x0E/0x0F from bit-rot don't flip a damaged KOI-8R
+    to KOI-7."""
     body = _strip_trailing_zeros(data)
     if not body:
         return "ASCII"
+    so_si = sum(1 for b in body if b in (0x0E, 0x0F))
     has_gfx = any(0x80 <= b <= 0xBF for b in body)
     has_cyr = any(0xC0 <= b <= 0xFF for b in body)
+    if so_si >= 10:
+        return "KOI-7"
     if has_gfx:
         return "KOI-8R+gfx"
     if has_cyr:
         return "KOI-8R"
-    if any(b in (0x0E, 0x0F) for b in body):
+    if so_si:
         return "KOI-7"
     return "ASCII"
 
@@ -138,6 +145,11 @@ def decode_koi7(data):
             out.append(bytes([0xE0 + (b - 0x60)]).decode("koi8-r"))
         elif b in (9, 10, 13) or 0x20 <= b <= 0x7E:
             out.append(chr(b))
+        elif 0x80 <= b <= 0xFF:
+            # Stray high bytes in a KOI-7 file are bit-rot; render the KOI-8R
+            # glyph so the user sees what the corrupt bytes actually are
+            # (better diagnostic than '?').
+            out.append(bytes([b]).decode("koi8-r", "replace"))
         else:
             out.append("?")
     return "".join(out)
