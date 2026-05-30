@@ -145,15 +145,43 @@ def reconcile(variants, blocks, text):
         out += seg; tags.append(tag)
     return bytes(out), tags
 
+def canonical_name(names):
+    """RT-11 .EXE and .SAV are aliased extensions for the same executable image
+    (often present under both names on one disk, e.g. ARCSAV).  If a record's
+    name set contains both .EXE and .SAV forms of a basename, group it under the
+    .SAV form — otherwise build_corpus's sha-merge produces a record with both
+    names but consensus would silo it under whichever name was added first,
+    creating an artificially "verified" .EXE group separate from the AMBIGUOUS
+    .SAV group of the same program."""
+    # if any name has a .SAV form whose basename also has a .EXE form here, use .SAV
+    by_base = {}
+    for n in names:
+        if "." in n:
+            base, ext = n.rsplit(".", 1)
+            by_base.setdefault(base.upper(), set()).add(ext.upper())
+    for n in names:
+        if "." in n:
+            base, ext = n.rsplit(".", 1)
+            if ext.upper() == "EXE" and "SAV" in by_base.get(base.upper(), set()):
+                return base + ".SAV"
+            if ext.upper() == "SAV" and "EXE" in by_base.get(base.upper(), set()):
+                return n
+    return names[0]
+
 def main():
     corpus = json.load(open(OUT / "corpus.json", encoding="utf-8"))["records"]
     cap_fp = json.load(open(OUT / "captures.json", encoding="utf-8")) \
         if (OUT / "captures.json").exists() else {}
     disk_of = V.physical_disks(corpus, cap_fp)
     RECOV.mkdir(exist_ok=True)
+    # When a sha is shared by both .EXE and .SAV forms on a disk, build_corpus
+    # makes one record with both names — canonicalise to the .SAV form so the
+    # record lands in the SAME consensus group as other .SAV records of the
+    # same program (instead of forming its own silo'd ".EXE" group).
     groups = defaultdict(list)
     for r in corpus:
-        groups[(r["names"][0], r["blocks"])].append(r)
+        # if SOME other record exists under the .SAV name of this base, prefer that
+        groups[(canonical_name(r["names"]), r["blocks"])].append(r)
 
     out, tiers = [], Counter()
     for (name, blocks), recs in sorted(groups.items()):
