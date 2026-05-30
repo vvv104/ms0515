@@ -292,7 +292,16 @@ class Model:
         return p.read_bytes() if p.exists() else b""
 
     def set_choice(self, r, shas):
-        self.chosen[(r["name"], r["blocks"])] = list(shas)
+        """ADD `shas` to the file's canonical set (union with existing).  Use
+        clear_choice() to drop all canonicals if you want to start over."""
+        key = (r["name"], r["blocks"])
+        existing = self.chosen.get(key, [])
+        if isinstance(existing, str): existing = [existing]
+        combined = list(existing)
+        for s in shas:
+            if s not in combined:
+                combined.append(s)
+        self.chosen[key] = combined
         self._save(); self._reclassify()
 
     def clear_choice(self, r):
@@ -576,10 +585,12 @@ def run_gui(model):
         if not r or not v:
             status.config(text="select a file and >=1 version to set canonical"); return
         shas = [s for s, _ in v]
-        model.set_choice(r, shas)
+        model.set_choice(r, shas)        # ADDS to existing canonicals (union)
         refresh()
-        status.config(text=f"set {r['name']} -> {len(shas)} canonical(s): "
-                           + "+".join(s[:8] for s in shas) + "  (written to decisions.tsv)")
+        total = len(model.chosen_for(r))
+        status.config(text=f"added {len(shas)} -> {r['name']} now has {total} canonical(s): "
+                           + "+".join(s[:8] for s in model.chosen.get((r['name'], r['blocks']), []))
+                           + "  (Clear to reset)")
 
     def do_clear():
         r = state["rec"]
