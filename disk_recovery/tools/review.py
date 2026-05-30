@@ -591,7 +591,7 @@ def run_gui(model):
     ttk.Label(preview_bar, text="view as:").pack(side="left")
     text_mode = tk.StringVar(value="auto")
     mode_cb = ttk.Combobox(preview_bar, textvariable=text_mode, state="readonly",
-                           values=["auto", "original"], width=22)
+                           values=["auto", "original", "hex"], width=22)
     mode_cb.pack(side="left", padx=4)
     text = scrolledtext.ScrolledText(right, wrap="none", font=("Consolas", 9))
     text.pack(fill="both", expand=True, padx=6, pady=4)
@@ -604,11 +604,14 @@ def run_gui(model):
         text.delete("1.0", "end"); text.insert("1.0", s)
 
     def _show_in_mode(data, enc, is_text):
-        if text_mode.get() == "original":
+        mode = text_mode.get()
+        if mode == "hex":
+            settext(hexdump(data, limit=len(data))); return
+        if mode == "original":
             settext(_strip_trailing_zeros(data).decode("latin-1", "replace"))
             return
         if not is_text:
-            settext(hexdump(data)); return
+            settext(hexdump(data, limit=len(data))); return
         body = _strip_trailing_zeros(data)
         if enc == "KOI-7":
             settext(decode_koi7(body))
@@ -620,19 +623,21 @@ def run_gui(model):
     def render_preview(data):
         """Show `data` in the text panel using the current view-as mode.  Stores
         the bytes so a later combobox change can re-render without re-reading
-        the store, and updates the 'auto (...)' label to the detected format."""
+        the store, and updates the 'auto (...)' label to the detected format.
+        User-picked 'original' or 'hex' is sticky across file switches; 'auto'
+        re-detects per file."""
         state["preview_data"] = data or b""
         if not data:
             settext("")
-            mode_cb.configure(values=["auto", "original"])
-            if text_mode.get() != "original":
+            mode_cb.configure(values=["auto", "original", "hex"])
+            if text_mode.get() not in ("original", "hex"):
                 text_mode.set("auto")
             return
         enc = detect_encoding(data)
         is_text = _is_textual(data)
         auto_label = f"auto ({enc if is_text else 'binary -> hex'})"
-        mode_cb.configure(values=[auto_label, "original"])
-        if text_mode.get() != "original":
+        mode_cb.configure(values=[auto_label, "original", "hex"])
+        if text_mode.get() not in ("original", "hex"):
             text_mode.set(auto_label)
         _show_in_mode(data, enc, is_text)
 
