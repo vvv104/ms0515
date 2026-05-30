@@ -42,7 +42,7 @@ STORE = OUT / "files"
 #   - GOOD -> RECOVERED reads as "we got it back" instead of a vague grade.
 #   - AMBIGUOUS -> MANUAL says what's needed (your decision) instead of the
 #     internal cause (several builds).
-DISPLAY_BANDS = ["GUARANTEED", "CHOSEN", "VERIFIED", "RECOVERED", "MANUAL", "UNVERIFIED"]
+DISPLAY_BANDS = ["GUARANTEED", "VERIFIED", "RECOVERED", "UNVERIFIED", "MANUAL", "CHOSEN"]
 MODEL_TO_DISPLAY = {
     "GUARANTEED": "GUARANTEED",
     "CHOSEN":     "CHOSEN",
@@ -687,8 +687,17 @@ def run_gui(model):
         state["rec"] = r
         state["vers"] = list(model.all_versions(r))   # builds + session synthetics
         display_versions(preserve_selection=False)    # drop old file's selection
-        render_preview(b"")
-        status.config(text="")
+        # Auto-select the first version and preview it so the right panel
+        # shows content immediately — saves a manual click on every file.
+        if state["vers"]:
+            vbox.selection_set(0); vbox.see(0)
+            sha = state["vers"][0][0]
+            data = model.content(sha)
+            render_preview(data)
+            status.config(text=f"viewing {sha[:8]}  ({len(data)} bytes)")
+        else:
+            render_preview(b"")
+            status.config(text="")
 
     def go_to(r):
         """Switch to r's current-band tab and select its row, so a file that
