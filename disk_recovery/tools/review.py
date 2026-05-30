@@ -396,13 +396,24 @@ def run_gui(model):
         if len({len(d) for d in datas}) != 1:
             status.config(text="versions differ in length — cannot byte-vote"); return
         sha = V.store_voted(datas)
+        # If the vote result matches one of the inputs, no synthetic recovery
+        # was needed — that input IS the per-byte majority; just Set canonical
+        # on it directly.
+        input_shas = {s for s, _ in v}
+        matches_existing = sha in input_shas
         state["vers"].append((sha, [f"byte-vote of {len(v)}"]))
         vbox.insert("end", f"{sha[:8]}  on: (byte-vote of {len(v)})")
         vbox.selection_clear(0, "end"); vbox.selection_set("end")
         voted = model.content(sha)
         t = as_text(voted)
         settext(t if t is not None else hexdump(voted))
-        status.config(text=f"byte-vote -> {sha[:8]} of {len(v)} versions; review, then Set canonical")
+        if matches_existing:
+            status.config(text=f"byte-vote -> {sha[:8]} = an existing variant "
+                               "(no synthetic recovery; that variant IS the majority — "
+                               "just Set canonical on it directly)")
+        else:
+            status.config(text=f"byte-vote -> {sha[:8]} of {len(v)} versions (synthetic); "
+                               "review, then Set canonical")
 
     def do_zeroes():
         r = state["rec"]
