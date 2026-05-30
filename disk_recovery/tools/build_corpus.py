@@ -411,8 +411,9 @@ def main():
     # fingerprint is known.  Walking provenance is the right pass: each entry
     # tells which capture contributed which name, so a record collecting names
     # from several captures is renamed only on the contributing entries that
-    # come from an EXE_AS_SAV disk.  Names list is then re-derived from the
-    # provenance, deduplicated, preserving first-seen order.
+    # come from an EXE_AS_SAV disk.  Names list is then re-derived purely from
+    # the (rewritten) provenance, deduplicated in first-seen order — the old
+    # r["names"] is discarded so a stale .EXE doesn't leak past the rename.
     if EXE_AS_SAV_FINGERPRINTS:
         for r in corpus.values():
             seen, new_names = set(), []
@@ -421,9 +422,6 @@ def main():
                     p["name"] = exe_to_sav(p["name"])
                 if p["name"] not in seen:
                     seen.add(p["name"]); new_names.append(p["name"])
-            for n in r["names"]:
-                if n not in seen:
-                    seen.add(n); new_names.append(n)
             r["names"] = new_names
 
     OUT.mkdir(exist_ok=True)
