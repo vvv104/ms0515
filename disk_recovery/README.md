@@ -16,6 +16,7 @@ in the repo.
 | Path | Contents |
 |------|----------|
 | `README.md` | This file — orientation + the trust model. |
+| `HOWTO.md` | Step-by-step usage guide: from empty `work/` to GUI review, every script and what it produces. Numbers verified by a live end-to-end run. |
 | `METHODOLOGY.md` | The recovery playbook: source taxonomy, the consensus ladder, scoring metrics, donor rules, confidence tiers. General to any disk. |
 | `PITFALLS.md` | Anti-patterns that produced wrong "recoveries" in the past. Read before trusting any merge. |
 | `TOOLKIT.md` | The tooling: the built `ms0515-disk` format tools (create/init/put/get/dir), how they are verified against the OS, and what recovery logic is still to be written. |
