@@ -18,6 +18,7 @@ from collections import Counter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verdict as V
+from consensus import canonical_name
 
 OUT = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus"
 
@@ -26,7 +27,7 @@ def main():
     corpus = json.load(open(OUT / "corpus.json", encoding="utf-8"))["records"]
     recs_by_key = {}
     for r in corpus:
-        recs_by_key.setdefault((r["names"][0], r["blocks"]), []).append(r)
+        recs_by_key.setdefault((canonical_name(r["names"]), r["blocks"]), []).append(r)
     donor = {"recovered": [], "corroborated": []}
     if (OUT / "donor.json").exists():
         donor = json.load(open(OUT / "donor.json", encoding="utf-8"))

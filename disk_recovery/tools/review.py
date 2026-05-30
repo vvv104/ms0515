@@ -26,6 +26,7 @@ from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verdict as V
+from consensus import canonical_name
 
 OUT = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus"
 STORE = OUT / "files"
@@ -196,8 +197,11 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
                 ib = Disassembler(sb, 0).disassemble_all()
             except Exception:
                 continue
-            wa = sum(1 for it in ia if str(it[-1]).startswith(".WORD"))
-            wb = sum(1 for it in ib if str(it[-1]).startswith(".WORD"))
+            # HALT (0x0000) is technically a valid opcode but a block of all
+            # HALTs is just zero-padding masquerading as code, so count it as
+            # non-code together with .WORD (illegal/data words).
+            wa = sum(1 for it in ia if str(it[-1]).startswith(".WORD") or str(it[-1]) == "HALT")
+            wb = sum(1 for it in ib if str(it[-1]).startswith(".WORD") or str(it[-1]) == "HALT")
             ra = wa / max(len(ia), 1)
             rb = wb / max(len(ib), 1)
             if abs(ra - rb) < 0.20:
@@ -235,9 +239,12 @@ class Model:
             if (OUT/"donor.json").exists() else {"recovered": [], "corroborated": []}
         self.recovered = {(d["name"], d["blocks"]) for d in donor["recovered"]}
         self.corro = {(d["name"], d["blocks"]): d["source"] for d in donor["corroborated"]}
+        # Key by the same canonical name consensus uses, so .EXE-first records
+        # land in the same recs_by_key bucket as their .SAV-grouped consensus
+        # record (otherwise zero-analysis / phys-disks would miss them).
         self.recs_by_key = defaultdict(list)
         for r in self.corpus:
-            self.recs_by_key[(r["names"][0], r["blocks"])].append(r)
+            self.recs_by_key[(canonical_name(r["names"]), r["blocks"])].append(r)
         self.disk_of = V.physical_disks(self.corpus, cap_fp)
         self.cons_by_key = {(r["name"], r["blocks"]): r for r in self.files}
         self.chosen = V.load_decisions(V.DECISIONS, self.cons_by_key)
@@ -476,7 +483,7 @@ def run_gui(model):
                 seg = full[b*512:(b+1)*512]
                 try:
                     items = Disassembler(seg, 0).disassemble_all()
-                    wcnt = sum(1 for it in items if str(it[-1]).startswith(".WORD"))
+                    wcnt = sum(1 for it in items if str(it[-1]).startswith(".WORD") or str(it[-1]) == "HALT")
                     scores.append((sha, wcnt, len(items)))
                 except Exception:
                     scores.append((sha, None, 0))

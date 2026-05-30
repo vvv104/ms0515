@@ -22,6 +22,7 @@ from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verdict as V
+from consensus import canonical_name
 
 OUT = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus"
 STORE, RECOV, PROP, EXPORT = OUT/"files", OUT/"recovered", OUT/"donor_proposed", OUT/"export"
@@ -71,7 +72,7 @@ def main():
     sha2canon = {r["sha"]: (r["names"][0], r["blocks"]) for r in corpus}
     recs_by_key = defaultdict(list)
     for r in corpus:
-        recs_by_key[(r["names"][0], r["blocks"])].append(r)
+        recs_by_key[(canonical_name(r["names"]), r["blocks"])].append(r)
     donor = json.load(open(OUT/"donor.json", encoding="utf-8")) if (OUT/"donor.json").exists() \
         else {"recovered": [], "corroborated": []}
     recovered = {(d["name"], d["blocks"]) for d in donor["recovered"]}
