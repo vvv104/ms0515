@@ -269,6 +269,11 @@ class Model:
         self.disk_of = V.physical_disks(self.corpus, cap_fp)
         self.cons_by_key = {(r["name"], r["blocks"]): r for r in self.files}
         self.chosen = V.load_decisions(V.DECISIONS, self.cons_by_key)
+        # session-only synthetic variants (byte-vote / text-merge results) kept
+        # per-file so they persist across reselection — without this they were
+        # tied to the right-panel state and vanished as soon as the file's tab
+        # changed (or any code path rebuilt state["vers"]).
+        self.synthetic = defaultdict(list)
         self._reclassify()
 
     def _reclassify(self):
@@ -286,6 +291,19 @@ class Model:
 
     def versions(self, r):
         return V.version_disks(r)
+
+    def add_synthetic(self, r, sha, label):
+        """Remember a session-built variant (byte-vote / text-merge) so it stays
+        visible in the version list even after the file is re-selected."""
+        key = (r["name"], r["blocks"])
+        if any(s == sha for s, _ in self.synthetic[key]):
+            return
+        self.synthetic[key].append((sha, [label]))
+
+    def all_versions(self, r):
+        """Real builds + this session's synthetic variants, in display order."""
+        key = (r["name"], r["blocks"])
+        return list(self.versions(r)) + list(self.synthetic.get(key, []))
 
     def content(self, sha):
         p = STORE / f"{sha}.bin"
@@ -408,7 +426,7 @@ def run_gui(model):
         if state.get("rec") is r:
             return
         state["rec"] = r
-        state["vers"] = list(model.versions(r))   # original order, no reordering
+        state["vers"] = list(model.all_versions(r))   # builds + session synthetics
         display_versions()
         settext("")
         status.config(text="")
@@ -472,9 +490,13 @@ def run_gui(model):
         sha, vote_status = V.store_voted(datas, weights)
         input_shas = {s for s, _ in v}
         matches_existing = sha in input_shas
-        state["vers"].append((sha, [f"byte-vote of {len(v)}"]))
-        vbox.insert("end", f"{sha[:8]}  on: (byte-vote of {len(v)})")
-        vbox.selection_clear(0, "end"); vbox.selection_set("end")
+        r = state["rec"]
+        model.add_synthetic(r, sha, f"byte-vote of {len(v)}")
+        state["vers"] = list(model.all_versions(r))
+        display_versions()
+        for i, (s, _) in enumerate(state["vers"]):
+            if s == sha:
+                vbox.selection_clear(0, "end"); vbox.selection_set(i); vbox.see(i); break
         voted = model.content(sha)
         t = as_text(voted)
         settext(t if t is not None else hexdump(voted))
@@ -594,9 +616,13 @@ def run_gui(model):
             status.config(text="versions differ in length — cannot text-merge"); return
         merged, rescued = V.block_merge(datas)
         sha = V.store_content(merged)
-        state["vers"].append((sha, [f"text-merge of {len(v)}"]))
-        vbox.insert("end", f"{sha[:8]}  on: (text-merge of {len(v)}; {rescued} bytes rescued)")
-        vbox.selection_clear(0, "end"); vbox.selection_set("end")
+        r = state["rec"]
+        model.add_synthetic(r, sha, f"text-merge of {len(v)} ({rescued}b rescued)")
+        state["vers"] = list(model.all_versions(r))
+        display_versions()
+        for i, (s, _) in enumerate(state["vers"]):
+            if s == sha:
+                vbox.selection_clear(0, "end"); vbox.selection_set(i); vbox.see(i); break
         t = as_text(merged)
         settext(t if t is not None else hexdump(merged))
         status.config(text=f"text-merge -> {sha[:8]}; {rescued} bytes taken from a readable copy; review, then Set canonical")
