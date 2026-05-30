@@ -45,12 +45,13 @@ def as_text(data):
         return body.decode("koi8-r", "replace")
     return None
 
-def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
+def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
+                    model=None, record=None, on_refresh=None):
     """Side-by-side hex diff popup with synchronised scrolling and red-highlight
     on differing bytes (both hex and ASCII columns).  Next/Prev jump between
     differing rows."""
     import tkinter as tk
-    from tkinter import ttk
+    from tkinter import ttk, messagebox, scrolledtext
     BPR = 16
     ROWS_PER_BLOCK = 512 // BPR                  # = 32: one RT-11 block per group
     n = max(len(data_a), len(data_b))
@@ -77,6 +78,53 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
     nxt_btn = ttk.Button(bar, text="Next diff ↓", width=14); nxt_btn.pack(side="right", padx=2)
     prv_btn = ttk.Button(bar, text="Prev diff ↑", width=14); prv_btn.pack(side="right", padx=2)
     disasm_btn = ttk.Button(bar, text="Disasm cmp", width=12); disasm_btn.pack(side="right", padx=8)
+    if record is not None:
+        zero_btn = ttk.Button(bar, text="Zero analysis", width=14)
+        zero_btn.pack(side="right", padx=2)
+        tm_btn = ttk.Button(bar, text="Text-merge sel", width=14)
+        tm_btn.pack(side="right", padx=2)
+        tm_btn.config(command=lambda: do_textmerge())
+
+        def do_zero():
+            n = min(len(data_a), len(data_b)) // 512
+            ZERO = b"\x00" * 512
+            lines = []
+            for blk in range(n):
+                sa = data_a[blk*512:(blk+1)*512]; sb = data_b[blk*512:(blk+1)*512]
+                za, zb = sa == ZERO, sb == ZERO
+                if za and zb:
+                    lines.append(f"  block {blk}: ZERO on both (natural padding)")
+                elif za:
+                    lines.append(f"  block {blk}: {sha_a[:8]} = ZERO, {sha_b[:8]} = data  ->  {sha_a[:8]} likely LOST")
+                elif zb:
+                    lines.append(f"  block {blk}: {sha_b[:8]} = ZERO, {sha_a[:8]} = data  ->  {sha_b[:8]} likely LOST")
+            messagebox.showinfo(f"Zero analysis: {name}",
+                                "\n".join(lines) if lines else "no zero blocks in either version")
+        zero_btn.config(command=do_zero)
+
+        def do_textmerge():
+            if record.get("is_binary") or record.get("category") not in ("text", "other"):
+                messagebox.showwarning("Text-merge",
+                    f"{record['name']} is category '{record.get('category','?')}' — text-merge "
+                    "prefers readable bytes and would corrupt a binary; use Byte-vote on the main panel.")
+                return
+            if len(data_a) != len(data_b):
+                messagebox.showwarning("Text-merge", "Versions differ in length — cannot merge."); return
+            merged, rescued = V.block_merge([data_a, data_b])
+            sha = V.store_content(merged)
+            same_a, same_b = (sha == sha_a), (sha == sha_b)
+            note = (f" (= existing {sha_a[:8]})" if same_a
+                    else f" (= existing {sha_b[:8]})" if same_b
+                    else " (synthetic recovery)")
+            msg = (f"Text-merge produced {sha[:8]}{note}.\n"
+                   f"{rescued} byte(s) taken from a readable copy where the other had binary.\n\n"
+                   f"Set as canonical for {record['name']}?")
+            if model is not None and messagebox.askyesno("Text-merge result", msg):
+                model.set_choice(record, [sha])
+                if on_refresh:
+                    on_refresh()
+                messagebox.showinfo("Done",
+                    f"Canonical for {record['name']} set to {sha[:8]}; decisions.tsv updated.")
 
     hdr = ttk.Frame(win); hdr.pack(fill="x", padx=4)
     ttk.Label(hdr, text=f"{sha_a[:8]}  ({len(data_a)} B)", foreground="#444",
@@ -376,17 +424,17 @@ def run_gui(model):
         if len(v) != 2:
             status.config(text="select exactly two versions"); return
         a, b = model.content(v[0][0]), model.content(v[1][0])
-        ta, tb = as_text(a), as_text(b)
-        if ta is not None and tb is not None:
-            d = list(difflib.unified_diff(ta.splitlines(), tb.splitlines(),
-                                          v[0][0][:8], v[1][0][:8], lineterm=""))
-            settext("\n".join(d) if d else "(identical as text)")
-            status.config(text=f"text diff {v[0][0][:8]} vs {v[1][0][:8]}")
-        else:
-            r = state["rec"]; nm = r["name"] if r else "?"
-            hex_diff_window(root, nm, v[0][0], a, v[1][0], b)
-            total = sum(1 for i in range(min(len(a), len(b))) if a[i] != b[i])
-            status.config(text=f"hex diff popup opened ({total} byte(s) differ)")
+        if a == b:
+            t = as_text(a)
+            settext(t if t is not None else hexdump(a))
+            status.config(text=f"versions {v[0][0][:8]} and {v[1][0][:8]} are IDENTICAL "
+                               f"({len(a)} bytes) — content shown above")
+            return
+        r = state["rec"]; nm = r["name"] if r else "?"
+        hex_diff_window(root, nm, v[0][0], a, v[1][0], b,
+                        model=model, record=r, on_refresh=refresh)
+        total = sum(1 for i in range(min(len(a), len(b))) if a[i] != b[i])
+        status.config(text=f"hex diff popup opened ({total} byte(s) differ)")
 
     def do_bytevote():
         v = selected_versions()
@@ -568,14 +616,21 @@ def run_gui(model):
         refresh()
         status.config(text=f"cleared {r['name']}")
 
-    ttk.Button(btns, text="View", command=do_view).pack(side="left")
     ttk.Button(btns, text="Diff 2", command=do_diff).pack(side="left", padx=4)
     ttk.Button(btns, text="Byte-vote sel", command=do_bytevote).pack(side="left")
-    ttk.Button(btns, text="Text-merge sel", command=do_textmerge).pack(side="left", padx=4)
-    ttk.Button(btns, text="Zero analysis", command=do_zeroes).pack(side="left")
-    ttk.Button(btns, text="Disasm cmp", command=do_disasm).pack(side="left", padx=4)
     ttk.Button(btns, text="✓ Set canonical", command=do_set).pack(side="left", padx=4)
     ttk.Button(btns, text="Clear", command=do_clear).pack(side="left")
+
+    def on_version_select(event):
+        sel = vbox.curselection()
+        if len(sel) != 1:
+            return                              # don't auto-view on multi-select
+        sha = state["vers"][sel[0]][0]
+        data = model.content(sha)
+        t = as_text(data)
+        settext(t if t is not None else hexdump(data))
+        status.config(text=f"viewing {sha[:8]}  ({len(data)} bytes)")
+    vbox.bind("<<ListboxSelect>>", on_version_select)
 
     refresh()
     try:
