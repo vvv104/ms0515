@@ -56,9 +56,12 @@ def is_text(name):
 
 def readable(b):
     # printable ASCII; CR/LF/TAB; BS/VT/FF; SO/SI (KOI-7 РУС/ЛАТ shifts); ESC
-    # (RUNOFF/terminal escapes); KOI-8 high range (Cyrillic).
+    # (RUNOFF/terminal escapes); full KOI-8R high half — 0x80..0xBF is
+    # box-drawing / pseudographics (used heavily on Rodionov disks), 0xC0..0xFF
+    # is Cyrillic.  Omitting 0x80..0xBF made is_garbage() flag legitimate
+    # KOI-8R screens as binary corruption -> file ended up in LOST.
     return ((0x20 <= b <= 0x7E) or b in (8, 9, 10, 11, 12, 13, 14, 15, 27)
-            or (0xC0 <= b <= 0xFF))
+            or 0x80 <= b <= 0xFF)
 
 def is_garbage(seg):
     n = sum(1 for b in seg if not (readable(b) or b == 0))

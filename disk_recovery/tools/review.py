@@ -32,16 +32,21 @@ OUT = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus"
 STORE = OUT / "files"
 
 def _readable(b):
-    # printable ASCII; CR/LF/TAB; BS/VT/FF; SO/SI (KOI-7 РУС/ЛАТ shifts); ESC.
+    # printable ASCII; CR/LF/TAB; BS/VT/FF; SO/SI (KOI-7 РУС/ЛАТ shifts); ESC;
+    # full KOI-8R high half (0x80..0xBF = box-drawing / pseudographics; 0xC0..0xFF
+    # = Cyrillic).  Rodionov-style screens use the pseudographic range heavily,
+    # so omitting it tagged whole blocks as binary garbage and put their files
+    # in LOST even though every byte was a legitimate KOI-8R glyph.
     return ((0x20 <= b <= 0x7E) or b in (8, 9, 10, 11, 12, 13, 14, 15, 27)
-            or (0xC0 <= b <= 0xFF))
+            or 0x80 <= b <= 0xFF)
 
 def _ascii_cell(b):
     """One character for a hex-dump ASCII column: printable ASCII as is,
-    KOI-8R high range as Cyrillic, everything else as '.'."""
+    KOI-8R high half (box-drawing / pseudographics + Cyrillic) decoded via the
+    standard codec, everything else as '.'."""
     if 32 <= b <= 126:
         return chr(b)
-    if 0xC0 <= b <= 0xFF:
+    if 0x80 <= b <= 0xFF:
         return bytes([b]).decode("koi8-r")
     return "."
 
@@ -56,16 +61,23 @@ def _is_textual(data):
     return bool(body) and sum(1 for x in body if _readable(x)) / len(body) > 0.7
 
 def detect_encoding(data):
-    """Best guess at the bytes' source encoding.  KOI-7 is 7-bit by definition
-    (Cyrillic lives in 0x40..0x7E behind SO/SI shifts), so the presence of ANY
-    high byte rules it out — without this, a stray 0x0E/0x0F from bit-rot in a
-    damaged KOI-8R file mis-tagged it as KOI-7 (e.g. two of three PASGR.DOC
-    versions on disk5).  Order: high bytes -> KOI-8R; no high bytes + SO/SI ->
-    KOI-7; else ASCII."""
+    """Best guess at the bytes' source encoding.
+      KOI-8R+gfx — high bytes in the pseudographics range 0x80..0xBF are
+                   present (box-drawing, blocks, math symbols); used by
+                   Rodionov-style screens.  Decoded via the same KOI-8R codec.
+      KOI-8R     — high bytes only in the Cyrillic range 0xC0..0xFF.
+      KOI-7      — purely 7-bit (no high bytes) with at least one SO/SI shift.
+      ASCII      — 7-bit, no shifts.
+    KOI-7 is 7-bit by definition, so any high byte rules it out (without this
+    a stray 0x0E/0x0F from bit-rot would flip a damaged KOI-8R to KOI-7)."""
     body = _strip_trailing_zeros(data)
     if not body:
         return "ASCII"
-    if any(b >= 0x80 for b in body):
+    has_gfx = any(0x80 <= b <= 0xBF for b in body)
+    has_cyr = any(0xC0 <= b <= 0xFF for b in body)
+    if has_gfx:
+        return "KOI-8R+gfx"
+    if has_cyr:
         return "KOI-8R"
     if any(b in (0x0E, 0x0F) for b in body):
         return "KOI-7"
@@ -264,7 +276,7 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
             body = _strip_trailing_zeros(d)
             if enc == "KOI-7":
                 return decode_koi7(body)
-            if enc == "KOI-8R":
+            if enc in ("KOI-8R", "KOI-8R+gfx"):
                 return body.decode("koi8-r", "replace")
             return body.decode("latin-1", "replace")
         text_a, text_b = dec(data_a), dec(data_b)
@@ -577,7 +589,7 @@ def run_gui(model):
         body = _strip_trailing_zeros(data)
         if enc == "KOI-7":
             settext(decode_koi7(body))
-        elif enc == "KOI-8R":
+        elif enc in ("KOI-8R", "KOI-8R+gfx"):
             settext(body.decode("koi8-r", "replace"))
         else:
             settext(body.decode("latin-1", "replace"))

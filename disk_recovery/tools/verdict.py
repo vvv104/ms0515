@@ -82,9 +82,11 @@ def byte_majority(datas, weights=None):
 
 def _readable(b):
     # printable ASCII; CR/LF/TAB; BS, VT, FF; SO/SI (KOI-7 РУС/ЛАТ shifts); ESC
-    # (RUNOFF/terminal escapes); KOI-8 high range (Cyrillic).
+    # (RUNOFF/terminal escapes); full KOI-8R high half (0x80..0xBF = box-drawing
+    # / pseudographics, 0xC0..0xFF = Cyrillic).  Rodionov-style screens use the
+    # pseudographic range heavily and were being mis-tagged as binary garbage.
     return ((0x20 <= b <= 0x7E) or b in (8, 9, 10, 11, 12, 13, 14, 15, 27)
-            or (0xC0 <= b <= 0xFF))
+            or 0x80 <= b <= 0xFF)
 
 def _block_garbage(seg):
     """A block is binary garbage iff more than half its bytes are non-readable
