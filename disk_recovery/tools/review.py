@@ -737,7 +737,16 @@ def run_gui(model):
         if state.get("rec") is r:
             return
         state["rec"] = r
-        state["vers"] = list(model.all_versions(r))   # builds + session synthetics
+        vers = list(model.all_versions(r))            # builds + session synthetics
+        # If a disk filter is active, push versions that live on that disk to
+        # the top so the auto-preview shows that disk's bytes first (stable
+        # sort preserves original order within each group).
+        sel = disk_var.get()
+        canon = label_to_canon.get(sel) if sel != "(all)" else None
+        if canon is not None:
+            vers.sort(key=lambda v: not any(
+                alias_to_canonical.get(d) == canon for d in v[1]))
+        state["vers"] = vers
         display_versions(preserve_selection=False)    # drop old file's selection
         # Auto-select the first version and preview it so the right panel
         # shows content immediately — saves a manual click on every file.
