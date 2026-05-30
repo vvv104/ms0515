@@ -95,35 +95,27 @@ def badmap_set(path):
         return None
     return {i for i, x in enumerate(path.read_bytes()) if x}
 
-# ── Filename normalisation rules ────────────────────────────────────────────
-# All rules are content-based, never tied to where a capture file lives on disk.
-# A user with the same physical media stored under any directory structure gets
-# the same renames.
-#
-# (1) Global filename aliases applied on every capture: the RT-suffix variants
-# are the same binaries as the standard utilities under a renamed extension.
+# ── Filename normalisation ──────────────────────────────────────────────────
+# Two name-based rules, applied at ingest time on every capture:
+#   1. NAME_ALIASES — three specific RT-suffix utility variants on some
+#      Rodionov-era disks are the same binaries as the standard utilities,
+#      renamed by whichever build tool produced the source disk.
+#   2. .EXE -> .SAV — RT-11 .EXE is the alias extension for .SAV; in this
+#      collection the two forms are interchangeable and the .SAV name is the
+#      canonical one, so re-publishing via `ms0515-disk put` lands with the
+#      convention-correct extension on the rebuilt floppy.  The alias map
+#      runs FIRST so DIRRT/PIPRT/DUPRT keep their basename rewrite (they're
+#      not just an extension change).
 NAME_ALIASES = {
     "DIRRT.EXE": "DIR.SAV",
     "PIPRT.EXE": "PIP.SAV",
     "DUPRT.EXE": "DUP.SAV",
 }
-# (2) Per-disk rule for floppies whose RT-11 directory uses .EXE as the default
-# executable extension instead of the standard .SAV — rewrite every .EXE on that
-# disk to .SAV so its records merge with the rest of the corpus.  Disks are
-# identified by their `dir_sig` directory fingerprint (a hash of the ordered
-# file list + start blocks + sizes the OS wrote at INIT time), which depends
-# only on the disk's content, not on where the capture lives in the work tree.
-# One known case in our collection — codenamed "ARCSAV", captured under several
-# names — has fingerprint b7287e5e376f8f2e.
-EXE_AS_SAV_FINGERPRINTS = {
-    "b7287e5e376f8f2e",
-}
 
 def alias_name(name):
-    """Apply the global NAME_ALIASES table.  Used at ingest time."""
-    return NAME_ALIASES.get(name.upper(), name)
-
-def exe_to_sav(name):
+    aliased = NAME_ALIASES.get(name.upper())
+    if aliased:
+        return aliased
     if "." in name:
         base, ext = name.rsplit(".", 1)
         if ext.upper() == "EXE":
@@ -406,23 +398,6 @@ def main():
             if not any_ok:
                 flagged.append({"capture": rel,
                                 "reason": "no readable directory (unknown layout)"})
-
-    # Apply the per-disk .EXE -> .SAV rule now that every capture's directory
-    # fingerprint is known.  Walking provenance is the right pass: each entry
-    # tells which capture contributed which name, so a record collecting names
-    # from several captures is renamed only on the contributing entries that
-    # come from an EXE_AS_SAV disk.  Names list is then re-derived purely from
-    # the (rewritten) provenance, deduplicated in first-seen order — the old
-    # r["names"] is discarded so a stale .EXE doesn't leak past the rename.
-    if EXE_AS_SAV_FINGERPRINTS:
-        for r in corpus.values():
-            seen, new_names = set(), []
-            for p in r["provenance"]:
-                if cap_fp.get(p["capture"]) in EXE_AS_SAV_FINGERPRINTS:
-                    p["name"] = exe_to_sav(p["name"])
-                if p["name"] not in seen:
-                    seen.add(p["name"]); new_names.append(p["name"])
-            r["names"] = new_names
 
     OUT.mkdir(exist_ok=True)
     records = sorted(corpus.values(), key=lambda r: (r["category"], r["names"][0]))
