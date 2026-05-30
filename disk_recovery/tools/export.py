@@ -34,10 +34,13 @@ def verdict_text(r, band, recs_by_key, recovered, corro, disk_of, chosen, sha, o
     key = (r["name"], r["blocks"])
     note = "" if own else "  [this disk's copy was damaged; exported the recovered version]"
     if band == "CHOSEN":
-        csha = chosen[key]
-        where = next((",".join(d) for s, d in V.version_disks(key, recs_by_key, disk_of) if s == csha), "?")
-        mine = " (this disk's)" if csha == sha else ""
-        return f"CHOSEN — you picked version {csha[:8]} @ {where}{mine}; exported that version"
+        cl = chosen[key]
+        if isinstance(cl, str): cl = [cl]
+        builds_map = {s: d for s, d in V.version_disks(r)}
+        own = sha in cl
+        parts = [f"{c[:8]} @ {','.join(builds_map.get(c, ['?']))}" for c in cl]
+        tag = "this disk's variant IS canonical" if own else "canonical lives on another disk"
+        return f"CHOSEN — {len(cl)} canonical: " + " | ".join(parts) + f"; {tag}"
     if band == "GUARANTEED":
         return f"GUARANTEED — byte-identical on {V.phys_disks(key, recs_by_key, corro, disk_of)} different physical disks" + note
     if band == "HIGH":
@@ -101,8 +104,11 @@ def main():
             # choose best content
             prop = PROP / name
             ckey = (name, blocks)
-            if ckey in chosen:                              # human-picked canonical version
-                csha = chosen[ckey]; data = (STORE/f"{csha}.bin").read_bytes()
+            if ckey in chosen:                              # human-picked canonical version(s)
+                cl = chosen[ckey]
+                if isinstance(cl, str): cl = [cl]
+                csha = sha if sha in cl else cl[0]          # prefer this disk's own canonical
+                data = (STORE/f"{csha}.bin").read_bytes()
             elif ckey in recovered and prop.exists():
                 data, csha = prop.read_bytes(), None
             elif r and r.get("recovered_sha") and (RECOV/f"{r['recovered_sha']}.bin").exists():

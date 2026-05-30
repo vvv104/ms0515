@@ -263,13 +263,17 @@ class Model:
         p = STORE / f"{sha}.bin"
         return p.read_bytes() if p.exists() else b""
 
-    def set_choice(self, r, sha):
-        self.chosen[(r["name"], r["blocks"])] = sha
+    def set_choice(self, r, shas):
+        self.chosen[(r["name"], r["blocks"])] = list(shas)
         self._save(); self._reclassify()
 
     def clear_choice(self, r):
         self.chosen.pop((r["name"], r["blocks"]), None)
         self._save(); self._reclassify()
+
+    def chosen_for(self, r):
+        v = self.chosen.get((r["name"], r["blocks"]), [])
+        return set(v) if isinstance(v, (list, set, tuple)) else {v}
 
     def _save(self):
         amb = [r for r in self.files if r["tier"] == "multi-version"]
@@ -328,20 +332,20 @@ def run_gui(model):
         idx = int(tv.item(sel[0], "tags")[0])
         r = model.files[idx]
         state["rec"] = r
-        chosen_sha = model.chosen.get((r["name"], r["blocks"]))
-        # chosen variant comes first; others keep original order
-        vers = sorted(model.versions(r), key=lambda v: v[0] != chosen_sha)
+        chosen_set = model.chosen_for(r)
+        # chosen variants come first; others keep original order
+        vers = sorted(model.versions(r), key=lambda v: v[0] not in chosen_set)
         state["vers"] = vers
         vbox.delete(0, "end")
         for i, (sha, disks) in enumerate(vers):
-            if sha == chosen_sha:
+            if sha in chosen_set:
                 vbox.insert("end", f"✓ CHOSEN  {sha[:8]}  on: {', '.join(disks)}")
                 vbox.itemconfig(i, background="#d0f0d0", foreground="#0a4f0a")
             else:
                 vbox.insert("end", f"          {sha[:8]}  on: {', '.join(disks)}")
+        canon_txt = ("  — canonical: " + "+".join(s[:8] for s in sorted(chosen_set))) if chosen_set else ""
         info.config(text=f"{r['name']}  {r['blocks']} blk  [{r['band']}]  "
-                         f"{len(state['vers'])} version(s)"
-                         + (f"  — canonical: {chosen_sha[:8]}" if chosen_sha else ""))
+                         f"{len(state['vers'])} version(s){canon_txt}")
         settext("")
         status.config(text="")
 
@@ -519,12 +523,16 @@ def run_gui(model):
             tv.delete(*tv.get_children())
             for r in bands.get(band, []):
                 key = (r["name"], r["blocks"])
-                ch = model.chosen.get(key, "")
+                cl = model.chosen.get(key, [])
+                if isinstance(cl, str): cl = [cl]
+                if not cl:        ch_disp = ""
+                elif len(cl) == 1: ch_disp = cl[0][:8]
+                else:              ch_disp = f"{cl[0][:6]}+{len(cl)-1}"
                 idx = model.files.index(r)
                 tv.insert("", "end", text=r["name"],
                           values=(r["blocks"],
                                   f"{r.get('verified_blocks', 0)}/{r['blocks']}",
-                                  len(model.versions(r)), ch[:8]),
+                                  len(model.versions(r)), ch_disp),
                           tags=(str(idx),))
             ti = V.BANDS.index(band)
             nb.tab(ti, text=f"{band} ({len(bands.get(band, []))})")
@@ -532,11 +540,13 @@ def run_gui(model):
     def do_set():
         v = selected_versions()
         r = state["rec"]
-        if not r or len(v) != 1:
-            status.config(text="select one file and one version"); return
-        model.set_choice(r, v[0][0])
+        if not r or not v:
+            status.config(text="select a file and >=1 version to set canonical"); return
+        shas = [s for s, _ in v]
+        model.set_choice(r, shas)
         refresh()
-        status.config(text=f"set {r['name']} -> {v[0][0][:8]} (written to decisions.tsv)")
+        status.config(text=f"set {r['name']} -> {len(shas)} canonical(s): "
+                           + "+".join(s[:8] for s in shas) + "  (written to decisions.tsv)")
 
     def do_clear():
         r = state["rec"]

@@ -152,8 +152,10 @@ def resolve_choice(choose, versions):
     return None
 
 def load_decisions(path, cons_by_key):
-    """Parse the human decisions file -> {(name,blocks): chosen_sha}.
-    cons_by_key maps (name,blocks) -> consensus record (for its builds)."""
+    """Parse the human decisions file -> {(name,blocks): [chosen_sha, ...]}.
+    Multiple shas in CHOOSE may be separated by '+' to mark several distinct
+    builds as canonical (e.g. RT11SJ.SYS where several monitor versions are all
+    real, not one "right" build)."""
     chosen = {}
     p = Path(path)
     if not p.exists():
@@ -169,14 +171,21 @@ def load_decisions(path, cons_by_key):
             blocks = int(cells[1].strip().replace("blk", ""))
         except ValueError:
             continue
-        choose = cells[2].strip()
-        sha = resolve_choice(choose, version_disks(cons_by_key.get((name, blocks))))
-        if not sha:                              # a voted/synthetic content in the store
-            hits = list(_STORE.glob(choose + "*.bin")) if len(choose) >= 6 else []
-            if len(hits) == 1:
-                sha = hits[0].stem
-        if sha:
-            chosen[(name, blocks)] = sha
+        versions = version_disks(cons_by_key.get((name, blocks)))
+        shas = []
+        for token in cells[2].split("+"):
+            token = token.strip()
+            if not token:
+                continue
+            sha = resolve_choice(token, versions)
+            if not sha:                          # voted/synthetic content in the store
+                hits = list(_STORE.glob(token + "*.bin")) if len(token) >= 6 else []
+                if len(hits) == 1:
+                    sha = hits[0].stem
+            if sha and sha not in shas:
+                shas.append(sha)
+        if shas:
+            chosen[(name, blocks)] = shas
     return chosen
 
 def classify(r, recs_by_key, recovered, corro, disk_of, chosen=frozenset()):
@@ -233,12 +242,16 @@ DECISION_HEADER = (
     "# NAME\tBLK\tCHOOSE\tVERSIONS (sha8 @ disks)\n")
 
 def write_decisions(path, amb_records, chosen):
-    """Write the decisions file for the AMBIGUOUS consensus records, filling
-    CHOOSE from `chosen` ({(name,blocks): sha}).  Shared by decide.py and the GUI."""
+    """Write the decisions file for the AMBIGUOUS consensus records.  Each
+    record's CHOOSE column shows the user's picks as '+'-joined sha8s (empty
+    if undecided).  Shared by decide.py and the GUI."""
     lines = [DECISION_HEADER]
     for r in sorted(amb_records, key=lambda r: r["name"]):
         key = (r["name"], r["blocks"])
         opts = " ;; ".join(f"{s[:8]} @ {','.join(d)}" for s, d in version_disks(r))
-        ch = chosen.get(key, "")
-        lines.append(f"{r['name']}\t{r['blocks']}\t{ch[:8]}\t{opts}\n")
+        picks = chosen.get(key, [])
+        if isinstance(picks, str):                # back-compat: old single-sha form
+            picks = [picks]
+        ch = "+".join(s[:8] for s in picks)
+        lines.append(f"{r['name']}\t{r['blocks']}\t{ch}\t{opts}\n")
     Path(path).write_text("".join(lines), encoding="utf-8")
