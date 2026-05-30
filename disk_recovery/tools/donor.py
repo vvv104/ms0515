@@ -204,8 +204,16 @@ def main():
                     uniq = dedup(find_oneside(seqs, index, blks[lo-1], gap, before=True))
                 if uniq:
                     payload, lbl = next(iter(uniq.items()))
+                    # KOI-8R Cyrillic preview can fall outside the host console
+                    # codepage (e.g. cp1252) — re-encode to the console default,
+                    # dropping anything that doesn't fit, so the lead still
+                    # prints instead of crashing the donor pass.
+                    preview = payload[:40].decode("koi8-r", "replace")
+                    safe = preview.encode(sys.stdout.encoding or "ascii",
+                                          errors="replace").decode(
+                              sys.stdout.encoding or "ascii", errors="replace")
                     print(f"   blk {lo}-{hi}: one-sided lead ({len(uniq)} src, LOW confidence) "
-                          f"from {lbl}: {payload[:40].decode('koi8-r','replace')}")
+                          f"from {lbl}: {safe}")
                 else:
                     print(f"   blk {lo}-{hi}: no donor (one-sided)")
         if confident == len(nruns):                    # every run resolved -> write proposal

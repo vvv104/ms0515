@@ -64,8 +64,28 @@ def readable(b):
             or 0x80 <= b <= 0xFF)
 
 def is_garbage(seg):
-    n = sum(1 for b in seg if not (readable(b) or b == 0))
-    return n / len(seg) > 0.5 if seg else False
+    """Two-pronged garbage check for a text block:
+
+    1. Inline low-control bytes — anything in 0x00..0x1F except NUL and the
+       handful of control codes that occur naturally in text (TAB/LF/CR,
+       BS/VT/FF, SO/SI, ESC).  Real text never has more than a stray one or
+       two; binary content has many.  >5% is a strong binary signal even when
+       the overall "readable" ratio looks fine because random high bytes
+       happened to fall inside the KOI-8R range.
+    2. Original > 50% non-readable (and not NUL padding) fallback.
+
+    Without (1), BASICO.DOC's bit-rot blocks (high-byte garbage + scattered
+    low-control bytes) slipped past the threshold and the file ended up
+    VERIFIED instead of LOST."""
+    if not seg:
+        return False
+    n = len(seg)
+    low_ctrl = sum(1 for b in seg
+                   if b and b < 0x20 and b not in (8, 9, 10, 11, 12, 13, 14, 15, 27))
+    if low_ctrl / n > 0.05:
+        return True
+    non_readable = sum(1 for b in seg if not (readable(b) or b == 0))
+    return non_readable / n > 0.5
 
 def diff_stats(a, b):
     n = min(len(a), len(b)); d = bits = 0
