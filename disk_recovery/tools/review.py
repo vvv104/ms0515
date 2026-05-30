@@ -107,37 +107,36 @@ def as_text(data):
 
 def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
                     model=None, record=None, on_refresh=None):
-    """Side-by-side hex diff popup with synchronised scrolling and red-highlight
-    on differing bytes (both hex and ASCII columns).  Next/Prev jump between
-    differing rows."""
+    """Side-by-side diff popup with synchronised scrolling.  Two view modes:
+      hex  — bytes/ASCII columns grouped per 512-byte block, with Disasm cmp
+             and Zero analysis aids.
+      text — decoded text using the auto-detected encoding (KOI-7 / KOI-8R /
+             ASCII), line numbers in gray, line-level navigation with inline
+             character-level diff highlighting via difflib.
+    Mode defaults to text when both sides look textual; otherwise hex."""
     import tkinter as tk
-    from tkinter import ttk, messagebox, scrolledtext
+    from tkinter import ttk, messagebox
+    import difflib
     BPR = 16
     ROWS_PER_BLOCK = 512 // BPR                  # = 32: one RT-11 block per group
-    n = max(len(data_a), len(data_b))
-    rows = (n + BPR - 1) // BPR
-    blocks = (rows + ROWS_PER_BLOCK - 1) // ROWS_PER_BLOCK
-    diff_rows = []
-    # Layout: before each block group of <=32 data lines we insert a header
-    # line.  For block b, header is at line b*33+1 (Text lines are 1-indexed);
-    # the data row r inside that block is sub = r%32 below it, so:
-    #   line(r) = (r // ROWS_PER_BLOCK)*(ROWS_PER_BLOCK + 1) + (r % ROWS_PER_BLOCK) + 2
-    #          = (r // ROWS_PER_BLOCK) + r + 2
-    # (the previous +1 was off by one and shifted every diff highlight up by a row).
-    def line_of(r):
-        return (r // ROWS_PER_BLOCK) + r + 2
-    total_lines = rows + blocks                  # data lines + block-header lines
 
     win = tk.Toplevel(parent)
     win.title(f"Compare: {name}  —  {sha_a[:8]} vs {sha_b[:8]}")
     win.geometry("1500x820")
 
     bar = ttk.Frame(win); bar.pack(fill="x", padx=4, pady=2)
+    ttk.Label(bar, text="view:").pack(side="left", padx=(4, 0))
+    default_mode = "text" if (_is_textual(data_a) and _is_textual(data_b)) else "hex"
+    view_mode = tk.StringVar(value=default_mode)
+    view_cb = ttk.Combobox(bar, textvariable=view_mode, values=["text", "hex"],
+                           state="readonly", width=6)
+    view_cb.pack(side="left", padx=4)
     info = ttk.Label(bar, text="rendering...", font=("", 9))
     info.pack(side="left", padx=8)
     nxt_btn = ttk.Button(bar, text="Next diff ↓", width=14); nxt_btn.pack(side="right", padx=2)
     prv_btn = ttk.Button(bar, text="Prev diff ↑", width=14); prv_btn.pack(side="right", padx=2)
     disasm_btn = ttk.Button(bar, text="Disasm cmp", width=12); disasm_btn.pack(side="right", padx=8)
+    zero_btn = None
     if record is not None:
         zero_btn = ttk.Button(bar, text="Zero analysis", width=14)
         zero_btn.pack(side="right", padx=2)
@@ -180,7 +179,6 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
         t.tag_configure("cleaner", background="#d0f0d0")   # disasm: looks like code
         t.tag_configure("junkier", background="#f8d8d8")   # disasm: likely garbage
 
-    # synced scrolling: any scroll on one side mirrors to the other
     syncing = [False]
     def make_yscroll(other):
         def cb(*args):
@@ -200,7 +198,11 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
     for t in (ta, tb):
         t.bind("<MouseWheel>", mwheel)
 
-    def build_line(off, seg, oth_len):
+    # State shared across the two render modes
+    vstate = {"diff_items": [], "idx": -1, "total_lines": 0,
+              "diff_blocks_list": [], "rows": 0, "blocks": 0, "enc": ""}
+
+    def build_hex_line(off, seg):
         n_ = len(seg)
         addr = f"{off:08x}  "
         hex_parts = []
@@ -211,52 +213,136 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
         asc = "".join(_ascii_cell(seg[i]) if i < n_ else " " for i in range(BPR))
         return addr + "".join(hex_parts) + "|" + asc + "|\n"
 
-    def render(t, data, other):
-        for blk in range(blocks):
-            t.insert("end", f"────────── block {blk} ──────────\n", "blocksep")
-            for sub in range(ROWS_PER_BLOCK):
-                r = blk * ROWS_PER_BLOCK + sub
-                if r >= rows:
-                    break
-                off = r * BPR
-                seg = data[off:off+BPR]; oth = other[off:off+BPR]
-                t.insert("end", build_line(off, seg, len(oth)))
-                ln = line_of(r)
-                t.tag_add("addr", f"{ln}.0", f"{ln}.10")
-                for i in range(BPR):
-                    a_has = i < len(seg); b_has = i < len(oth)
-                    if a_has and b_has and seg[i] == oth[i]:
-                        continue
-                    if not a_has and not b_has:
-                        continue
-                    hpos = 10 + i*3 + (1 if i >= 8 else 0)
-                    t.tag_add("diff", f"{ln}.{hpos}", f"{ln}.{hpos+2}")
-                    apos = 60 + i           # 10 addr + 49 hex + 1 sep
-                    t.tag_add("diff", f"{ln}.{apos}", f"{ln}.{apos+1}")
-    render(ta, data_a, data_b)
-    render(tb, data_b, data_a)
-    for r in range(rows):
-        off = r*BPR
-        if data_a[off:off+BPR] != data_b[off:off+BPR]:
-            diff_rows.append(r)
-    for t in (ta, tb): t.configure(state="disabled")
-    diff_blocks_list = sorted({r // ROWS_PER_BLOCK for r in diff_rows})
-    info.config(text=f"{len(diff_blocks_list)} differing blocks (of {blocks} blocks; {len(diff_rows)} differing rows)")
+    def line_of_hex(r):
+        # Block header at b*33+1; row r data line at (r//32) + r + 2 (1-indexed).
+        return (r // ROWS_PER_BLOCK) + r + 2
 
-    # Block-level navigation: jump moves to the next/prev BLOCK with any
-    # difference (not to the next differing row), and tracks the current index
-    # explicitly so sitting on the first diff doesn't break Next.
-    idx = [-1]
+    def render_hex():
+        total = max(len(data_a), len(data_b))
+        rows = (total + BPR - 1) // BPR
+        blocks = (rows + ROWS_PER_BLOCK - 1) // ROWS_PER_BLOCK
+        vstate["rows"], vstate["blocks"] = rows, blocks
+        for t, data, other in [(ta, data_a, data_b), (tb, data_b, data_a)]:
+            for blk in range(blocks):
+                t.insert("end", f"────────── block {blk} ──────────\n", "blocksep")
+                for sub in range(ROWS_PER_BLOCK):
+                    r = blk * ROWS_PER_BLOCK + sub
+                    if r >= rows:
+                        break
+                    off = r * BPR
+                    seg = data[off:off+BPR]; oth = other[off:off+BPR]
+                    t.insert("end", build_hex_line(off, seg))
+                    ln = line_of_hex(r)
+                    t.tag_add("addr", f"{ln}.0", f"{ln}.10")
+                    for i in range(BPR):
+                        a_has = i < len(seg); b_has = i < len(oth)
+                        if a_has and b_has and seg[i] == oth[i]:
+                            continue
+                        if not a_has and not b_has:
+                            continue
+                        hpos = 10 + i*3 + (1 if i >= 8 else 0)
+                        t.tag_add("diff", f"{ln}.{hpos}", f"{ln}.{hpos+2}")
+                        apos = 60 + i
+                        t.tag_add("diff", f"{ln}.{apos}", f"{ln}.{apos+1}")
+        diff_rows = []
+        for r in range(rows):
+            off = r*BPR
+            if data_a[off:off+BPR] != data_b[off:off+BPR]:
+                diff_rows.append(r)
+        vstate["diff_blocks_list"] = sorted({r // ROWS_PER_BLOCK for r in diff_rows})
+        vstate["diff_items"] = list(vstate["diff_blocks_list"])
+        vstate["total_lines"] = rows + blocks
+        info.config(text=f"{len(vstate['diff_blocks_list'])} differing blocks "
+                         f"(of {blocks} blocks; {len(diff_rows)} differing rows)")
+
+    def render_text():
+        # Pick encoding from the union so both sides decode the same way.
+        combined = bytes(data_a) + bytes(data_b)
+        enc = detect_encoding(combined)
+        vstate["enc"] = enc
+        def dec(d):
+            body = _strip_trailing_zeros(d)
+            if enc == "KOI-7":
+                return decode_koi7(body)
+            if enc == "KOI-8R":
+                return body.decode("koi8-r", "replace")
+            return body.decode("latin-1", "replace")
+        text_a, text_b = dec(data_a), dec(data_b)
+        lines_a = text_a.splitlines()
+        lines_b = text_b.splitlines()
+        n_lines = max(len(lines_a), len(lines_b), 1)
+        diff_set = set()
+        LN_W = 5
+        PREFIX = LN_W + 2     # "%5d  " column width
+        for i in range(n_lines):
+            la = lines_a[i] if i < len(lines_a) else ""
+            lb = lines_b[i] if i < len(lines_b) else ""
+            ta.insert("end", f"{i+1:{LN_W}d}  {la}\n")
+            tb.insert("end", f"{i+1:{LN_W}d}  {lb}\n")
+            ln = i + 1
+            ta.tag_add("addr", f"{ln}.0", f"{ln}.{PREFIX-1}")
+            tb.tag_add("addr", f"{ln}.0", f"{ln}.{PREFIX-1}")
+            if la != lb:
+                diff_set.add(i)
+                # Character-level inline highlighting via difflib opcodes.
+                matcher = difflib.SequenceMatcher(None, la, lb, autojunk=False)
+                for op, i1, i2, j1, j2 in matcher.get_opcodes():
+                    if op == "equal":
+                        continue
+                    if i2 > i1:
+                        ta.tag_add("diff", f"{ln}.{PREFIX+i1}", f"{ln}.{PREFIX+i2}")
+                    if j2 > j1:
+                        tb.tag_add("diff", f"{ln}.{PREFIX+j1}", f"{ln}.{PREFIX+j2}")
+        vstate["diff_items"] = sorted(diff_set)
+        vstate["total_lines"] = n_lines
+        info.config(text=f"[{enc}]  {len(vstate['diff_items'])} differing lines "
+                         f"(of {n_lines} total)")
+
+    def clear_panes():
+        for t in (ta, tb):
+            t.configure(state="normal")
+            t.delete("1.0", "end")
+            for tag in ("diff", "addr", "blocksep", "cleaner", "junkier"):
+                t.tag_remove(tag, "1.0", "end")
+
     def jump(direction):
-        if not diff_blocks_list: return
-        idx[0] = (idx[0] + direction) % len(diff_blocks_list)
-        blk = diff_blocks_list[idx[0]]
-        header_line = blk * (ROWS_PER_BLOCK + 1) + 1
-        frac = max(0, header_line - 1) / max(total_lines, 1)
+        if not vstate["diff_items"]:
+            return
+        n = len(vstate["diff_items"])
+        vstate["idx"] = (vstate["idx"] + direction) % n
+        item = vstate["diff_items"][vstate["idx"]]
+        if view_mode.get() == "text":
+            line = item + 1
+            frac = max(0, line - 1) / max(vstate["total_lines"], 1)
+            info.config(text=f"line {line}  ({vstate['idx']+1}/{n} differing)"
+                             f"  [{vstate.get('enc','')}]")
+        else:
+            header_line = item * (ROWS_PER_BLOCK + 1) + 1
+            frac = max(0, header_line - 1) / max(vstate["total_lines"], 1)
+            info.config(text=f"block {item}  ({vstate['idx']+1}/{n} differing)")
         ta.yview_moveto(frac); tb.yview_moveto(frac)
-        info.config(text=f"block {blk}  ({idx[0]+1}/{len(diff_blocks_list)} differing)")
+
+    def re_render():
+        clear_panes()
+        vstate["idx"] = -1
+        if view_mode.get() == "text":
+            render_text()
+            disasm_btn.configure(state="disabled")
+            if zero_btn is not None:
+                zero_btn.configure(state="disabled")
+        else:
+            render_hex()
+            disasm_btn.configure(state="normal")
+            if zero_btn is not None:
+                zero_btn.configure(state="normal")
+        for t in (ta, tb):
+            t.configure(state="disabled")
+        if vstate["diff_items"]:
+            jump(1)
+
     nxt_btn.config(command=lambda: jump(1))
     prv_btn.config(command=lambda: jump(-1))
+    view_cb.bind("<<ComboboxSelected>>", lambda e: re_render())
 
     def do_disasm_compare():
         import sys as _sys
@@ -265,12 +351,12 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
             from pdp11_disasm import Disassembler
         except Exception as e:
             info.config(text=f"disasm unavailable: {e}"); return
-        # clear any prior cleaner/junkier tags
         for t in (ta, tb):
             t.tag_remove("cleaner", "1.0", "end")
             t.tag_remove("junkier", "1.0", "end")
         cleaner_count = 0
-        for blk in diff_blocks_list:
+        rows = vstate["rows"]
+        for blk in vstate["diff_blocks_list"]:
             sa = data_a[blk*512:(blk+1)*512]
             sb = data_b[blk*512:(blk+1)*512]
             try:
@@ -278,17 +364,14 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
                 ib = Disassembler(sb, 0).disassemble_all()
             except Exception:
                 continue
-            # HALT (0x0000) is technically a valid opcode but a block of all
-            # HALTs is just zero-padding masquerading as code, so count it as
-            # non-code together with .WORD (illegal/data words).
             wa = sum(1 for it in ia if str(it[-1]).startswith(".WORD") or str(it[-1]) == "HALT")
             wb = sum(1 for it in ib if str(it[-1]).startswith(".WORD") or str(it[-1]) == "HALT")
             ra = wa / max(len(ia), 1)
             rb = wb / max(len(ib), 1)
             if abs(ra - rb) < 0.20:
-                continue                                  # too close to call
+                continue
             cleaner, junkier = (ta, tb) if ra < rb else (tb, ta)
-            first = blk * (ROWS_PER_BLOCK + 1) + 2        # first data line of block
+            first = blk * (ROWS_PER_BLOCK + 1) + 2
             last = first + min(ROWS_PER_BLOCK, rows - blk*ROWS_PER_BLOCK) - 1
             cleaner.tag_add("cleaner", f"{first}.0", f"{last}.end")
             junkier.tag_add("junkier", f"{first}.0", f"{last}.end")
@@ -296,8 +379,7 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
         info.config(text=f"disasm: {cleaner_count} blocks classified  (green = cleaner code; red = junkier)")
     disasm_btn.config(command=do_disasm_compare)
 
-    if diff_blocks_list:
-        jump(1)                                 # auto-jump to first differing block
+    re_render()
 
 def hexdump(data, limit=4096):
     out = []
