@@ -81,9 +81,6 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
     if record is not None:
         zero_btn = ttk.Button(bar, text="Zero analysis", width=14)
         zero_btn.pack(side="right", padx=2)
-        tm_btn = ttk.Button(bar, text="Text-merge sel", width=14)
-        tm_btn.pack(side="right", padx=2)
-        tm_btn.config(command=lambda: do_textmerge())
 
         def do_zero():
             n = min(len(data_a), len(data_b)) // 512
@@ -101,30 +98,6 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b,
             messagebox.showinfo(f"Zero analysis: {name}",
                                 "\n".join(lines) if lines else "no zero blocks in either version")
         zero_btn.config(command=do_zero)
-
-        def do_textmerge():
-            if record.get("is_binary") or record.get("category") not in ("text", "other"):
-                messagebox.showwarning("Text-merge",
-                    f"{record['name']} is category '{record.get('category','?')}' — text-merge "
-                    "prefers readable bytes and would corrupt a binary; use Byte-vote on the main panel.")
-                return
-            if len(data_a) != len(data_b):
-                messagebox.showwarning("Text-merge", "Versions differ in length — cannot merge."); return
-            merged, rescued = V.block_merge([data_a, data_b])
-            sha = V.store_content(merged)
-            same_a, same_b = (sha == sha_a), (sha == sha_b)
-            note = (f" (= existing {sha_a[:8]})" if same_a
-                    else f" (= existing {sha_b[:8]})" if same_b
-                    else " (synthetic recovery)")
-            msg = (f"Text-merge produced {sha[:8]}{note}.\n"
-                   f"{rescued} byte(s) taken from a readable copy where the other had binary.\n\n"
-                   f"Set as canonical for {record['name']}?")
-            if model is not None and messagebox.askyesno("Text-merge result", msg):
-                model.set_choice(record, [sha])
-                if on_refresh:
-                    on_refresh()
-                messagebox.showinfo("Done",
-                    f"Canonical for {record['name']} set to {sha[:8]}; decisions.tsv updated.")
 
     hdr = ttk.Frame(win); hdr.pack(fill="x", padx=4)
     ttk.Label(hdr, text=f"{sha_a[:8]}  ({len(data_a)} B)", foreground="#444",
@@ -618,6 +591,7 @@ def run_gui(model):
 
     ttk.Button(btns, text="Diff 2", command=do_diff).pack(side="left", padx=4)
     ttk.Button(btns, text="Byte-vote sel", command=do_bytevote).pack(side="left")
+    ttk.Button(btns, text="Text-merge sel", command=do_textmerge).pack(side="left", padx=4)
     ttk.Button(btns, text="✓ Set canonical", command=do_set).pack(side="left", padx=4)
     ttk.Button(btns, text="Clear", command=do_clear).pack(side="left")
 
