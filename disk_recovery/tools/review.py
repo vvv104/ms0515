@@ -57,10 +57,13 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
     blocks = (rows + ROWS_PER_BLOCK - 1) // ROWS_PER_BLOCK
     diff_rows = []
     # Layout: before each block group of <=32 data lines we insert a header
-    # line, so the absolute Text-widget line number for data row r is:
-    #   line(r) = (r // ROWS_PER_BLOCK) + r + 1     (Text lines are 1-indexed)
+    # line.  For block b, header is at line b*33+1 (Text lines are 1-indexed);
+    # the data row r inside that block is sub = r%32 below it, so:
+    #   line(r) = (r // ROWS_PER_BLOCK)*(ROWS_PER_BLOCK + 1) + (r % ROWS_PER_BLOCK) + 2
+    #          = (r // ROWS_PER_BLOCK) + r + 2
+    # (the previous +1 was off by one and shifted every diff highlight up by a row).
     def line_of(r):
-        return (r // ROWS_PER_BLOCK) + r + 1
+        return (r // ROWS_PER_BLOCK) + r + 2
     total_lines = rows + blocks                  # data lines + block-header lines
 
     win = tk.Toplevel(parent)
