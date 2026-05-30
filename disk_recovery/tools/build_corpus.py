@@ -95,6 +95,40 @@ def badmap_set(path):
         return None
     return {i for i, x in enumerate(path.read_bytes()) if x}
 
+# ── Per-capture / global filename aliases ───────────────────────────────────
+# ARCSAV is a specific physical disk in the collection (also captured as a TD0
+# and rebuilt from per-side raws) whose RT-11 directory carries every file
+# with a .EXE extension instead of the standard .SAV.  This is unique to that
+# disk — extend the set if the same media is found under another capture name.
+ARCSAV_CAPTURES = {
+    "data/src/extracted/ARCSAV.DSK",
+    "data/src/extracted/ARCSAV.TD0",
+    "data/src/extracted/ARCSAV_Head0+1",
+    "vvv104/disk4.raw",       # confirmed same physical disk: shares directory
+                              # fingerprint b7287e5e376f8f2e with the ARCSAV.* trio.
+}
+# Global filename aliases applied on every capture: these three RT-suffix
+# variants are the same binaries as the standard utilities, renamed by
+# whichever build tool produced the source disks.
+NAME_ALIASES = {
+    "DIRRT.EXE": "DIR.SAV",
+    "PIPRT.EXE": "PIP.SAV",
+    "DUPRT.EXE": "DUP.SAV",
+}
+
+def normalize_name(name, capture):
+    """Canonicalise a file's name at ingest time so the rest of the pipeline
+    (consensus, decisions.tsv, export, GUI) sees one name per file.  Global
+    NAME_ALIASES win; otherwise on the ARCSAV disk only, rewrite .EXE -> .SAV."""
+    aliased = NAME_ALIASES.get(name.upper())
+    if aliased:
+        return aliased
+    if capture in ARCSAV_CAPTURES and "." in name:
+        base, ext = name.rsplit(".", 1)
+        if ext.upper() == "EXE":
+            return base + ".SAV"
+    return name
+
 DAT_RE = re.compile(r"_crc_error_Head(\d+)_Track(\d+)_Sector(\d+)_", re.I)
 
 # Koshka .log line: "Head N, Track N, sector N, probe|retry K, error CODE - desc"
@@ -315,7 +349,7 @@ def main():
         _, files, entries, _ = res
         rel = str((parent / f"{base}_Head0+1").relative_to(WORK)).replace("\\", "/")
         for name, start, length in entries:
-            ingest(name, files[name], rel, "span")
+            ingest(normalize_name(name, rel), files[name], rel, "span")
         cap_fp[rel] = dir_sig({("span", n): (s, l) for n, s, l in entries})
         consumed |= {p0, p1}
 
@@ -346,7 +380,7 @@ def main():
                         if status and name in dents:
                             start, length = dents[name]
                             bad = flagged_blocks(start, length, s, ds_img, flagset)
-                        ingest(name, data, rel, s, bad, status)
+                        ingest(normalize_name(name, rel), data, rel, s, bad, status)
             if any_ok and cap_entries:
                 cap_fp[rel] = dir_sig(cap_entries)
             if not any_ok:
@@ -366,7 +400,7 @@ def main():
                             if status:
                                 bad = [i for i in range(length)
                                        if to_byte(start + i)//512 in flagset]
-                            ingest(name, files[name], rel, "span", bad, status)
+                            ingest(normalize_name(name, rel), files[name], rel, "span", bad, status)
                         cap_fp[rel] = dir_sig({("span", n): (s, l) for n, s, l in entries})
             if not any_ok:
                 flagged.append({"capture": rel,

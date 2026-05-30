@@ -69,7 +69,7 @@ def main():
     files = json.load(open(OUT/"consensus.json", encoding="utf-8"))["files"]
     corpus = json.load(open(OUT/"corpus.json", encoding="utf-8"))["records"]
     cons = {(r["name"], r["blocks"]): r for r in files}
-    sha2canon = {r["sha"]: (r["names"][0], r["blocks"]) for r in corpus}
+    sha2canon = {r["sha"]: (canonical_name(r["names"]), r["blocks"]) for r in corpus}
     recs_by_key = defaultdict(list)
     for r in corpus:
         recs_by_key[(canonical_name(r["names"]), r["blocks"])].append(r)

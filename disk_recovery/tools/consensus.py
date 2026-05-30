@@ -169,26 +169,15 @@ def reconcile(variants, blocks, text):
     return bytes(out), tags
 
 def canonical_name(names):
-    """RT-11 .EXE and .SAV are aliased extensions for the same executable image
-    (often present under both names on one disk, e.g. ARCSAV).  If a record's
-    name set contains both .EXE and .SAV forms of a basename, group it under the
-    .SAV form — otherwise build_corpus's sha-merge produces a record with both
-    names but consensus would silo it under whichever name was added first,
-    creating an artificially "verified" .EXE group separate from the AMBIGUOUS
-    .SAV group of the same program."""
-    # if any name has a .SAV form whose basename also has a .EXE form here, use .SAV
-    by_base = {}
+    """Consensus group key for a record.  Aliases are already applied at ingest
+    time in build_corpus.normalize_name (per-disk ARCSAV.EXE -> .SAV + global
+    DIRRT/PIPRT/DUPRT -> DIR/PIP/DUP.SAV), so by the time we get here a record
+    should carry a single canonical name.  Prefer a literal .SAV form if the
+    name set contains both — back-compat for stale corpora rebuilt before the
+    ingest-side rename existed."""
     for n in names:
-        if "." in n:
-            base, ext = n.rsplit(".", 1)
-            by_base.setdefault(base.upper(), set()).add(ext.upper())
-    for n in names:
-        if "." in n:
-            base, ext = n.rsplit(".", 1)
-            if ext.upper() == "EXE" and "SAV" in by_base.get(base.upper(), set()):
-                return base + ".SAV"
-            if ext.upper() == "SAV" and "EXE" in by_base.get(base.upper(), set()):
-                return n
+        if "." in n and n.rsplit(".", 1)[1].upper() == "SAV":
+            return n
     return names[0]
 
 def main():
