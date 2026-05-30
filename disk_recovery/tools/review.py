@@ -72,6 +72,7 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
     info.pack(side="left", padx=8)
     nxt_btn = ttk.Button(bar, text="Next diff ↓", width=14); nxt_btn.pack(side="right", padx=2)
     prv_btn = ttk.Button(bar, text="Prev diff ↑", width=14); prv_btn.pack(side="right", padx=2)
+    disasm_btn = ttk.Button(bar, text="Disasm cmp", width=12); disasm_btn.pack(side="right", padx=8)
 
     hdr = ttk.Frame(win); hdr.pack(fill="x", padx=4)
     ttk.Label(hdr, text=f"{sha_a[:8]}  ({len(data_a)} B)", foreground="#444",
@@ -90,6 +91,8 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
         t.tag_configure("addr", foreground="#888")
         t.tag_configure("blocksep", foreground="#666",
                         background="#eef0f8", font=("Consolas", 9, "bold"))
+        t.tag_configure("cleaner", background="#d0f0d0")   # disasm: looks like code
+        t.tag_configure("junkier", background="#f8d8d8")   # disasm: likely garbage
 
     # synced scrolling: any scroll on one side mirrors to the other
     syncing = [False]
@@ -152,25 +155,61 @@ def hex_diff_window(parent, name, sha_a, data_a, sha_b, data_b):
         if data_a[off:off+BPR] != data_b[off:off+BPR]:
             diff_rows.append(r)
     for t in (ta, tb): t.configure(state="disabled")
-    diff_blocks = len({r // ROWS_PER_BLOCK for r in diff_rows})
-    info.config(text=f"{len(diff_rows)} differing rows in {diff_blocks} blocks (of {rows} rows / {blocks} blocks)")
+    diff_blocks_list = sorted({r // ROWS_PER_BLOCK for r in diff_rows})
+    info.config(text=f"{len(diff_blocks_list)} differing blocks (of {blocks} blocks; {len(diff_rows)} differing rows)")
 
-    # navigation: track current index in diff_rows explicitly (round-trip via
-    # scroll-position lost precision when sitting on a diff row).
+    # Block-level navigation: jump moves to the next/prev BLOCK with any
+    # difference (not to the next differing row), and tracks the current index
+    # explicitly so sitting on the first diff doesn't break Next.
     idx = [-1]
     def jump(direction):
-        if not diff_rows: return
-        idx[0] = (idx[0] + direction) % len(diff_rows)
-        r = diff_rows[idx[0]]
-        target_line = line_of(r) - 2     # show header + previous data line above
-        frac = max(0, target_line) / total_lines
+        if not diff_blocks_list: return
+        idx[0] = (idx[0] + direction) % len(diff_blocks_list)
+        blk = diff_blocks_list[idx[0]]
+        header_line = blk * (ROWS_PER_BLOCK + 1) + 1
+        frac = max(0, header_line - 1) / max(total_lines, 1)
         ta.yview_moveto(frac); tb.yview_moveto(frac)
-        info.config(text=f"diff {idx[0]+1}/{len(diff_rows)}  (row {r}, block {r//ROWS_PER_BLOCK})  —  "
-                         f"{len(diff_rows)} rows / {diff_blocks} blocks differ")
+        info.config(text=f"block {blk}  ({idx[0]+1}/{len(diff_blocks_list)} differing)")
     nxt_btn.config(command=lambda: jump(1))
     prv_btn.config(command=lambda: jump(-1))
-    if diff_rows:
-        jump(1)                                 # auto-jump to first difference
+
+    def do_disasm_compare():
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+        try:
+            from pdp11_disasm import Disassembler
+        except Exception as e:
+            info.config(text=f"disasm unavailable: {e}"); return
+        # clear any prior cleaner/junkier tags
+        for t in (ta, tb):
+            t.tag_remove("cleaner", "1.0", "end")
+            t.tag_remove("junkier", "1.0", "end")
+        cleaner_count = 0
+        for blk in diff_blocks_list:
+            sa = data_a[blk*512:(blk+1)*512]
+            sb = data_b[blk*512:(blk+1)*512]
+            try:
+                ia = Disassembler(sa, 0).disassemble_all()
+                ib = Disassembler(sb, 0).disassemble_all()
+            except Exception:
+                continue
+            wa = sum(1 for it in ia if str(it[-1]).startswith(".WORD"))
+            wb = sum(1 for it in ib if str(it[-1]).startswith(".WORD"))
+            ra = wa / max(len(ia), 1)
+            rb = wb / max(len(ib), 1)
+            if abs(ra - rb) < 0.20:
+                continue                                  # too close to call
+            cleaner, junkier = (ta, tb) if ra < rb else (tb, ta)
+            first = blk * (ROWS_PER_BLOCK + 1) + 2        # first data line of block
+            last = first + min(ROWS_PER_BLOCK, rows - blk*ROWS_PER_BLOCK) - 1
+            cleaner.tag_add("cleaner", f"{first}.0", f"{last}.end")
+            junkier.tag_add("junkier", f"{first}.0", f"{last}.end")
+            cleaner_count += 1
+        info.config(text=f"disasm: {cleaner_count} blocks classified  (green = cleaner code; red = junkier)")
+    disasm_btn.config(command=do_disasm_compare)
+
+    if diff_blocks_list:
+        jump(1)                                 # auto-jump to first differing block
 
 def hexdump(data, limit=4096):
     out = []
