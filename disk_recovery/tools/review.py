@@ -38,6 +38,61 @@ _DISK_TOOL = ROOT / "src/build/Release/tools/disk/ms0515-disk.exe"
 DISK_TOOL  = _DISK_TOOL if _DISK_TOOL.exists() else _DISK_TOOL.with_suffix("")
 DIR_RE = re.compile(r"^\s+(\S+)\s+blk=\s*(\d+)\s+len=\s*(\d+)")
 
+# ── RAD50 packing for bit-rot directory recovery ────────────────────────────
+# RT-11 directory names are stored in RAD50, three characters per 16-bit word
+# (basename 6 chars = 2 words = 4 bytes; extension 3 chars = 1 word = 2 bytes).
+# A bit flip on disk affects ONE bit of ONE RAD50 byte but can produce a
+# multi-character difference after decoding back to ASCII (the screenshot
+# case: SAV -> SG8 is a single bit-0 flip of one RAD50 byte: 0x76FE -> 0x77FE).
+# Comparing names at RAD50 byte level catches this; comparing at ASCII level
+# misses it.
+_RAD50 = " ABCDEFGHIJKLMNOPQRSTUVWXYZ$.%0123456789"
+
+def rad50_pack_name(name):
+    """Pack a RT-11 NAME[.EXT] into 6 RAD50 bytes (4 for basename + 2 for ext).
+    Returns None if any character isn't representable in RAD50."""
+    if "." in name:
+        base, ext = name.rsplit(".", 1)
+    else:
+        base, ext = name, ""
+    base = base.upper().ljust(6)[:6]
+    ext  = ext.upper().ljust(3)[:3]
+    words = []
+    for triple in (base[:3], base[3:6], ext):
+        v = 0
+        for c in triple:
+            i = _RAD50.find(c)
+            if i < 0:
+                return None
+            v = v * 40 + i
+        words.append(v)
+    out = bytearray()
+    for w in words:
+        out.append(w & 0xff)
+        out.append((w >> 8) & 0xff)
+    return bytes(out)
+
+def rotted_match(target, candidate, max_bytes=3):
+    """Return the count of single-bit flips between `target` and `candidate`
+    in RAD50-packed form, or None if they differ by more than `max_bytes`
+    bytes OR any byte differs by more than 1 bit.  Each differing RAD50 byte
+    contributes exactly one flipped bit."""
+    a = rad50_pack_name(target)
+    b = rad50_pack_name(candidate)
+    if a is None or b is None or len(a) != len(b):
+        return None
+    bits = 0
+    for x, y in zip(a, b):
+        if x == y:
+            continue
+        flip = x ^ y
+        if flip & (flip - 1):
+            return None
+        bits += 1
+        if bits > max_bytes:
+            return None
+    return bits
+
 # Display-only band consolidation for the GUI.  The model (verdict.py /
 # consensus.py / report.py / export.py) keeps the full 8-band scheme.  Here
 # we fold MEDIUM into HIGH, LOST into UNVERIFIED, and rename two bands to
@@ -1218,29 +1273,29 @@ def run_gui(model):
             return
 
         def resolve_rotted(name, blocks):
-            """A directory entry's extension can be bit-rot (e.g. DIR.SAV read
-            back as DIR.SG8 because two bytes of the RAD50-encoded extension
-            were corrupted on the dir block).  If the exact name has no
-            consensus record, look for a unique record with the same basename
-            prefix and the same block count — prefer one the user has chosen
-            a canonical for.  Returns the corrected name (same input if no
-            recovery)."""
+            """Find the canonical name behind a possibly bit-rotted directory
+            entry: same block count + name within <=3 single-bit RAD50 flips.
+            Prefer the fewest bit flips; break ties by user-chosen canonical.
+            Returns (resolved_name, bits_flipped) or None when there's no
+            unique candidate."""
             if (name, blocks) in model.cons_by_key:
-                return name
-            if "." not in name:
-                return name
-            base = name.rsplit(".", 1)[0].upper()
-            cands = [r["name"] for r in model.files
-                     if r["blocks"] == blocks
-                     and "." in r["name"]
-                     and r["name"].rsplit(".", 1)[0].upper() == base
-                     and r["name"] != name]
-            chosen_cands = [n for n in cands if model.chosen.get((n, blocks))]
-            if len(chosen_cands) == 1:
-                return chosen_cands[0]
-            if len(cands) == 1:
-                return cands[0]
-            return name
+                return None
+            cands = []
+            for r in model.files:
+                if r["blocks"] != blocks or r["name"] == name:
+                    continue
+                bits = rotted_match(name, r["name"])
+                if bits is None:
+                    continue
+                has_chosen = bool(model.chosen.get((r["name"], blocks)))
+                cands.append((r["name"], bits, has_chosen))
+            if not cands:
+                return None
+            cands.sort(key=lambda c: (c[1], not c[2]))
+            # ambiguous when top two share both score and chosen status
+            if len(cands) > 1 and cands[0][1] == cands[1][1] and cands[0][2] == cands[1][2]:
+                return None
+            return (cands[0][0], cands[0][1])
 
         missing, written, recovered_names = [], 0, []
         with tempfile.TemporaryDirectory() as tmpd:
@@ -1250,13 +1305,33 @@ def run_gui(model):
                 paths = []
                 for orig_name, start, length in entries:
                     name = alias_name(orig_name)             # .EXE -> .SAV etc.
-                    resolved = resolve_rotted(name, length)
-                    if resolved != name:
-                        recovered_names.append(f"{orig_name} -> {resolved}")
-                        name = resolved
+                    if (name, length) not in model.cons_by_key:
+                        proposal = resolve_rotted(name, length)
+                        if proposal:
+                            new_name, n_bits = proposal
+                            tag = f"{n_bits} bit{'s' if n_bits != 1 else ''}"
+                            picked = bool(model.chosen.get((new_name, length)))
+                            ok = messagebox.askyesno(
+                                "Bit-rot recovery proposal",
+                                f"Directory entry '{orig_name}' ({length} blocks) "
+                                f"has no canonical match.\n\n"
+                                f"Possible match:  {new_name}\n"
+                                f"   • same size ({length} blocks)\n"
+                                f"   • name differs by {tag} in RAD50 form\n"
+                                f"   • canonical version "
+                                f"{'IS' if picked else 'is NOT'} picked\n\n"
+                                f"Use '{new_name}' for this slot?",
+                                parent=root)
+                            if ok:
+                                recovered_names.append(
+                                    f"{orig_name} -> {new_name}  ({tag})")
+                                name = new_name
+                            else:
+                                missing.append(
+                                    f"side{side}:{orig_name} (recovery rejected)")
+                                continue
                     data = pick_canonical_content(name, length, canon)
                     if data is None:
-                        # last resort: original name might not have been aliased
                         data = pick_canonical_content(orig_name, length, canon)
                     if data is None:
                         missing.append(f"side{side}:{orig_name}"); continue
