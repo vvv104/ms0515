@@ -97,6 +97,14 @@ def badmap_set(path):
 
 DAT_RE = re.compile(r"_crc_error_Head(\d+)_Track(\d+)_Sector(\d+)_", re.I)
 
+# Koshka .log line: "Head N, Track N, sector N, probe|retry K, error CODE - desc"
+# CODE = Win32 system error from Simon Owen's fdrawcmd.sys (0 = success,
+# 27 = ERROR_SECTOR_NOT_FOUND, 23 = ERROR_CRC, ...).  cp866-encoded.
+LOG_RE = re.compile(
+    r"Head\s*(\d+)\s*,\s*Track\s*(\d+)\s*,\s*sector\s*(\d+)\s*,\s*"
+    r"(?:probe|retry)\s*\d+\s*,\s*error\s*(\d+)",
+    re.I)
+
 def dat_readstatus(src, ds):
     """Read-status + recovered content from sibling per-sector re-reads
     (<stem>_crc_error_Head_Track_Sector_*.dat).  Returns (flagged_set, overlay),
@@ -120,6 +128,39 @@ def dat_readstatus(src, ds):
     overlay = {idx: Counter(reads).most_common(1)[0][0] for idx, reads in bysec.items()}
     return flagged, overlay
 
+def koshka_readstatus(src, ds):
+    """Read-status from Koshka (anasana) sibling files: <stem>.map gives one
+    ASCII byte per physical sector ('3' = OK, anything else = flagged; same
+    index space as a converter .badmap), <stem>.log lists per-attempt
+    fdrawcmd errors per (Head, Track, sector) in cp866 — a sector that never
+    reports error 0 is flagged.  Returns the union as a physical-index set,
+    or None if neither file is present.
+
+    Code semantics for .map are provisional: only '3' is confirmed OK by
+    anasana; other digits (seen: 1, 4, 5, 8) are treated as flagged.
+    Refinement waits on the program's documentation.
+    """
+    flagged = set()
+    found = False
+    map_path = src.with_suffix(".map")
+    if map_path.exists():
+        flagged |= {i for i, b in enumerate(map_path.read_bytes()) if b != ord('3')}
+        found = True
+    log_path = src.with_suffix(".log")
+    if log_path.exists():
+        text = log_path.read_bytes().decode("cp866", errors="replace")
+        per_sec = defaultdict(set)
+        for m in LOG_RE.finditer(text):
+            h, t, s, err = int(m[1]), int(m[2]), int(m[3]), int(m[4])
+            idx = (t*20 + h*10 + (s-1)) if ds else (t*10 + (s-1))
+            per_sec[idx].add(err)
+        for idx, errs in per_sec.items():
+            if 0 not in errs:
+                flagged.add(idx)
+        if per_sec:
+            found = True
+    return flagged if found else None
+
 def raw_images_for(src, tmp):
     """Return [(image_path, [sides], flagged_set_or_None)] for a capture.
 
@@ -128,10 +169,16 @@ def raw_images_for(src, tmp):
     TeleDisk flags, or sibling .dat re-reads); None means no read-status.  For a
     raw disk with .dat re-reads the returned image is a temp copy with the
     majority-voted sectors overlaid (recovered content)."""
+    def _union(*sets):
+        live = [s for s in sets if s is not None]
+        return set().union(*live) if live else None
+
     fmt = sniff(src); sz = src.stat().st_size
     if fmt == "raw" and sz in (SS, DS):
         ds = sz == DS
-        flagged, overlay = dat_readstatus(src, ds)
+        dat_flagged, overlay = dat_readstatus(src, ds)
+        ksh_flagged = koshka_readstatus(src, ds)
+        flagged = _union(dat_flagged, ksh_flagged)
         img = src
         if overlay:
             img = tmp / src.name
@@ -146,12 +193,18 @@ def raw_images_for(src, tmp):
         out = work.with_name(work.stem + "_td0.dsk")
         if not out.exists():
             return []
-        flagged = badmap_set(work.with_name(work.stem + "_td0.badmap"))
-        return [(out, [0, 1] if out.stat().st_size == DS else [0], flagged)]
+        ds = out.stat().st_size == DS
+        flagged = _union(badmap_set(work.with_name(work.stem + "_td0.badmap")),
+                         koshka_readstatus(src, ds))
+        return [(out, [0, 1] if ds else [0], flagged)]
     if fmt == "extended-cpc":
         work = tmp / src.name; shutil.copy2(src, work)
         subprocess.run([PY, str(HERE/"convert_samdisk.py"), str(work)], capture_output=True)
-        return [(p, [0], badmap_set(p.with_suffix(".badmap")))
+        # Koshka files (if any) sit alongside the ORIGINAL .dsk; their flag
+        # indices share the per-side track*10+sec space, so they layer cleanly
+        # on top of the converter's per-side .badmap.
+        ksh = koshka_readstatus(src, ds=False)
+        return [(p, [0], _union(badmap_set(p.with_suffix(".badmap")), ksh))
                 for p in sorted(work.parent.glob(work.stem + "_s*.img"))]
     return []
 

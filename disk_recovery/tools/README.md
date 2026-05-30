@@ -37,10 +37,10 @@ Paths are derived from the script location — no absolute paths.
    `ms0515-disk merge` if a single double-sided image is wanted.
 3. **build the corpus**: `python build_corpus.py`.
 
-## Read-status (three sources)
+## Read-status (four sources)
 
-A sector's read-status — did the controller flag it on read — comes from three
-places, all unified by `build_corpus` into one flagged physical-block set per
+A sector's read-status — did the controller flag it on read — comes from four
+places, all unioned by `build_corpus` into one flagged physical-block set per
 image:
 
 - **Extended-CPC** ST1/ST2 status bytes (CRC/data error, missing address mark,
@@ -50,6 +50,15 @@ image:
   are per-sector re-read attempts of CRC-flagged sectors on an otherwise
   statusless raw dump.  Their presence flags the sector; their multiple attempts
   are **majority-voted** to overlay recovered bytes into the extraction image.
+- **Koshka** `.map` / `.log` — anasana's reader (Windows + Simon Owen's
+  `fdrawcmd.sys`) drops a `<stem>.map` (one ASCII digit per physical sector,
+  `'3'` = OK, anything else = flagged; same index space as a `.badmap`) and a
+  `<stem>.log` (cp866 `Head N, Track N, sector N, retry K, error CODE` lines
+  where CODE is a Win32 error — sector flagged if never `error 0`).  Both sit
+  next to the raw image (or alongside a `.TD0` / Extended-CPC `.dsk` to augment
+  the converter's own `.badmap`).  Provisional code semantics: only `'3'` is
+  confirmed by the author as OK; other digits (1, 4, 5, 8 seen) are all
+  treated as flagged until the program's documentation arrives.
 
 A plain raw dump with none of the above carries no read-status: its blocks are
 UNKNOWN, neither trusted nor flagged.  Crucially a raw read must never *cancel*

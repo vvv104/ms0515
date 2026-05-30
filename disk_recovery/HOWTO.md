@@ -63,28 +63,44 @@ physical captures. A merge already baked in decisions that may be
 wrong; re-importing it contaminates the consensus. See `PITFALLS.md`
 §1, §6.
 
-### Re-read `.dat` siblings (KryoFlux-style per-sector re-tries)
+### Read-status siblings (drop these next to the raw image)
 
-If you have separate per-sector re-read files from a CRC-flagged raw
-dump (typical KryoFlux workflow), drop them **next to the raw image**
-with this exact name convention (from `build_corpus.py:DAT_RE`):
+`build_corpus.py` picks up several sibling files that travel with a raw
+disk image and turn an otherwise unverifiable raw into per-sector
+verified material. All three live in the same directory as the
+`<stem>.dsk` / `.raw` file:
+
+| Sibling | Origin | What it adds |
+|---------|--------|--------------|
+| `<stem>.map` | Koshka (anasana) | One ASCII digit per physical sector — `'3'` = read OK, anything else = flagged. Same index space as a `.badmap`. Full per-sector coverage. |
+| `<stem>.log` | Koshka | Per-attempt error log in cp866, lines like `Head 0, Track 28, sector 10, retry 4, error 27 - <description>`. Codes are Win32 system errors from `fdrawcmd.sys` (0 = success, 27 = `ERROR_SECTOR_NOT_FOUND`, 23 = `ERROR_CRC`, ...). A sector that never reports `error 0` is flagged. |
+| `<stem>_crc_error_Head<N>_Track<N>_Sector<N>_<timestamp>.dat` | KryoFlux per-sector re-reads | Each file is a single 512-byte attempted re-read of a CRC-flagged sector. Multiple attempts on the same sector are **majority-voted** byte-by-byte to recover the bytes; their presence also flags the sector. |
+
+So for an image read with Koshka (anasana's `RX50_DZ_koshka` /
+[forum thread](https://zx-pk.ru/threads/28146-koshka.html)) and topped
+up with KryoFlux re-reads, you'd have:
 
 ```
-<image-stem>_crc_error_Head<N>_Track<N>_Sector<N>_<timestamp>.dat
+work/data/.../amk_1.dsk          # the image
+work/data/.../amk_1.map          # Koshka per-sector status
+work/data/.../amk_1.log          # Koshka per-attempt error log
+work/data/.../amk_1_crc_error_Head0_Track32_Sector1_124097D1.dat
+work/data/.../amk_1_crc_error_Head0_Track40_Sector1_36F4A0B5.dat
+...
 ```
 
-So for `Buhgal.dsk`, a re-read of side 0 / track 14 / sector 3 would
-be:
+The pipeline UNIONs all flagged-sector sets from `.map`, `.log` and any
+`.dat` siblings into one per-image read-status. Wrong path or wrong
+name = the sibling is silently ignored, and the image falls back to
+"no read-status" (every band lands in UNVERIFIED).
 
-```
-work/data/.../Buhgal_crc_error_Head0_Track14_Sector3_124097D1.dat
-```
+Note on `.map` digit semantics: only `'3'` is confirmed as OK by the
+program's author. Other digits (1, 4, 5, 8 seen in the wild) are
+treated as flagged — provisional until anasana documents the codes.
 
-`build_corpus.py` discovers them by globbing `<stem>_crc_error_*.dat`
-**in the same directory as the raw image**. Multiple attempts on the
-same sector are majority-voted byte-by-byte to recover the content;
-their mere presence also flags the sector in the read-status map.
-Wrong path or wrong name = the re-reads are silently ignored.
+Same scheme works for the converter sources: a `<stem>.map` /
+`<stem>.log` next to a `.TD0` or an Extended-CPC `.dsk` layers on top
+of the converter's own `.badmap` from ST1/ST2 / TD0 flags.
 
 ## 2. Identify what you imported
 
