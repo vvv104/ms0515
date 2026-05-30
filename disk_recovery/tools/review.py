@@ -395,10 +395,9 @@ def run_gui(model):
         datas = [model.content(s) for s, _ in v]
         if len({len(d) for d in datas}) != 1:
             status.config(text="versions differ in length — cannot byte-vote"); return
-        sha = V.store_voted(datas)
-        # If the vote result matches one of the inputs, no synthetic recovery
-        # was needed — that input IS the per-byte majority; just Set canonical
-        # on it directly.
+        # weight each variant by how many distinct physical disks back it
+        weights = [max(1, len(disks)) for _, disks in v]
+        sha, vote_status = V.store_voted(datas, weights)
         input_shas = {s for s, _ in v}
         matches_existing = sha in input_shas
         state["vers"].append((sha, [f"byte-vote of {len(v)}"]))
@@ -407,13 +406,8 @@ def run_gui(model):
         voted = model.content(sha)
         t = as_text(voted)
         settext(t if t is not None else hexdump(voted))
-        if matches_existing:
-            status.config(text=f"byte-vote -> {sha[:8]} = an existing variant "
-                               "(no synthetic recovery; that variant IS the majority — "
-                               "just Set canonical on it directly)")
-        else:
-            status.config(text=f"byte-vote -> {sha[:8]} of {len(v)} versions (synthetic); "
-                               "review, then Set canonical")
+        eq_note = " (= existing variant)" if matches_existing else " (synthetic)"
+        status.config(text=f"byte-vote -> {sha[:8]}{eq_note}; {vote_status}")
 
     def do_zeroes():
         r = state["rec"]

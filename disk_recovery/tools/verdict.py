@@ -27,14 +27,58 @@ from collections import defaultdict, Counter
 
 _STORE = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus" / "files"
 
-def byte_majority(datas):
-    """Per-byte majority across copies of one file (for reconciling bit-rot).
-    Apply only to copies of the SAME build — across different builds it blends."""
+def byte_majority(datas, weights=None):
+    """Per-byte majority for bit-rot recovery.  Returns (bytes, status_str).
+
+    Tie-break by `unanimous winner`: if ONE variant is on the winning side at
+    EVERY non-tie position, it has never lost — use its byte at ties.  If no
+    such variant exists (different variants win at different positions), the
+    vote at that tie is undecided; the first variant's byte is placed as filler
+    and the status reports a FAIL count so the caller can warn the user."""
     n = min(len(d) for d in datas)
-    out = bytearray(n)
+    if weights is None:
+        weights = [1] * len(datas)
+    # First pass: per position, find majority byte + which variant indices win.
+    winners_per_pos = []
+    win_byte = bytearray(n)
     for i in range(n):
-        out[i] = Counter(d[i] for d in datas).most_common(1)[0][0]
-    return bytes(out)
+        cnt = Counter()
+        bytes_at_i = []
+        for d, w in zip(datas, weights):
+            cnt[d[i]] += w
+            bytes_at_i.append(d[i])
+        top = cnt.most_common()
+        if len(top) == 1 or top[0][1] > top[1][1]:
+            wb = top[0][0]
+            win_byte[i] = wb
+            winners_per_pos.append({j for j, b in enumerate(bytes_at_i) if b == wb})
+        else:
+            winners_per_pos.append(None)        # tie
+    # Unanimous winner: a single variant index present in every non-tie set.
+    non_tie = [s for s in winners_per_pos if s is not None]
+    unanimous = None
+    if non_tie:
+        common = set.intersection(*non_tie)
+        if len(common) == 1:
+            unanimous = next(iter(common))
+    out = bytearray(n)
+    unresolved = 0
+    for i, winners in enumerate(winners_per_pos):
+        if winners is not None:
+            out[i] = win_byte[i]
+        elif unanimous is not None:
+            out[i] = datas[unanimous][i]
+        else:
+            out[i] = datas[0][i]
+            unresolved += 1
+    if unresolved:
+        status = (f"voting FAILED at {unresolved} byte(s): tie with no unanimous "
+                  f"winner; first variant's byte used there (manual choice needed)")
+    elif unanimous is not None:
+        status = f"resolved; ties broken by unanimous winner (variant #{unanimous+1})"
+    else:
+        status = "resolved cleanly (no ties)"
+    return bytes(out), status
 
 def _readable(b):
     # printable ASCII; CR/LF/TAB; BS, VT, FF; SO/SI (KOI-7 РУС/ЛАТ shifts); ESC
@@ -78,8 +122,9 @@ def store_content(data):
     (_STORE / f"{sha}.bin").write_bytes(data)
     return sha
 
-def store_voted(datas):
-    return store_content(byte_majority(datas))
+def store_voted(datas, weights=None):
+    voted, status = byte_majority(datas, weights)
+    return store_content(voted), status
 
 # capture/source suffixes that denote a different CAPTURE of the same disk
 _SUFFIX = re.compile(r"(-final|_Head0\+1|_Head[01]|_s[01])$", re.I)
