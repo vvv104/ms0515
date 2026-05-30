@@ -344,6 +344,8 @@ def run_gui(model):
         tv.heading("vrfd", text="vrfd"); tv.column("vrfd", width=60, anchor="e")
         tv.heading("vers", text="versions"); tv.column("vers", width=65, anchor="e")
         tv.heading("chosen", text="chosen"); tv.column("chosen", width=85)
+        # files with >=1 canonical picked get the same green as chosen versions
+        tv.tag_configure("has_chosen", background="#d0f0d0", foreground="#0a4f0a")
         sb = ttk.Scrollbar(frame, orient="vertical", command=tv.yview)
         tv.configure(yscrollcommand=sb.set)
         tv.pack(side="left", fill="both", expand=True); sb.pack(side="right", fill="y")
@@ -367,29 +369,41 @@ def run_gui(model):
     def settext(s):
         text.delete("1.0", "end"); text.insert("1.0", s)
 
+    def display_versions():
+        """Redraw the right-side version list from state["rec"]/state["vers"].
+        Keeps the original (unsorted) order so a version doesn't jump when its
+        canonical state is toggled; chosen ones just get a green row + ✓ mark.
+        Preserves the listbox selection across the redraw."""
+        r = state["rec"]
+        if not r:
+            return
+        chosen_set = model.chosen_for(r)
+        cur_sel = list(vbox.curselection())
+        vbox.delete(0, "end")
+        for i, (sha, disks) in enumerate(state["vers"]):
+            on = ", ".join(disks)
+            if sha in chosen_set:
+                vbox.insert("end", f"✓ {sha[:8]}  on: {on}")
+                vbox.itemconfig(i, background="#d0f0d0", foreground="#0a4f0a")
+            else:
+                vbox.insert("end", f"{sha[:8]}  on: {on}")
+        for i in cur_sel:
+            if i < vbox.size():
+                vbox.selection_set(i)
+        canon_txt = ("  — canonical: " + "+".join(s[:8] for s in sorted(chosen_set))) if chosen_set else ""
+        info.config(text=f"{r['name']}  {r['blocks']} blk  [{r['band']}]  "
+                         f"{len(state['vers'])} version(s){canon_txt}")
+
     def on_select_file(event):
         tv = event.widget
         sel = tv.selection()
         if not sel:
             return
-        rec = tv.item(sel[0], "values")  # we stash index in tags
         idx = int(tv.item(sel[0], "tags")[0])
         r = model.files[idx]
         state["rec"] = r
-        chosen_set = model.chosen_for(r)
-        # chosen variants come first; others keep original order
-        vers = sorted(model.versions(r), key=lambda v: v[0] not in chosen_set)
-        state["vers"] = vers
-        vbox.delete(0, "end")
-        for i, (sha, disks) in enumerate(vers):
-            if sha in chosen_set:
-                vbox.insert("end", f"✓ {sha[:8]}  on: {', '.join(disks)}")
-                vbox.itemconfig(i, background="#d0f0d0", foreground="#0a4f0a")
-            else:
-                vbox.insert("end", f"{sha[:8]}  on: {', '.join(disks)}")
-        canon_txt = ("  — canonical: " + "+".join(s[:8] for s in sorted(chosen_set))) if chosen_set else ""
-        info.config(text=f"{r['name']}  {r['blocks']} blk  [{r['band']}]  "
-                         f"{len(state['vers'])} version(s){canon_txt}")
+        state["vers"] = list(model.versions(r))   # original order, no reordering
+        display_versions()
         settext("")
         status.config(text="")
 
@@ -578,11 +592,14 @@ def run_gui(model):
                 elif len(cl) == 1: ch_disp = cl[0][:8]
                 else:              ch_disp = f"{cl[0][:6]}+{len(cl)-1}"
                 idx = model.files.index(r)
+                row_tags = [str(idx)]
+                if cl:
+                    row_tags.append("has_chosen")          # paint row green
                 tv.insert("", "end", text=r["name"],
                           values=(r["blocks"],
                                   f"{r.get('verified_blocks', 0)}/{r['blocks']}",
                                   len(model.versions(r)), ch_disp),
-                          tags=(str(idx),))
+                          tags=tuple(row_tags))
             ti = V.BANDS.index(band)
             nb.tab(ti, text=f"{band} ({len(bands.get(band, []))})")
 
@@ -592,7 +609,8 @@ def run_gui(model):
         if not r or not v:
             status.config(text="select a file and >=1 version to toggle canonical"); return
         added, removed = model.set_choice(r, [s for s, _ in v])
-        refresh()
+        refresh()                 # repaint left tree (band + chosen column + row colour)
+        display_versions()        # repaint vbox marks/colours for this file
         cur = list(model.chosen.get((r["name"], r["blocks"]), []))
         bits = []
         if added:   bits.append("+" + "+".join(s[:8] for s in added))
@@ -607,6 +625,7 @@ def run_gui(model):
             return
         model.clear_choice(r)
         refresh()
+        display_versions()
         status.config(text=f"cleared {r['name']}")
 
     ttk.Button(btns, text="Diff 2", command=do_diff).pack(side="left", padx=4)
