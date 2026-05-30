@@ -769,6 +769,63 @@ def run_gui(model):
     for tv in trees.values():
         tv.bind("<<TreeviewSelect>>", on_select_file)
 
+    # Type-ahead search: typing characters anywhere in a file tree accumulates
+    # a buffer for ~1.5s and jumps to the first row whose name starts with it
+    # (substring match as a fallback).  Backspace shrinks the buffer; Escape
+    # or the timeout clears it.  Lets the user reach "PASCAL.LST" in MANUAL
+    # with 4 keystrokes instead of scrolling.
+    search_state = {"buf": "", "after": None}
+
+    def _search_clear():
+        search_state["buf"] = ""
+        search_state["after"] = None
+        status.config(text="")
+
+    def _search_schedule():
+        if search_state["after"]:
+            root.after_cancel(search_state["after"])
+        search_state["after"] = root.after(1500, _search_clear)
+
+    def _search_apply(tv):
+        buf = search_state["buf"].lower()
+        if not buf:
+            return
+        kids = tv.get_children()
+        for iid in kids:                                 # prefix match first
+            if tv.item(iid, "text").lower().startswith(buf):
+                tv.selection_set(iid); tv.focus(iid); tv.see(iid); return
+        for iid in kids:                                 # then substring
+            if buf in tv.item(iid, "text").lower():
+                tv.selection_set(iid); tv.focus(iid); tv.see(iid); return
+
+    def _on_tree_key(event):
+        tv = event.widget
+        ks = event.keysym
+        if ks == "Escape":
+            _search_clear()
+            return None
+        if ks == "BackSpace":
+            if search_state["buf"]:
+                search_state["buf"] = search_state["buf"][:-1]
+                _search_apply(tv)
+                _search_schedule()
+                status.config(text=f"search: {search_state['buf']}"
+                                   if search_state["buf"] else "")
+                return "break"
+            return None
+        # Single printable char, no Ctrl/Alt modifier.
+        if (event.char and len(event.char) == 1 and event.char.isprintable()
+                and not (event.state & 0x4)):           # 0x4 = Control
+            search_state["buf"] += event.char
+            _search_apply(tv)
+            _search_schedule()
+            status.config(text=f"search: {search_state['buf']}")
+            return "break"
+        return None
+
+    for tv in trees.values():
+        tv.bind("<Key>", _on_tree_key)
+
     def selected_versions():
         return [state["vers"][i] for i in vbox.curselection()]
 
