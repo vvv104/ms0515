@@ -1217,7 +1217,32 @@ def run_gui(model):
             status.config(text=f"create/init failed: {e.stderr.decode(errors='replace')[:80]}")
             return
 
-        missing, written = [], 0
+        def resolve_rotted(name, blocks):
+            """A directory entry's extension can be bit-rot (e.g. DIR.SAV read
+            back as DIR.SG8 because two bytes of the RAD50-encoded extension
+            were corrupted on the dir block).  If the exact name has no
+            consensus record, look for a unique record with the same basename
+            prefix and the same block count — prefer one the user has chosen
+            a canonical for.  Returns the corrected name (same input if no
+            recovery)."""
+            if (name, blocks) in model.cons_by_key:
+                return name
+            if "." not in name:
+                return name
+            base = name.rsplit(".", 1)[0].upper()
+            cands = [r["name"] for r in model.files
+                     if r["blocks"] == blocks
+                     and "." in r["name"]
+                     and r["name"].rsplit(".", 1)[0].upper() == base
+                     and r["name"] != name]
+            chosen_cands = [n for n in cands if model.chosen.get((n, blocks))]
+            if len(chosen_cands) == 1:
+                return chosen_cands[0]
+            if len(cands) == 1:
+                return cands[0]
+            return name
+
+        missing, written, recovered_names = [], 0, []
         with tempfile.TemporaryDirectory() as tmpd:
             tmp = Path(tmpd)
             for side, entries in sorted(best_dir.items()):
@@ -1225,6 +1250,10 @@ def run_gui(model):
                 paths = []
                 for orig_name, start, length in entries:
                     name = alias_name(orig_name)             # .EXE -> .SAV etc.
+                    resolved = resolve_rotted(name, length)
+                    if resolved != name:
+                        recovered_names.append(f"{orig_name} -> {resolved}")
+                        name = resolved
                     data = pick_canonical_content(name, length, canon)
                     if data is None:
                         # last resort: original name might not have been aliased
@@ -1244,9 +1273,14 @@ def run_gui(model):
                         missing.extend(f"put-failed-side{side}: " +
                                        e.stderr.decode(errors="replace")[:60])
         msg = f"built {out_path.name}: {written} files"
+        if recovered_names:
+            msg += (f"\n\nRecovered from bit-rotted directory entries "
+                    f"({len(recovered_names)}):\n  " + "\n  ".join(recovered_names))
         if missing:
-            msg += f"  (missing {len(missing)}: {', '.join(missing[:3])})"
-        status.config(text=msg)
+            msg += (f"\n\nMissing {len(missing)} files:\n  " + "\n  ".join(missing))
+        status.config(text=f"built {out_path.name}: {written} files"
+                           + (f", {len(recovered_names)} dir-recovered" if recovered_names else "")
+                           + (f", {len(missing)} missing" if missing else ""))
         messagebox.showinfo("Build disk", msg, parent=root)
     build_btn.configure(command=do_build_disk)
     refresh()
