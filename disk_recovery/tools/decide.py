@@ -24,18 +24,12 @@ import verdict as V
 OUT = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus"
 
 def main():
-    corpus = json.load(open(OUT / "corpus.json", encoding="utf-8"))["records"]
     files = json.load(open(OUT / "consensus.json", encoding="utf-8"))["files"]
-    cap_fp = json.load(open(OUT / "captures.json", encoding="utf-8")) \
-        if (OUT / "captures.json").exists() else {}
-    recs_by_key = {}
-    for r in corpus:
-        recs_by_key.setdefault((r["names"][0], r["blocks"]), []).append(r)
-    disk_of = V.physical_disks(corpus, cap_fp)
+    cons_by_key = {(r["name"], r["blocks"]): r for r in files}
 
-    chosen = V.load_decisions(V.DECISIONS, recs_by_key, disk_of)   # preserve choices
+    chosen = V.load_decisions(V.DECISIONS, cons_by_key)            # preserve choices
     amb = [r for r in files if r["tier"] == "multi-version"]
-    V.write_decisions(V.DECISIONS, amb, recs_by_key, disk_of, chosen)
+    V.write_decisions(V.DECISIONS, amb, chosen)
 
     decided = sum(1 for r in amb if (r["name"], r["blocks"]) in chosen)
     print(f"{len(amb)} AMBIGUOUS files; {decided} decided, {len(amb)-decided} to go.")

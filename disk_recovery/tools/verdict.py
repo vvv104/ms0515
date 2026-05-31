@@ -99,14 +99,11 @@ def phys_disks(key, recs_by_key, corro, disk_of):
         best = max(best, len(disks))
     return best
 
-def version_disks(key, recs_by_key, disk_of):
-    """[(sha, [physical disks]), ...] for a file — its distinct content versions
-    and where each lives, for the human to compare and pick."""
-    out = []
-    for cr in recs_by_key.get(key, []):
-        disks = sorted({disk_of.get(p["capture"]) for p in cr["provenance"]} - {None})
-        out.append((cr["sha"], disks))
-    return out
+def version_disks(cons_rec):
+    """[(sha, [physical disks]), ...] — the consensus BUILDS of a file: one entry
+    per cluster (bit-rot already reconciled), with the disks each lives on, for
+    the human to compare and pick.  (Not raw shas — those include decay copies.)"""
+    return [(b["sha"], b.get("disks", [])) for b in (cons_rec or {}).get("builds", [])]
 
 def resolve_choice(choose, versions):
     """Map a user's pick (sha8 prefix or a disk label) to a full sha, or None."""
@@ -118,8 +115,9 @@ def resolve_choice(choose, versions):
             return sha
     return None
 
-def load_decisions(path, recs_by_key, disk_of):
-    """Parse the human decisions file -> {(name,blocks): chosen_sha}."""
+def load_decisions(path, cons_by_key):
+    """Parse the human decisions file -> {(name,blocks): chosen_sha}.
+    cons_by_key maps (name,blocks) -> consensus record (for its builds)."""
     chosen = {}
     p = Path(path)
     if not p.exists():
@@ -136,7 +134,7 @@ def load_decisions(path, recs_by_key, disk_of):
         except ValueError:
             continue
         choose = cells[2].strip()
-        sha = resolve_choice(choose, version_disks((name, blocks), recs_by_key, disk_of))
+        sha = resolve_choice(choose, version_disks(cons_by_key.get((name, blocks))))
         if not sha:                              # a voted/synthetic content in the store
             hits = list(_STORE.glob(choose + "*.bin")) if len(choose) >= 6 else []
             if len(hits) == 1:
@@ -198,15 +196,13 @@ DECISION_HEADER = (
     "# Compare the bytes in export/<disk>/<file>.  Tab-separated; keep the columns.\n"
     "# NAME\tBLK\tCHOOSE\tVERSIONS (sha8 @ disks)\n")
 
-def write_decisions(path, amb_records, recs_by_key, disk_of, chosen):
-    """Write the decisions file for the AMBIGUOUS records, filling CHOOSE from
-    `chosen` ({(name,blocks): sha}).  Used by decide.py and the review GUI so the
-    format stays identical."""
+def write_decisions(path, amb_records, chosen):
+    """Write the decisions file for the AMBIGUOUS consensus records, filling
+    CHOOSE from `chosen` ({(name,blocks): sha}).  Shared by decide.py and the GUI."""
     lines = [DECISION_HEADER]
     for r in sorted(amb_records, key=lambda r: r["name"]):
         key = (r["name"], r["blocks"])
-        vers = version_disks(key, recs_by_key, disk_of)
-        opts = " ;; ".join(f"{s[:8]} @ {','.join(d)}" for s, d in vers)
+        opts = " ;; ".join(f"{s[:8]} @ {','.join(d)}" for s, d in version_disks(r))
         ch = chosen.get(key, "")
         lines.append(f"{r['name']}\t{r['blocks']}\t{ch[:8]}\t{opts}\n")
     Path(path).write_text("".join(lines), encoding="utf-8")

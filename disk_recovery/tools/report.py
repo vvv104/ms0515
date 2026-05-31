@@ -35,7 +35,8 @@ def main():
     cap_fp = json.load(open(OUT / "captures.json", encoding="utf-8")) \
         if (OUT / "captures.json").exists() else {}
     disk_of = V.physical_disks(corpus, cap_fp)
-    chosen = V.load_decisions(V.DECISIONS, recs_by_key, disk_of)
+    cons_by_key = {(r["name"], r["blocks"]): r for r in files}
+    chosen = V.load_decisions(V.DECISIONS, cons_by_key)
 
     for r in files:
         r["band"] = V.classify(r, recs_by_key, recovered, corro, disk_of, chosen)

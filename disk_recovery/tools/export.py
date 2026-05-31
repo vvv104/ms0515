@@ -50,16 +50,12 @@ def verdict_text(r, band, recs_by_key, recovered, corro, disk_of, chosen, sha, o
     if band == "UNVERIFIED":
         return "UNVERIFIED — single disk, no read-status, no 2nd copy: cannot be checked"
     if band == "AMBIGUOUS":
-        versions = []
-        for cr in recs_by_key[key]:
-            disks = sorted({disk_of.get(p["capture"]) for p in cr["provenance"]} - {None})
-            versions.append((cr["sha"], disks))
-        versions.sort(key=lambda v: v[0] != sha)          # this disk's version first
+        builds = V.version_disks(r)
         parts = []
-        for vsha, disks in versions:
+        for vsha, disks in builds:
             dl = ", ".join(disks[:3]) + (f" +{len(disks)-3}" if len(disks) > 3 else "")
-            parts.append(f"{vsha[:8]}{'*(this)' if vsha == sha else ''} @ {dl}")
-        return (f"AMBIGUOUS — {len(versions)} builds; compare export/<disk>/{r['name']}:  "
+            parts.append(f"{vsha[:8]} @ {dl}")
+        return (f"AMBIGUOUS — {len(builds)} builds; compare export/<disk>/{r['name']}:  "
                 + "  |  ".join(parts))
     if band == "LOST":
         return f"LOST — {r['corrupt']+r['flagged']} bad blocks on every copy; needs an external donor disk"
@@ -80,7 +76,7 @@ def main():
     cap_fp = json.load(open(OUT / "captures.json", encoding="utf-8")) \
         if (OUT / "captures.json").exists() else {}
     disk_of = V.physical_disks(corpus, cap_fp)
-    chosen = V.load_decisions(V.DECISIONS, recs_by_key, disk_of)
+    chosen = V.load_decisions(V.DECISIONS, cons)
 
     # physical disk -> {(name, blocks): sha this disk carried}
     disk_files = defaultdict(dict)

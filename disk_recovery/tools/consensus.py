@@ -32,9 +32,12 @@ Output: work/corpus/consensus.json + a reconciled content store + a summary
 that answers how much text AND binary data is still corrupt.
 """
 
-import json, hashlib
+import json, hashlib, sys
 from pathlib import Path
 from collections import defaultdict, Counter
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import verdict as V
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "disk_recovery" / "work" / "corpus"
@@ -141,6 +144,9 @@ def reconcile(variants, blocks, text):
 
 def main():
     corpus = json.load(open(OUT / "corpus.json", encoding="utf-8"))["records"]
+    cap_fp = json.load(open(OUT / "captures.json", encoding="utf-8")) \
+        if (OUT / "captures.json").exists() else {}
+    disk_of = V.physical_disks(corpus, cap_fp)
     RECOV.mkdir(exist_ok=True)
     groups = defaultdict(list)
     for r in corpus:
@@ -160,8 +166,19 @@ def main():
         idx = cluster(variants, blocks) if len(variants) > 1 else [[0]]
         clusters = [[variants[i] for i in cl] for cl in idx]
         clusters.sort(key=lambda cl: sum(v["weight"] for v in cl), reverse=True)
-        main_cl = clusters[0]
-        data, tags = reconcile(main_cl, blocks, text)
+
+        # reconcile EACH cluster -> one "build" (bit-rot already resolved by
+        # read-status), stored so the GUI offers genuine versions, not raw shas.
+        builds = []
+        primary = None
+        for cl in clusters:
+            cdata, ctags = reconcile(cl, blocks, text)
+            csha = hashlib.sha256(cdata).hexdigest()
+            (STORE / f"{csha}.bin").write_bytes(cdata)
+            disks = sorted({disk_of.get(c) for v in cl for c in v["captures"]} - {None})
+            builds.append({"sha": csha, "disks": disks, "copies": len(cl)})
+            if primary is None:
+                primary, data, tags = cl, cdata, ctags
 
         tagc = Counter(tags)
         total_caps = sum(v["weight"] for v in variants)
@@ -179,14 +196,14 @@ def main():
         rec = {"name": name, "blocks": blocks, "category": recs[0]["category"],
                "is_binary": recs[0]["category"] in BINARY_CAT,
                "variants": len(variants), "captures": total_caps,
-               "versions": len(clusters),
+               "versions": len(clusters), "builds": builds,
                "clean": tagc["clean"], "unknown": tagc["unknown"],
                "flagged": tagc["flagged"], "corrupt": tagc["corrupt"],
                "tier": tier}
         if tagc["corrupt"] or tagc["flagged"]:
             rec["bad_blocks"] = [i for i, t in enumerate(tags) if t in ("corrupt", "flagged")]
         if tier != "multi-version":
-            h = hashlib.sha256(data).hexdigest()
+            h = builds[0]["sha"]
             (RECOV / f"{h}.bin").write_bytes(data)
             rec["recovered_sha"] = h
         tiers[tier] += 1

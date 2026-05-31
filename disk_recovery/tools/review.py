@@ -67,7 +67,8 @@ class Model:
         for r in self.corpus:
             self.recs_by_key[(r["names"][0], r["blocks"])].append(r)
         self.disk_of = V.physical_disks(self.corpus, cap_fp)
-        self.chosen = V.load_decisions(V.DECISIONS, self.recs_by_key, self.disk_of)
+        self.cons_by_key = {(r["name"], r["blocks"]): r for r in self.files}
+        self.chosen = V.load_decisions(V.DECISIONS, self.cons_by_key)
         self._reclassify()
 
     def _reclassify(self):
@@ -84,7 +85,7 @@ class Model:
         return d
 
     def versions(self, r):
-        return V.version_disks((r["name"], r["blocks"]), self.recs_by_key, self.disk_of)
+        return V.version_disks(r)
 
     def content(self, sha):
         p = STORE / f"{sha}.bin"
@@ -100,7 +101,7 @@ class Model:
 
     def _save(self):
         amb = [r for r in self.files if r["tier"] == "multi-version"]
-        V.write_decisions(V.DECISIONS, amb, self.recs_by_key, self.disk_of, self.chosen)
+        V.write_decisions(V.DECISIONS, amb, self.chosen)
 
 def run_gui(model):
     import tkinter as tk
