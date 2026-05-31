@@ -35,3 +35,6 @@ Thumbs.db
 
 # Local recovery working data (raw captures, merges — may hold personal data)
 disk_recovery/work/
+
+# Per-operator canonical picks; local to whoever runs the GUI.
+disk_recovery/decisions.tsv

@@ -391,8 +391,8 @@ versions; you fill the `CHOOSE` column with a sha8 (or a disk
 name) and re-run `report.py` / `export.py`.
 
 Your picks live in `disk_recovery/decisions.tsv` (outside `work/`,
-git-trackable — names + sha8 only, no disk content). Deleting it
-resets all canonical picks. The GUI rewrites it on every toggle.
+local to whoever runs the GUI — gitignored).  Deleting it resets all
+canonical picks.  The GUI rewrites it on every toggle.
 
 ## 10. Iterate
 
@@ -445,5 +445,6 @@ export/<disk>/      step 8  — per-disk browsable tree
 export/INDEX.txt    step 8  — disk-level summary
 ```
 
-Everything in `work/` is gitignored. `disk_recovery/decisions.tsv`
-is the only pipeline artefact intended to be committed.
+Everything in `work/` is gitignored; so is
+`disk_recovery/decisions.tsv` (per-operator canonical picks, local
+state).
