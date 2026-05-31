@@ -96,16 +96,22 @@ def badmap_set(path):
     return {i for i, x in enumerate(path.read_bytes()) if x}
 
 # ── Filename normalisation ──────────────────────────────────────────────────
-# Two name-based rules, applied at ingest time on every capture:
-#   1. NAME_ALIASES — three specific RT-suffix utility variants on some
-#      Rodionov-era disks are the same binaries as the standard utilities,
-#      renamed by whichever build tool produced the source disk.
-#   2. .EXE -> .SAV — RT-11 .EXE is the alias extension for .SAV; in this
-#      collection the two forms are interchangeable and the .SAV name is the
-#      canonical one, so re-publishing via `ms0515-disk put` lands with the
-#      convention-correct extension on the rebuilt floppy.  The alias map
-#      runs FIRST so DIRRT/PIPRT/DUPRT keep their basename rewrite (they're
-#      not just an extension change).
+# Three explicit name aliases.  An earlier rule globally rewrote .EXE -> .SAV
+# at ingest, on the theory that .EXE is just RT-11's alias extension for .SAV.
+# But on the ARCSAV/disk4 cluster .EXE is the convention for an ENTIRE
+# parallel toolchain — its LINK.SAV is configured to emit .EXE outputs, its
+# MACRO/PIP/DUP are different binaries from the .SAV-default ones on
+# h0/PAPER/etc.  Of 43 ARCSAV files only 22 were sha-identical to the .SAV
+# namesakes elsewhere; the other 21 were genuinely different programs.
+# Conflating them all into one .SAV namespace bundled 21 distinct programs
+# into AMBIGUOUS groups misleadingly, while only adding 2 files to GUARANTEED
+# (UDAW/ZASTM).  The 22 truly-identical pairs merge cleanly through the
+# normal sha-dedup path: one corpus record gets both names in its `names`
+# list and consensus.canonical_name() picks the .SAV form.
+#
+# DIRRT/PIPRT/DUPRT.EXE on the other hand are documented basename renames —
+# same binaries as DIR/PIP/DUP.SAV under a different filename on some
+# Rodionov-era disks — kept here.
 NAME_ALIASES = {
     "DIRRT.EXE": "DIR.SAV",
     "PIPRT.EXE": "PIP.SAV",
@@ -113,14 +119,7 @@ NAME_ALIASES = {
 }
 
 def alias_name(name):
-    aliased = NAME_ALIASES.get(name.upper())
-    if aliased:
-        return aliased
-    if "." in name:
-        base, ext = name.rsplit(".", 1)
-        if ext.upper() == "EXE":
-            return base + ".SAV"
-    return name
+    return NAME_ALIASES.get(name.upper(), name)
 
 DAT_RE = re.compile(r"_crc_error_Head(\d+)_Track(\d+)_Sector(\d+)_", re.I)
 
