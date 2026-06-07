@@ -143,6 +143,17 @@ def base_disk(source):
     stem = p.stem if p.suffix else p.name
     return str(p.parent / _SUFFIX.sub("", stem)).replace("\\", "/")
 
+def _label_priority(path):
+    """Sort key used to pick the canonical label for a physical-disk group.
+    Prefer the original `vvv104/diskN` naming (the user's mental model of
+    their physical floppies) over recovery sub-paths (`new/SAVDOC`,
+    `data/src/extracted/...`); within each tier, shorter strings win,
+    then alphabetical."""
+    tier = (0 if path.startswith("vvv104/") else
+            1 if path.startswith("new/")    else
+            2)
+    return (tier, len(path), path)
+
 def physical_disks(corpus, cap_fp):
     """Map every capture -> a physical-disk label.  Two captures are the SAME
     physical disk when their DIRECTORY fingerprints match (same file list, order,
@@ -155,7 +166,7 @@ def physical_disks(corpus, cap_fp):
         groups[cap_fp.get(c) or f"__{c}"].append(c)
     disk_of = {}
     for members in groups.values():
-        label = base_disk(min(members, key=lambda m: (len(m), m))) or members[0]
+        label = base_disk(min(members, key=_label_priority)) or members[0]
         for c in members:
             disk_of[c] = label
     return disk_of
