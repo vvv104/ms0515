@@ -28,7 +28,7 @@ target_link_libraries(ms0515-cli
 # side-by-side (sharing assets/ and ms0515.yaml).  The frontend's POST_BUILD
 # step is what creates package/ and copies assets in; we only need to add
 # our exe.
-set(PACKAGE_DIR "${CMAKE_SOURCE_DIR}/package")
+set(PACKAGE_DIR "${CMAKE_SOURCE_DIR}/../package")
 add_custom_command(TARGET ms0515-cli POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ms0515-cli>" "${PACKAGE_DIR}/"

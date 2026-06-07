@@ -12,3 +12,13 @@ target_compile_features(ms0515-disk PRIVATE cxx_std_23)
 target_link_libraries(ms0515-disk
     PRIVATE ms0515_disk
 )
+
+# ── Package output ──────────────────────────────────────────────────────────
+# Drop the .exe next to ms0515.exe / ms0515-cli.exe so the release archive
+# ships all three binaries side-by-side (sharing assets/ and ms0515.yaml).
+set(PACKAGE_DIR "${CMAKE_SOURCE_DIR}/../package")
+add_custom_command(TARGET ms0515-disk POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ms0515-disk>" "${PACKAGE_DIR}/"
+    COMMENT "Copying ms0515-disk into ${PACKAGE_DIR}"
+)

@@ -44,7 +44,7 @@ src/                — emulator source code and build files
   frontend/         — SDL2 + ImGui application
   frontend/tests/   — placeholder for future frontend tests
   assets/           — runtime resources (ROM files, keyboard layout, disk images)
-  package/          — build output: ms0515.exe, ms0515-cli.exe, ms0515.yaml, assets/
+package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.exe, ms0515.yaml, assets/
 docs/               — architecture and subsystem documentation
   kb/              — knowledge base (references, verification, known issues)
 disk_recovery/      — disk-recovery knowledge base + verified-image vault (no build inputs)

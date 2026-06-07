@@ -57,13 +57,13 @@ cd src
 conan build . --build=missing
 ```
 
-The build produces a self-contained `src/package/` directory with the
-executable and all required assets.
+The build produces a self-contained `package/` directory (at the repo
+root) with the executable and all required assets.
 
 ### Running
 
 ```bash
-cd src/package
+cd package
 ms0515.exe --disk0-side0 path/to/disk.dsk
 ```
 
