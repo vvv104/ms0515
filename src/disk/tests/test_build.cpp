@@ -339,6 +339,96 @@ TEST_CASE("removeFile of the only file leaves the volume empty + reusable") {
     verifyFiles(*img2, {{"TINY.X", small}});
 }
 
+TEST_CASE("encodeDate packs RT-11 directory date words") {
+    /* Bit layout (high→low): 2-bit age | 4-bit month | 5-bit day | 5-bit year. */
+    CHECK(encodeDate(0, 0, 0) == 0);               /* "no date" sentinel */
+
+    /* 1994-02-18 — the original date on VVV disk1's LINK.SAV: 0x0A56. */
+    const uint16_t w = encodeDate(1994, 2, 18);
+    CHECK(w == 0x0A56);
+    CHECK(((w >> 14) & 0x03) == 0);                /* age */
+    CHECK(((w >> 10) & 0x0F) == 2);                /* month */
+    CHECK(((w >>  5) & 0x1F) == 18);               /* day */
+    CHECK(( w        & 0x1F) == 22);               /* year - 1972 */
+
+    /* 2004-01-01 — wraps into age=1 (year_bits = 0). */
+    const uint16_t w2 = encodeDate(2004, 1, 1);
+    CHECK(((w2 >> 14) & 0x03) == 1);
+    CHECK(( w2        & 0x1F) == 0);
+
+    /* 2099-12-31 — the last representable date. */
+    CHECK_NOTHROW(static_cast<void>(encodeDate(2099, 12, 31)));
+
+    CHECK_THROWS_AS(static_cast<void>(encodeDate(1971, 1,  1)), std::runtime_error);
+    CHECK_THROWS_AS(static_cast<void>(encodeDate(2100, 1,  1)), std::runtime_error);
+    CHECK_THROWS_AS(static_cast<void>(encodeDate(1994, 0,  1)), std::runtime_error);
+    CHECK_THROWS_AS(static_cast<void>(encodeDate(1994, 13, 1)), std::runtime_error);
+    CHECK_THROWS_AS(static_cast<void>(encodeDate(1994, 1, 32)), std::runtime_error);
+}
+
+TEST_CASE("putFile applies the date and protected flag from PutOptions") {
+    auto image = blankImage(false);
+    initVolume(image, 0, false);
+    const auto data = pattern(2 * kBlock, 1);
+    PutOptions opts;
+    opts.date     = encodeDate(1994, 2, 18);
+    opts.readOnly = true;
+    putFile(image, 0, false, "SYS.SAV", data, opts);
+
+    auto img = openImage(image, 0);
+    REQUIRE(img.has_value());
+    const DirEntry *e = img->directory.find("SYS.SAV");
+    REQUIRE(e != nullptr);
+    CHECK((e->status & kStatusPermanent) != 0);
+    CHECK((e->status & kStatusProtected) != 0);
+    CHECK(e->date == 0x0A56);
+}
+
+TEST_CASE("setProtected toggles the flag without touching anything else") {
+    auto image = blankImage(false);
+    initVolume(image, 0, false);
+    const auto data = pattern(kBlock, 7);
+    putFile(image, 0, false, "F.X", data);
+
+    setProtected(image, 0, false, "F.X", true);
+    {
+        auto img = openImage(image, 0);
+        const DirEntry *e = img->directory.find("F.X");
+        REQUIRE(e != nullptr);
+        CHECK((e->status & kStatusProtected) != 0);
+        CHECK((e->status & kStatusPermanent) != 0);
+        CHECK(img->readFile("F.X").size() >= data.size());
+    }
+
+    setProtected(image, 0, false, "F.X", false);
+    {
+        auto img = openImage(image, 0);
+        const DirEntry *e = img->directory.find("F.X");
+        REQUIRE(e != nullptr);
+        CHECK((e->status & kStatusProtected) == 0);
+        CHECK((e->status & kStatusPermanent) != 0);
+    }
+
+    CHECK_THROWS_AS(setProtected(image, 0, false, "NOPE.X", true), std::runtime_error);
+}
+
+TEST_CASE("setEntryDate writes the date in place") {
+    auto image = blankImage(false);
+    initVolume(image, 0, false);
+    putFile(image, 0, false, "F.X", pattern(kBlock, 7));
+    setEntryDate(image, 0, false, "F.X", encodeDate(1994, 2, 18));
+
+    auto img = openImage(image, 0);
+    const DirEntry *e = img->directory.find("F.X");
+    REQUIRE(e != nullptr);
+    CHECK(e->date == 0x0A56);
+
+    /* Clear back to "no date". */
+    setEntryDate(image, 0, false, "F.X", 0);
+    auto img2 = openImage(image, 0);
+    CHECK(img2->directory.find("F.X")->date == 0);
+}
+
 TEST_CASE("removeFile errors") {
     auto image = makeVolume(false, 0, diverseFiles());
 

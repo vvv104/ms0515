@@ -14,7 +14,7 @@ Library **`ms0515_disk`** — [`../src/disk/`](../src/disk/):
 | `Layout` | `LBN → byte` geometry, mirroring the emulator FDC: size picks SS/DS, and one universal driver mapping (2:1 interleave + per-track skew). The source of truth is [`../src/core/src/floppy.c`](../src/core/src/floppy.c); see [`../docs/hardware/filesystem.md`](../docs/hardware/filesystem.md). |
 | `Directory` | RT-11 home block + segment chain + RAD50 parse. |
 | `Image` | Load a capture (size selects SS/DS + side), read files; `splitDoubleSided` / `mergeSides` reshape between an 800 KB DS image and two 400 KB SS images. |
-| `Build` | `blankImage` (raw media), `initVolume` (format a side, byte-identical to OS INIT), `putFile` (add a file, like PIP — first-fit scan of empty entries, tail entries preserved), `removeFile` (delete a file; the freed slot becomes a reusable empty entry). |
+| `Build` | `blankImage` (raw media), `initVolume` (format a side, byte-identical to OS INIT), `putFile` (add a file, like PIP — first-fit scan of empty entries, tail entries preserved; `PutOptions` carries `date` + `readOnly`), `removeFile` (delete a file; the freed slot becomes a reusable empty entry), `setProtected` / `setEntryDate` (in-place edits of a permanent entry's flags and date), `encodeDate` (pack year/month/day into the RT-11 date word). |
 
 Binary **`ms0515-disk`** — [`../src/tools/disk/`](../src/tools/disk/):
 
@@ -22,8 +22,9 @@ Binary **`ms0515-disk`** — [`../src/tools/disk/`](../src/tools/disk/):
 |---------|-----|
 | `create <out> [--ds]` | Raw blank media (0xB6 0x6D), 400 KB or 800 KB. |
 | `init <img> [--side N] [--volume-id ID] [--owner NAME] [--segments N]` | Format one side — byte-identical to the OS `INITIALIZE`. |
-| `put <img> [--side N] <file\|glob>...` | Add host files (like PIP, inbound); `*` globs. First-fit picks the first empty slot that fits. |
+| `put <img> [--side N] [--date YYYY-MM-DD] [--protected] <file\|glob>...` | Add host files (like PIP, inbound); `*` globs. First-fit picks the first empty slot that fits. `--date` writes the entry's RT-11 date word; `--protected` sets the /PROTECT flag. |
 | `rm  <img> [--side N] <name>...` | Delete files (PIP /DELETE); the freed blocks become an empty entry a later `put` can reuse. |
+| `protect / unprotect <img> [--side N] <name>...` | Toggle the entry's /PROTECT flag in place (status only, data and date untouched). |
 | `get <img> [--side N] [--out DIR] [pattern]...` | Extract files (PIP, outbound); `*` patterns. |
 | `dir <img> [--side N]` | List the directory. |
 | `split <ds> <s0> <s1>` | Split an 800 KB double-sided image into two 400 KB single-sided images. |

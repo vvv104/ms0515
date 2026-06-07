@@ -4,7 +4,10 @@
  * Commands mirror the OS workflow:
  *   create <out.dsk> [--ds]                 raw blank media (no filesystem)
  *   init   <image> [--side N] [opts]        format a side (like INITIALIZE)
- *   put    <image> [--side N] <file>...     add host files (like PIP, in)
+ *   put    <image> [--side N] [--date YYYY-MM-DD] [--protected] <file>...
+ *                                           add host files (like PIP, in)
+ *   rm     <image> [--side N] <name>...     delete files
+ *   protect/unprotect <image> [--side N] <name>...  toggle the /PROTECT flag
  *   get    <image> [--side N] [--out D] [pat]...  extract files (like PIP, out)
  *   dir    <image> [--side N]               list the directory
  *
@@ -18,11 +21,13 @@
 #include <ms0515/disk/Build.hpp>
 #include <ms0515/disk/Image.hpp>
 
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <system_error>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -40,8 +45,10 @@ int usage()
         "  create <out.dsk> [--ds]               raw blank media\n"
         "  init   <image> [--side 0|1] [--volume-id ID] [--owner NAME] [--segments N]\n"
         "                                        format a side (empty volume)\n"
-        "  put    <image> [--side 0|1] <file|glob>...   add host files\n"
+        "  put    <image> [--side 0|1] [--date YYYY-MM-DD] [--protected] <file|glob>...\n"
+        "                                        add host files (PIP-style)\n"
         "  rm     <image> [--side 0|1] <name>...   delete files (frees the blocks)\n"
+        "  protect/unprotect <image> [--side 0|1] <name>...   set/clear /PROTECT\n"
         "  get    <image> [--side 0|1] [--out DIR] [pattern]...  extract files\n"
         "  dir    <image> [--side 0|1]           list the directory\n"
         "  split  <ds.dsk> <side0.dsk> <side1.dsk>   split an 800 KB DS into two 400 KB SS\n"
@@ -178,7 +185,29 @@ int cmdInit(const std::string &path, int side, const InitOptions &opts)
     return 0;
 }
 
-int cmdPut(const std::string &path, int side, const std::vector<std::string> &args)
+std::optional<uint16_t> parseDate(const std::string &s)
+{
+    /* "YYYY-MM-DD" only; reject anything else.  We hand the components to
+     * encodeDate(), which enforces the RT-11 range (1972..2099). */
+    int parts[3]{};
+    std::size_t start = 0;
+    for (int i = 0; i < 3; ++i) {
+        const std::size_t end = (i < 2) ? s.find('-', start) : s.size();
+        if (end == std::string::npos || end == start) return std::nullopt;
+        const char *p = s.data() + start;
+        auto [ptr, ec] = std::from_chars(p, s.data() + end, parts[i]);
+        if (ec != std::errc{} || ptr != s.data() + end) return std::nullopt;
+        start = end + 1;
+    }
+    try { return encodeDate(parts[0], parts[1], parts[2]); }
+    catch (const std::exception &e) {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return std::nullopt;
+    }
+}
+
+int cmdPut(const std::string &path, int side, const std::vector<std::string> &args,
+           const PutOptions &opts)
 {
     bool ds = false;
     auto image = readImage(path, ds);
@@ -210,7 +239,7 @@ int cmdPut(const std::string &path, int side, const std::vector<std::string> &ar
                       ++fails; continue; }
         const std::string name = hf.filename().string();
         try {
-            putFile(*image, side, ds, name, *bytes);
+            putFile(*image, side, ds, name, *bytes, opts);
             std::printf("  %s -> %s (%zu B)\n", hf.string().c_str(), name.c_str(),
                         bytes->size());
             ++added;
@@ -244,6 +273,31 @@ int cmdRm(const std::string &path, int side, const std::vector<std::string> &nam
         }
     }
     if (removed && !writeWholeFile(path, *image)) {
+        std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
+        return 1;
+    }
+    return fails ? 1 : 0;
+}
+
+int cmdProtect(const std::string &path, int side,
+               const std::vector<std::string> &names, bool on)
+{
+    bool ds = false;
+    auto image = readImage(path, ds);
+    if (!image) return 1;
+
+    int changed = 0, fails = 0;
+    for (const auto &name : names) {
+        try {
+            setProtected(*image, side, ds, name, on);
+            std::printf("  %sprotected %s\n", on ? "" : "un", name.c_str());
+            ++changed;
+        } catch (const std::exception &e) {
+            std::fprintf(stderr, "error: %s\n", e.what());
+            ++fails;
+        }
+    }
+    if (changed && !writeWholeFile(path, *image)) {
         std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
         return 1;
     }
@@ -291,14 +345,21 @@ int main(int argc, char **argv)
 
     if (cmd == "put") {
         std::string image; int side = 0; std::vector<std::string> files;
+        PutOptions opts;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (a == "--protected") { opts.readOnly = true; continue; }
+            if (a == "--date" && i + 1 < argc) {
+                auto d = parseDate(argv[++i]);
+                if (!d) { std::fprintf(stderr, "error: --date wants YYYY-MM-DD\n"); return 2; }
+                opts.date = *d; continue;
+            }
             if (image.empty()) { image = std::string(a); continue; }
             files.emplace_back(a);
         }
         if (image.empty() || files.empty()) return usage();
-        return cmdPut(image, side, files);
+        return cmdPut(image, side, files, opts);
     }
 
     if (cmd == "rm") {
@@ -311,6 +372,18 @@ int main(int argc, char **argv)
         }
         if (image.empty() || names.empty()) return usage();
         return cmdRm(image, side, names);
+    }
+
+    if (cmd == "protect" || cmd == "unprotect") {
+        std::string image; int side = 0; std::vector<std::string> names;
+        for (int i = 2; i < argc; ++i) {
+            std::string_view a = argv[i];
+            if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (image.empty()) { image = std::string(a); continue; }
+            names.emplace_back(a);
+        }
+        if (image.empty() || names.empty()) return usage();
+        return cmdProtect(image, side, names, cmd == "protect");
     }
 
     if (cmd == "get") {

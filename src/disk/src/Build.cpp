@@ -174,8 +174,28 @@ void initVolume(std::vector<uint8_t> &image, int side, bool ds,
     writeBlock(kDirLbn + 1, seg.data() + kBlock);
 }
 
+uint16_t encodeDate(int year, int month, int day)
+{
+    if (year == 0 && month == 0 && day == 0) return 0;
+    if (year < 1972 || year > 2099)
+        throw std::runtime_error("date year out of range (1972..2099): " +
+                                 std::to_string(year));
+    if (month < 1 || month > 12)
+        throw std::runtime_error("date month out of range (1..12): " +
+                                 std::to_string(month));
+    if (day < 1 || day > 31)
+        throw std::runtime_error("date day out of range (1..31): " +
+                                 std::to_string(day));
+    const int n   = year - 1972;
+    const int age = (n >> 5) & 0x3;
+    const int yr  = n & 0x1F;
+    return static_cast<uint16_t>((age << 14) | ((month & 0x0F) << 10)
+                               | ((day & 0x1F) << 5) | (yr & 0x1F));
+}
+
 void putFile(std::vector<uint8_t> &image, int side, bool ds,
-             const std::string &name, std::span<const uint8_t> data)
+             const std::string &name, std::span<const uint8_t> data,
+             const PutOptions &opts)
 {
     const std::size_t want = ds ? kDoubleSize : kSideSize;
     if (image.size() != want)
@@ -267,8 +287,11 @@ void putFile(std::vector<uint8_t> &image, int side, bool ds,
         if (n) std::memcpy(image.data() + o, data.data() + srcOff, n);
     }
 
-    putEntry(seg.data(), emptyP, kStatusPermanent, encodeRad50(nm),
+    const uint16_t newStatus = static_cast<uint16_t>(
+        kStatusPermanent | (opts.readOnly ? kStatusProtected : 0));
+    putEntry(seg.data(), emptyP, newStatus, encodeRad50(nm),
              encodeRad50(nm + 3), encodeRad50(ex), static_cast<uint16_t>(nblk));
+    putw(&seg[emptyP + 12], opts.date);
     if (nblk < emptyLen) {
         putEntry(seg.data(), afterEmpty, kStatusEmpty, 0x00D5, 0x6739, 0x26F4,
                  static_cast<uint16_t>(emptyLen - nblk));
@@ -285,22 +308,33 @@ void putFile(std::vector<uint8_t> &image, int side, bool ds,
     std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
 }
 
-void removeFile(std::vector<uint8_t> &image, int side, bool ds,
-                const std::string &name)
+namespace {
+
+/* Load the directory segment, find the permanent entry that matches `name`,
+ * invoke `mutator(seg, p, entrySize)` to change something in-place, and write
+ * the segment back.  The mutator MUST NOT change the entry's RAD50 name
+ * fields or the segment shape — only the status / length / job / date or
+ * the file's data blocks (via the image, captured separately).  Throws if
+ * the side isn't initialised or the file doesn't exist. */
+template <typename Mutator>
+void mutatePermanentEntry(std::vector<uint8_t> &image, int side, bool ds,
+                          const std::string &name, Mutator mutator)
 {
     const std::size_t want = ds ? kDoubleSize : kSideSize;
     if (image.size() != want)
         throw std::runtime_error("image size does not match the requested ss/ds");
 
-    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds); };
-
-    const int dirLbn = getw(image.data() + off(1) + 0x1D4);
+    const std::size_t homeOff = lbnToByte(1, side, ds);
+    const int dirLbn = getw(image.data() + homeOff + 0x1D4);
     if (dirLbn < 1 || dirLbn > kSsBlocks)
         throw std::runtime_error("side is not initialised (run init first)");
 
+    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds);
+    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds);
+
     std::vector<uint8_t> seg(2 * kBlock);
-    std::memcpy(seg.data(),          image.data() + off(dirLbn),     kBlock);
-    std::memcpy(seg.data() + kBlock, image.data() + off(dirLbn + 1), kBlock);
+    std::memcpy(seg.data(),          image.data() + segOff0, kBlock);
+    std::memcpy(seg.data() + kBlock, image.data() + segOff1, kBlock);
 
     const uint16_t extra = getw(&seg[6]);
     if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
@@ -312,7 +346,6 @@ void removeFile(std::vector<uint8_t> &image, int side, bool ds,
     const uint16_t want2 = encodeRad50(nm + 3);
     const uint16_t wantE = encodeRad50(ex);
 
-    /* Walk for a permanent entry matching the requested name. */
     std::size_t p = 10;
     while (p + entrySize <= seg.size()) {
         const uint16_t status = getw(&seg[p]);
@@ -322,19 +355,51 @@ void removeFile(std::vector<uint8_t> &image, int side, bool ds,
             getw(&seg[p + 4]) == want2 &&
             getw(&seg[p + 6]) == wantE)
         {
-            /* Flip to an empty slot, preserving the length so the freed
-             * blocks remain accounted for.  Match the sentinel name PIP
-             * leaves on empty entries so dir tools that scan for them
-             * still see a consistent shape. */
-            const uint16_t len = getw(&seg[p + 8]);
-            putEntry(seg.data(), p, kStatusEmpty, 0x00D5, 0x6739, 0x26F4, len);
-            std::memcpy(image.data() + off(dirLbn),     seg.data(),          kBlock);
-            std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
+            mutator(seg.data(), p, entrySize);
+            std::memcpy(image.data() + segOff0, seg.data(),          kBlock);
+            std::memcpy(image.data() + segOff1, seg.data() + kBlock, kBlock);
             return;
         }
         p += entrySize;
     }
     throw std::runtime_error("no permanent file named " + name + " on this side");
+}
+
+}  /* anonymous namespace */
+
+void removeFile(std::vector<uint8_t> &image, int side, bool ds,
+                const std::string &name)
+{
+    mutatePermanentEntry(image, side, ds, name,
+        [](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
+            /* Flip to an empty slot, preserving the length so the freed
+             * blocks remain accounted for.  Match the sentinel name PIP
+             * leaves on empty entries so dir tools that scan for them
+             * still see a consistent shape. */
+            const uint16_t len = getw(&seg[p + 8]);
+            putEntry(seg, p, kStatusEmpty, 0x00D5, 0x6739, 0x26F4, len);
+        });
+}
+
+void setProtected(std::vector<uint8_t> &image, int side, bool ds,
+                  const std::string &name, bool on)
+{
+    mutatePermanentEntry(image, side, ds, name,
+        [on](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
+            uint16_t status = getw(&seg[p]);
+            if (on) status |=  kStatusProtected;
+            else    status &= ~kStatusProtected;
+            putw(&seg[p], status);
+        });
+}
+
+void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
+                  const std::string &name, uint16_t date)
+{
+    mutatePermanentEntry(image, side, ds, name,
+        [date](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
+            putw(&seg[p + 12], date);
+        });
 }
 
 } /* namespace ms0515::disk */

@@ -124,9 +124,11 @@ tool that read and write images directly, without running the machine.
   FDC; the image size selects single- vs double-sided), `Directory` (home
   block + segment chain + RAD50), `Image` (load a capture, read files,
   split/merge sides), `Build` (create blank media, init a volume byte-identical
-  to the OS's `INIT`, put / remove a file like PIP).
-- Binary `ms0515-disk` (`src/tools/disk/`) — `create / init / put / rm / get /
-  dir / split / merge`.  Geometry follows the image size; there is no layout flag.
+  to the OS's `INIT`, put / remove a file like PIP, set the entry's
+  protect/date metadata).
+- Binary `ms0515-disk` (`src/tools/disk/`) — `create / init / put / rm /
+  protect / unprotect / get / dir / split / merge`.  Geometry follows the
+  image size; there is no layout flag.
 
 The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
 is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified
