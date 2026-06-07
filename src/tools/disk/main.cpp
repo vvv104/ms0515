@@ -122,8 +122,15 @@ int cmdDir(const std::string &path, int side)
     int n = 0;
     for (const auto &e : d.entries)
         if (e.isPermanent()) {
-            std::printf("    %-14s blk=%5d  len=%5d blocks  (%d B)\n",
-                        e.name.c_str(), e.startBlock, e.length, e.length * kBlock);
+            const auto dp = decodeDate(e.date);
+            char dateBuf[16] = "       -  ";
+            if (dp.year)
+                std::snprintf(dateBuf, sizeof(dateBuf), "%04d-%02d-%02d",
+                              dp.year, dp.month, dp.day);
+            const bool prot = (e.status & kStatusProtected) != 0;
+            std::printf("    %-14s blk=%5d  len=%5d blocks  (%6d B)  date=%s%s\n",
+                        e.name.c_str(), e.startBlock, e.length, e.length * kBlock,
+                        dateBuf, prot ? "  [P]" : "");
             ++n;
         }
     std::printf("  %d permanent file(s)\n", n);

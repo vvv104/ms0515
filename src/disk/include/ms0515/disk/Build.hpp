@@ -51,6 +51,13 @@ struct PutOptions {
  * date", and encodes to 0. */
 [[nodiscard]] uint16_t encodeDate(int year, int month, int day);
 
+/* Inverse of encodeDate: unpack a directory date word into (year, month, day).
+ * Returns the all-zero tuple for a zero-valued date (the "no date" sentinel
+ * the OS writes when no system date has been set).  Never throws; out-of-band
+ * inputs come out of the bit fields (e.g. month bits = 0 stay 0). */
+struct DateParts { int year, month, day; };
+[[nodiscard]] DateParts decodeDate(uint16_t encoded);
+
 /* Raw, unformatted media: 409600 bytes (single-sided) or 819200 (double-
  * sided), filled with the 0xB6 0x6D blank pattern.  No RT-11 structure. */
 [[nodiscard]] std::vector<uint8_t> blankImage(bool ds);

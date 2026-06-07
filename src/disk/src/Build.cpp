@@ -174,6 +174,16 @@ void initVolume(std::vector<uint8_t> &image, int side, bool ds,
     writeBlock(kDirLbn + 1, seg.data() + kBlock);
 }
 
+DateParts decodeDate(uint16_t encoded)
+{
+    if (encoded == 0) return {0, 0, 0};
+    const int age = (encoded >> 14) & 0x3;
+    const int month = (encoded >> 10) & 0x0F;
+    const int day = (encoded >> 5) & 0x1F;
+    const int yr = encoded & 0x1F;
+    return {1972 + (age << 5) + yr, month, day};
+}
+
 uint16_t encodeDate(int year, int month, int day)
 {
     if (year == 0 && month == 0 && day == 0) return 0;
