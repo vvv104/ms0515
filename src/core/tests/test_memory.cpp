@@ -142,6 +142,33 @@ TEST_CASE("VRAM window maps to video RAM when enabled") {
     CHECK(tr.type == ADDR_TYPE_VRAM);
 }
 
+TEST_CASE("VRAM window at 040000 (window selector = 01)") {
+    auto mem = make_mem();
+    /* bit 7 (VRAM_EN) + bit 10 (window=01 → 040000-077777) */
+    mem.dispatcher = 0x007F | MEM_DISP_VRAM_EN | MEM_DISP_VRAM_WIN0;
+
+    auto tr = mem_translate(&mem, 0040000);
+    CHECK(tr.type == ADDR_TYPE_VRAM);
+    CHECK(tr.offset == 0);
+
+    tr = mem_translate(&mem, 0077776);
+    CHECK(tr.type == ADDR_TYPE_VRAM);
+    CHECK(tr.offset == 0x3FFE);
+
+    /* Outside the window — should hit RAM, not VRAM */
+    tr = mem_translate(&mem, 0020000);
+    CHECK(tr.type == ADDR_TYPE_RAM);
+}
+
+TEST_CASE("Write through dispatcher: byte appears in mem.vram") {
+    auto mem = make_mem();
+    mem.dispatcher = 0x007F | MEM_DISP_VRAM_EN | MEM_DISP_VRAM_WIN0;
+    auto tr = mem_translate(&mem, 0040000);
+    REQUIRE(tr.type == ADDR_TYPE_VRAM);
+    mem_write_byte(&mem, tr, 0xAB);
+    CHECK(mem.vram[0] == 0xAB);
+}
+
 TEST_CASE("mem_get_vram returns pointer to VRAM array") {
     auto mem = make_mem();
     mem.vram[0] = 0x42;
