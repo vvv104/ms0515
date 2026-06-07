@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(ms0515 VERSION 0.5.0 LANGUAGES C CXX)
+project(ms0515 VERSION 0.6.0 LANGUAGES C CXX)
 
 # ── Version macro for --version flag ─────────────────────────────────────────
 # Push the CMake project version through to C++ so both binaries can echo it
