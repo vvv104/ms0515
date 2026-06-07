@@ -168,40 +168,51 @@ def reconcile(variants, blocks, text):
         out += seg; tags.append(tag)
     return bytes(out), tags
 
+_BASE_ALIAS = {"DIRRT": "DIR", "PIPRT": "PIP", "DUPRT": "DUP"}
+
+def canonical_alias(name):
+    """Normalise a filename to the alias-canonical form used to group related
+    files into one consensus entry:
+
+      * extension `.EXE` -> `.SAV`  (RT-11 treats them as the same kind of
+        thing — a .SAV next to a .EXE on different disks is the same logical
+        program even when bytes differ);
+      * `DIRRT` / `PIPRT` / `DUPRT` basenames -> `DIR` / `PIP` / `DUP`
+        (Rodionov-era renames of the standard utilities).
+
+    So `DIRRT.EXE`, `DIR.EXE`, `DIR.SAV` all share the same alias-canonical
+    `DIR.SAV` and end up in ONE consensus group; different shas surface as
+    candidate variants in the choose-canonical UI, so a healthy DIRRT.EXE on
+    disk4 can substitute for a damaged DIR.SAV elsewhere even without an
+    exact sha match."""
+    if "." not in name:
+        return name
+    base, _, ext = name.rpartition(".")
+    base_up, ext_up = base.upper(), ext.upper()
+    base_up = _BASE_ALIAS.get(base_up, base_up)
+    if ext_up == "EXE":
+        ext_up = "SAV"
+    return f"{base_up}.{ext_up}"
+
 def canonical_name(names):
-    """Consensus group key for a record.  Aliases are applied at ingest time
-    (build_corpus's NAME_ALIASES — currently just DIRRT/PIPRT/DUPRT -> DIR/PIP/
-    DUP.SAV), so by the time we get here a record carries the names actually
-    seen on disk.  We don't re-merge .EXE and .SAV — see split_by_name() —
-    so each record we look at here has exactly one name."""
+    """Consensus row's display name.  Each corpus record carries the names
+    actually seen for that sha — sha-dedup at ingest accumulates them across
+    captures.  Pick a SAV-form when present (cross-disk users mostly think
+    of the SAV-named form); otherwise the first name as recorded."""
+    for n in names:
+        if n.upper().endswith(".SAV"):
+            return n
     return names[0]
 
-def split_by_name(records):
-    """Yield one (sub)record per distinct name found in the corpus record's
-    `names` list.  build_corpus dedups by sha, so a single record can carry
-    both `BLUE.EXE` and `BLUE.SAV` when the same bytes appear under both names
-    on different disks.  For consensus those are two LOGICAL files (the user
-    asked not to merge them — see commit 8f44322), so we fan the record out:
-
-      sha=S, names=[A,B], provenance=[(cap1,A), (cap2,B), ...]
-       ->
-      sha=S, names=[A], provenance=[(cap1,A), ...]
-      sha=S, names=[B], provenance=[(cap2,B), ...]
-
-    Sha-shared content survives — both sub-records point to the same .bin in
-    the content store."""
-    for r in records:
-        if len(r["names"]) <= 1:
-            yield r
-            continue
-        for nm in r["names"]:
-            prov = [p for p in r["provenance"] if p.get("name") == nm]
-            if not prov:
-                continue
-            sub = dict(r)
-            sub["names"] = [nm]
-            sub["provenance"] = prov
-            yield sub
+def group_key(record):
+    """The (name, blocks) group this record belongs to.  We DO NOT merge
+    different basenames into one consensus row (disk4 carries DIRRT.EXE and
+    DIR.EXE as DISTINCT physical files — bundling them would hide one).
+    Cross-name recovery — letting `DUP.EXE` on disk4 stand in as a candidate
+    for `DUP.SAV` on a damaged disk — is exposed at the UI layer via
+    canonical_alias()-based version aggregation, not by collapsing rows
+    here."""
+    return (canonical_name(record["names"]), record["blocks"])
 
 def main():
     corpus = json.load(open(OUT / "corpus.json", encoding="utf-8"))["records"]
@@ -209,14 +220,15 @@ def main():
         if (OUT / "captures.json").exists() else {}
     disk_of = V.physical_disks(corpus, cap_fp)
     RECOV.mkdir(exist_ok=True)
-    # Fan multi-name records out (one per distinct name) before grouping so
-    # .EXE and .SAV forms with the same bytes land in DIFFERENT consensus
-    # entries even though they share a sha — the user-stated rule that .EXE
-    # files on ARCSAV/disk4 must not be presented under their .SAV-alias
-    # name (commit 8f44322).
+    # Group by alias-canonical (name, blocks).  DIRRT.EXE, DIR.EXE and
+    # DIR.SAV all funnel into the DIR.SAV group; different shas appear as
+    # candidate variants so a healthy disk's bytes can substitute for a
+    # damaged one's even when the names differ.  Per-disk display in
+    # review.py then surfaces each entry under the name actually used on
+    # the disk being filtered to.
     groups = defaultdict(list)
-    for r in split_by_name(corpus):
-        groups[(canonical_name(r["names"]), r["blocks"])].append(r)
+    for r in corpus:
+        groups[group_key(r)].append(r)
 
     out, tiers = [], Counter()
     for (name, blocks), recs in sorted(groups.items()):

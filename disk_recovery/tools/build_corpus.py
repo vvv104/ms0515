@@ -105,30 +105,14 @@ def badmap_set(path):
     return {i for i, x in enumerate(path.read_bytes()) if x}
 
 # ── Filename normalisation ──────────────────────────────────────────────────
-# Three explicit name aliases.  An earlier rule globally rewrote .EXE -> .SAV
-# at ingest, on the theory that .EXE is just RT-11's alias extension for .SAV.
-# But on the ARCSAV/disk4 cluster .EXE is the convention for an ENTIRE
-# parallel toolchain — its LINK.SAV is configured to emit .EXE outputs, its
-# MACRO/PIP/DUP are different binaries from the .SAV-default ones on
-# h0/PAPER/etc.  Of 43 ARCSAV files only 22 were sha-identical to the .SAV
-# namesakes elsewhere; the other 21 were genuinely different programs.
-# Conflating them all into one .SAV namespace bundled 21 distinct programs
-# into AMBIGUOUS groups misleadingly, while only adding 2 files to GUARANTEED
-# (UDAW/ZASTM).  The 22 truly-identical pairs merge cleanly through the
-# normal sha-dedup path: one corpus record gets both names in its `names`
-# list and consensus.canonical_name() picks the .SAV form.
-#
-# DIRRT/PIPRT/DUPRT.EXE on the other hand are documented basename renames —
-# same binaries as DIR/PIP/DUP.SAV under a different filename on some
-# Rodionov-era disks — kept here.
-NAME_ALIASES = {
-    "DIRRT.EXE": "DIR.SAV",
-    "PIPRT.EXE": "PIP.SAV",
-    "DUPRT.EXE": "DUP.SAV",
-}
-
+# We preserve original names in provenance — no renames at ingest time.  An
+# earlier pass renamed DIRRT/PIPRT/DUPRT.EXE -> DIR/PIP/DUP.SAV here to merge
+# them into the same logical file, but that loses the disk's real filename
+# (e.g. disk4 ACTUALLY carries DIRRT.EXE, not DIR.SAV — see commit history).
+# The alias-equivalence is now applied at the consensus level, where it's a
+# pure grouping decision that doesn't mutate provenance.
 def alias_name(name):
-    return NAME_ALIASES.get(name.upper(), name)
+    return name
 
 DAT_RE = re.compile(r"_crc_error_Head(\d+)_Track(\d+)_Sector(\d+)_", re.I)
 

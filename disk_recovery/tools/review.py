@@ -607,7 +607,39 @@ class Model:
         return d
 
     def versions(self, r):
-        return V.version_disks(r)
+        own = V.version_disks(r)
+        # Union with alias-equivalent rows' shas so cross-name recovery is
+        # available in the choose-canonical UI: a healthy DUPRT.EXE on disk4
+        # surfaces as a candidate when picking the canonical DUP.SAV, and so
+        # on.  Equivalence is canonical_alias()-based AND requires the same
+        # block count (a 19-block file can't be a variant of a 20-block one).
+        import consensus as C
+        my_key = (C.canonical_alias(r["name"]), r["blocks"])
+        seen = {s for s, _ in own}
+        extra = []
+        for sib in self.files:
+            if sib is r or sib["blocks"] != r["blocks"]:
+                continue
+            if (C.canonical_alias(sib["name"]), sib["blocks"]) != my_key:
+                continue
+            for sha, disks in V.version_disks(sib):
+                if sha in seen:
+                    continue
+                seen.add(sha)
+                extra.append((sha, disks))
+        return own + extra
+
+    def name_on_disk(self, r, target_disk):
+        """The filename this file actually carried on `target_disk`'s
+        captures.  Falls back to the consensus name when the disk doesn't
+        carry the file under any name."""
+        if not target_disk:
+            return r["name"]
+        for cr in self.recs_by_key.get((r["name"], r["blocks"]), []):
+            for p in cr["provenance"]:
+                if self.disk_of.get(p["capture"]) == target_disk:
+                    return p["name"]
+        return r["name"]
 
     def lookup_metadata(self, name, blocks, target_disk):
         """Find the RT-11 directory metadata (date YYYY-MM-DD, protected) for
@@ -1203,7 +1235,12 @@ def run_gui(model):
                 row_tags = [str(idx)]
                 if has_chosen:
                     row_tags.append("has_chosen")          # paint row green
-                tv.insert("", "end", text=r["name"],
+                # Per-disk display: when a specific disk is selected, show
+                # the file under the name actually used on that disk's
+                # captures (DIRRT.EXE on disk4, DIR.SAV on disk1, etc.).
+                # In (all) view we stay on the consensus's canonical name.
+                disp_name = model.name_on_disk(r, canon) if canon else r["name"]
+                tv.insert("", "end", text=disp_name,
                           values=(r["blocks"],
                                   f"{r.get('verified_blocks', 0)}/{r['blocks']}",
                                   len(model.versions(r)), ch_disp),
