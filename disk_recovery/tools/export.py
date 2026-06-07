@@ -16,7 +16,7 @@ Confidence bands come from the shared model (verdict.py); GUARANTEED = identical
 on >=2 different physical disks.
 """
 
-import json, re, sys
+import argparse, json, re, sys
 from pathlib import Path
 from collections import defaultdict
 
@@ -31,17 +31,18 @@ BAD = re.compile(r'[<>:"/\\|?*]')
 def safe(name):
     return BAD.sub("_", name)
 
-def verdict_text(r, band, recs_by_key, recovered, corro, disk_of, chosen, sha, own):
+def verdict_text(r, band, recs_by_key, recovered, corro, disk_of, chosen, sha, own,
+                 target=None):
     key = (r["name"], r["blocks"])
     note = "" if own else "  [this disk's copy was damaged; exported the recovered version]"
     if band == "CHOSEN":
-        cl = chosen[key]
-        if isinstance(cl, str): cl = [cl]
+        cl = V.picks_for_target(chosen.get(key), target)
         builds_map = {s: d for s, d in V.version_disks(r)}
         own = sha in cl
         parts = [f"{c[:8]} @ {','.join(builds_map.get(c, ['?']))}" for c in cl]
+        scope = f" for target {target}" if target else ""
         tag = "this disk's variant IS canonical" if own else "canonical lives on another disk"
-        return f"CHOSEN — {len(cl)} canonical: " + " | ".join(parts) + f"; {tag}"
+        return f"CHOSEN{scope} — {len(cl)} canonical: " + " | ".join(parts) + f"; {tag}"
     if band == "GUARANTEED":
         return f"GUARANTEED — byte-identical on {V.phys_disks(key, recs_by_key, corro, disk_of)} different physical disks" + note
     if band == "HIGH":
@@ -66,6 +67,14 @@ def verdict_text(r, band, recs_by_key, recovered, corro, disk_of, chosen, sha, o
     return band
 
 def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--target", help="target floppy you are assembling — "
+                    "CHOSEN counts only the picks bound to this target in "
+                    "decisions.tsv.  Without --target, any pick that has at "
+                    "least one target binding counts.")
+    args = ap.parse_args()
+    target = args.target
+
     files = json.load(open(OUT/"consensus.json", encoding="utf-8"))["files"]
     corpus = json.load(open(OUT/"corpus.json", encoding="utf-8"))["records"]
     cons = {(r["name"], r["blocks"]): r for r in files}
@@ -101,14 +110,14 @@ def main():
         rows, bandc = [], defaultdict(int)
         for (name, blocks), sha in sorted(disk_files[disk].items()):
             r = cons.get(sha2canon.get(sha, (name, blocks)))
-            band = V.classify(r, recs_by_key, recovered, corro, disk_of, chosen) if r else "UNVERIFIED"
+            band = V.classify(r, recs_by_key, recovered, corro, disk_of,
+                              chosen, target) if r else "UNVERIFIED"
             # choose best content
             prop = PROP / name
             ckey = (name, blocks)
-            if ckey in chosen:                              # human-picked canonical version(s)
-                cl = chosen[ckey]
-                if isinstance(cl, str): cl = [cl]
-                csha = sha if sha in cl else cl[0]          # prefer this disk's own canonical
+            picks = V.picks_for_target(chosen.get(ckey), target)
+            if picks:                                       # human-picked canonical version(s)
+                csha = sha if sha in picks else picks[0]    # prefer this disk's own canonical
                 data = (STORE/f"{csha}.bin").read_bytes()
             elif ckey in recovered and prop.exists():
                 data, csha = prop.read_bytes(), None
@@ -120,7 +129,8 @@ def main():
             (ddir / safe(name)).write_bytes(data)
             vrfd = f"{r.get('verified_blocks', 0)}/{blocks}" if r else "?"
             rows.append((name, blocks, r["category"] if r else "?", band,
-                         verdict_text(r, band, recs_by_key, recovered, corro, disk_of, chosen, sha, own),
+                         verdict_text(r, band, recs_by_key, recovered, corro,
+                                      disk_of, chosen, sha, own, target),
                          vrfd))
             bandc[band] += 1
         # VERDICT.txt

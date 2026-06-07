@@ -575,6 +575,10 @@ class Model:
                 for n in cr["names"]:
                     self.cons_by_key.setdefault((n, cr["blocks"]), cons)
         self.chosen = V.load_decisions(V.DECISIONS, self.cons_by_key)
+        # The build target the user is currently working on (e.g. "vvv104/disk2").
+        # None = the (all) cross-target view: CHOSEN counts any pick that has
+        # at least one target binding, no new picks can be made.
+        self.active_target = None
         # session-only synthetic variants (byte-vote / text-merge results) kept
         # per-file so they persist across reselection — without this they were
         # tied to the right-panel state and vanished as soon as the file's tab
@@ -582,10 +586,17 @@ class Model:
         self.synthetic = defaultdict(list)
         self._reclassify()
 
+    def set_active_target(self, target):
+        """Switch the build target.  Triggers reclassification so the CHOSEN
+        band reflects picks bound to the new target."""
+        self.active_target = target or None
+        self._reclassify()
+
     def _reclassify(self):
         for r in self.files:
             r["band"] = V.classify(r, self.recs_by_key, self.recovered,
-                                   self.corro, self.disk_of, self.chosen)
+                                   self.corro, self.disk_of, self.chosen,
+                                   self.active_target)
 
     def by_band(self):
         d = defaultdict(list)
@@ -616,32 +627,67 @@ class Model:
         return p.read_bytes() if p.exists() else b""
 
     def set_choice(self, r, shas):
-        """TOGGLE each sha in the file's canonical set: add if not present,
-        remove if already canonical.  Returns (added, removed) sha lists."""
+        """TOGGLE each sha as canonical for the file under the ACTIVE target.
+        For each sha: if it already carries the active target, that target is
+        removed from its pick (the pick is dropped if no targets remain);
+        otherwise the active target is added (a new pick is created if the
+        sha had none).  Returns (added, removed) sha lists.
+
+        A no-op when no active target is set — the GUI disables the button
+        in cross-target view."""
+        target = self.active_target
+        if not target:
+            return [], []
         key = (r["name"], r["blocks"])
-        existing = self.chosen.get(key, [])
-        if isinstance(existing, str): existing = [existing]
-        combined = list(existing)
+        picks = list(self.chosen.get(key, []))
         added, removed = [], []
-        for s in shas:
-            if s in combined:
-                combined.remove(s); removed.append(s)
+        for sha in shas:
+            idx = next((i for i, (s, _) in enumerate(picks) if s == sha), None)
+            if idx is None:
+                picks.append((sha, frozenset({target})))
+                added.append(sha)
+                continue
+            old_sha, old_targets = picks[idx]
+            if target in old_targets:
+                ts = old_targets - {target}
+                if ts:
+                    picks[idx] = (old_sha, ts)
+                else:
+                    picks.pop(idx)
+                removed.append(sha)
             else:
-                combined.append(s); added.append(s)
-        if combined:
-            self.chosen[key] = combined
+                picks[idx] = (old_sha, old_targets | {target})
+                added.append(sha)
+        if picks:
+            self.chosen[key] = picks
         else:
             self.chosen.pop(key, None)
         self._save(); self._reclassify()
         return added, removed
 
     def clear_choice(self, r):
-        self.chosen.pop((r["name"], r["blocks"]), None)
+        """Remove the ACTIVE target from every pick of `r`.  Picks whose target
+        set becomes empty are dropped.  With no active target ((all) view),
+        wipe every pick for the file — useful for blowing away legacy /
+        unbound entries from the pre-target format."""
+        key = (r["name"], r["blocks"])
+        target = self.active_target
+        if not target:
+            self.chosen.pop(key, None)
+        else:
+            new = [(s, ts - {target}) for s, ts in self.chosen.get(key, [])]
+            new = [(s, ts) for s, ts in new if ts]
+            if new:
+                self.chosen[key] = new
+            else:
+                self.chosen.pop(key, None)
         self._save(); self._reclassify()
 
     def chosen_for(self, r):
-        v = self.chosen.get((r["name"], r["blocks"]), [])
-        return set(v) if isinstance(v, (list, set, tuple)) else {v}
+        """Shas the user picked as canonical under the ACTIVE target.  With
+        no active target, the union over all targeted picks."""
+        return set(V.picks_for_target(self.chosen.get((r["name"], r["blocks"])),
+                                      self.active_target))
 
     def _save(self):
         amb = [r for r in self.files if r["tier"] == "multi-version"]
@@ -1117,14 +1163,27 @@ def run_gui(model):
             tv.delete(*tv.get_children())
             for r in disp_files.get(band, []):
                 key = (r["name"], r["blocks"])
-                cl = model.chosen.get(key, [])
-                if isinstance(cl, str): cl = [cl]
-                if not cl:        ch_disp = ""
-                elif len(cl) == 1: ch_disp = cl[0][:8]
-                else:              ch_disp = f"{cl[0][:6]}+{len(cl)-1}"
+                picks = model.chosen.get(key, [])
+                if model.active_target:
+                    # specific target: show the pick bound to it (if any)
+                    matched = [s for s, ts in picks if model.active_target in ts]
+                    ch_disp = matched[0][:8] if matched else ""
+                    has_chosen = bool(matched)
+                else:
+                    # cross-target view: summarise targeted picks
+                    targeted = [(s, ts) for s, ts in picks if ts]
+                    if not targeted:
+                        ch_disp = ""
+                    elif len(targeted) == 1:
+                        s, ts = targeted[0]
+                        ch_disp = (f"{s[:8]}@{next(iter(ts))}"
+                                   if len(ts) == 1 else f"{s[:8]} ({len(ts)}t)")
+                    else:
+                        ch_disp = f"{len(targeted)} picks"
+                    has_chosen = bool(targeted)
                 idx = model.files.index(r)
                 row_tags = [str(idx)]
-                if cl:
+                if has_chosen:
                     row_tags.append("has_chosen")          # paint row green
                 tv.insert("", "end", text=r["name"],
                           values=(r["blocks"],
@@ -1139,15 +1198,20 @@ def run_gui(model):
         r = state["rec"]
         if not r or not v:
             status.config(text="select a file and >=1 version to toggle canonical"); return
+        if not model.active_target:
+            status.config(text="pick a specific target disk in the top combobox "
+                               "before marking canonical (in (all) view picks "
+                               "have no target binding to attach to)"); return
         added, removed = model.set_choice(r, [s for s, _ in v])
         refresh()                 # repaint left tree (band + chosen column + row colour)
         display_versions()        # repaint vbox marks/colours for this file
         go_to(r)                  # follow the file to whatever band it lives in now
-        cur = list(model.chosen.get((r["name"], r["blocks"]), []))
+        cur = model.chosen_for(r) # shas now canonical for the active target
         bits = []
         if added:   bits.append("+" + "+".join(s[:8] for s in added))
         if removed: bits.append("-" + "-".join(s[:8] for s in removed))
-        status.config(text=f"{r['name']}: " + "  ".join(bits)
+        status.config(text=f"{r['name']} @ {model.active_target}: "
+                           + "  ".join(bits)
                            + f"   -> {len(cur)} canonical now"
                            + (": " + "+".join(s[:8] for s in cur) if cur else ""))
 
@@ -1159,7 +1223,8 @@ def run_gui(model):
         refresh()
         display_versions()
         go_to(r)
-        status.config(text=f"cleared {r['name']}")
+        scope = f"target {model.active_target}" if model.active_target else "all targets"
+        status.config(text=f"cleared {r['name']} ({scope})")
 
     def do_save_as():
         from tkinter import filedialog
@@ -1197,6 +1262,15 @@ def run_gui(model):
     vbox.bind("<<ListboxSelect>>", on_version_select)
 
     def on_disk_change(event=None):
+        # Drive the build TARGET off the same combobox: the disk selected
+        # here is both the source-side filter (what shows in the tree) and
+        # the target floppy any new canonical pick is bound to.  '(all)'
+        # is the cross-target overview — CHOSEN counts files with any
+        # target binding, but new picks are disabled until a real target
+        # is chosen.
+        sel = disk_var.get()
+        target = label_to_canon.get(sel) if sel != "(all)" else None
+        model.set_active_target(target)
         # Old file's version list belongs to a (possibly hidden) other disk —
         # drop the selection so the user re-picks from the new filter rather
         # than seeing stale bytes from the previous disk's file.
@@ -1214,9 +1288,7 @@ def run_gui(model):
         chosen canonical > donor proposal > consensus recovered_sha > the
         build that lives on this_disk > the first build."""
         key = (name, blocks)
-        chosen = model.chosen.get(key, [])
-        if isinstance(chosen, str): chosen = [chosen]
-        for sha in chosen:
+        for sha in V.picks_for_target(model.chosen.get(key), model.active_target):
             p = STORE / f"{sha}.bin"
             if p.exists(): return p.read_bytes()
         prop = PROP / name
@@ -1334,7 +1406,8 @@ def run_gui(model):
                 bits = rotted_match(name, r["name"])
                 if bits is None:
                     continue
-                has_chosen = bool(model.chosen.get((r["name"], blocks)))
+                has_chosen = bool(V.picks_for_target(
+                    model.chosen.get((r["name"], blocks)), model.active_target))
                 cands.append((r["name"], bits, has_chosen))
             if not cands:
                 return None
@@ -1365,7 +1438,8 @@ def run_gui(model):
                         if proposal:
                             new_name, n_bits = proposal
                             tag = f"{n_bits} bit{'s' if n_bits != 1 else ''}"
-                            picked = bool(model.chosen.get((new_name, length)))
+                            picked = bool(V.picks_for_target(
+                                model.chosen.get((new_name, length)), model.active_target))
                             ok = messagebox.askyesno(
                                 "Bit-rot recovery proposal",
                                 f"Directory entry '{orig_name}' ({length} blocks) "

@@ -199,10 +199,16 @@ def resolve_choice(choose, versions):
     return None
 
 def load_decisions(path, cons_by_key):
-    """Parse the human decisions file -> {(name,blocks): [chosen_sha, ...]}.
-    Multiple shas in CHOOSE may be separated by '+' to mark several distinct
-    builds as canonical (e.g. RT11SJ.SYS where several monitor versions are all
-    real, not one "right" build)."""
+    """Parse the human decisions file -> {(name,blocks): [(sha, {targets}), ...]}.
+
+    Each pick is a (sha, target-set) pair: the user picked this version as
+    canonical for the listed target floppies they are assembling.  Multiple
+    picks per file are allowed, one per distinct build (e.g. RT11SJ.SYS where
+    different monitor versions are real on different targets).  A pick with
+    an empty target set is a legacy/unbound entry from the old single-column
+    format — it is read in so nothing is silently lost but it never matches
+    a target query downstream.
+    """
     chosen = {}
     p = Path(path)
     if not p.exists():
@@ -218,9 +224,14 @@ def load_decisions(path, cons_by_key):
             blocks = int(cells[1].strip().replace("blk", ""))
         except ValueError:
             continue
+        # New format: NAME  BLK  CHOOSE  TARGETS  VERSIONS
+        # Legacy:     NAME  BLK  CHOOSE  VERSIONS
+        choose = cells[2].strip()
+        targets_cell = cells[3].strip() if len(cells) >= 5 else ""
+        targets = frozenset(t.strip() for t in targets_cell.split(",") if t.strip())
         versions = version_disks(cons_by_key.get((name, blocks)))
         shas = []
-        for token in cells[2].split("+"):
+        for token in choose.split("+"):
             token = token.strip()
             if not token:
                 continue
@@ -231,22 +242,42 @@ def load_decisions(path, cons_by_key):
                     sha = hits[0].stem
             if sha and sha not in shas:
                 shas.append(sha)
-        if shas:
-            chosen[(name, blocks)] = shas
+        for sha in shas:
+            chosen.setdefault((name, blocks), []).append((sha, targets))
     return chosen
 
-def classify(r, recs_by_key, recovered, corro, disk_of, chosen=frozenset()):
+def picks_for_target(chosen_for_key, target):
+    """Filter a file's picks to those bound to `target` (or any pick if
+    `target is None`).  Returns a list of sha strings."""
+    if chosen_for_key is None:
+        return []
+    if target is None:
+        return [sha for sha, ts in chosen_for_key if ts]
+    return [sha for sha, ts in chosen_for_key if target in ts]
+
+def classify(r, recs_by_key, recovered, corro, disk_of, chosen=None, target=None):
     """Confidence band for a consensus file record `r`.
+
     recovered = donor-recovered (name,blocks); corro = {(name,blocks): src};
-    disk_of = capture -> physical-disk label; chosen = (name,blocks) the human
-    picked a canonical version for."""
+    disk_of   = capture -> physical-disk label;
+    chosen    = {(name,blocks): [(sha, frozenset(targets))]} from load_decisions;
+    target    = the build target the user is assembling — a file is CHOSEN
+                only when a pick is bound to that target.  None means show
+                any file that has *some* targeted pick as CHOSEN; legacy
+                rows without targets never count.
+    """
     key = (r["name"], r["blocks"])
     if key in recovered:
         return "GOOD"                            # donor-recovered + verified
     if r["tier"] == "corrupt":
         return "LOST"
     if r["tier"] == "multi-version":
-        return "CHOSEN" if key in chosen else "AMBIGUOUS"
+        picks = (chosen or {}).get(key, [])
+        if target is None:
+            has_targeted = any(ts for _, ts in picks)
+        else:
+            has_targeted = any(target in ts for _, ts in picks)
+        return "CHOSEN" if has_targeted else "AMBIGUOUS"
     if phys_disks(key, recs_by_key, corro, disk_of) >= 2:
         return "GUARANTEED"
     if r["tier"] == "verified":
@@ -283,22 +314,33 @@ ACTION = {
 DECISIONS = Path(__file__).resolve().parents[2] / "disk_recovery" / "decisions.tsv"
 
 DECISION_HEADER = (
-    "# Pick the canonical version for each AMBIGUOUS file.\n"
-    "# Put the sha8 (or a disk it is on) in CHOOSE; blank = undecided.\n"
-    "# Compare the bytes in export/<disk>/<file>.  Tab-separated; keep the columns.\n"
-    "# NAME\tBLK\tCHOOSE\tVERSIONS (sha8 @ disks)\n")
+    "# Pick the canonical version for each AMBIGUOUS file, per target floppy.\n"
+    "# One row per (file, sha): CHOOSE = sha8 of the version, TARGETS = comma-\n"
+    "# separated target floppies you are building.  The same sha can serve\n"
+    "# several targets (`disk1,disk3`); different shas for different targets\n"
+    "# go in separate rows.  Empty CHOOSE = the file is listed as AMBIGUOUS\n"
+    "# but undecided so far; empty TARGETS = legacy/unbound pick (ignored\n"
+    "# downstream — re-bind it to a target via the GUI when you get there).\n"
+    "# Compare the bytes in export/<disk>/<file>.  Tab-separated; keep columns.\n"
+    "# NAME\tBLK\tCHOOSE\tTARGETS\tVERSIONS (sha8 @ source disks)\n")
 
 def write_decisions(path, amb_records, chosen):
-    """Write the decisions file for the AMBIGUOUS consensus records.  Each
-    record's CHOOSE column shows the user's picks as '+'-joined sha8s (empty
-    if undecided).  Shared by decide.py and the GUI."""
+    """Write the decisions file for the AMBIGUOUS consensus records.
+
+    `chosen` is the structure produced by load_decisions: each key maps to a
+    list of (sha, frozenset(targets)) picks.  We emit one TSV row per pick.
+    Files with no pick get a single placeholder row with empty CHOOSE/TARGETS
+    so the user can see them and decide.
+    """
     lines = [DECISION_HEADER]
     for r in sorted(amb_records, key=lambda r: r["name"]):
         key = (r["name"], r["blocks"])
         opts = " ;; ".join(f"{s[:8]} @ {','.join(d)}" for s, d in version_disks(r))
         picks = chosen.get(key, [])
-        if isinstance(picks, str):                # back-compat: old single-sha form
-            picks = [picks]
-        ch = "+".join(s[:8] for s in picks)
-        lines.append(f"{r['name']}\t{r['blocks']}\t{ch}\t{opts}\n")
+        if not picks:
+            lines.append(f"{r['name']}\t{r['blocks']}\t\t\t{opts}\n")
+            continue
+        for sha, targets in picks:
+            tgt = ",".join(sorted(targets))
+            lines.append(f"{r['name']}\t{r['blocks']}\t{sha[:8]}\t{tgt}\t{opts}\n")
     Path(path).write_text("".join(lines), encoding="utf-8")

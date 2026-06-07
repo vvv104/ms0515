@@ -12,7 +12,7 @@ Writes work/corpus/REPORT.md (summary + actionable lists), report.csv (full
 matrix) and healthy.txt (the trustworthy files).
 """
 
-import json, csv, sys
+import argparse, json, csv, sys
 from pathlib import Path
 from collections import Counter
 
@@ -23,6 +23,14 @@ from consensus import canonical_name
 OUT = Path(__file__).resolve().parents[2] / "disk_recovery" / "work" / "corpus"
 
 def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--target", help="target floppy you are assembling — "
+                    "CHOSEN counts only the picks bound to this target in "
+                    "decisions.tsv.  Without --target, any pick that has at "
+                    "least one target binding counts.")
+    args = ap.parse_args()
+    target = args.target
+
     files = json.load(open(OUT / "consensus.json", encoding="utf-8"))["files"]
     corpus = json.load(open(OUT / "corpus.json", encoding="utf-8"))["records"]
     recs_by_key = {}
@@ -40,7 +48,8 @@ def main():
     chosen = V.load_decisions(V.DECISIONS, cons_by_key)
 
     for r in files:
-        r["band"] = V.classify(r, recs_by_key, recovered, corro, disk_of, chosen)
+        r["band"] = V.classify(r, recs_by_key, recovered, corro, disk_of,
+                               chosen, target)
 
     cols = ["name", "blocks", "verified_blocks", "category", "is_binary", "tier", "band",
             "captures", "versions", "clean", "unknown", "flagged", "corrupt"]
