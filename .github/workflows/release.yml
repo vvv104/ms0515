@@ -94,4 +94,6 @@ jobs:
         with:
           files: ms0515-${{ github.ref_name }}-${{ matrix.platform }}.${{ matrix.archive_ext }}
           draft: true
-          generate_release_notes: true
+          # No auto-generated "What's Changed" / "New Contributors" — those
+          # got confused when a previous tag was left as an unpublished
+          # draft.  Notes are written by hand on the draft after upload.
