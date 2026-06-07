@@ -54,7 +54,9 @@ static void cpu_service_interrupt(ms0515_cpu_t *cpu, uint16_t vector)
     cpu_push(cpu, cpu->psw);
     cpu_push(cpu, cpu->r[CPU_REG_PC]);
     cpu->r[CPU_REG_PC] = new_pc;
-    cpu->psw            = board_read_word(cpu->board, vector + 2);
+    /* K1807VM1 PSW is 8 bits; mask vector-side PSW to drop any
+     * stray high-byte content that would leak across the ISR. */
+    cpu->psw            = board_read_word(cpu->board, vector + 2) & 0377;
     cpu->waiting = false;
     cpu->halted  = false;
 }

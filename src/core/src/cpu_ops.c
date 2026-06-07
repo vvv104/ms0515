@@ -415,7 +415,7 @@ static void op_reset(ms0515_cpu_t *cpu)
 static void op_rti(ms0515_cpu_t *cpu)
 {
     cpu->r[CPU_REG_PC] = pop(cpu);
-    cpu->psw            = pop(cpu);
+    cpu->psw            = pop(cpu) & 0377;
     /* KR1807VM1: RTI inhibits T-bit trap, same as RTT */
     cpu->irq_tbit = false;
 }
@@ -429,7 +429,7 @@ static void op_rti(ms0515_cpu_t *cpu)
 static void op_rtt(ms0515_cpu_t *cpu)
 {
     cpu->r[CPU_REG_PC] = pop(cpu);
-    cpu->psw            = pop(cpu);
+    cpu->psw            = pop(cpu) & 0377;
     /* RTT inhibits the T-bit trap for the next instruction */
     cpu->irq_tbit = false;
 }
