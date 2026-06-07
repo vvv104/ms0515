@@ -49,9 +49,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 SYSTEM_DISK = HERE / "system.dsk"
 DEVEL       = HERE / "build_tools"
-CLI         = ROOT / "src/build/Release/cli/ms0515-cli.exe"
-ROM         = ROOT / "src/assets/rom/ms0515-roma.rom"
-DISK_TOOL   = ROOT / "src/build/Release/tools/disk/ms0515-disk.exe"
+CLI         = ROOT / "package/ms0515-cli.exe"
+ROM         = ROOT / "package/assets/rom/ms0515-roma.rom"
+DISK_TOOL   = ROOT / "package/ms0515-disk.exe"
 
 sys.path.insert(0, str(HERE))
 from emu_driver import EmulatorDriver       # noqa: E402
