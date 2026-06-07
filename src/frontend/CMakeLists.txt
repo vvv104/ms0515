@@ -48,6 +48,7 @@ target_link_libraries(ms0515
     PRIVATE ms0515_lib
     PRIVATE ms0515_libapp
     PRIVATE ms0515_platform_gui
+    PRIVATE ms0515_win7compat
     PRIVATE SDL2::SDL2 SDL2::SDL2main
     PRIVATE imgui::imgui
     PRIVATE stb::stb

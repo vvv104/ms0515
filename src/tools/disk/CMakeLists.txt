@@ -11,6 +11,7 @@ target_compile_features(ms0515-disk PRIVATE cxx_std_23)
 
 target_link_libraries(ms0515-disk
     PRIVATE ms0515_disk
+    PRIVATE ms0515_win7compat
 )
 
 # ── Package output ──────────────────────────────────────────────────────────
