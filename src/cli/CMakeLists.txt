@@ -21,6 +21,7 @@ target_link_libraries(ms0515-cli
     PRIVATE ms0515_lib
     PRIVATE ms0515_libapp
     PRIVATE ms0515_platform_cli
+    PRIVATE ms0515_win7compat
 )
 
 # ── Package output ──────────────────────────────────────────────────────────
