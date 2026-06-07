@@ -609,6 +609,24 @@ class Model:
     def versions(self, r):
         return V.version_disks(r)
 
+    def lookup_metadata(self, name, blocks, target_disk):
+        """Find the RT-11 directory metadata (date YYYY-MM-DD, protected) for
+        a (name, blocks) file as it appeared on `target_disk`'s captures.
+        Falls back to any provenance entry's metadata when the file isn't on
+        the target.  Returns (date_or_None, protected_bool)."""
+        recs = self.recs_by_key.get((name, blocks), [])
+        for r in recs:
+            for p in r["provenance"]:
+                if (self.disk_of.get(p["capture"]) == target_disk
+                        and p["name"] == name
+                        and ("date" in p or p.get("protected"))):
+                    return p.get("date"), p.get("protected", False)
+        for r in recs:
+            for p in r["provenance"]:
+                if p["name"] == name and ("date" in p or p.get("protected")):
+                    return p.get("date"), p.get("protected", False)
+        return None, False
+
     def add_synthetic(self, r, sha, label):
         """Remember a session-built variant (byte-vote / text-merge) so it stays
         visible in the version list even after the file is re-selected."""
@@ -1466,18 +1484,29 @@ def run_gui(model):
                         missing.append(f"side{side}:{orig_name}"); continue
                     fp = tmp / name
                     fp.write_bytes(data)
-                    paths.append(str(fp))
-                if paths:
+                    # Carry the original entry's RT-11 metadata (date,
+                    # /PROTECT) through to the rebuilt volume — preferring
+                    # values seen on `canon` itself, then any other capture.
+                    date, prot = model.lookup_metadata(name, length, canon)
+                    if date is None:
+                        date, prot = model.lookup_metadata(orig_name, length, canon)
+                    paths.append((str(fp), date, prot))
+                for fpath, date, prot in paths:
+                    cmd = [str(DISK_TOOL), "put", str(out_path),
+                           "--side", str(side)]
+                    if date:
+                        cmd += ["--date", date]
+                    if prot:
+                        cmd += ["--protected"]
+                    cmd.append(fpath)
                     try:
-                        subprocess.run([str(DISK_TOOL), "put", str(out_path),
-                                        "--side", str(side)] + paths,
-                                       check=True, capture_output=True)
-                        written += len(paths)
+                        subprocess.run(cmd, check=True, capture_output=True)
+                        written += 1
                     except subprocess.CalledProcessError as e:
                         # extend(str) splits characters — append the full
                         # message as one line so the error stays legible.
-                        missing.append(f"put-failed-side{side}: " +
-                                       e.stderr.decode(errors="replace").strip()[:120])
+                        missing.append(f"put-failed-side{side}:{Path(fpath).name}: " +
+                                       e.stderr.decode(errors="replace").strip()[:80])
         msg = f"built {out_path.name}: {written} files"
         if recovered_names:
             msg += (f"\n\nRecovered from bit-rotted directory entries "
