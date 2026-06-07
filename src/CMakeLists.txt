@@ -17,6 +17,21 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# ── Windows API floor ────────────────────────────────────────────────────────
+# Target Windows 7 SP1 as the minimum supported OS so the released exes run
+# on Win7/8/8.1/10/11.  The Windows SDK guards Win8+ symbols behind these
+# version macros; calling something that requires a newer floor turns into a
+# compile error here, not a "entry point not found in DLL" at runtime on Win7.
+# Combined with the static MSVC runtime (configured in CI), the resulting
+# binaries don't need VCRedist on the target machine either.
+if(WIN32)
+    add_compile_definitions(
+        _WIN32_WINNT=0x0601     # Windows 7
+        WINVER=0x0601           # legacy alias for the same
+        NTDDI_VERSION=0x06010000 # Windows 7 (DDI versioning)
+    )
+endif()
+
 if(MS0515_BUILD_TESTS)
     enable_testing()
 endif()
