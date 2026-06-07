@@ -1161,10 +1161,29 @@ def run_gui(model):
         go_to(r)
         status.config(text=f"cleared {r['name']}")
 
+    def do_save_as():
+        from tkinter import filedialog
+        v = selected_versions()
+        if len(v) != 1:
+            status.config(text="select exactly one version to save"); return
+        r = state["rec"]
+        if not r:
+            status.config(text="no file selected"); return
+        sha, _ = v[0]
+        data = model.content(sha)
+        out_path = filedialog.asksaveasfilename(
+            parent=root, title=f"Save {r['name']} ({sha[:8]})",
+            initialfile=r["name"], filetypes=[("All files", "*.*")])
+        if not out_path:
+            return
+        Path(out_path).write_bytes(data)
+        status.config(text=f"saved {sha[:8]} -> {out_path} ({len(data)} bytes)")
+
     ttk.Button(btns, text="Diff 2", command=do_diff).pack(side="left", padx=4)
     ttk.Button(btns, text="Byte-vote sel", command=do_bytevote).pack(side="left")
     ttk.Button(btns, text="Text-merge sel", command=do_textmerge).pack(side="left", padx=4)
     ttk.Button(btns, text="✓ Toggle canonical", command=do_set).pack(side="left", padx=4)
+    ttk.Button(btns, text="Save as…", command=do_save_as).pack(side="left", padx=4)
     ttk.Button(btns, text="Clear all", command=do_clear).pack(side="left")
 
     def on_version_select(event):
