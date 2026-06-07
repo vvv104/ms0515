@@ -51,14 +51,16 @@ image:
   statusless raw dump.  Their presence flags the sector; their multiple attempts
   are **majority-voted** to overlay recovered bytes into the extraction image.
 - **Koshka** `.map` / `.log` — anasana's reader (Windows + Simon Owen's
-  `fdrawcmd.sys`) drops a `<stem>.map` (one ASCII digit per physical sector,
-  `'3'` = OK, anything else = flagged; same index space as a `.badmap`) and a
-  `<stem>.log` (cp866 `Head N, Track N, sector N, retry K, error CODE` lines
-  where CODE is a Win32 error — sector flagged if never `error 0`).  Both sit
-  next to the raw image (or alongside a `.TD0` / Extended-CPC `.dsk` to augment
-  the converter's own `.badmap`).  Provisional code semantics: only `'3'` is
-  confirmed by the author as OK; other digits (1, 4, 5, 8 seen) are all
-  treated as flagged until the program's documentation arrives.
+  `fdrawcmd.sys`) drops a `<stem>.map` (one ASCII digit per physical sector;
+  same index space as a `.badmap`) and a `<stem>.log` (cp866 `Head N,
+  Track N, sector N, retry K, error CODE` lines where CODE is a Win32 error
+  — sector flagged if never `error 0`).  Both sit next to the raw image
+  (or alongside a `.TD0` / Extended-CPC `.dsk` to augment the converter's
+  own `.badmap`).  `.map` code semantics (per anasana's legend): `'3'` good,
+  `'4'` OK-with-warnings, `'9'` changed-to-OK-after-re-read are treated as
+  OK; `'0'` unprocessed, `'1'` in-progress, `'2'` formatted-no-data, `'5'`
+  bad-fatal, `'6'` CRC-error, `'7'` not-found, `'8'` unknown/user-marked
+  all flag the sector.
 
 A plain raw dump with none of the above carries no read-status: its blocks are
 UNKNOWN, neither trusted nor flagged.  Crucially a raw read must never *cancel*

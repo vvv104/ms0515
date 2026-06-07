@@ -156,21 +156,34 @@ def dat_readstatus(src, ds):
 
 def koshka_readstatus(src, ds):
     """Read-status from Koshka (anasana) sibling files: <stem>.map gives one
-    ASCII byte per physical sector ('3' = OK, anything else = flagged; same
-    index space as a converter .badmap), <stem>.log lists per-attempt
-    fdrawcmd errors per (Head, Track, sector) in cp866 — a sector that never
-    reports error 0 is flagged.  Returns the union as a physical-index set,
-    or None if neither file is present.
+    ASCII byte per physical sector (same index space as a converter .badmap),
+    <stem>.log lists per-attempt fdrawcmd errors per (Head, Track, sector) in
+    cp866 — a sector that never reports error 0 is flagged.  Returns the
+    union as a physical-index set, or None if neither file is present.
 
-    Code semantics for .map are provisional: only '3' is confirmed OK by
-    anasana; other digits (seen: 1, 4, 5, 8) are treated as flagged.
-    Refinement waits on the program's documentation.
+    .map code semantics (legend from anasana, the program's author):
+
+        '0' unprocessed empty/blank sector  (gray)         → flagged
+        '1' read/write in progress          (dark green)   → flagged
+        '2' formatted, no data              (blue)         → flagged
+        '3' good read/write                 (green)        → OK
+        '4' read/write OK with warnings     (orange)       → OK
+        '5' bad, fatal, final               (black)        → flagged
+        '6' CRC error                       (yellow)       → flagged
+        '7' sector not found                (brown)        → flagged
+        '8' unknown / user-marked           (pink)         → flagged
+        '9' changed to OK after re-read     (light green)  → OK
+
+    "OK" means the byte at that sector in the image is the actual disk
+    content and should not be overridden by a donor.  Everything else is
+    flagged so consensus or majority-vote can replace it.
     """
+    OK_CODES = {ord('3'), ord('4'), ord('9')}
     flagged = set()
     found = False
     map_path = src.with_suffix(".map")
     if map_path.exists():
-        flagged |= {i for i, b in enumerate(map_path.read_bytes()) if b != ord('3')}
+        flagged |= {i for i, b in enumerate(map_path.read_bytes()) if b not in OK_CODES}
         found = True
     log_path = src.with_suffix(".log")
     if log_path.exists():

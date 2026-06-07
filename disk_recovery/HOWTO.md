@@ -72,7 +72,7 @@ verified material. All three live in the same directory as the
 
 | Sibling | Origin | What it adds |
 |---------|--------|--------------|
-| `<stem>.map` | Koshka (anasana) | One ASCII digit per physical sector — `'3'` = read OK, anything else = flagged. Same index space as a `.badmap`. Full per-sector coverage. |
+| `<stem>.map` | Koshka (anasana) | One ASCII digit per physical sector. `'3'` (good), `'4'` (OK with warnings), `'9'` (changed to OK after re-read) count as read OK; `'0'` (unprocessed), `'1'` (in progress), `'2'` (formatted/no data), `'5'` (bad fatal), `'6'` (CRC error), `'7'` (not found), `'8'` (unknown/user) all flag the sector. Same index space as a `.badmap`. Full per-sector coverage. |
 | `<stem>.log` | Koshka | Per-attempt error log in cp866, lines like `Head 0, Track 28, sector 10, retry 4, error 27 - <description>`. Codes are Win32 system errors from `fdrawcmd.sys` (0 = success, 27 = `ERROR_SECTOR_NOT_FOUND`, 23 = `ERROR_CRC`, ...). A sector that never reports `error 0` is flagged. |
 | `<stem>_crc_error_Head<N>_Track<N>_Sector<N>_<timestamp>.dat` | KryoFlux per-sector re-reads | Each file is a single 512-byte attempted re-read of a CRC-flagged sector. Multiple attempts on the same sector are **majority-voted** byte-by-byte to recover the bytes; their presence also flags the sector. |
 
