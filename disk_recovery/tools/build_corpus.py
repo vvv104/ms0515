@@ -28,7 +28,7 @@ from read_spanning import read_spanning
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 WORK = ROOT / "disk_recovery" / "work"
-_tool = ROOT / "src/build/Release/tools/disk/ms0515-disk.exe"
+_tool = ROOT / "package/ms0515-disk.exe"
 TOOL = _tool if _tool.exists() else _tool.with_suffix("")
 OUT  = WORK / "corpus"
 PY   = sys.executable

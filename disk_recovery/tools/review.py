@@ -34,7 +34,7 @@ OUT   = ROOT / "disk_recovery" / "work" / "corpus"
 STORE = OUT / "files"
 RECOV = OUT / "recovered"
 PROP  = OUT / "donor_proposed"
-_DISK_TOOL = ROOT / "src/build/Release/tools/disk/ms0515-disk.exe"
+_DISK_TOOL = ROOT / "package/ms0515-disk.exe"
 DISK_TOOL  = _DISK_TOOL if _DISK_TOOL.exists() else _DISK_TOOL.with_suffix("")
 DIR_RE = re.compile(r"^\s+(\S+)\s+blk=\s*(\d+)\s+len=\s*(\d+)")
 
