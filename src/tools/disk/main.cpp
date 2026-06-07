@@ -9,6 +9,8 @@
  *   rm     <image> [--side N] <name>...     delete files
  *   squeeze <image> [--side N]              defragment (RT-11 SQUEEZE)
  *   protect/unprotect <image> [--side N] <name>...  toggle the /PROTECT flag
+ *   setdate <image> [--side N] --date YYYY-MM-DD <name>...
+ *                                           write the directory date in place
  *   get    <image> [--side N] [--out D] [pat]...  extract files (like PIP, out)
  *   dir    <image> [--side N]               list the directory
  *
@@ -51,6 +53,8 @@ int usage()
         "  rm     <image> [--side 0|1] <name>...   delete files (frees the blocks)\n"
         "  squeeze <image> [--side 0|1]          defragment (RT-11 SQUEEZE)\n"
         "  protect/unprotect <image> [--side 0|1] <name>...   set/clear /PROTECT\n"
+        "  setdate <image> [--side 0|1] --date YYYY-MM-DD <name>...\n"
+        "                                        write the directory date in place\n"
         "  get    <image> [--side 0|1] [--out DIR] [pattern]...  extract files\n"
         "  dir    <image> [--side 0|1]           list the directory\n"
         "  split  <ds.dsk> <side0.dsk> <side1.dsk>   split an 800 KB DS into two 400 KB SS\n"
@@ -306,6 +310,31 @@ int cmdSqueeze(const std::string &path, int side)
     return 0;
 }
 
+int cmdSetdate(const std::string &path, int side, uint16_t date,
+               const std::vector<std::string> &names)
+{
+    bool ds = false;
+    auto image = readImage(path, ds);
+    if (!image) return 1;
+
+    int changed = 0, fails = 0;
+    for (const auto &name : names) {
+        try {
+            setEntryDate(*image, side, ds, name, date);
+            std::printf("  dated %s\n", name.c_str());
+            ++changed;
+        } catch (const std::exception &e) {
+            std::fprintf(stderr, "error: %s\n", e.what());
+            ++fails;
+        }
+    }
+    if (changed && !writeWholeFile(path, *image)) {
+        std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
+        return 1;
+    }
+    return fails ? 1 : 0;
+}
+
 int cmdProtect(const std::string &path, int side,
                const std::vector<std::string> &names, bool on)
 {
@@ -411,6 +440,21 @@ int main(int argc, char **argv)
         }
         if (image.empty()) return usage();
         return cmdSqueeze(image, side);
+    }
+
+    if (cmd == "setdate") {
+        std::string image, dateStr; int side = 0; std::vector<std::string> names;
+        for (int i = 2; i < argc; ++i) {
+            std::string_view a = argv[i];
+            if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (a == "--date" && i + 1 < argc) { dateStr = argv[++i]; continue; }
+            if (image.empty()) { image = std::string(a); continue; }
+            names.emplace_back(a);
+        }
+        if (image.empty() || names.empty() || dateStr.empty()) return usage();
+        auto d = parseDate(dateStr);
+        if (!d) { std::fprintf(stderr, "error: --date wants YYYY-MM-DD\n"); return 2; }
+        return cmdSetdate(image, side, *d, names);
     }
 
     if (cmd == "protect" || cmd == "unprotect") {
