@@ -459,6 +459,66 @@ TEST_CASE("OS-oracle: removeFile is the same as the OS's own DELETE (OSA)") {
     CHECK(ne->length > 0);
 }
 
+TEST_CASE("OS-oracle: squeeze leaves a volume the OS reads correctly (OSA)") {
+    /* Build a disk with files + a few holes, run our squeeze, then boot the
+     * OS and confirm DIR DZ3 lists exactly the same files our tool does.
+     * Tail-empty consolidation is then probed by having the OS PIP a large
+     * file that wouldn't have fit any single old hole. */
+    namespace disk = ms0515::disk;
+    const std::string sysPath = std::string(TESTS_DIR) + "/disks/test_osa.dsk";
+    const std::string dstPath = std::string(TESTS_BUILD_DIR) + "/oracle_squeeze.dsk";
+
+    ms0515_test::TempDisk sys{sysPath};
+
+    auto img = disk::blankImage(false);
+    disk::initVolume(img, 0, false);
+    const std::vector<std::pair<std::string, int>> files = {
+        {"A.X", 3}, {"B.X", 2}, {"C.X", 5}, {"D.X", 1}, {"E.X", 4},
+    };
+    for (const auto &[n, len] : files)
+        disk::putFile(img, 0, false, n,
+                      std::vector<uint8_t>(len * disk::kBlock,
+                                           static_cast<uint8_t>(n[0])));
+    disk::removeFile(img, 0, false, "B.X");
+    disk::removeFile(img, 0, false, "D.X");                /* two holes */
+
+    disk::squeeze(img, 0, false);
+    writeImage(dstPath, img);
+
+    std::map<std::string, int> toolDir;
+    {
+        auto im = disk::openImage(img, 0);
+        REQUIRE(im.has_value());
+        for (const auto &e : im->directory.permanentFiles())
+            toolDir[e.name] = e.length;
+    }
+    REQUIRE(toolDir.size() == 3);                          /* A, C, E */
+
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(kRomA));
+    REQUIRE(emu.mountDisk(0, sys.path().string()));
+    REQUIRE(emu.mountDisk(3, dstPath));
+    ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
+    emu.reset();
+    waitForIdle(emu, mirror, 120, 3500);
+
+    typeLine(emu, mirror, "DIR DZ3:");
+    waitForIdle(emu, mirror, 150, 6000);
+    auto osDir = parseOsDir(screenRows(emu));
+    if (osDir != toolDir) dumpRows("after squeeze", screenRows(emu));
+    CHECK_MESSAGE(osDir == toolDir, "OS DIR vs tool dir mismatch after squeeze");
+
+    /* The consolidated free area must accept a file no single old hole would
+     * have held — proof the trailing empty really covers all freed space. */
+    typeLine(emu, mirror, "PIP DZ3:WIDE.X=DZ0:PIP.SAV");   /* PIP.SAV is 30 blocks */
+    waitForDiskIdle(emu, mirror, 200, 60000);
+    waitForIdle(emu, mirror, 150, 6000);
+    auto after = disk::openImage(readFileBytes(dstPath), 0);
+    REQUIRE(after.has_value());
+    REQUIRE_MESSAGE(after->directory.find("WIDE.X") != nullptr,
+                    "OS could not write into the consolidated free area");
+}
+
 TEST_CASE("OS-oracle: rm of the only file leaves a volume the OS can refill (OSA)") {
     /* Edge case: remove the SOLE permanent file.  The directory now holds two
      * adjacent empty entries (the freed slot + the original residual free

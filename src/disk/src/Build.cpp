@@ -402,4 +402,88 @@ void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
         });
 }
 
+void squeeze(std::vector<uint8_t> &image, int side, bool ds)
+{
+    const std::size_t want = ds ? kDoubleSize : kSideSize;
+    if (image.size() != want)
+        throw std::runtime_error("image size does not match the requested ss/ds");
+
+    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds); };
+
+    const int dirLbn = getw(image.data() + off(1) + 0x1D4);
+    if (dirLbn < 1 || dirLbn > kSsBlocks)
+        throw std::runtime_error("side is not initialised (run init first)");
+
+    std::vector<uint8_t> seg(2 * kBlock);
+    std::memcpy(seg.data(),          image.data() + off(dirLbn),     kBlock);
+    std::memcpy(seg.data() + kBlock, image.data() + off(dirLbn + 1), kBlock);
+
+    const uint16_t segTotal     = getw(&seg[0]);
+    const uint16_t highestInUse = getw(&seg[4]);
+    if (segTotal > 1 && highestInUse > 1)
+        throw std::runtime_error("squeeze: multi-segment directories not supported");
+
+    const uint16_t extra = getw(&seg[6]);
+    if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
+    const std::size_t entrySize = 14 + extra;
+    const int dataStart = getw(&seg[8]);
+
+    /* Snapshot every permanent entry's mutable fields and old start block. */
+    struct Perm {
+        uint16_t status, n1, n2, ex, length, job, date;
+        int      oldStart;
+    };
+    std::vector<Perm> perms;
+    int cur = dataStart;
+    std::size_t p = 10;
+    while (p + entrySize <= seg.size()) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        const uint16_t len = getw(&seg[p + 8]);
+        if (status & kStatusPermanent)
+            perms.push_back({status, getw(&seg[p + 2]), getw(&seg[p + 4]),
+                             getw(&seg[p + 6]), len, getw(&seg[p + 10]),
+                             getw(&seg[p + 12]), cur});
+        cur += len;
+        p   += entrySize;
+    }
+    const int totalSpan = cur - dataStart;        /* blocks under directory control */
+
+    /* Move file data blocks LEFT in directory order so they end up contiguous
+     * starting at dataStart.  Walking left-to-right is safe because every
+     * file's new start is no greater than its old start AND the next file's
+     * old start is strictly greater than this file's new end (no overlap). */
+    int newCursor = dataStart;
+    for (auto &f : perms) {
+        if (f.oldStart != newCursor) {
+            const std::size_t srcOff = off(f.oldStart);
+            const std::size_t dstOff = off(newCursor);
+            const std::size_t n      = static_cast<std::size_t>(f.length) * kBlock;
+            std::memmove(image.data() + dstOff, image.data() + srcOff, n);
+        }
+        f.oldStart = newCursor;
+        newCursor += f.length;
+    }
+
+    /* Rebuild the segment buffer in place: header preserved, permanents in
+     * order with metadata intact, single trailing empty, EOS marker. */
+    std::fill(seg.begin() + 10, seg.end(), uint8_t{0});
+    p = 10;
+    for (const auto &f : perms) {
+        putEntry(seg.data(), p, f.status, f.n1, f.n2, f.ex, f.length);
+        putw(&seg[p + 10], f.job);
+        putw(&seg[p + 12], f.date);
+        p += entrySize;
+    }
+    if (p + entrySize + 2 > seg.size())
+        throw std::runtime_error("squeeze: directory does not fit the compacted layout");
+    const int freed = totalSpan - (newCursor - dataStart);
+    putEntry(seg.data(), p, kStatusEmpty, 0x00D5, 0x6739, 0x26F4,
+             static_cast<uint16_t>(freed));
+    putw(&seg[p + entrySize], kStatusEndOfSeg);
+
+    std::memcpy(image.data() + off(dirLbn),     seg.data(),          kBlock);
+    std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
+}
+
 } /* namespace ms0515::disk */

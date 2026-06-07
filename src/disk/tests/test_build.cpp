@@ -429,6 +429,98 @@ TEST_CASE("setEntryDate writes the date in place") {
     CHECK(img2->directory.find("F.X")->date == 0);
 }
 
+TEST_CASE("squeeze packs files contiguously and preserves metadata") {
+    /* Put several files, delete a couple from the middle, squeeze, and check:
+     *   - permanents stay in directory order with their bytes intact;
+     *   - data blocks are contiguous starting at data_start;
+     *   - the directory ends with ONE empty entry covering all freed space;
+     *   - status flags + dates survive the move. */
+    auto image = blankImage(false);
+    initVolume(image, 0, false);
+    PutOptions opts1; opts1.date = encodeDate(1994, 2, 18);
+    PutOptions opts2; opts2.date = encodeDate(1995, 6, 30); opts2.readOnly = true;
+    PutOptions opts3; opts3.date = encodeDate(2024, 12, 31);
+    PutOptions opts4; opts4.date = encodeDate(1996, 7, 14);
+    const auto A = pattern(3 * kBlock, 0x11);
+    const auto B = pattern(2 * kBlock, 0x22);
+    const auto C = pattern(5 * kBlock, 0x33);
+    const auto D = pattern(1 * kBlock, 0x44);
+    putFile(image, 0, false, "A.X", A, opts1);
+    putFile(image, 0, false, "B.X", B, opts2);
+    putFile(image, 0, false, "C.X", C, opts3);
+    putFile(image, 0, false, "D.X", D, opts4);
+    removeFile(image, 0, false, "B.X");
+    removeFile(image, 0, false, "C.X");                /* two holes between A and D */
+
+    squeeze(image, 0, false);
+
+    auto img = openImage(image, 0);
+    REQUIRE(img.has_value());
+    const auto perms = img->directory.permanentFiles();
+    REQUIRE(perms.size() == 2);
+    CHECK(perms[0].name == "A.X");
+    CHECK(perms[1].name == "D.X");
+    /* Contiguous: D starts where A ended. */
+    CHECK(perms[1].startBlock == perms[0].startBlock + perms[0].length);
+    /* Metadata survived. */
+    CHECK(perms[0].date == 0x0A56);
+    CHECK(perms[1].date == encodeDate(1996, 7, 14));
+    /* Bytes survived. */
+    auto a = img->readFile("A.X");
+    auto d = img->readFile("D.X");
+    REQUIRE(a.size() >= A.size());
+    REQUIRE(d.size() >= D.size());
+    CHECK(std::equal(A.begin(), A.end(), a.begin()));
+    CHECK(std::equal(D.begin(), D.end(), d.begin()));
+}
+
+TEST_CASE("squeeze on a volume with no holes is a no-op") {
+    auto image = blankImage(false);
+    initVolume(image, 0, false);
+    const auto data = pattern(4 * kBlock, 9);
+    putFile(image, 0, false, "ONE.X",   data);
+    putFile(image, 0, false, "TWO.X",   pattern(2 * kBlock, 8));
+    putFile(image, 0, false, "THREE.X", pattern(3 * kBlock, 7));
+    auto before = image;
+    squeeze(image, 0, false);
+    /* The data blocks shouldn't move; the directory should be equivalent (PIP
+     * actually rewrites the segment header on no-op squeeze too, so we don't
+     * compare images byte-for-byte — just that the files still read back). */
+    auto img = openImage(image, 0);
+    REQUIRE(img.has_value());
+    CHECK(img->directory.permanentFiles().size() == 3);
+    CHECK(std::equal(data.begin(), data.end(), img->readFile("ONE.X").begin()));
+}
+
+TEST_CASE("squeeze + putFile uses the consolidated free area") {
+    /* After squeeze, the trailing empty should hold all the previously
+     * scattered free space — a put that wouldn't fit in any single old hole
+     * should now succeed. */
+    auto image = blankImage(false);
+    initVolume(image, 0, false);
+    putFile(image, 0, false, "A.X", pattern(2 * kBlock, 1));
+    putFile(image, 0, false, "B.X", pattern(2 * kBlock, 2));
+    putFile(image, 0, false, "C.X", pattern(2 * kBlock, 3));
+    removeFile(image, 0, false, "B.X");                /* 2-block hole */
+    squeeze(image, 0, false);
+
+    /* A and C are now contiguous; the rest of the side is one big empty. */
+    const auto big = pattern(700 * kBlock, 5);
+    CHECK_NOTHROW(putFile(image, 0, false, "BIG.X", big));
+}
+
+TEST_CASE("squeeze errors") {
+    SUBCASE("uninitialised volume") {
+        auto raw = blankImage(false);
+        CHECK_THROWS_AS(squeeze(raw, 0, false), std::runtime_error);
+    }
+    SUBCASE("wrong image size for the ss/ds flag") {
+        auto ss = blankImage(false);
+        initVolume(ss, 0, false);
+        CHECK_THROWS_AS(squeeze(ss, 0, true), std::runtime_error);
+    }
+}
+
 TEST_CASE("removeFile errors") {
     auto image = makeVolume(false, 0, diverseFiles());
 

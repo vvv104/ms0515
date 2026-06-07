@@ -86,6 +86,15 @@ void setProtected(std::vector<uint8_t> &image, int side, bool ds,
 void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
                   const std::string &name, uint16_t date);
 
+/* Defragment a side (the equivalent of RT-11 SQUEEZE): walk every
+ * permanent entry in directory order, move its data blocks left to be
+ * contiguous starting at data_start, and rewrite the directory so the
+ * permanents stay in order followed by a single empty entry covering all
+ * remaining free space.  Throws if the side isn't initialised or the
+ * directory has multiple segments (multi-segment squeeze isn't supported
+ * yet — INIT defaults still produce a single segment under our usage). */
+void squeeze(std::vector<uint8_t> &image, int side, bool ds);
+
 /* Delete one file from `side` (the equivalent of PIP /DELETE): looks up the
  * directory entry by name and flips it to an empty slot of the same length,
  * so a subsequent putFile() that fits can reuse the blocks.  Throws

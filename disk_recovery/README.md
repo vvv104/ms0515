@@ -19,7 +19,7 @@ in the repo.
 | `HOWTO.md` | Step-by-step usage guide: from empty `work/` to GUI review, every script and what it produces. Numbers verified by a live end-to-end run. |
 | `METHODOLOGY.md` | The recovery playbook: source taxonomy, the consensus ladder, scoring metrics, donor rules, confidence tiers. General to any disk. |
 | `PITFALLS.md` | Anti-patterns that produced wrong "recoveries" in the past. Read before trusting any merge. |
-| `TOOLKIT.md` | The tooling: the built `ms0515-disk` format tools (create/init/put/rm/protect/unprotect/get/dir), how they are verified against the OS, and what recovery logic is still to be written. |
+| `TOOLKIT.md` | The tooling: the built `ms0515-disk` format tools (create/init/put/rm/squeeze/protect/unprotect/get/dir), how they are verified against the OS, and what recovery logic is still to be written. |
 | `authoritative/` | Vault of disk images that have *passed* the bar in METHODOLOGY. These — and only these — may be used as donors for other recoveries. Starts empty until images are re-verified under the documented method. |
 
 ## On-disk format spec
