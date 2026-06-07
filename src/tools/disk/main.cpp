@@ -25,6 +25,7 @@
 #include <ms0515/disk/Image.hpp>
 
 #include <charconv>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -112,6 +113,47 @@ std::optional<std::vector<uint8_t>> readImage(const std::string &path, bool &ds)
     return raw;
 }
 
+/* Read the host file's last-modified time and encode it as an RT-11 date.
+ * Returns 0 (no date) on any failure or for dates outside RT-11's range
+ * (1972..2099), so the caller can fall back to "no date" without throwing. */
+uint16_t mtimeAsDate(const fs::path &p)
+{
+    namespace ch = std::chrono;
+    std::error_code ec;
+    const auto ft = fs::last_write_time(p, ec);
+    if (ec) return 0;
+    /* fs::file_time_type's clock is implementation-defined; clock_cast is the
+     * portable bridge to system_clock (C++20).  Works on libc++ and MSVC. */
+    const auto sys = ch::clock_cast<ch::system_clock>(ft);
+    const auto dp  = ch::floor<ch::days>(sys);
+    const ch::year_month_day ymd{dp};
+    try {
+        return encodeDate(int(ymd.year()),
+                          static_cast<int>(unsigned(ymd.month())),
+                          static_cast<int>(unsigned(ymd.day())));
+    } catch (...) { return 0; }
+}
+
+/* Stamp the host file's last-modified time from an encoded RT-11 date.  No-op
+ * when the date is the "no date" sentinel — we don't want to back-date an
+ * extraction to epoch 0 just because the directory entry was blank. */
+void applyDateToFile(const fs::path &p, uint16_t encoded)
+{
+    if (!encoded) return;
+    const auto dp = decodeDate(encoded);
+    if (!dp.year) return;
+    namespace ch = std::chrono;
+    const ch::year_month_day ymd{ch::year{dp.year},
+                                 ch::month{static_cast<unsigned>(dp.month)},
+                                 ch::day  {static_cast<unsigned>(dp.day)}};
+    if (!ymd.ok()) return;
+    const auto sys = ch::sys_days{ymd};
+    const auto ft  = ch::clock_cast<fs::file_time_type::clock>(
+        ch::time_point_cast<ch::system_clock::duration>(sys));
+    std::error_code ec;
+    fs::last_write_time(p, ft, ec);  /* best effort — ignore failures */
+}
+
 int cmdDir(const std::string &path, int side)
 {
     auto img = loadImage(path, side);
@@ -170,6 +212,10 @@ int cmdGet(const std::string &path, int side, const std::string &outdir,
             std::fprintf(stderr, "error: cannot write %s\n", out.string().c_str());
             ++fails; continue;
         }
+        /* Carry the directory date to the extracted file's mtime so a
+         * later round-trip put picks it up — and so the host filesystem
+         * shows the historical date instead of "right now". */
+        applyDateToFile(out, e.date);
         std::printf("  %-14s -> %s (%zu B)\n", e.name.c_str(),
                     out.string().c_str(), bytes.size());
         ++got;
@@ -219,6 +265,7 @@ std::optional<uint16_t> parseDate(const std::string &s)
     }
 }
 
+
 int cmdPut(const std::string &path, int side, const std::vector<std::string> &args,
            const PutOptions &opts)
 {
@@ -251,8 +298,13 @@ int cmdPut(const std::string &path, int side, const std::vector<std::string> &ar
         if (!bytes) { std::fprintf(stderr, "error: cannot read %s\n", hf.string().c_str());
                       ++fails; continue; }
         const std::string name = hf.filename().string();
+        /* Per-file effective options: explicit --date wins; otherwise pick
+         * the host file's mtime so the directory entry remembers when the
+         * source actually was, the way PIP does with the system date. */
+        PutOptions eff = opts;
+        if (eff.date == 0) eff.date = mtimeAsDate(hf);
         try {
-            putFile(*image, side, ds, name, *bytes, opts);
+            putFile(*image, side, ds, name, *bytes, eff);
             std::printf("  %s -> %s (%zu B)\n", hf.string().c_str(), name.c_str(),
                         bytes->size());
             ++added;

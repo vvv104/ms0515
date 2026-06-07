@@ -24,7 +24,13 @@ add_executable(ms0515_lib_tests
     test_vram_mirror.cpp
     test_ex_disk.cpp
     test_dir_vs_os.cpp
+    test_disk_cli.cpp
 )
+
+# CLI integration tests need the path to the ms0515-disk binary at test time.
+# Pass it as a generator-expression-resolved define so it always points to the
+# current build's output.
+add_dependencies(ms0515_lib_tests ms0515-disk)
 
 target_compile_features(ms0515_lib_tests PRIVATE cxx_std_23)
 
@@ -41,6 +47,10 @@ target_compile_definitions(ms0515_lib_tests PRIVATE
     TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     TESTS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"
 )
+# Generator-expression in target_compile_definitions: the actual path is
+# resolved per-config at build time.
+target_compile_definitions(ms0515_lib_tests PRIVATE
+    "MS0515_DISK_BIN=\"$<TARGET_FILE:ms0515-disk>\"")
 
 target_link_libraries(ms0515_lib_tests
     PRIVATE

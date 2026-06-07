@@ -339,6 +339,33 @@ TEST_CASE("removeFile of the only file leaves the volume empty + reusable") {
     verifyFiles(*img2, {{"TINY.X", small}});
 }
 
+TEST_CASE("decodeDate is the inverse of encodeDate") {
+    /* Round-trip every valid (year, month, day) over a sweep of representative
+     * boundary points: epoch start, age-overflow boundary, last day, and a
+     * date in the middle of the range we actually use (1994-02-18). */
+    struct YMD { int y, m, d; };
+    const YMD cases[] = {
+        {1972, 1,  1},   /* epoch start */
+        {1994, 2, 18},   /* the VVV LINK.SAV date */
+        {1995, 4,  1},   /* the VVV system-wide date */
+        {2003,12, 31},   /* last value with age=0 */
+        {2004, 1,  1},   /* age rolls to 1 */
+        {2099,12, 31},   /* last representable date */
+    };
+    for (const auto &c : cases) {
+        const uint16_t w  = encodeDate(c.y, c.m, c.d);
+        const auto     dp = decodeDate(w);
+        CHECK_MESSAGE(dp.year  == c.y, "year mismatch on "  << c.y << "-" << c.m << "-" << c.d);
+        CHECK_MESSAGE(dp.month == c.m, "month mismatch on " << c.y << "-" << c.m << "-" << c.d);
+        CHECK_MESSAGE(dp.day   == c.d, "day mismatch on "   << c.y << "-" << c.m << "-" << c.d);
+    }
+    /* Zero is the "no date" sentinel both directions. */
+    const auto zero = decodeDate(0);
+    CHECK(zero.year == 0);
+    CHECK(zero.month == 0);
+    CHECK(zero.day == 0);
+}
+
 TEST_CASE("encodeDate packs RT-11 directory date words") {
     /* Bit layout (high→low): 2-bit age | 4-bit month | 5-bit day | 5-bit year. */
     CHECK(encodeDate(0, 0, 0) == 0);               /* "no date" sentinel */
