@@ -169,16 +169,39 @@ def reconcile(variants, blocks, text):
     return bytes(out), tags
 
 def canonical_name(names):
-    """Consensus group key for a record.  Aliases are already applied at ingest
-    time in build_corpus.normalize_name (per-disk ARCSAV.EXE -> .SAV + global
-    DIRRT/PIPRT/DUPRT -> DIR/PIP/DUP.SAV), so by the time we get here a record
-    should carry a single canonical name.  Prefer a literal .SAV form if the
-    name set contains both — back-compat for stale corpora rebuilt before the
-    ingest-side rename existed."""
-    for n in names:
-        if "." in n and n.rsplit(".", 1)[1].upper() == "SAV":
-            return n
+    """Consensus group key for a record.  Aliases are applied at ingest time
+    (build_corpus's NAME_ALIASES — currently just DIRRT/PIPRT/DUPRT -> DIR/PIP/
+    DUP.SAV), so by the time we get here a record carries the names actually
+    seen on disk.  We don't re-merge .EXE and .SAV — see split_by_name() —
+    so each record we look at here has exactly one name."""
     return names[0]
+
+def split_by_name(records):
+    """Yield one (sub)record per distinct name found in the corpus record's
+    `names` list.  build_corpus dedups by sha, so a single record can carry
+    both `BLUE.EXE` and `BLUE.SAV` when the same bytes appear under both names
+    on different disks.  For consensus those are two LOGICAL files (the user
+    asked not to merge them — see commit 8f44322), so we fan the record out:
+
+      sha=S, names=[A,B], provenance=[(cap1,A), (cap2,B), ...]
+       ->
+      sha=S, names=[A], provenance=[(cap1,A), ...]
+      sha=S, names=[B], provenance=[(cap2,B), ...]
+
+    Sha-shared content survives — both sub-records point to the same .bin in
+    the content store."""
+    for r in records:
+        if len(r["names"]) <= 1:
+            yield r
+            continue
+        for nm in r["names"]:
+            prov = [p for p in r["provenance"] if p.get("name") == nm]
+            if not prov:
+                continue
+            sub = dict(r)
+            sub["names"] = [nm]
+            sub["provenance"] = prov
+            yield sub
 
 def main():
     corpus = json.load(open(OUT / "corpus.json", encoding="utf-8"))["records"]
@@ -186,13 +209,13 @@ def main():
         if (OUT / "captures.json").exists() else {}
     disk_of = V.physical_disks(corpus, cap_fp)
     RECOV.mkdir(exist_ok=True)
-    # When a sha is shared by both .EXE and .SAV forms on a disk, build_corpus
-    # makes one record with both names — canonicalise to the .SAV form so the
-    # record lands in the SAME consensus group as other .SAV records of the
-    # same program (instead of forming its own silo'd ".EXE" group).
+    # Fan multi-name records out (one per distinct name) before grouping so
+    # .EXE and .SAV forms with the same bytes land in DIFFERENT consensus
+    # entries even though they share a sha — the user-stated rule that .EXE
+    # files on ARCSAV/disk4 must not be presented under their .SAV-alias
+    # name (commit 8f44322).
     groups = defaultdict(list)
-    for r in corpus:
-        # if SOME other record exists under the .SAV name of this base, prefer that
+    for r in split_by_name(corpus):
         groups[(canonical_name(r["names"]), r["blocks"])].append(r)
 
     out, tiers = [], Counter()
