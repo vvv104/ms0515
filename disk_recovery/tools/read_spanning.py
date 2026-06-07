@@ -83,7 +83,17 @@ def parse_dir(img, to_byte):
                 return None
             length = w(seg, p + 8)
             if st & 0o2000:                       # permanent
-                files.append((name_of(w(seg, p+2), w(seg, p+4), w(seg, p+6)), cur, length))
+                date_w = w(seg, p + 12)
+                date = None
+                if date_w:
+                    age = (date_w >> 14) & 0x3
+                    month = (date_w >> 10) & 0xF
+                    day = (date_w >> 5) & 0x1F
+                    yr = date_w & 0x1F
+                    date = f"{1972 + (age << 5) + yr:04d}-{month:02d}-{day:02d}"
+                protected_ = bool(st & 0o100000)
+                files.append((name_of(w(seg, p+2), w(seg, p+4), w(seg, p+6)),
+                              cur, length, date, protected_))
             cur += length
             p += esz
             if st & 0o4000:
@@ -99,8 +109,10 @@ def extract(img, to_byte, start, length):
 
 def read_spanning(img):
     """Read a spanning volume with the best structurally-valid mapping.
-    Returns (mapping_tag, {name: bytes}, [(name, start, length)], to_byte) or
-    None.  The entries and the to_byte mapping let the caller link a physical
+    Returns (mapping_tag, {name: bytes},
+             [(name, start, length, date_or_None, protected_bool)], to_byte)
+    or None.  The entries carry the RT-11 directory metadata for each
+    permanent file, and the to_byte mapping lets the caller link a physical
     bad-map to each file's blocks (phys_block = to_byte(lbn)//512).  Used by
     build_corpus as a fallback for 819200 images that ms0515-disk cannot read."""
     if len(img) != 819200:
@@ -113,7 +125,7 @@ def read_spanning(img):
     if not best:
         return None
     tag, fn, files = best
-    return (tag, {nm: extract(img, fn, st, ln) for nm, st, ln in files},
+    return (tag, {f[0]: extract(img, fn, f[1], f[2]) for f in files},
             files, fn)
 
 def main():

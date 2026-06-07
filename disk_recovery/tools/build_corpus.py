@@ -60,17 +60,26 @@ def lbn_phys(lbn, side, ds):
     sec = (IL[n % 10] + 2 * track - 2) % 10
     return track * 20 + side * 10 + sec if ds else track * 10 + sec
 
-DIR_RE = re.compile(r"^\s+(\S+)\s+blk=\s*(\d+)\s+len=\s*(\d+)")
+DIR_RE = re.compile(
+    r"^\s+(\S+)\s+blk=\s*(\d+)\s+len=\s*(\d+)"            # name, start, length
+    r"(?:.*?date=(\S+))?"                                  # optional date
+    r"(?:.*?(\[P\]))?")                                    # optional protected tag
 
 def dir_entries(img, side):
-    """name -> (start_block, length) parsed from `ms0515-disk dir`."""
+    """name -> (start_block, length, date_or_None, protected_bool) parsed from
+    `ms0515-disk dir`.  Date is the YYYY-MM-DD string or None when the entry
+    carries no date; protected reflects RT-11 /PROTECT."""
     r = subprocess.run([str(TOOL), "dir", str(img), "--side", str(side)],
                        capture_output=True, text=True)
     ents = {}
     for line in r.stdout.splitlines():
         m = DIR_RE.match(line)
-        if m:
-            ents[m.group(1)] = (int(m.group(2)), int(m.group(3)))
+        if not m:
+            continue
+        name, start, length = m.group(1), int(m.group(2)), int(m.group(3))
+        raw_date = m.group(4)
+        date = raw_date if raw_date and raw_date != "-" else None
+        ents[name] = (start, length, date, bool(m.group(5)))
     return ents
 
 def flagged_blocks(start, length, side, ds, flagged):
@@ -316,7 +325,8 @@ def main():
                        for (side, name), (start, length) in entries.items())
         return hashlib.sha256(repr(items).encode()).hexdigest()[:16]
 
-    def ingest(name, data, rel, side, bad=None, status=False):
+    def ingest(name, data, rel, side, bad=None, status=False,
+               date=None, protected=False):
         h = hashlib.sha256(data).hexdigest()
         if h not in corpus:
             corpus[h] = {"sha": h, "names": [], "size": len(data),
@@ -331,6 +341,10 @@ def main():
             prov["status"] = True     # -> blocks NOT in "bad" are confirmed clean
         if bad:                       # file-block indices on a flagged sector
             prov["bad"] = bad
+        if date:                      # RT-11 directory date (YYYY-MM-DD)
+            prov["date"] = date
+        if protected:                 # /PROTECT flag on the directory entry
+            prov["protected"] = True
         rec["provenance"].append(prov)
 
     # Rejoin spanning volumes split into separate per-side files (raw
@@ -353,9 +367,10 @@ def main():
             continue
         _, files, entries, _ = res
         rel = str((parent / f"{base}_Head0+1").relative_to(WORK)).replace("\\", "/")
-        for name, start, length in entries:
-            ingest(alias_name(name), files[name], rel, "span")
-        cap_fp[rel] = dir_sig({("span", n): (s, l) for n, s, l in entries})
+        for name, start, length, date, protected_ in entries:
+            ingest(alias_name(name), files[name], rel, "span",
+                   date=date, protected=protected_)
+        cap_fp[rel] = dir_sig({("span", n): (s, l) for n, s, l, *_ in entries})
         consumed |= {p0, p1}
 
     with tempfile.TemporaryDirectory() as tmpd:
@@ -378,14 +393,18 @@ def main():
                         continue
                     any_ok = True
                     dents = dir_entries(img, s)
-                    for n, (start, length) in dents.items():
+                    for n, (start, length, _d, _p) in dents.items():
                         cap_entries[(s, n)] = (start, length)
                     for name, data in files.items():
                         bad = None
-                        if status and name in dents:
-                            start, length = dents[name]
-                            bad = flagged_blocks(start, length, s, ds_img, flagset)
-                        ingest(alias_name(name), data, rel, s, bad, status)
+                        date = None
+                        protected_ = False
+                        if name in dents:
+                            start, length, date, protected_ = dents[name]
+                            if status:
+                                bad = flagged_blocks(start, length, s, ds_img, flagset)
+                        ingest(alias_name(name), data, rel, s, bad, status,
+                               date=date, protected=protected_)
             if any_ok and cap_entries:
                 cap_fp[rel] = dir_sig(cap_entries)
             if not any_ok:
@@ -400,13 +419,15 @@ def main():
                         any_ok = True
                         _, files, entries, to_byte = res
                         status = flagset is not None
-                        for name, start, length in entries:
+                        for name, start, length, date, protected_ in entries:
                             bad = None
                             if status:
                                 bad = [i for i in range(length)
                                        if to_byte(start + i)//512 in flagset]
-                            ingest(alias_name(name), files[name], rel, "span", bad, status)
-                        cap_fp[rel] = dir_sig({("span", n): (s, l) for n, s, l in entries})
+                            ingest(alias_name(name), files[name], rel, "span",
+                                   bad, status, date=date, protected=protected_)
+                        cap_fp[rel] = dir_sig({("span", n): (s, l)
+                                               for n, s, l, *_ in entries})
             if not any_ok:
                 flagged.append({"capture": rel,
                                 "reason": "no readable directory (unknown layout)"})
