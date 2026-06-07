@@ -1,0 +1,6 @@
+[project]
+name       = "SAPER"
+language   = "macro11"
+pre_build  = "source/gen_saper.py"        # emits SAPER.MAC from a template
+post_build = "source/make_artifacts.py"   # combines SAPER.HLP, copies SAPER.DAT
+outputs    = ["SAPER.SAV"]                # pulled off the work disk after build

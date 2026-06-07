@@ -10,6 +10,8 @@ cmake-build-*/
 *.ilk
 *.exp
 *.lib
+# RT-11 toolchain libraries (PDP-11 object modules, not MSVC build output)
+!rt11_devel/toolset/build_tools/*.OBJ
 
 # Conan
 CMakeUserPresets.json
