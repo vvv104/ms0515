@@ -47,10 +47,11 @@ The build output goes to `build/Release/`.
 ## Package
 
 A post-build step copies the executable and runtime assets into a
-self-contained `package/` directory:
+self-contained `package/` directory at the **repo root** (one level
+above `src/`):
 
 ```
-package/
+<repo>/package/
   ms0515(.exe)
   assets/
     rom/          ROM images
@@ -92,7 +93,7 @@ cmake --build --preset conan-release
 ## Running
 
 ```bash
-cd package
+cd ../package
 ./ms0515 --disk0-side0 path/to/disk.dsk
 ```
 

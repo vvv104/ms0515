@@ -55,7 +55,7 @@ target_link_libraries(ms0515
 
 # ── Package output ──────────────────────────────────────────────────────────
 # After build, copy exe + assets into a self-contained directory.
-set(PACKAGE_DIR "${CMAKE_SOURCE_DIR}/package")
+set(PACKAGE_DIR "${CMAKE_SOURCE_DIR}/../package")
 
 add_custom_command(TARGET ms0515 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}/assets/rom"
