@@ -382,4 +382,132 @@ TEST_CASE("OS-oracle: extracted content is byte-exact (OSA single-sided)") {
     CHECK_MESSAGE(a == b, "tool extract differs from the OS's own copy");
 }
 
+TEST_CASE("OS-oracle: removeFile is the same as the OS's own DELETE (OSA)") {
+    /* Build a volume from scratch with several files of varying sizes via the
+     * disk library's primitives, then remove one from the MIDDLE.  Boot the
+     * OS, run `DIR DZ3:`, and confirm the OS sees exactly the files the tool
+     * still lists — same names, same lengths, no tail loss.  This is the
+     * regression guard for the disk1.dsk bug (rm+put of LINK.SAV ate the five
+     * directory entries that followed). */
+    namespace disk = ms0515::disk;
+    const std::string sysPath = std::string(TESTS_DIR) + "/disks/test_osa.dsk";
+    const std::string dstPath = std::string(TESTS_BUILD_DIR) + "/oracle_rm.dsk";
+
+    ms0515_test::TempDisk sys{sysPath};
+
+    /* Build a fresh single-sided volume with five distinguishable files. */
+    auto img = disk::blankImage(false);
+    disk::initVolume(img, 0, false);
+    struct F { std::string name; std::vector<uint8_t> data; };
+    const std::vector<F> files = {
+        {"A.DAT", std::vector<uint8_t>(  1 * disk::kBlock, 0xA1)},   /* 1 block */
+        {"B.DAT", std::vector<uint8_t>(  3 * disk::kBlock, 0xB2)},   /* 3 blocks */
+        {"VICTIM.X", std::vector<uint8_t>(2 * disk::kBlock, 0xCC)},  /* 2 blocks — to remove */
+        {"D.DAT", std::vector<uint8_t>(  4 * disk::kBlock, 0xD4)},   /* 4 blocks */
+        {"E.DAT", std::vector<uint8_t>(  1 * disk::kBlock, 0xE5)},   /* 1 block */
+    };
+    for (const auto &f : files) disk::putFile(img, 0, false, f.name, f.data);
+
+    /* Remove the middle entry; expect the tail (D, E) to survive untouched. */
+    disk::removeFile(img, 0, false, "VICTIM.X");
+    writeImage(dstPath, img);
+
+    /* Tool's view of the post-rm directory. */
+    std::map<std::string, int> toolDir;
+    {
+        auto im = disk::openImage(img, 0);
+        REQUIRE(im.has_value());
+        for (const auto &e : im->directory.permanentFiles())
+            toolDir[e.name] = e.length;
+    }
+    REQUIRE(toolDir.count("VICTIM.X") == 0);
+    REQUIRE(toolDir.size() == 4);
+
+    /* Boot the OS, scrape DIR DZ3:, compare to what the tool reports. */
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(kRomA));
+    REQUIRE(emu.mountDisk(0, sys.path().string()));
+    REQUIRE(emu.mountDisk(3, dstPath));
+    ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
+    emu.reset();
+    waitForIdle(emu, mirror, 120, 3500);
+
+    typeLine(emu, mirror, "DIR DZ3:");
+    waitForIdle(emu, mirror, 150, 6000);
+    auto rows = screenRows(emu);
+    auto osDir = parseOsDir(rows);
+
+    if (osDir != toolDir) dumpRows("after removeFile", rows);
+    CHECK_MESSAGE(osDir == toolDir,
+                  "OS DIR vs tool dir mismatch after removeFile");
+    CHECK_MESSAGE(osDir.count("VICTIM.X") == 0,
+                  "OS still sees the removed file");
+
+    /* The freed slot must be REUSABLE by the OS itself.  Have PIP copy a
+     * fresh file there; we'd expect it to land in VICTIM.X's old data
+     * blocks (the slot empties out at 2 blocks free, PIP.SAV is 30 — so
+     * PIP would refuse with no space if the slot survived as empty.  Use
+     * a small substitute and check the tool then sees it). */
+    typeLine(emu, mirror, "PIP DZ3:NEW.X=DZ0:TT.SYS");
+    waitForDiskIdle(emu, mirror, 200, 60000);
+    waitForIdle(emu, mirror, 150, 6000);
+
+    auto after = disk::openImage(readFileBytes(dstPath), 0);
+    REQUIRE(after.has_value());
+    const disk::DirEntry *ne = after->directory.find("NEW.X");
+    REQUIRE_MESSAGE(ne != nullptr, "OS could not PIP into the freed slot");
+    CHECK(ne->length > 0);
+}
+
+TEST_CASE("OS-oracle: rm of the only file leaves a volume the OS can refill (OSA)") {
+    /* Edge case: remove the SOLE permanent file.  The directory now holds two
+     * adjacent empty entries (the freed slot + the original residual free
+     * area).  The OS must still see the volume as initialised, list zero
+     * files in DIR DZ3:, and accept a fresh PIP into it. */
+    namespace disk = ms0515::disk;
+    const std::string sysPath = std::string(TESTS_DIR) + "/disks/test_osa.dsk";
+    const std::string dstPath = std::string(TESTS_BUILD_DIR) + "/oracle_rm_solo.dsk";
+
+    ms0515_test::TempDisk sys{sysPath};
+    auto img = disk::blankImage(false);
+    disk::initVolume(img, 0, false);
+    disk::putFile(img, 0, false, "SOLO.X",
+                  std::vector<uint8_t>(5 * disk::kBlock, 0x77));
+    disk::removeFile(img, 0, false, "SOLO.X");
+    writeImage(dstPath, img);
+
+    {
+        auto im = disk::openImage(img, 0);
+        REQUIRE(im.has_value());
+        REQUIRE(im->directory.permanentFiles().empty());
+    }
+
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(kRomA));
+    REQUIRE(emu.mountDisk(0, sys.path().string()));
+    REQUIRE(emu.mountDisk(3, dstPath));
+    ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
+    emu.reset();
+    waitForIdle(emu, mirror, 120, 3500);
+
+    typeLine(emu, mirror, "DIR DZ3:");
+    waitForIdle(emu, mirror, 150, 6000);
+    auto osDir = parseOsDir(screenRows(emu));
+    CHECK_MESSAGE(osDir.empty(),
+                  "OS DIR after rm-only-file should list no permanent files");
+
+    /* OS still trusts the volume enough to PIP into it — that's only true
+     * when the chain-of-empties left by removeFile is well-formed. */
+    typeLine(emu, mirror, "PIP DZ3:REUSE.X=DZ0:TT.SYS");
+    waitForDiskIdle(emu, mirror, 200, 60000);
+    waitForIdle(emu, mirror, 150, 6000);
+
+    auto after = disk::openImage(readFileBytes(dstPath), 0);
+    REQUIRE(after.has_value());
+    const disk::DirEntry *re = after->directory.find("REUSE.X");
+    REQUIRE_MESSAGE(re != nullptr,
+                    "OS could not PIP onto a volume whose only file we removed");
+    CHECK(re->length > 0);
+}
+
 } /* TEST_SUITE */

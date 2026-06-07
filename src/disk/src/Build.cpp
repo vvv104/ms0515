@@ -195,29 +195,65 @@ void putFile(std::vector<uint8_t> &image, int side, bool ds,
     if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
     const std::size_t entrySize = 14 + extra;
 
-    /* Walk to the free-space (empty) entry, tracking its start block. */
+    const int nblk = static_cast<int>((data.size() + kBlock - 1) / kBlock);
+
+    /* Walk every entry until EOS, picking the first empty slot that fits
+     * (first-fit).  Greedy "use whatever's first" is what the original
+     * append-only put did, but the moment removeFile starts leaving holes
+     * we must scan past undersized empties to find a usable one, AND prefer
+     * a freed mid-disk slot over the tail empty whenever both fit (so the
+     * tool reuses the hole the OS left behind, the same as PIP). */
     int cur = getw(&seg[8]);
     std::size_t p = 10, emptyP = 0;
-    int emptyStart = 0, emptyLen = -1;
+    int emptyStart = 0, emptyLen = -1, biggest = 0;
     while (p + entrySize <= seg.size()) {
         const uint16_t status = getw(&seg[p]);
-        if (status == 0) break;
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
         const uint16_t len = getw(&seg[p + 8]);
-        if (status & kStatusEmpty) { emptyP = p; emptyStart = cur; emptyLen = len; break; }
-        if (status & kStatusEndOfSeg) break;
+        if ((status & kStatusEmpty) && static_cast<int>(len) > biggest)
+            biggest = len;
+        if ((status & kStatusEmpty) && emptyLen < 0 && static_cast<int>(len) >= nblk) {
+            emptyP = p; emptyStart = cur; emptyLen = len;
+        }
         cur += len;
         p   += entrySize;
     }
-    if (emptyLen < 0)
-        throw std::runtime_error("directory has no free area for " + name);
-
-    const int nblk = static_cast<int>((data.size() + kBlock - 1) / kBlock);
-    if (nblk > emptyLen)
+    if (emptyLen < 0) {
+        if (biggest == 0)
+            throw std::runtime_error("directory has no free area for " + name);
         throw std::runtime_error("file " + name + " does not fit: needs " +
-                                 std::to_string(nblk) + " blocks, " +
-                                 std::to_string(emptyLen) + " free");
-    if (emptyP + 2 * entrySize + 2 > seg.size())
+                                 std::to_string(nblk) + " blocks, biggest free is " +
+                                 std::to_string(biggest));
+    }
+
+    /* Is the slot we're filling at the end of the directory (the canonical
+     * shape PIP leaves after a freshly-INIT'd volume, and after any
+     * append-only add) or in the middle (e.g. just freed by removeFile)?
+     * The shape after the write must preserve any tail entries unchanged. */
+    const std::size_t afterEmpty = emptyP + entrySize;
+    const uint16_t nextStatus = (afterEmpty + 2 <= seg.size())
+                              ? getw(&seg[afterEmpty]) : 0;
+    const bool hasTail = nextStatus != 0 && !(nextStatus & kStatusEndOfSeg);
+
+    if (hasTail && nblk < emptyLen) {
+        /* Need to insert a residual empty entry between the new file and the
+         * tail.  Shift the tail right by entrySize to make room.  Find the
+         * tail's end first (EOS marker or null status), then enforce that
+         * the shifted tail still fits in the segment. */
+        std::size_t tailEnd = afterEmpty;
+        while (tailEnd + entrySize <= seg.size()) {
+            const uint16_t st = getw(&seg[tailEnd]);
+            if (st == 0 || (st & kStatusEndOfSeg)) { tailEnd += 2; break; }
+            tailEnd += entrySize;
+        }
+        const std::size_t tailSize = tailEnd - afterEmpty;
+        if (afterEmpty + entrySize + tailSize > seg.size())
+            throw std::runtime_error("directory segment is full (cannot add " + name + ")");
+        std::memmove(seg.data() + afterEmpty + entrySize,
+                     seg.data() + afterEmpty, tailSize);
+    } else if (!hasTail && emptyP + 2 * entrySize + 2 > seg.size()) {
         throw std::runtime_error("directory segment is full (cannot add " + name + ")");
+    }
 
     char nm[6], ex[3];
     splitName(name, nm, ex);   /* validates 6.3 + RAD50 before we touch data */
@@ -231,16 +267,74 @@ void putFile(std::vector<uint8_t> &image, int side, bool ds,
         if (n) std::memcpy(image.data() + o, data.data() + srcOff, n);
     }
 
-    /* The file takes the empty entry's slot; a smaller empty entry and the
-     * EOS marker follow — the same shape PIP leaves. */
     putEntry(seg.data(), emptyP, kStatusPermanent, encodeRad50(nm),
              encodeRad50(nm + 3), encodeRad50(ex), static_cast<uint16_t>(nblk));
-    putEntry(seg.data(), emptyP + entrySize, kStatusEmpty, 0x00D5, 0x6739, 0x26F4,
-             static_cast<uint16_t>(emptyLen - nblk));
-    putw(&seg[emptyP + 2 * entrySize], kStatusEndOfSeg);
+    if (nblk < emptyLen) {
+        putEntry(seg.data(), afterEmpty, kStatusEmpty, 0x00D5, 0x6739, 0x26F4,
+                 static_cast<uint16_t>(emptyLen - nblk));
+    }
+    if (!hasTail) {
+        /* Append-only case: rewrite the EOS marker after our entries.  When
+         * there IS a tail we leave it as-is — its own EOS is preserved. */
+        const std::size_t eosAt = (nblk < emptyLen) ? (afterEmpty + entrySize)
+                                                    : afterEmpty;
+        putw(&seg[eosAt], kStatusEndOfSeg);
+    }
 
     std::memcpy(image.data() + off(dirLbn),     seg.data(),          kBlock);
     std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
+}
+
+void removeFile(std::vector<uint8_t> &image, int side, bool ds,
+                const std::string &name)
+{
+    const std::size_t want = ds ? kDoubleSize : kSideSize;
+    if (image.size() != want)
+        throw std::runtime_error("image size does not match the requested ss/ds");
+
+    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds); };
+
+    const int dirLbn = getw(image.data() + off(1) + 0x1D4);
+    if (dirLbn < 1 || dirLbn > kSsBlocks)
+        throw std::runtime_error("side is not initialised (run init first)");
+
+    std::vector<uint8_t> seg(2 * kBlock);
+    std::memcpy(seg.data(),          image.data() + off(dirLbn),     kBlock);
+    std::memcpy(seg.data() + kBlock, image.data() + off(dirLbn + 1), kBlock);
+
+    const uint16_t extra = getw(&seg[6]);
+    if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
+    const std::size_t entrySize = 14 + extra;
+
+    char nm[6], ex[3];
+    splitName(name, nm, ex);
+    const uint16_t want1 = encodeRad50(nm);
+    const uint16_t want2 = encodeRad50(nm + 3);
+    const uint16_t wantE = encodeRad50(ex);
+
+    /* Walk for a permanent entry matching the requested name. */
+    std::size_t p = 10;
+    while (p + entrySize <= seg.size()) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        if ((status & kStatusPermanent) &&
+            getw(&seg[p + 2]) == want1 &&
+            getw(&seg[p + 4]) == want2 &&
+            getw(&seg[p + 6]) == wantE)
+        {
+            /* Flip to an empty slot, preserving the length so the freed
+             * blocks remain accounted for.  Match the sentinel name PIP
+             * leaves on empty entries so dir tools that scan for them
+             * still see a consistent shape. */
+            const uint16_t len = getw(&seg[p + 8]);
+            putEntry(seg.data(), p, kStatusEmpty, 0x00D5, 0x6739, 0x26F4, len);
+            std::memcpy(image.data() + off(dirLbn),     seg.data(),          kBlock);
+            std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
+            return;
+        }
+        p += entrySize;
+    }
+    throw std::runtime_error("no permanent file named " + name + " on this side");
 }
 
 } /* namespace ms0515::disk */

@@ -41,6 +41,7 @@ int usage()
         "  init   <image> [--side 0|1] [--volume-id ID] [--owner NAME] [--segments N]\n"
         "                                        format a side (empty volume)\n"
         "  put    <image> [--side 0|1] <file|glob>...   add host files\n"
+        "  rm     <image> [--side 0|1] <name>...   delete files (frees the blocks)\n"
         "  get    <image> [--side 0|1] [--out DIR] [pattern]...  extract files\n"
         "  dir    <image> [--side 0|1]           list the directory\n"
         "  split  <ds.dsk> <side0.dsk> <side1.dsk>   split an 800 KB DS into two 400 KB SS\n"
@@ -225,6 +226,30 @@ int cmdPut(const std::string &path, int side, const std::vector<std::string> &ar
     return fails ? 1 : 0;
 }
 
+int cmdRm(const std::string &path, int side, const std::vector<std::string> &names)
+{
+    bool ds = false;
+    auto image = readImage(path, ds);
+    if (!image) return 1;
+
+    int removed = 0, fails = 0;
+    for (const auto &name : names) {
+        try {
+            removeFile(*image, side, ds, name);
+            std::printf("  removed %s\n", name.c_str());
+            ++removed;
+        } catch (const std::exception &e) {
+            std::fprintf(stderr, "error: %s\n", e.what());
+            ++fails;
+        }
+    }
+    if (removed && !writeWholeFile(path, *image)) {
+        std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
+        return 1;
+    }
+    return fails ? 1 : 0;
+}
+
 }  /* namespace */
 
 int main(int argc, char **argv)
@@ -274,6 +299,18 @@ int main(int argc, char **argv)
         }
         if (image.empty() || files.empty()) return usage();
         return cmdPut(image, side, files);
+    }
+
+    if (cmd == "rm") {
+        std::string image; int side = 0; std::vector<std::string> names;
+        for (int i = 2; i < argc; ++i) {
+            std::string_view a = argv[i];
+            if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (image.empty()) { image = std::string(a); continue; }
+            names.emplace_back(a);
+        }
+        if (image.empty() || names.empty()) return usage();
+        return cmdRm(image, side, names);
     }
 
     if (cmd == "get") {

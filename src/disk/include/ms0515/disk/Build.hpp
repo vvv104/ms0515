@@ -49,6 +49,14 @@ void initVolume(std::vector<uint8_t> &image, int side, bool ds,
 void putFile(std::vector<uint8_t> &image, int side, bool ds,
              const std::string &name, std::span<const uint8_t> data);
 
+/* Delete one file from `side` (the equivalent of PIP /DELETE): looks up the
+ * directory entry by name and flips it to an empty slot of the same length,
+ * so a subsequent putFile() that fits can reuse the blocks.  Throws
+ * std::runtime_error if the side is not initialised, the name is not
+ * RAD50-encodable, or no permanent file with that name exists. */
+void removeFile(std::vector<uint8_t> &image, int side, bool ds,
+                const std::string &name);
+
 } /* namespace ms0515::disk */
 
 #endif /* MS0515_DISK_BUILD_HPP */

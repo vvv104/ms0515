@@ -12,8 +12,8 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
   - `platform/gui/` — file dialogs, font discovery, GUI-subsystem console attach.
 - **CLI** (`src/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer.
 - **Frontend** (`src/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
-- **Disk** (`src/disk/`) — Offline RT-11 / MS-0515 disk-image library (lib `ms0515_disk`): LBN→byte geometry mirroring the emulator FDC, directory parse, file read, and volume create/init/put. No emulator dependency.
-- **Tools** (`src/tools/`) — Standalone offline binaries over the libs. `tools/disk/` builds `ms0515-disk` (`create/init/put/get/dir/split/merge`). Heuristic recovery (consensus/donor) stays out — see `disk_recovery/`.
+- **Disk** (`src/disk/`) — Offline RT-11 / MS-0515 disk-image library (lib `ms0515_disk`): LBN→byte geometry mirroring the emulator FDC, directory parse, file read, and volume create/init/put/rm. No emulator dependency.
+- **Tools** (`src/tools/`) — Standalone offline binaries over the libs. `tools/disk/` builds `ms0515-disk` (`create/init/put/rm/get/dir/split/merge`). Heuristic recovery (consensus/donor) stays out — see `disk_recovery/`.
 
 ## Key rules
 - All code, comments, and documentation must be in **English only**.
