@@ -1200,7 +1200,11 @@ def run_gui(model):
         def on_canon(r):
             if canon is None:
                 return True
-            for _sha, disks in model.versions(r):
+            # Use the row's OWN builds (not the cross-name-augmented
+            # `model.versions(r)`) so disk4 only lists files literally on
+            # disk4 — cross-name siblings show up in the picker, not in the
+            # tree itself.
+            for _sha, disks in V.version_disks(r):
                 for d in disks:
                     if alias_to_canonical.get(d) == canon:
                         return True
