@@ -21,6 +21,7 @@ class Video;
 using ms0515::app::discoverRoms;
 using ms0515::app::validateSingleSideImage;
 using ms0515::app::validateDoubleSidedImage;
+using ms0515::app::validateHdImage;
 
 /* Default ROM picked when neither --rom nor ms0515.yaml's rom: is set.
  * Wrapper around ms0515::app::resolveRom("", "") so old call sites

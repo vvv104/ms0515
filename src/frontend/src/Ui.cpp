@@ -307,6 +307,18 @@ void drawStatusBar(const StatusBarState &s)
         }
     }
 
+    /* Paravirtual hard disk (HD:) — only shown while mounted.  Its LED
+     * uses the same decay-driven activity flag as the floppy lamps. */
+    if (s.emu.hdMounted()) {
+        ImGui::SameLine();
+        ImGui::TextUnformatted("|");
+        ImGui::SameLine();
+        drawDiskLed(s.emu.hdActive());
+        ImGui::SameLine();
+        std::string n = std::filesystem::path(s.emu.hdPath()).filename().string();
+        ImGui::Text("HD: %s", n.c_str());
+    }
+
     ImGui::End();
 }
 

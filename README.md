@@ -11,6 +11,9 @@ T-11), produced in the late 1980s.
 - WD1793 / KR1818VG93 floppy controller (2 physical drives × 2 sides,
   400 KB per side; reads single-side and track-interleaved double-side
   raw images directly)
+- Paravirtual hard disk (HD:) — mounts a backing image of any size for
+  use with the RT-11 HD.SYS driver (`--hd <path>`; shares bus addresses
+  with the unused serial port, so the two are mutually exclusive)
 - KR580VI53 (Intel 8253) programmable interval timer
 - MS7004 keyboard with an on-screen virtual keyboard (OSK)
 - Video: 320×200 with 8-colour attribute mode, or 640×200 monochrome

@@ -67,6 +67,7 @@ private:
     void drawRomSubmenu();
     void drawSpeedSubmenu();
     void drawComponentsMenu();
+    void drawHardDiskSubmenu();
     void drawKeyboardSubmenu();
     void drawViewMenu();
     void drawMountErrorPopup();
@@ -80,6 +81,11 @@ private:
     void mountSingleSide(int unit, const std::string &path);
     void unmountDrive(int drive);
     void unmountUnit(int unit);
+    /* Paravirtual hard disk (HD:).  promptMountHd opens a file dialog;
+     * mountHd/unmountHd update the emulator + `config_.hdPath`. */
+    void promptMountHd();
+    void mountHd(const std::string &path);
+    void unmountHd();
     void detachDsRemnant(int keepUnit);
     void refreshMountStateFromCli();
 

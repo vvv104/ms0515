@@ -373,6 +373,38 @@ void App::unmountUnit(int unit)
     config_.save();
 }
 
+void App::promptMountHd()
+{
+    std::string p = openFileDialog(
+        window_, "Select hard-disk (HD:) image",
+        FileDialogKind::Disk, Paths::initialDirFor(FileDialogKind::Disk));
+    if (!p.empty()) mountHd(p);
+}
+
+void App::mountHd(const std::string &path)
+{
+    if (auto err = validateHdImage(path)) {
+        mountErrorMessage_ = std::format("Cannot mount HD image:\n\n{}", *err);
+        mountErrorPending_ = true;
+        return;
+    }
+    if (!emu_.mountHd(path)) {
+        mountErrorMessage_ =
+            std::format("Failed to mount HD image '{}'.", path);
+        mountErrorPending_ = true;
+        return;
+    }
+    config_.hdPath = path;
+    config_.save();
+}
+
+void App::unmountHd()
+{
+    emu_.unmountHd();
+    config_.hdPath.clear();
+    config_.save();
+}
+
 /* ── Misc helpers ───────────────────────────────────────────────────── */
 
 void App::loadRom(const std::string &path)
@@ -821,7 +853,38 @@ void App::drawComponentsMenu()
         if (!ramDiskOn_) { emu_.enableRamDisk(); ramDiskOn_ = true; }
     }
     ImGui::Separator();
+    drawHardDiskSubmenu();
+    ImGui::Separator();
     drawKeyboardSubmenu();
+    ImGui::EndMenu();
+}
+
+void App::drawHardDiskSubmenu()
+{
+    if (!ImGui::BeginMenu("HD: / Serial port")) return;
+
+    /* The paravirtual HD: device and the serial port decode the same bus
+     * addresses (0177720/0177722), so exactly one can own them.  These
+     * two entries are a mutually-exclusive radio pair. */
+    const bool hdOn = emu_.hdMounted();
+    if (ImGui::MenuItem("Serial port", nullptr, !hdOn)) {
+        if (hdOn) unmountHd();
+    }
+    if (ImGui::MenuItem("Hard disk (HD:)", nullptr, hdOn)) {
+        if (!hdOn) promptMountHd();      /* cancelling leaves serial on */
+    }
+
+    ImGui::Separator();
+
+    std::string mountLabel = "Mount HD image...";
+    if (hdOn)
+        mountLabel += "    [" +
+            std::filesystem::path(emu_.hdPath()).filename().string() + "]";
+    if (ImGui::MenuItem(mountLabel.c_str()))
+        promptMountHd();
+    if (ImGui::MenuItem("Unmount HD", nullptr, false, hdOn))
+        unmountHd();
+
     ImGui::EndMenu();
 }
 
