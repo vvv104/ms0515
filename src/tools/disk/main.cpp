@@ -56,13 +56,15 @@ int usage()
         "  protect/unprotect <image> [--side 0|1] <name>...   set/clear /PROTECT\n"
         "  setdate <image> [--side 0|1] --date YYYY-MM-DD <name>...\n"
         "                                        write the directory date in place\n"
-        "  get    <image> [--side 0|1] [--out DIR] [pattern]...  extract files\n"
-        "  dir    <image> [--side 0|1]           list the directory\n"
+        "  get    <image> [--side 0|1] [--hd] [--out DIR] [pattern]...  extract files\n"
+        "  dir    <image> [--side 0|1] [--hd]    list the directory\n"
         "  split  <ds.dsk> <side0.dsk> <side1.dsk>   split an 800 KB DS into two 400 KB SS\n"
         "  merge  <side0.dsk> <side1.dsk> <ds.dsk>   merge two 400 KB SS into an 800 KB DS\n"
         "\n"
         "  Image kind follows the size: 409600 B single-sided, 819200 B double-\n"
-        "  sided (--side picks a side, default 0 = lower/boot).  Wildcards: '*'.\n",
+        "  sided (--side picks a side, default 0 = lower/boot).  Wildcards: '*'.\n"
+        "  --hd (alias --linear): treat <image> as a linear HD/LD container\n"
+        "  (block N at byte N*512, any 512-byte multiple); --side does not apply.\n",
         stderr);
     return 2;
 }
@@ -154,13 +156,18 @@ void applyDateToFile(const fs::path &p, uint16_t encoded)
     fs::last_write_time(p, ft, ec);  /* best effort — ignore failures */
 }
 
-int cmdDir(const std::string &path, int side)
+int cmdDir(const std::string &path, int side, bool linear)
 {
-    auto img = loadImage(path, side);
-    if (!img) { std::fprintf(stderr, "error: cannot read %s (bad --side?)\n",
+    auto img = linear ? loadLinearImage(path) : loadImage(path, side);
+    if (!img) { std::fprintf(stderr, "error: cannot read %s (bad --side/--hd?)\n",
                              path.c_str()); return 1; }
-    std::printf("%s\n  size %zu B  (%s, side %d)\n", path.c_str(), img->data.size(),
-                img->ds ? "double-sided" : "single-sided", img->side);
+    if (img->linear)
+        std::printf("%s\n  size %zu B  (linear HD/LD, %zu blocks)\n",
+                    path.c_str(), img->data.size(), img->data.size() / kBlock);
+    else
+        std::printf("%s\n  size %zu B  (%s, side %d)\n", path.c_str(),
+                    img->data.size(),
+                    img->ds ? "double-sided" : "single-sided", img->side);
     if (!img->hasDirectory) { std::printf("  no RT-11 directory on this side\n"); return 1; }
     const auto &d = img->directory;
     std::printf("  dir@LBN %d  segs=%d  data_start=%d\n",
@@ -184,10 +191,10 @@ int cmdDir(const std::string &path, int side)
 }
 
 int cmdGet(const std::string &path, int side, const std::string &outdir,
-           const std::vector<std::string> &patterns)
+           const std::vector<std::string> &patterns, bool linear)
 {
-    auto img = loadImage(path, side);
-    if (!img) { std::fprintf(stderr, "error: cannot read %s (bad --side?)\n",
+    auto img = linear ? loadLinearImage(path) : loadImage(path, side);
+    if (!img) { std::fprintf(stderr, "error: cannot read %s (bad --side/--hd?)\n",
                              path.c_str()); return 1; }
     if (!img->hasDirectory) {
         std::fprintf(stderr, "error: no RT-11 directory on side %d of %s\n",
@@ -522,28 +529,31 @@ int main(int argc, char **argv)
     }
 
     if (cmd == "get") {
-        std::string image, outdir = "."; int side = 0; std::vector<std::string> pats;
+        std::string image, outdir = "."; int side = 0; bool linear = false;
+        std::vector<std::string> pats;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
             if (a == "--out"  && i + 1 < argc) { outdir = argv[++i]; continue; }
+            if (a == "--hd" || a == "--linear") { linear = true; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             pats.emplace_back(a);
         }
         if (image.empty()) return usage();
-        return cmdGet(image, side, outdir, pats);
+        return cmdGet(image, side, outdir, pats, linear);
     }
 
     if (cmd == "dir") {
-        std::string image; int side = 0;
+        std::string image; int side = 0; bool linear = false;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (a == "--hd" || a == "--linear") { linear = true; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             return usage();
         }
         if (image.empty()) return usage();
-        return cmdDir(image, side);
+        return cmdDir(image, side, linear);
     }
 
     if (cmd == "split") {

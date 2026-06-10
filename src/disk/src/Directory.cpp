@@ -127,11 +127,11 @@ std::optional<Directory> parseSegment(std::span<const uint8_t> seg)
 }
 
 std::optional<Directory>
-parseDirectory(std::span<const uint8_t> data, int side, bool ds)
+parseDirectory(std::span<const uint8_t> data, int side, bool ds, bool linear)
 {
     auto readSegmentBytes = [&](int lbn, std::array<uint8_t, 1024> &buf) {
         for (int half = 0; half < 2; ++half) {
-            const std::size_t off = lbnToByte(lbn + half, side, ds);
+            const std::size_t off = lbnToByte(lbn + half, side, ds, linear);
             if (off + kBlock <= data.size())
                 std::memcpy(buf.data() + half * kBlock, data.data() + off, kBlock);
             else

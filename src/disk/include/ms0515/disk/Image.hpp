@@ -32,6 +32,7 @@ struct Image {
     std::vector<uint8_t> data;          /* full raw image (409600 or 819200) */
     int                  side = 0;      /* 0 lower/boot, 1 upper (DS only)    */
     bool                 ds   = false;  /* true for an 819200 double-sided    */
+    bool                 linear = false;/* true: LD/HD container (byte=LBN*512)*/
     bool                 hasDirectory = false;
     Directory            directory;
 
@@ -49,10 +50,18 @@ struct Image {
 [[nodiscard]] std::optional<Image> openImage(std::vector<uint8_t> bytes,
                                              int side = 0);
 
+/* Open a linear LD/HD container (any positive multiple of 512 bytes,
+ * addressed as byte = LBN*512) and parse its RT-11 directory.  Use this for
+ * paravirtual HD images; `side`/`ds` do not apply. */
+[[nodiscard]] std::optional<Image> openLinearImage(std::vector<uint8_t> bytes);
+
 /* Load `path` (whole file), select `side` (1 valid only for an 819200 dump),
  * parse its directory.  nullopt on read error or invalid side. */
 [[nodiscard]] std::optional<Image> loadImage(const std::string &path,
                                              int side = 0);
+
+/* loadImage for a linear LD/HD container (see openLinearImage). */
+[[nodiscard]] std::optional<Image> loadLinearImage(const std::string &path);
 
 /* Split an 819200-byte track-interleaved double-sided image into its two
  * 409600-byte single-sided images (lower side 0 first, upper side 1).  Pure

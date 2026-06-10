@@ -12,7 +12,7 @@ namespace ms0515::disk {
 
 std::span<const uint8_t> Image::block(int lbn) const
 {
-    const std::size_t off = lbnToByte(lbn, side, ds);
+    const std::size_t off = lbnToByte(lbn, side, ds, linear);
     if (off + kBlock > data.size()) return {};
     return std::span<const uint8_t>(data.data() + off, kBlock);
 }
@@ -49,7 +49,24 @@ std::optional<Image> openImage(std::vector<uint8_t> bytes, int side)
     return img;
 }
 
-std::optional<Image> loadImage(const std::string &path, int side)
+std::optional<Image> openLinearImage(std::vector<uint8_t> bytes)
+{
+    if (bytes.empty() || (bytes.size() % kBlock) != 0) return std::nullopt;
+
+    Image img;
+    img.data   = std::move(bytes);
+    img.side   = 0;
+    img.ds     = false;
+    img.linear = true;
+    if (auto dir = parseDirectory(img.data, 0, false, /*linear=*/true)) {
+        img.directory = *dir;
+        img.hasDirectory = true;
+    }
+    return img;
+}
+
+namespace {
+std::optional<std::vector<uint8_t>> readWholeFile(const std::string &path)
 {
     std::ifstream f(path, std::ios::binary);
     if (!f) return std::nullopt;
@@ -57,7 +74,22 @@ std::optional<Image> loadImage(const std::string &path, int side)
     raw.assign(std::istreambuf_iterator<char>(f),
                std::istreambuf_iterator<char>());
     if (raw.empty()) return std::nullopt;
-    return openImage(std::move(raw), side);
+    return raw;
+}
+}  /* namespace */
+
+std::optional<Image> loadImage(const std::string &path, int side)
+{
+    auto raw = readWholeFile(path);
+    if (!raw) return std::nullopt;
+    return openImage(std::move(*raw), side);
+}
+
+std::optional<Image> loadLinearImage(const std::string &path)
+{
+    auto raw = readWholeFile(path);
+    if (!raw) return std::nullopt;
+    return openLinearImage(std::move(*raw));
 }
 
 std::optional<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>

@@ -38,6 +38,23 @@ inline constexpr int         kSsBlocks        = kTracks * kSectorsPerTrack;/* 80
  * may pass raw block numbers without bounds-checking the wrap. */
 [[nodiscard]] std::size_t lbnToByte(int lbn, int side, bool ds) noexcept;
 
+/* Linear (LD/HD container) addressing: block N is simply at byte N*512, with
+ * no interleave/skew and no side concept.  This is how the paravirtual HD:
+ * device and RT-11 logical-disk containers are laid out, as opposed to the
+ * skewed floppy geometry of lbnToByte().  `linear` selectors thread through
+ * Directory/Image/Build so the same RT-11 parsing serves both. */
+[[nodiscard]] inline std::size_t lbnToByteLinear(int lbn) noexcept
+{
+    return static_cast<std::size_t>(lbn) * kBlock;
+}
+
+/* Geometry-aware offset: linear when `linear` is set, else the floppy skew. */
+[[nodiscard]] inline std::size_t lbnToByte(int lbn, int side, bool ds,
+                                           bool linear) noexcept
+{
+    return linear ? lbnToByteLinear(lbn) : lbnToByte(lbn, side, ds);
+}
+
 /* True when a file of this byte size is a double-sided (800 KB) dump. */
 [[nodiscard]] inline bool isDoubleSidedSize(std::size_t fileSize) noexcept
 {

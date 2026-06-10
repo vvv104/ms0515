@@ -119,4 +119,21 @@ TEST_CASE("parseDirectory finds a segment through the FDC geometry") {
     CHECK(d->permanentFiles()[0].name == "ONE.TXT");
 }
 
+TEST_CASE("parseDirectory reads a linear (HD/LD) container") {
+    /* Linear addressing: the segment's two blocks sit at byte 6*512 and
+     * 7*512 (contiguous), no interleave. */
+    std::vector<uint8_t> img(2000 * kBlock, 0);
+    auto seg = makeSegment(8, {
+        {kStatusPermanent, "ONE", "   ", "TXT", 2},
+        {static_cast<uint16_t>(kStatusEmpty | kStatusEndOfSeg),
+         "   ", "   ", "   ", 50},
+    });
+    std::copy(seg.begin(), seg.end(), img.begin() + lbnToByteLinear(6));
+    auto d = parseDirectory(img, 0, false, /*linear=*/true);
+    REQUIRE(d.has_value());
+    CHECK(d->dirStartLbn == 6);
+    REQUIRE(d->permanentFiles().size() == 1);
+    CHECK(d->permanentFiles()[0].name == "ONE.TXT");
+}
+
 } /* TEST_SUITE */
