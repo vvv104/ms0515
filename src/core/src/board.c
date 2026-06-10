@@ -206,6 +206,12 @@ static uint8_t io_read_byte(ms0515_board_t *board, uint16_t offset)
         return fdc_read(&board->fdc, reg);
     }
 
+    /* Paravirtual hard disk (HD:) — shadows the serial addresses while an
+     * image is mounted.  The serial port has no read handler, so HD is the
+     * only consumer of these offsets on the read path. */
+    if (board->hd.enabled && hd_handles(offset))
+        return hd_read_byte(&board->hd, offset);
+
     /* Expansion RAM disk (EX0:) */
     if (board->ramdisk.enabled && ramdisk_handles(offset)) {
         /* T-11 DATIO read-phase bypass for the data port.  The
@@ -303,6 +309,13 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
         return;
     }
 
+    /* Paravirtual hard disk (HD:) — shadows the serial TX addresses while
+     * an image is mounted.  Checked before the serial stub so HD wins. */
+    if (board->hd.enabled && hd_handles(offset)) {
+        hd_write_byte(&board->hd, &board->mem, offset, value);
+        return;
+    }
+
     /* Serial port — stub: accept and discard */
     if (offset == IO_SERIAL_DATA_W) {
         if (board->serial_out_cb)
@@ -329,6 +342,10 @@ static uint16_t io_read_word(ms0515_board_t *board, uint16_t offset)
     if (offset <= 0x1F)
         return board->mem.dispatcher;
 
+    /* Paravirtual hard disk — 16-bit registers, read whole. */
+    if (board->hd.enabled && hd_handles(offset))
+        return hd_read_word(&board->hd, offset);
+
     /* For other registers, read as two bytes */
     uint8_t lo = io_read_byte(board, offset);
     uint8_t hi = io_read_byte(board, offset + 1);
@@ -344,6 +361,13 @@ static void io_write_word(ms0515_board_t *board, uint16_t offset, uint16_t value
         /* Bit 8: monitor interrupt — edge-triggered on any transition. */
         if ((value ^ old) & MEM_DISP_MON_IRQ)
             cpu_interrupt(&board->cpu, 2, 064);
+        return;
+    }
+
+    /* Paravirtual hard disk — 16-bit registers; a command write to HDCSR
+     * must arrive whole, not split into two byte writes. */
+    if (board->hd.enabled && hd_handles(offset)) {
+        hd_write_word(&board->hd, &board->mem, offset, value);
         return;
     }
 
@@ -471,6 +495,7 @@ void board_init(ms0515_board_t *board)
     board->frame_counter = get_frame_cycles(board);
 
     ramdisk_init(&board->ramdisk);
+    hd_init(&board->hd);
 }
 
 void board_ramdisk_enable(ms0515_board_t *board)
@@ -483,6 +508,16 @@ void board_ramdisk_free(ms0515_board_t *board)
     ramdisk_free(&board->ramdisk);
 }
 
+bool board_hd_mount(ms0515_board_t *board, const uint8_t *data, uint32_t size)
+{
+    return hd_mount(&board->hd, data, size);
+}
+
+void board_hd_unmount(ms0515_board_t *board)
+{
+    hd_unmount(&board->hd);
+}
+
 void board_reset(ms0515_board_t *board)
 {
     timer_reset(&board->timer);
@@ -491,6 +526,8 @@ void board_reset(ms0515_board_t *board)
     cassette_init(&board->cassette);
     if (board->ramdisk.enabled)
         ramdisk_reset(&board->ramdisk);
+    if (board->hd.enabled)
+        hd_reset(&board->hd);
 
     board->reg_a = 0;
     board->reg_b = 0;
@@ -575,6 +612,11 @@ bool board_step_frame(ms0515_board_t *board)
 
         /* Advance the FDC state machine by the cycles of this instruction. */
         fdc_tick(&board->fdc, c);
+
+        /* Decay the HD activity LED (HD transfers are synchronous, so this
+         * only fades the lamp after a completed read/write). */
+        if (board->hd.enabled)
+            hd_tick(&board->hd, c);
     }
 
     /*

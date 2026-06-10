@@ -15,6 +15,7 @@ add_executable(ms0515_core_tests
     test_keyboard.cpp
     test_ms7004.cpp
     test_ramdisk.cpp
+    test_hd.cpp
     test_floppy.cpp
     test_trap_thunk.cpp
     test_vram_write_hook.cpp

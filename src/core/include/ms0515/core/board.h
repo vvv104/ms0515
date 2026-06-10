@@ -75,6 +75,7 @@
 #include "keyboard.h"
 #include "floppy.h"
 #include "ramdisk.h"
+#include "hd.h"
 #include "trace.h"
 #include "cassette.h"
 
@@ -143,6 +144,11 @@ typedef struct ms0515_board {
 
     /* Expansion RAM disk (EX0:) — see ramdisk.h for full documentation */
     ms0515_ramdisk_t ramdisk;
+
+    /* Paravirtual hard disk (HD:) — see hd.h.  Mutually exclusive with the
+     * serial port: both decode 0177720/0177722, so I/O routes to HD only
+     * while an image is mounted (board->hd.enabled). */
+    ms0515_hd_t hd;
 
     /* Tape interface (bit 7 of RegB reads constant 0 — no recorder) */
     uint32_t tape_bit_counter;     /* reserved (snapshot compat) */
@@ -291,6 +297,22 @@ void board_ramdisk_enable(ms0515_board_t *board);
  * board_ramdisk_free — Release RAM disk memory.
  */
 void board_ramdisk_free(ms0515_board_t *board);
+
+/* ── Paravirtual hard disk (HD:) ──────────────────────────────────────────── */
+
+/*
+ * board_hd_mount — Mount a HD backing image (see hd_mount).  Copies `size`
+ * bytes from `data` (or zero-fills when `data` is NULL).  Returns false on
+ * allocation failure or an invalid size.  While mounted, the HD takes over
+ * the 0177720/0177722 addresses from the (stub) serial port.
+ */
+bool board_hd_mount(ms0515_board_t *board, const uint8_t *data, uint32_t size);
+
+/*
+ * board_hd_unmount — Unmount the HD image, returning the addresses to the
+ * serial stub.
+ */
+void board_hd_unmount(ms0515_board_t *board);
 
 /* ── Video buffer access ──────────────────────────────────────────────────── */
 
