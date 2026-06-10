@@ -150,8 +150,15 @@ uint16_t mtimeAsDate(const fs::path &p)
     const auto sys = ch::clock_cast<ch::system_clock>(ft);
     const auto dp  = ch::floor<ch::days>(sys);
     const ch::year_month_day ymd{dp};
+    const int year = int(ymd.year());
+    /* MS-0515 RT-11 is V5.04, which predates the V5.05 "age" date extension
+     * (bits 14-15).  A date after 2003 would be stored with those bits set
+     * and the OS DIR renders it as -BAD-, so fall back to "no date" rather
+     * than write something the target can't display. */
+    if (year < 1972 || year > 2003)
+        return 0;
     try {
-        return encodeDate(int(ymd.year()),
+        return encodeDate(year,
                           static_cast<int>(unsigned(ymd.month())),
                           static_cast<int>(unsigned(ymd.day())));
     } catch (...) { return 0; }
