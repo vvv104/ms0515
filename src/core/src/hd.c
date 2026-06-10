@@ -53,12 +53,21 @@ void hd_set_enabled(ms0515_hd_t *hd, bool enabled)
     hd->enabled = enabled;
 }
 
+void hd_set_write_through(ms0515_hd_t *hd,
+                          ms0515_hd_write_through_fn cb, void *userdata)
+{
+    hd->write_cb = cb;
+    hd->write_ud = userdata;
+}
+
 void hd_unmount(ms0515_hd_t *hd)
 {
     free(hd->image);
     hd->image      = NULL;
     hd->image_size = 0;
     hd->dirty      = false;
+    hd->write_cb   = NULL;     /* the host file handle is gone with the media */
+    hd->write_ud   = NULL;
     /* The controller stays enabled — the drive is now empty, not removed. */
 }
 
@@ -122,8 +131,14 @@ static void hd_transfer(ms0515_hd_t *hd, ms0515_memory_t *mem, bool writing)
         }
     }
 
-    if (writing)
+    if (writing) {
         hd->dirty = true;
+        /* Persist the changed range immediately (write-through) so the
+         * backing file always reflects the volume, even mid-session or
+         * after a crash. */
+        if (hd->write_cb)
+            hd->write_cb(hd->write_ud, base, &hd->image[base], bytes);
+    }
     hd->status = HD_CS_READY;
     hd->activity_remaining = HD_ACTIVITY_DECAY_CYCLES;
 }

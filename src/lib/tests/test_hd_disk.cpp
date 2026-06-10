@@ -137,20 +137,22 @@ TEST_CASE("write transfer persists to the backing file across a remount") {
         CHECK((emu.readWord(kHdCsr) & HD_CS_ERROR) == 0);
         CHECK(emu.hdActive());                   /* lamp lit after transfer */
 
-        emu.unmountHd();                         /* flushes dirty image     */
-        CHECK(emu.hdMounted() == false);
-    }
-
-    /* The bytes really landed in the file. */
-    {
-        std::ifstream f(p, std::ios::binary);
-        f.seekg(fileOff);
-        for (uint16_t want : pattern) {
-            uint8_t lo = 0, hi = 0;
-            f.read(reinterpret_cast<char *>(&lo), 1);
-            f.read(reinterpret_cast<char *>(&hi), 1);
-            CHECK((uint16_t)(lo | (hi << 8)) == want);
+        /* Write-through: the bytes are already in the file mid-session,
+         * before any unmount (this is the whole point — no data lives only
+         * in RAM waiting for a clean shutdown). */
+        {
+            std::ifstream f(p, std::ios::binary);
+            f.seekg(fileOff);
+            for (uint16_t want : pattern) {
+                uint8_t lo = 0, hi = 0;
+                f.read(reinterpret_cast<char *>(&lo), 1);
+                f.read(reinterpret_cast<char *>(&hi), 1);
+                CHECK((uint16_t)(lo | (hi << 8)) == want);
+            }
         }
+
+        emu.unmountHd();
+        CHECK(emu.hdMounted() == false);
     }
 
     /* A fresh Emulator reads the same data back over the bus. */

@@ -58,6 +58,20 @@ struct ms0515_memory;   /* forward decl — DMA target, defined in memory.h */
 extern "C" {
 #endif
 
+/*
+ * Write-through callback.  Invoked after each completed Write command with
+ * the byte range of the image that changed, so the host can persist it to
+ * the backing file immediately (rather than only on unmount).  Keeps the C
+ * core free of file I/O — the host owns the file.
+ *   byte_offset — offset into the image where the change starts
+ *   data        — pointer into the image at byte_offset (len bytes valid)
+ *   len         — number of changed bytes
+ */
+typedef void (*ms0515_hd_write_through_fn)(void *userdata,
+                                           uint32_t byte_offset,
+                                           const uint8_t *data,
+                                           uint32_t len);
+
 /* ── Constants ───────────────────────────────────────────────────────────── */
 
 #define HD_BLOCK_SIZE   512         /* RT-11 block size in bytes              */
@@ -108,6 +122,10 @@ typedef struct ms0515_hd {
     uint16_t  status;           /* HDCSR read value                           */
 
     int       activity_remaining;   /* CPU cycles until the activity LED dims */
+
+    /* Optional write-through sink (host-owned file persistence). */
+    ms0515_hd_write_through_fn write_cb;
+    void                      *write_ud;
 } ms0515_hd_t;
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
@@ -125,6 +143,14 @@ void hd_init(ms0515_hd_t *hd);
  * touch the mounted image — a disabled controller simply stops decoding.
  */
 void hd_set_enabled(ms0515_hd_t *hd, bool enabled);
+
+/*
+ * hd_set_write_through — Install (or clear with NULL) the write-through
+ * callback.  When set, every completed Write command reports its changed
+ * byte range so the host can persist it immediately.
+ */
+void hd_set_write_through(ms0515_hd_t *hd,
+                          ms0515_hd_write_through_fn cb, void *userdata);
 
 /*
  * hd_mount — Allocate `size` bytes for the backing image (the media) and

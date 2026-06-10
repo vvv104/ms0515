@@ -4,6 +4,7 @@
 
 #include "EmulatorInternal.hpp"  /* completes Emulator::Impl + C-side includes */
 
+#include <cstdio>
 #include <fstream>
 #include <string>
 #include <utility>
@@ -63,6 +64,32 @@ void cVramWriteTrampoline(uint16_t offset, uint8_t value, void *userdata)
     auto *self = static_cast<ms0515::Emulator *>(userdata);
     if (auto &cb = self->impl()->vramWriteCb)
         cb(offset, value);
+}
+
+/* Write-through: persist the changed HD image range to the backing file as
+ * soon as a Write command completes.  Open-write-close per call keeps the
+ * file unlocked between writes, so it always reflects the volume and can be
+ * inspected at any time without contending with an open handle. */
+void cHdWriteThrough(void *userdata, uint32_t byteOffset,
+                     const uint8_t *data, uint32_t len)
+{
+    auto *self = static_cast<ms0515::Emulator *>(userdata);
+    const std::string &path = self->hdPath();
+    if (path.empty())
+        return;
+
+    std::FILE *fp = nullptr;
+#ifdef _WIN32
+    if (fopen_s(&fp, path.c_str(), "r+b") != 0)
+        fp = nullptr;
+#else
+    fp = std::fopen(path.c_str(), "r+b");
+#endif
+    if (!fp)
+        return;
+    if (std::fseek(fp, static_cast<long>(byteOffset), SEEK_SET) == 0)
+        std::fwrite(data, 1, len, fp);
+    std::fclose(fp);
 }
 
 } /* anonymous namespace */
@@ -234,21 +261,17 @@ bool Emulator::mountHd(std::string_view path)
         return false;
 
     hdPath_ = std::string{path};
+
+    /* Write-through persistence: every Write command lands in the file
+     * immediately (see cHdWriteThrough), not just on unmount. */
+    board_hd_set_write_through(&impl_->board, &cHdWriteThrough, this);
+
     return true;
 }
 
 void Emulator::unmountHd()
 {
-    ms0515_hd_t &hd = impl_->board.hd;
-    if (hd.image && hd.dirty && !hdPath_.empty()) {
-        std::ofstream f(hdPath_, std::ios::binary | std::ios::trunc);
-        if (f) {
-            f.write(reinterpret_cast<const char *>(hd.image),
-                    static_cast<std::streamsize>(hd.image_size));
-            if (f)
-                hd.dirty = false;
-        }
-    }
+    board_hd_set_write_through(&impl_->board, nullptr, nullptr);
     board_hd_unmount(&impl_->board);
     hdPath_.clear();
 }

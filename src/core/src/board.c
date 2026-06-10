@@ -523,6 +523,12 @@ void board_hd_unmount(ms0515_board_t *board)
     hd_unmount(&board->hd);
 }
 
+void board_hd_set_write_through(ms0515_board_t *board,
+                                ms0515_hd_write_through_fn cb, void *userdata)
+{
+    hd_set_write_through(&board->hd, cb, userdata);
+}
+
 void board_reset(ms0515_board_t *board)
 {
     timer_reset(&board->timer);

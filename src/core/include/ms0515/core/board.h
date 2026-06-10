@@ -319,6 +319,13 @@ bool board_hd_mount(ms0515_board_t *board, const uint8_t *data, uint32_t size);
  */
 void board_hd_unmount(ms0515_board_t *board);
 
+/*
+ * board_hd_set_write_through — Install (or clear) the HD write-through
+ * callback (see hd_set_write_through).
+ */
+void board_hd_set_write_through(ms0515_board_t *board,
+                                ms0515_hd_write_through_fn cb, void *userdata);
+
 /* ── Video buffer access ──────────────────────────────────────────────────── */
 
 const uint8_t *board_get_vram(const ms0515_board_t *board);
