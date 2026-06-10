@@ -307,16 +307,22 @@ void drawStatusBar(const StatusBarState &s)
         }
     }
 
-    /* Paravirtual hard disk (HD:) — only shown while mounted.  Its LED
+    /* Paravirtual hard disk (HD:) — shown whenever the controller is
+     * present on the bus, with "empty" when no image is mounted.  Its LED
      * uses the same decay-driven activity flag as the floppy lamps. */
-    if (s.emu.hdMounted()) {
+    if (s.emu.hdEnabled()) {
         ImGui::SameLine();
         ImGui::TextUnformatted("|");
         ImGui::SameLine();
         drawDiskLed(s.emu.hdActive());
         ImGui::SameLine();
-        std::string n = std::filesystem::path(s.emu.hdPath()).filename().string();
-        ImGui::Text("HD: %s", n.c_str());
+        if (s.emu.hdMounted()) {
+            std::string n =
+                std::filesystem::path(s.emu.hdPath()).filename().string();
+            ImGui::Text("HD: %s", n.c_str());
+        } else {
+            ImGui::TextUnformatted("HD: empty");
+        }
     }
 
     ImGui::End();

@@ -157,7 +157,12 @@ bool mountDisksFromCli(ms0515::Emulator &emu, const CliArgs &cli)
         }
     }
 
-    /* Paravirtual hard disk (HD:) — independent of the floppy drives. */
+    /* Paravirtual hard disk (HD:) — independent of the floppy drives.  The
+     * controller's presence and the mounted image are separate: a non-empty
+     * path implies an enabled controller, but the controller can also be
+     * enabled with no media (an offline drive). */
+    if (cli.hdEnabled || !cli.hdPath.empty())
+        emu.setHdEnabled(true);
     if (!cli.hdPath.empty()) {
         if (auto err = validateHdImage(cli.hdPath)) {
             std::fprintf(stderr, "error: cannot mount HD: %s\n", err->c_str());

@@ -39,7 +39,7 @@ TEST_CASE("hd_init: disabled, no image") {
     CHECK(hd.image_size == 0);
 }
 
-TEST_CASE("hd_mount allocates and copies, hd_unmount releases") {
+TEST_CASE("hd_mount allocates and copies, hd_unmount ejects media") {
     ms0515_hd_t hd;
     hd_init(&hd);
 
@@ -48,14 +48,33 @@ TEST_CASE("hd_mount allocates and copies, hd_unmount releases") {
         img[i] = (uint8_t)(i & 0xFF);
 
     CHECK(hd_mount(&hd, img.data(), (uint32_t)img.size()) == true);
-    CHECK(hd.enabled == true);
+    CHECK(hd.enabled == true);              /* mounting enables the card */
     CHECK(hd.image != nullptr);
     CHECK(hd.image_size == img.size());
     CHECK(hd.image[5] == 5);
 
     hd_unmount(&hd);
+    CHECK(hd.image == nullptr);             /* media ejected ... */
+    CHECK(hd.enabled == true);              /* ... but the card stays present */
+}
+
+TEST_CASE("controller presence is independent of mounted media") {
+    ms0515_hd_t hd;
+    hd_init(&hd);
     CHECK(hd.enabled == false);
+
+    /* Enable the controller with no media — an offline drive. */
+    hd_set_enabled(&hd, true);
+    CHECK(hd.enabled == true);
     CHECK(hd.image == nullptr);
+
+    hd_cmd(&hd, nullptr, 0, HD_CMD_SET_UNIT);
+    hd_cmd(&hd, nullptr, 0, HD_CMD_GET_SIZE);
+    CHECK(hd_read_word(&hd, HD_IO_DATA) == 0);   /* offline → size 0 */
+
+    /* Disable returns the bus to the serial port; media untouched. */
+    hd_set_enabled(&hd, false);
+    CHECK(hd.enabled == false);
 }
 
 TEST_CASE("hd_mount rejects sizes that are not a positive block multiple") {

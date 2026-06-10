@@ -57,6 +57,12 @@ TEST_CASE("setting hdPath also makes the config non-default") {
     CHECK_FALSE(c.isDefault());
 }
 
+TEST_CASE("enabling the HD controller (no image) makes it non-default") {
+    app::Config c;
+    c.hdEnabled = true;
+    CHECK_FALSE(c.isDefault());
+}
+
 TEST_CASE("ROM, UI toggles and history settings each take it out of default") {
     {   app::Config c; c.romPath = "rom"; CHECK_FALSE(c.isDefault()); }
     {   app::Config c; c.showKeyboard = true; CHECK_FALSE(c.isDefault()); }
@@ -135,6 +141,19 @@ TEST_CASE("non-default values written by save() come back through load()") {
         CHECK(in_.historySize          == out.historySize);
         CHECK(in_.fullscreen           == out.fullscreen);
         CHECK(in_.kbdTypingDelayMs     == out.kbdTypingDelayMs);
+        CHECK_FALSE(in_.isDefault());
+    }
+
+    /* An enabled controller with no image survives the round-trip via the
+     * explicit hd_enabled flag. */
+    {
+        app::Config out;
+        out.hdEnabled = true;
+        out.save();
+
+        app::Config in_ = app::Config::load();
+        CHECK(in_.hdEnabled == true);
+        CHECK(in_.hdPath.empty());
         CHECK_FALSE(in_.isDefault());
     }
 

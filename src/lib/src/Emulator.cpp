@@ -202,6 +202,16 @@ void Emulator::enableRamDisk()
 
 /* ── Paravirtual hard disk (HD:) ────────────────────────────────────────── */
 
+void Emulator::setHdEnabled(bool enabled)
+{
+    board_hd_set_enabled(&impl_->board, enabled);
+}
+
+bool Emulator::hdEnabled() const noexcept
+{
+    return impl_->board.hd.enabled;
+}
+
 bool Emulator::mountHd(std::string_view path)
 {
     std::ifstream f(std::string{path}, std::ios::binary | std::ios::ate);
@@ -230,7 +240,7 @@ bool Emulator::mountHd(std::string_view path)
 void Emulator::unmountHd()
 {
     ms0515_hd_t &hd = impl_->board.hd;
-    if (hd.enabled && hd.dirty && !hdPath_.empty()) {
+    if (hd.image && hd.dirty && !hdPath_.empty()) {
         std::ofstream f(hdPath_, std::ios::binary | std::ios::trunc);
         if (f) {
             f.write(reinterpret_cast<const char *>(hd.image),
@@ -245,7 +255,7 @@ void Emulator::unmountHd()
 
 bool Emulator::hdMounted() const noexcept
 {
-    return impl_->board.hd.enabled;
+    return impl_->board.hd.image != nullptr;
 }
 
 bool Emulator::hdActive() const noexcept

@@ -63,6 +63,7 @@ private:
     void drawMenuBar();
     void drawFileMenu();
     void drawFileDiskMenu(int drive);
+    void drawFileHdMenu();
     void drawMachineMenu();
     void drawRomSubmenu();
     void drawSpeedSubmenu();
@@ -81,8 +82,10 @@ private:
     void mountSingleSide(int unit, const std::string &path);
     void unmountDrive(int drive);
     void unmountUnit(int unit);
-    /* Paravirtual hard disk (HD:).  promptMountHd opens a file dialog;
-     * mountHd/unmountHd update the emulator + `config_.hdPath`. */
+    /* Paravirtual hard disk (HD:).  setHdController toggles the controller
+     * on the bus (serial<->HD); promptMountHd opens a file dialog;
+     * mountHd/unmountHd manage the image (media) and `config_`. */
+    void setHdController(bool on);
     void promptMountHd();
     void mountHd(const std::string &path);
     void unmountHd();

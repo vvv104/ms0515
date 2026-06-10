@@ -301,16 +301,21 @@ void board_ramdisk_free(ms0515_board_t *board);
 /* ── Paravirtual hard disk (HD:) ──────────────────────────────────────────── */
 
 /*
- * board_hd_mount — Mount a HD backing image (see hd_mount).  Copies `size`
- * bytes from `data` (or zero-fills when `data` is NULL).  Returns false on
- * allocation failure or an invalid size.  While mounted, the HD takes over
- * the 0177720/0177722 addresses from the (stub) serial port.
+ * board_hd_set_enabled — Present (or remove) the HD controller on the bus.
+ * While enabled, the HD owns the 0177720/0177722 addresses (the serial
+ * stub does not); the mounted image is left untouched.
+ */
+void board_hd_set_enabled(ms0515_board_t *board, bool enabled);
+
+/*
+ * board_hd_mount — Mount a HD backing image (see hd_mount); also enables
+ * the controller.  Copies `size` bytes from `data` (or zero-fills when
+ * `data` is NULL).  Returns false on allocation failure or an invalid size.
  */
 bool board_hd_mount(ms0515_board_t *board, const uint8_t *data, uint32_t size);
 
 /*
- * board_hd_unmount — Unmount the HD image, returning the addresses to the
- * serial stub.
+ * board_hd_unmount — Eject the HD image; the controller stays enabled.
  */
 void board_hd_unmount(ms0515_board_t *board);
 

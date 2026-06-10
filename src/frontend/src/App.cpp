@@ -373,6 +373,22 @@ void App::unmountUnit(int unit)
     config_.save();
 }
 
+void App::setHdController(bool on)
+{
+    if (on) {
+        emu_.setHdEnabled(true);
+        config_.hdEnabled = true;
+    } else {
+        /* Switching back to the serial port removes the card: flush and
+         * eject any media, then stop decoding the bus addresses. */
+        emu_.unmountHd();
+        emu_.setHdEnabled(false);
+        config_.hdEnabled = false;
+        config_.hdPath.clear();
+    }
+    config_.save();
+}
+
 void App::promptMountHd()
 {
     std::string p = openFileDialog(
@@ -388,18 +404,20 @@ void App::mountHd(const std::string &path)
         mountErrorPending_ = true;
         return;
     }
-    if (!emu_.mountHd(path)) {
+    if (!emu_.mountHd(path)) {       /* also enables the controller */
         mountErrorMessage_ =
             std::format("Failed to mount HD image '{}'.", path);
         mountErrorPending_ = true;
         return;
     }
+    config_.hdEnabled = true;
     config_.hdPath = path;
     config_.save();
 }
 
 void App::unmountHd()
 {
+    /* Eject the media; the controller stays present (an empty drive). */
     emu_.unmountHd();
     config_.hdPath.clear();
     config_.save();
@@ -676,6 +694,7 @@ void App::drawFileMenu()
      * drives, so factor through drawFileDiskMenu(drive). */
     for (int drive = 0; drive < 2; ++drive)
         drawFileDiskMenu(drive);
+    drawFileHdMenu();
 
     ImGui::Separator();
     if (ImGui::MenuItem("Screenshot")) requestScreenshot();
@@ -743,6 +762,28 @@ void App::drawFileDiskMenu(int drive)
     }
     if (ImGui::MenuItem("Unmount", nullptr, false, any))
         unmountDrive(drive);
+    ImGui::EndMenu();
+}
+
+void App::drawFileHdMenu()
+{
+    /* The paravirtual hard disk's image lives here, beside the floppies.
+     * Whether the HD controller owns the bus (vs. the serial port) is a
+     * separate machine-level switch under Components. */
+    const bool mounted = emu_.hdMounted();
+    const char *summary = mounted ? "image"
+                        : emu_.hdEnabled() ? "empty" : "off";
+    auto hdLabel = std::format("Hard disk (HD:): {}", summary);
+    if (!ImGui::BeginMenu(hdLabel.c_str())) return;
+
+    std::string mountLabel = "Mount image...";
+    if (mounted)
+        mountLabel += "    [" +
+            std::filesystem::path(emu_.hdPath()).filename().string() + "]";
+    if (ImGui::MenuItem(mountLabel.c_str()))     /* mounting enables the card */
+        promptMountHd();
+    if (ImGui::MenuItem("Unmount", nullptr, false, mounted))
+        unmountHd();
     ImGui::EndMenu();
 }
 
@@ -863,27 +904,17 @@ void App::drawHardDiskSubmenu()
 {
     if (!ImGui::BeginMenu("HD: / Serial port")) return;
 
-    /* The paravirtual HD: device and the serial port decode the same bus
-     * addresses (0177720/0177722), so exactly one can own them.  These
-     * two entries are a mutually-exclusive radio pair. */
-    const bool hdOn = emu_.hdMounted();
+    /* The paravirtual HD: controller and the serial port decode the same
+     * bus addresses (0177720/0177722), so exactly one can own them.  This
+     * is the controller presence switch — the image is mounted from the
+     * File menu, next to the floppies. */
+    const bool hdOn = emu_.hdEnabled();
     if (ImGui::MenuItem("Serial port", nullptr, !hdOn)) {
-        if (hdOn) unmountHd();
+        if (hdOn) setHdController(false);
     }
     if (ImGui::MenuItem("Hard disk (HD:)", nullptr, hdOn)) {
-        if (!hdOn) promptMountHd();      /* cancelling leaves serial on */
+        if (!hdOn) setHdController(true);
     }
-
-    ImGui::Separator();
-
-    std::string mountLabel = "Mount HD image...";
-    if (hdOn)
-        mountLabel += "    [" +
-            std::filesystem::path(emu_.hdPath()).filename().string() + "]";
-    if (ImGui::MenuItem(mountLabel.c_str()))
-        promptMountHd();
-    if (ImGui::MenuItem("Unmount HD", nullptr, false, hdOn))
-        unmountHd();
 
     ImGui::EndMenu();
 }

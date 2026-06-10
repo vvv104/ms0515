@@ -249,10 +249,21 @@ TEST_CASE("a HD image given via cli.hdPath is mounted") {
     {
         ms0515::Emulator emu;
         CHECK(app::mountDisksFromCli(emu, cli));
+        CHECK(emu.hdEnabled());          /* mounting implies an enabled card */
         CHECK(emu.hdMounted());
         CHECK(emu.hdPath() == p.string());
     }
     fs::remove(p);
+}
+
+TEST_CASE("hdEnabled with no path enables the controller without media") {
+    app::CliArgs cli;
+    cli.hdEnabled = true;                /* no image */
+
+    ms0515::Emulator emu;
+    CHECK(app::mountDisksFromCli(emu, cli));
+    CHECK(emu.hdEnabled());
+    CHECK_FALSE(emu.hdMounted());
 }
 
 TEST_CASE("a misshaped HD image is skipped without aborting") {

@@ -81,12 +81,23 @@ like a CPU access (respecting the current bank mapping).
 
 ## Host model
 
-The backing image is held in a RAM buffer inside the core device (the C
-core stays free of file I/O, as elsewhere).  `Emulator::mountHd` reads the
-whole file in; `unmountHd` flushes it back when the device marked the image
-dirty (the destructor flushes too).  An image must be a positive multiple
-of 512 bytes; in practice RT-11 caps a logical volume at 65535 blocks
-(~32 MB), so a larger backing file is reported truncated to that.
+Two concepts are kept separate, mirroring real hardware:
+
+- **Controller presence** — whether the card decodes the bus (and so the
+  serial port does not).  Toggled by `Emulator::setHdEnabled` /
+  `hdEnabled`, the YAML `hd_enabled` key, and the "HD: / Serial port" radio
+  under the Components menu.  An enabled controller with no media is a
+  valid offline drive (`GetSize == 0`).
+- **Media** — the mounted image.  `Emulator::mountHd` reads the whole file
+  into a RAM buffer (the C core stays free of file I/O) and also enables
+  the controller; `unmountHd` flushes a dirty image back to its file and
+  ejects it while leaving the controller present (the destructor flushes
+  too).  The image is mounted from the File menu, beside the floppies, or
+  via the `--hd <path>` flag / `hd` YAML key.
+
+An image must be a positive multiple of 512 bytes; in practice RT-11 caps
+a logical volume at 65535 blocks (~32 MB), so a larger backing file is
+reported truncated to that.
 
 ## Sources
 

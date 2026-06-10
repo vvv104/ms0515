@@ -48,13 +48,18 @@ bool hd_mount(ms0515_hd_t *hd, const uint8_t *data, uint32_t size)
     return true;
 }
 
+void hd_set_enabled(ms0515_hd_t *hd, bool enabled)
+{
+    hd->enabled = enabled;
+}
+
 void hd_unmount(ms0515_hd_t *hd)
 {
     free(hd->image);
     hd->image      = NULL;
     hd->image_size = 0;
     hd->dirty      = false;
-    hd->enabled    = false;
+    /* The controller stays enabled — the drive is now empty, not removed. */
 }
 
 void hd_reset(ms0515_hd_t *hd)

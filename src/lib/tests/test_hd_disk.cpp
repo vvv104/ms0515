@@ -68,6 +68,37 @@ TEST_CASE("mountHd rejects a non-block-multiple file") {
     fs::remove(p);
 }
 
+TEST_CASE("controller enable is independent of a mounted image") {
+    fs::path p = makeImage("ms0515_hd_split.img", 16);
+    ms0515::Emulator emu;
+
+    /* Enable the controller with no media — an offline drive. */
+    emu.setHdEnabled(true);
+    CHECK(emu.hdEnabled());
+    CHECK_FALSE(emu.hdMounted());
+    hdCmd(emu, 0, HD_CMD_SET_UNIT);
+    hdCmd(emu, 0, HD_CMD_GET_SIZE);
+    CHECK(emu.readWord(kHdData) == 0);
+
+    /* Mounting brings media in (and keeps the controller enabled). */
+    REQUIRE(emu.mountHd(p.string()));
+    CHECK(emu.hdEnabled());
+    CHECK(emu.hdMounted());
+    hdCmd(emu, 0, HD_CMD_GET_SIZE);
+    CHECK(emu.readWord(kHdData) == 16);
+
+    /* Ejecting the media leaves the controller present. */
+    emu.unmountHd();
+    CHECK(emu.hdEnabled());
+    CHECK_FALSE(emu.hdMounted());
+
+    /* Switching to the serial port removes the controller. */
+    emu.setHdEnabled(false);
+    CHECK_FALSE(emu.hdEnabled());
+
+    fs::remove(p);
+}
+
 TEST_CASE("mountHd reports size to the driver via GetSize") {
     fs::path p = makeImage("ms0515_hd_size.img", 50);
     ms0515::Emulator emu;

@@ -160,17 +160,28 @@ public:
     void enableRamDisk();
 
     /* ── Paravirtual hard disk (HD:) ───────────────────────────────────── */
+    /* Two independent concepts:
+     *   - the controller's presence on the bus (setHdEnabled/hdEnabled),
+     *     which is mutually exclusive with the serial port at 0177720/2;
+     *   - the mounted image / media (mountHd/unmountHd/hdMounted). */
 
-    /* Mount a HD backing image.  The whole file is read into the device's
-     * buffer; writes are flushed back on unmountHd() / destruction.  The
-     * size must be a positive multiple of 512 bytes.  Mounting takes the
-     * 0177720/0177722 bus addresses away from the (unused) serial port, so
-     * HD and the serial port are mutually exclusive. */
+    /* Present or remove the HD controller on the bus.  Disabling returns
+     * the 0177720/0177722 addresses to the (unused) serial port; the
+     * mounted image, if any, is left in place. */
+    void setHdEnabled(bool enabled);
+
+    [[nodiscard]] bool hdEnabled() const noexcept;
+
+    /* Mount a HD backing image (the media) and enable the controller.  The
+     * whole file is read into the device buffer; writes are flushed back on
+     * unmountHd() / destruction.  Size must be a positive multiple of 512. */
     [[nodiscard]] bool mountHd(std::string_view path);
 
-    /* Flush a dirty image back to its file and unmount it. */
+    /* Flush a dirty image back to its file and eject it.  The controller
+     * stays enabled (an empty drive). */
     void unmountHd();
 
+    /* True when an image is mounted (media present). */
     [[nodiscard]] bool hdMounted() const noexcept;
 
     [[nodiscard]] const std::string &hdPath() const noexcept { return hdPath_; }

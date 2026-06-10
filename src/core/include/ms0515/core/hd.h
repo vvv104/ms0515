@@ -89,10 +89,12 @@ extern "C" {
 /* ── Device state ───────────────────────────────────────────────────────── */
 
 typedef struct ms0515_hd {
-    bool      enabled;          /* image mounted and reachable on the bus     */
+    bool      enabled;          /* controller present on the bus (serial off) */
 
-    /* Backing image (single unit 0).  Owned by this module. */
-    uint8_t  *image;            /* malloc'd image bytes, NULL when unmounted  */
+    /* Backing image (single unit 0) — the media.  Owned by this module.
+     * Independent of `enabled`: the controller can be present with no
+     * image (an offline drive, GetSize == 0). */
+    uint8_t  *image;            /* malloc'd image bytes, NULL when no media    */
     uint32_t  image_size;       /* image length in bytes                      */
     bool      dirty;            /* image modified since the last clear        */
 
@@ -111,23 +113,32 @@ typedef struct ms0515_hd {
 /* ── Public API ─────────────────────────────────────────────────────────── */
 
 /*
- * hd_init — Reset the device to the unmounted power-on state.  Does not
- * allocate memory.
+ * hd_init — Reset the device to the power-on state (controller absent, no
+ * media).  Does not allocate memory.
  */
 void hd_init(ms0515_hd_t *hd);
 
 /*
- * hd_mount — Allocate `size` bytes for the backing image and enable the
- * device.  If `data` is non-NULL, `size` bytes are copied in; otherwise
- * the image is zero-filled.  Returns false on allocation failure or when
- * `size` is not a positive multiple of HD_BLOCK_SIZE.
+ * hd_set_enabled — Toggle the controller's presence on the bus.  While
+ * enabled the HD owns 0177720/0177722 (the serial port does not); while
+ * disabled those addresses fall through to the serial stub.  Does not
+ * touch the mounted image — a disabled controller simply stops decoding.
+ */
+void hd_set_enabled(ms0515_hd_t *hd, bool enabled);
+
+/*
+ * hd_mount — Allocate `size` bytes for the backing image (the media) and
+ * enable the controller.  If `data` is non-NULL, `size` bytes are copied
+ * in; otherwise the image is zero-filled.  Returns false on allocation
+ * failure or when `size` is not a positive multiple of HD_BLOCK_SIZE.
  *
  * A previously mounted image is released first.
  */
 bool hd_mount(ms0515_hd_t *hd, const uint8_t *data, uint32_t size);
 
 /*
- * hd_unmount — Release the backing image and disable the device.
+ * hd_unmount — Eject the media (release the backing image).  The
+ * controller stays enabled, presenting an offline drive (GetSize == 0).
  */
 void hd_unmount(ms0515_hd_t *hd);
 

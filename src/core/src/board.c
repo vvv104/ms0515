@@ -508,6 +508,11 @@ void board_ramdisk_free(ms0515_board_t *board)
     ramdisk_free(&board->ramdisk);
 }
 
+void board_hd_set_enabled(ms0515_board_t *board, bool enabled)
+{
+    hd_set_enabled(&board->hd, enabled);
+}
+
 bool board_hd_mount(ms0515_board_t *board, const uint8_t *data, uint32_t size)
 {
     return hd_mount(&board->hd, data, size);

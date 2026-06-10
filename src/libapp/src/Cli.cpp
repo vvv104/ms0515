@@ -127,6 +127,7 @@ CliArgs mergeCliOverConfig(CliArgs cli, const Config &cfg)
     for (int i = 0; i < 2; ++i)
         if (cli.dsPath[i].empty()) cli.dsPath[i] = cfg.dsPath[i];
     if (cli.hdPath.empty()) cli.hdPath = cfg.hdPath;
+    if (!cli.hdEnabled) cli.hdEnabled = cfg.hdEnabled;
     return cli;
 }
 

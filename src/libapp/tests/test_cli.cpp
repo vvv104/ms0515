@@ -41,6 +41,7 @@ TEST_CASE("no arguments → all paths empty, frame counters zero") {
     for (int i = 0; i < 4; ++i) CHECK(a.fdPath[i].empty());
     for (int i = 0; i < 2; ++i) CHECK(a.dsPath[i].empty());
     CHECK(a.hdPath.empty());
+    CHECK_FALSE(a.hdEnabled);
     CHECK(a.maxFrames == 0);
     CHECK(a.screenshotFrame == 0);
     /* historySize uses -1 as "take from config", not zero — the header
@@ -204,6 +205,14 @@ TEST_CASE("non-empty cli hdPath wins over config") {
     cli.hdPath = "hd-from-cli";
     app::CliArgs merged = app::mergeCliOverConfig(std::move(cli), cfg);
     CHECK(merged.hdPath == "hd-from-cli");
+}
+
+TEST_CASE("hdEnabled is inherited from config") {
+    app::Config cfg;
+    cfg.hdEnabled = true;
+    app::CliArgs cli;            /* no --hd flag */
+    app::CliArgs merged = app::mergeCliOverConfig(std::move(cli), cfg);
+    CHECK(merged.hdEnabled);
 }
 
 TEST_CASE("non-empty cli fields win over config") {
