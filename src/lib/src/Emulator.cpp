@@ -132,6 +132,7 @@ Emulator::~Emulator()
 {
     for (int i = 0; i < 4; ++i)
         fdc_detach(&impl_->board.fdc, i);
+    unmountHd();
     board_ramdisk_free(&impl_->board);
 }
 
@@ -197,6 +198,59 @@ void Emulator::unmountDisk(int drive)
 void Emulator::enableRamDisk()
 {
     board_ramdisk_enable(&impl_->board);
+}
+
+/* ── Paravirtual hard disk (HD:) ────────────────────────────────────────── */
+
+bool Emulator::mountHd(std::string_view path)
+{
+    std::ifstream f(std::string{path}, std::ios::binary | std::ios::ate);
+    if (!f)
+        return false;
+
+    auto size = f.tellg();
+    if (size <= 0 || (static_cast<std::streamoff>(size) % HD_BLOCK_SIZE) != 0)
+        return false;
+
+    f.seekg(0);
+    std::vector<uint8_t> buffer(static_cast<std::size_t>(size));
+    f.read(reinterpret_cast<char *>(buffer.data()),
+           static_cast<std::streamsize>(size));
+    if (!f)
+        return false;
+
+    if (!board_hd_mount(&impl_->board, buffer.data(),
+                        static_cast<uint32_t>(buffer.size())))
+        return false;
+
+    hdPath_ = std::string{path};
+    return true;
+}
+
+void Emulator::unmountHd()
+{
+    ms0515_hd_t &hd = impl_->board.hd;
+    if (hd.enabled && hd.dirty && !hdPath_.empty()) {
+        std::ofstream f(hdPath_, std::ios::binary | std::ios::trunc);
+        if (f) {
+            f.write(reinterpret_cast<const char *>(hd.image),
+                    static_cast<std::streamsize>(hd.image_size));
+            if (f)
+                hd.dirty = false;
+        }
+    }
+    board_hd_unmount(&impl_->board);
+    hdPath_.clear();
+}
+
+bool Emulator::hdMounted() const noexcept
+{
+    return impl_->board.hd.enabled;
+}
+
+bool Emulator::hdActive() const noexcept
+{
+    return impl_->board.hd.activity_remaining > 0;
 }
 
 /* ── Execution ──────────────────────────────────────────────────────────── */

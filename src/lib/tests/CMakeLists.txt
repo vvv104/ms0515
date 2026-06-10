@@ -23,6 +23,7 @@ add_executable(ms0515_lib_tests
     test_vram_write_callback.cpp
     test_vram_mirror.cpp
     test_ex_disk.cpp
+    test_hd_disk.cpp
     test_dir_vs_os.cpp
     test_disk_cli.cpp
 )

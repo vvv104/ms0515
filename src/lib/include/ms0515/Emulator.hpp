@@ -159,6 +159,26 @@ public:
 
     void enableRamDisk();
 
+    /* ── Paravirtual hard disk (HD:) ───────────────────────────────────── */
+
+    /* Mount a HD backing image.  The whole file is read into the device's
+     * buffer; writes are flushed back on unmountHd() / destruction.  The
+     * size must be a positive multiple of 512 bytes.  Mounting takes the
+     * 0177720/0177722 bus addresses away from the (unused) serial port, so
+     * HD and the serial port are mutually exclusive. */
+    [[nodiscard]] bool mountHd(std::string_view path);
+
+    /* Flush a dirty image back to its file and unmount it. */
+    void unmountHd();
+
+    [[nodiscard]] bool hdMounted() const noexcept;
+
+    [[nodiscard]] const std::string &hdPath() const noexcept { return hdPath_; }
+
+    /* True while a HD transfer recently completed — drives a UI lamp like
+     * diskActive(), with the same post-activity decay. */
+    [[nodiscard]] bool hdActive() const noexcept;
+
     /* History ring & memory watchpoints used to live here; they moved
      * onto `Debugger` (diagnostic surface) — see Debugger.hpp. */
 
@@ -271,6 +291,7 @@ private:
 
     std::unique_ptr<Impl> impl_;
     std::array<std::string, 4> diskPath_;
+    std::string hdPath_;
 };
 
 } /* namespace ms0515 */
