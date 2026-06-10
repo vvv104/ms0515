@@ -248,6 +248,10 @@ bool Emulator::mountHd(std::string_view path)
     auto size = f.tellg();
     if (size <= 0 || (static_cast<std::streamoff>(size) % HD_BLOCK_SIZE) != 0)
         return false;
+    /* An RT-11 volume tops out at 65535 blocks (~32 MB); reject anything
+     * larger rather than silently presenting only the first 65535 blocks. */
+    if (size > static_cast<std::streamoff>(HD_MAX_BLOCKS) * HD_BLOCK_SIZE)
+        return false;
 
     f.seekg(0);
     std::vector<uint8_t> buffer(static_cast<std::size_t>(size));

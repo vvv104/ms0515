@@ -99,6 +99,19 @@ TEST_CASE("controller enable is independent of a mounted image") {
     fs::remove(p);
 }
 
+TEST_CASE("mountHd rejects an image past the 65535-block RT-11 limit") {
+    fs::path p = fs::temp_directory_path() / "ms0515_hd_huge.img";
+    {   /* sparse: one block over the limit, no 32 MB write */
+        std::ofstream f(p, std::ios::binary | std::ios::trunc);
+        f.seekp(static_cast<std::streamoff>(65536) * HD_BLOCK_SIZE - 1);
+        f.put('\0');
+    }
+    ms0515::Emulator emu;
+    CHECK(emu.mountHd(p.string()) == false);
+    CHECK_FALSE(emu.hdMounted());
+    fs::remove(p);
+}
+
 TEST_CASE("mountHd reports size to the driver via GetSize") {
     fs::path p = makeImage("ms0515_hd_size.img", 50);
     ms0515::Emulator emu;

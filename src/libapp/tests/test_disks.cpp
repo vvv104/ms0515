@@ -120,6 +120,31 @@ TEST_CASE("a missing file returns an error string") {
     CHECK(app::validateHdImage("/nope/missing.hd").has_value());
 }
 
+/* Sparse helper: a file of `blocks` * 512 bytes without writing them all. */
+static fs::path makeSparseHd(const char *name, std::uintmax_t blocks)
+{
+    fs::path p = fixtureRoot() / name;
+    fs::create_directories(p.parent_path());
+    std::ofstream f(p, std::ios::binary | std::ios::trunc);
+    f.seekp(static_cast<std::streamoff>(blocks * 512 - 1));
+    f.put('\0');
+    return p;
+}
+
+TEST_CASE("an HD image at exactly the 65535-block limit is accepted") {
+    fs::path p = makeSparseHd("max.hd", 65535);
+    CHECK_FALSE(app::validateHdImage(p.string()).has_value());
+    fs::remove(p);
+}
+
+TEST_CASE("an HD image past 65535 blocks is rejected") {
+    fs::path p = makeSparseHd("huge.hd", 65536);
+    auto err = app::validateHdImage(p.string());
+    REQUIRE(err.has_value());
+    CHECK(err->find("65535") != std::string::npos);
+    fs::remove(p);
+}
+
 }  // TEST_SUITE
 
 

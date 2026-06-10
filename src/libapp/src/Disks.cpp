@@ -69,7 +69,9 @@ std::optional<std::string>
 validateHdImage(const std::string &path)
 {
     namespace fs = std::filesystem;
-    constexpr std::uintmax_t kHdBlock = 512;   /* RT-11 block size */
+    constexpr std::uintmax_t kHdBlock     = 512;       /* RT-11 block size   */
+    constexpr std::uintmax_t kHdMaxBlocks = 65535;     /* RT-11 volume limit */
+    constexpr std::uintmax_t kHdMaxBytes  = kHdMaxBlocks * kHdBlock;
     std::error_code ec;
     auto sz = fs::file_size(path, ec);
     if (ec)
@@ -79,6 +81,13 @@ validateHdImage(const std::string &path)
             "'{}' is not a valid HD image (size {} bytes; expected a "
             "positive multiple of {}).",
             path, static_cast<unsigned long long>(sz), kHdBlock);
+    if (sz > kHdMaxBytes)
+        return std::format(
+            "'{}' is {} bytes; an RT-11 volume tops out at {} blocks "
+            "(~32 MB / {} bytes).",
+            path, static_cast<unsigned long long>(sz),
+            static_cast<unsigned long long>(kHdMaxBlocks),
+            static_cast<unsigned long long>(kHdMaxBytes));
     return std::nullopt;
 }
 
