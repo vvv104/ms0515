@@ -89,11 +89,16 @@ Two concepts are kept separate, mirroring real hardware:
   under the Components menu.  An enabled controller with no media is a
   valid offline drive (`GetSize == 0`).
 - **Media** — the mounted image.  `Emulator::mountHd` reads the whole file
-  into a RAM buffer (the C core stays free of file I/O) and also enables
-  the controller; `unmountHd` flushes a dirty image back to its file and
-  ejects it while leaving the controller present (the destructor flushes
-  too).  The image is mounted from the File menu, beside the floppies, or
-  via the `--hd <path>` flag / `hd` YAML key.
+  into a RAM buffer (the C core stays free of file I/O — reads are served
+  from the buffer) and also enables the controller; `unmountHd` ejects it
+  while leaving the controller present.  The image is mounted from the File
+  menu, beside the floppies, or via the `--hd <path>` flag / `hd` YAML key.
+
+Writes are **write-through**: the core fires a callback after each Write
+command with the changed byte range, and the lib persists it to the
+backing file immediately (open-write-close per call).  So the file always
+reflects the volume mid-session and survives a crash or a killed process —
+nothing waits for a clean shutdown.
 
 An image must be a positive multiple of 512 bytes; in practice RT-11 caps
 a logical volume at 65535 blocks (~32 MB), so a larger backing file is
