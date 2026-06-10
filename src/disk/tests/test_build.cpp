@@ -112,6 +112,35 @@ TEST_CASE("init leaves free sectors as the B6 6D blank pattern") {
     CHECK(image[off + 3] == 0x6D);
 }
 
+TEST_CASE("linear HD round-trip: blankLinear + init + put + read back") {
+    auto img = blankLinear(4000);
+    REQUIRE(img.size() == 4000u * kBlock);
+    initVolume(img, 0, false, {}, /*linear=*/true);
+
+    std::vector<uint8_t> data(1000);
+    for (std::size_t i = 0; i < data.size(); ++i)
+        data[i] = static_cast<uint8_t>(i * 7 + 1);
+    putFile(img, 0, false, "BIG.DAT", data, {}, /*linear=*/true);
+    putFile(img, 0, false, "HI.TXT",
+            std::vector<uint8_t>{'h', 'i'}, {}, /*linear=*/true);
+
+    auto im = openLinearImage(img);
+    REQUIRE(im.has_value());
+    REQUIRE(im->hasDirectory);
+    CHECK(im->linear);
+    REQUIRE(im->directory.permanentFiles().size() == 2);
+    auto rd = im->readFile("BIG.DAT");
+    REQUIRE(rd.size() >= data.size());
+    CHECK(std::equal(data.begin(), data.end(), rd.begin()));
+
+    /* The free area spans the whole 4000-block volume, not the 800-block
+     * floppy side — proving the linear geometry generalises the size. */
+    int freeLen = 0;
+    for (const auto &e : im->directory.entries)
+        if (e.isEmpty()) freeLen = e.length;
+    CHECK(freeLen > 3000);
+}
+
 TEST_CASE("init options: volume id and segment count") {
     auto img = blankImage(false);
     InitOptions opts; opts.volumeId = "MYDISK"; opts.owner = "VVV"; opts.segments = 2;

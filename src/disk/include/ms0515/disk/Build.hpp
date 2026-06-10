@@ -62,12 +62,17 @@ struct DateParts { int year, month, day; };
  * sided), filled with the 0xB6 0x6D blank pattern.  No RT-11 structure. */
 [[nodiscard]] std::vector<uint8_t> blankImage(bool ds);
 
+/* Raw, unformatted linear HD/LD container of `blocks` * 512 bytes,
+ * zero-filled (the paravirtual HD: device powers up zeroed).  No RT-11
+ * structure — run initVolume(..., linear=true) to format it. */
+[[nodiscard]] std::vector<uint8_t> blankLinear(int blocks);
+
 /* Format side `side` (0 lower/boot, 1 upper) of `image` as an empty RT-11
  * volume.  `image` must already be a blank of the right size for `ds`.
  * Throws std::runtime_error on a size/side mismatch, a too-long id/owner, or
  * a bad segment count. */
 void initVolume(std::vector<uint8_t> &image, int side, bool ds,
-                const InitOptions &opts = {});
+                const InitOptions &opts = {}, bool linear = false);
 
 /* Add one file to the initialised volume on `side` (the equivalent of PIP).
  * Throws std::runtime_error if the side is not initialised, the name is not
@@ -77,21 +82,21 @@ void initVolume(std::vector<uint8_t> &image, int side, bool ds,
  * wants the original write date preserved. */
 void putFile(std::vector<uint8_t> &image, int side, bool ds,
              const std::string &name, std::span<const uint8_t> data,
-             const PutOptions &opts = {});
+             const PutOptions &opts = {}, bool linear = false);
 
 /* Flip the kStatusProtected bit on the directory entry of `name` on `side`.
  * `on=true` sets it (equivalent to PIP /PROTECT), `on=false` clears it
  * (PIP /NOPROTECT).  Throws std::runtime_error if the file is not found or
  * the side is not initialised. */
 void setProtected(std::vector<uint8_t> &image, int side, bool ds,
-                  const std::string &name, bool on);
+                  const std::string &name, bool on, bool linear = false);
 
 /* Overwrite the date word on the directory entry of `name`.  Pass an already-
  * encoded value from encodeDate(); zero means "no date" (clears the field).
  * Throws std::runtime_error if the file is not found or the side is not
  * initialised. */
 void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
-                  const std::string &name, uint16_t date);
+                  const std::string &name, uint16_t date, bool linear = false);
 
 /* Defragment a side (the equivalent of RT-11 SQUEEZE): walk every
  * permanent entry in directory order, move its data blocks left to be
@@ -100,7 +105,7 @@ void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
  * remaining free space.  Throws if the side isn't initialised or the
  * directory has multiple segments (multi-segment squeeze isn't supported
  * yet — INIT defaults still produce a single segment under our usage). */
-void squeeze(std::vector<uint8_t> &image, int side, bool ds);
+void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear = false);
 
 /* Delete one file from `side` (the equivalent of PIP /DELETE): looks up the
  * directory entry by name and flips it to an empty slot of the same length,
@@ -108,7 +113,7 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds);
  * std::runtime_error if the side is not initialised, the name is not
  * RAD50-encodable, or no permanent file with that name exists. */
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
-                const std::string &name);
+                const std::string &name, bool linear = false);
 
 } /* namespace ms0515::disk */
 

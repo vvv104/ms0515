@@ -118,6 +118,29 @@ std::vector<uint8_t> makeHomeBlock(const std::string &volumeId,
 
 }  /* namespace */
 
+namespace {
+
+/* Total logical block count of the volume: the actual file size for a linear
+ * HD/LD container, or the fixed 800-block side for a floppy. */
+std::size_t volumeBlocks(const std::vector<uint8_t> &image, bool linear)
+{
+    return linear ? image.size() / kBlock : static_cast<std::size_t>(kSsBlocks);
+}
+
+/* Validate that `image` has an acceptable size for the chosen geometry. */
+void requireValidSize(const std::vector<uint8_t> &image, bool ds, bool linear)
+{
+    if (linear) {
+        if (image.empty() || (image.size() % kBlock) != 0)
+            throw std::runtime_error(
+                "linear HD image size must be a positive multiple of 512");
+    } else if (image.size() != (ds ? kDoubleSize : kSideSize)) {
+        throw std::runtime_error("image size does not match the requested ss/ds");
+    }
+}
+
+}  /* namespace */
+
 std::vector<uint8_t> blankImage(bool ds)
 {
     const std::size_t size = ds ? kDoubleSize : kSideSize;
@@ -126,19 +149,26 @@ std::vector<uint8_t> blankImage(bool ds)
     return img;
 }
 
-void initVolume(std::vector<uint8_t> &image, int side, bool ds,
-                const InitOptions &opts)
+std::vector<uint8_t> blankLinear(int blocks)
 {
-    const std::size_t want = ds ? kDoubleSize : kSideSize;
-    if (image.size() != want)
-        throw std::runtime_error("image size does not match the requested ss/ds");
-    if (ds ? (side != 0 && side != 1) : (side != 0))
+    if (blocks <= 0)
+        throw std::runtime_error("blankLinear: block count must be positive");
+    return std::vector<uint8_t>(static_cast<std::size_t>(blocks) * kBlock, 0);
+}
+
+void initVolume(std::vector<uint8_t> &image, int side, bool ds,
+                const InitOptions &opts, bool linear)
+{
+    requireValidSize(image, ds, linear);
+    if (linear ? (side != 0) : (ds ? (side != 0 && side != 1) : (side != 0)))
         throw std::runtime_error("invalid side for this image");
     if (opts.segments < 1 || opts.segments > 31)
         throw std::runtime_error("directory segments must be 1..31");
 
+    const int volBlocks = static_cast<int>(volumeBlocks(image, linear));
+
     auto writeBlock = [&](int lbn, const uint8_t *src) {
-        std::memcpy(image.data() + lbnToByte(lbn, side, ds), src, kBlock);
+        std::memcpy(image.data() + lbnToByte(lbn, side, ds, linear), src, kBlock);
     };
 
     {   /* boot block (LBN 0): "no boot" stub + zeros */
@@ -154,7 +184,7 @@ void initVolume(std::vector<uint8_t> &image, int side, bool ds,
     /* Directory segment 1.  Reserve `segments` two-block segments at LBN
      * 6..; data starts after them.  Segments 2.. stay blank until used. */
     const int dataStart = kDirLbn + opts.segments * 2;
-    if (dataStart >= kSsBlocks)
+    if (dataStart >= volBlocks)
         throw std::runtime_error("too many directory segments for the volume");
 
     std::vector<uint8_t> seg(2 * kBlock);
@@ -167,7 +197,7 @@ void initVolume(std::vector<uint8_t> &image, int side, bool ds,
 
     /* Free-space entry named " EMPTY.FIL" (as INIT writes it) + EOS marker. */
     putEntry(seg.data(), 10, kStatusEmpty, 0x00D5, 0x6739, 0x26F4,
-             static_cast<uint16_t>(kSsBlocks - dataStart));
+             static_cast<uint16_t>(volBlocks - dataStart));
     putw(&seg[10 + 14], kStatusEndOfSeg);
 
     writeBlock(kDirLbn,     seg.data());
@@ -205,16 +235,15 @@ uint16_t encodeDate(int year, int month, int day)
 
 void putFile(std::vector<uint8_t> &image, int side, bool ds,
              const std::string &name, std::span<const uint8_t> data,
-             const PutOptions &opts)
+             const PutOptions &opts, bool linear)
 {
-    const std::size_t want = ds ? kDoubleSize : kSideSize;
-    if (image.size() != want)
-        throw std::runtime_error("image size does not match the requested ss/ds");
+    requireValidSize(image, ds, linear);
 
-    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds); };
+    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds, linear); };
+    const int volBlocks = static_cast<int>(volumeBlocks(image, linear));
 
     const int dirLbn = getw(image.data() + off(1) + 0x1D4);
-    if (dirLbn < 1 || dirLbn > kSsBlocks)
+    if (dirLbn < 1 || dirLbn > volBlocks)
         throw std::runtime_error("side is not initialised (run init first)");
 
     std::vector<uint8_t> seg(2 * kBlock);
@@ -328,19 +357,18 @@ namespace {
  * the side isn't initialised or the file doesn't exist. */
 template <typename Mutator>
 void mutatePermanentEntry(std::vector<uint8_t> &image, int side, bool ds,
-                          const std::string &name, Mutator mutator)
+                          const std::string &name, Mutator mutator, bool linear)
 {
-    const std::size_t want = ds ? kDoubleSize : kSideSize;
-    if (image.size() != want)
-        throw std::runtime_error("image size does not match the requested ss/ds");
+    requireValidSize(image, ds, linear);
 
-    const std::size_t homeOff = lbnToByte(1, side, ds);
+    const std::size_t homeOff = lbnToByte(1, side, ds, linear);
+    const int volBlocks = static_cast<int>(volumeBlocks(image, linear));
     const int dirLbn = getw(image.data() + homeOff + 0x1D4);
-    if (dirLbn < 1 || dirLbn > kSsBlocks)
+    if (dirLbn < 1 || dirLbn > volBlocks)
         throw std::runtime_error("side is not initialised (run init first)");
 
-    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds);
-    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds);
+    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, linear);
+    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, linear);
 
     std::vector<uint8_t> seg(2 * kBlock);
     std::memcpy(seg.data(),          image.data() + segOff0, kBlock);
@@ -378,7 +406,7 @@ void mutatePermanentEntry(std::vector<uint8_t> &image, int side, bool ds,
 }  /* anonymous namespace */
 
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
-                const std::string &name)
+                const std::string &name, bool linear)
 {
     mutatePermanentEntry(image, side, ds, name,
         [](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
@@ -388,11 +416,11 @@ void removeFile(std::vector<uint8_t> &image, int side, bool ds,
              * still see a consistent shape. */
             const uint16_t len = getw(&seg[p + 8]);
             putEntry(seg, p, kStatusEmpty, 0x00D5, 0x6739, 0x26F4, len);
-        });
+        }, linear);
 }
 
 void setProtected(std::vector<uint8_t> &image, int side, bool ds,
-                  const std::string &name, bool on)
+                  const std::string &name, bool on, bool linear)
 {
     mutatePermanentEntry(image, side, ds, name,
         [on](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
@@ -400,28 +428,27 @@ void setProtected(std::vector<uint8_t> &image, int side, bool ds,
             if (on) status |=  kStatusProtected;
             else    status &= ~kStatusProtected;
             putw(&seg[p], status);
-        });
+        }, linear);
 }
 
 void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
-                  const std::string &name, uint16_t date)
+                  const std::string &name, uint16_t date, bool linear)
 {
     mutatePermanentEntry(image, side, ds, name,
         [date](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
             putw(&seg[p + 12], date);
-        });
+        }, linear);
 }
 
-void squeeze(std::vector<uint8_t> &image, int side, bool ds)
+void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear)
 {
-    const std::size_t want = ds ? kDoubleSize : kSideSize;
-    if (image.size() != want)
-        throw std::runtime_error("image size does not match the requested ss/ds");
+    requireValidSize(image, ds, linear);
 
-    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds); };
+    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds, linear); };
+    const int volBlocks = static_cast<int>(volumeBlocks(image, linear));
 
     const int dirLbn = getw(image.data() + off(1) + 0x1D4);
-    if (dirLbn < 1 || dirLbn > kSsBlocks)
+    if (dirLbn < 1 || dirLbn > volBlocks)
         throw std::runtime_error("side is not initialised (run init first)");
 
     std::vector<uint8_t> seg(2 * kBlock);

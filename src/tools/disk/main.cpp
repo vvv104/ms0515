@@ -101,11 +101,32 @@ bool globMatch(std::string_view pat, std::string_view s)
     return pi == pat.size();
 }
 
-/* Read an existing image to modify in place; validate its size. */
-std::optional<std::vector<uint8_t>> readImage(const std::string &path, bool &ds)
+/* RT-11 volume hard limit: 65535 blocks (~32 MB). */
+constexpr std::size_t kHdMaxBlocks = 65535;
+
+/* Read an existing image to modify in place; validate its size.  For a linear
+ * HD/LD container any positive 512-byte multiple up to the 65535-block limit
+ * is accepted; otherwise the floppy SS/DS sizes. */
+std::optional<std::vector<uint8_t>> readImage(const std::string &path, bool &ds,
+                                              bool linear)
 {
     auto raw = readHostFile(path);
     if (!raw) { std::fprintf(stderr, "error: cannot read %s\n", path.c_str()); return std::nullopt; }
+    if (linear) {
+        if (raw->empty() || (raw->size() % kBlock) != 0) {
+            std::fprintf(stderr, "error: %s is %zu B, not a 512-byte multiple\n",
+                         path.c_str(), raw->size());
+            return std::nullopt;
+        }
+        if (raw->size() > kHdMaxBlocks * kBlock) {
+            std::fprintf(stderr, "error: %s is %zu blocks, over the %zu-block "
+                         "(~32 MB) RT-11 limit\n",
+                         path.c_str(), raw->size() / kBlock, kHdMaxBlocks);
+            return std::nullopt;
+        }
+        ds = false;
+        return raw;
+    }
     if (raw->size() != kSideSize && raw->size() != kDoubleSize) {
         std::fprintf(stderr, "error: %s is %zu B, not a 400 KB or 800 KB image\n",
                      path.c_str(), raw->size());
@@ -231,13 +252,14 @@ int cmdGet(const std::string &path, int side, const std::string &outdir,
     return fails ? 1 : 0;
 }
 
-int cmdInit(const std::string &path, int side, const InitOptions &opts)
+int cmdInit(const std::string &path, int side, const InitOptions &opts,
+            bool linear)
 {
     bool ds = false;
-    auto image = readImage(path, ds);
+    auto image = readImage(path, ds, linear);
     if (!image) return 1;
     try {
-        initVolume(*image, side, ds, opts);
+        initVolume(*image, side, ds, opts, linear);
     } catch (const std::exception &e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 1;
@@ -246,8 +268,12 @@ int cmdInit(const std::string &path, int side, const InitOptions &opts)
         std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
         return 1;
     }
-    std::printf("initialised %s (side %d, %s)\n", path.c_str(), side,
-                ds ? "double-sided" : "single-sided");
+    if (linear)
+        std::printf("initialised %s (linear HD, %zu blocks)\n", path.c_str(),
+                    image->size() / kBlock);
+    else
+        std::printf("initialised %s (side %d, %s)\n", path.c_str(), side,
+                    ds ? "double-sided" : "single-sided");
     return 0;
 }
 
@@ -274,10 +300,10 @@ std::optional<uint16_t> parseDate(const std::string &s)
 
 
 int cmdPut(const std::string &path, int side, const std::vector<std::string> &args,
-           const PutOptions &opts)
+           const PutOptions &opts, bool linear)
 {
     bool ds = false;
-    auto image = readImage(path, ds);
+    auto image = readImage(path, ds, linear);
     if (!image) return 1;
 
     /* Expand '*' globs against the host filesystem; plain paths pass through. */
@@ -311,7 +337,7 @@ int cmdPut(const std::string &path, int side, const std::vector<std::string> &ar
         PutOptions eff = opts;
         if (eff.date == 0) eff.date = mtimeAsDate(hf);
         try {
-            putFile(*image, side, ds, name, *bytes, eff);
+            putFile(*image, side, ds, name, *bytes, eff, linear);
             std::printf("  %s -> %s (%zu B)\n", hf.string().c_str(), name.c_str(),
                         bytes->size());
             ++added;
@@ -327,16 +353,17 @@ int cmdPut(const std::string &path, int side, const std::vector<std::string> &ar
     return fails ? 1 : 0;
 }
 
-int cmdRm(const std::string &path, int side, const std::vector<std::string> &names)
+int cmdRm(const std::string &path, int side, const std::vector<std::string> &names,
+          bool linear)
 {
     bool ds = false;
-    auto image = readImage(path, ds);
+    auto image = readImage(path, ds, linear);
     if (!image) return 1;
 
     int removed = 0, fails = 0;
     for (const auto &name : names) {
         try {
-            removeFile(*image, side, ds, name);
+            removeFile(*image, side, ds, name, linear);
             std::printf("  removed %s\n", name.c_str());
             ++removed;
         } catch (const std::exception &e) {
@@ -351,12 +378,12 @@ int cmdRm(const std::string &path, int side, const std::vector<std::string> &nam
     return fails ? 1 : 0;
 }
 
-int cmdSqueeze(const std::string &path, int side)
+int cmdSqueeze(const std::string &path, int side, bool linear)
 {
     bool ds = false;
-    auto image = readImage(path, ds);
+    auto image = readImage(path, ds, linear);
     if (!image) return 1;
-    try { squeeze(*image, side, ds); }
+    try { squeeze(*image, side, ds, linear); }
     catch (const std::exception &e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 1;
@@ -370,16 +397,16 @@ int cmdSqueeze(const std::string &path, int side)
 }
 
 int cmdSetdate(const std::string &path, int side, uint16_t date,
-               const std::vector<std::string> &names)
+               const std::vector<std::string> &names, bool linear)
 {
     bool ds = false;
-    auto image = readImage(path, ds);
+    auto image = readImage(path, ds, linear);
     if (!image) return 1;
 
     int changed = 0, fails = 0;
     for (const auto &name : names) {
         try {
-            setEntryDate(*image, side, ds, name, date);
+            setEntryDate(*image, side, ds, name, date, linear);
             std::printf("  dated %s\n", name.c_str());
             ++changed;
         } catch (const std::exception &e) {
@@ -395,16 +422,16 @@ int cmdSetdate(const std::string &path, int side, uint16_t date,
 }
 
 int cmdProtect(const std::string &path, int side,
-               const std::vector<std::string> &names, bool on)
+               const std::vector<std::string> &names, bool on, bool linear)
 {
     bool ds = false;
-    auto image = readImage(path, ds);
+    auto image = readImage(path, ds, linear);
     if (!image) return 1;
 
     int changed = 0, fails = 0;
     for (const auto &name : names) {
         try {
-            setProtected(*image, side, ds, name, on);
+            setProtected(*image, side, ds, name, on, linear);
             std::printf("  %sprotected %s\n", on ? "" : "un", name.c_str());
             ++changed;
         } catch (const std::exception &e) {
@@ -427,14 +454,31 @@ int main(int argc, char **argv)
     const std::string cmd = argv[1];
 
     if (cmd == "create") {
-        std::string out; bool ds = false;
+        std::string out; bool ds = false, linear = false; long blocks = 0;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--ds") { ds = true; continue; }
+            if (a == "--hd" || a == "--linear") { linear = true; continue; }
+            if ((a == "--blocks" || a == "--size") && i + 1 < argc) {
+                blocks = std::atol(argv[++i]); continue; }
             if (out.empty()) { out = std::string(a); continue; }
             return usage();
         }
         if (out.empty()) return usage();
+        if (linear) {
+            if (blocks <= 0) {
+                std::fputs("error: create --hd needs --blocks N (size in 512-byte blocks)\n",
+                           stderr); return 2; }
+            if (static_cast<std::size_t>(blocks) > kHdMaxBlocks) {
+                std::fprintf(stderr, "error: %ld blocks exceeds the %zu-block "
+                             "(~32 MB) RT-11 limit\n", blocks, kHdMaxBlocks); return 2; }
+            auto image = blankLinear(static_cast<int>(blocks));
+            if (!writeWholeFile(out, image)) {
+                std::fprintf(stderr, "error: cannot write %s\n", out.c_str()); return 1; }
+            std::printf("created %s (%zu B, linear HD, %ld blocks, unformatted)\n",
+                        out.c_str(), image.size(), blocks);
+            return 0;
+        }
         auto image = blankImage(ds);
         if (!writeWholeFile(out, image)) {
             std::fprintf(stderr, "error: cannot write %s\n", out.c_str()); return 1; }
@@ -444,27 +488,29 @@ int main(int argc, char **argv)
     }
 
     if (cmd == "init") {
-        std::string image; int side = 0; InitOptions opts;
+        std::string image; int side = 0; InitOptions opts; bool linear = false;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if      (a == "--side"      && i + 1 < argc) side = std::atoi(argv[++i]);
             else if (a == "--volume-id" && i + 1 < argc) opts.volumeId = argv[++i];
             else if (a == "--owner"     && i + 1 < argc) opts.owner = argv[++i];
             else if (a == "--segments"  && i + 1 < argc) opts.segments = std::atoi(argv[++i]);
+            else if (a == "--hd" || a == "--linear") linear = true;
             else if (image.empty()) image = std::string(a);
             else return usage();
         }
         if (image.empty()) return usage();
-        return cmdInit(image, side, opts);
+        return cmdInit(image, side, opts, linear);
     }
 
     if (cmd == "put") {
         std::string image; int side = 0; std::vector<std::string> files;
-        PutOptions opts;
+        PutOptions opts; bool linear = false;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
             if (a == "--protected") { opts.readOnly = true; continue; }
+            if (a == "--hd" || a == "--linear") { linear = true; continue; }
             if (a == "--date" && i + 1 < argc) {
                 auto d = parseDate(argv[++i]);
                 if (!d) { std::fprintf(stderr, "error: --date wants YYYY-MM-DD\n"); return 2; }
@@ -474,58 +520,65 @@ int main(int argc, char **argv)
             files.emplace_back(a);
         }
         if (image.empty() || files.empty()) return usage();
-        return cmdPut(image, side, files, opts);
+        return cmdPut(image, side, files, opts, linear);
     }
 
     if (cmd == "rm") {
-        std::string image; int side = 0; std::vector<std::string> names;
+        std::string image; int side = 0; bool linear = false;
+        std::vector<std::string> names;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (a == "--hd" || a == "--linear") { linear = true; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             names.emplace_back(a);
         }
         if (image.empty() || names.empty()) return usage();
-        return cmdRm(image, side, names);
+        return cmdRm(image, side, names, linear);
     }
 
     if (cmd == "squeeze") {
-        std::string image; int side = 0;
+        std::string image; int side = 0; bool linear = false;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (a == "--hd" || a == "--linear") { linear = true; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             return usage();
         }
         if (image.empty()) return usage();
-        return cmdSqueeze(image, side);
+        return cmdSqueeze(image, side, linear);
     }
 
     if (cmd == "setdate") {
-        std::string image, dateStr; int side = 0; std::vector<std::string> names;
+        std::string image, dateStr; int side = 0; bool linear = false;
+        std::vector<std::string> names;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
             if (a == "--date" && i + 1 < argc) { dateStr = argv[++i]; continue; }
+            if (a == "--hd" || a == "--linear") { linear = true; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             names.emplace_back(a);
         }
         if (image.empty() || names.empty() || dateStr.empty()) return usage();
         auto d = parseDate(dateStr);
         if (!d) { std::fprintf(stderr, "error: --date wants YYYY-MM-DD\n"); return 2; }
-        return cmdSetdate(image, side, *d, names);
+        return cmdSetdate(image, side, *d, names, linear);
     }
 
     if (cmd == "protect" || cmd == "unprotect") {
-        std::string image; int side = 0; std::vector<std::string> names;
+        std::string image; int side = 0; bool linear = false;
+        std::vector<std::string> names;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (a == "--hd" || a == "--linear") { linear = true; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             names.emplace_back(a);
         }
         if (image.empty() || names.empty()) return usage();
-        return cmdProtect(image, side, names, cmd == "protect");
+        return cmdProtect(image, side, names, cmd == "protect", linear);
     }
 
     if (cmd == "get") {
