@@ -1,0 +1,424 @@
+.Title	HD
+;
+; HD.MAC - HD device driver.
+;
+; Revision history:
+;		    19-Mar-2003 : Created 
+;		    02-Feb-2011 : HDCSR changed from 177660 to 177720
+;	v1.1        26-Feb-2012 : Corrected for non-default SYSGEN options
+;	v1.2        01-Mar-2012 : Corrected Installation check
+;	v1.3        01-Mar-2013 : Minor changes
+;	v1.4        09-Jun-2015 : Minor changes
+;	v1.5        09-Feb-2016 : XM version
+;	v2.0	    23-Sep-2017 : Boot code adopted for HD v2 controller
+;
+
+
+.Macro ......
+.EndM
+
+$$SILENT = 1	; MS-0515 port: skip all HD boot/install messages.
+		; The driver prints them straight to @#TPS/@#TPB (the
+		; DL11 console at 177564/177566), which the MS-0515 does
+		; not decode it - a message write would spin forever waiting
+		; for TPS ready and hang the install.  (Was: ;; $$SILENT = 1)
+
+.Enabl	LC
+
+; Default SYSGEN options.
+
+.IIF NDF MMG$T,  MMG$T  =: 0
+.IIF NDF ERL$G,  ERL$G  =: 0
+.IIF NDF TIM$IT, TIM$IT =: 0
+
+HDCSR = 177720	; Command and state reg addr for HD device.
+HDSIZ = 1600.	; Default HD device size in 512 byte blocks.
+
+;
+; HD command codes (for HD command reg: 177720 )
+;
+
+SetUni		= 1	; Set HD unit number
+SetBlk		= 2	; Set HD block number
+SetBuf		= 3	; Set memory buffer address
+SetWCn		= 4	; Set operation word count
+CmdRea		= 5	; Execute READ  on HD
+CmdWri		= 6	; Execute WRITE on HD
+GetSiz		= 7	; Get HD size in blocks.
+
+CS.INT =   100
+CS.DMA = 40000
+
+;
+; Fixed locations.
+;
+	.ASect
+
+	. = 60
+HD.GEN:
+
+	............................
+
+	.MCall	.DrDef, .Assume, .Addr
+	
+	.DrDef	HD, 362, FILST$!SPFUN$!VARSZ$, HDSIZ, HDCSR, 0
+
+	............................
+
+	.SbTtl	Installation check
+;
+; Initial check (prints HD message).
+;
+
+	.DrIns	HD
+	Mov	(PC)+, R0		; User device entry
+	Clr	R0			; System device entry
+	Mov	#HDCSR,   R1
+	TstB	(R1)			; HD t1 device?
+	BPl	30$			; Yes -> Bad
+	BiT	#CS.DMA, (R1)		; HD t4 or t5 device?
+	BNE	30$			; Yes -> Bad
+
+.IF DF $$SILENT
+	Br	20$			; MS-0515 port (silent): take the good path to
+					; 20$ (ClC).  Upstream reaches 20$ via the
+					; install-message loop's exits; $$SILENT removes
+					; that block, so without this branch the good
+					; path falls into 30$ and patches 20$ to SEC,
+					; making INSTALL reject a perfectly good device.
+.EndC
+.IF NDF $$SILENT
+	Tst	R0
+	BNE	20$
+
+	.Addr	#IMSG, R1
+10$:
+	MovB	(R1)+,R0
+	BEq	20$
+	TstB	@#TPS
+	BPl	.-4
+	MovB	R0,@#TPB
+	Br	10$
+.EndC
+30$:
+	Mov	#<SeC>, 20$
+.IF NDF $$SILENT
+	.Addr	#BadMSG, R1
+	Br	10$
+.EndC
+20$:
+	ClC
+	Return
+
+BadMSG:	.ASCIZ	<15><12>/Wrong HD type/<15><12>
+
+.IF     EQ      MMG$T
+IMSG:	.ASCIZ	<15><12>/HD (177720) disk driver  v2.0  2017/<15><12>
+.IFF
+IMSG:	.ASCIZ	<15><12>/HDX (177720) disk driver v2.0  2017/<15><12>
+.ENDC
+
+.IF DF $$SILENT
+	.ASCII	/SILENT Mod/
+.EndC
+	.Even
+
+.Assume	. LE 400,<;INSTALL area overflow>
+
+	.............
+
+;
+; SET HD subroutines.
+;
+.IF     EQ      MMG$T
+
+	.DrSet	ERLG,  1, O.GEN, NUM
+	.DrSet	TIMIT, 4, O.GEN, NUM
+;
+; Use 'SET HD ERLG=1'  or 'SET HD ERLG=0'  to change ERL$G  bit on the fly.
+; Use 'SET HD TIMIT=1' or 'SET HD TIMIT=0' to change TIM$IT bit on the fly.
+;
+O.GEN:
+	Tst	R0			; Arg = 0 ?
+	BEq	30$
+	BiS	R3, HD.GEN		; Set SYSGEN bit.
+	Br	31$
+30$:
+	BiC	R3, HD.GEN		; Clear SYSGEN bit.
+31$:
+	Return
+
+.ENDC
+
+.Assume	. LE 1000,MESSAGE=<;SET area too big>
+
+
+;
+; I/O request entry point.
+;
+
+	.DrBeg	HD
+1$:
+	Mov	#HD$CSR,  R3
+	Clr	(R3)			; Reset controller if READ not completed
+	TstB	(R3)			; Device READY ?
+	BPl	1$			; No - Wait
+
+	Mov	HDCQE,    R4		; R4 -> Queue element
+	Mov	R4,       R5		; R5 -> Queue element
+	Mov	#HD$CSR+2,R3
+	Mov	(R5)+,    R2		; R2 = Block number
+	MovB	(R5)+,    R1		; R1 = SpFun code
+	BNe	SPFUN			; Is it SpFun call?
+	MovB	(R5)+,    R1		; R1 = Unit number
+	BiC	#^c7,     R1		; Force it to be 0..7
+	Mov	R1,	 (R3)		; @#HD$CSR+2
+	Mov	#SetUni,-(R3)		; Select unit for operations.
+
+	Tst	(R3)+			; Valid unit number?
+	BMi	HDERR			;   No - Error!
+
+	Mov	R2,	 (R3)		; @#HD$CSR+2
+	Mov	#SetBlk,-(R3)		; Set block number.
+	Tst	(R3)+			; Valid?
+	BPl	3$			;   Yes - OK
+	BiS	#EOF$, @-(R4)		;   Else - return EOF
+	Br	DONE			;
+3$:
+.IF     EQ      MMG$T
+	Mov	(R5)+,	 (R3)		; @#HD$CSR+2
+	Mov	#SetBuf,-(R3)		; Set buf addr
+.IFF
+	Call	@$MPPTR
+	Mov	(SP)+,   (R3)		; Buf addr  low bits - @#HD$CSR+2
+	MovB	(SP)+,  -(R3)		; Buf addr high bits - @#HD$CSR+1
+	MovB	#SetBuf,-(R3)		; Set buf addr       - @#HD$CSR
+.ENDC
+
+	Tst	(R3)+
+.IF     NE      MMG$T
+	BMi	HDERR
+.ENDC
+
+	Mov	(R5), R1		; R1 = word count
+	BEq	DONE			; R1 = 0 - Nothing to do
+	BPl	HDREAD			;    > 0 - Read
+					;    < 0 - Write
+	Neg	R1			; Get true word count
+	Mov	R1,	 (R3)		; @#HD$CSR+2
+.IF     EQ      MMG$T
+	Mov	#SetWCn,-(R3)		;     and set it.
+.IFF
+	Tst	-(R3)
+	MovB	#SetWCn, (R3)
+.ENDC
+	Tst	(R3)			; Valid?
+	BPl	4$			;   Yes - OK
+	BiS	#EOF$, @-(R4)		;   Else - set EOF bit
+4$:
+.IF     EQ      MMG$T
+	Mov	#CmdWri, (R3)		; Make Write to HD
+.IFF
+	MovB	#CmdWri, (R3)
+.ENDC
+	Br	CHECK			; OK?
+HDREAD:
+	Mov	R1,	 (R3)		; @#HD$CSR+2
+.IF     EQ      MMG$T
+	Mov	#SetWCn,-(R3)		; Set word count
+.IFF
+	Tst	-(R3)
+	MovB	#SetWCn, (R3)
+.ENDC
+	Tst	(R3)			; Valid?
+	BPl	5$			;   Yes - OK
+	BiS	#EOF$, @-(R4)		;   Else - set EOF bit
+5$:
+.IF     EQ      MMG$T
+	Mov	#CmdRea, (R3)		; Make Read from HD
+.IFF
+	MovB	#CmdRea, (R3)
+.ENDC
+CHECK:
+	TstB	(R3)
+	BPl	.-2.
+	Tst	(R3)			; Error?
+	BPl	DONE			;   No - OK
+					;   Else  - abort
+HDERR:
+	Mov	HDCQE,      R4		; R4 -> Queue element
+	BiS	#HDERR$, @-(R4)		; Set ERROR bit in CSW.
+DONE:
+	Clr	@#HDCSR			; Exit/Abort RW request.
+	.DRFIN	HD
+
+;
+;	Abort and interrupt entry points
+;+ 
+; Abort entry.
+;- 
+	BR	DONE
+;+ 
+; Interrupt service.
+;-
+HDINT:
+	BR	HDERR
+
+
+;
+; .SpFun 373 - Get HD unit size.
+;
+
+SPFUN:
+	CmpB	R1, #373		; GET SIZE?
+	BNE	HDERR
+	MovB	(R5)+,	 R1		; Q$UNIT
+	BiC	#^c7,	 R1		; 
+	Mov	R1, 	  (R3)		; @#HD$CSR+2
+	Mov	#SetUni, -(R3)		; Select unit for operations.
+
+	Mov	#GetSiz,  (R3)+		; Get unit size
+	Mov	(R3), R1
+	BEq	HDERR
+
+.IF     EQ      MMG$T
+        Mov     R1, @(R5)+              ; Report unit size
+.IFF
+        MOV     R1,-(SP)
+        CALL    @$PTWRD
+.ENDC
+
+	Br	DONE
+
+	.............
+
+	.BlkW 1
+
+.IIF EQ ERL$G  .BlkW 1
+.IIF EQ TIM$IT .BlkW 1
+
+	.............
+
+;
+; Primary bootstrap.
+;
+	.DrBot HD, START, READ
+
+	. = HDBOOT + 40
+START:
+	Jmp	BOOT
+
+	. = HDBOOT + 100
+	.Word	102
+	RtI
+
+;
+; Boottime media read.  R0 = Block;  R1 = Word Count;  R2 = Buf Addr
+;
+
+	. = HDBOOT + 210
+
+READ:
+	Call	B.CHECK
+
+	Mov	#HD$CSR+2, R4		; R4 -> HD data reg
+	Mov	R4, R5			; R5 -> HD data reg
+
+	Mov	@#B$DEVU, (R4)		; Unit Num
+	Mov	#SetUni, -(R4)		; R4 -> HD CSR
+
+	Mov	R0, (R5)		; R0 - Block number
+	Mov	#SetBlk, (R4)		;      Set it
+
+	Mov	R1, (R5)		; R1 - Word count
+	Mov	#SetWCn, (R4)		;      Set it
+
+	Mov	R2, (R5)		; R2 - Buf addr
+	Mov	#SetBuf, (R4)		;      Set it
+
+	Mov	#CmdRea, (R4)		; READ from HD device
+
+	TstB	(R4)
+	BPl	.-2.
+
+	Tst	(R4)			; Error?
+	BMi	BIOERR			; Yes - abort.
+
+	RtS	PC			; 
+
+
+Bad:
+	Clr	L4
+	Mov	#BadMes-HDBOOT, R0
+	Br	L2
+B.CHECK:
+	Mov	#HDCSR,   R4
+	TstB	(R4)			; HD t1 device?
+	BPl	Bad			; Yes -> Bad
+	BiT	#CS.DMA, (R4)		; HD t4 or t5 device?
+	BNE	30$			; Yes -> Bad
+
+	Return				; No  -> Good
+30$:
+	MovB	#64, Ver		; t4 or t5
+	BiS	#CS.INT, (R4)		; Set IE bit
+	BiT	#CS.INT, (R4)		; t5 ?
+	BEq	Bad			; t4
+	Clr	(R4)			; Clear IE bit
+	IncB	Ver			; t5
+	Br	Bad			; Abort Boot
+;
+; Primary boot
+;
+BOOT:					; Cold boot
+	MovB	@#HD$CSR+3, R0		; Get cold boot unit number
+	Mov	#10000,	SP		; Boottime SP value
+	Mov	R0,   -(SP)		; Save boot device unit number
+	RESET
+
+	Call	B.CHECK
+
+	......
+
+	Mov	#HDMESC-HDBOOT, R0
+	Br	L2
+L3:
+	MovB	(R0)+,	@#TPB
+L1:	TstB	@#TPS
+	BPl	L1
+L2:	TstB	(R0)
+	BNe	L3
+L4:
+	Nop
+	......
+
+	Mov	#2,	R0		; Block number of  BSTRAP
+	Mov	#2000,	R1		; Word  count  of  BSTRAP
+
+	Mov	#1000,	R2		; Loading addr for BSTRAP
+
+	Mov	(SP),	@#B$DEVU	; Unit number
+
+	Call	READ			; READ Secondary Bootstrap
+
+	; Set data in Secondary Bootstrap		
+
+	Mov	#^RHD , @#B$DEVN	; Device name in RADIX50
+	Mov	(SP)+,	@#B$DEVU	; Boot device unit number
+	Mov	#READ-HDBOOT,@#B$READ	; Hook for BSTRAP
+
+	Jmp	@#B$BOOT		; Jmp to Secondary Bootstrap
+
+HDMESC:
+.IF NDF $$SILENT
+	.ASCIZ	<CR><LF>"HD v2 Boot-I-Cold boot.."<CR><LF>
+.IFF
+	.Byte	0
+.EndC
+BadMes:
+	.ASCII	<CR><LF>"HD t"
+Ver:	.ASCIZ	"1 not supported - only t2 or t3"<CR><LF>
+	.Even
+
+	.DrEnd	HD
+	.End

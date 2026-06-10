@@ -1,0 +1,10 @@
+[project]
+name     = "PROBE"
+language = "macro11"
+outputs  = ["PROBE.SAV"]
+
+[build]
+commands = [
+    "MACRO PROBE",
+    "LINK/EXECUTE:PROBE.SAV PROBE",
+]
