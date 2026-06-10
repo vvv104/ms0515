@@ -40,6 +40,7 @@ TEST_CASE("no arguments → all paths empty, frame counters zero") {
     CHECK(a.screenshotPath.empty());
     for (int i = 0; i < 4; ++i) CHECK(a.fdPath[i].empty());
     for (int i = 0; i < 2; ++i) CHECK(a.dsPath[i].empty());
+    CHECK(a.hdPath.empty());
     CHECK(a.maxFrames == 0);
     CHECK(a.screenshotFrame == 0);
     /* historySize uses -1 as "take from config", not zero — the header
@@ -92,6 +93,10 @@ TEST_CASE("multiple disks can be given in one invocation") {
                             "-d1s0", "ss.dsk"});
     CHECK(a.dsPath[0] == "ds.dsk");
     CHECK(a.fdPath[app::fdcUnitFor(1, 0)] == "ss.dsk");
+}
+
+TEST_CASE("--hd <path> populates hdPath") {
+    CHECK(parse({"--hd", "winchester.hd"}).hdPath == "winchester.hd");
 }
 
 }  // TEST_SUITE
@@ -182,12 +187,23 @@ TEST_CASE("empty cli fields inherit from config") {
     cfg.romPath  = "rom-from-cfg";
     cfg.dsPath[0] = "ds-from-cfg";
     cfg.fdPath[2] = "fd2-from-cfg";
+    cfg.hdPath    = "hd-from-cfg";
 
     app::CliArgs cli;            /* all empty */
     app::CliArgs merged = app::mergeCliOverConfig(std::move(cli), cfg);
     CHECK(merged.romPath   == "rom-from-cfg");
     CHECK(merged.dsPath[0] == "ds-from-cfg");
     CHECK(merged.fdPath[2] == "fd2-from-cfg");
+    CHECK(merged.hdPath    == "hd-from-cfg");
+}
+
+TEST_CASE("non-empty cli hdPath wins over config") {
+    app::Config cfg;
+    cfg.hdPath = "hd-from-cfg";
+    app::CliArgs cli;
+    cli.hdPath = "hd-from-cli";
+    app::CliArgs merged = app::mergeCliOverConfig(std::move(cli), cfg);
+    CHECK(merged.hdPath == "hd-from-cli");
 }
 
 TEST_CASE("non-empty cli fields win over config") {

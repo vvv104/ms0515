@@ -23,6 +23,9 @@ struct CliArgs {
      * exclusive with fdPath[fdcUnitFor(drive, 0|1)] for the same
      * drive — App.cpp enforces and reports the conflict. */
     std::string dsPath[2];
+    /* HD: paravirtual hard-disk image (any size that is a 512-byte
+     * multiple).  Mutually exclusive with the serial port on the bus. */
+    std::string hdPath;
     std::string screenshotPath;
     int         maxFrames = 0;          /* 0 = run forever */
     int         screenshotFrame = 0;

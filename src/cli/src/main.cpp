@@ -53,6 +53,9 @@ options:
                           (alias: -d1s0)
   --disk1-side1 <path>    Mount single-side image on drive 1 side 1.
                           (alias: -d1s1)
+  --hd <path>             Mount a paravirtual hard disk (HD:) image of
+                          any size that is a 512-byte multiple.  Needs
+                          the RT-11 HD.SYS driver loaded in the guest.
   --frames <N>            Stop after N emu frames (default: unlimited).
                           Useful for smoke-testing.
   --realtime              Throttle the emulator to the MS-0515's

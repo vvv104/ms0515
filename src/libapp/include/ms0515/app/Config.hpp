@@ -29,6 +29,7 @@ class Config {
 public:
     std::string fdPath[4];          /* single-side image per FDC unit */
     std::string dsPath[2];          /* double-sided per drive */
+    std::string hdPath;             /* HD: paravirtual disk image (yaml: "hd") */
     std::string romPath;            /* ROM image (yaml: "rom") */
     bool showKeyboard = false;
     bool showDebugger = false;

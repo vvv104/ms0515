@@ -88,6 +88,8 @@ CliArgs parseArgs(int argc, char **argv)
                        });
                    dsOpt != std::end(kDoubleSidedOptions) && i + 1 < argc) {
             out.dsPath[dsOpt->drive] = argv[++i];
+        } else if (a == "--hd" && i + 1 < argc) {
+            out.hdPath = argv[++i];
         } else if (a == "--frames" && i + 1 < argc) {
             out.maxFrames = std::atoi(argv[++i]);
         } else if (a == "--screenshot" && i + 1 < argc) {
@@ -124,6 +126,7 @@ CliArgs mergeCliOverConfig(CliArgs cli, const Config &cfg)
         if (cli.fdPath[i].empty()) cli.fdPath[i] = cfg.fdPath[i];
     for (int i = 0; i < 2; ++i)
         if (cli.dsPath[i].empty()) cli.dsPath[i] = cfg.dsPath[i];
+    if (cli.hdPath.empty()) cli.hdPath = cfg.hdPath;
     return cli;
 }
 

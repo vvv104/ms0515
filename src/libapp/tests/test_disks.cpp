@@ -96,6 +96,33 @@ TEST_CASE("a 409 600-byte file is rejected with a hint to use --diskN-sideN") {
 }  // TEST_SUITE
 
 
+TEST_SUITE("validateHdImage") {
+
+TEST_CASE("any positive multiple of 512 bytes is accepted") {
+    fs::path p = makeBlankFile(fixtureRoot() / "ok.hd", 8 * 512);
+    CHECK_FALSE(app::validateHdImage(p.string()).has_value());
+    fs::remove(p);
+}
+
+TEST_CASE("a non-multiple-of-512 file is rejected") {
+    fs::path p = makeBlankFile(fixtureRoot() / "odd.hd", 8 * 512 + 1);
+    CHECK(app::validateHdImage(p.string()).has_value());
+    fs::remove(p);
+}
+
+TEST_CASE("an empty file is rejected") {
+    fs::path p = makeBlankFile(fixtureRoot() / "empty.hd", 0);
+    CHECK(app::validateHdImage(p.string()).has_value());
+    fs::remove(p);
+}
+
+TEST_CASE("a missing file returns an error string") {
+    CHECK(app::validateHdImage("/nope/missing.hd").has_value());
+}
+
+}  // TEST_SUITE
+
+
 TEST_SUITE("discoverRoms") {
 
 TEST_CASE("scans assets/rom under search roots, returns sorted unique paths") {
@@ -210,6 +237,33 @@ TEST_CASE("a misshaped image triggers validation, drive skipped, overall OK") {
         ms0515::Emulator emu;
         CHECK(app::mountDisksFromCli(emu, cli));
         CHECK(emu.diskPath(app::fdcUnitFor(0, 0)).empty());
+    }
+    fs::remove(p);
+}
+
+TEST_CASE("a HD image given via cli.hdPath is mounted") {
+    fs::path p = makeBlankFile(fixtureRoot() / "winchester.hd", 100 * 512);
+    app::CliArgs cli;
+    cli.hdPath = p.string();
+
+    {
+        ms0515::Emulator emu;
+        CHECK(app::mountDisksFromCli(emu, cli));
+        CHECK(emu.hdMounted());
+        CHECK(emu.hdPath() == p.string());
+    }
+    fs::remove(p);
+}
+
+TEST_CASE("a misshaped HD image is skipped without aborting") {
+    fs::path p = makeBlankFile(fixtureRoot() / "broken.hd", 777);
+    app::CliArgs cli;
+    cli.hdPath = p.string();
+
+    {
+        ms0515::Emulator emu;
+        CHECK(app::mountDisksFromCli(emu, cli));
+        CHECK_FALSE(emu.hdMounted());
     }
     fs::remove(p);
 }

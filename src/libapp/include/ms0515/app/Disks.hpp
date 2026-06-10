@@ -30,6 +30,11 @@ validateSingleSideImage(const std::string &path);
 [[nodiscard]] std::optional<std::string>
 validateDoubleSidedImage(const std::string &path);
 
+/* Validate `path` as a HD: image: any file whose size is a positive
+ * multiple of 512 bytes.  Returns std::nullopt on success. */
+[[nodiscard]] std::optional<std::string>
+validateHdImage(const std::string &path);
+
 /* Enumerate all *.rom files under <searchRoot>/assets/rom for every
  * search root.  Sorted, deduplicated, normalised paths. */
 [[nodiscard]] std::vector<std::string> discoverRoms();

@@ -19,6 +19,7 @@ bool Config::isDefault() const
         if (!fdPath[i].empty()) return false;
     for (int i = 0; i < 2; ++i)
         if (!dsPath[i].empty()) return false;
+    if (!hdPath.empty()) return false;
     if (!romPath.empty() || showKeyboard || showDebugger || hostMode)
         return false;
     if (historySize != 0) return false;
@@ -61,6 +62,7 @@ Config Config::load()
         else if (key == "disk0_side1") cfg.fdPath[fdcUnitFor(0, 1)] = val;
         else if (key == "disk1_side0") cfg.fdPath[fdcUnitFor(1, 0)] = val;
         else if (key == "disk1_side1") cfg.fdPath[fdcUnitFor(1, 1)] = val;
+        else if (key == "hd")          cfg.hdPath = val;
         /* Quiet migration of legacy fd0..fd3 keys. */
         else if (key == "fd0") cfg.fdPath[fdcUnitFor(0, 0)] = val;
         else if (key == "fd1") cfg.fdPath[fdcUnitFor(1, 0)] = val;
@@ -122,6 +124,8 @@ void Config::save() const
         if (!p.empty())
             f << s.name << ": \"" << p << "\"\n";
     }
+    if (!hdPath.empty())
+        f << "hd: \"" << hdPath << "\"\n";
     if (!romPath.empty())
         f << "rom: \"" << romPath << "\"\n";
     if (showKeyboard) f << "show_keyboard: true\n";

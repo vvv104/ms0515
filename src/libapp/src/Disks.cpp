@@ -65,6 +65,23 @@ validateDoubleSidedImage(const std::string &path)
     return validateDiskImage(path, 2 * ms0515::kFloppyDiskSize);
 }
 
+std::optional<std::string>
+validateHdImage(const std::string &path)
+{
+    namespace fs = std::filesystem;
+    constexpr std::uintmax_t kHdBlock = 512;   /* RT-11 block size */
+    std::error_code ec;
+    auto sz = fs::file_size(path, ec);
+    if (ec)
+        return std::format("cannot stat '{}': {}", path, ec.message());
+    if (sz == 0 || (sz % kHdBlock) != 0)
+        return std::format(
+            "'{}' is not a valid HD image (size {} bytes; expected a "
+            "positive multiple of {}).",
+            path, static_cast<unsigned long long>(sz), kHdBlock);
+    return std::nullopt;
+}
+
 std::vector<std::string> discoverRoms()
 {
     namespace fs = std::filesystem;
@@ -137,6 +154,17 @@ bool mountDisksFromCli(ms0515::Emulator &emu, const CliArgs &cli)
                     cli.fdPath[unit].c_str(), drive, side);
                 return false;
             }
+        }
+    }
+
+    /* Paravirtual hard disk (HD:) — independent of the floppy drives. */
+    if (!cli.hdPath.empty()) {
+        if (auto err = validateHdImage(cli.hdPath)) {
+            std::fprintf(stderr, "error: cannot mount HD: %s\n", err->c_str());
+        } else if (!emu.mountHd(cli.hdPath)) {
+            std::fprintf(stderr, "error: failed to mount HD image '%s'\n",
+                         cli.hdPath.c_str());
+            return false;
         }
     }
     return true;

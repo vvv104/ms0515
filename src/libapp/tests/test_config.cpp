@@ -51,6 +51,12 @@ TEST_CASE("setting dsPath also makes the config non-default") {
     CHECK_FALSE(c.isDefault());
 }
 
+TEST_CASE("setting hdPath also makes the config non-default") {
+    app::Config c;
+    c.hdPath = "winchester.hd";
+    CHECK_FALSE(c.isDefault());
+}
+
 TEST_CASE("ROM, UI toggles and history settings each take it out of default") {
     {   app::Config c; c.romPath = "rom"; CHECK_FALSE(c.isDefault()); }
     {   app::Config c; c.showKeyboard = true; CHECK_FALSE(c.isDefault()); }
@@ -115,6 +121,7 @@ TEST_CASE("non-default values written by save() come back through load()") {
         out.romPath  = "rom.rom";
         out.dsPath[0] = "disk0.dsk";
         out.fdPath[app::fdcUnitFor(1, 0)] = "drive1side0.dsk";
+        out.hdPath   = "winchester.hd";
         out.historySize = 256;
         out.fullscreen  = true;
         out.kbdTypingDelayMs = 50;
@@ -124,6 +131,7 @@ TEST_CASE("non-default values written by save() come back through load()") {
         CHECK(in_.romPath              == out.romPath);
         CHECK(in_.dsPath[0]            == out.dsPath[0]);
         CHECK(in_.fdPath[app::fdcUnitFor(1, 0)] == out.fdPath[app::fdcUnitFor(1, 0)]);
+        CHECK(in_.hdPath               == out.hdPath);
         CHECK(in_.historySize          == out.historySize);
         CHECK(in_.fullscreen           == out.fullscreen);
         CHECK(in_.kbdTypingDelayMs     == out.kbdTypingDelayMs);
