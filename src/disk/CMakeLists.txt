@@ -7,6 +7,7 @@
 
 add_library(ms0515_disk STATIC
     src/Layout.cpp
+    src/Rtfs.cpp
     src/Directory.cpp
     src/Image.cpp
     src/Build.cpp
