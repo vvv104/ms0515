@@ -62,8 +62,35 @@ FolderVolume::open(const std::string &descriptorPath, std::string *error)
     vol->folder_ = fs::path(descriptorPath).parent_path().string();
     vol->descriptorName_ = fs::path(descriptorPath).filename().string();
     vol->desc_ = std::move(*desc);
+    vol->noteDescriptorStamp();
     vol->rescan();
     return vol;
+}
+
+void FolderVolume::noteDescriptorStamp()
+{
+    std::error_code ec;
+    descStamp_ = fs::last_write_time(descriptorPath_, ec);
+    descSize_  = fs::file_size(descriptorPath_, ec);
+}
+
+void FolderVolume::maybeReloadDescriptor()
+{
+    std::error_code ec;
+    const auto stamp = fs::last_write_time(descriptorPath_, ec);
+    const auto size  = fs::file_size(descriptorPath_, ec);
+    if (ec || (stamp == descStamp_ && size == descSize_))
+        return;
+    noteDescriptorStamp();          /* don't re-parse a broken file forever */
+
+    std::ifstream f(descriptorPath_, std::ios::binary);
+    if (!f) return;
+    std::string text(std::istreambuf_iterator<char>(f), {});
+    auto d = parseRtfs(text);
+    if (!d) return;                              /* malformed: keep state  */
+    if (d->device != desc_.device || d->blocks != desc_.blocks)
+        return;          /* geometry is fixed at mount time; remount first */
+    desc_ = std::move(*d);
 }
 
 std::string FolderVolume::hostPath(const std::string &name) const
@@ -79,6 +106,8 @@ std::string FolderVolume::hostPath(const std::string &name) const
  */
 void FolderVolume::rescan()
 {
+    maybeReloadDescriptor();        /* pick up manual .rtfs edits first */
+
     std::vector<RtfsHostFile> listing;
     std::error_code ec;
     for (const auto &de : fs::directory_iterator(folder_, ec)) {
@@ -145,11 +174,14 @@ void FolderVolume::rescan()
     generateDirectory();
 }
 
-void FolderVolume::saveDescriptor() const
+void FolderVolume::saveDescriptor()
 {
-    std::ofstream f(descriptorPath_, std::ios::binary | std::ios::trunc);
-    const std::string text = serializeRtfs(desc_);
-    f.write(text.data(), static_cast<std::streamsize>(text.size()));
+    {
+        std::ofstream f(descriptorPath_, std::ios::binary | std::ios::trunc);
+        const std::string text = serializeRtfs(desc_);
+        f.write(text.data(), static_cast<std::streamsize>(text.size()));
+    }
+    noteDescriptorStamp();          /* our own writes must not self-trigger */
 }
 
 /*

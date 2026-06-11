@@ -19,6 +19,7 @@
 #include "ms0515/disk/Rtfs.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <string>
@@ -75,8 +76,16 @@ private:
     };
 
     void rescan();                  /* folder -> descriptor + extents       */
-    void saveDescriptor() const;
+    void saveDescriptor();
     void generateDirectory();
+    /* Manual `.rtfs` edits: a guest directory read stats the descriptor
+     * (no polling — piggybacked on guest activity, the earliest moment a
+     * change could become visible inside anyway) and reloads it when the
+     * stamp moved.  Geometry (device/blocks) is fixed at mount time — a
+     * geometry edit is ignored until a remount.  Malformed text keeps the
+     * current state. */
+    void noteDescriptorStamp();
+    void maybeReloadDescriptor();
     void reparseDirectory();        /* guest dir edit -> descriptor diff    */
     [[nodiscard]] std::string materializeHostName(const std::string &rt11) const;
     [[nodiscard]] const Extent *extentAt(int lbn) const;
@@ -89,6 +98,8 @@ private:
     std::vector<Extent>  extents_;
     std::vector<uint8_t> dirImage_; /* generated segments, kDirLbn..        */
     std::map<int, std::vector<uint8_t>> scratch_;   /* unbacked blocks      */
+    std::filesystem::file_time_type descStamp_{};   /* descriptor as loaded */
+    std::uintmax_t descSize_ = 0;
 };
 
 } /* namespace ms0515::disk */

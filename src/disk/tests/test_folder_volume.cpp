@@ -283,6 +283,44 @@ TEST_CASE("guest rename follows the start block") {
     CHECK_FALSE(vol->descriptor().files[0].deleted);
 }
 
+TEST_CASE("manual .rtfs edits are picked up on the next directory read") {
+    auto dir = freshDir("manual");
+    writeFile(dir / "a.dat", "AAAA");
+    writeFile(dir / "b.dat", "BBBB");
+    fs::path desc = writeDescriptor(dir);
+    auto vol = FolderVolume::open(desc.string());
+    REQUIRE(vol != nullptr);
+    (void)assemble(*vol);                      /* auto-fill + first read */
+
+    /* Hand-edit: custom RT-11 name for a.dat, b.dat hidden. */
+    writeFile(desc,
+        "device: hd\nblocks: 100\nvolume-id: HAND\n"
+        "file: CUSTOM.NAM | a.dat |\n"
+        "file: B.DAT | b.dat | deleted\n");
+
+    auto im = openLinearImage(assemble(*vol));
+    REQUIRE(im.has_value());
+    CHECK(im->directory.find("CUSTOM.NAM") != nullptr);
+    CHECK(im->directory.find("A.DAT") == nullptr);
+    CHECK(im->directory.find("B.DAT") == nullptr);   /* hidden by hand */
+    std::vector<uint8_t> home(kBlock, 0);
+    vol->readBlock(1, home.data());
+    CHECK(std::string(reinterpret_cast<char *>(&home[0x1D8]), 4) == "HAND");
+
+    /* A geometry edit is ignored until remount (device size is wired in). */
+    writeFile(desc,
+        "device: hd\nblocks: 500\nfile: CUSTOM.NAM | a.dat |\n");
+    (void)assemble(*vol);
+    CHECK(vol->blocks() == 100);
+    CHECK(vol->descriptor().volumeId == "HAND");     /* reload skipped */
+
+    /* A malformed edit keeps the current state. */
+    writeFile(desc, "device: banana\n");
+    auto im2 = openLinearImage(assemble(*vol));
+    REQUIRE(im2.has_value());
+    CHECK(im2->directory.find("CUSTOM.NAM") != nullptr);
+}
+
 TEST_CASE("guest boot-block writes materialize the hidden boot file") {
     auto dir = freshDir("boot");
     writeFile(dir / "f.dat", "data");
