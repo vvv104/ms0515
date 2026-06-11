@@ -33,9 +33,10 @@ side (DZ2 / DK) is not enough: the macros silently resolve to nothing and
 you get a flood of undefined-symbol errors (e.g. `.DRDEF`, `.DRBEG`,
 `.DREND` show as `****** GX` in the listing's symbol table).
 
-Fix: put `SYSMAC.SML` on side 0 of `system.dsk` (done).  Driver builds
-(`.DRDEF` and friends) and any program that `.MCALL`s system macros need
-it there.
+Fix: `build.py` stages `SYSMAC.SML` (and the compilers, for the CCL command
+form) on SY: (side 0 of the work-disk copy) — NOT baked into the pristine
+`system.dsk` template.  Driver builds (`.DRDEF` and friends) and any program
+that `.MCALL`s system macros need it on SY:.
 
 ## STARTS.COM — the SJ startup command file (like autoexec.bat)
 

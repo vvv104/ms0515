@@ -13,7 +13,8 @@ HERE = Path(__file__).resolve().parent
 TOOLSET = HERE.parent
 sys.path.insert(0, str(TOOLSET))
 
-from build import BuildPlan, RECIPES, load_manifest      # noqa: E402
+from build import (BuildPlan, RECIPES, load_manifest,    # noqa: E402
+                   DISK_TOOL, SYSTEM_DISK)
 
 
 def write_manifest(tmp_path: Path, content: str) -> Path:
@@ -57,7 +58,7 @@ class TestBuildPlan:
         assert plan.language == "macro11"
         assert plan.sources == ["FOO.MAC"]
         assert plan.outputs == ["FOO.SAV"]
-        assert plan.commands == ["RUN DZ2:MACRO FOO", "RUN DZ2:LINK FOO"]
+        assert plan.commands == ["MACRO FOO", "LINK FOO"]
 
     def test_explicit_sources_and_outputs_override_defaults(self, tmp_path):
         m = write_manifest(tmp_path, """
@@ -80,9 +81,9 @@ class TestBuildPlan:
         plan = load_manifest(m)
         assert plan.sources == ["BAR.PAS"]
         assert plan.commands == [
-            "RUN DZ2:PAS1 BAR=BAR",
-            "RUN DZ2:MACRO BAR",
-            "RUN DZ2:LINK BAR,PASLIB,PAS1",
+            "PAS1 BAR=BAR",
+            "MACRO BAR",
+            "LINK BAR,PASLIB,PAS1",
         ]
         assert "PASLIB.OBJ" in plan.recipe_libs
 
@@ -111,10 +112,11 @@ class TestBuildPlan:
             libs = ["MYLIB.OBJ"]
         """)
         plan = load_manifest(m)
-        staged_names = [Path(f).name for f in plan.staged_files()]
-        assert "MYLIB.OBJ" in staged_names
-        assert "MACRO.SAV" in staged_names
-        assert "QUX.MAC" in staged_names
+        sy = {Path(f).name for f in plan.sy_files()}
+        dk = {Path(f).name for f in plan.dk_files()}
+        assert "MYLIB.OBJ" in dk          # extra lib -> DK: (linked from there)
+        assert "MACRO.SAV" in sy           # compiler  -> SY:
+        assert "QUX.MAC" in dk             # source    -> DK:
 
     def test_hook_paths_stay_relative_to_manifest_dir(self, tmp_path):
         m = write_manifest(tmp_path, """
@@ -181,3 +183,57 @@ class TestRepoManifests:
         assert plan.name == "SAPER"
         assert plan.language == "macro11"
         assert "SAPER.SAV" in plan.outputs
+
+
+# ── pristine template invariant ─────────────────────────────────────────────
+
+class TestSystemDiskIsPristine:
+    """system.dsk is a read-only TEMPLATE: build.py copies it and modifies only
+    the copy, staging the whole toolchain onto that copy.  Nothing build-time
+    (compilers, SYSMAC.SML, STARTS.COM) may be baked into the template, or a
+    build would secretly depend on a polluted image instead of on staging."""
+
+    BASE = {"RT11SJ.SYS", "SWAP.SYS", "DZ.SYS", "TT.SYS",
+            "PIP.SAV", "DUP.SAV", "DIR.SAV"}
+
+    def _side0_files(self) -> set[str]:
+        import re
+        import subprocess
+        out = subprocess.run(
+            [str(DISK_TOOL), "dir", str(SYSTEM_DISK), "--side", "0"],
+            capture_output=True, text=True)
+        return set(re.findall(r"([A-Z0-9]+\.[A-Z0-9]+)\s+blk=", out.stdout))
+
+    def test_template_holds_only_the_base_rt11_system(self):
+        if not DISK_TOOL.exists() or not SYSTEM_DISK.exists():
+            pytest.skip("needs package/ms0515-disk and system.dsk")
+        files = self._side0_files()
+        extra = files - self.BASE
+        assert not extra, f"system.dsk template is polluted with {extra}"
+        assert files == self.BASE
+
+
+class TestToolchainIsStaged:
+    """The toolchain must be STAGED onto the copy, not assumed present on the
+    template: compilers + SYSMAC.SML go on SY: (side 0), sources + object libs
+    on DK: (side 1)."""
+
+    def _plan(self, tmp_path):
+        m = write_manifest(tmp_path, """
+            [project]
+            name = "FOO"
+            language = "macro11"
+        """)
+        return load_manifest(m)
+
+    def test_compilers_and_macro_library_staged_on_sy(self, tmp_path):
+        sy = {p.name for p in self._plan(tmp_path).sy_files()}
+        assert {"MACRO.SAV", "LINK.SAV", "SYSMAC.SML"} <= sy
+
+    def test_sources_and_object_libs_staged_on_dk(self, tmp_path):
+        dk = {p.name for p in self._plan(tmp_path).dk_files()}
+        assert "FOO.MAC" in dk
+        assert "SYSLIB.OBJ" in dk
+        # the SY:-only files must NOT also be on DK
+        assert "SYSMAC.SML" not in dk
+        assert "MACRO.SAV" not in dk

@@ -5,11 +5,11 @@ outputs  = ["HD.SYS"]              # a device handler, not a .SAV program
 
 [build]
 # A driver needs a different LINK than a normal program: /NOBITMAP and
-# /EXECUTE:<dev>.SYS, mirroring the kit's HD.COM build recipe.  We use the
-# CCL form (not RUN DZ2:...) so KMON translates the CCL switches into LINK's
-# CSI command string; that needs MACRO.SAV/LINK.SAV/SYSMAC.SML on SY:
-# (system.dsk side 0), where they now live.  Source is read from DK: (the
-# work side, via the ASSIGN DZ2 DK the runner does before these commands).
+# /EXECUTE:<dev>.SYS, mirroring the kit's HD.COM build recipe.  The CCL form
+# (the default for every recipe) lets KMON translate those switches into
+# LINK's CSI string; build.py stages MACRO/LINK/SYSMAC on SY: so the CCL
+# commands resolve.  Source is read from DK: (ASSIGN DZ2 DK, prepended by
+# the runner).  Only the LINK line differs from the default macro11 recipe.
 commands = [
     "MACRO HD",
     "LINK/NOBIT/EXECUTE:HD.SYS HD",

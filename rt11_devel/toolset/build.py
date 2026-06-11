@@ -69,30 +69,35 @@ from rt11 import RT11CommandError           # noqa: E402
 # that names the canonical source file.  ``{name}`` is substituted with the
 # project's base name at expand time.  Manifests can override `commands` for
 # projects with non-standard linking (overlays, specific arg orders, ...).
+#
+# Commands use the CCL form (``MACRO foo`` not ``RUN DZ2:MACRO foo``): build.py
+# stages the compilers on SY: (side 0), so KMON resolves them as commands and
+# translates switches (needed for e.g. LINK/NOBITMAP/EXECUTE).  Sources and
+# object libraries sit on DK: (side 1, where DZ2 is ASSIGNed).
 
 RECIPES = {
     "macro11": {
         "extension": "MAC",
         "compilers": ["MACRO.SAV", "LINK.SAV"],
         "libs":      ["SYSMAC.SML", "SYSLIB.OBJ"],
-        "commands":  ["RUN DZ2:MACRO {name}",
-                      "RUN DZ2:LINK {name}"],
+        "commands":  ["MACRO {name}",
+                      "LINK {name}"],
     },
     "pascal": {
         "extension": "PAS",
         "compilers": ["PAS1.SAV", "MACRO.SAV", "LINK.SAV"],
         "libs":      ["SYSMAC.SML", "SYSLIB.OBJ", "PASLIB.OBJ", "PAS1.OBJ"],
-        "commands":  ["RUN DZ2:PAS1 {name}={name}",
-                      "RUN DZ2:MACRO {name}",
-                      "RUN DZ2:LINK {name},PASLIB,PAS1"],
+        "commands":  ["PAS1 {name}={name}",
+                      "MACRO {name}",
+                      "LINK {name},PASLIB,PAS1"],
     },
     "fortran": {
         "extension": "FOR",
         "compilers": ["FORTRA.SAV", "MACRO.SAV", "LINK.SAV"],
         "libs":      ["SYSMAC.SML", "SYSLIB.OBJ", "FORLIB.OBJ"],
-        "commands":  ["RUN DZ2:FORTRA {name}",
-                      "RUN DZ2:MACRO {name}",
-                      "RUN DZ2:LINK {name},FORLIB"],
+        "commands":  ["FORTRA {name}",
+                      "MACRO {name}",
+                      "LINK {name},FORLIB"],
     },
     "basic": {
         # BASIC is interpreter-only here — interactive sessions aren't a
@@ -140,11 +145,21 @@ class BuildPlan:
         self.compilers  = recipe["compilers"]
         self.recipe_libs = recipe["libs"]
 
-    def staged_files(self) -> list[Path]:
-        """Absolute paths of every file we put on side 1 before the build."""
+    # Files MACRO/LINK auto-search on the system device SY: (side 0): the
+    # compilers (so the CCL command form resolves them) and SYSMAC.SML (the
+    # macro library MACRO looks for on SY: when expanding .MCALL).
+    SY_LIBS = frozenset({"SYSMAC.SML"})
+
+    def sy_files(self) -> list[Path]:
+        """Toolchain staged on SY: (side 0): compilers + the macro library."""
+        files = [DEVEL / c for c in self.compilers]
+        files += [DEVEL / l for l in self.recipe_libs if l in self.SY_LIBS]
+        return files
+
+    def dk_files(self) -> list[Path]:
+        """Staged on DK: (side 1): sources + object libraries to link against."""
         files = [self.manifest_dir / s for s in self.sources]
-        files += [DEVEL / c for c in self.compilers]
-        files += [DEVEL / l for l in self.recipe_libs]
+        files += [DEVEL / l for l in self.recipe_libs if l not in self.SY_LIBS]
         files += [DEVEL / l for l in self.extra_libs]
         return files
 
@@ -171,19 +186,25 @@ def run(plan: BuildPlan, *, work_disk: Path | None = None) -> None:
     print(f"[2/5] copy system.dsk -> {work_disk}")
     shutil.copy(SYSTEM_DISK, work_disk)
 
+    # Everything below is staged onto the COPY; the pristine system.dsk
+    # template is never modified.
+    #
     # The build recipe IS the startup file: write the project's commands into
-    # a STARTS.COM and stage it on SY: (side 0) like any other build file, so
-    # the SJ monitor runs the whole build itself at boot.  (system.dsk carries
-    # no STARTS.COM, so this is just a plain `put` — nothing to replace.)  We
-    # then wait for it to finish instead of driving each command from the host.
-    print(f"[3/5] stage build STARTS.COM + {len(plan.staged_files())} files")
+    # a STARTS.COM so the SJ monitor runs the whole build itself at boot.  Stage
+    # it together with the toolchain on SY: (side 0); sources + object libraries
+    # go on DK: (side 1, ASSIGNed from DZ2).  We then wait for the build to
+    # finish instead of driving each command from the host.
+    sy_files = plan.sy_files()
+    dk_files = plan.dk_files()
+    print(f"[3/5] stage SY: STARTS.COM + {len(sy_files)} tool(s), "
+          f"DK: {len(dk_files)} file(s)")
     starts = Path(tempfile.mkdtemp()) / "STARTS.COM"
     recipe = ["ASSIGN DZ2 DK", *plan.commands]
     starts.write_bytes(("".join(c + "\r\n" for c in recipe)).encode("ascii"))
     subprocess.run([str(DISK_TOOL), "put", str(work_disk), "--side", "0",
-                    str(starts)], check=True)
+                    str(starts), *(str(f) for f in sy_files)], check=True)
     subprocess.run([str(DISK_TOOL), "put", str(work_disk), "--side", "1",
-                    *(str(f) for f in plan.staged_files())], check=True)
+                    *(str(f) for f in dk_files)], check=True)
     for c in recipe:
         print(f"      {c}")
 
