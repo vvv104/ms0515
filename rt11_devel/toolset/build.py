@@ -5,13 +5,16 @@ Reads a ``build.toml`` manifest in the project directory, runs the
 project through the standard pipeline:
 
   1. (optional) pre_build hook            — host-side, e.g. code generator
-  2. copy system.dsk to a working location
-  3. stage the language recipe as STARTS.COM on SY: + source + toolchain on
-     side 1 (system.dsk carries no STARTS.COM, so this is a plain put)
-  4. boot ms0515-cli; the SJ monitor auto-runs STARTS.COM, so the build runs
-     unattended.  Wait for it to finish (a type-ahead `DIR` probe), then scan
-     the whole transcript for any ?xxx-F-/-E- diagnostic.
-  5. extract output files back to the project directory
+  2. copy the bootable system/ FOLDER template to a temp boot/ folder; make
+     an empty work/ folder — both are folder-backed devices (.rtfs), no
+     disk images and no ms0515-disk calls anywhere
+  3. stage the recipe as boot/STARTS.COM + compilers into boot/ (= SY:),
+     sources + object libraries into work/ (= DZ1, ASSIGNed DK)
+  4. boot ms0515-cli --no-config; the SJ monitor auto-runs STARTS.COM, so
+     the build runs unattended.  Wait for it to finish (a type-ahead `DIR`
+     probe), then scan the whole transcript for any ?xxx-F-/-E- diagnostic.
+  5. outputs are host files the guest materialized in work/ — copy them to
+     the project directory
   6. (optional) post_build hook           — host-side, e.g. packaging
 
 Manifest schema (TOML)
@@ -52,7 +55,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-SYSTEM_DISK = HERE / "system.dsk"
+SYSTEM_DIR  = HERE / "system"        # bootable folder template (.rtfs)
+SYSTEM_DISK = HERE / "system.dsk"    # legacy image (oracle scripts only)
 DEVEL       = HERE / "build_tools"
 CLI         = ROOT / "package/ms0515-cli.exe"
 ROM         = ROOT / "package/assets/rom/ms0515-roma.rom"
@@ -172,44 +176,50 @@ def load_manifest(path: Path) -> BuildPlan:
 
 # ── Build runner ─────────────────────────────────────────────────────────────
 
-def run(plan: BuildPlan, *, work_disk: Path | None = None) -> None:
-    if not SYSTEM_DISK.exists():
-        raise SystemExit(f"missing {SYSTEM_DISK}")
+def run(plan: BuildPlan, *, build_root: Path | None = None) -> None:
+    if not SYSTEM_DIR.is_dir():
+        raise SystemExit(f"missing {SYSTEM_DIR}")
 
     if plan.pre_hook:
         print(f"[1/5] pre_build -> {plan.pre_hook}")
         subprocess.run([sys.executable, str(plan.manifest_dir / plan.pre_hook)],
                        check=True)
 
-    if work_disk is None:
-        work_disk = Path(tempfile.gettempdir()) / f"{plan.name.lower()}_build.dsk"
-    print(f"[2/5] copy system.dsk -> {work_disk}")
-    shutil.copy(SYSTEM_DISK, work_disk)
+    # Everything runs on folder-backed devices (.rtfs) — no disk images, no
+    # ms0515-disk calls.  Two temp folders, both copies (the committed
+    # system/ template is never modified):
+    #   boot/  — the bootable system + the compilers + the build recipe as
+    #            STARTS.COM (the SJ monitor runs it at boot); mounts as DZ0.
+    #   work/  — sources + object libraries; mounts as DZ1 (ASSIGNed DK).
+    # Outputs are simply host files the guest materializes in work/.
+    if build_root is None:
+        build_root = Path(tempfile.gettempdir()) / f"{plan.name.lower()}_build"
+    shutil.rmtree(build_root, ignore_errors=True)
+    boot = build_root / "boot"
+    work = build_root / "work"
+    print(f"[2/5] system/ template -> {boot}")
+    shutil.copytree(SYSTEM_DIR, boot)
+    work.mkdir(parents=True)
 
-    # Everything below is staged onto the COPY; the pristine system.dsk
-    # template is never modified.
-    #
-    # The build recipe IS the startup file: write the project's commands into
-    # a STARTS.COM so the SJ monitor runs the whole build itself at boot.  Stage
-    # it together with the toolchain on SY: (side 0); sources + object libraries
-    # go on DK: (side 1, ASSIGNed from DZ2).  We then wait for the build to
-    # finish instead of driving each command from the host.
     sy_files = plan.sy_files()
     dk_files = plan.dk_files()
-    print(f"[3/5] stage SY: STARTS.COM + {len(sy_files)} tool(s), "
-          f"DK: {len(dk_files)} file(s)")
-    starts = Path(tempfile.mkdtemp()) / "STARTS.COM"
-    recipe = ["ASSIGN DZ2 DK", *plan.commands]
-    starts.write_bytes(("".join(c + "\r\n" for c in recipe)).encode("ascii"))
-    subprocess.run([str(DISK_TOOL), "put", str(work_disk), "--side", "0",
-                    str(starts), *(str(f) for f in sy_files)], check=True)
-    subprocess.run([str(DISK_TOOL), "put", str(work_disk), "--side", "1",
-                    *(str(f) for f in dk_files)], check=True)
+    print(f"[3/5] stage boot/: STARTS.COM + {len(sy_files)} tool(s), "
+          f"work/: {len(dk_files)} file(s)")
+    recipe = ["ASSIGN DZ1 DK", *plan.commands]
+    (boot / "STARTS.COM").write_bytes(
+        ("".join(c + "\r\n" for c in recipe)).encode("ascii"))
+    for f in sy_files:
+        shutil.copy(f, boot / f.name)
+    for f in dk_files:
+        shutil.copy(f, work / f.name)
+    (work / "device.rtfs").write_bytes(b"device: floppy\nblocks: 800\n")
     for c in recipe:
         print(f"      {c}")
 
     print(f"[4/5] boot + run the build (STARTS.COM)")
-    emu = EmulatorDriver([CLI, "--rom", ROM, "--disk0", work_disk])
+    emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
+                          "--disk0-side0", boot / "device.rtfs",
+                          "--disk1-side0", work / "device.rtfs"])
     emu.start()
     try:
         # Accept the localized Date/Time prompts; STARTS.COM then auto-runs the
@@ -218,7 +228,7 @@ def run(plan: BuildPlan, *, work_disk: Path | None = None) -> None:
         time.sleep(2.0)
         for _ in range(3):
             emu.send("\r"); time.sleep(0.4)
-        emu.send("DIR DZ2:\r")
+        emu.send("DIR DZ1:\r")
         emu.wait_for(r"Free|Files,", "build complete", timeout=600)
         time.sleep(0.5)
         with emu._buf_lock:
@@ -232,9 +242,20 @@ def run(plan: BuildPlan, *, work_disk: Path | None = None) -> None:
     if diag:
         raise RT11CommandError("build (STARTS.COM)", diag.group(0).strip(), log)
 
-    print(f"[5/5] extract {plan.outputs}")
-    subprocess.run([str(DISK_TOOL), "get", str(work_disk), "--side", "1",
-                    "--out", str(plan.manifest_dir), *plan.outputs], check=True)
+    # Outputs are already host files in work/ — the guest materialized them
+    # (under lowercased names).  Pick them up case-insensitively.
+    print(f"[5/5] collect {plan.outputs}")
+    byLower = {p.name.lower(): p for p in work.iterdir() if p.is_file()}
+    missing = []
+    for out in plan.outputs:
+        src = byLower.get(out.lower())
+        if src is None:
+            missing.append(out)
+            continue
+        shutil.copy(src, plan.manifest_dir / out)
+        print(f"  {src.name} -> {out} ({src.stat().st_size} B)")
+    if missing:
+        raise SystemExit(f"build produced no {missing} in {work}")
 
     if plan.post_hook:
         print(f"[+] post_build -> {plan.post_hook}")

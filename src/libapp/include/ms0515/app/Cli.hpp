@@ -37,6 +37,12 @@ struct CliArgs {
     int         historyWatchLen  = -1;
     int         historyReadWatchAddr = -1;
     int         historyReadWatchLen  = -1;
+    /* --no-config: ignore ms0515.yaml entirely.  Automated runs (the
+     * rt11_devel toolset, oracle scripts) pass explicit flags; whatever
+     * the GUI last saved must not leak into them (e.g. a yaml
+     * disk0_side0 conflicting with a scripted --disk0 silently skips
+     * drive 0). */
+    bool        noConfig = false;
     /* Set by parseArgs when it walks argv and hits a token it
      * doesn't recognise (after retired-alias translation).  The GUI
      * uses this to bail out without opening a window — a typo in

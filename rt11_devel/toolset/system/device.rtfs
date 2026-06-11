@@ -1,0 +1,11 @@
+# MS0515 folder-backed block device
+device: floppy
+blocks: 800
+boot: boot.bin
+file: SWAP.SYS | SWAP.SYS |
+file: RT11SJ.SYS | RT11SJ.SYS |
+file: DZ.SYS | DZ.SYS |
+file: TT.SYS | TT.SYS |
+file: DIR.SAV | DIR.SAV |
+file: DUP.SAV | DUP.SAV |
+file: PIP.SAV | PIP.SAV |

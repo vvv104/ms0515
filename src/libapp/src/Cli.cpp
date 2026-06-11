@@ -88,6 +88,8 @@ CliArgs parseArgs(int argc, char **argv)
                        });
                    dsOpt != std::end(kDoubleSidedOptions) && i + 1 < argc) {
             out.dsPath[dsOpt->drive] = argv[++i];
+        } else if (a == "--no-config") {
+            out.noConfig = true;
         } else if (a == "--hd" && i + 1 < argc) {
             out.hdPath = argv[++i];
         } else if (a == "--frames" && i + 1 < argc) {

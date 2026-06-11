@@ -34,9 +34,9 @@ you get a flood of undefined-symbol errors (e.g. `.DRDEF`, `.DRBEG`,
 `.DREND` show as `****** GX` in the listing's symbol table).
 
 Fix: `build.py` stages `SYSMAC.SML` (and the compilers, for the CCL command
-form) on SY: (side 0 of the work-disk copy) — NOT baked into the pristine
-`system.dsk` template.  Driver builds (`.DRDEF` and friends) and any program
-that `.MCALL`s system macros need it on SY:.
+form) into the per-build `boot/` folder (= SY:) — NOT baked into the
+pristine `system/` template.  Driver builds (`.DRDEF` and friends) and any
+program that `.MCALL`s system macros need it on SY:.
 
 ## STARTS.COM — the SJ startup command file (like autoexec.bat)
 
@@ -64,3 +64,11 @@ RUN DZ2:LINK /NOBIT/EXECUTE:HD.SYS HD
 
 (MACRO's tail `HD,HD=HD` has no leading slash, which is why
 `RUN DZ2:MACRO HD,HD=HD` always worked.)
+
+## `ms0515.yaml` leaks into scripted runs — use `--no-config`
+
+`ms0515-cli` merges the `ms0515.yaml` next to the binary into its CLI args
+(GUI and CLI share the config by design).  A GUI-saved `disk0_side0:` can
+conflict with a scripted `--disk0` (drive 0 silently skipped, boot times
+out).  Every automated invocation must pass **`--no-config`** — build.py
+does; oracle scripts should too.

@@ -56,6 +56,9 @@ options:
   --hd <path>             Mount a paravirtual hard disk (HD:) image of
                           any size that is a 512-byte multiple.  Needs
                           the RT-11 HD.SYS driver loaded in the guest.
+  --no-config             Ignore ms0515.yaml — use only the flags given.
+                          For scripted runs (the build toolchain), so GUI
+                          settings never leak into automation.
   --frames <N>            Stop after N emu frames (default: unlimited).
                           Useful for smoke-testing.
   --realtime              Throttle the emulator to the MS-0515's
@@ -116,8 +119,10 @@ int main(int argc, char **argv)
     }
 
     app::CliArgs cli  = app::parseArgs(argc, argv);
-    app::Config  cfg  = app::Config::load();
-    cli              = app::mergeCliOverConfig(std::move(cli), cfg);
+    if (!cli.noConfig) {
+        app::Config cfg = app::Config::load();
+        cli = app::mergeCliOverConfig(std::move(cli), cfg);
+    }
 
     /* No disks?  Bail out — ms0515.exe would let the user pick from the
      * menu, but the CLI has no GUI fallback. */
@@ -133,7 +138,9 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    const std::string rom = app::resolveRom(cli.romPath, cfg.romPath);
+    /* The config's rom is already folded into cli.romPath by the merge
+     * (and intentionally absent under --no-config). */
+    const std::string rom = app::resolveRom(cli.romPath, "");
     if (rom.empty()) {
         std::fputs(
             "error: ROM not found.  Pass --rom <path> or put "

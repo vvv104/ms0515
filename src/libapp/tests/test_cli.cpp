@@ -100,6 +100,11 @@ TEST_CASE("--hd <path> populates hdPath") {
     CHECK(parse({"--hd", "winchester.hd"}).hdPath == "winchester.hd");
 }
 
+TEST_CASE("--no-config sets the flag (default off)") {
+    CHECK_FALSE(parse({}).noConfig);
+    CHECK(parse({"--no-config"}).noConfig);
+}
+
 }  // TEST_SUITE
 
 

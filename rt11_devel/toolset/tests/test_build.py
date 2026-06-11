@@ -237,3 +237,20 @@ class TestToolchainIsStaged:
         # the SY:-only files must NOT also be on DK
         assert "SYSMAC.SML" not in dk
         assert "MACRO.SAV" not in dk
+
+
+class TestSystemFolderIsPristine:
+    """system/ is the folder twin of the system.dsk template: the bootable
+    base RT-11 set + the boot file + the descriptor, nothing else.  build.py
+    copies it per build and stages everything onto the copy."""
+
+    EXPECTED = {"RT11SJ.SYS", "SWAP.SYS", "DZ.SYS", "TT.SYS",
+                "PIP.SAV", "DUP.SAV", "DIR.SAV",
+                "BOOT.BIN", "DEVICE.RTFS"}
+
+    def test_folder_holds_only_the_base_system(self):
+        from build import SYSTEM_DIR
+        if not SYSTEM_DIR.is_dir():
+            pytest.skip("toolset/system not present")
+        names = {p.name.upper() for p in SYSTEM_DIR.iterdir() if p.is_file()}
+        assert names == self.EXPECTED, f"system/ template polluted: {names}"

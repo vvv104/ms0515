@@ -85,13 +85,3 @@ Low.  Our current model is correct against real hardware at the
 OS-visible level; this would be a quality-of-emulation improvement,
 not a bug fix.  Worth doing when there is appetite for a
 self-contained subsystem rewrite.
-
-## `--no-config` flag for automated runs
-
-`ms0515-cli` merges `package/ms0515.yaml` into its CLI args by design (GUI
-and CLI share the config).  But automated runs (the rt11_devel toolset,
-oracle scripts) pass explicit flags and can CONFLICT with whatever the GUI
-last saved (e.g. yaml `disk0_side0:` vs script `--disk0` -> drive 0 is
-skipped and the boot times out).  Scripts currently stash the yaml away
-for the duration of a run.  A `--no-config` flag (skip Config::load) would
-remove the footgun.

@@ -12,7 +12,9 @@ rt11_devel/toolset/
 ├── build.py         universal driver: read build.toml, drive the pipeline
 ├── emu_driver.py    generic stdio bridge to ms0515-cli (or any subprocess)
 ├── rt11.py          RT-11 monitor session (boot, dot prompt, command + errors)
-├── system.dsk       bootable RT-11 SJ V5 build disk (committed binary)
+├── system/          bootable RT-11 SJ V5 FOLDER template (.rtfs device):
+│                    the 7 base system files + boot.bin + device.rtfs
+├── system.dsk       legacy bootable disk image (oracle scripts only)
 ├── build_tools/     compilers and libraries
 │   ├── MACRO.SAV    MACRO-11 assembler
 │   ├── LINK.SAV     linker
@@ -31,10 +33,12 @@ rt11_devel/toolset/
 Projects that use this toolset live under `rt11_devel/projects/<name>/`
 and declare a `build.toml` (see "Declarative builds" below).
 
-For host-side disk-image operations (`create`, `init`, `put`, `get`,
-`dir`, `split`, `merge`) call the `ms0515-disk` binary directly — it
-already covers everything a build script needs and there is no point
-wrapping it.
+The build pipeline itself runs entirely on **folder-backed devices**
+(`.rtfs`, see `docs/folder-device.md`): staging is plain file copies into
+two temp folders, outputs are host files the guest materializes — no
+`ms0515-disk` calls anywhere.  The binary remains available for disk-image
+work outside the pipeline (`create`, `init`, `put`, `get`, `dir`, `split`,
+`merge`).
 
 ## How `system.dsk` was built
 
@@ -54,8 +58,12 @@ COPY DZ0:DIR.SAV    DZ1:
 COPY/BOOT DZ1:RT11SJ.SYS DZ1:          ! install bootstrap from monitor
 ```
 
-The result is committed as `system.dsk`; the build pipeline copies that
-image to a working location each run and mutates the copy.
+The result is committed as `system.dsk` (legacy, used by oracle scripts).
+The build pipeline instead uses its folder twin `system/` — the same 7
+files extracted as host files, plus `boot.bin` (materialized once by
+`COPY/BOOT` onto the folder) and the `device.rtfs` descriptor.  Each build
+copies `system/` to a temp `boot/` folder and stages onto the copy; the
+committed template is never modified (enforced by a pytest invariant).
 
 ## Device-letter cheat sheet for `ms0515-cli`
 
@@ -69,9 +77,11 @@ RT-11 monitor exposes the four floppy sides as:
 | DZ2:  | drive 0 side 1          |
 | DZ3:  | drive 1 side 1          |
 
-So for the common "boot from system.dsk, work on its side 1" pattern
-only `--disk0` is needed: side 0 = DZ0 (boot), side 1 = DZ2 (work
-surface).
+The build pipeline mounts two folder devices:
+`--disk0-side0 boot/device.rtfs` (DZ0 = SY:, the bootable system + the
+compilers + STARTS.COM) and `--disk1-side0 work/device.rtfs` (DZ1,
+ASSIGNed `DK:` — sources in, outputs out).  It always passes
+`--no-config` so a GUI-saved `ms0515.yaml` can never leak into a build.
 
 ## Module overview
 
