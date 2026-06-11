@@ -326,6 +326,15 @@ void board_hd_unmount(ms0515_board_t *board);
 void board_hd_set_write_through(ms0515_board_t *board,
                                 ms0515_hd_write_through_fn cb, void *userdata);
 
+/*
+ * board_hd_set_backend — Mount a block backend as the HD media (see
+ * hd_set_backend).
+ */
+void board_hd_set_backend(ms0515_board_t *board,
+                          ms0515_hd_read_blocks_fn read_fn,
+                          ms0515_hd_write_blocks_fn write_fn,
+                          uint32_t blocks, void *userdata);
+
 /* ── Video buffer access ──────────────────────────────────────────────────── */
 
 const uint8_t *board_get_vram(const ms0515_board_t *board);

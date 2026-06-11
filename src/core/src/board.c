@@ -529,6 +529,14 @@ void board_hd_set_write_through(ms0515_board_t *board,
     hd_set_write_through(&board->hd, cb, userdata);
 }
 
+void board_hd_set_backend(ms0515_board_t *board,
+                          ms0515_hd_read_blocks_fn read_fn,
+                          ms0515_hd_write_blocks_fn write_fn,
+                          uint32_t blocks, void *userdata)
+{
+    hd_set_backend(&board->hd, read_fn, write_fn, blocks, userdata);
+}
+
 void board_reset(ms0515_board_t *board)
 {
     timer_reset(&board->timer);

@@ -190,4 +190,61 @@ TEST_CASE("write transfer persists to the backing file across a remount") {
     fs::remove(p);
 }
 
+TEST_CASE("a .rtfs descriptor mounts a folder-backed HD volume") {
+    fs::path dir = fs::temp_directory_path() / "ms0515_rtfs_mount";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    {
+        std::ofstream(dir / "hello.dat", std::ios::binary)
+            << std::string(16, '!');
+        std::ofstream(dir / "device.rtfs", std::ios::binary)
+            << "device: hd\nblocks: 200\n";
+    }
+
+    ms0515::Emulator emu;
+    REQUIRE(emu.mountHd((dir / "device.rtfs").string()));
+    CHECK(emu.hdMounted());
+    emu.writeWord(kDispatcher, 0x007F);
+
+    /* GetSize reports the descriptor's block count. */
+    hdCmd(emu, 0, HD_CMD_SET_UNIT);
+    hdCmd(emu, 0, HD_CMD_GET_SIZE);
+    CHECK(emu.readWord(kHdData) == 200);
+
+    /* DMA-read the file's first data block through the device. */
+    const uint16_t buf = 0x2000;
+    hdCmd(emu, 14, HD_CMD_SET_BLOCK);            /* first data block */
+    hdCmd(emu, buf, HD_CMD_SET_BUF);
+    hdCmd(emu, 8, HD_CMD_SET_WCNT);
+    hdCmd(emu, 0, HD_CMD_READ);
+    CHECK((emu.readWord(kHdCsr) & HD_CS_ERROR) == 0);
+    CHECK(emu.readWord(buf) == (uint16_t)('!' | ('!' << 8)));
+
+    /* DMA-write lands in the host file. */
+    emu.writeWord(buf, (uint16_t)('A' | ('B' << 8)));
+    hdCmd(emu, 14, HD_CMD_SET_BLOCK);
+    hdCmd(emu, buf, HD_CMD_SET_BUF);
+    hdCmd(emu, 1, HD_CMD_SET_WCNT);
+    hdCmd(emu, 0, HD_CMD_WRITE);
+    CHECK((emu.readWord(kHdCsr) & HD_CS_ERROR) == 0);
+    {
+        std::ifstream f(dir / "hello.dat", std::ios::binary);
+        char two[2]{};
+        f.read(two, 2);
+        CHECK(two[0] == 'A');
+        CHECK(two[1] == 'B');
+    }
+
+    /* A floppy descriptor must NOT mount into the HD slot. */
+    {
+        std::ofstream(dir / "fd.rtfs", std::ios::binary)
+            << "device: floppy\nblocks: 800\n";
+    }
+    ms0515::Emulator emu2;
+    CHECK_FALSE(emu2.mountHd((dir / "fd.rtfs").string()));
+
+    emu.unmountHd();
+    fs::remove_all(dir);
+}
+
 } /* TEST_SUITE("HD disk (lib)") */

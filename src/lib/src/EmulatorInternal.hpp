@@ -25,6 +25,9 @@
 
 #include "ms0515/Emulator.hpp"
 
+#include "ms0515/disk/FolderVolume.hpp"
+
+#include <memory>
 #include <span>
 
 extern "C" {
@@ -42,6 +45,9 @@ struct Emulator::Impl {
     Emulator::SerialOutCallback serialOutCb;
     Emulator::SerialInCallback  serialInCb;
     Emulator::VramWriteCallback vramWriteCb;
+
+    /* Folder-backed HD volume (.rtfs mount); null for image mounts. */
+    std::unique_ptr<ms0515::disk::FolderVolume> hdFolder;
 };
 
 namespace internal {

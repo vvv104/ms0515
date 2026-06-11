@@ -60,6 +60,21 @@ void hd_set_write_through(ms0515_hd_t *hd,
     hd->write_ud = userdata;
 }
 
+void hd_set_backend(ms0515_hd_t *hd, ms0515_hd_read_blocks_fn read_fn,
+                    ms0515_hd_write_blocks_fn write_fn, uint32_t blocks,
+                    void *userdata)
+{
+    hd_unmount(hd);
+    hd->backend_read   = read_fn;
+    hd->backend_write  = write_fn;
+    hd->backend_ud     = userdata;
+    hd->backend_blocks = blocks;
+    if (read_fn) {
+        hd->enabled = true;
+        hd_reset(hd);
+    }
+}
+
 void hd_unmount(ms0515_hd_t *hd)
 {
     free(hd->image);
@@ -68,6 +83,10 @@ void hd_unmount(ms0515_hd_t *hd)
     hd->dirty      = false;
     hd->write_cb   = NULL;     /* the host file handle is gone with the media */
     hd->write_ud   = NULL;
+    hd->backend_read   = NULL;
+    hd->backend_write  = NULL;
+    hd->backend_ud     = NULL;
+    hd->backend_blocks = 0;
     /* The controller stays enabled — the drive is now empty, not removed. */
 }
 
@@ -97,16 +116,73 @@ bool hd_handles(uint16_t offset)
 /* Block count of the selected unit (0 = offline).  Only unit 0 is backed. */
 static uint32_t hd_unit_blocks(const ms0515_hd_t *hd)
 {
-    if (hd->unit != 0 || !hd->image)
+    if (hd->unit != 0)
         return 0;
-    uint32_t blocks = hd->image_size / HD_BLOCK_SIZE;
+    uint32_t blocks = 0;
+    if (hd->image)
+        blocks = hd->image_size / HD_BLOCK_SIZE;
+    else if (hd->backend_read)
+        blocks = hd->backend_blocks;
     return blocks > HD_MAX_BLOCKS ? HD_MAX_BLOCKS : blocks;
+}
+
+/* DMA against the block backend: stage the whole range in a bounce buffer
+ * (read-modify-write keeps a partial tail block intact), so the backend
+ * sees one whole-block transfer per command. */
+static void hd_transfer_backend(ms0515_hd_t *hd, ms0515_memory_t *mem,
+                                bool writing)
+{
+    const uint32_t bytes = (uint32_t)hd->wcount * 2u;
+    const uint32_t nblk  = (bytes + HD_BLOCK_SIZE - 1) / HD_BLOCK_SIZE;
+
+    if (hd->block > hd->backend_blocks ||
+        nblk > hd->backend_blocks - hd->block) {
+        hd->status = HD_CS_READY | HD_CS_ERROR;
+        return;
+    }
+    if (nblk == 0) {
+        hd->status = HD_CS_READY;
+        return;
+    }
+
+    uint8_t *buf = (uint8_t *)malloc((size_t)nblk * HD_BLOCK_SIZE);
+    if (!buf) {
+        hd->status = HD_CS_READY | HD_CS_ERROR;
+        return;
+    }
+    hd->backend_read(hd->backend_ud, hd->block, nblk, buf);
+
+    for (uint16_t w = 0; w < hd->wcount; ++w) {
+        uint16_t addr = (uint16_t)(hd->bufaddr + (uint32_t)w * 2u);
+        mem_translation_t tr = mem_translate(mem, addr);
+        if (writing) {
+            uint16_t word = mem_read_word(mem, tr);
+            buf[w * 2u]     = (uint8_t)(word & 0xFF);
+            buf[w * 2u + 1] = (uint8_t)(word >> 8);
+        } else {
+            uint16_t word = (uint16_t)buf[w * 2u] |
+                            (uint16_t)((uint16_t)buf[w * 2u + 1] << 8);
+            mem_write_word(mem, tr, word);
+        }
+    }
+
+    if (writing && hd->backend_write)
+        hd->backend_write(hd->backend_ud, hd->block, nblk, buf);
+    free(buf);
+
+    hd->status = HD_CS_READY;
+    hd->activity_remaining = HD_ACTIVITY_DECAY_CYCLES;
 }
 
 /* Move `hd->wcount` words between the image (at `hd->block`) and CPU memory
  * (at `hd->bufaddr`).  Sets HD_CS_ERROR if the image range is out of bounds. */
 static void hd_transfer(ms0515_hd_t *hd, ms0515_memory_t *mem, bool writing)
 {
+    if (!hd->image && hd->backend_read) {
+        hd_transfer_backend(hd, mem, writing);
+        return;
+    }
+
     uint32_t bytes = (uint32_t)hd->wcount * 2u;
     uint32_t base  = hd->block * (uint32_t)HD_BLOCK_SIZE;
 

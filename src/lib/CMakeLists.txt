@@ -24,6 +24,8 @@ target_include_directories(ms0515_lib
 
 target_link_libraries(ms0515_lib
     PUBLIC ms0515_core
+    # Folder-backed HD volumes (.rtfs) are served by the offline disk lib.
+    PRIVATE ms0515_disk
 )
 
 if(MS0515_BUILD_TESTS)

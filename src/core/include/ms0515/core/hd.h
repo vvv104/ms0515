@@ -72,6 +72,19 @@ typedef void (*ms0515_hd_write_through_fn)(void *userdata,
                                            const uint8_t *data,
                                            uint32_t len);
 
+/*
+ * Block-backend callbacks — an alternative to the malloc'd image: the host
+ * serves whole 512-byte blocks (e.g. a folder-backed volume).  A write
+ * callback always receives complete blocks covering the whole DMA transfer
+ * in ONE call (the device read-modify-writes a partial tail block), so the
+ * backend can treat e.g. an RT-11 directory-segment rewrite atomically.
+ */
+typedef void (*ms0515_hd_read_blocks_fn)(void *userdata, uint32_t lbn,
+                                         uint32_t nblocks, uint8_t *out);
+typedef void (*ms0515_hd_write_blocks_fn)(void *userdata, uint32_t lbn,
+                                          uint32_t nblocks,
+                                          const uint8_t *data);
+
 /* ── Constants ───────────────────────────────────────────────────────────── */
 
 #define HD_BLOCK_SIZE   512         /* RT-11 block size in bytes              */
@@ -126,6 +139,12 @@ typedef struct ms0515_hd {
     /* Optional write-through sink (host-owned file persistence). */
     ms0515_hd_write_through_fn write_cb;
     void                      *write_ud;
+
+    /* Optional block backend (mutually exclusive with `image`). */
+    ms0515_hd_read_blocks_fn  backend_read;
+    ms0515_hd_write_blocks_fn backend_write;
+    void                     *backend_ud;
+    uint32_t                  backend_blocks;
 } ms0515_hd_t;
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
@@ -163,8 +182,18 @@ void hd_set_write_through(ms0515_hd_t *hd,
 bool hd_mount(ms0515_hd_t *hd, const uint8_t *data, uint32_t size);
 
 /*
- * hd_unmount — Eject the media (release the backing image).  The
- * controller stays enabled, presenting an offline drive (GetSize == 0).
+ * hd_set_backend — Mount a block backend as the media (instead of an
+ * image): `blocks` is the volume size, callbacks serve/accept whole
+ * blocks.  Enables the controller.  Pass NULL fns to detach.
+ */
+void hd_set_backend(ms0515_hd_t *hd, ms0515_hd_read_blocks_fn read_fn,
+                    ms0515_hd_write_blocks_fn write_fn, uint32_t blocks,
+                    void *userdata);
+
+/*
+ * hd_unmount — Eject the media (release the backing image and detach any
+ * block backend).  The controller stays enabled, presenting an offline
+ * drive (GetSize == 0).
  */
 void hd_unmount(ms0515_hd_t *hd);
 

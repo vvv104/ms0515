@@ -4,6 +4,7 @@
 
 #include "EmulatorInternal.hpp"  /* completes Emulator::Impl + C-side includes */
 
+#include <cctype>
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -90,6 +91,27 @@ void cHdWriteThrough(void *userdata, uint32_t byteOffset,
     if (std::fseek(fp, static_cast<long>(byteOffset), SEEK_SET) == 0)
         std::fwrite(data, 1, len, fp);
     std::fclose(fp);
+}
+
+/* Folder-backed HD volume: serve / accept whole blocks. */
+void cHdFolderRead(void *userdata, uint32_t lbn, uint32_t nblocks,
+                   uint8_t *out)
+{
+    auto *self = static_cast<ms0515::Emulator *>(userdata);
+    auto &vol = self->impl()->hdFolder;
+    if (!vol) return;
+    for (uint32_t i = 0; i < nblocks; ++i)
+        vol->readBlock(static_cast<int>(lbn + i), out + i * 512u);
+}
+
+void cHdFolderWrite(void *userdata, uint32_t lbn, uint32_t nblocks,
+                    const uint8_t *data)
+{
+    auto *self = static_cast<ms0515::Emulator *>(userdata);
+    auto &vol = self->impl()->hdFolder;
+    if (!vol) return;
+    /* One call for the whole transfer — directory rewrites stay atomic. */
+    vol->writeRange(static_cast<int>(lbn), static_cast<int>(nblocks), data);
 }
 
 } /* anonymous namespace */
@@ -241,6 +263,23 @@ bool Emulator::hdEnabled() const noexcept
 
 bool Emulator::mountHd(std::string_view path)
 {
+    /* A `.rtfs` descriptor mounts a folder-backed volume; anything else is
+     * a flat image file. */
+    auto lower = std::string{path};
+    for (auto &c : lower)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower.ends_with(disk::kRtfsExtension)) {
+        auto vol = disk::FolderVolume::open(std::string{path});
+        if (!vol || vol->deviceType() != disk::RtfsDescriptor::Device::Hd)
+            return false;
+        impl_->hdFolder = std::move(vol);
+        board_hd_set_backend(&impl_->board, &cHdFolderRead, &cHdFolderWrite,
+                             static_cast<uint32_t>(impl_->hdFolder->blocks()),
+                             this);
+        hdPath_ = std::string{path};
+        return true;
+    }
+
     std::ifstream f(std::string{path}, std::ios::binary | std::ios::ate);
     if (!f)
         return false;
@@ -277,12 +316,14 @@ void Emulator::unmountHd()
 {
     board_hd_set_write_through(&impl_->board, nullptr, nullptr);
     board_hd_unmount(&impl_->board);
+    impl_->hdFolder.reset();
     hdPath_.clear();
 }
 
 bool Emulator::hdMounted() const noexcept
 {
-    return impl_->board.hd.image != nullptr;
+    return impl_->board.hd.image != nullptr ||
+           impl_->board.hd.backend_read != nullptr;
 }
 
 bool Emulator::hdActive() const noexcept
