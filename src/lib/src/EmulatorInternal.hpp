@@ -27,6 +27,7 @@
 
 #include "ms0515/disk/FolderVolume.hpp"
 
+#include <array>
 #include <memory>
 #include <span>
 
@@ -48,6 +49,9 @@ struct Emulator::Impl {
 
     /* Folder-backed HD volume (.rtfs mount); null for image mounts. */
     std::unique_ptr<ms0515::disk::FolderVolume> hdFolder;
+
+    /* Folder-backed floppy volumes, one slot per FDC unit (FD0..FD3). */
+    std::array<std::unique_ptr<ms0515::disk::FolderVolume>, 4> fdFolder;
 };
 
 namespace internal {

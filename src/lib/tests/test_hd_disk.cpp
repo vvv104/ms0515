@@ -235,13 +235,18 @@ TEST_CASE("a .rtfs descriptor mounts a folder-backed HD volume") {
         CHECK(two[1] == 'B');
     }
 
-    /* A floppy descriptor must NOT mount into the HD slot. */
+    /* A floppy descriptor must NOT mount into the HD slot — and the same
+     * descriptor DOES mount on a floppy unit (and vice versa). */
     {
         std::ofstream(dir / "fd.rtfs", std::ios::binary)
             << "device: floppy\nblocks: 800\n";
     }
     ms0515::Emulator emu2;
     CHECK_FALSE(emu2.mountHd((dir / "fd.rtfs").string()));
+    CHECK(emu2.mountDisk(1, (dir / "fd.rtfs").string()));
+    CHECK(emu2.diskPath(1) == (dir / "fd.rtfs").string());
+    CHECK_FALSE(emu2.mountDisk(0, (dir / "device.rtfs").string()));
+    emu2.unmountDisk(1);
 
     emu.unmountHd();
     fs::remove_all(dir);

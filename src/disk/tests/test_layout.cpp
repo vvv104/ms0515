@@ -47,3 +47,13 @@ TEST_CASE("size classifies single- vs double-sided") {
 }
 
 } /* TEST_SUITE */
+
+TEST_CASE("lbnFromPhys inverts the OS-driver mapping for every block") {
+    using namespace ms0515::disk;
+    for (int lbn = 0; lbn < kSsBlocks; ++lbn) {
+        const std::size_t off = lbnToByte(lbn, 0, false);
+        const int track  = static_cast<int>(off / kTrackSize);
+        const int sector = static_cast<int>((off % kTrackSize) / kBlock) + 1;
+        CHECK(lbnFromPhys(track, sector) == lbn);
+    }
+}

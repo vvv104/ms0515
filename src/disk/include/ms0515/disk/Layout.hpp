@@ -55,6 +55,12 @@ inline constexpr int         kSsBlocks        = kTracks * kSectorsPerTrack;/* 80
     return linear ? lbnToByteLinear(lbn) : lbnToByte(lbn, side, ds);
 }
 
+/* Inverse of the OS-driver mapping for a single-sided diskette: which LBN
+ * lives at physical (track, sector)?  `sector` is the FDC's 1-based sector
+ * register (1..10), `track` 0..79.  This is what a folder-backed floppy
+ * uses to answer raw FDC sector requests with RT-11 logical blocks. */
+[[nodiscard]] int lbnFromPhys(int track, int sector) noexcept;
+
 /* True when a file of this byte size is a double-sided (800 KB) dump. */
 [[nodiscard]] inline bool isDoubleSidedSize(std::size_t fileSize) noexcept
 {

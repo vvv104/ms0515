@@ -4,6 +4,8 @@
 
 #include "EmulatorInternal.hpp"  /* completes Emulator::Impl + C-side includes */
 
+#include "ms0515/disk/Layout.hpp"   /* lbnFromPhys for folder floppies */
+
 #include <cctype>
 #include <cstdio>
 #include <fstream>
@@ -91,6 +93,23 @@ void cHdWriteThrough(void *userdata, uint32_t byteOffset,
     if (std::fseek(fp, static_cast<long>(byteOffset), SEEK_SET) == 0)
         std::fwrite(data, 1, len, fp);
     std::fclose(fp);
+}
+
+/* Folder-backed floppy unit: raw FDC sectors -> RT-11 logical blocks via
+ * the OS-driver mapping inverse.  userdata is the FolderVolume itself. */
+bool cFdcFolderRead(void *userdata, int track, int sector, uint8_t *out)
+{
+    auto *vol = static_cast<ms0515::disk::FolderVolume *>(userdata);
+    vol->readBlock(ms0515::disk::lbnFromPhys(track, sector), out);
+    return true;
+}
+
+bool cFdcFolderWrite(void *userdata, int track, int sector,
+                     const uint8_t *data)
+{
+    auto *vol = static_cast<ms0515::disk::FolderVolume *>(userdata);
+    vol->writeRange(ms0515::disk::lbnFromPhys(track, sector), 1, data);
+    return true;
 }
 
 /* Folder-backed HD volume: serve / accept whole blocks. */
@@ -224,6 +243,23 @@ bool Emulator::mountDisk(int drive, std::string_view path)
     if (drive < 0 || drive >= 4)
         return false;
     std::string pathStr{path};
+
+    /* A `.rtfs` descriptor mounts a folder-backed diskette. */
+    std::string lower = pathStr;
+    for (auto &c : lower)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower.ends_with(disk::kRtfsExtension)) {
+        auto vol = disk::FolderVolume::open(pathStr);
+        if (!vol || vol->deviceType() != disk::RtfsDescriptor::Device::Floppy)
+            return false;
+        impl_->fdFolder[drive] = std::move(vol);
+        fdc_attach_backend(&impl_->board.fdc, drive, &cFdcFolderRead,
+                           &cFdcFolderWrite, impl_->fdFolder[drive].get(),
+                           /*read_only=*/false);
+        diskPath_[drive] = std::move(pathStr);
+        return true;
+    }
+
     if (!fdc_attach(&impl_->board.fdc, drive, pathStr.c_str(), /*read_only=*/false))
         return false;
     diskPath_[drive] = std::move(pathStr);
@@ -241,6 +277,7 @@ void Emulator::unmountDisk(int drive)
     if (drive < 0 || drive >= 4)
         return;
     fdc_detach(&impl_->board.fdc, drive);
+    impl_->fdFolder[drive].reset();
     diskPath_[drive].clear();
 }
 

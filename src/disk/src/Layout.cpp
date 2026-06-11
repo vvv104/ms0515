@@ -32,4 +32,15 @@ std::size_t lbnToByte(int lbn, int side, bool ds) noexcept
          + static_cast<std::size_t>(sector) * kBlock;
 }
 
+int lbnFromPhys(int track, int sector) noexcept
+{
+    /* Inverse interleave: position j with kInterleave[j] == s. */
+    constexpr int kInverse[kSectorsPerTrack] = {0, 5, 1, 6, 2, 7, 3, 8, 4, 9};
+
+    const int lt = (track + kTracks - 1) % kTracks;        /* undo cyl-0-last */
+    int s = ((sector - 1) - (2 * track - 2)) % kSectorsPerTrack;
+    if (s < 0) s += kSectorsPerTrack;                      /* undo skew       */
+    return lt * kSectorsPerTrack + kInverse[s];
+}
+
 } /* namespace ms0515::disk */

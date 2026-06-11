@@ -86,7 +86,7 @@ static long disk_offset(const fdc_drive_t *drv, int sector)
 static bool drive_ready(const ms0515_floppy_t *fdc)
 {
     const fdc_drive_t *drv = &fdc->drives[fdc->selected];
-    return drv->image != NULL && drv->motor_on;
+    return (drv->image != NULL || drv->backend_read != NULL) && drv->motor_on;
 }
 
 /* Compose a Type I status byte.  Bit 1 (FDC_ST_INDEX) is omitted here —
@@ -108,9 +108,18 @@ static uint8_t type1_status(const ms0515_floppy_t *fdc, bool busy)
 static bool read_sector(ms0515_floppy_t *fdc)
 {
     fdc_drive_t *drv = current_drive(fdc);
-    if (!drv->image)
-        return false;
     if (fdc->sector_reg < 1 || fdc->sector_reg > FDC_SECTORS)
+        return false;
+
+    if (drv->backend_read) {
+        if (!drv->backend_read(drv->backend_ud, drv->track,
+                               fdc->sector_reg, fdc->buffer))
+            return false;
+        fdc->buf_pos = 0;
+        fdc->buf_len = FDC_SECTOR_SIZE;
+        return true;
+    }
+    if (!drv->image)
         return false;
 
     long offset = disk_offset(drv, fdc->sector_reg);
@@ -130,9 +139,15 @@ static bool read_sector(ms0515_floppy_t *fdc)
 static bool write_sector(ms0515_floppy_t *fdc)
 {
     fdc_drive_t *drv = current_drive(fdc);
-    if (!drv->image || drv->read_only)
+    if (drv->read_only)
         return false;
     if (fdc->sector_reg < 1 || fdc->sector_reg > FDC_SECTORS)
+        return false;
+
+    if (drv->backend_write)
+        return drv->backend_write(drv->backend_ud, drv->track,
+                                  fdc->sector_reg, fdc->buffer);
+    if (!drv->image)
         return false;
 
     long offset = disk_offset(drv, fdc->sector_reg);
@@ -308,6 +323,21 @@ bool fdc_attach(ms0515_floppy_t *fdc, int unit, const char *path,
     return true;
 }
 
+void fdc_attach_backend(ms0515_floppy_t *fdc, int unit,
+                        ms0515_fdc_read_sector_fn read_fn,
+                        ms0515_fdc_write_sector_fn write_fn,
+                        void *userdata, bool read_only)
+{
+    if (unit < 0 || unit >= FDC_LOGICAL_UNITS)
+        return;
+    fdc_detach(fdc, unit);
+    fdc->drives[unit].backend_read  = read_fn;
+    fdc->drives[unit].backend_write = write_fn;
+    fdc->drives[unit].backend_ud    = userdata;
+    fdc->drives[unit].read_only     = read_only;
+    fdc->drives[unit].track         = 0;
+}
+
 void fdc_detach(ms0515_floppy_t *fdc, int unit)
 {
     if (unit < 0 || unit >= FDC_LOGICAL_UNITS)
@@ -317,6 +347,9 @@ void fdc_detach(ms0515_floppy_t *fdc, int unit)
         fclose(fdc->drives[unit].image);
         fdc->drives[unit].image = NULL;
     }
+    fdc->drives[unit].backend_read  = NULL;
+    fdc->drives[unit].backend_write = NULL;
+    fdc->drives[unit].backend_ud    = NULL;
     fdc->drives[unit].read_only    = false;
     fdc->drives[unit].image_offset = 0;
     fdc->drives[unit].track_stride = FDC_TRACK_SIZE;

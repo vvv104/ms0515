@@ -81,9 +81,25 @@ extern "C" {
 
 /* ── Drive state ──────────────────────────────────────────────────────────── */
 
+/*
+ * Sector-backend callbacks — an alternative to a FILE* image for one
+ * logical unit: the host serves/accepts whole 512-byte physical sectors
+ * (e.g. a folder-backed volume that maps them to RT-11 blocks).  `track`
+ * is the physical track under the head, `sector` is 1-based.
+ */
+typedef bool (*ms0515_fdc_read_sector_fn)(void *userdata, int track,
+                                          int sector, uint8_t *out);
+typedef bool (*ms0515_fdc_write_sector_fn)(void *userdata, int track,
+                                           int sector, const uint8_t *data);
+
 typedef struct {
     FILE    *image;             /* Disk image file handle (NULL = empty)     */
     bool     read_only;         /* Write protection flag                    */
+
+    /* Sector backend (mutually exclusive with `image`). */
+    ms0515_fdc_read_sector_fn  backend_read;
+    ms0515_fdc_write_sector_fn backend_write;
+    void                      *backend_ud;
     bool     motor_on;          /* Motor is spinning                        */
     int      track;             /* Current track position (0–79)            */
     long     image_offset;      /* Byte offset of this side's track 0 sec 1 */
@@ -183,7 +199,18 @@ bool    fdc_attach(ms0515_floppy_t *fdc, int unit, const char *path,
                    bool read_only);
 
 /*
- * fdc_detach — Remove the disk image from a logical unit (FD0..FD3).
+ * fdc_attach_backend — Attach a sector backend to a logical unit instead
+ * of an image file (detaches anything already there).  The unit reports
+ * ready like a mounted single-side diskette.
+ */
+void    fdc_attach_backend(ms0515_floppy_t *fdc, int unit,
+                           ms0515_fdc_read_sector_fn read_fn,
+                           ms0515_fdc_write_sector_fn write_fn,
+                           void *userdata, bool read_only);
+
+/*
+ * fdc_detach — Remove the disk image (or sector backend) from a logical
+ * unit (FD0..FD3).
  */
 void    fdc_detach(ms0515_floppy_t *fdc, int unit);
 

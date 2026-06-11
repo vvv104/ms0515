@@ -252,4 +252,38 @@ TEST_CASE("deleting a NAME.BAD entry drops the descriptor line") {
     CHECK(vol->descriptor().files.empty());      /* line gone entirely */
 }
 
+TEST_CASE("guest boot-block writes materialize the hidden boot file") {
+    auto dir = freshDir("boot");
+    writeFile(dir / "f.dat", "data");
+    fs::path desc = dir / "device.rtfs";
+    writeFile(desc, "device: floppy\nblocks: 800\n");
+    auto vol = FolderVolume::open(desc.string());
+    REQUIRE(vol != nullptr);
+    (void)assemble(*vol);
+
+    std::vector<uint8_t> b0(kBlock, 0xB0), b2(kBlock, 0xB2), back(kBlock, 0);
+    vol->writeBlock(0, b0.data());          /* primary boot   */
+    vol->writeBlock(2, b2.data());          /* bootstrap head */
+
+    /* Descriptor gained the boot line; the file holds both blocks. */
+    std::ifstream d(desc);
+    std::string text(std::istreambuf_iterator<char>(d), {});
+    CHECK(text.find("boot: boot.bin") != std::string::npos);
+    REQUIRE(fs::exists(dir / "boot.bin"));
+    CHECK(fs::file_size(dir / "boot.bin") == 2u * kBlock);
+
+    vol->readBlock(0, back.data());
+    CHECK(back[0] == 0xB0);
+    vol->readBlock(2, back.data());
+    CHECK(back[0] == 0xB2);
+    vol->readBlock(1, back.data());          /* home block stays generated */
+    CHECK(back[0x1C0] == 0xFF);
+
+    /* The boot file never shows up inside RT-11. */
+    auto im = openLinearImage(assemble(*vol));
+    REQUIRE(im.has_value());
+    CHECK(im->directory.find("BOOT.BIN") == nullptr);
+    CHECK(im->directory.find("F.DAT") != nullptr);
+}
+
 } /* TEST_SUITE */

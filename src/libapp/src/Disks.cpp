@@ -54,9 +54,28 @@ validateDiskImage(const std::string &path, std::uintmax_t expected)
 
 }  /* anonymous namespace */
 
+namespace {
+
+/* True for a `.rtfs` folder-device descriptor (validated by the mount). */
+bool isRtfsDescriptor(const std::string &path)
+{
+    std::string lower = path;
+    for (auto &c : lower)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return lower.ends_with(".rtfs");
+}
+
+}  /* anonymous namespace */
+
 std::optional<std::string>
 validateSingleSideImage(const std::string &path)
 {
+    if (isRtfsDescriptor(path)) {
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(path, ec))
+            return std::format("cannot read descriptor '{}'", path);
+        return std::nullopt;
+    }
     return validateDiskImage(path, ms0515::kFloppyDiskSize);
 }
 
@@ -74,10 +93,7 @@ validateHdImage(const std::string &path)
     /* A `.rtfs` descriptor mounts a folder-backed volume: existence is
      * checked here, the descriptor itself is validated by the mount
      * (device type, size, syntax). */
-    std::string lower = path;
-    for (auto &c : lower)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    if (lower.ends_with(".rtfs")) {
+    if (isRtfsDescriptor(path)) {
         std::error_code ec;
         if (!fs::is_regular_file(path, ec))
             return std::format("cannot read descriptor '{}'", path);

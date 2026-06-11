@@ -212,11 +212,27 @@ const FolderVolume::Extent *FolderVolume::extentAt(int lbn) const
     return nullptr;
 }
 
+/* Boot blocks live in the (RT-11-invisible) boot host file: its block 0 is
+ * LBN 0, blocks 1..4 are LBN 2..5 (LBN 1 is the generated home block). */
+static int bootFileBlock(int lbn)
+{
+    if (lbn == 0) return 0;
+    if (lbn >= 2 && lbn <= 5) return lbn - 1;
+    return -1;
+}
+
 void FolderVolume::readBlock(int lbn, uint8_t *out)
 {
     std::memset(out, 0, kBlock);
     if (lbn < 0 || lbn >= desc_.blocks) return;
 
+    if (const int bb = bootFileBlock(lbn); bb >= 0 && !desc_.bootHost.empty()) {
+        std::ifstream f(hostPath(desc_.bootHost), std::ios::binary);
+        if (!f) return;
+        f.seekg(static_cast<std::streamoff>(bb) * kBlock);
+        f.read(reinterpret_cast<char *>(out), kBlock);
+        return;
+    }
     if (lbn == 1) {
         const auto home = makeHomeBlock(desc_.volumeId, "");
         std::memcpy(out, home.data(), kBlock);
@@ -258,11 +274,40 @@ void FolderVolume::writeRange(int lbn, int count, const uint8_t *in)
         const int b = lbn + i;
         if (b < 0 || b >= desc_.blocks) continue;
 
+        if (const int bb = bootFileBlock(b); bb >= 0) {
+            /* Guest COPY/BOOT: materialize/extend the hidden boot file. */
+            if (desc_.bootHost.empty()) {
+                desc_.bootHost = "boot.bin";
+                saveDescriptor();
+            }
+            const std::string path = hostPath(desc_.bootHost);
+            std::fstream f(path, std::ios::binary | std::ios::in | std::ios::out);
+            if (!f) {
+                std::ofstream(path, std::ios::binary).close();
+                f.open(path, std::ios::binary | std::ios::in | std::ios::out);
+            }
+            if (!f) continue;
+            f.seekp(0, std::ios::end);
+            for (auto have = static_cast<std::streamoff>(f.tellp());
+                 have < static_cast<std::streamoff>(bb) * kBlock; have += kBlock) {
+                const std::vector<char> zero(kBlock, 0);
+                f.write(zero.data(), kBlock);
+            }
+            f.seekp(static_cast<std::streamoff>(bb) * kBlock);
+            f.write(reinterpret_cast<const char *>(in), kBlock);
+            continue;
+        }
         if (b >= kDirLbn && b < dirEnd) {
             std::memcpy(dirImage_.data() +
                             static_cast<std::size_t>(b - kDirLbn) * kBlock,
                         in, kBlock);
-            touchedDir = true;
+            /* Diff only once the SECOND half of a segment pair lands: a
+             * floppy writes a segment as two single-sector transfers, and
+             * judging the half-written first block would corrupt the
+             * descriptor.  (An HD writes the whole segment in one DMA, so
+             * its range always covers the second half too.) */
+            if ((b - kDirLbn) % 2 == 1)
+                touchedDir = true;
             continue;
         }
         if (const Extent *e = extentAt(b)) {
