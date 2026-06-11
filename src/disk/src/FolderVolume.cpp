@@ -73,9 +73,9 @@ std::string FolderVolume::hostPath(const std::string &name) const
 
 /*
  * rescan — reconcile the descriptor with the folder: auto-fill an empty
- * descriptor, append host files that are not yet listed, then derive the
- * extent table from current host sizes (a vanished host file keeps its
- * entry but yields a zero-length, missing extent -> NAME.BAD display).
+ * descriptor, drop entries whose host file is gone (a renamed host simply
+ * re-enters as a new file), append host files that are not yet listed,
+ * then derive the extent table from current host sizes.
  */
 void FolderVolume::rescan()
 {
@@ -88,15 +88,31 @@ void FolderVolume::rescan()
         if (de.path().extension() == kRtfsExtension) continue;
         listing.push_back({name, de.file_size(ec), 0});
     }
+    auto inFolder = [&](const std::string &host) {
+        for (const auto &hf : listing)
+            if (hf.name == host) return true;
+        return false;
+    };
 
     const bool wasEmpty = desc_.files.empty();
     if (wasEmpty) {
         autoFillRtfs(desc_, listing);
+        if (!desc_.files.empty()) saveDescriptor();
     } else {
+        bool changed = false;
+
+        /* Drop entries whose host file vanished (deleted lines too — they
+         * reference nothing anymore). */
+        std::vector<RtfsFile> kept;
+        for (auto &df : desc_.files) {
+            if (inFolder(df.hostName)) kept.push_back(std::move(df));
+            else changed = true;
+        }
+        desc_.files = std::move(kept);
+
         /* Append files the descriptor doesn't know yet. */
         std::vector<std::string> taken;
         for (const auto &df : desc_.files) taken.push_back(df.rt11Name);
-        bool changed = false;
         for (const auto &hf : listing) {
             bool known = false;
             for (const auto &df : desc_.files)
@@ -111,26 +127,19 @@ void FolderVolume::rescan()
         }
         if (changed) saveDescriptor();
     }
-    if (wasEmpty && !desc_.files.empty()) saveDescriptor();
 
     /* Extents from current host sizes. */
-    std::vector<uint64_t> sizes(desc_.files.size(), 0);
-    std::vector<bool> missing(desc_.files.size(), false);
-    for (std::size_t i = 0; i < desc_.files.size(); ++i) {
-        if (desc_.files[i].deleted) continue;
-        if (auto sz = hostSize(hostPath(desc_.files[i].hostName)))
-            sizes[i] = *sz;
-        else
-            missing[i] = true;
-    }
     extents_.clear();
     int cur = rtfsDataStart(kSegments);
     for (std::size_t i = 0; i < desc_.files.size(); ++i) {
         if (desc_.files[i].deleted) continue;
+        uint64_t size = 0;
+        if (auto sz = hostSize(hostPath(desc_.files[i].hostName)))
+            size = *sz;
         const int nblk = static_cast<int>(
-            (sizes[i] + kBlock - 1) / static_cast<uint64_t>(kBlock));
+            (size + kBlock - 1) / static_cast<uint64_t>(kBlock));
         if (cur + nblk > desc_.blocks) continue;       /* doesn't fit */
-        extents_.push_back({i, cur, nblk, missing[i]});
+        extents_.push_back({i, cur, nblk});
         cur += nblk;
     }
     generateDirectory();
@@ -146,8 +155,8 @@ void FolderVolume::saveDescriptor() const
 /*
  * generateDirectory — render the descriptor's live extents as RT-11
  * directory segments (chained, kSegments reserved), one permanent entry
- * per extent, a missing host shown as NAME.BAD, then a single empty entry
- * covering the free tail, then the end-of-segment marker.
+ * per extent, then a single empty entry covering the free tail, then the
+ * end-of-segment marker.
  */
 void FolderVolume::generateDirectory()
 {
@@ -177,13 +186,8 @@ void FolderVolume::generateDirectory()
             inSeg = 0;
         }
         const auto &f = desc_.files[e.fileIndex];
-        std::string shown = f.rt11Name;
-        if (e.missing) {                               /* NAME.BAD marker  */
-            const auto dot = shown.rfind('.');
-            shown = shown.substr(0, dot) + ".BAD";
-        }
         char nm[6], ex[3];
-        splitName(shown, nm, ex);
+        splitName(f.rt11Name, nm, ex);
         uint8_t *s = dirImage_.data() + segBase(seg);
         const uint16_t status = static_cast<uint16_t>(
             kStatusPermanent | (f.isProtected ? kStatusProtected : 0));
@@ -234,7 +238,7 @@ void FolderVolume::readBlock(int lbn, uint8_t *out)
         return;
     }
     if (lbn == 1) {
-        const auto home = makeHomeBlock(desc_.volumeId, "");
+        const auto home = makeHomeBlock(desc_.volumeId, desc_.owner);
         std::memcpy(out, home.data(), kBlock);
         return;
     }
@@ -248,7 +252,6 @@ void FolderVolume::readBlock(int lbn, uint8_t *out)
         return;
     }
     if (const Extent *e = extentAt(lbn)) {
-        if (e->missing) return;                        /* .BAD reads zeros */
         std::ifstream f(hostPath(desc_.files[e->fileIndex].hostName),
                         std::ios::binary);
         if (!f) return;
@@ -274,6 +277,23 @@ void FolderVolume::writeRange(int lbn, int count, const uint8_t *in)
         const int b = lbn + i;
         if (b < 0 || b >= desc_.blocks) continue;
 
+        if (b == 1) {
+            /* Guest INIT writes a fresh home block: adopt its volume id
+             * and owner into the descriptor (offsets per makeHomeBlock). */
+            auto field = [&](int off) {
+                std::string s(reinterpret_cast<const char *>(in) + off, 12);
+                while (!s.empty() && (s.back() == ' ' || s.back() == '\0'))
+                    s.pop_back();
+                return s;
+            };
+            const std::string vid = field(0x1D8), own = field(0x1E4);
+            if (vid != desc_.volumeId || own != desc_.owner) {
+                desc_.volumeId = vid;
+                desc_.owner    = own;
+                saveDescriptor();
+            }
+            continue;
+        }
         if (const int bb = bootFileBlock(b); bb >= 0) {
             /* Guest COPY/BOOT: materialize/extend the hidden boot file. */
             if (desc_.bootHost.empty()) {
@@ -311,7 +331,6 @@ void FolderVolume::writeRange(int lbn, int count, const uint8_t *in)
             continue;
         }
         if (const Extent *e = extentAt(b)) {
-            if (e->missing) continue;
             const std::string path =
                 hostPath(desc_.files[e->fileIndex].hostName);
             std::fstream f(path, std::ios::binary | std::ios::in | std::ios::out);
@@ -352,10 +371,9 @@ std::string FolderVolume::materializeHostName(const std::string &rt11) const
  * reparseDirectory — read the guest-edited segments back, diff against
  * the descriptor, and make the folder match: created entries materialize
  * host files (content taken from scratch blocks the guest staged), gone
- * entries turn `deleted` (a gone NAME.BAD drops its descriptor line),
- * renames are tracked by the entry's start block, shrunk lengths truncate
- * the host file.  Ends with a rescan, which also rebuilds the canonical
- * directory image.
+ * entries turn `deleted`, renames are tracked by the entry's start block,
+ * shrunk lengths truncate the host file.  Ends with a rescan, which also
+ * rebuilds the canonical directory image.
  */
 void FolderVolume::reparseDirectory()
 {
@@ -377,32 +395,21 @@ void FolderVolume::reparseDirectory()
         seg = next - 1;
     }
 
-    /* Display name of each live descriptor entry, as the guest saw it. */
-    auto shownName = [&](std::size_t fi) {
-        for (const auto &e : extents_)
-            if (e.fileIndex == fi) {
-                if (!e.missing) break;
-                const auto &n = desc_.files[fi].rt11Name;
-                return n.substr(0, n.rfind('.')) + ".BAD";
-            }
-        return desc_.files[fi].rt11Name;
-    };
-
     std::vector<bool> seen(desc_.files.size(), false);
     std::vector<RtfsFile> created;
 
     for (const auto &p : parsed) {
-        /* match by displayed name */
+        /* match by name */
         bool matched = false;
         for (std::size_t fi = 0; fi < desc_.files.size(); ++fi) {
             if (desc_.files[fi].deleted || seen[fi]) continue;
-            if (shownName(fi) != p.name) continue;
+            if (desc_.files[fi].rt11Name != p.name) continue;
             seen[fi] = true;
             matched = true;
             desc_.files[fi].isProtected = (p.status & kStatusProtected) != 0;
             desc_.files[fi].date = p.date;
             if (const Extent *e = extentAt(p.start);
-                e && !e->missing && p.length < e->blocks) {
+                e && p.length < e->blocks) {
                 std::error_code ec;       /* guest shrank it (PIP .CLOSE) */
                 fs::resize_file(hostPath(desc_.files[fi].hostName),
                                 static_cast<uint64_t>(p.length) * kBlock, ec);
@@ -413,8 +420,7 @@ void FolderVolume::reparseDirectory()
 
         /* rename: an existing extent starts exactly here */
         if (const Extent *e = extentAt(p.start);
-            e && !seen[e->fileIndex] && !e->missing &&
-            p.start == e->start) {
+            e && !seen[e->fileIndex] && p.start == e->start) {
             seen[e->fileIndex] = true;
             desc_.files[e->fileIndex].rt11Name = p.name;
             desc_.files[e->fileIndex].isProtected =
@@ -441,19 +447,11 @@ void FolderVolume::reparseDirectory()
         created.push_back(std::move(nf));
     }
 
-    /* Entries the guest dropped: mark deleted; a dropped .BAD line goes. */
-    std::vector<RtfsFile> next;
-    for (std::size_t fi = 0; fi < desc_.files.size(); ++fi) {
-        RtfsFile f = desc_.files[fi];
-        if (!f.deleted && !seen[fi]) {
-            const bool wasBad = shownName(fi).ends_with(".BAD");
-            if (wasBad) continue;                 /* line removed entirely */
-            f.deleted = true;
-        }
-        next.push_back(std::move(f));
-    }
-    for (auto &nf : created) next.push_back(std::move(nf));
-    desc_.files = std::move(next);
+    /* Entries the guest dropped turn `deleted` (host files kept). */
+    for (std::size_t fi = 0; fi < desc_.files.size(); ++fi)
+        if (!desc_.files[fi].deleted && !seen[fi])
+            desc_.files[fi].deleted = true;
+    for (auto &nf : created) desc_.files.push_back(std::move(nf));
 
     saveDescriptor();
     rescan();

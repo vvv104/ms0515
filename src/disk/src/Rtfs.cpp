@@ -121,6 +121,8 @@ parseRtfs(std::string_view text, std::string *error)
             sawBlocks = true;
         } else if (key == "volume-id") {
             d.volumeId = std::string(val);
+        } else if (key == "owner") {
+            d.owner = std::string(val);
         } else if (key == "boot") {
             d.bootHost = std::string(val);
         } else if (key == "file") {
@@ -162,6 +164,8 @@ std::string serializeRtfs(const RtfsDescriptor &d)
     out += std::format("blocks: {}\n", d.blocks);
     if (d.volumeId != "RT11A")
         out += std::format("volume-id: {}\n", d.volumeId);
+    if (!d.owner.empty())
+        out += std::format("owner: {}\n", d.owner);
     if (!d.bootHost.empty())
         out += std::format("boot: {}\n", d.bootHost);
     for (const auto &f : d.files) {

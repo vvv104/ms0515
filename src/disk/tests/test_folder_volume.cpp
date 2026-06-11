@@ -108,11 +108,12 @@ TEST_CASE("external edits and new files are visible on directory re-read") {
     CHECK(data[0] == 'B');
 }
 
-TEST_CASE("a vanished host file shows as NAME.BAD with zero blocks") {
+TEST_CASE("a vanished host file simply drops out; returning re-enters it") {
     auto dir = freshDir("missing");
     writeFile(dir / "gone.dat", "payload");
     writeFile(dir / "kept.dat", "stays");
-    auto vol = FolderVolume::open(writeDescriptor(dir).string());
+    fs::path desc = writeDescriptor(dir);
+    auto vol = FolderVolume::open(desc.string());
     REQUIRE(vol != nullptr);
     (void)assemble(*vol);
 
@@ -121,10 +122,55 @@ TEST_CASE("a vanished host file shows as NAME.BAD with zero blocks") {
     auto im = openLinearImage(assemble(*vol));
     REQUIRE(im.has_value());
     CHECK(im->directory.find("GONE.DAT") == nullptr);
-    const DirEntry *bad = im->directory.find("GONE.BAD");
-    REQUIRE(bad != nullptr);
-    CHECK(bad->length == 0);
     CHECK(im->directory.find("KEPT.DAT") != nullptr);
+    CHECK(vol->descriptor().files.size() == 1);    /* line erased */
+
+    /* The file coming back (e.g. renamed back) re-enters as a new one. */
+    writeFile(dir / "gone.dat", "again");
+    im = openLinearImage(assemble(*vol));
+    REQUIRE(im.has_value());
+    CHECK(im->directory.find("GONE.DAT") != nullptr);
+}
+
+TEST_CASE("volume-id and owner: descriptor -> home block, guest INIT -> descriptor") {
+    auto dir = freshDir("identity");
+    fs::path desc = dir / "device.rtfs";
+    writeFile(desc, "device: hd\nblocks: 100\nvolume-id: MYVOL\nowner: VVV\n");
+    auto vol = FolderVolume::open(desc.string());
+    REQUIRE(vol != nullptr);
+
+    std::vector<uint8_t> home(kBlock, 0);
+    vol->readBlock(1, home.data());
+    CHECK(std::string(reinterpret_cast<char *>(&home[0x1D8]), 5) == "MYVOL");
+    CHECK(std::string(reinterpret_cast<char *>(&home[0x1E4]), 3) == "VVV");
+
+    /* Guest INIT writes a new home block — descriptor adopts it. */
+    std::memset(&home[0x1D8], ' ', 12);
+    std::memcpy(&home[0x1D8], "NEWID", 5);
+    std::memset(&home[0x1E4], ' ', 12);
+    std::memcpy(&home[0x1E4], "OWNER2", 6);
+    vol->writeBlock(1, home.data());
+    CHECK(vol->descriptor().volumeId == "NEWID");
+    CHECK(vol->descriptor().owner == "OWNER2");
+    std::ifstream d(desc);
+    std::string text(std::istreambuf_iterator<char>(d), {});
+    CHECK(text.find("volume-id: NEWID") != std::string::npos);
+    CHECK(text.find("owner: OWNER2") != std::string::npos);
+}
+
+TEST_CASE("protected flag flows descriptor -> directory entry") {
+    auto dir = freshDir("prot");
+    writeFile(dir / "lock.dat", "x");
+    fs::path desc = dir / "device.rtfs";
+    writeFile(desc, "device: hd\nblocks: 100\n"
+                    "file: LOCK.DAT | lock.dat | protected\n");
+    auto vol = FolderVolume::open(desc.string());
+    REQUIRE(vol != nullptr);
+    auto im = openLinearImage(assemble(*vol));
+    REQUIRE(im.has_value());
+    const DirEntry *e = im->directory.find("LOCK.DAT");
+    REQUIRE(e != nullptr);
+    CHECK((e->status & kStatusProtected) != 0);
 }
 
 TEST_CASE("guest data writes land in the host file") {
@@ -235,21 +281,6 @@ TEST_CASE("guest rename follows the start block") {
     CHECK(vol->descriptor().files[0].rt11Name == "NEW.DAT");
     CHECK(vol->descriptor().files[0].hostName == "old.dat");
     CHECK_FALSE(vol->descriptor().files[0].deleted);
-}
-
-TEST_CASE("deleting a NAME.BAD entry drops the descriptor line") {
-    auto dir = freshDir("gbad");
-    writeFile(dir / "gone.dat", "x");
-    auto vol = FolderVolume::open(writeDescriptor(dir).string());
-    REQUIRE(vol != nullptr);
-    (void)assemble(*vol);
-    fs::remove(dir / "gone.dat");
-    (void)assemble(*vol);                        /* now shown as GONE.BAD */
-
-    auto blocks = dirBlocksFor({});              /* guest deleted the .BAD */
-    vol->writeRange(6, 8, blocks.data());
-
-    CHECK(vol->descriptor().files.empty());      /* line gone entirely */
 }
 
 TEST_CASE("guest boot-block writes materialize the hidden boot file") {

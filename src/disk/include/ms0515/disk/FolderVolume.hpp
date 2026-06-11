@@ -45,10 +45,12 @@ public:
 
     /*
      * readBlock / writeBlock — 512-byte linear block access.  Reading a
-     * directory block first rescans the folder (new/changed/missing host
-     * files show up at the natural RT-11 rhythm); a missing host file's
-     * entry is presented as NAME.BAD.  Writing a data block lands in the
-     * backing host file (extended to whole blocks when needed).
+     * directory block first rescans the folder, so changes show up at the
+     * natural RT-11 rhythm: new host files enter the descriptor, entries
+     * whose host file vanished are dropped (anything can happen outside —
+     * the folder is simply accepted as it is, a renamed file re-enters as
+     * a new one).  Writing a data block lands in the backing host file
+     * (extended to whole blocks when needed).
      */
     void readBlock(int lbn, uint8_t *out);
     void writeBlock(int lbn, const uint8_t *in);
@@ -58,8 +60,8 @@ public:
      * DMA).  Directory edits are diffed against the descriptor only after
      * the whole range lands, so a segment rewritten by PIP is seen
      * atomically: new entries materialize host files (fed from scratch
-     * blocks), removed entries become `deleted` (a removed NAME.BAD drops
-     * its line entirely), renames follow the entry's start block.
+     * blocks), removed entries become `deleted`, renames follow the
+     * entry's start block.
      */
     void writeRange(int lbn, int count, const uint8_t *in);
 
@@ -70,7 +72,6 @@ private:
         std::size_t fileIndex = 0;  /* into desc_.files                     */
         int  start  = 0;            /* first LBN                            */
         int  blocks = 0;
-        bool missing = false;       /* host file gone -> NAME.BAD, reads 0  */
     };
 
     void rescan();                  /* folder -> descriptor + extents       */

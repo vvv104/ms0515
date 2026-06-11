@@ -46,7 +46,8 @@ struct RtfsDescriptor {
 
     Device      device  = Device::Hd;
     int         blocks  = 0;          /* device size in 512-byte blocks      */
-    std::string volumeId = "RT11A";
+    std::string volumeId = "RT11A";   /* home-block volume id (<= 12 chars)  */
+    std::string owner;                /* home-block owner name (<= 12 chars) */
     std::string bootHost;             /* boot file host name; "" = none      */
     std::vector<RtfsFile> files;
 };

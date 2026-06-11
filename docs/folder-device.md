@@ -41,9 +41,13 @@ file: OLD.TXT    | old-notes.txt   | deleted
 - The descriptor itself and the boot file are never visible inside RT-11.
 - `deleted` keeps the host file but hides the entry from RT-11 (guest
   deletions set this flag rather than deleting host data).
-- A descriptor entry whose host file has disappeared shows up inside RT-11
-  as **`NAME.BAD`** (mirroring RT-11's bad-block files); deleting that
-  `.BAD` file inside RT-11 removes the descriptor line.
+- A descriptor entry whose host file has disappeared is simply **dropped**
+  on the next folder rescan: anything can happen outside, and the folder
+  is accepted as it is.  A renamed host file therefore re-enters as a new
+  file (fresh RT-11 name, no carried metadata); removing the system
+  monitor from under a system folder is the user's own risk.
+- `volume-id:` and `owner:` feed the generated home block; a guest
+  `INIT` that writes a new home block updates them in the descriptor.
 
 ## Auto-fill
 
