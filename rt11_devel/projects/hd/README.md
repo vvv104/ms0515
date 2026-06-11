@@ -8,8 +8,9 @@ the **t2** variant; `HD.SYS` v2.0 serves t2 (and t3).
 
 `HD.MAC` is the v2.0 driver from the public "HD t1..t5" driver
 distribution kit (`HD Sources/v2.0/HD.MAC`,
-`http://emulator.pdp-11.org.ru/misc/HD_v1_v2_v3_v4_v5.zip`).  `HD.COM.orig`
-is the kit's original build recipe, kept for reference.
+`http://emulator.pdp-11.org.ru/misc/HD_v1_v2_v3_v4_v5.zip`).  The kit's
+build recipe (`MACRO HD` + `LINK/NOBIT/EXECUTE:HD.SYS HD`) is captured in
+`build.toml`.
 
 ### MS-0515 adaptations
 
