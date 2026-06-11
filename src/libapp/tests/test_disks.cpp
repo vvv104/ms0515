@@ -120,6 +120,13 @@ TEST_CASE("a missing file returns an error string") {
     CHECK(app::validateHdImage("/nope/missing.hd").has_value());
 }
 
+TEST_CASE("an .rtfs descriptor passes by existence (mount validates it)") {
+    fs::path p = makeBlankFile(fixtureRoot() / "vol.rtfs", 30);
+    CHECK_FALSE(app::validateHdImage(p.string()).has_value());
+    fs::remove(p);
+    CHECK(app::validateHdImage(p.string()).has_value());   /* now missing */
+}
+
 /* Sparse helper: a file of `blocks` * 512 bytes without writing them all. */
 static fs::path makeSparseHd(const char *name, std::uintmax_t blocks)
 {

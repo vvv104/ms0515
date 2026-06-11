@@ -10,6 +10,7 @@
 #include <ms0515/Emulator.hpp>     /* Emulator, kFloppyDiskSize */
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -69,6 +70,20 @@ std::optional<std::string>
 validateHdImage(const std::string &path)
 {
     namespace fs = std::filesystem;
+
+    /* A `.rtfs` descriptor mounts a folder-backed volume: existence is
+     * checked here, the descriptor itself is validated by the mount
+     * (device type, size, syntax). */
+    std::string lower = path;
+    for (auto &c : lower)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower.ends_with(".rtfs")) {
+        std::error_code ec;
+        if (!fs::is_regular_file(path, ec))
+            return std::format("cannot read descriptor '{}'", path);
+        return std::nullopt;
+    }
+
     constexpr std::uintmax_t kHdBlock     = 512;       /* RT-11 block size   */
     constexpr std::uintmax_t kHdMaxBlocks = 65535;     /* RT-11 volume limit */
     constexpr std::uintmax_t kHdMaxBytes  = kHdMaxBlocks * kHdBlock;

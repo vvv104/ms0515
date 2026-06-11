@@ -20,7 +20,7 @@ const wchar_t *filterFor(ms0515_frontend::FileDialogKind k)
     using K = ms0515_frontend::FileDialogKind;
     switch (k) {
     case K::Disk:
-        return L"Disk images (*.dsk;*.img)\0*.dsk;*.img\0"
+        return L"Disk images (*.dsk;*.img;*.hd;*.rtfs)\0*.dsk;*.img;*.hd;*.rtfs\0"
                L"All files (*.*)\0*.*\0";
     case K::Rom:
         return L"ROM images (*.rom;*.bin)\0*.rom;*.bin\0"
