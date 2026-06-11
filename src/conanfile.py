@@ -8,13 +8,14 @@ ImGui backend sources (SDL2 + SDLRenderer2) are compiled directly from
 the Conan package cache — no copying into the source or build tree.
 """
 
+import os
+
 from conan import ConanFile
 from conan.tools.cmake import CMake, cmake_layout
 
 
 class Ms0515Recipe(ConanFile):
     name        = "ms0515"
-    version     = "0.7.0"
     settings    = "os", "arch", "compiler", "build_type"
     generators  = "CMakeDeps", "CMakeToolchain"
 
@@ -34,6 +35,13 @@ class Ms0515Recipe(ConanFile):
         "doctest/2.4.11",
         "stb/cci.20240213",
     )
+
+    def set_version(self):
+        # Single source of truth for the version: src/VERSION (also read by
+        # CMakeLists.txt).  Keeps the Conan recipe and the CMake project in
+        # lock-step without two literals to bump.
+        with open(os.path.join(self.recipe_folder, "VERSION")) as f:
+            self.version = f.read().strip()
 
     def layout(self):
         cmake_layout(self)

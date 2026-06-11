@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
-project(ms0515 VERSION 0.7.0 LANGUAGES C CXX)
+# Single source of truth for the version: src/VERSION (also read by
+# conanfile.py).  One file to bump, never two literals to keep in sync.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" MS0515_VERSION)
+project(ms0515 VERSION ${MS0515_VERSION} LANGUAGES C CXX)
 
 # ── Version macro for --version flag ─────────────────────────────────────────
 # Push the CMake project version through to C++ so both binaries can echo it
