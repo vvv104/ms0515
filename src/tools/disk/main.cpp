@@ -145,9 +145,12 @@ uint16_t mtimeAsDate(const fs::path &p)
     std::error_code ec;
     const auto ft = fs::last_write_time(p, ec);
     if (ec) return 0;
-    /* fs::file_time_type's clock is implementation-defined; clock_cast is the
-     * portable bridge to system_clock (C++20).  Works on libc++ and MSVC. */
-    const auto sys = ch::clock_cast<ch::system_clock>(ft);
+    /* fs::file_time_type's clock is implementation-defined.  std::chrono::
+     * clock_cast would be the C++20 bridge to system_clock, but apple-clang's
+     * libc++ doesn't provide it — convert via the now()-offset trick, which
+     * works on every compiler (day granularity makes the tiny wobble moot). */
+    const auto sys = ch::time_point_cast<ch::system_clock::duration>(
+        ft - fs::file_time_type::clock::now() + ch::system_clock::now());
     const auto dp  = ch::floor<ch::days>(sys);
     const ch::year_month_day ymd{dp};
     const int year = int(ymd.year());
@@ -177,9 +180,11 @@ void applyDateToFile(const fs::path &p, uint16_t encoded)
                                  ch::month{static_cast<unsigned>(dp.month)},
                                  ch::day  {static_cast<unsigned>(dp.day)}};
     if (!ymd.ok()) return;
-    const auto sys = ch::sys_days{ymd};
-    const auto ft  = ch::clock_cast<fs::file_time_type::clock>(
-        ch::time_point_cast<ch::system_clock::duration>(sys));
+    const auto sys = ch::time_point_cast<ch::system_clock::duration>(
+        ch::sys_days{ymd});
+    /* system_clock -> file_clock, portably (see mtimeAsDate). */
+    const auto ft = ch::time_point_cast<fs::file_time_type::duration>(
+        sys - ch::system_clock::now() + fs::file_time_type::clock::now());
     std::error_code ec;
     fs::last_write_time(p, ft, ec);  /* best effort — ignore failures */
 }
