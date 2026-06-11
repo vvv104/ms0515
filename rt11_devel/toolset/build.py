@@ -48,6 +48,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 SYSTEM_DISK = HERE / "system.dsk"
+STARTUP_COM = HERE / "STARTS.COM"     # SJ boot-time startup, staged on SY:
 DEVEL       = HERE / "build_tools"
 CLI         = ROOT / "package/ms0515-cli.exe"
 ROM         = ROOT / "package/assets/rom/ms0515-roma.rom"
@@ -165,6 +166,15 @@ def run(plan: BuildPlan, *, work_disk: Path | None = None) -> None:
         work_disk = Path(tempfile.gettempdir()) / f"{plan.name.lower()}_build.dsk"
     print(f"[2/5] copy system.dsk -> {work_disk}")
     shutil.copy(SYSTEM_DISK, work_disk)
+
+    # Stage the boot-time startup file on SY: (side 0).  SEAM for the planned
+    # refactor: today STARTS.COM just carries `SET TT QUIET`, but the build
+    # recipe (ASSIGN + compile/link) will move here so the monitor runs the
+    # build itself at boot, replacing the per-command driving in run().  The
+    # startup file is a toolset asset, owned here rather than baked per-project.
+    if STARTUP_COM.exists():
+        subprocess.run([str(DISK_TOOL), "put", str(work_disk), "--side", "0",
+                        str(STARTUP_COM)], check=True)
 
     print(f"[3/5] stage side 1: {len(plan.staged_files())} files for {plan.language}")
     subprocess.run([str(DISK_TOOL), "put", str(work_disk), "--side", "1",

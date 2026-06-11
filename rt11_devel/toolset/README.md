@@ -211,6 +211,15 @@ Coverage:
 | ``test_rt11.py``      | ``boot`` reaches the prompt, ``command`` returns only new output, ``RT11CommandError`` on ``?xxx-F-``, ``chain`` ordering, ``DOT_PROMPT`` regex |
 | ``test_build.py``     | Recipe table sanity, manifest → ``BuildPlan`` resolution, `{name}` substitution, default vs. override sources/outputs/commands, manifest-validation errors |
 
+## `STARTS.COM` — boot-time startup file
+
+`STARTS.COM` is a toolset asset (not a per-project file): the SJ monitor
+auto-runs it from SY: at boot.  Today it just carries `SET TT QUIET`;
+`build.py` stages it on side 0 of every work disk.  It is the **seam** for
+a planned refactor — the build recipe (`ASSIGN` + compile/link) will move
+into a generated `STARTS.COM` so the monitor runs the build itself at boot,
+replacing the per-command driving in `run()`.  See also `GOTCHAS.md`.
+
 ## Why these specific RT-11 binaries
 
 They're the exact toolchain that originally produced VVV's disks

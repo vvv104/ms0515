@@ -52,8 +52,8 @@ try:
     emu.wait_for(DOT_PROMPT, "INIT done", timeout=60)
     print(emu.tail(600))
 
-    print("=== COPY SY:STARTS.COM HD: ===")
-    print(rt.command("COPY SY:STARTS.COM HD:", timeout=30))
+    print("=== COPY SY:DIR.SAV HD: ===")
+    print(rt.command("COPY SY:DIR.SAV HD:", timeout=30))
 
     print("=== DIR HD: ===")
     print(rt.command("DIR HD:", timeout=30))
