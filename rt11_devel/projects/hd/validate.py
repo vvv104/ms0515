@@ -27,9 +27,12 @@ tmp = Path(tempfile.gettempdir())
 sysdsk = tmp / "hd_oracle_sys.dsk"
 hdimg = tmp / "hd_oracle.hd"
 
-# 1. system disk with HD.SYS on SY: (side 0)
+# 1. system disk with HD.SYS + a startup file on SY: (side 0).  system.dsk
+# carries no STARTS.COM (the toolset stages one per build), so a direct boot
+# like this one stages the toolset default to start cleanly.
 shutil.copy(SYSTEM, sysdsk)
-subprocess.run([str(DISK), "put", str(sysdsk), "--side", "0", str(HERE / "HD.SYS")], check=True)
+subprocess.run([str(DISK), "put", str(sysdsk), "--side", "0",
+                str(HERE / "HD.SYS"), str(TOOLSET / "STARTS.COM")], check=True)
 
 # 2. blank HD image
 hdimg.write_bytes(b"\x00" * (HD_BLOCKS * 512))
@@ -52,8 +55,8 @@ try:
     emu.wait_for(DOT_PROMPT, "INIT done", timeout=60)
     print(emu.tail(600))
 
-    print("=== COPY SY:DIR.SAV HD: ===")
-    print(rt.command("COPY SY:DIR.SAV HD:", timeout=30))
+    print("=== COPY SY:STARTS.COM HD: ===")
+    print(rt.command("COPY SY:STARTS.COM HD:", timeout=30))
 
     print("=== DIR HD: ===")
     print(rt.command("DIR HD:", timeout=30))

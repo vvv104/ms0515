@@ -51,7 +51,7 @@ python rt11_devel/projects/hd/validate.py
 
 Boots RT-11 with `HD.SYS` on SY: and a blank 20000-block image on `--hd`,
 then drives the real driver: `INSTALL HD` / `LOAD HD` / `INIT HD:` /
-`COPY SY:DIR.SAV HD:` / `DIR HD:`.  A passing run shows the copied file
+`COPY SY:STARTS.COM HD:` / `DIR HD:`.  A passing run shows the copied file
 back in `DIR HD:` with plenty of free blocks -- proof the t2 protocol + DMA
 work against the genuine driver.
 

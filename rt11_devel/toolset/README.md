@@ -211,14 +211,21 @@ Coverage:
 | ``test_rt11.py``      | ``boot`` reaches the prompt, ``command`` returns only new output, ``RT11CommandError`` on ``?xxx-F-``, ``chain`` ordering, ``DOT_PROMPT`` regex |
 | ``test_build.py``     | Recipe table sanity, manifest → ``BuildPlan`` resolution, `{name}` substitution, default vs. override sources/outputs/commands, manifest-validation errors |
 
-## `STARTS.COM` — boot-time startup file
+## `STARTS.COM` — the build runs from the startup file
 
-`STARTS.COM` is a toolset asset (not a per-project file): the SJ monitor
-auto-runs it from SY: at boot.  Today it just carries `SET TT QUIET`;
-`build.py` stages it on side 0 of every work disk.  It is the **seam** for
-a planned refactor — the build recipe (`ASSIGN` + compile/link) will move
-into a generated `STARTS.COM` so the monitor runs the build itself at boot,
-replacing the per-command driving in `run()`.  See also `GOTCHAS.md`.
+The SJ monitor auto-runs `STARTS.COM` from SY: at boot, so the build recipe
+*is* the startup file.  For each build, `build.py` writes the project's
+commands (`ASSIGN DZ2 DK` + the language recipe) into a `STARTS.COM` and
+stages it on SY: like any other build file — `system.dsk` carries **no**
+`STARTS.COM`, so it's a plain `put`, nothing to replace.  Then it boots: the
+monitor runs the whole build itself; the host just accepts the Date/Time
+prompts, sends a type-ahead `DIR` whose "Free blocks" line marks completion
+(it executes only after `STARTS.COM` finishes), and scans the transcript for
+`?xxx-F-`/`-E-` diagnostics.
+
+Direct boots that are not builds (`projects/hd/validate.py`, the demo disk)
+stage the toolset's default `STARTS.COM` (`SET TT QUIET`) themselves so they
+start cleanly.  See also `GOTCHAS.md`.
 
 ## Why these specific RT-11 binaries
 

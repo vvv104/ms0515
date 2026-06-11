@@ -6,8 +6,11 @@ project through the standard pipeline:
 
   1. (optional) pre_build hook            — host-side, e.g. code generator
   2. copy system.dsk to a working location
-  3. stage source + language toolchain on side 1 of the work disk
-  4. boot ms0515-cli, drive the RT-11 monitor through the language recipe
+  3. stage the language recipe as STARTS.COM on SY: + source + toolchain on
+     side 1 (system.dsk carries no STARTS.COM, so this is a plain put)
+  4. boot ms0515-cli; the SJ monitor auto-runs STARTS.COM, so the build runs
+     unattended.  Wait for it to finish (a type-ahead `DIR` probe), then scan
+     the whole transcript for any ?xxx-F-/-E- diagnostic.
   5. extract output files back to the project directory
   6. (optional) post_build hook           — host-side, e.g. packaging
 
@@ -38,17 +41,18 @@ If the path is omitted the manifest is taken from the current directory.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 SYSTEM_DISK = HERE / "system.dsk"
-STARTUP_COM = HERE / "STARTS.COM"     # SJ boot-time startup, staged on SY:
 DEVEL       = HERE / "build_tools"
 CLI         = ROOT / "package/ms0515-cli.exe"
 ROM         = ROOT / "package/assets/rom/ms0515-roma.rom"
@@ -56,7 +60,7 @@ DISK_TOOL   = ROOT / "package/ms0515-disk.exe"
 
 sys.path.insert(0, str(HERE))
 from emu_driver import EmulatorDriver       # noqa: E402
-from rt11 import RT11Session                # noqa: E402
+from rt11 import RT11CommandError           # noqa: E402
 
 
 # ── Language recipes ─────────────────────────────────────────────────────────
@@ -167,31 +171,45 @@ def run(plan: BuildPlan, *, work_disk: Path | None = None) -> None:
     print(f"[2/5] copy system.dsk -> {work_disk}")
     shutil.copy(SYSTEM_DISK, work_disk)
 
-    # Stage the boot-time startup file on SY: (side 0).  SEAM for the planned
-    # refactor: today STARTS.COM just carries `SET TT QUIET`, but the build
-    # recipe (ASSIGN + compile/link) will move here so the monitor runs the
-    # build itself at boot, replacing the per-command driving in run().  The
-    # startup file is a toolset asset, owned here rather than baked per-project.
-    if STARTUP_COM.exists():
-        subprocess.run([str(DISK_TOOL), "put", str(work_disk), "--side", "0",
-                        str(STARTUP_COM)], check=True)
-
-    print(f"[3/5] stage side 1: {len(plan.staged_files())} files for {plan.language}")
+    # The build recipe IS the startup file: write the project's commands into
+    # a STARTS.COM and stage it on SY: (side 0) like any other build file, so
+    # the SJ monitor runs the whole build itself at boot.  (system.dsk carries
+    # no STARTS.COM, so this is just a plain `put` — nothing to replace.)  We
+    # then wait for it to finish instead of driving each command from the host.
+    print(f"[3/5] stage build STARTS.COM + {len(plan.staged_files())} files")
+    starts = Path(tempfile.mkdtemp()) / "STARTS.COM"
+    recipe = ["ASSIGN DZ2 DK", *plan.commands]
+    starts.write_bytes(("".join(c + "\r\n" for c in recipe)).encode("ascii"))
+    subprocess.run([str(DISK_TOOL), "put", str(work_disk), "--side", "0",
+                    str(starts)], check=True)
     subprocess.run([str(DISK_TOOL), "put", str(work_disk), "--side", "1",
                     *(str(f) for f in plan.staged_files())], check=True)
+    for c in recipe:
+        print(f"      {c}")
 
-    print(f"[4/5] build inside emulator")
+    print(f"[4/5] boot + run the build (STARTS.COM)")
     emu = EmulatorDriver([CLI, "--rom", ROM, "--disk0", work_disk])
     emu.start()
     try:
-        rt = RT11Session(emu)
-        rt.boot(timeout=60)
-        rt.command("ASSIGN DZ2 DK", timeout=15)
-        for cmd in plan.commands:
-            print(f"      {cmd}")
-            rt.command(cmd, timeout=300)
+        # Accept the localized Date/Time prompts; STARTS.COM then auto-runs the
+        # build.  The DIR probe is type-ahead — it executes only after the
+        # startup file finishes, so its "Free blocks" line marks completion.
+        time.sleep(2.0)
+        for _ in range(3):
+            emu.send("\r"); time.sleep(0.4)
+        emu.send("DIR DZ2:\r")
+        emu.wait_for(r"Free|Files,", "build complete", timeout=600)
+        time.sleep(0.5)
+        with emu._buf_lock:
+            log = emu._decode(bytes(emu._buf))
     finally:
         emu.kill()
+
+    # The build ran unattended, so scan its whole transcript for fatal (-F-)
+    # or error (-E-, e.g. MACRO "Errors detected") diagnostics.
+    diag = re.search(r"\?[A-Z]{2,5}-[FE]-[^\r\n]*", log)
+    if diag:
+        raise RT11CommandError("build (STARTS.COM)", diag.group(0).strip(), log)
 
     print(f"[5/5] extract {plan.outputs}")
     subprocess.run([str(DISK_TOOL), "get", str(work_disk), "--side", "1",

@@ -45,8 +45,10 @@ due to timing, can land in an early command's output and trip the
 toolchain's fatal-error detector.
 
 Do **not** filter the error in `rt11.py` (the toolchain must keep
-catching real `?...-F-...` diagnostics).  Instead provide the file: a
-one-line `STARTS.COM` (`SET TT QUIET`) lives on side 0 of `system.dsk`.
+catching real `?...-F-...` diagnostics).  Instead provide the file:
+`build.py` stages a `STARTS.COM` (the build recipe) on every build, and
+non-build direct boots stage the toolset's default `STARTS.COM`
+(`SET TT QUIET`).  `system.dsk` itself carries none.
 
 ## LINK with switches via `RUN DZ2:LINK`
 
