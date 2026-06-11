@@ -53,6 +53,16 @@ public:
     void readBlock(int lbn, uint8_t *out);
     void writeBlock(int lbn, const uint8_t *in);
 
+    /*
+     * writeRange — `count` consecutive blocks in one transfer (one guest
+     * DMA).  Directory edits are diffed against the descriptor only after
+     * the whole range lands, so a segment rewritten by PIP is seen
+     * atomically: new entries materialize host files (fed from scratch
+     * blocks), removed entries become `deleted` (a removed NAME.BAD drops
+     * its line entirely), renames follow the entry's start block.
+     */
+    void writeRange(int lbn, int count, const uint8_t *in);
+
 private:
     FolderVolume() = default;
 
@@ -66,6 +76,8 @@ private:
     void rescan();                  /* folder -> descriptor + extents       */
     void saveDescriptor() const;
     void generateDirectory();
+    void reparseDirectory();        /* guest dir edit -> descriptor diff    */
+    [[nodiscard]] std::string materializeHostName(const std::string &rt11) const;
     [[nodiscard]] const Extent *extentAt(int lbn) const;
     [[nodiscard]] std::string hostPath(const std::string &name) const;
 

@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <ms0515/disk/Build.hpp>
 #include <ms0515/disk/FolderVolume.hpp>
 #include <ms0515/disk/Image.hpp>
 #include <ms0515/disk/Layout.hpp>
@@ -157,6 +158,98 @@ TEST_CASE("unbacked (free) blocks behave as scratch storage") {
     CHECK(back[511] == 0xAB);
     vol->readBlock(51, back.data());            /* untouched reads zeros */
     CHECK(back[0] == 0);
+}
+
+/* ── guest directory edits (stage 2b) ────────────────────────────────────── */
+
+namespace {
+
+/* Build the directory blocks a guest write would carry: a linear image
+ * with the wanted post-state files (sizes shape the entry lengths). */
+std::vector<uint8_t> dirBlocksFor(
+    const std::vector<std::pair<std::string, int>> &filesAndBlocks)
+{
+    auto img = blankLinear(100);
+    initVolume(img, 0, false, {}, /*linear=*/true);
+    for (const auto &[name, nblk] : filesAndBlocks)
+        putFile(img, 0, false, name,
+                std::vector<uint8_t>(static_cast<std::size_t>(nblk) * kBlock,
+                                     0x11),
+                {}, /*linear=*/true);
+    return {img.begin() + 6 * kBlock, img.begin() + 14 * kBlock};
+}
+
+}  /* namespace */
+
+TEST_CASE("guest delete marks the descriptor entry deleted, host file kept") {
+    auto dir = freshDir("gdelete");
+    writeFile(dir / "doomed.dat", std::string(512, 'D'));
+    auto vol = FolderVolume::open(writeDescriptor(dir).string());
+    REQUIRE(vol != nullptr);
+    (void)assemble(*vol);
+
+    auto blocks = dirBlocksFor({});              /* empty directory */
+    vol->writeRange(6, 8, blocks.data());
+
+    REQUIRE(vol->descriptor().files.size() == 1);
+    CHECK(vol->descriptor().files[0].deleted);
+    CHECK(fs::exists(dir / "doomed.dat"));       /* host file survives */
+    auto im = openLinearImage(assemble(*vol));
+    REQUIRE(im.has_value());
+    CHECK(im->directory.find("DOOMED.DAT") == nullptr);
+}
+
+TEST_CASE("guest create materializes a host file from staged scratch blocks") {
+    auto dir = freshDir("gcreate");
+    auto vol = FolderVolume::open(writeDescriptor(dir).string());
+    REQUIRE(vol != nullptr);
+    (void)assemble(*vol);
+
+    /* PIP flow: stage data into free space, then commit the dir entry. */
+    std::vector<uint8_t> payload(kBlock, 0xCD);
+    vol->writeBlock(rtfsDataStart(), payload.data());
+    auto blocks = dirBlocksFor({{"K.SAV", 1}});
+    vol->writeRange(6, 8, blocks.data());
+
+    REQUIRE(vol->descriptor().files.size() == 1);
+    CHECK(vol->descriptor().files[0].rt11Name == "K.SAV");
+    CHECK(vol->descriptor().files[0].hostName == "k.sav");
+    std::ifstream f(dir / "k.sav", std::ios::binary);
+    REQUIRE(f.good());
+    std::string content(std::istreambuf_iterator<char>(f), {});
+    REQUIRE(content.size() == static_cast<std::size_t>(kBlock));
+    CHECK(static_cast<uint8_t>(content[0]) == 0xCD);
+}
+
+TEST_CASE("guest rename follows the start block") {
+    auto dir = freshDir("grename");
+    writeFile(dir / "old.dat", std::string(512, 'O'));
+    auto vol = FolderVolume::open(writeDescriptor(dir).string());
+    REQUIRE(vol != nullptr);
+    (void)assemble(*vol);
+
+    auto blocks = dirBlocksFor({{"NEW.DAT", 1}});   /* same slot, new name */
+    vol->writeRange(6, 8, blocks.data());
+
+    REQUIRE(vol->descriptor().files.size() == 1);
+    CHECK(vol->descriptor().files[0].rt11Name == "NEW.DAT");
+    CHECK(vol->descriptor().files[0].hostName == "old.dat");
+    CHECK_FALSE(vol->descriptor().files[0].deleted);
+}
+
+TEST_CASE("deleting a NAME.BAD entry drops the descriptor line") {
+    auto dir = freshDir("gbad");
+    writeFile(dir / "gone.dat", "x");
+    auto vol = FolderVolume::open(writeDescriptor(dir).string());
+    REQUIRE(vol != nullptr);
+    (void)assemble(*vol);
+    fs::remove(dir / "gone.dat");
+    (void)assemble(*vol);                        /* now shown as GONE.BAD */
+
+    auto blocks = dirBlocksFor({});              /* guest deleted the .BAD */
+    vol->writeRange(6, 8, blocks.data());
+
+    CHECK(vol->descriptor().files.empty());      /* line gone entirely */
 }
 
 } /* TEST_SUITE */

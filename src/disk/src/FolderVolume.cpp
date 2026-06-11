@@ -1,6 +1,8 @@
 /*
- * FolderVolume.cpp — host folder as an RT-11 block device (read path +
- * data writes; guest directory-write reparse lands in the next stage).
+ * FolderVolume.cpp — host folder as an RT-11 block device: generated
+ * home/directory, host-file-backed data blocks, and guest directory-edit
+ * reparse (created entries materialize host files, drops become
+ * `deleted`, renames follow the start block).
  */
 
 #include "ms0515/disk/FolderVolume.hpp"
@@ -10,10 +12,12 @@
 
 #include "Internal.hpp"
 
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <span>
 
 namespace fs = std::filesystem;
 
@@ -242,23 +246,172 @@ void FolderVolume::readBlock(int lbn, uint8_t *out)
 
 void FolderVolume::writeBlock(int lbn, const uint8_t *in)
 {
-    if (lbn < 0 || lbn >= desc_.blocks) return;
+    writeRange(lbn, 1, in);
+}
 
+void FolderVolume::writeRange(int lbn, int count, const uint8_t *in)
+{
     const int dirEnd = kDirLbn + 2 * kSegments;
-    if (lbn >= kDirLbn && lbn < dirEnd) {
-        /* Guest directory edits (create/delete/rename) are stage A2b. */
-        return;
+    bool touchedDir = false;
+
+    for (int i = 0; i < count; ++i, in += kBlock) {
+        const int b = lbn + i;
+        if (b < 0 || b >= desc_.blocks) continue;
+
+        if (b >= kDirLbn && b < dirEnd) {
+            std::memcpy(dirImage_.data() +
+                            static_cast<std::size_t>(b - kDirLbn) * kBlock,
+                        in, kBlock);
+            touchedDir = true;
+            continue;
+        }
+        if (const Extent *e = extentAt(b)) {
+            if (e->missing) continue;
+            const std::string path =
+                hostPath(desc_.files[e->fileIndex].hostName);
+            std::fstream f(path, std::ios::binary | std::ios::in | std::ios::out);
+            if (!f) continue;
+            f.seekp(static_cast<std::streamoff>(b - e->start) * kBlock);
+            f.write(reinterpret_cast<const char *>(in), kBlock);
+            continue;
+        }
+        scratch_[b].assign(in, in + kBlock);
     }
-    if (const Extent *e = extentAt(lbn)) {
-        if (e->missing) return;
-        const std::string path = hostPath(desc_.files[e->fileIndex].hostName);
-        std::fstream f(path, std::ios::binary | std::ios::in | std::ios::out);
-        if (!f) return;
-        f.seekp(static_cast<std::streamoff>(lbn - e->start) * kBlock);
-        f.write(reinterpret_cast<const char *>(in), kBlock);
-        return;
+
+    /* Diff guest directory edits only after the whole transfer landed, so
+     * a segment rewritten by PIP is judged in its final, consistent form. */
+    if (touchedDir)
+        reparseDirectory();
+}
+
+/*
+ * materializeHostName — pick a host file name for a guest-created RT-11
+ * file: the lowercased RT-11 name, de-conflicted with a numeric tail.
+ */
+std::string FolderVolume::materializeHostName(const std::string &rt11) const
+{
+    std::string base = rt11;
+    for (auto &c : base)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::string name = base;
+    for (int n = 2; fs::exists(hostPath(name)); ++n) {
+        const auto dot = base.rfind('.');
+        name = (dot == std::string::npos)
+             ? base + "-" + std::to_string(n)
+             : base.substr(0, dot) + "-" + std::to_string(n) + base.substr(dot);
     }
-    scratch_[lbn].assign(in, in + kBlock);
+    return name;
+}
+
+/*
+ * reparseDirectory — read the guest-edited segments back, diff against
+ * the descriptor, and make the folder match: created entries materialize
+ * host files (content taken from scratch blocks the guest staged), gone
+ * entries turn `deleted` (a gone NAME.BAD drops its descriptor line),
+ * renames are tracked by the entry's start block, shrunk lengths truncate
+ * the host file.  Ends with a rescan, which also rebuilds the canonical
+ * directory image.
+ */
+void FolderVolume::reparseDirectory()
+{
+    struct Parsed { std::string name; int start, length; uint16_t status, date; };
+    std::vector<Parsed> parsed;
+
+    std::size_t seg = 0;
+    for (int guard = 0; guard < kSegments; ++guard) {
+        std::span<const uint8_t> buf(dirImage_.data() + seg * 2 * kBlock,
+                                     2 * static_cast<std::size_t>(kBlock));
+        auto d = parseSegment(buf);
+        if (!d) return;            /* mid-edit garbage: wait for more writes */
+        for (const auto &e : d->entries)
+            if (e.isPermanent() || (e.status & kStatusTentative))
+                parsed.push_back({e.name, e.startBlock, e.length,
+                                  e.status, e.date});
+        const uint16_t next = getw(dirImage_.data() + seg * 2 * kBlock + 2);
+        if (next == 0 || next > kSegments) break;
+        seg = next - 1;
+    }
+
+    /* Display name of each live descriptor entry, as the guest saw it. */
+    auto shownName = [&](std::size_t fi) {
+        for (const auto &e : extents_)
+            if (e.fileIndex == fi) {
+                if (!e.missing) break;
+                const auto &n = desc_.files[fi].rt11Name;
+                return n.substr(0, n.rfind('.')) + ".BAD";
+            }
+        return desc_.files[fi].rt11Name;
+    };
+
+    std::vector<bool> seen(desc_.files.size(), false);
+    std::vector<RtfsFile> created;
+
+    for (const auto &p : parsed) {
+        /* match by displayed name */
+        bool matched = false;
+        for (std::size_t fi = 0; fi < desc_.files.size(); ++fi) {
+            if (desc_.files[fi].deleted || seen[fi]) continue;
+            if (shownName(fi) != p.name) continue;
+            seen[fi] = true;
+            matched = true;
+            desc_.files[fi].isProtected = (p.status & kStatusProtected) != 0;
+            desc_.files[fi].date = p.date;
+            if (const Extent *e = extentAt(p.start);
+                e && !e->missing && p.length < e->blocks) {
+                std::error_code ec;       /* guest shrank it (PIP .CLOSE) */
+                fs::resize_file(hostPath(desc_.files[fi].hostName),
+                                static_cast<uint64_t>(p.length) * kBlock, ec);
+            }
+            break;
+        }
+        if (matched) continue;
+
+        /* rename: an existing extent starts exactly here */
+        if (const Extent *e = extentAt(p.start);
+            e && !seen[e->fileIndex] && !e->missing &&
+            p.start == e->start) {
+            seen[e->fileIndex] = true;
+            desc_.files[e->fileIndex].rt11Name = p.name;
+            desc_.files[e->fileIndex].isProtected =
+                (p.status & kStatusProtected) != 0;
+            desc_.files[e->fileIndex].date = p.date;
+            continue;
+        }
+
+        /* new file: materialize from scratch blocks (zeros elsewhere) */
+        RtfsFile nf;
+        nf.rt11Name    = p.name;
+        nf.hostName    = materializeHostName(p.name);
+        nf.date        = p.date;
+        nf.isProtected = (p.status & kStatusProtected) != 0;
+        std::ofstream out(hostPath(nf.hostName), std::ios::binary);
+        for (int b = 0; b < p.length; ++b) {
+            std::vector<uint8_t> blk(kBlock, 0);
+            if (auto it = scratch_.find(p.start + b); it != scratch_.end()) {
+                blk = it->second;
+                scratch_.erase(it);
+            }
+            out.write(reinterpret_cast<const char *>(blk.data()), kBlock);
+        }
+        created.push_back(std::move(nf));
+    }
+
+    /* Entries the guest dropped: mark deleted; a dropped .BAD line goes. */
+    std::vector<RtfsFile> next;
+    for (std::size_t fi = 0; fi < desc_.files.size(); ++fi) {
+        RtfsFile f = desc_.files[fi];
+        if (!f.deleted && !seen[fi]) {
+            const bool wasBad = shownName(fi).ends_with(".BAD");
+            if (wasBad) continue;                 /* line removed entirely */
+            f.deleted = true;
+        }
+        next.push_back(std::move(f));
+    }
+    for (auto &nf : created) next.push_back(std::move(nf));
+    desc_.files = std::move(next);
+
+    saveDescriptor();
+    rescan();
 }
 
 } /* namespace ms0515::disk */
