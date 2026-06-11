@@ -180,8 +180,11 @@ void applyDateToFile(const fs::path &p, uint16_t encoded)
                                  ch::month{static_cast<unsigned>(dp.month)},
                                  ch::day  {static_cast<unsigned>(dp.day)}};
     if (!ymd.ok()) return;
+    /* Stamp noon, not midnight: the portable clock conversion below has
+     * sub-second slack, and floor<days> at a midnight mtime can roll to the
+     * previous day.  Noon keeps the calendar date stable. */
     const auto sys = ch::time_point_cast<ch::system_clock::duration>(
-        ch::sys_days{ymd});
+        ch::sys_days{ymd} + ch::hours{12});
     /* system_clock -> file_clock, portably (see mtimeAsDate). */
     const auto ft = ch::time_point_cast<fs::file_time_type::duration>(
         sys - ch::system_clock::now() + fs::file_time_type::clock::now());

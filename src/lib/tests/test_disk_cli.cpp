@@ -81,9 +81,12 @@ void setMtime(const fs::path &p, int year, int month, int day)
                                  ch::month{static_cast<unsigned>(month)},
                                  ch::day  {static_cast<unsigned>(day)}};
     REQUIRE(ymd.ok());
-    const auto sys = ch::sys_days{ymd} + ch::hours{12};
-    const auto ft  = ch::clock_cast<fs::file_time_type::clock>(
-        ch::time_point_cast<ch::system_clock::duration>(sys));
+    const auto sys = ch::time_point_cast<ch::system_clock::duration>(
+        ch::sys_days{ymd} + ch::hours{12});
+    /* system_clock -> file_clock without clock_cast (apple-clang's libc++
+     * lacks it): the now()-offset bridge, matching ms0515-disk. */
+    const auto ft = ch::time_point_cast<fs::file_time_type::duration>(
+        sys - ch::system_clock::now() + fs::file_time_type::clock::now());
     fs::last_write_time(p, ft);
 }
 
@@ -92,7 +95,9 @@ ms0515::disk::DateParts mtimeOf(const fs::path &p)
 {
     namespace ch = std::chrono;
     const auto ft  = fs::last_write_time(p);
-    const auto sys = ch::clock_cast<ch::system_clock>(ft);
+    /* file_clock -> system_clock without clock_cast (see setMtime). */
+    const auto sys = ch::time_point_cast<ch::system_clock::duration>(
+        ft - fs::file_time_type::clock::now() + ch::system_clock::now());
     const auto dp  = ch::floor<ch::days>(sys);
     const ch::year_month_day ymd{dp};
     return {int(ymd.year()),
