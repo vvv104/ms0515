@@ -18,7 +18,15 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 ## Key rules
 - All code, comments, and documentation must be in **English only**.
 - Write original code based on architecture knowledge, do not copy from reference projects.
-- **Never commit or push** without explicit user permission.
+- **Never commit or push** without explicit user permission.  Commits to a
+  feature branch are allowed without asking; commits to `main` and any push
+  still require permission.
+- **CI gates every merge and release — `main` must stay clean.**  The
+  mandatory order: open the PR → wait for CI green on the PR (all four
+  platform jobs; local MSVC green is NOT cross-platform green) → merge →
+  wait for CI green on `main` → only then push the release tag and publish.
+  Fixes discovered along the way go through the feature branch, never
+  directly onto `main`.
 - **Test-driven development**: after designing the interface, write unit tests first, then implement. Run tests at each stage.
 - **Revert failed attempts**: always roll back changes from unsuccessful approaches to avoid accumulating dead code and clutter.
 - **Zero compiler warnings**: all code must compile without warnings. Use modern C++ idioms and features (C++20/23) in lib and frontend layers.
