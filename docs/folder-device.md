@@ -81,15 +81,24 @@ disk whose system area stays put.
 - Conflicts (same file changed inside and outside simultaneously) resolve
   as last-writer-wins; no locking.
 
-## Staging
+## Manual descriptor edits
 
-1. **Folder-as-HD** end to end (linear device, no boot): descriptor +
-   scan/mangle/layout in `ms0515_disk` (offline TDD), generic block-backend
-   callbacks in the core HD device, `FolderVolume` wiring in lib,
-   extension routing in libapp/frontend, OS-oracle validation.
-2. **Folder-as-floppy**: FDC backend (track/sector→LBN via the existing
-   Layout), boot file, bootable system-disk support.
-3. Edge polish: rename heuristics, conflict tests, `.BAD` flows.
+A hand-edited `.rtfs` takes effect live: every guest directory read (the
+existing rescan point — the earliest moment any change could become
+visible inside) stats the descriptor and reloads it when the mtime/size
+moved.  No polling, no background activity.  Our own saves re-note the
+stamp (no self-trigger); malformed text keeps the current state; geometry
+(`device:`/`blocks:`) is fixed at mount time — a geometry edit is ignored
+until a remount.
 
-Open (parked) questions: text-encoding conversion (host UTF-8 ↔ KOI-8R /
-cp866) — deliberately out of v1.
+## Status
+
+Implemented and OS-validated end to end (`rt11_devel/projects/hd/
+validate_rtfs.py` and `validate_rtfs_floppy.py`): folder-as-HD, folder-as-
+floppy with boot file (RT-11 boots standalone from a host folder), guest
+create/delete/rename/protect, volume-id/owner round-trip including guest
+`INIT`, live manual-edit pickup.  The `rt11_devel` build toolchain runs
+entirely on folder devices (see `rt11_devel/toolset/README.md`).
+
+Parked: text-encoding conversion (host UTF-8 ↔ KOI-8R / CP866 / KOI-7) —
+design agreed, deliberately not in v1; all content passes byte-exact.

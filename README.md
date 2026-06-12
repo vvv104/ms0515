@@ -13,7 +13,12 @@ T-11), produced in the late 1980s.
   raw images directly)
 - Paravirtual hard disk (HD:) — mounts a backing image of any size for
   use with the RT-11 HD.SYS driver (`--hd <path>`; shares bus addresses
-  with the unused serial port, so the two are mutually exclusive)
+  with the unused serial port, so the two are mutually exclusive).
+  `assets/disks/vvv.dsk` is a bootable RT-11 with HD.SYS ready to use
+- Folder-backed devices — mount a host FOLDER as a floppy or the HD:
+  via a plain-text `.rtfs` descriptor: files map to RT-11 files both
+  ways (external edits visible inside, guest writes materialize host
+  files), bootable system folders included (see `docs/folder-device.md`)
 - KR580VI53 (Intel 8253) programmable interval timer
 - MS7004 keyboard with an on-screen virtual keyboard (OSK)
 - Video: 320×200 with 8-colour attribute mode, or 640×200 monochrome

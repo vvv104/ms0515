@@ -56,6 +56,10 @@ options:
   --hd <path>             Mount a paravirtual hard disk (HD:) image of
                           any size that is a 512-byte multiple.  Needs
                           the RT-11 HD.SYS driver loaded in the guest.
+
+  Any disk path may also be a `.rtfs` descriptor, mounting a host FOLDER
+  as the device (see docs/folder-device.md); the descriptor's device
+  type must match the slot (floppy vs hd).
   --no-config             Ignore ms0515.yaml — use only the flags given.
                           For scripted runs (the build toolchain), so GUI
                           settings never leak into automation.

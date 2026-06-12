@@ -100,9 +100,13 @@ backing file immediately (open-write-close per call).  So the file always
 reflects the volume mid-session and survives a crash or a killed process —
 nothing waits for a clean shutdown.
 
-An image must be a positive multiple of 512 bytes; in practice RT-11 caps
-a logical volume at 65535 blocks (~32 MB), so a larger backing file is
-reported truncated to that.
+An image must be a positive multiple of 512 bytes; RT-11 caps a logical
+volume at 65535 blocks (~32 MB), and the mount rejects anything larger.
+
+Instead of an image, a **host folder** can back the device: point the
+mount at a `.rtfs` descriptor (`device: hd`) and the core uses a block
+backend served by `FolderVolume` — host files become RT-11 files both
+ways.  See `docs/folder-device.md`.
 
 ## Sources
 

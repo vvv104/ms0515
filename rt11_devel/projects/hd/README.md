@@ -49,20 +49,31 @@ template carries none of them.  See `../../toolset/GOTCHAS.md`.
 python rt11_devel/projects/hd/validate.py
 ```
 
-Boots RT-11 with `HD.SYS` on SY: and a blank 20000-block image on `--hd`,
-then drives the real driver: `INSTALL HD` / `LOAD HD` / `INIT HD:` /
-`COPY SY:STARTS.COM HD:` / `DIR HD:`.  A passing run shows the copied file
-back in `DIR HD:` with plenty of free blocks -- proof the t2 protocol + DMA
-work against the genuine driver.
+Boots RT-11 from a temp copy of the toolset's `system/` folder template
+(with the freshly built `HD.SYS` dropped in) and a blank 20000-block image
+on `--hd`, then drives the real driver: `INSTALL HD` / `LOAD HD` /
+`INIT HD:` / `COPY SY:STARTS.COM HD:` / `DIR HD:`.  A passing run shows
+the copied file back in `DIR HD:` with plenty of free blocks -- proof the
+t2 protocol + DMA work against the genuine driver.
+
+Two more oracles cover folder-backed devices end to end:
+`validate_rtfs.py` (a host folder as HD: — reads, guest-created host
+files, guest delete -> descriptor, live external adds) and
+`validate_rtfs_floppy.py` (a host folder as a bootable floppy: COPY/BOOT
+materializes the hidden boot file, then RT-11 boots standalone from the
+folder).
 
 ## Using it by hand
 
-Mount a blank HD image and copy the driver onto a bootable system disk,
-then from RT-11:
+Put `HD.SYS` on the bootable system disk and mount a blank HD image.
+RT-11 registers handlers found on the boot volume automatically, and the
+SJ monitor fetches them on demand — so after booting it is simply:
 
 ```
-INSTALL HD           ! register the device with the monitor
-LOAD HD              ! load the handler
-INIT HD:             ! format the volume
+INIT HD:             ! format the volume (answer Y)
 DIR HD:              ! empty directory
+COPY SY:TT.SYS HD:   ! use it
 ```
+
+(`INSTALL HD` / `LOAD HD` are only needed when the handler was added
+after boot or must stay resident.)

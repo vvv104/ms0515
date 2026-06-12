@@ -12,6 +12,7 @@
  *          [--disk1 <path>] | [--disk1-side0 <path>] [--disk1-side1 <path>]
  *          (short aliases: -d0/-d0s0/-d0s1, -d1/-d1s0/-d1s1)
  *          [--hd <path>]                    (paravirtual HD: image)
+ *          (any disk path may be a .rtfs descriptor = folder device)
  *          [--history-size N]               (events; 0 disables)
  *          [--history-watch-addr A] [--history-watch-len L]  (MEMW evts)
  *          [--history-read-watch-addr A] [--history-read-watch-len L]
