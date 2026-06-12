@@ -5,6 +5,7 @@
 #include <ms0515/disk/Image.hpp>
 #include <ms0515/disk/Layout.hpp>
 
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
