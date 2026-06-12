@@ -5,7 +5,7 @@ bootable host, writes a bootloader onto it with COPY/BOOT (materializing
 the hidden boot file), then boots RT-11 STANDALONE FROM THE HOST FOLDER
 and exercises it.
 """
-import shutil, subprocess, sys, tempfile, time
+import shutil, sys, tempfile, time
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -19,25 +19,34 @@ from rt11 import RT11Session
 
 CLI = ROOT / "package/ms0515-cli.exe"
 ROM = ROOT / "package/assets/rom/ms0515-roma.rom"
-BOOT = ROOT / "package/assets/disks/rt11-hd.dsk"
-DISK = ROOT / "package/ms0515-disk.exe"
+SYSTEM_DIR = TOOLSET / "system"
+HD_SYS = HERE / "HD.SYS"
+
+if not HD_SYS.exists():
+    raise SystemExit("HD.SYS not built — run the hd project build first")
 
 tmp = Path(tempfile.gettempdir())
+boot = tmp / "rtfs_floppy_host"
+shutil.rmtree(boot, ignore_errors=True)
+shutil.copytree(SYSTEM_DIR, boot)
+(boot / "STARTS.COM").write_bytes(b"SET TT QUIET\r\n")
+
 vol = tmp / "rtfs_floppy_oracle"
 shutil.rmtree(vol, ignore_errors=True)
 vol.mkdir(parents=True)
 
-# 1. populate the folder with the curated system set
-subprocess.run([str(DISK), "get",
-                str(ROOT / "package/assets/disks/vvv-hd.dsk"),
-                "--out", str(vol)], check=True, capture_output=True)
-for f in sorted(vol.iterdir()):
-    pass
+# 1. populate the target folder with a system set (from the template) + HD.SYS
+for f in SYSTEM_DIR.iterdir():
+    if f.name not in ("device.rtfs", "boot.bin"):
+        shutil.copy(f, vol / f.name)
+shutil.copy(HD_SYS, vol / "HD.SYS")
+(vol / "STARTS.COM").write_bytes(b"SET TT QUIET\r\n")
 (vol / "device.rtfs").write_bytes(b"device: floppy\nblocks: 800\n")
 print("folder populated:", len(list(vol.iterdir())) - 1, "files")
 
 # 2. host session: read the folder via the FDC + write a bootloader onto it
-emu = EmulatorDriver([CLI, "--rom", ROM, "--disk0", BOOT,
+emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
+                      "--disk0-side0", boot / "device.rtfs",
                       "--disk1-side0", str(vol / "device.rtfs")])
 emu.start()
 try:
@@ -53,7 +62,7 @@ finally:
 print("3) boot file materialized:", (vol / "boot.bin").exists())
 
 # 3. boot standalone from the folder
-emu = EmulatorDriver([CLI, "--rom", ROM,
+emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
                       "--disk0-side0", str(vol / "device.rtfs")])
 emu.start()
 try:

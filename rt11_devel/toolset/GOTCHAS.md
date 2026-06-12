@@ -49,7 +49,7 @@ Do **not** filter the error in `rt11.py` (the toolchain must keep
 catching real `?...-F-...` diagnostics).  Instead provide the file:
 `build.py` stages a `STARTS.COM` (the build recipe) on every build, and
 non-build direct boots stage the toolset's default `STARTS.COM`
-(`SET TT QUIET`).  `system.dsk` itself carries none.
+(`SET TT QUIET`).  The `system/` template itself carries none.
 
 ## LINK with switches via `RUN DZ2:LINK`
 

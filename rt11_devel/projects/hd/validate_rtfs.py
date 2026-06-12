@@ -22,9 +22,18 @@ from rt11 import RT11Session
 
 CLI = ROOT / "package/ms0515-cli.exe"
 ROM = ROOT / "package/assets/rom/ms0515-roma.rom"
-BOOT = ROOT / "package/assets/disks/rt11-hd.dsk"
+SYSTEM_DIR = TOOLSET / "system"
+
+if not (HERE / "HD.SYS").exists():
+    raise SystemExit("HD.SYS not built — run the hd project build first")
 
 tmp = Path(tempfile.gettempdir())
+boot = tmp / "rtfs_oracle_boot"
+shutil.rmtree(boot, ignore_errors=True)
+shutil.copytree(SYSTEM_DIR, boot)
+shutil.copy(HERE / "HD.SYS", boot / "HD.SYS")
+(boot / "STARTS.COM").write_bytes(b"SET TT QUIET\r\n")
+
 vol = tmp / "rtfs_oracle"
 shutil.rmtree(vol, ignore_errors=True)
 vol.mkdir(parents=True)
@@ -32,7 +41,8 @@ vol.mkdir(parents=True)
 (vol / "data.bin").write_bytes(bytes(range(256)) * 4)
 (vol / "device.rtfs").write_bytes(b"device: hd\nblocks: 2000\n")
 
-emu = EmulatorDriver([CLI, "--rom", ROM, "--disk0", BOOT,
+emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
+                      "--disk0-side0", boot / "device.rtfs",
                       "--hd", str(vol / "device.rtfs")])
 emu.start()
 try:

@@ -40,7 +40,7 @@ Produces `HD.SYS` here, assembled and linked by the real RT-11 SJ V5.04
 MACRO/LINK inside the emulator (recipe: `MACRO HD` +
 `LINK/NOBIT/EXECUTE:HD.SYS HD`).  `build.py` stages `MACRO.SAV`, `LINK.SAV`
 and `SYSMAC.SML` on SY: (MACRO auto-searches SY: for the macro library, and
-the CCL `LINK` form needs the tools there) — the pristine `system.dsk`
+the CCL `LINK` form needs the tools there) — the pristine `system/`
 template carries none of them.  See `../../toolset/GOTCHAS.md`.
 
 ## Validate (OS oracle)

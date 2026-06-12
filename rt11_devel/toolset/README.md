@@ -14,7 +14,6 @@ rt11_devel/toolset/
 ├── rt11.py          RT-11 monitor session (boot, dot prompt, command + errors)
 ├── system/          bootable RT-11 SJ V5 FOLDER template (.rtfs device):
 │                    the 7 base system files + boot.bin + device.rtfs
-├── system.dsk       legacy bootable disk image (oracle scripts only)
 ├── build_tools/     compilers and libraries
 │   ├── MACRO.SAV    MACRO-11 assembler
 │   ├── LINK.SAV     linker
@@ -40,30 +39,16 @@ two temp folders, outputs are host files the guest materializes — no
 work outside the pipeline (`create`, `init`, `put`, `get`, `dir`, `split`,
 `merge`).
 
-## How `system.dsk` was built
+## How `system/` was built
 
-A one-time recipe executed inside the emulator using nothing but
-documented RT-11 commands (HELP and 0515-OSA.md §2.7.3):
-
-```
-INITIALIZE/NOQUERY DZ1:                ! format side 0 of the target
-INITIALIZE/NOQUERY DZ3:                ! format side 1 of the target
-COPY DZ0:RT11SJ.SYS DZ1:               ! seven copies, one per system file
-COPY DZ0:SWAP.SYS   DZ1:
-COPY DZ0:DZ.SYS     DZ1:
-COPY DZ0:TT.SYS     DZ1:
-COPY DZ0:PIP.SAV    DZ1:
-COPY DZ0:DUP.SAV    DZ1:
-COPY DZ0:DIR.SAV    DZ1:
-COPY/BOOT DZ1:RT11SJ.SYS DZ1:          ! install bootstrap from monitor
-```
-
-The result is committed as `system.dsk` (legacy, used by oracle scripts).
-The build pipeline instead uses its folder twin `system/` — the same 7
-files extracted as host files, plus `boot.bin` (materialized once by
-`COPY/BOOT` onto the folder) and the `device.rtfs` descriptor.  Each build
-copies `system/` to a temp `boot/` folder and stages onto the copy; the
-committed template is never modified (enforced by a pytest invariant).
+The seven base files were assembled inside the emulator with nothing but
+documented RT-11 commands (originally `INITIALIZE` + seven `COPY`s +
+`COPY/BOOT` onto a disk image, committed historically as `system.dsk` —
+see git history), then extracted as host files; `boot.bin` was
+materialized by one `COPY/BOOT DZ1:RT11SJ.SYS DZ1:` run against the
+folder mounted as a `.rtfs` device.  Each build copies `system/` to a
+temp `boot/` folder and stages onto the copy; the committed template is
+never modified (enforced by a pytest invariant).
 
 ## Device-letter cheat sheet for `ms0515-cli`
 
@@ -117,9 +102,10 @@ python rt11_devel/toolset/build.py path/to/build.toml
 ```
 
 (or just `build.py` from inside the project directory).  The driver
-handles host-side prep, mounts a fresh copy of `system.dsk`, stages the
-right toolchain on side 1, drives RT-11 through the language recipe,
-and pulls the outputs back into the project directory.
+handles host-side prep, copies the `system/` folder template, stages the
+right toolchain next to it, lets the monitor run the recipe at boot, and
+copies the outputs the guest materialized back into the project
+directory.
 
 Minimal manifest:
 
@@ -142,8 +128,8 @@ post_build = "pack.py"          # optional host-side hook, e.g. packager
 
 [build]
 libs     = ["EXTRA.OBJ"]                            # extra files staged + linked
-commands = ["RUN DZ2:MACRO {name}/LIST",
-            "RUN DZ2:LINK {name},MYLIB"]            # overrides recipe commands
+commands = ["MACRO {name}/LIST",
+            "LINK {name},MYLIB"]                    # overrides recipe commands
 ```
 
 Each language has a built-in recipe (`compilers`, `libs`, `commands`)
@@ -155,7 +141,7 @@ to the monitor.
 
 | language | sources ext | compilers staged                  | libs staged                              | monitor commands                                           |
 |----------|-------------|-----------------------------------|------------------------------------------|------------------------------------------------------------|
-| macro11  | `.MAC`      | MACRO, LINK                       | SYSMAC.SML, SYSLIB                       | `RUN DZ2:MACRO {name}` → `RUN DZ2:LINK {name}`            |
+| macro11  | `.MAC`      | MACRO, LINK                       | SYSMAC.SML, SYSLIB                       | `MACRO {name}` → `LINK {name}`            |
 | pascal   | `.PAS`      | PAS1, MACRO, LINK                 | SYSMAC.SML, SYSLIB, PASLIB, PAS1.OBJ    | `PAS1 {name}={name}` → `MACRO {name}` → `LINK {name},PASLIB,PAS1` |
 | fortran  | `.FOR`      | FORTRA, MACRO, LINK               | SYSMAC.SML, SYSLIB, FORLIB              | `FORTRA {name}` → `MACRO {name}` → `LINK {name},FORLIB`   |
 | basic    | `.BAS`      | BASICO                            | —                                        | (none — interactive only)                                  |
@@ -167,41 +153,40 @@ the two underlying modules — the driver itself is the canonical
 example (~180 lines):
 
 ```python
-import shutil, subprocess, sys, tempfile
+import shutil, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, "rt11_devel/toolset")
 from emu_driver import EmulatorDriver
 from rt11 import RT11Session
 
-DISK = "src/build/Release/tools/disk/ms0515-disk.exe"
-CLI  = "src/build/Release/cli/ms0515-cli.exe"
-ROM  = "src/assets/rom/ms0515-roma.rom"
+CLI  = "package/ms0515-cli.exe"
+ROM  = "package/assets/rom/ms0515-roma.rom"
 
-work = Path(tempfile.gettempdir()) / "build.dsk"
-shutil.copy("rt11_devel/toolset/system.dsk", work)
-subprocess.run([DISK, "put", str(work), "--side", "1",
-                "MYPROG.MAC",
-                "rt11_devel/toolset/build_tools/MACRO.SAV",
-                "rt11_devel/toolset/build_tools/LINK.SAV",
-                "rt11_devel/toolset/build_tools/SYSMAC.SML",
-                "rt11_devel/toolset/build_tools/SYSLIB.OBJ"], check=True)
+boot = Path(tempfile.gettempdir()) / "myboot"      # folder devices: just
+work = Path(tempfile.gettempdir()) / "mywork"      # copy files around
+shutil.copytree("rt11_devel/toolset/system", boot)
+for tool in ("MACRO.SAV", "LINK.SAV", "SYSMAC.SML"):
+    shutil.copy(f"rt11_devel/toolset/build_tools/{tool}", boot / tool)
+(boot / "STARTS.COM").write_bytes(b"SET TT QUIET\r\n")
+work.mkdir()
+shutil.copy("MYPROG.MAC", work / "MYPROG.MAC")
+shutil.copy("rt11_devel/toolset/build_tools/SYSLIB.OBJ", work / "SYSLIB.OBJ")
+(work / "device.rtfs").write_bytes(b"device: floppy\nblocks: 800\n")
 
-emu = EmulatorDriver([CLI, "--rom", ROM, "--disk0", str(work)])
+emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
+                      "--disk0-side0", boot / "device.rtfs",
+                      "--disk1-side0", work / "device.rtfs"])
 emu.start()
 try:
     rt = RT11Session(emu); rt.boot()
-    rt.command("ASSIGN DZ2 DK")
-    rt.command("RUN DZ2:MACRO MYPROG", timeout=300)
-    rt.command("RUN DZ2:LINK MYPROG",  timeout=300)
+    rt.command("ASSIGN DZ1 DK")
+    rt.command("MACRO MYPROG", timeout=300)
+    rt.command("LINK MYPROG",  timeout=300)
 finally:
     emu.kill()
 
-subprocess.run([DISK, "get", str(work), "--side", "1",
-                "--out", "release/", "MYPROG.SAV"], check=True)
+shutil.copy(work / "myprog.sav", "release/MYPROG.SAV")   # guest-made file
 ```
-
-`R MYPROG` only loads from SY:, so when the compiler lives on side 1
-the explicit-device form (`RUN DZ2:MACRO MYPROG`) is required.
 
 ## Running the tests
 
@@ -225,9 +210,9 @@ Coverage:
 
 The SJ monitor auto-runs `STARTS.COM` from SY: at boot, so the build recipe
 *is* the startup file.  For each build, `build.py` writes the project's
-commands (`ASSIGN DZ2 DK` + the language recipe) into a `STARTS.COM` and
-stages it on SY: like any other build file — `system.dsk` carries **no**
-`STARTS.COM`, so it's a plain `put`, nothing to replace.  Then it boots: the
+commands (`ASSIGN DZ1 DK` + the language recipe) into `boot/STARTS.COM` —
+the `system/` template carries **no** `STARTS.COM`, so there is nothing
+to replace.  Then it boots: the
 monitor runs the whole build itself; the host just accepts the Date/Time
 prompts, sends a type-ahead `DIR` whose "Free blocks" line marks completion
 (it executes only after `STARTS.COM` finishes), and scans the transcript for

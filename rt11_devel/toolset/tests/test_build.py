@@ -13,8 +13,7 @@ HERE = Path(__file__).resolve().parent
 TOOLSET = HERE.parent
 sys.path.insert(0, str(TOOLSET))
 
-from build import (BuildPlan, RECIPES, load_manifest,    # noqa: E402
-                   DISK_TOOL, SYSTEM_DISK)
+from build import BuildPlan, RECIPES, load_manifest      # noqa: E402
 
 
 def write_manifest(tmp_path: Path, content: str) -> Path:
@@ -187,60 +186,8 @@ class TestRepoManifests:
 
 # ── pristine template invariant ─────────────────────────────────────────────
 
-class TestSystemDiskIsPristine:
-    """system.dsk is a read-only TEMPLATE: build.py copies it and modifies only
-    the copy, staging the whole toolchain onto that copy.  Nothing build-time
-    (compilers, SYSMAC.SML, STARTS.COM) may be baked into the template, or a
-    build would secretly depend on a polluted image instead of on staging."""
-
-    BASE = {"RT11SJ.SYS", "SWAP.SYS", "DZ.SYS", "TT.SYS",
-            "PIP.SAV", "DUP.SAV", "DIR.SAV"}
-
-    def _side0_files(self) -> set[str]:
-        import re
-        import subprocess
-        out = subprocess.run(
-            [str(DISK_TOOL), "dir", str(SYSTEM_DISK), "--side", "0"],
-            capture_output=True, text=True)
-        return set(re.findall(r"([A-Z0-9]+\.[A-Z0-9]+)\s+blk=", out.stdout))
-
-    def test_template_holds_only_the_base_rt11_system(self):
-        if not DISK_TOOL.exists() or not SYSTEM_DISK.exists():
-            pytest.skip("needs package/ms0515-disk and system.dsk")
-        files = self._side0_files()
-        extra = files - self.BASE
-        assert not extra, f"system.dsk template is polluted with {extra}"
-        assert files == self.BASE
-
-
-class TestToolchainIsStaged:
-    """The toolchain must be STAGED onto the copy, not assumed present on the
-    template: compilers + SYSMAC.SML go on SY: (side 0), sources + object libs
-    on DK: (side 1)."""
-
-    def _plan(self, tmp_path):
-        m = write_manifest(tmp_path, """
-            [project]
-            name = "FOO"
-            language = "macro11"
-        """)
-        return load_manifest(m)
-
-    def test_compilers_and_macro_library_staged_on_sy(self, tmp_path):
-        sy = {p.name for p in self._plan(tmp_path).sy_files()}
-        assert {"MACRO.SAV", "LINK.SAV", "SYSMAC.SML"} <= sy
-
-    def test_sources_and_object_libs_staged_on_dk(self, tmp_path):
-        dk = {p.name for p in self._plan(tmp_path).dk_files()}
-        assert "FOO.MAC" in dk
-        assert "SYSLIB.OBJ" in dk
-        # the SY:-only files must NOT also be on DK
-        assert "SYSMAC.SML" not in dk
-        assert "MACRO.SAV" not in dk
-
-
 class TestSystemFolderIsPristine:
-    """system/ is the folder twin of the system.dsk template: the bootable
+    """system/ is the bootable folder template: the
     base RT-11 set + the boot file + the descriptor, nothing else.  build.py
     copies it per build and stages everything onto the copy."""
 

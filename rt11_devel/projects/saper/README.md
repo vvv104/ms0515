@@ -35,7 +35,7 @@ The manifest declares `language = "macro11"` plus a pre/post hook; the
 universal driver in `rt11_devel/toolset/build.py` does the rest:
 
 1. Runs `source/gen_saper.py` (pre_build) → emits a fresh `SAPER.MAC`.
-2. Copies the committed `rt11_devel/toolset/system.dsk` to a scratch image.
+2. Copies the committed `rt11_devel/toolset/system/` folder template to a scratch boot folder (`.rtfs` device).
 3. Stages `SAPER.MAC` + the MACRO-11 recipe (`MACRO.SAV`, `LINK.SAV`,
    `SYSMAC.SML`, `SYSLIB.OBJ`) on side 1 of the scratch.
 4. Boots `ms0515-cli` on the scratch and drives RT-11:

@@ -31,7 +31,7 @@ Manifest schema (TOML)
 
     [build]
     libs     = ["EXTRA.OBJ"]        # optional, extra files staged + linked
-    commands = ["RUN DZ2:..."]      # optional, overrides the language recipe
+    commands = ["MACRO {name}/LIST"]  # optional, overrides the language recipe
 
 Usage
 -----
@@ -56,11 +56,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 SYSTEM_DIR  = HERE / "system"        # bootable folder template (.rtfs)
-SYSTEM_DISK = HERE / "system.dsk"    # legacy image (oracle scripts only)
 DEVEL       = HERE / "build_tools"
 CLI         = ROOT / "package/ms0515-cli.exe"
 ROM         = ROOT / "package/assets/rom/ms0515-roma.rom"
-DISK_TOOL   = ROOT / "package/ms0515-disk.exe"
 
 sys.path.insert(0, str(HERE))
 from emu_driver import EmulatorDriver       # noqa: E402
@@ -77,7 +75,7 @@ from rt11 import RT11CommandError           # noqa: E402
 # Commands use the CCL form (``MACRO foo`` not ``RUN DZ2:MACRO foo``): build.py
 # stages the compilers on SY: (side 0), so KMON resolves them as commands and
 # translates switches (needed for e.g. LINK/NOBITMAP/EXECUTE).  Sources and
-# object libraries sit on DK: (side 1, where DZ2 is ASSIGNed).
+# object libraries sit on DK: (the work folder, ASSIGNed from DZ1).
 
 RECIPES = {
     "macro11": {
