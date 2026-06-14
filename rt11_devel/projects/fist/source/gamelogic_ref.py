@@ -246,6 +246,39 @@ def update_fighter(m, C):
     m[(0xAA05 + C) & 0xFFFF] = E & 0xFF
 
 
+def recover_9ad7(m, C):
+    """$9AD7: second per-fighter pass - get-up / recovery state reset, applied
+    when the move-pending flag $AA0D+C is set.  Loads (D,E) ($9B93), and the
+    orchestrator stores the result back ($9B9D)."""
+    D = _f(m, 0xAA04, C)
+    E = _f(m, 0xAA05, C)
+    # D in (2,3) does a discarded compare ($AA36+C-$AA19+C); no state change.
+    if _f(m, 0xAA0D, C) != 0:
+        m[(0xAA0D + C) & 0xFFFF] = 0
+        a03 = _f(m, 0xAA03, C)
+        if a03 != 0:                             # $9B09: queued reaction
+            E = a03
+            m[0x9C28] = a03
+        elif _f(m, 0xAA16, C) != 0:              # $9B0E
+            if D == 0x11:
+                m[(0xAA17 + C) & 0xFFFF] ^= 0x01
+            m[(0xAA07 + C) & 0xFFFF] = 0
+            m[(0xAA09 + C) & 0xFFFF] = 0
+            m[(0xAA0B + C) & 0xFFFF] = 0
+            m[(0xAA0C + C) & 0xFFFF] = 0x01
+            m[(0xAA16 + C) & 0xFFFF] = 0
+            D = 0x01
+        elif _f(m, 0xB462, D) != 0:              # $9B67
+            m[(0xAA00 + C) & 0xFFFF] = 0x01
+            m[(0xAA07 + C) & 0xFFFF] = 0
+            m[(0xAA0B + C) & 0xFFFF] = 0
+            D = 0x01
+        else:                                    # $9B8A
+            m[(0xAA09 + C) & 0xFFFF] = 0x01
+    m[(0xAA04 + C) & 0xFFFF] = D & 0xFF           # $9B9D store (orchestrator)
+    m[(0xAA05 + C) & 0xFFFF] = E & 0xFF
+
+
 def update_timer(m):
     """$9C6F: round-timer tick (state only; skips the Print_Time draw)."""
     if m[0x9C2B] != 0:
@@ -265,14 +298,17 @@ def update_timer(m):
 
 # ── validation harness ────────────────────────────────────────────────────────
 
-def validate(addr, pyfunc, watch, want=200, stops=(), budget=4000000):
+def validate(addr, pyfunc, watch, want=200, stops=(), budget=4000000, until=()):
     """Run the game; for each call to `addr`, run the real routine until it
     RETs (or reaches a PC in `stops`, e.g. a tail-call), run pyfunc on a copy
-    of the entry memory, and compare the `watch` cells."""
+    of the entry memory, and compare the `watch` cells.  `until` overrides the
+    RET stop with an explicit set of PCs - used to run past a trailing helper
+    call (e.g. the orchestrator's $9B9D store after $9AD7)."""
     sim, mem = build_sim(watch=(0, 0))
     regs, memory, ops = sim.registers, sim.memory, sim.opcodes
     fd, ia = sim.frame_duration, sim.int_active
     stops = set(stops)
+    until = set(until)
     tested = match = 0
     for _ in range(budget):
         if regs[PC] == addr:
@@ -285,7 +321,10 @@ def validate(addr, pyfunc, watch, want=200, stops=(), budget=4000000):
                 ops[memory[regs[PC]]]()
                 if regs[26] and regs[25] % fd < ia:
                     sim.accept_interrupt(regs, memory, regs[PC])
-                if (regs[PC] == ret and regs[SP] == s0 + 2) or regs[PC] in stops:
+                if until:
+                    if regs[PC] in until:
+                        break
+                elif (regs[PC] == ret and regs[SP] == s0 + 2) or regs[PC] in stops:
                     break
             mine = bytearray(before)
             pyfunc(mine, entry)
@@ -328,6 +367,8 @@ def main():
         [0xAA3F, 0xB150, 0xAA03])
     run(0x97BB, "$97BB anim update:", lambda mm, r: update_fighter(mm, r['C']),
         FIGHTER_WATCH)
+    run(0x9AD7, "$9AD7 recover pass:", lambda mm, r: recover_9ad7(mm, r['C']),
+        FIGHTER_WATCH + [0x9C28], until=[0x97A0, 0x97AC])
 
     return all(m == t for m, t in results)
 
