@@ -317,7 +317,7 @@ MBIT3:  MOVB    (R4)+,R0
 ; MBIT0 - bit0 mirror-x prefix ($88AD) via $B700.  In: R4=HL; Out: R4=$8B0B.
 MBIT0:  MOV     #W8B0B,R3              ; DE = $8B0B
         MOVB    (R4),R0                ; c = ctrl & 7
-        BIC     #177774,R0
+        BIC     #177770,R0
         MOV     R0,R5                  ; R5 = c
         MOVB    (R4),R0                ; b = (ctrl>>3) & 7
         BIC     #177400,R0
