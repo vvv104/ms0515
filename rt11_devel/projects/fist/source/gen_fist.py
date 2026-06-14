@@ -178,7 +178,7 @@ START:  MOV     #340,R0
         MOV     #3377,@#DISPAT
 
         JSR     PC,CLRVRM               ; black out the whole screen (border)
-        MOV     #1,BGREF                ; select background 1
+        MOV     #%BGN%,BGREF            ; select the background
 %STAGE%
         ; --- wait for any key, polling directly (IRQs masked) ---
 WKEY:   MOV     @#KBST,R0
@@ -204,9 +204,10 @@ CLRVRM: MOV     #VRAM,R0
 
 ;-------------------------------------------------------------------
 ; CHGBG - Change_Background ($5F22): blank the framebuffer, then render
-; the background selected by BGREF.  (Only background 1 is built so far.)
+; the background.  One background's data is built in at a time (FIST_BG);
+; the full BGREF 1/2/3 dispatch arrives once the memory layout is settled.
 CHGBG:  JSR     PC,CLRBUF
-        MOV     #BG1DEF,R1              ; BGREF dispatch (bg1 only for now)
+        MOV     #%BGDEF%,R1            ; definition for the built-in background
         JSR     PC,CREBG
         RTS     PC
 
@@ -425,14 +426,14 @@ BLKCNT: .WORD   0                       ; remaining blocks in CREBG
 STAGES = {
     "clrbuf": "        JSR     PC,CLRBUF\n        JMP     EXITP",
     "draw1":  "        JSR     PC,CLRBUF\n"
-              "        MOV     #BG1DEF,R1\n"
+              "        MOV     #%BGDEF%,R1\n"
               "        MOV     (R1)+,UDGBAS\n"
               "        MOV     (R1)+,R2\n"
               "        MOV     #SVTOP,R3\n"
               "        JSR     PC,DRAWPOS\n"
               "        JMP     EXITP",
     "attr1":  "        JSR     PC,CLRBUF\n"
-              "        MOV     #BG1DEF,R1\n"
+              "        MOV     #%BGDEF%,R1\n"
               "        MOV     16.(R1),R2\n"
               "        JSR     PC,BGATTR\n"
               "        JMP     EXITP",
@@ -445,13 +446,16 @@ STAGES = {
 def main():
     from bg_data import BackgroundData
 
+    n = int(os.environ.get("FIST_BG", "1"))
     rows = spectrum_row_offsets()
-    bg1 = BackgroundData(1)
+    bg = BackgroundData(n)
 
     stage = os.environ.get("FIST_STAGE", "full")
-    src = PROGRAM.replace("%STAGE%", STAGES[stage])
-    src += "\n;------ background 1 data (extracted from the original) ------\n"
-    src += bg1.emit()
+    src = (PROGRAM.replace("%STAGE%", STAGES[stage])
+                  .replace("%BGDEF%", f"BG{n}DEF")
+                  .replace("%BGN%", str(n)))
+    src += f"\n;------ background {n} data (extracted from the original) ------\n"
+    src += bg.emit()
     src += "\n        .EVEN\n"
     src += _emit_words("SROWS", rows)
     src += "\n; SCRBUF - the Spectrum-format framebuffer the engine renders\n"
@@ -462,9 +466,9 @@ def main():
     # MACRO-11 chokes on any non-ASCII byte (error I), even in comments.
     src.encode("ascii")
     OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
-    bgsize = sum(len(d) for _, d in bg1.blocks.values())
+    bgsize = sum(len(d) for _, d in bg.blocks.values())
     print(f"gen_fist: wrote {OUT_MAC} ({len(src)} chars, "
-          f"bg1 data {bgsize} B)")
+          f"bg{n} data {bgsize} B)")
 
 
 if __name__ == "__main__":
