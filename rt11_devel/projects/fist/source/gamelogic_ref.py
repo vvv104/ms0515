@@ -103,6 +103,149 @@ def hit_detect(m, A):
                 m[res] = 1
 
 
+def _f(m, base, off):
+    return m[(base + off) & 0xFFFF]
+
+
+def range_9ba7(m, C, Q):
+    """$9BA7: is the opponent within striking distance / valid facing for the
+    pending move?  Writes the signed gap to $9C2D and returns 0 (no) / 1 (yes).
+    D/E here are local (reloaded from $AA19); the chain PUSHes DE around it."""
+    d = _f(m, 0xAA19, C)
+    e = _f(m, 0xAA19, Q)
+    same_face = m[0xAA57] == m[0xAA17]
+    v = (d - e) & 0xFF if _f(m, 0xAA17, C) != 0 else (e - d) & 0xFF
+    m[0x9C2D] = v
+    t = _f(m, 0xB47E, _f(m, 0xAA04, Q))
+    if same_face:                                # $9BF5
+        if t == 0:
+            return 0
+        return 1 if 0x03 <= v < 0x10 else 0
+    # facing differ ($9BC0)
+    if t != 0:
+        return 0
+    return 1 if (v >= 0xEF or v < 0x16) else 0
+
+
+def anim_9920(m, C, Q, D, E):
+    """$9920: launch / recover a move once its wind-up frame ($AA0x==3) clears
+    and the opponent is in range (via $9BA7); else hold."""
+    if E == 0x03:
+        if D in (0x13, 0x14):                    # $992E: E := D, hold
+            return D, D
+        if _f(m, 0xAA16, Q) != 0:
+            return D, E
+        if _f(m, 0xAA09, Q) != 0:
+            return D, E
+        a = _f(m, 0xAA04, Q)
+        if a == 0x10 or a == 0x0A:
+            return D, E
+        if _f(m, 0xA90D, a) == 0:
+            return D, E
+        if range_9ba7(m, C, Q) == 0:             # PUSH/POP preserves D,E
+            return D, E
+        E = _f(m, 0xA926, _f(m, 0xAA04, Q))      # $9964: new sub-state
+        m[(0xAA09 + C) & 0xFFFF] = 0
+        m[(0xAA16 + Q) & 0xFFFF] = 0
+        return D, E
+    # E != 3 ($9986)
+    if E != 0x07:
+        return D, E
+    if D in (0x04, 0x07):
+        return D, E
+    return D, 0x18
+
+
+def anim_9994(m, C, Q, D, E):
+    """$9994: drive the action D from the current sub-state E - knock-downs,
+    transitions, and the once-per-fall hit-credit tick ($9CA7/$B150)."""
+    if E in (0x1A, 0x1B, 0x16):                  # $99A1: knock-down landed
+        D = E
+        m[(0xAA18 + C) & 0xFFFF] = 0x7A
+        m[(0xAA16 + C) & 0xFFFF] = 0x00
+        m[(0xAA09 + C) & 0xFFFF] = 0x00
+        if _f(m, 0xAA13, C) == 0:
+            return D, E
+        a = _f(m, 0xAA12, C)
+        if a != 0x2C and a != 0x28:
+            return D, E
+        if m[0x9CA7] != 0:
+            return D, E
+        m[0x9CA7] = 0x01
+        m[0xB150] = 0x05
+        return D, E
+    # $99DD
+    if D == E:
+        return D, E
+    if D == 0x01:                                # $99E4
+        if E == 0x11:
+            return 0x12, E
+        if E in (0x07, 0x10, 0x0A):
+            return 0x04, E
+        return E, E
+    # $99FD (D != 1)
+    if E in (0x07, 0x10, 0x0A):                  # $9A0A
+        if D == 0x04:
+            if _f(m, 0xAA09, C) != 0x01:
+                return D, E
+            return E, E
+        if D == 0x12:
+            m[(0xAA16 + C) & 0xFFFF] = 0x01
+            return D, E
+        return D, E
+    # $9A27
+    if D == 0x12 and E == 0x11:
+        if _f(m, 0xAA09, C) != 0x01:
+            return D, E
+        return E, E
+    if D == 0x11 and _f(m, 0xAA09, C) == 0x01:   # $9A4D
+        m[(0xAA16 + C) & 0xFFFF] = 0x01
+        m[(0xAA07 + C) & 0xFFFF] = 0x00
+        m[(0xAA0B + C) & 0xFFFF] = 0x00
+        m[(0xAA09 + C) & 0xFFFF] = 0x00
+        return 0x15, E
+    t = _f(m, 0xB462, D)                          # $9A70
+    if t == 0x80:
+        m[(0xAA09 + C) & 0xFFFF] = 0x00
+        if E == 0x11:
+            return 0x12, E
+        return E, E
+    if t != 0:                                   # $9A8D
+        m[(0xAA09 + C) & 0xFFFF] = 0x00
+        return D, E
+    m[(0xAA16 + C) & 0xFFFF] = 0x01
+    m[(0xAA09 + C) & 0xFFFF] = 0x00
+    return D, E
+
+
+def anim_9aa1(m, C, Q, D, E):
+    """$9AA1: commit the chosen action D into the animation slot ($AA0B/$AA0C),
+    resetting the frame counter when the action changes."""
+    a = _f(m, 0xAA0B, C)
+    if a != D:
+        m[(0xAA0C + C) & 0xFFFF] = D
+        m[(0xAA0B + C) & 0xFFFF] = 0x00
+        m[(0xAA09 + C) & 0xFFFF] = 0x00
+    elif _f(m, 0xAA09, C) == 0x01:
+        m[(0xAA0C + C) & 0xFFFF] = 0x00
+    else:
+        m[(0xAA0C + C) & 0xFFFF] = _f(m, 0xAA0B, C)
+    return D, E
+
+
+def update_fighter(m, C):
+    """$97BB: per-fighter animation update.  Loads (D,E)=($AA04+C,$AA05+C),
+    threads it through the three state machines, stores it back ($9B9D)."""
+    Q = m[0x9C29]
+    D = _f(m, 0xAA04, C)
+    E = _f(m, 0xAA05, C)
+    D, E = anim_9920(m, C, Q, D, E)
+    D, E = anim_9994(m, C, Q, D, E)
+    D, E = anim_9aa1(m, C, Q, D, E)
+    m[(0xAA04 + C) & 0xFFFF] = D & 0xFF
+    m[(0xAA05 + C) & 0xFFFF] = E & 0xFF
+
+
 def update_timer(m):
     """$9C6F: round-timer tick (state only; skips the Print_Time draw)."""
     if m[0x9C2B] != 0:
@@ -135,6 +278,8 @@ def validate(addr, pyfunc, watch, want=200, stops=(), budget=4000000):
         if regs[PC] == addr:
             s0 = regs[SP]
             ret = memory[s0] | (memory[s0 + 1] << 8)
+            entry = {'A': regs[0], 'B': regs[2], 'C': regs[3], 'D': regs[4],
+                     'E': regs[5], 'H': regs[6], 'L': regs[7]}
             before = bytes(memory)
             for _ in range(200000):
                 ops[memory[regs[PC]]]()
@@ -143,7 +288,7 @@ def validate(addr, pyfunc, watch, want=200, stops=(), budget=4000000):
                 if (regs[PC] == ret and regs[SP] == s0 + 2) or regs[PC] in stops:
                     break
             mine = bytearray(before)
-            pyfunc(mine)
+            pyfunc(mine, entry)
             tested += 1
             if all(mine[a] == memory[a] for a in watch):
                 match += 1
@@ -160,23 +305,31 @@ def validate(addr, pyfunc, watch, want=200, stops=(), budget=4000000):
     return match, tested
 
 
+FIGHTER_WATCH = list(range(0xAA00, 0xAA80)) + [0x9C2D, 0x9CA7, 0xB150]
+
+
 def main():
-    m, t = validate(0x9C6F, update_timer, [0x9CA6, 0x9CA5, 0x9C2B])
-    print(f"$9C6F round timer:    {m}/{t} calls match")
-    m2, t2 = validate(0x9D29, lambda mm: hit_detect(mm, HIT_P1),
-                      [0xAA08, 0xA06F, 0xA070, 0xA071, 0xA072], stops=[0x9E7F])
-    print(f"$9D29 hit-detect P1:  {m2}/{t2} calls match")
-    m3, t3 = validate(0x9ED2, lambda mm: hit_detect(mm, HIT_P2),
-                      [0xAA48, 0xA06F, 0xA070], stops=[0xA01C])
-    print(f"$9ED2 hit-detect P2:  {m3}/{t3} calls match")
-    m4, t4 = validate(0x9E7F, lambda mm: apply_hit(mm, HIT_P1),
-                      [0xAA3F, 0xB150, 0xAA43])
-    print(f"$9E7F apply-hit P1:   {m4}/{t4} calls match")
-    m5, t5 = validate(0xA01C, lambda mm: apply_hit(mm, HIT_P2),
-                      [0xAA3F, 0xB150, 0xAA03])
-    print(f"$A01C apply-hit P2:   {m5}/{t5} calls match")
-    return all(a == b for a, b in
-               ((m, t), (m2, t2), (m3, t3), (m4, t4), (m5, t5)))
+    results = []
+
+    def run(addr, label, pyfunc, watch, **kw):
+        m, t = validate(addr, pyfunc, watch, **kw)
+        print(f"{label:22} {m}/{t} calls match")
+        results.append((m, t))
+
+    run(0x9C6F, "$9C6F round timer:", lambda mm, r: update_timer(mm),
+        [0x9CA6, 0x9CA5, 0x9C2B])
+    run(0x9D29, "$9D29 hit-detect P1:", lambda mm, r: hit_detect(mm, HIT_P1),
+        [0xAA08, 0xA06F, 0xA070, 0xA071, 0xA072], stops=[0x9E7F])
+    run(0x9ED2, "$9ED2 hit-detect P2:", lambda mm, r: hit_detect(mm, HIT_P2),
+        [0xAA48, 0xA06F, 0xA070], stops=[0xA01C])
+    run(0x9E7F, "$9E7F apply-hit P1:", lambda mm, r: apply_hit(mm, HIT_P1),
+        [0xAA3F, 0xB150, 0xAA43])
+    run(0xA01C, "$A01C apply-hit P2:", lambda mm, r: apply_hit(mm, HIT_P2),
+        [0xAA3F, 0xB150, 0xAA03])
+    run(0x97BB, "$97BB anim update:", lambda mm, r: update_fighter(mm, r['C']),
+        FIGHTER_WATCH)
+
+    return all(m == t for m, t in results)
 
 
 if __name__ == "__main__":
