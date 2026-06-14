@@ -319,6 +319,387 @@ def award_points(m):
         m[0xAA48] = 0
 
 
+class _Rnd:
+    """Replay a recorded sequence of $A3FF (refresh-register RNG) return values.
+    Lets the AI decision LOGIC be validated bit-exactly while abstracting the
+    RNG SOURCE (the MS-0515 port has no Z80 R register and will use its own)."""
+    __slots__ = ('v', 'i')
+
+    def __init__(self, v):
+        self.v = v
+        self.i = 0
+
+    def __call__(self):
+        x = self.v[self.i]
+        self.i += 1
+        return x
+
+
+def ai_a47c(m, a):
+    """$A47C: if the opponent ($A62F) is mid-kick, remap the chosen action
+    through the $B449 counter-table; otherwise keep it."""
+    if m[0xA62F] in (0x0A, 0x10, 0x04, 0x07):
+        return m[(0xB449 + a) & 0xFFFF]
+    return a
+
+
+def ai_a583(m):
+    """$A583: AI range/facing check (mirror of $9BA7 on the AI scratch state).
+    Returns 1 if the opponent is in striking distance, else 0."""
+    d2 = (m[0xA60A] << 1) & 0xFF
+    e2 = (m[0xA644] << 1) & 0xFF
+    same = m[0xA642] == m[0xA608]
+    if m[0xA608] != 0:
+        a = (d2 - e2) & 0xFF
+    else:
+        a = (e2 - d2) & 0xFF
+    m[0xA5EE] = a
+    t = m[(0xB47E + m[0xA62F]) & 0xFFFF]
+    if same:
+        if t == 0:
+            return 0
+        return 1 if 0x03 <= a < 0x10 else 0
+    if t != 0:
+        return 0
+    return 1 if (a >= 0xEF or a < 0x16) else 0
+
+
+def ai_decide(m, randoms):
+    """$A090: AI opponent per-frame move-selection.  Picks the move intent
+    ($A5F6, and often $A5F1) from the fighter scratch state + opponent action,
+    using weighted random choices (replayed $A3FF stream).  Returns True if it
+    reached the $A553 special-state dispatcher (deferred: computed jump)."""
+    rnd = _Rnd(randoms)
+    reg = {'a': 0, 'b': 0}
+    label = 'A090'
+    while label is not None:
+        if label == 'A553':
+            return True
+        elif label == 'A090':
+            a = m[0xA5F4]
+            if a != 0:
+                m[0xA5F6] = a
+                return False
+            m[0xA5EC] = m[0xA60A]
+            m[0xA5ED] = m[0xA644]
+            if m[0xA62E] != 0:
+                if m[0xA5F5] != 0x0E:
+                    m[0xA616] = (m[0xA616] - 1) & 0xFF
+                    if m[0xA616] != 0:
+                        return False
+                m[0xA5F6] = 0x01
+                return False
+            if m[0xA618] != 0:
+                label = 'A553'
+            elif m[0xA641] != 0:
+                label = 'A1B5'
+            elif m[(0xA90D + m[0xA62F]) & 0xFFFF] == 0:
+                label = 'A1B5'
+            elif m[0xA5F5] in (0x13, 0x14):
+                label = 'A0E4'
+            else:
+                label = 'A0FC'
+        elif label == 'A0E4':
+            if m[(0xA926 + m[0xA62F]) & 0xFFFF] == m[0xA5F5]:
+                label = 'A13E'
+            else:
+                m[0xA5F6] = 0x01
+                m[0xA5F1] = 0x01
+                return False
+        elif label == 'A0FC':
+            a = m[0xA5F5]
+            if a == 0x12:
+                label = 'A1B5'
+            elif a in (0x01, 0x03, 0x02):
+                label = 'A145'
+            elif m[0xA5FA] != 0 or m[0xA607] != 0:
+                label = 'A0F3'
+            elif m[0xA62F] in (0x0A, 0x10):
+                label = 'A127'
+            else:
+                label = 'A13E'
+        elif label == 'A0F3':
+            m[0xA5F6] = 0x01
+            m[0xA5F1] = 0x01
+            return False
+        elif label == 'A127':
+            if m[0xA5F5] in (0x0A, 0x10, 0x04, 0x07, 0x0B):
+                label = 'A13E'
+            else:
+                label = 'A0F3'
+        elif label == 'A13E':
+            m[0xA5F6] = m[0xA5F1]
+            return False
+        elif label == 'A145':
+            if ai_a583(m) == 0:
+                label = 'A1B5'
+            else:
+                a61b = m[0xA61B]
+                if a61b == 0:
+                    label = 'A16D'
+                elif (a61b & 0x80) == 0:
+                    label = 'A161'
+                else:
+                    rv = rnd() & m[0xA60B]
+                    if rv == 0:
+                        label = 'A16D'
+                    else:
+                        m[0xA61B] = rv
+                        label = 'A161'
+        elif label == 'A161':
+            m[0xA61B] = (m[0xA61B] - 1) & 0xFF
+            if m[0xA61B] != 0:
+                label = 'A1B5'
+            else:
+                m[0xA61B] = 0x80
+                label = 'A16D'
+        elif label == 'A16D':
+            rv = rnd() & m[0xA646]
+            if rv & 0x80:
+                label = 'A2E7'
+            elif (rv & 0x70) != 0:
+                label = 'A1A5'
+            elif (rv & 0x0F) != 0:
+                label = 'A195'
+            else:
+                rv2 = rnd()
+                a = 0x09 if ((rv2 & 0x80) or rv2 == 0) else 0x0B
+                m[0xA5F1] = a
+                m[0xA5F6] = a
+                return False
+        elif label == 'A195':
+            a = m[(0xB3BD + m[0xA62F]) & 0xFFFF]
+            if a == 0:
+                label = 'A1A5'
+            else:
+                m[0xA618] = a
+                return False
+        elif label == 'A1A5':
+            a = m[(0xA926 + m[0xA62F]) & 0xFFFF]
+            m[0xA5F6] = a
+            m[0xA5F1] = a
+            return False
+        elif label == 'A1B5':
+            if m[0xA607] != 0:
+                label = 'A22A'
+            elif m[0xA5FA] == 0:
+                label = 'A21B'
+            elif m[0xA5F5] == 0x04:
+                label = 'A22A'
+            elif m[0xA5F5] != 0x12:
+                label = 'A1F4'
+            elif m[0xA60E] == 0:
+                label = 'A22A'
+            else:
+                m[0xA5F1] = 0x01
+                m[0xA5F6] = 0x01
+                m[0xA5F5] = 0x01
+                m[0xA5FD] = 0x01
+                m[0xA608] ^= 0x01
+                m[0xA5FA] = 0
+                m[0xA60E] = 0
+                m[0xA5FC] = 0
+                return False
+        elif label == 'A1F4':
+            if (m[0xA61C] & 0x80) == 0:
+                label = 'A207'
+            else:
+                m[0xA61C] = rnd() & m[0xA60F]
+                label = 'A22A'
+        elif label == 'A207':
+            m[0xA61C] = (m[0xA61C] - 1) & 0xFF
+            if m[0xA61C] != 0:
+                label = 'A22A'
+            else:
+                m[0xA5F1] = 0x01
+                m[0xA5F6] = 0x01
+                m[0xA61C] = 0x80
+                return False
+        elif label == 'A21B':
+            if m[0xA5F5] in (0x01, 0x03, 0x02):
+                label = 'A231'
+            else:
+                label = 'A22A'
+        elif label == 'A22A':
+            m[0xA5F6] = m[0xA5F1]
+            return False
+        elif label == 'A231':
+            a608 = m[0xA608]
+            if a608 == m[0xA642]:
+                label = 'A2A0'
+            else:
+                if a608 != 0:
+                    a = (m[0xA5EC] - m[0xA5ED]) & 0xFF
+                else:
+                    a = (m[0xA5ED] - m[0xA5EC]) & 0xFF
+                m[0xA5EE] = a
+                if a >= 0xD5 or a < 0x15:
+                    label = 'A2C7'
+                elif a >= 0x80:
+                    label = 'A292'
+                else:
+                    label = 'A25D'
+        elif label == 'A25D':
+            m[0xA610] = (m[0xA610] - 1) & 0xFF
+            if m[0xA610] != 0:
+                label = 'A22A'
+            elif m[0xA5F5] != 0x02:
+                label = 'A27F'
+            else:
+                rv = rnd() & m[0xA61A]
+                if rv == 0:
+                    label = 'A27F'
+                else:
+                    m[0xA610] = rv
+                    m[0xA5F6] = 0x01
+                    m[0xA5F1] = 0x01
+                    return False
+        elif label == 'A27F':
+            m[0xA610] = rnd() & m[0xA619]
+            m[0xA5F6] = 0x02
+            m[0xA5F1] = 0x02
+            return False
+        elif label == 'A292':
+            m[0xA5F1] = 0x12
+            m[0xA5F6] = 0x12
+            m[0xA60E] = 0x01
+            return False
+        elif label == 'A2A0':
+            if m[0xA608] != 0:
+                a = (m[0xA5ED] - m[0xA5EC]) & 0xFF
+            else:
+                a = (m[0xA5EC] - m[0xA5ED]) & 0xFF
+            m[0xA5EE] = a
+            if a >= 0xDF or a < 0x1F:
+                label = 'A2C7'
+            elif a >= 0x80:
+                label = 'A25D'
+            else:
+                label = 'A292'
+        elif label == 'A2C7':
+            if (m[0xA611] & 0x80) == 0:
+                label = 'A2DB'
+            else:
+                m[0xA611] = rnd() & m[0xA617]
+                label = 'A35F'
+        elif label == 'A2DB':
+            m[0xA611] = (m[0xA611] - 1) & 0xFF
+            if m[0xA611] != 0:
+                label = 'A35F'
+            else:
+                m[0xA611] = 0x80
+                label = 'A2E7'
+        elif label == 'A2E7':
+            if m[0xA608] == m[0xA642]:
+                label = 'A3AF'
+            elif m[0xA62F] == 0x13:
+                label = 'A313'
+            elif m[0xA62F] != 0x14:
+                label = 'A325'
+            else:
+                a = m[(0xA904 + (rnd() & 0x03)) & 0xFFFF]
+                if a == 0x07:
+                    label = 'A3A1'
+                else:
+                    m[0xA5F1] = a
+                    m[0xA5F6] = a
+                    return False
+        elif label == 'A313':
+            a = m[(0xA900 + (rnd() & 0x03)) & 0xFFFF]
+            m[0xA5F1] = a
+            m[0xA5F6] = a
+            return False
+        elif label == 'A325':
+            m[0xA613] = (m[0xA5EE] + 0x33) & 0xFF
+            a = (rnd() & m[0xA612])
+            a = (a + m[0xA613]) & 0xFF
+            a = m[(0xB300 + a) & 0xFFFF]
+            if a == 0x0E:
+                reg['a'] = a
+                label = 'A383'
+            else:
+                a = ai_a47c(m, a)
+                if a == 0x0A:
+                    label = 'A390'
+                elif a == 0x07:
+                    label = 'A3A1'
+                elif a in (0x0F, 0x10):
+                    reg['a'] = a
+                    label = 'A3DA'
+                else:
+                    m[0xA5F1] = a
+                    m[0xA5F6] = a
+                    return False
+        elif label == 'A35F':
+            if m[0xA641] != 0 or m[0xA634] != 0:
+                label = 'A22A'
+            elif m[(0xA90D + m[0xA62F]) & 0xFFFF] == 0:
+                label = 'A22A'
+            else:
+                m[0xA5F6] = 0x01
+                m[0xA5F1] = 0x01
+                return False
+        elif label == 'A383':
+            reg['b'] = reg['a']
+            a614 = m[0xA614]
+            reg['a'] = reg['b']
+            if a614 < 7:
+                label = 'A358'
+            else:
+                reg['a'] = 0x02
+                if a614 != 7:
+                    label = 'A358'
+                else:
+                    label = 'A390'
+        elif label == 'A358':
+            m[0xA5F1] = reg['a']
+            m[0xA5F6] = reg['a']
+            return False
+        elif label == 'A390':
+            if m[0xA614] >= 2:
+                m[0xA5F1] = 0x0A
+                m[0xA5F6] = 0x0A
+            return False
+        elif label == 'A3A1':
+            m[0xA618] = 0x05
+            m[0xA5F6] = 0x04
+            m[0xA5F1] = 0x04
+            return False
+        elif label == 'A3AF':
+            m[0xA613] = (m[0xA5EE] + 0x29) & 0xFF
+            a = (rnd() & m[0xA612])
+            a = (a + m[0xA613]) & 0xFF
+            a = m[(0xB352 + a) & 0xFFFF]
+            a = ai_a47c(m, a)
+            if a in (0x0F, 0x10):
+                reg['a'] = a
+                label = 'A3DA'
+            else:
+                m[0xA5F1] = a
+                m[0xA5F6] = a
+                return False
+        elif label == 'A3DA':
+            reg['b'] = reg['a']
+            rv = rnd() & m[0xA615]
+            if rv & 0x80:
+                label = 'A292'
+            elif rv >= 0x40:
+                label = 'A3F7'
+            else:
+                if rv >= 0x20:
+                    reg['b'] = 0x08
+                m[0xA5F6] = reg['b']
+                m[0xA5F1] = reg['b']
+                return False
+        elif label == 'A3F7':
+            m[0xA5F6] = 0x03
+            m[0xA5F1] = 0x03
+            return False
+        else:
+            raise RuntimeError(f"unhandled AI label {label}")
+    return False
+
+
 def ai_load_params(m):
     """$A402: load the current AI opponent's 'personality' parameters into the
     working state ($A60E-$A61C) from eight tables indexed by the AI id $A614.
@@ -444,6 +825,52 @@ def validate(addr, pyfunc, watch, want=200, stops=(), budget=4000000, until=()):
 FIGHTER_WATCH = list(range(0xAA00, 0xAA80)) + [0x9C2D, 0x9CA7, 0xB150]
 
 
+def validate_ai(addr, pyfunc, watch, want=200, budget=4000000):
+    """Like validate(), but records the $A3FF (R-register RNG) return sequence
+    during each call and replays it into pyfunc(mem, randoms) - so the AI
+    decision logic is checked bit-exactly while the RNG source is abstracted.
+    pyfunc returns True to mark a call 'deferred' (reached the unported $A553
+    special-state dispatcher); those are counted separately, not as mismatches."""
+    sim, mem = build_sim(watch=(0, 0))
+    regs, memory, ops = sim.registers, sim.memory, sim.opcodes
+    fd, ia = sim.frame_duration, sim.int_active
+    tested = match = deferred = 0
+    for _ in range(budget):
+        if regs[PC] == addr:
+            s0 = regs[SP]
+            ret = memory[s0] | (memory[s0 + 1] << 8)
+            before = bytes(memory)
+            randoms = []
+            for _ in range(200000):
+                cur = regs[PC]
+                ops[memory[cur]]()
+                if cur == 0xA3FF:                # just ran LD A,R
+                    randoms.append(regs[0])
+                if regs[26] and regs[25] % fd < ia:
+                    sim.accept_interrupt(regs, memory, regs[PC])
+                if regs[PC] == ret and regs[SP] == s0 + 2:
+                    break
+            mine = bytearray(before)
+            if pyfunc(mine, randoms):
+                deferred += 1
+            else:
+                tested += 1
+                if all(mine[a] == memory[a] for a in watch):
+                    match += 1
+                elif tested - match <= 4:
+                    bad = [(hex(a), memory[a], mine[a]) for a in watch
+                           if mine[a] != memory[a]]
+                    print(f"  MISMATCH (rnd={randoms}): {bad}")
+            if tested + deferred >= want:
+                break
+            continue
+        cur = regs[PC]
+        ops[memory[cur]]()
+        if regs[26] and regs[25] % fd < ia:
+            sim.accept_interrupt(regs, memory, regs[PC])
+    return match, tested, deferred
+
+
 def main():
     results = []
 
@@ -481,6 +908,11 @@ def main():
     run(0xA402, "$A402 AI param load:", lambda mm, r: ai_load_params(mm),
         [0xA60F, 0xA616, 0xA612, 0xA615, 0xA61C, 0xA5F1, 0xA617, 0xA611,
          0xA60E, 0xA618, 0xA646, 0xA619, 0xA61A, 0xA610, 0xA61B, 0xA60B])
+
+    am, at, ad = validate_ai(0xA090, ai_decide, list(range(0xA5EC, 0xA61D)))
+    print(f"{'$A090 AI decide:':22} {am}/{at} match"
+          f"  ({ad} deferred via $A553)")
+    results.append((am, at))
 
     return all(m == t for m, t in results)
 
