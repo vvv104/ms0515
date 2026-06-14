@@ -444,6 +444,11 @@ STAGES = {
 
 
 def main():
+    if os.environ.get("FIST_MODE") == "fighter":
+        import fighter_mac
+        fighter_mac.main()
+        return
+
     from bg_data import BackgroundData
 
     n = int(os.environ.get("FIST_BG", "1"))

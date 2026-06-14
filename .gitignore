@@ -54,3 +54,5 @@ rt11_devel/projects/saper/SAPER.HLP
 rt11_devel/projects/fist/*.MAC
 rt11_devel/projects/fist/FIST.SAV
 rt11_devel/projects/fist/*.png
+rt11_devel/projects/fist/*.bin
+rt11_devel/projects/fist/*.json

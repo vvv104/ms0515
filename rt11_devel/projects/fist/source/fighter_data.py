@@ -68,14 +68,24 @@ def main():
     print(f"control stream @${hl:04X}, tables {[hex(t) for t in TABLES]}, "
           f"expected {len(expected)} B")
 
+    finit = before[FBUF:FBUF + FBUF_LEN]                 # background under the fighter
     src = ["        .TITLE  FGHTDAT", "; Sprite-decoder data (extracted) - input for the MACRO-11 port.", ""]
+    src.append(f"; loop start: HL=${hl:04X} DE=${de:04X}  "
+               f"C408={params['C408']} B1B={params['B1B']} B1C={params['B1C']} "
+               f"AF3={params['AF3']}  (DE offset into FBUF = {de - FBUF})")
     for t in TABLES:
         src.append(_bytes_block(f"T{t:04X}", before[t:t + 256]))
-    src.append(_bytes_block("FCTRL", before[hl:hl + STREAM_LEN]))
-    src.append(_bytes_block("FEXP", expected))
+    src.append(_bytes_block("FCTRL", before[hl:hl + STREAM_LEN]))   # control stream (HL)
+    src.append(_bytes_block("FINIT", finit))                        # FBUF initial (background)
+    src.append(_bytes_block("FEXP", expected))                      # FBUF expected (composed)
     (HERE.parent / "FGHTDAT.MAC").write_text("\n".join(src), encoding="ascii",
                                              newline="\r\n")
-    print("wrote FGHTDAT.MAC; reference reproduces the captured fighter: True")
+    # stash the key offsets for the generator
+    (HERE.parent / "FGHTDAT.json").write_text(
+        f'{{"hl":{hl},"de":{de},"de_off":{de - FBUF},'
+        f'"c408":{params["C408"]},"b1b":{params["B1B"]},'
+        f'"b1c":{params["B1C"]},"af3":{params["AF3"]}}}\n')
+    print(f"wrote FGHTDAT.MAC (DE offset {de - FBUF}); reference reproduces: True")
 
 
 if __name__ == "__main__":
