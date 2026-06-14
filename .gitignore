@@ -53,5 +53,4 @@ rt11_devel/projects/saper/SAPER.HLP
 # regenerate from the external tape (WOTEF_DIR) via the build above.
 rt11_devel/projects/fist/FIST.MAC
 rt11_devel/projects/fist/FIST.SAV
-rt11_devel/projects/fist/fist_screen.png
-rt11_devel/projects/fist/bg*.png
+rt11_devel/projects/fist/*.png

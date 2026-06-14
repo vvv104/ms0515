@@ -22,6 +22,7 @@ add_executable(ms0515_lib_tests
     test_terminal.cpp
     test_vram_write_callback.cpp
     test_vram_mirror.cpp
+    test_fist_screen.cpp
     test_ex_disk.cpp
     test_hd_disk.cpp
     test_dir_vs_os.cpp
@@ -47,6 +48,11 @@ target_compile_definitions(ms0515_lib_tests PRIVATE
     ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
     TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     TESTS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"
+    # FIST VRAM oracle (test_fist_screen.cpp): a built FIST.SAV (a gitignored
+    # build artifact) and where to dump the captured VRAM.  The test skips
+    # itself when FIST.SAV is absent.
+    FIST_SAV_PATH="${CMAKE_SOURCE_DIR}/../rt11_devel/projects/fist/FIST.SAV"
+    FIST_VRAM_OUT_PATH="${CMAKE_CURRENT_BINARY_DIR}/fist_vram.bin"
 )
 # Generator-expression in target_compile_definitions: the actual path is
 # resolved per-config at build time.

@@ -85,3 +85,18 @@ To preview the screen without the emulator:
 ```
 python rt11_devel/projects/fist/source/preview.py fist_screen.png
 ```
+
+## Pixel-exact verification (VRAM oracle)
+
+`src/lib/tests/test_fist_screen.cpp` runs the built `FIST.SAV` in the real
+emulator (headless) and dumps the 16 KB VRAM, giving pixel-exact proof of
+what the MACRO-11 code actually draws.  After building `FIST.SAV` and the
+test suite (`cd src && conan build . --build=missing`):
+
+```
+src/build/Release/lib/tests/ms0515_lib_tests.exe --test-case="fist: VRAM oracle"
+python rt11_devel/projects/fist/source/render_vram.py \
+    src/build/Release/lib/tests/fist_vram.bin fist_emu_vram.png
+```
+
+The test skips itself when `FIST.SAV` is absent.
