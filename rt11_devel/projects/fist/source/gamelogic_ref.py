@@ -46,56 +46,60 @@ def apply_hit(m):
         m[0xAA43] = 0x16
 
 
-def hit_detect(m):
-    """$9D29: does the active fighter's attack reach the opponent this frame?
-    On a hit sets $AA08 (2/1) and applies it via $9E7F (apply_hit)."""
-    def hit(t):
-        m[0xAA08] = t
-        apply_hit(m)
-    m[0xA071] = m[0xAA19]                         # fighter x-positions
-    m[0xA072] = m[0xAA59]
-    d = m[0xAA04]                                 # current action
+# Address sets for the two symmetric hit-detection routines: $9D29 (player 1
+# attacks, sets $AA08, applies via $9E7F) and $9ED2 (player 2, $AA48, $A01C).
+HIT_P1 = dict(act=0xAA04, g1=0xAA13, g2=0xAA16, g3=0xAA09, fg=0xAA12,
+              aface=0xAA17, tface=0xAA57, ridx=0xAA52, result=0xAA08,
+              setpos=(0xAA19, 0xAA59))
+HIT_P2 = dict(act=0xAA44, g1=0xAA53, g2=0xAA56, g3=0xAA49, fg=0xAA52,
+              aface=0xAA57, tface=0xAA17, ridx=0xAA12, result=0xAA48,
+              setpos=None)
+
+
+def hit_detect(m, A):
+    """$9D29 / $9ED2: does this fighter's attack reach the opponent this frame?
+    Sets A['result'] (2/1) on a hit; the apply is a separate tail-call."""
+    if A['setpos']:                              # $9D29 latches both x-positions
+        m[0xA071], m[0xA072] = m[A['setpos'][0]], m[A['setpos'][1]]
+    d = m[A['act']]
     if m[(0xA90D + d) & 0xFFFF] == 0:
         return
-    if m[0xAA13] == 0:
+    if m[A['g1']] == 0 or m[A['g2']] != 0 or m[A['g3']] != 0:
         return
-    if m[0xAA16] != 0:
+    if m[A['fg']] != m[(0xA971 + d) & 0xFFFF]:
         return
-    if m[0xAA09] != 0:
-        return
-    if m[0xAA12] != m[(0xA971 + d) & 0xFFFF]:
-        return
-    tbl = 0xA9BC if m[0xAA17] == m[0xAA57] else 0xA98A
+    tbl = 0xA9BC if m[A['aface']] == m[A['tface']] else 0xA98A
     paddr = (tbl + ((d * 2) & 0xFF)) & 0xFFFF
     m[0xA06F], m[0xA070] = m[paddr], m[(paddr + 1) & 0xFFFF]
-    reach = m[(_u16(m, 0xA06F) + m[0xAA52]) & 0xFFFF]
+    reach = m[(_u16(m, 0xA06F) + m[A['ridx']]) & 0xFFFF]
     if reach == 0x80:
         return
     e = (reach + 0x80) & 0xFF
-    if m[0xAA17] != 0:
+    if m[A['aface']] != 0:
         dist = (m[0xA071] - m[0xA072]) & 0xFF
     else:
         dist = (m[0xA072] - m[0xA071]) & 0xFF
     c = (dist + 0x80) & 0xFF
     a93f = m[(0xA93F + d) & 0xFFFF]
     a958 = m[(0xA958 + d) & 0xFFFF]
+    res = A['result']
     if m[(0xB47E + d) & 0xFFFF] != 0:
         if c == e:
-            hit(2)
+            m[res] = 2
         elif c < e:
             return
         elif ((c - a93f) & 0xFF) < e:
-            hit(2)
+            m[res] = 2
         elif ((c - a958) & 0xFF) < e:
-            hit(1)
+            m[res] = 1
     else:
         if c == e:
-            hit(2)
+            m[res] = 2
         elif c < e:
             if ((a93f + c) & 0xFF) >= e:
-                hit(2)
+                m[res] = 2
             elif ((a958 + c) & 0xFF) >= e:
-                hit(1)
+                m[res] = 1
 
 
 def update_timer(m):
@@ -158,11 +162,13 @@ def validate(addr, pyfunc, watch, want=200, stops=()):
 def main():
     m, t = validate(0x9C6F, update_timer, [0x9CA6, 0x9CA5, 0x9C2B])
     print(f"$9C6F round timer:    {m}/{t} calls match")
-    m2, t2 = validate(0x9D29, hit_detect,
-                      [0xAA08, 0xA06F, 0xA070, 0xA071, 0xA072,
-                       0xAA3F, 0xB150, 0xAA43])
-    print(f"$9D29+$9E7F hit+apply: {m2}/{t2} calls match")
-    return m == t and m2 == t2
+    m2, t2 = validate(0x9D29, lambda mm: hit_detect(mm, HIT_P1),
+                      [0xAA08, 0xA06F, 0xA070, 0xA071, 0xA072], stops=[0x9E7F])
+    print(f"$9D29 hit-detect P1:  {m2}/{t2} calls match")
+    m3, t3 = validate(0x9ED2, lambda mm: hit_detect(mm, HIT_P2),
+                      [0xAA48, 0xA06F, 0xA070], stops=[0xA01C])
+    print(f"$9ED2 hit-detect P2:  {m3}/{t3} calls match")
+    return m == t and m2 == t2 and m3 == t3
 
 
 if __name__ == "__main__":
