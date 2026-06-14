@@ -175,39 +175,235 @@ STAGE:  MOVB    WAF3,R0                 ; toggle $8AF3 bit0
         DEC     R1
         BNE     21$
 22$:    MOV     #WAE9,R4
-3$:     MOVB    (R4)+,R0               ; bit2 staging: a=m[hl]; $8B01=a; hl++
+3$:     TSTB    C407M                  ; $8882 facing mirror?
+        BEQ     30$
+        JSR     PC,FACING              ; R4 = $8AF4
+30$:    BITB    #1,C40EM               ; mode dispatch ($88A5/$88F7/$8965/$89C2)
+        BEQ     31$
+        JSR     PC,MBIT0               ; bit0: $B700 mirror-x prefix, R4 = $8B0B
+31$:    BITB    #2,C40EM
+        BEQ     32$
+        JMP     MBIT1                  ; bit1 (RRA); returns $8B01 to DLOOP
+32$:    BITB    #4,C40EM
+        BEQ     33$
+        JMP     MBIT2                  ; bit2 (RRD)
+33$:    BITB    #10,C40EM
+        BEQ     34$
+        JMP     MBIT3                  ; bit3 (RLA)
+34$:    MOV     R4,R0                  ; no mode bits: return HL
+        RTS     PC
+
+;-------------------------------------------------------------------
+; MBIT2 - bit2 element staging (RRD scaling, thresh $10).  In: R4=HL.
+MBIT2:  MOVB    (R4)+,R0
         BIC     #177400,R0
         MOVB    R0,W8B01
-        BIC     #177770,R0             ; runlen = a & 7
+        BIC     #177770,R0
         BNE     4$
-        MOV     #W8B01,R0              ; runlen 0 -> return $8B01
+        MOV     #W8B01,R0
         RTS     PC
 4$:     MOVB    R0,W8B00
-        MOV     R0,R5                  ; R5 = runlen
+        MOV     R0,R5
         MOVB    (R4),R0
         BIC     #177400,R0
         CMP     R0,#16.
         BGE     5$
         MOVB    #1,WAFE
-5$:     MOV     #W8B02,R2              ; copy runlen bytes -> $8B02
+5$:     MOV     #W8B02,R2
         MOV     R4,R0
         MOV     R5,R1
 51$:    MOVB    (R0)+,(R2)+
         DEC     R1
         BNE     51$
-        CLRB    (R2)                   ; null terminator
+        CLRB    (R2)
         INC     R5                     ; n = runlen+1; loop in R5 (DORRD clobbers R1/R3)
         MOV     #W8B02,R2
-        CLR     R0                     ; a = 0
+        CLR     R0
 6$:     JSR     PC,DORRD
         INC     R2
         DEC     R5
         BNE     6$
-        MOVB    -(R2),R0               ; last byte == 0 -> $8AFF=1
+        MOVB    -(R2),R0
         BIC     #177400,R0
         BNE     7$
         MOVB    #1,WAFF
 7$:     MOV     #W8B01,R0
+        RTS     PC
+
+;-------------------------------------------------------------------
+; MBIT1 - bit1 element staging (RRA x2 forward, thresh $04).  In: R4=HL.
+MBIT1:  MOVB    (R4)+,R0
+        BIC     #177400,R0
+        MOVB    R0,W8B01
+        BIC     #177770,R0
+        BNE     1$
+        MOV     #W8B01,R0
+        RTS     PC
+1$:     MOVB    R0,W8B00
+        MOV     R0,R5
+        MOVB    (R4),R0
+        BIC     #177400,R0
+        CMP     R0,#4.
+        BGE     2$
+        MOVB    #1,WAFE
+2$:     MOV     #W8B02,R2
+        MOV     R4,R0
+        MOV     R5,R1
+3$:     MOVB    (R0)+,(R2)+
+        DEC     R1
+        BNE     3$
+        CLRB    (R2)
+        MOVB    W8B00,R5               ; pass 1: RRA n bytes from $8B02
+        INC     R5
+        MOV     #W8B02,R2
+        JSR     PC,RPASS
+        MOVB    W8B00,R5               ; pass 2
+        INC     R5
+        MOV     #W8B02,R2
+        JSR     PC,RPASS
+        MOV     #W8B02,R2              ; last = $8B02 + runlen (= $8B02+n-1)
+        MOVB    W8B00,R0
+        ADD     R0,R2
+        MOVB    (R2),R0
+        BIC     #177400,R0
+        BNE     4$
+        MOVB    #1,WAFF
+4$:     MOV     #W8B01,R0
+        RTS     PC
+
+;-------------------------------------------------------------------
+; MBIT3 - bit3 element staging (RLA x2 backward, lead 0, thresh $40).
+MBIT3:  MOVB    (R4)+,R0
+        BIC     #177400,R0
+        MOVB    R0,W8B01
+        BIC     #177770,R0
+        BNE     1$
+        MOV     #W8B01,R0
+        RTS     PC
+1$:     MOVB    R0,W8B00
+        MOV     R0,R5
+        CLRB    W8B02                  ; leading 0 at $8B02; data at $8B03
+        MOVB    (R4),R0
+        BIC     #177400,R0
+        CMP     R0,#40.
+        BGE     2$
+        MOVB    #1,WAFE
+2$:     MOV     #W8B02+1,R2            ; copy runlen bytes -> $8B03
+        MOV     R4,R0
+        MOV     R5,R1
+3$:     MOVB    (R0)+,(R2)+
+        DEC     R1
+        BNE     3$
+        MOVB    W8B00,R0               ; p = $8B02 + runlen
+        MOV     #W8B02,R2
+        ADD     R0,R2                  ; R2 = p (LPASS start, backward)
+        MOV     R2,-(SP)               ; save p
+        MOVB    W8B00,R5               ; pass 1: RLA n bytes backward
+        INC     R5
+        JSR     PC,LPASS
+        MOV     (SP),R2                ; restore p
+        MOVB    W8B00,R5               ; pass 2
+        INC     R5
+        JSR     PC,LPASS
+        MOV     (SP)+,R2               ; last = p
+        MOVB    (R2),R0
+        BIC     #177400,R0
+        BNE     4$
+        MOVB    #1,WAFF
+4$:     MOV     #W8B01,R0
+        RTS     PC
+
+;-------------------------------------------------------------------
+; MBIT0 - bit0 mirror-x prefix ($88AD) via $B700.  In: R4=HL; Out: R4=$8B0B.
+MBIT0:  MOV     #W8B0B,R3              ; DE = $8B0B
+        MOVB    (R4),R0                ; c = ctrl & 7
+        BIC     #177774,R0
+        MOV     R0,R5                  ; R5 = c
+        MOVB    (R4),R0                ; b = (ctrl>>3) & 7
+        BIC     #177400,R0
+        ASR     R0
+        ASR     R0
+        ASR     R0
+        BIC     #177770,R0             ; R0 = b
+        MOVB    WB1B,R1                ; a = (B1B - b - c) << 3
+        BIC     #177400,R1
+        SUB     R0,R1
+        SUB     R5,R1
+        ASL     R1
+        ASL     R1
+        ASL     R1
+        BIC     #177400,R1
+        TST     R1
+        BEQ     1$
+        BIS     #100,R1                ; OR $40 if nonzero
+1$:     BIS     #200,R1                ; OR $80
+        MOVB    (R4),R0                ; (ctrl & 7) | hdr
+        BIC     #177770,R0
+        BIS     R1,R0
+        MOVB    R0,(R3)+               ; store header byte
+        MOVB    (R4)+,R0               ; c2 = ctrl & 7 ; hl++
+        BIC     #177770,R0
+        MOV     R0,R5                  ; R5 = c2
+        ADD     R0,R3                  ; DE += c2
+        DEC     R3                     ; DE--
+        TST     R5
+        BEQ     2$
+3$:     MOVB    (R4)+,R0               ; m[de--] = $B700[m[hl++]]
+        BIC     #177400,R0
+        MOVB    TB700(R0),R1
+        MOVB    R1,(R3)
+        DEC     R3
+        DEC     R5
+        BNE     3$
+2$:     MOV     #W8B0B,R4              ; HL = $8B0B
+        RTS     PC
+
+;-------------------------------------------------------------------
+; FACING - $8882 facing mirror via $8AD1.  In: R4=HL; Out: R4=$8AF4.
+FACING: MOV     #WAF4,R3
+        MOVB    (R4)+,R0               ; first byte copied verbatim
+        BIC     #177400,R0
+        MOV     R0,R5                  ; count = first & 7
+        BIC     #177770,R5
+        MOVB    R0,(R3)+
+        TST     R5
+        BEQ     2$
+1$:     MOVB    (R4)+,R0               ; m[de++] = transform(m[hl++])
+        BIC     #177400,R0
+        JSR     PC,XFORM
+        MOVB    R0,(R3)+
+        DEC     R5
+        BNE     1$
+2$:     MOV     #WAF4,R4
+        RTS     PC
+
+;-------------------------------------------------------------------
+; XFORM - $8AD1: A = ($B800 if $8AF3 else $B900)[A].
+XFORM:  TSTB    WAF3
+        BEQ     1$
+        MOVB    TB800(R0),R0
+        BIC     #177400,R0
+        RTS     PC
+1$:     MOVB    TB900(R0),R0
+        BIC     #177400,R0
+        RTS     PC
+
+;-------------------------------------------------------------------
+; RPASS - RRA chain of R5 bytes forward from R2 (carry starts 0).
+RPASS:  CLC
+1$:     RORB    (R2)
+        INC     R2
+        DEC     R5
+        BNE     1$
+        RTS     PC
+
+;-------------------------------------------------------------------
+; LPASS - RLA chain of R5 bytes backward from R2 (carry starts 0).
+LPASS:  CLC
+1$:     ROLB    (R2)
+        DEC     R2
+        DEC     R5
+        BNE     1$
         RTS     PC
 
 ;-------------------------------------------------------------------
@@ -331,9 +527,12 @@ ORIGRC: .WORD   0
 SRCP:   .WORD   0
 DSTP:   .WORD   0
 NCOUNT: .WORD   0
+C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)
+C407M:  .BYTE   %C407%.                ; facing flag ($C407)
         .EVEN
 W:      .BLKB   64.
 WAF3   = W+19.
+WAF4   = W+20.
 WAE9   = W+9.
 WAFE   = W+30.
 WAFF   = W+31.
@@ -341,6 +540,7 @@ W8B00  = W+32.
 W8B01  = W+33.
 W8B02  = W+34.
 W8B0A  = W+42.
+W8B0B  = W+43.
 WHL14  = W+52.
 WDE16  = W+54.
 WB1B   = W+59.
@@ -355,7 +555,9 @@ def emit_decrun():
 
 def main():
     nelem = int(os.environ.get("FGHT_NELEM", "5000"))
-    before, hl, de = fd.capture()
+    c40e = int(os.environ.get("FGHT_C40E", "4"))
+    c407 = int(os.environ.get("FGHT_C407", "0"))
+    before, hl, de = fd.capture(c40e, c407)
     m = bytearray(before)
     run_loop(m, hl, de, limit=nelem)
     expected = bytes(m[fd.FBUF:fd.FBUF + fd.FBUF_LEN])
@@ -372,6 +574,8 @@ def main():
     src += "        .EVEN\nFBUF:   .BLKB   884.\n"
     src += "        .EVEN\n        .END    START\n"
     src = (src.replace("%C408%", str(before[0xC408]))
+              .replace("%C40E%", str(before[0xC40E]))
+              .replace("%C407%", str(before[0xC407]))
               .replace("%DEOFF%", str(de - fd.FBUF))
               .replace("%NELEM%", str(nelem)))
     src.encode("ascii")

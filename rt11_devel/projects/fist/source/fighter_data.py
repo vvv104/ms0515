@@ -26,9 +26,9 @@ FBUF, FBUF_LEN = 0xF730, 884
 STREAM_LEN = 768                                             # generous control-stream span
 
 
-def capture(want_c40e=0x04):
+def capture(want_c40e=0x04, want_c407=0):
     """Run the game; capture the first fighter loop with C40E==want_c40e and
-    facing off, returning (memory_snapshot, hl, de)."""
+    C407==want_c407, returning (memory_snapshot, hl, de)."""
     sim, mem = build_sim(watch=(0, 0))
     regs, memory, ops = sim.registers, sim.memory, sim.opcodes
     fd, ia = sim.frame_duration, sim.int_active
@@ -38,7 +38,7 @@ def capture(want_c40e=0x04):
         if pc == 0xC234:
             after_c234 = True
         if after_c234 and pc == 0x8833 and memory[0xC40E] == want_c40e \
-                and memory[0xC407] == 0:
+                and memory[0xC407] == want_c407:
             before = bytes(memory)
             hl, de = regs[H] * 256 + regs[L], regs[D] * 256 + regs[E]
             return before, hl, de
