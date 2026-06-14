@@ -372,9 +372,88 @@ def ai_decide(m, randoms):
     rnd = _Rnd(randoms)
     reg = {'a': 0, 'b': 0}
     label = 'A090'
+    # $A553 special-state dispatcher: computed jump through $B3A9[$A618].
+    A553_TARGETS = {1: 'A49A', 2: 'A53E', 3: 'A4C8', 4: 'A4D5', 5: 'A4E2',
+                    6: 'A50C', 7: 'A524', 8: 'A4FE', 9: 'A560'}
     while label is not None:
         if label == 'A553':
-            return True
+            label = A553_TARGETS[m[0xA618]]
+        elif label == 'A49A':
+            if m[0xA614] < 7:
+                label = 'A4BE'
+            elif m[0xA63D] == 0x19:
+                label = 'A4B1'
+            else:
+                label = 'A4A8'
+        elif label == 'A4A8':
+            m[0xA5F6] = 0x04
+            m[0xA5F1] = 0x04
+            return False
+        elif label == 'A4B1':
+            m[0xA5F6] = 0x0A
+            m[0xA5F1] = 0x0A
+            m[0xA618] = 0
+            return False
+        elif label == 'A4BE':
+            label = 'A4A8' if m[0xA62F] != 1 else 'A4B1'
+        elif label == 'A4C8':
+            m[0xA5F6] = 0x0E
+            m[0xA5F1] = 0x0E
+            m[0xA618] = 0
+            return False
+        elif label == 'A4D5':
+            m[0xA5F1] = 0x09
+            m[0xA5F6] = 0x09
+            m[0xA618] = 0
+            return False
+        elif label == 'A4E2':
+            if m[0xA5FA] != 0:
+                m[0xA5F1] = 0x07
+                m[0xA5F6] = 0x07
+                m[0xA618] = 0
+            else:
+                m[0xA5F6] = 0x04
+                m[0xA5F1] = 0x04
+            return False
+        elif label == 'A4FE':
+            rv = rnd()
+            if rv < 0x80:
+                label = 'A50C'
+            else:
+                m[0xA618] = 0x05
+                label = 'A4E2'
+        elif label == 'A50C':
+            rnd()                        # consumed; the JP $A517 is unconditional
+            m[0xA5F6] = 0x18
+            m[0xA5F1] = 0x18
+            m[0xA618] = 0
+            return False
+        elif label == 'A524':
+            a = 0x0A if m[0xA608] == m[0xA642] else 0x10
+            m[0xA5F1] = a
+            m[0xA5F6] = a
+            m[0xA618] = 0
+            return False
+        elif label == 'A53E':
+            if m[0xA5F5] == 0x0A:
+                m[0xA618] = 0
+            else:
+                m[0xA5F6] = 0x0A
+                m[0xA5F1] = 0x0A
+            return False
+        elif label == 'A560':
+            if m[0xA614] < 7:
+                label = 'A57B'
+            elif rnd() & 0x80:
+                label = 'A57B'
+            else:
+                m[0xA618] = 0
+                m[0xA5F1] = 0x0B
+                m[0xA5F6] = 0x0B
+                return False
+        elif label == 'A57B':
+            m[0xA618] = 0x01
+            label = 'A49A'
         elif label == 'A090':
             a = m[0xA5F4]
             if a != 0:
