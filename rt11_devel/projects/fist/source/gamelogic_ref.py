@@ -319,6 +319,23 @@ def award_points(m):
         m[0xAA48] = 0
 
 
+def yinyang_total(m):
+    """$900E: yin-yang total controller (state part).  Each score event adds the
+    flag $AA08 (P1) / $AA48 (P2) to the running half-point total $AA01 / $AA41
+    (0..4); the image draws via $9255 are a separate layer.  Total 2 = one full
+    yin-yang, total 4 = two full = a won round.  One fighter per call."""
+    if m[0xAA08] != 0:
+        m[0xAA01] = (m[0xAA01] + m[0xAA08]) & 0xFF
+        return
+    if m[0xAA48] != 0:
+        m[0xAA41] = (m[0xAA41] + m[0xAA48]) & 0xFF
+
+
+def new_round(m):
+    """$909E (state part): clear both fighters' yin-yang totals and scores."""
+    m[0xAA01] = m[0xAA41] = m[0xAA02] = m[0xAA42] = 0
+
+
 def update_timer(m):
     """$9C6F: round-timer tick (state only; skips the Print_Time draw)."""
     if m[0x9C2B] != 0:
@@ -412,6 +429,10 @@ def main():
     run(0xAF36, "$AF36 award points:", lambda mm, r: award_points(mm),
         [0xAA02, 0xAA42, 0xAA08, 0xAA48,
          0xB02D, 0xB02E, 0xB02F, 0xB030, 0xB031, 0xB032])
+    run(0x900E, "$900E yin-yang total:", lambda mm, r: yinyang_total(mm),
+        [0xAA01, 0xAA41])
+    run(0x909E, "$909E new round:", lambda mm, r: new_round(mm),
+        [0xAA01, 0xAA41, 0xAA02, 0xAA42])
 
     return all(m == t for m, t in results)
 
