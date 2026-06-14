@@ -64,7 +64,7 @@ START:  MOV     #340,R0
 
         JSR     PC,SETUP               ; FBUF := FINIT (background)
         JSR     PC,DECRUN              ; run the decoder (no-op at level 0)
-        JSR     PC,TOVRAM              ; FBUF -> VRAM[0..884] for the oracle
+        JSR     PC,%FINISH%            ; TOVRAM (verify) or PRESENT (display)
 
 WKEY:   MOV     @#177442,R0
         BIT     #2,R0
@@ -96,6 +96,33 @@ TOVRAM: MOV     #FBUF,R0
 1$:     MOVB    (R0)+,(R1)+
         DEC     R2
         BNE     1$
+        RTS     PC
+
+;-------------------------------------------------------------------
+; PRESENT - show the composed fighter (FBUF is a flat W x 68 bitmap) centred
+; on the 320x200 screen, white-on-black.  FBUF is already de-interleaved, so
+; each byte maps straight to one medium-res VRAM word (low = 8 pixels, high =
+; attribute).  Fighter is FWID bytes wide, FHGT rows; place it at row 66,
+; word-column 15 (centred), stride 40 words/line.
+FWHITE = 043400                        ; attr high byte $47 (bright white fg)
+PRESENT:MOV     #VRAM,R0               ; clear the screen
+1$:     CLR     (R0)+
+        CMP     R0,#100000
+        BLO     1$
+        MOV     #FBUF,R1
+        MOV     #%FHGT%.,R5            ; rows
+        MOV     #VRAM+%DSTOFF%.,R2     ; centred first-row dst (byte addr)
+2$:     MOV     R2,R0
+        MOV     #%FWID%.,R4
+3$:     MOVB    (R1)+,R3               ; pixel byte
+        BIC     #177400,R3
+        BIS     #FWHITE,R3             ; | white attribute
+        MOV     R3,(R0)+
+        DEC     R4
+        BNE     3$
+        ADD     #120,R2               ; next line (+40 words)
+        DEC     R5
+        BNE     2$
         RTS     PC
 
 """
@@ -573,11 +600,18 @@ def main():
     src += _bytes_block("WINIT", before[0x8AE0:0x8B20])      # work-area flags
     src += "        .EVEN\nFBUF:   .BLKB   884.\n"
     src += "        .EVEN\n        .END    START\n"
+    fwid, fhgt = before[0xC40A], before[0xC409]
+    top, left = (200 - fhgt) // 2, (40 - fwid) // 2
+    finish = "PRESENT" if os.environ.get("FGHT_PRESENT") else "TOVRAM"
     src = (src.replace("%C408%", str(before[0xC408]))
               .replace("%C40E%", str(before[0xC40E]))
               .replace("%C407%", str(before[0xC407]))
               .replace("%DEOFF%", str(de - fd.FBUF))
-              .replace("%NELEM%", str(nelem)))
+              .replace("%NELEM%", str(nelem))
+              .replace("%FWID%", str(fwid))
+              .replace("%FHGT%", str(fhgt))
+              .replace("%DSTOFF%", str((top * 40 + left) * 2))
+              .replace("%FINISH%", finish))
     src.encode("ascii")
     OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
     print(f"fighter_mac: wrote {OUT_MAC} (level {STAGE_LEVEL}, DE off {de - fd.FBUF})")
