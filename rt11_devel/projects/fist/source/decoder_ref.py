@@ -148,15 +148,151 @@ def _single(z, m):                                   # $8AA5 single-byte case
 def _reload(z, m):                                   # $8A9B / $8AC6: reload ptrs
     z.set_hl(m[0x8B14] | (m[0x8B15] << 8))
     z.set_de(m[0x8B16] | (m[0x8B17] << 8))
-    return
+    return (z.hl(), z.de())
+
+
+# ── $8833 loop control: stage one element's work data into $8B00.. ────────────
+
+def _transform(m, a):                                # $8AD1
+    return m[((0xB800 if m[0x8AF3] else 0xB900) + a) & 0xFFFF]
+
+
+def _rrd(m, hl, a):                                  # Z80 RRD on (HL)
+    v = m[hl]; lo = a & 0x0F
+    a = (a & 0xF0) | (v & 0x0F)
+    m[hl] = (((v >> 4) & 0x0F) | (lo << 4)) & 0xFF
+    return a
+
+
+def _rotpass(m, p, n, left):                         # RRA/RLA chain, carry starts 0
+    carry = 0
+    for _ in range(n):
+        v = m[p]
+        if left:
+            nc = (v >> 7) & 1; m[p] = ((v << 1) | carry) & 0xFF; p = (p - 1) & 0xFFFF
+        else:
+            nc = v & 1; m[p] = ((v >> 1) | (carry << 7)) & 0xFF; p = (p + 1) & 0xFFFF
+        carry = nc
+
+
+def _mode_bit0(m, hl):                               # $88AD: $B700 mirror-x prefix
+    d = 0x8B0B
+    c = m[hl] & 7
+    b = (m[hl] >> 3) & 7
+    a = ((m[0x8B1B] - b - c) << 3) & 0xFF
+    a |= 0x40 if a != 0 else 0
+    a |= 0x80
+    m[d] = (m[hl] & 7) | a; d = (d + 1) & 0xFFFF
+    c2 = m[hl] & 7
+    hl = (hl + 1) & 0xFFFF
+    d = (d + c2 - 1) & 0xFFFF
+    for _ in range(c2):
+        m[d] = m[(0xB700 + m[hl]) & 0xFFFF]
+        d = (d - 1) & 0xFFFF; hl = (hl + 1) & 0xFFFF
+    return 0x8B0B
+
+
+def _mode_scale(m, hl, thresh, lead0, left):         # bit1/bit2/bit3 share this shape
+    a = m[hl]; m[0x8B01] = a; hl = (hl + 1) & 0xFFFF
+    a &= 7
+    if a == 0:
+        return 0x8B01
+    m[0x8B00] = a
+    dst = 0x8B02
+    if lead0:                                        # bit3 writes a leading 0
+        m[0x8B02] = 0; dst = 0x8B03
+    if m[hl] < thresh:
+        m[0x8AFE] = 1
+    if a == 0:
+        return 0x8B01
+    s = hl
+    for _ in range(a):
+        m[dst] = m[s]; dst = (dst + 1) & 0xFFFF; s = (s + 1) & 0xFFFF
+    if not lead0:
+        m[dst] = 0
+    n = (m[0x8B00] + 1) & 0xFF
+    if thresh == 0x10:                               # bit2: RRD nibble loop fwd
+        a = 0; p = 0x8B02
+        for _ in range(n):
+            a = _rrd(m, p, a); p = (p + 1) & 0xFFFF
+        last = (0x8B02 + n - 1) & 0xFFFF
+    elif left:                                       # bit3: RLA twice, backwards
+        p = (0x8B02 + m[0x8B00]) & 0xFFFF
+        _rotpass(m, p, n, True); _rotpass(m, p, n, True)
+        last = p
+    else:                                            # bit1: RRA twice, forwards
+        _rotpass(m, 0x8B02, n, False); _rotpass(m, 0x8B02, n, False)
+        last = (0x8B02 + n - 1) & 0xFFFF
+    if m[last] == 0:
+        m[0x8AFF] = 1
+    return 0x8B01
+
+
+def stage_element(m, hl, de):
+    """$8833: stage one element; return HL for $8A30, or None at terminator."""
+    m[0x8AF3] ^= 1
+    m[0x8AFF] = 0
+    m[0x8AFE] = 0
+    if m[hl] == 0:
+        return None                                  # $8AD0
+    t = (m[0xC408] + de) & 0xFFFF
+    m[0x8B16], m[0x8B17] = t & 0xFF, t >> 8
+    ctrl = m[hl]
+    if ctrl & 0x80:                                  # $8875
+        t = (hl + (ctrl & 7) + 1) & 0xFFFF
+        m[0x8B14], m[0x8B15] = t & 0xFF, t >> 8
+    else:                                            # $8858
+        c = m[0x8B1B]
+        t = (hl + c) & 0xFFFF
+        m[0x8B14], m[0x8B15] = t & 0xFF, t >> 8
+        d = 0x8AE9
+        m[d] = (c | 0x80) & 0xFF; d += 1
+        s = hl
+        for _ in range(c):
+            m[d] = m[s]; d = (d + 1) & 0xFFFF; s = (s + 1) & 0xFFFF
+        hl = 0x8AE9
+    if m[0xC407] != 0:                               # $8882 facing mirror
+        d = 0x8AF4
+        a = m[hl]; m[d] = a; d += 1; hl = (hl + 1) & 0xFFFF
+        for _ in range(a & 7):
+            m[d] = _transform(m, m[hl]); d = (d + 1) & 0xFFFF; hl = (hl + 1) & 0xFFFF
+        hl = 0x8AF4
+    c40e = m[0xC40E]
+    if c40e & 0x01:
+        hl = _mode_bit0(m, hl)
+    if c40e & 0x02:
+        return _mode_scale(m, hl, 0x04, False, False)
+    if c40e & 0x04:
+        return _mode_scale(m, hl, 0x10, False, False)
+    if c40e & 0x08:
+        return _mode_scale(m, hl, 0x40, True, True)
+    return hl
 
 
 BUFLO, BUFHI = 0xF730, 0xFAA4                         # the $F730 compose buffer
 
 
-def main(n_elements=400):
-    """Self-test: drive the real game in the Z80 sim and check decode_element
-    reproduces every $8A30 element's writes to the compose buffer."""
+def _mkregs(hl, de):
+    r = [0] * 30
+    r[H], r[L], r[D], r[E] = hl >> 8, hl & 0xFF, de >> 8, de & 0xFF
+    return r
+
+
+def run_loop(m, hl, de, limit=5000):
+    """Reproduce the full $8833 -> $8A30 element loop for one fighter, until
+    the terminator.  Composes the fighter into the $F730 buffer in `m`."""
+    for _ in range(limit):
+        hl8a30 = stage_element(m, hl, de)
+        if hl8a30 is None:
+            return
+        hl, de = decode_element(m, _mkregs(hl8a30, de))
+
+
+def main():
+    """Self-test: drive the real game in the Z80 sim and check (1) decode_element
+    ($8A30) reproduces each element's compose-buffer writes, (2) stage_element
+    ($8833) reproduces each element's staging, (3) run_loop reproduces whole
+    fighter composes ($F730) end to end."""
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from trace_sprites import build_sim, PC as PCi
@@ -164,34 +300,56 @@ def main(n_elements=400):
     sim, _ = build_sim(watch=(0, 0))
     regs, memory, ops = sim.registers, sim.memory, sim.opcodes
     fd, ia = sim.frame_duration, sim.int_active
-    done = {0x8833, 0x8AD0}
-    tested = match = mismatch = 0
-    for _ in range(2000000):
-        if regs[PCi] == 0x8A30:
-            before = bytes(memory)
-            rin = list(regs)
-            for _ in range(3000):                    # run the real element
-                ops[memory[regs[PCi]]]()
-                if regs[26] and regs[25] % fd < ia:
-                    sim.accept_interrupt(regs, memory, regs[PCi])
-                if regs[PCi] in done:
-                    break
-            mine = bytearray(before)
-            decode_element(mine, rin)
-            if any(mine[i] != memory[i] for i in range(BUFLO, BUFHI)):
-                mismatch += 1
-            else:
-                match += 1
-            tested += 1
-            if tested >= n_elements:
-                break
-            continue
+
+    def step():
         ops[memory[regs[PCi]]]()
         if regs[26] and regs[25] % fd < ia:
             sim.accept_interrupt(regs, memory, regs[PCi])
-    print(f"$8A30 decoder reference: {match}/{tested} elements match, "
-          f"{mismatch} mismatch")
-    return mismatch == 0
+
+    el30 = el83 = nel = loops = lok = seen = 0
+    while nel < 400 or loops < 15:
+        pc = regs[PCi]
+        if pc == 0x8A30 and nel < 400:
+            before, rin = bytes(memory), list(regs)
+            for _ in range(3000):
+                step()
+                if regs[PCi] in (0x8833, 0x8AD0):
+                    break
+            mine = bytearray(before)
+            decode_element(mine, rin)
+            el30 += all(mine[i] == memory[i] for i in range(BUFLO, BUFHI))
+            nel += 1
+            continue
+        if pc == 0x8833:
+            seen += 1
+            before = bytes(memory)
+            hl, de = regs[H] * 256 + regs[L], regs[D] * 256 + regs[E]
+            if nel < 400:
+                for _ in range(4000):
+                    step()
+                    if regs[PCi] in (0x8A30, 0x8AD0):
+                        break
+                if regs[PCi] == 0x8A30:
+                    mine = bytearray(before)
+                    if stage_element(mine, hl, de) == regs[H] * 256 + regs[L] and \
+                       all(mine[i] == memory[i] for i in range(0x8AE0, 0x8B20)):
+                        el83 += 1
+                continue
+            if loops < 15 and seen % 37 == 0:
+                for _ in range(200000):
+                    step()
+                    if regs[PCi] == 0x8AD0:
+                        break
+                sim_f = bytes(memory[BUFLO:BUFHI])
+                mine = bytearray(before)
+                run_loop(mine, hl, de)
+                lok += (bytes(mine[BUFLO:BUFHI]) == sim_f)
+                loops += 1
+                continue
+        step()
+    print(f"$8A30 elements: {el30}/{nel} | $8833 staging: {el83} ok | "
+          f"full fighter composes: {lok}/{loops}")
+    return el30 == nel and lok == loops
 
 
 if __name__ == "__main__":
