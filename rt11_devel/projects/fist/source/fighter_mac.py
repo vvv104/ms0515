@@ -76,12 +76,18 @@ WKEY:   MOV     @#177442,R0
 
 
 ;-------------------------------------------------------------------
-SETUP:  MOV     #FINIT,R0
-        MOV     #FBUF,R1
-        MOV     #884.,R2
+SETUP:  MOV     #WINIT,R0              ; load work area ($8AE0.. flags)
+        MOV     #W,R1
+        MOV     #64.,R2
 1$:     MOVB    (R0)+,(R1)+
         DEC     R2
         BNE     1$
+        MOV     #FINIT,R0              ; FBUF := background
+        MOV     #FBUF,R1
+        MOV     #884.,R2
+2$:     MOVB    (R0)+,(R1)+
+        DEC     R2
+        BNE     2$
         RTS     PC
 
 TOVRAM: MOV     #FBUF,R0
@@ -99,23 +105,259 @@ DECRUN_L0 = """;----------------------------------------------------------------
 DECRUN: RTS     PC                      ; level 0: no decode
 """
 
+# Level 1: full decoder for the captured path ($C40E=04 bit2, $C407=0).
+# Transcribed from decoder_ref.py.  R4=HL (source), R3=DE (dest in FBUF),
+# R0/R1/R2/R5 scratch.  Work addrs $8AE0.. -> W+(addr-$8AE0); C408V = stride.
+DECRUN_L1 = r"""C408V  = %C408%.
+
+;-------------------------------------------------------------------
+; DECRUN - run the $8833 -> $8A30 element loop over the control stream.
+DECRUN: MOV     #FCTRL,SRCP
+        MOV     #FBUF+%DEOFF%.,DSTP
+        MOV     #%NELEM%.,NCOUNT
+DLOOP:  JSR     PC,STAGE               ; R0 = $8B01 ptr, or 0 at terminator
+        TST     R0
+        BEQ     1$
+        MOV     R0,R4                  ; HL = $8B01 (work stream)
+        MOV     DSTP,R3                ; DE = current dest
+        JSR     PC,DECODE
+        MOV     WHL14,SRCP             ; reload next src/dest ($8B14/$8B16)
+        MOV     WDE16,DSTP
+        DEC     NCOUNT
+        BNE     DLOOP
+1$:     RTS     PC
+
+;-------------------------------------------------------------------
+; STAGE - $8833 prologue + bit2 staging.  In: SRCP=HL, DSTP=DE.
+; Out: R0 = &$8B01 work stream, or 0 at terminator.
+STAGE:  MOVB    WAF3,R0                 ; toggle $8AF3 bit0
+        COM     R0
+        BIC     #177776,R0
+        MOVB    R0,WAF3
+        CLRB    WAFE
+        CLRB    WAFF
+        MOV     SRCP,R4
+        MOVB    (R4),R0
+        BIC     #177400,R0
+        BNE     1$
+        CLR     R0                     ; terminator
+        RTS     PC
+1$:     MOV     DSTP,R3
+        MOV     R3,R0                  ; $8B16 = DE + C408
+        ADD     #C408V,R0
+        MOV     R0,WDE16
+        MOVB    (R4),R0
+        BIC     #177400,R0
+        BIT     #200,R0                ; ctrl bit7
+        BEQ     2$
+        MOV     R0,R1                  ; bit7: $8B14 = HL + (ctrl&7)+1
+        BIC     #177770,R1
+        INC     R1
+        MOV     R4,R2
+        ADD     R1,R2
+        MOV     R2,WHL14
+        BR      3$
+2$:     MOVB    WB1B,R1                ; clear: $8B14 = HL + B1B, stage into $8AE9
+        BIC     #177400,R1
+        MOV     R4,R2
+        ADD     R1,R2
+        MOV     R2,WHL14
+        MOVB    WB1B,R0
+        BIS     #200,R0
+        MOVB    R0,WAE9
+        MOV     #WAE9,R2
+        INC     R2
+        MOV     R4,R0
+        MOVB    WB1B,R1
+        BIC     #177400,R1
+        BEQ     22$
+21$:    MOVB    (R0)+,(R2)+
+        DEC     R1
+        BNE     21$
+22$:    MOV     #WAE9,R4
+3$:     MOVB    (R4)+,R0               ; bit2 staging: a=m[hl]; $8B01=a; hl++
+        BIC     #177400,R0
+        MOVB    R0,W8B01
+        BIC     #177770,R0             ; runlen = a & 7
+        BNE     4$
+        MOV     #W8B01,R0              ; runlen 0 -> return $8B01
+        RTS     PC
+4$:     MOVB    R0,W8B00
+        MOV     R0,R5                  ; R5 = runlen
+        MOVB    (R4),R0
+        BIC     #177400,R0
+        CMP     R0,#16.
+        BGE     5$
+        MOVB    #1,WAFE
+5$:     MOV     #W8B02,R2              ; copy runlen bytes -> $8B02
+        MOV     R4,R0
+        MOV     R5,R1
+51$:    MOVB    (R0)+,(R2)+
+        DEC     R1
+        BNE     51$
+        CLRB    (R2)                   ; null terminator
+        INC     R5                     ; n = runlen+1; loop in R5 (DORRD clobbers R1/R3)
+        MOV     #W8B02,R2
+        CLR     R0                     ; a = 0
+6$:     JSR     PC,DORRD
+        INC     R2
+        DEC     R5
+        BNE     6$
+        MOVB    -(R2),R0               ; last byte == 0 -> $8AFF=1
+        BIC     #177400,R0
+        BNE     7$
+        MOVB    #1,WAFF
+7$:     MOV     #W8B01,R0
+        RTS     PC
+
+;-------------------------------------------------------------------
+; DORRD - Z80 RRD on (R2); A low byte in R0 (in/out).
+DORRD:  MOVB    (R2),R1
+        BIC     #177400,R1
+        MOV     R0,R3
+        BIC     #177760,R3             ; R3 = oldA & 0x0F (lo)
+        BIC     #177417,R0             ; R0 = oldA & 0xF0
+        MOV     R1,-(SP)
+        BIC     #177760,R1             ; v & 0x0F
+        BIS     R1,R0                  ; new A
+        MOV     (SP)+,R1
+        ASR     R1
+        ASR     R1
+        ASR     R1
+        ASR     R1
+        BIC     #177760,R1             ; (v>>4)&0x0F
+        ASL     R3
+        ASL     R3
+        ASL     R3
+        ASL     R3                     ; lo<<4
+        BIS     R3,R1
+        MOVB    R1,(R2)
+        RTS     PC
+
+;-------------------------------------------------------------------
+; DECODE - $8A30 masked-shift blit.  In: R4=HL ($8B01), R3=DE (FBUF dest).
+DECODE: MOVB    (R4),R0                ; a = m[hl]
+        BIC     #177400,R0
+        BIT     #100,R0                ; bit6 (carry after 2 RLA)?
+        BEQ     8$
+        MOVB    (R4),R1                ; x-skip = (a rotated left 6x through C, C=0) & 7
+        BIC     #177400,R1
+        CLC
+        ROLB    R1
+        ROLB    R1
+        ROLB    R1
+        ROLB    R1
+        ROLB    R1
+        ROLB    R1
+        BIC     #177770,R1
+        ADD     R1,R3                  ; DE += skip
+8$:     MOVB    (R4),R0                ; count = m[hl] & 7
+        BIC     #177400,R0
+        BIC     #177770,R0
+        BNE     9$
+        RTS     PC                     ; count 0 -> $8AC6 (reload via loop)
+9$:     MOV     R0,R2                  ; B = count
+        MOVB    W8B0A,R1
+        BIC     #177400,R1
+        BEQ     10$
+        INC     R2
+10$:    INC     R4                     ; hl++ ; B--
+        DEC     R2
+        MOVB    WAFF,R1
+        BIC     #177400,R1
+        BEQ     11$
+        DEC     R2
+11$:    MOVB    WAFE,R1
+        BIC     #177400,R1
+        BEQ     12$
+        INC     R3
+        INC     R4
+        DEC     R2
+12$:    TST     R2
+        BEQ     SINGLE
+        ; leading byte: m[de] = (m[de] & TB500[src]) | src
+        MOVB    (R4),R0
+        BIC     #177400,R0
+        MOVB    TB500(R0),R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     #177400,R1
+        MOVB    (R3),R5
+        BIC     #177400,R5
+        BIC     R1,R5
+        BIS     R0,R5
+        MOVB    R5,(R3)
+        INC     R3
+        INC     R4
+        DEC     R2
+        TST     R2
+        BEQ     TRAIL
+13$:    MOVB    (R4)+,(R3)+            ; LDIR middle bytes
+        DEC     R2
+        BNE     13$
+TRAIL:  MOVB    (R4),R0               ; trailing byte via TB600
+        BIC     #177400,R0
+        MOVB    TB600(R0),R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     #177400,R1
+        MOVB    (R3),R5
+        BIC     #177400,R5
+        BIC     R1,R5
+        BIS     R0,R5
+        MOVB    R5,(R3)
+        RTS     PC
+SINGLE: MOVB    (R4),R0               ; $8AA5 single-byte case
+        BIC     #177400,R0
+        MOVB    TB500(R0),R2
+        BIC     #177400,R2
+        MOVB    TB600(R0),R1
+        BIC     #177400,R1
+        BIS     R2,R1                 ; l | c
+        COM     R1
+        BIC     #177400,R1
+        MOVB    (R3),R5
+        BIC     #177400,R5
+        BIC     R1,R5
+        BIS     R0,R5
+        MOVB    R5,(R3)
+        RTS     PC
+"""
+
 TAIL = r"""
 ;-------------------------------------------------------------------
 ORIGDP: .WORD   0
 ORIGRC: .WORD   0
+SRCP:   .WORD   0
+DSTP:   .WORD   0
+NCOUNT: .WORD   0
+        .EVEN
+W:      .BLKB   64.
+WAF3   = W+19.
+WAE9   = W+9.
+WAFE   = W+30.
+WAFF   = W+31.
+W8B00  = W+32.
+W8B01  = W+33.
+W8B02  = W+34.
+W8B0A  = W+42.
+WHL14  = W+52.
+WDE16  = W+54.
+WB1B   = W+59.
 """
 
 
 def emit_decrun():
     if STAGE_LEVEL == 0:
         return DECRUN_L0
-    raise SystemExit(f"FGHT_LEVEL {STAGE_LEVEL} not yet implemented")
+    return DECRUN_L1
 
 
 def main():
+    nelem = int(os.environ.get("FGHT_NELEM", "5000"))
     before, hl, de = fd.capture()
     m = bytearray(before)
-    run_loop(m, hl, de)
+    run_loop(m, hl, de, limit=nelem)
     expected = bytes(m[fd.FBUF:fd.FBUF + fd.FBUF_LEN])
     initial = before[fd.FBUF:fd.FBUF + fd.FBUF_LEN]
     FEXP_BIN.write_bytes(expected)
@@ -126,8 +368,12 @@ def main():
         src += _bytes_block(f"T{t:04X}", before[t:t + 256])
     src += _bytes_block("FCTRL", before[hl:hl + fd.STREAM_LEN])
     src += _bytes_block("FINIT", initial)
+    src += _bytes_block("WINIT", before[0x8AE0:0x8B20])      # work-area flags
     src += "        .EVEN\nFBUF:   .BLKB   884.\n"
     src += "        .EVEN\n        .END    START\n"
+    src = (src.replace("%C408%", str(before[0xC408]))
+              .replace("%DEOFF%", str(de - fd.FBUF))
+              .replace("%NELEM%", str(nelem)))
     src.encode("ascii")
     OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
     print(f"fighter_mac: wrote {OUT_MAC} (level {STAGE_LEVEL}, DE off {de - fd.FBUF})")
