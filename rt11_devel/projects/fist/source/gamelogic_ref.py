@@ -28,32 +28,33 @@ def _u16(m, a):
     return m[a] | (m[(a + 1) & 0xFFFF] << 8)
 
 
-def apply_hit(m):
-    """$9E7F: apply a connected hit - set the opponent's reaction action $AA43
-    (stagger/knockdown) and the hit value $B150, from the attacker's action."""
-    d = m[0xAA04]
+def apply_hit(m, A):
+    """$9E7F / $A01C: apply a connected hit - set the opponent's reaction
+    action A['react'] (stagger/knockdown) and the hit value $B150."""
+    d = m[A['act']]
+    react = A['react']
     m[0xAA3F] = d
     m[0xB150] = m[(0xA073 + d) & 0xFFFF]
     type_nz = m[(0xB47E + d) & 0xFFFF] != 0
-    if m[0xAA17] == m[0xAA57]:                    # $9EC5 (same facing)
-        m[0xAA43] = 0x16 if type_nz else 0x1A
-    elif type_nz:                                 # $9E97 facing differ, type != 0
-        m[0xAA43] = 0x1A
-    elif d in (0x18, 0x07, 0x0C):                 # $9EAE
-        m[0xAA43] = 0x1B
+    if m[A['aface']] == m[A['tface']]:            # same facing
+        m[react] = 0x16 if type_nz else 0x1A
+    elif type_nz:                                 # facing differ, type != 0
+        m[react] = 0x1A
+    elif d in (0x18, 0x07, 0x0C):                 # heavy actions
+        m[react] = 0x1B
         m[0xB150] = 0x04
-    else:                                         # $9EB9
-        m[0xAA43] = 0x16
+    else:
+        m[react] = 0x16
 
 
 # Address sets for the two symmetric hit-detection routines: $9D29 (player 1
 # attacks, sets $AA08, applies via $9E7F) and $9ED2 (player 2, $AA48, $A01C).
 HIT_P1 = dict(act=0xAA04, g1=0xAA13, g2=0xAA16, g3=0xAA09, fg=0xAA12,
               aface=0xAA17, tface=0xAA57, ridx=0xAA52, result=0xAA08,
-              setpos=(0xAA19, 0xAA59))
+              setpos=(0xAA19, 0xAA59), react=0xAA43)
 HIT_P2 = dict(act=0xAA44, g1=0xAA53, g2=0xAA56, g3=0xAA49, fg=0xAA52,
               aface=0xAA57, tface=0xAA17, ridx=0xAA12, result=0xAA48,
-              setpos=None)
+              setpos=None, react=0xAA03)
 
 
 def hit_detect(m, A):
@@ -121,7 +122,7 @@ def update_timer(m):
 
 # ── validation harness ────────────────────────────────────────────────────────
 
-def validate(addr, pyfunc, watch, want=200, stops=()):
+def validate(addr, pyfunc, watch, want=200, stops=(), budget=4000000):
     """Run the game; for each call to `addr`, run the real routine until it
     RETs (or reaches a PC in `stops`, e.g. a tail-call), run pyfunc on a copy
     of the entry memory, and compare the `watch` cells."""
@@ -130,7 +131,7 @@ def validate(addr, pyfunc, watch, want=200, stops=()):
     fd, ia = sim.frame_duration, sim.int_active
     stops = set(stops)
     tested = match = 0
-    for _ in range(4000000):
+    for _ in range(budget):
         if regs[PC] == addr:
             s0 = regs[SP]
             ret = memory[s0] | (memory[s0 + 1] << 8)
@@ -168,7 +169,14 @@ def main():
     m3, t3 = validate(0x9ED2, lambda mm: hit_detect(mm, HIT_P2),
                       [0xAA48, 0xA06F, 0xA070], stops=[0xA01C])
     print(f"$9ED2 hit-detect P2:  {m3}/{t3} calls match")
-    return m == t and m2 == t2 and m3 == t3
+    m4, t4 = validate(0x9E7F, lambda mm: apply_hit(mm, HIT_P1),
+                      [0xAA3F, 0xB150, 0xAA43])
+    print(f"$9E7F apply-hit P1:   {m4}/{t4} calls match")
+    m5, t5 = validate(0xA01C, lambda mm: apply_hit(mm, HIT_P2),
+                      [0xAA3F, 0xB150, 0xAA03])
+    print(f"$A01C apply-hit P2:   {m5}/{t5} calls match")
+    return all(a == b for a, b in
+               ((m, t), (m2, t2), (m3, t3), (m4, t4), (m5, t5)))
 
 
 if __name__ == "__main__":
