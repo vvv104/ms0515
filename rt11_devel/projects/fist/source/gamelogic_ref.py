@@ -28,9 +28,30 @@ def _u16(m, a):
     return m[a] | (m[(a + 1) & 0xFFFF] << 8)
 
 
+def apply_hit(m):
+    """$9E7F: apply a connected hit - set the opponent's reaction action $AA43
+    (stagger/knockdown) and the hit value $B150, from the attacker's action."""
+    d = m[0xAA04]
+    m[0xAA3F] = d
+    m[0xB150] = m[(0xA073 + d) & 0xFFFF]
+    type_nz = m[(0xB47E + d) & 0xFFFF] != 0
+    if m[0xAA17] == m[0xAA57]:                    # $9EC5 (same facing)
+        m[0xAA43] = 0x16 if type_nz else 0x1A
+    elif type_nz:                                 # $9E97 facing differ, type != 0
+        m[0xAA43] = 0x1A
+    elif d in (0x18, 0x07, 0x0C):                 # $9EAE
+        m[0xAA43] = 0x1B
+        m[0xB150] = 0x04
+    else:                                         # $9EB9
+        m[0xAA43] = 0x16
+
+
 def hit_detect(m):
     """$9D29: does the active fighter's attack reach the opponent this frame?
-    Sets $AA08 = 0 (no) / 2 / 1 (hit type).  Stops are RET or the $9E7F apply."""
+    On a hit sets $AA08 (2/1) and applies it via $9E7F (apply_hit)."""
+    def hit(t):
+        m[0xAA08] = t
+        apply_hit(m)
     m[0xA071] = m[0xAA19]                         # fighter x-positions
     m[0xA072] = m[0xAA59]
     d = m[0xAA04]                                 # current action
@@ -60,21 +81,21 @@ def hit_detect(m):
     a958 = m[(0xA958 + d) & 0xFFFF]
     if m[(0xB47E + d) & 0xFFFF] != 0:
         if c == e:
-            m[0xAA08] = 2
+            hit(2)
         elif c < e:
             return
         elif ((c - a93f) & 0xFF) < e:
-            m[0xAA08] = 2
+            hit(2)
         elif ((c - a958) & 0xFF) < e:
-            m[0xAA08] = 1
+            hit(1)
     else:
         if c == e:
-            m[0xAA08] = 2
+            hit(2)
         elif c < e:
             if ((a93f + c) & 0xFF) >= e:
-                m[0xAA08] = 2
+                hit(2)
             elif ((a958 + c) & 0xFF) >= e:
-                m[0xAA08] = 1
+                hit(1)
 
 
 def update_timer(m):
@@ -138,8 +159,9 @@ def main():
     m, t = validate(0x9C6F, update_timer, [0x9CA6, 0x9CA5, 0x9C2B])
     print(f"$9C6F round timer:    {m}/{t} calls match")
     m2, t2 = validate(0x9D29, hit_detect,
-                      [0xAA08, 0xA06F, 0xA070, 0xA071, 0xA072], stops=[0x9E7F])
-    print(f"$9D29 hit-detection:  {m2}/{t2} calls match")
+                      [0xAA08, 0xA06F, 0xA070, 0xA071, 0xA072,
+                       0xAA3F, 0xB150, 0xAA43])
+    print(f"$9D29+$9E7F hit+apply: {m2}/{t2} calls match")
     return m == t and m2 == t2
 
 
