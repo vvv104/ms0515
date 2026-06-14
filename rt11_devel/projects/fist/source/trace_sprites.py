@@ -31,14 +31,16 @@ INSTRUCTIONS = 120000                           # ~5 frames
 class LoggingMem(list):
     sim = None
     writes = None
+    lo = SCR_LO
+    hi = SCR_HI
 
     def __setitem__(self, i, v):
-        if type(i) is int and SCR_LO <= i < SCR_HI:
-            self.writes.append((self.sim.registers[PC], i))
+        if type(i) is int and self.lo <= i < self.hi:
+            self.writes.append((self.sim.registers[PC], i, v))
         list.__setitem__(self, i, v)
 
 
-def build_sim():
+def build_sim(watch=(SCR_LO, SCR_HI)):
     snap = Snapshot.get(str(STATE))
     ram = list(snap.ram(-1))                     # 48K RAM
     mem = LoggingMem([0] * 16384 + ram)
@@ -57,6 +59,7 @@ def build_sim():
     sim = Simulator(mem, regs, state, config)
     mem.sim = sim
     mem.writes = []
+    mem.lo, mem.hi = watch
     return sim, mem
 
 
@@ -74,7 +77,7 @@ def main():
         if regs[26] and regs[25] % fd < ia:
             sim.accept_interrupt(regs, memory, regs[PC])
 
-    addrs = [a for _, a in mem.writes]
+    addrs = [a for _, a, _ in mem.writes]
     print(f"screen writes: {len(mem.writes)} into "
           f"${min(addrs):04X}..${max(addrs):04X}")
     print(f"draw-routine ($C3E4) calls: {len(calls)}")
