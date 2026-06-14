@@ -279,6 +279,46 @@ def recover_9ad7(m, C):
     m[(0xAA05 + C) & 0xFFFF] = E & 0xFF
 
 
+def score_calc(m, de, b):
+    """$AFC2: add point value `b` (BCD) into the 3-byte little-endian BCD score
+    display buffer at `de`.  10 ($0A) is remapped to BCD 16 ($10).  Reproduced
+    as decimal arithmetic - equivalent to the Z80 ADD/DAA chain for valid BCD."""
+    if b == 0x0A:
+        b = 0x10
+    val = 0
+    for i in (2, 1, 0):
+        byte = m[(de + i) & 0xFFFF]
+        val = val * 100 + (byte >> 4) * 10 + (byte & 0x0F)
+    val += (b >> 4) * 10 + (b & 0x0F)
+    for i in range(3):
+        d = val % 100
+        m[(de + i) & 0xFFFF] = ((d // 10) << 4) | (d % 10)
+        val //= 100
+
+
+def award_points(m):
+    """$AF36: award a yin-yang point.  The score flag $AA08 (P1) / $AA48 (P2)
+    is 1 = half point, 2 = full; the value comes from $B00B[attack $AA3F],
+    halved for a half point, accumulated into $AA02 / $AA42 (and the BCD
+    display buffer).  Only one fighter is credited per call.  Display draws
+    (gated by $9C2C) are a separate layer, not reproduced here."""
+    if m[0xAA08] != 0:                            # P1 scored
+        b = m[(0xB00B + m[0xAA3F]) & 0xFFFF]
+        if m[0xAA08] == 0x01:
+            b >>= 1
+        m[0xAA02] = (m[0xAA02] + b) & 0xFF
+        score_calc(m, 0xB02D, b)
+        m[0xAA08] = 0
+        return
+    if m[0xAA48] != 0:                            # P2 scored ($AF7D)
+        b = m[(0xB00B + m[0xAA3F]) & 0xFFFF]
+        if m[0xAA48] == 0x01:
+            b >>= 1
+        m[0xAA42] = (m[0xAA42] + b) & 0xFF
+        score_calc(m, 0xB030, b)
+        m[0xAA48] = 0
+
+
 def update_timer(m):
     """$9C6F: round-timer tick (state only; skips the Print_Time draw)."""
     if m[0x9C2B] != 0:
@@ -369,6 +409,9 @@ def main():
         FIGHTER_WATCH)
     run(0x9AD7, "$9AD7 recover pass:", lambda mm, r: recover_9ad7(mm, r['C']),
         FIGHTER_WATCH + [0x9C28], until=[0x97A0, 0x97AC])
+    run(0xAF36, "$AF36 award points:", lambda mm, r: award_points(mm),
+        [0xAA02, 0xAA42, 0xAA08, 0xAA48,
+         0xB02D, 0xB02E, 0xB02F, 0xB030, 0xB031, 0xB032])
 
     return all(m == t for m, t in results)
 
