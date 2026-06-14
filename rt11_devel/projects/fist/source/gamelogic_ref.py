@@ -319,6 +319,23 @@ def award_points(m):
         m[0xAA48] = 0
 
 
+def reset_frame_9ca8(m):
+    """$9CA8 head: reset both fighters to per-frame defaults before the input/AI
+    chain runs.  Clears the transient flags, parks both at the idle stance
+    (action $17) and default positions/facing.  ($A645 gets the R-register RNG
+    seed - excluded from validation.)"""
+    for a in (0x9C2B, 0x9CA7, 0xAA4D, 0xAA0D, 0xAA03, 0xAA43, 0xAA16, 0xAA56,
+              0xAA17, 0xAA0B, 0xAA4B, 0xAA09, 0xAA49, 0x9C28):
+        m[a] = 0
+    m[0xAA19] = 0x20
+    m[0xAA59] = 0x3C
+    m[0xAA18] = m[0xAA58] = 0x7A
+    for a in (0xAA0C, 0xAA4C, 0xAA05, 0xAA45, 0xAA04, 0xAA44):
+        m[a] = 0x17
+    m[0xAA0A] = m[0xAA4A] = 0x01
+    m[0xAA57] = 0x01
+
+
 def yinyang_total(m):
     """$900E: yin-yang total controller (state part).  Each score event adds the
     flag $AA08 (P1) / $AA48 (P2) to the running half-point total $AA01 / $AA41
@@ -433,6 +450,11 @@ def main():
         [0xAA01, 0xAA41])
     run(0x909E, "$909E new round:", lambda mm, r: new_round(mm),
         [0xAA01, 0xAA41, 0xAA02, 0xAA42])
+    run(0x9CA8, "$9CA8 frame reset:", lambda mm, r: reset_frame_9ca8(mm),
+        [0x9C2B, 0x9CA7, 0xAA4D, 0xAA0D, 0xAA03, 0xAA43, 0xAA16, 0xAA56,
+         0xAA17, 0xAA0B, 0xAA4B, 0xAA09, 0xAA49, 0x9C28, 0xAA19, 0xAA59,
+         0xAA18, 0xAA58, 0xAA0C, 0xAA4C, 0xAA05, 0xAA45, 0xAA04, 0xAA44,
+         0xAA0A, 0xAA4A, 0xAA57], until=[0x9D0B])
 
     return all(m == t for m, t in results)
 
