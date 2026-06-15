@@ -783,6 +783,28 @@ def ai_decide(m, randoms):
     return False
 
 
+def pos_update(m, hl):
+    """$9698 (the position-update tail of the animation advance $95E1): add the
+    per-frame velocity (from the record at m[hl+4..5]+3, sign by m[hl+6]^m[hl+7])
+    to the position m[hl+9], clamp the BYTE result to the screen: >= $C8 wraps
+    to 0, $5F..$C7 pins to the $5F edge, < $5F is kept.  (The ADD/SUB carry is
+    discarded by the AND A at $96BB.)  hl is the animation-block pointer at
+    entry (register-threaded)."""
+    ptr = m[(hl + 4) & 0xFFFF] | (m[(hl + 5) & 0xFFFF] << 8)
+    flag = m[(hl + 6) & 0xFFFF] ^ m[(hl + 7) & 0xFFFF]
+    m[(hl + 8) & 0xFFFF] = (m[(ptr + 2) & 0xFFFF] + m[(hl + 8) & 0xFFFF]) & 0xFF
+    b = m[(ptr + 3) & 0xFFFF]
+    pos = m[(hl + 9) & 0xFFFF]
+    r = ((pos + b) if flag == 0 else (pos - b)) & 0xFF
+    if r >= 0xC8:
+        new = 0
+    elif r < 0x5F:
+        new = r
+    else:
+        new = 0x5F
+    m[(hl + 9) & 0xFFFF] = new
+
+
 def _sort2(a, b):
     """$C1F6: return (min, max) of the two bytes."""
     return (a, b) if a <= b else (b, a)
