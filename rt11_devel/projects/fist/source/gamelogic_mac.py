@@ -31,6 +31,7 @@ EXP_BIN = HERE.parent / "gl_expected.bin"
 WIN_JSON = HERE.parent / "gl_window.json"
 
 GBASE = 0x9C00                       # GST stands for this Spectrum address
+SP = 12                              # Z80 SP register index in the sim
 Z80_REG = {'A': 0, 'B': 2, 'C': 3, 'D': 4, 'E': 5, 'H': 6, 'L': 7}
 
 
@@ -50,6 +51,46 @@ def gp(reg):
 
 
 # ── routine capture (entry state + entry registers) ───────────────────────────
+
+def capture_ai(addr, refdecide, win_end, budget=4000000):
+    """Capture an exercising $A090 (AI) call: a 64K snapshot at entry plus the
+    sequence of $A3FF (RNG) return values the real call consumed.  Prefer a
+    call that consumed randoms (so the replay path is exercised)."""
+    sim, mem = build_sim(watch=(0, 0))
+    regs, memory, ops = sim.registers, sim.memory, sim.opcodes
+    fd, ia = sim.frame_duration, sim.int_active
+    fallback = None
+    for _ in range(budget):
+        if regs[PC] == addr:
+            s0 = regs[SP]
+            ret = memory[s0] | (memory[s0 + 1] << 8)
+            snap = bytes(memory)
+            randoms = []
+            for _ in range(200000):
+                cur = regs[PC]
+                ops[memory[cur]]()
+                if cur == 0xA3FF:
+                    randoms.append(regs[0])
+                if regs[26] and regs[25] % fd < ia:
+                    sim.accept_interrupt(regs, memory, regs[PC])
+                if regs[PC] == ret and regs[SP] == s0 + 2:
+                    break
+            trial = bytearray(snap)
+            refdecide(trial, list(randoms))
+            if trial[GBASE:win_end] != snap[GBASE:win_end]:
+                if randoms:
+                    return snap, randoms
+                if fallback is None:
+                    fallback = (snap, randoms)
+            continue
+        cur = regs[PC]
+        ops[memory[cur]]()
+        if regs[26] and regs[25] % fd < ia:
+            sim.accept_interrupt(regs, memory, regs[PC])
+    if fallback:
+        return fallback
+    raise SystemExit(f"no exercising AI call at {addr:#06x}")
+
 
 def capture_state(addr, refapply, win_end, reg_setup, witness=None,
                   budget=4000000):
@@ -504,6 +545,711 @@ RNG9BA: MOVB    {g(0xAA19, 'R4')},R0   ; d = m[$AA19+C]
 """
 
 
+def emit_ai(randoms):
+    """$A090 ai_decide: the computer-opponent move-selection trampoline.  Each
+    Python block is a global label AIxxxx; inter-block transitions use JMP
+    (unlimited range); rnd() = JSR ARNG, which replays the recorded $A3FF
+    sequence ARND (so the decision logic is checked while the RNG source is
+    abstracted - the real game swaps ARNG for an MS-0515 RNG).  `rnd() & mask`
+    is COM R1 / BIC R1,R0 (PDP-11 has BIC, not AND).  R3 carries reg['a']."""
+    data = "        .EVEN\nARNDI:  .WORD   0\n"
+    if randoms:
+        data += _emit_window("ARND", bytes(randoms))
+    else:
+        data += "ARND:   .BYTE   0\n"
+    data += "        .EVEN\n"          # the data block may be odd-length; the
+    return data + f"""                 ; code that follows must be word-aligned
+;-------------------------------------------------------------------
+; AIDEC - $A090 ai_decide.  ARNG replays the recorded RNG stream.
+ARNG:   MOV     ARNDI,R0
+        INC     ARNDI
+        MOVB    ARND(R0),R0
+        BIC     #177400,R0
+        RTS     PC
+AIA47C: MOVB    {g(0xA62F)},R1         ; ai_a47c: kick-counter remap (R0 in/out)
+        BIC     #177400,R1
+        CMP     R1,#12
+        BEQ     1$
+        CMP     R1,#20
+        BEQ     1$
+        CMP     R1,#4
+        BEQ     1$
+        CMP     R1,#7
+        BEQ     1$
+        RTS     PC
+1$:     MOVB    {g(0xB449, 'R0')},R0
+        BIC     #177400,R0
+        RTS     PC
+AIA583: MOVB    {g(0xA60A)},R0         ; ai_a583: in striking range? -> R0 0/1
+        BIC     #177400,R0
+        ASL     R0
+        MOVB    {g(0xA644)},R1
+        BIC     #177400,R1
+        ASL     R1
+        TSTB    {g(0xA608)}
+        BEQ     1$
+        SUB     R1,R0
+        BR      2$
+1$:     SUB     R0,R1
+        MOV     R1,R0
+2$:     BIC     #177400,R0
+        MOVB    R0,{g(0xA5EE)}
+        MOVB    {g(0xA62F)},R1
+        BIC     #177400,R1
+        MOVB    {g(0xB47E, 'R1')},R1
+        MOVB    {g(0xA642)},R2
+        CMPB    R2,{g(0xA608)}
+        BNE     4$
+        TSTB    R1
+        BEQ     8$
+        CMP     R0,#3
+        BLO     8$
+        CMP     R0,#20
+        BHIS    8$
+        BR      9$
+4$:     TSTB    R1
+        BNE     8$
+        CMP     R0,#357
+        BHIS    9$
+        CMP     R0,#26
+        BLO     9$
+8$:     CLR     R0
+        RTS     PC
+9$:     MOV     #1,R0
+        RTS     PC
+
+AIDEC:  CLR     ARNDI
+AI090:  TSTB    {g(0xA5F4)}
+        BEQ     1$
+        MOVB    {g(0xA5F4)},R0
+        MOVB    R0,{g(0xA5F6)}
+        JMP     AIEND
+1$:     MOVB    {g(0xA60A)},R0
+        MOVB    R0,{g(0xA5EC)}
+        MOVB    {g(0xA644)},R0
+        MOVB    R0,{g(0xA5ED)}
+        TSTB    {g(0xA62E)}
+        BEQ     5$
+        MOVB    {g(0xA5F5)},R0
+        BIC     #177400,R0
+        CMP     R0,#16
+        BEQ     4$
+        DECB    {g(0xA616)}
+        BNE     6$
+4$:     MOV     #1,R0
+        MOVB    R0,{g(0xA5F6)}
+6$:     JMP     AIEND
+5$:     TSTB    {g(0xA618)}
+        BEQ     7$
+        JMP     AI553
+7$:     TSTB    {g(0xA641)}
+        BEQ     8$
+        JMP     AI1B5
+8$:     MOVB    {g(0xA62F)},R0
+        BIC     #177400,R0
+        TSTB    {g(0xA90D, 'R0')}
+        BNE     9$
+        JMP     AI1B5
+9$:     MOVB    {g(0xA5F5)},R0
+        BIC     #177400,R0
+        CMP     R0,#23
+        BEQ     10$
+        CMP     R0,#24
+        BNE     11$
+10$:    JMP     AI0E4
+11$:    JMP     AI0FC
+
+AI553:  MOVB    {g(0xA618)},R0
+        BIC     #177400,R0
+        CMP     R0,#1
+        BNE     1$
+        JMP     AI49A
+1$:     CMP     R0,#2
+        BNE     2$
+        JMP     AI53E
+2$:     CMP     R0,#3
+        BNE     3$
+        JMP     AI4C8
+3$:     CMP     R0,#4
+        BNE     4$
+        JMP     AI4D5
+4$:     CMP     R0,#5
+        BNE     5$
+        JMP     AI4E2
+5$:     CMP     R0,#6
+        BNE     6$
+        JMP     AI50C
+6$:     CMP     R0,#7
+        BNE     7$
+        JMP     AI524
+7$:     CMP     R0,#10
+        BNE     8$
+        JMP     AI4FE
+8$:     JMP     AI560
+
+AI49A:  MOVB    {g(0xA614)},R0
+        BIC     #177400,R0
+        CMP     R0,#7
+        BHIS    1$
+        JMP     AI4BE
+1$:     MOVB    {g(0xA63D)},R0
+        BIC     #177400,R0
+        CMP     R0,#31
+        BNE     2$
+        JMP     AI4B1
+2$:     JMP     AI4A8
+AI4A8:  MOV     #4,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AI4B1:  MOV     #12,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        CLRB    {g(0xA618)}
+        JMP     AIEND
+AI4BE:  MOVB    {g(0xA62F)},R0
+        BIC     #177400,R0
+        CMP     R0,#1
+        BEQ     1$
+        JMP     AI4A8
+1$:     JMP     AI4B1
+AI4C8:  MOV     #16,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        CLRB    {g(0xA618)}
+        JMP     AIEND
+AI4D5:  MOV     #11,R0
+        MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        CLRB    {g(0xA618)}
+        JMP     AIEND
+AI4E2:  TSTB    {g(0xA5FA)}
+        BEQ     1$
+        MOV     #7,R0
+        MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        CLRB    {g(0xA618)}
+        JMP     AIEND
+1$:     MOV     #4,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AI4FE:  JSR     PC,ARNG
+        CMP     R0,#200
+        BHIS    1$
+        JMP     AI50C
+1$:     MOV     #5,R0
+        MOVB    R0,{g(0xA618)}
+        JMP     AI4E2
+AI50C:  JSR     PC,ARNG
+        MOV     #30,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        CLRB    {g(0xA618)}
+        JMP     AIEND
+AI524:  MOVB    {g(0xA608)},R0
+        CMPB    R0,{g(0xA642)}
+        BNE     1$
+        MOV     #12,R0
+        BR      2$
+1$:     MOV     #20,R0
+2$:     MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        CLRB    {g(0xA618)}
+        JMP     AIEND
+AI53E:  MOVB    {g(0xA5F5)},R0
+        BIC     #177400,R0
+        CMP     R0,#12
+        BNE     1$
+        CLRB    {g(0xA618)}
+        JMP     AIEND
+1$:     MOV     #12,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AI560:  MOVB    {g(0xA614)},R0
+        BIC     #177400,R0
+        CMP     R0,#7
+        BHIS    1$
+        JMP     AI57B
+1$:     JSR     PC,ARNG
+        BIT     #200,R0
+        BEQ     3$
+        JMP     AI57B
+3$:     CLRB    {g(0xA618)}
+        MOV     #13,R0
+        MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        JMP     AIEND
+AI57B:  MOV     #1,R0
+        MOVB    R0,{g(0xA618)}
+        JMP     AI49A
+
+AI0E4:  MOVB    {g(0xA62F)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xA926, 'R0')},R0
+        BIC     #177400,R0
+        CMPB    R0,{g(0xA5F5)}
+        BNE     1$
+        JMP     AI13E
+1$:     MOV     #1,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AI0FC:  MOVB    {g(0xA5F5)},R0
+        BIC     #177400,R0
+        CMP     R0,#22
+        BNE     1$
+        JMP     AI1B5
+1$:     CMP     R0,#1
+        BEQ     2$
+        CMP     R0,#3
+        BEQ     2$
+        CMP     R0,#2
+        BEQ     2$
+        BR      3$
+2$:     JMP     AI145
+3$:     TSTB    {g(0xA5FA)}
+        BNE     4$
+        TSTB    {g(0xA607)}
+        BEQ     5$
+4$:     JMP     AI0F3
+5$:     MOVB    {g(0xA62F)},R0
+        BIC     #177400,R0
+        CMP     R0,#12
+        BEQ     6$
+        CMP     R0,#20
+        BEQ     6$
+        JMP     AI13E
+6$:     JMP     AI127
+AI0F3:  MOV     #1,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AI127:  MOVB    {g(0xA5F5)},R0
+        BIC     #177400,R0
+        CMP     R0,#12
+        BEQ     1$
+        CMP     R0,#20
+        BEQ     1$
+        CMP     R0,#4
+        BEQ     1$
+        CMP     R0,#7
+        BEQ     1$
+        CMP     R0,#13
+        BEQ     1$
+        JMP     AI0F3
+1$:     JMP     AI13E
+AI13E:  MOVB    {g(0xA5F1)},R0
+        MOVB    R0,{g(0xA5F6)}
+        JMP     AIEND
+AI145:  JSR     PC,AIA583
+        TST     R0
+        BNE     1$
+        JMP     AI1B5
+1$:     MOVB    {g(0xA61B)},R0
+        BIC     #177400,R0
+        TST     R0
+        BNE     2$
+        JMP     AI16D
+2$:     BIT     #200,R0
+        BEQ     3$
+        JSR     PC,ARNG
+        MOVB    {g(0xA60B)},R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     R1,R0
+        BIC     #177400,R0
+        TST     R0
+        BNE     4$
+        JMP     AI16D
+4$:     MOVB    R0,{g(0xA61B)}
+        JMP     AI161
+3$:     JMP     AI161
+AI161:  DECB    {g(0xA61B)}
+        BEQ     1$
+        JMP     AI1B5
+1$:     MOV     #200,R0
+        MOVB    R0,{g(0xA61B)}
+        JMP     AI16D
+AI16D:  JSR     PC,ARNG
+        MOVB    {g(0xA646)},R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     R1,R0
+        BIC     #177400,R0
+        BIT     #200,R0
+        BEQ     1$
+        JMP     AI2E7
+1$:     BIT     #160,R0
+        BEQ     2$
+        JMP     AI1A5
+2$:     BIT     #17,R0
+        BEQ     3$
+        JMP     AI195
+3$:     JSR     PC,ARNG
+        BIT     #200,R0
+        BNE     4$
+        TST     R0
+        BEQ     4$
+        MOV     #13,R0
+        BR      5$
+4$:     MOV     #11,R0
+5$:     MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        JMP     AIEND
+AI195:  MOVB    {g(0xA62F)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xB3BD, 'R0')},R0
+        BIC     #177400,R0
+        TST     R0
+        BNE     1$
+        JMP     AI1A5
+1$:     MOVB    R0,{g(0xA618)}
+        JMP     AIEND
+AI1A5:  MOVB    {g(0xA62F)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xA926, 'R0')},R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AI1B5:  TSTB    {g(0xA607)}
+        BEQ     1$
+        JMP     AI22A
+1$:     TSTB    {g(0xA5FA)}
+        BNE     2$
+        JMP     AI21B
+2$:     MOVB    {g(0xA5F5)},R0
+        BIC     #177400,R0
+        CMP     R0,#4
+        BNE     3$
+        JMP     AI22A
+3$:     CMP     R0,#22
+        BEQ     4$
+        JMP     AI1F4
+4$:     TSTB    {g(0xA60E)}
+        BNE     5$
+        JMP     AI22A
+5$:     MOV     #1,R0
+        MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F5)}
+        MOVB    R0,{g(0xA5FD)}
+        MOVB    {g(0xA608)},R1
+        BIC     #177400,R1
+        MOV     #1,R2
+        XOR     R2,R1
+        MOVB    R1,{g(0xA608)}
+        CLRB    {g(0xA5FA)}
+        CLRB    {g(0xA60E)}
+        CLRB    {g(0xA5FC)}
+        JMP     AIEND
+AI1F4:  MOVB    {g(0xA61C)},R0
+        BIC     #177400,R0
+        BIT     #200,R0
+        BNE     1$
+        JMP     AI207
+1$:     JSR     PC,ARNG
+        MOVB    {g(0xA60F)},R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     R1,R0
+        BIC     #177400,R0
+        MOVB    R0,{g(0xA61C)}
+        JMP     AI22A
+AI207:  DECB    {g(0xA61C)}
+        BEQ     1$
+        JMP     AI22A
+1$:     MOV     #1,R0
+        MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        MOV     #200,R0
+        MOVB    R0,{g(0xA61C)}
+        JMP     AIEND
+AI21B:  MOVB    {g(0xA5F5)},R0
+        BIC     #177400,R0
+        CMP     R0,#1
+        BEQ     1$
+        CMP     R0,#3
+        BEQ     1$
+        CMP     R0,#2
+        BEQ     1$
+        JMP     AI22A
+1$:     JMP     AI231
+AI22A:  MOVB    {g(0xA5F1)},R0
+        MOVB    R0,{g(0xA5F6)}
+        JMP     AIEND
+AI231:  MOVB    {g(0xA608)},R0
+        CMPB    R0,{g(0xA642)}
+        BNE     1$
+        JMP     AI2A0
+1$:     TSTB    {g(0xA608)}
+        BEQ     2$
+        MOVB    {g(0xA5EC)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xA5ED)},R1
+        BIC     #177400,R1
+        SUB     R1,R0
+        BR      3$
+2$:     MOVB    {g(0xA5ED)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xA5EC)},R1
+        BIC     #177400,R1
+        SUB     R1,R0
+3$:     BIC     #177400,R0
+        MOVB    R0,{g(0xA5EE)}
+        CMP     R0,#325
+        BHIS    4$
+        CMP     R0,#25
+        BLO     4$
+        BR      5$
+4$:     JMP     AI2C7
+5$:     CMP     R0,#200
+        BLO     6$
+        JMP     AI292
+6$:     JMP     AI25D
+AI25D:  DECB    {g(0xA610)}
+        BEQ     1$
+        JMP     AI22A
+1$:     MOVB    {g(0xA5F5)},R0
+        BIC     #177400,R0
+        CMP     R0,#2
+        BEQ     2$
+        JMP     AI27F
+2$:     JSR     PC,ARNG
+        MOVB    {g(0xA61A)},R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     R1,R0
+        BIC     #177400,R0
+        TST     R0
+        BNE     3$
+        JMP     AI27F
+3$:     MOVB    R0,{g(0xA610)}
+        MOV     #1,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AI27F:  JSR     PC,ARNG
+        MOVB    {g(0xA619)},R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     R1,R0
+        BIC     #177400,R0
+        MOVB    R0,{g(0xA610)}
+        MOV     #2,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AI292:  MOV     #22,R0
+        MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        MOV     #1,R0
+        MOVB    R0,{g(0xA60E)}
+        JMP     AIEND
+AI2A0:  TSTB    {g(0xA608)}
+        BEQ     1$
+        MOVB    {g(0xA5ED)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xA5EC)},R1
+        BIC     #177400,R1
+        SUB     R1,R0
+        BR      2$
+1$:     MOVB    {g(0xA5EC)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xA5ED)},R1
+        BIC     #177400,R1
+        SUB     R1,R0
+2$:     BIC     #177400,R0
+        MOVB    R0,{g(0xA5EE)}
+        CMP     R0,#337
+        BHIS    3$
+        CMP     R0,#37
+        BLO     3$
+        BR      4$
+3$:     JMP     AI2C7
+4$:     CMP     R0,#200
+        BLO     5$
+        JMP     AI25D
+5$:     JMP     AI292
+AI2C7:  MOVB    {g(0xA611)},R0
+        BIC     #177400,R0
+        BIT     #200,R0
+        BNE     1$
+        JMP     AI2DB
+1$:     JSR     PC,ARNG
+        MOVB    {g(0xA617)},R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     R1,R0
+        BIC     #177400,R0
+        MOVB    R0,{g(0xA611)}
+        JMP     AI35F
+AI2DB:  DECB    {g(0xA611)}
+        BEQ     1$
+        JMP     AI35F
+1$:     MOV     #200,R0
+        MOVB    R0,{g(0xA611)}
+        JMP     AI2E7
+AI2E7:  MOVB    {g(0xA608)},R0
+        CMPB    R0,{g(0xA642)}
+        BNE     1$
+        JMP     AI3AF
+1$:     MOVB    {g(0xA62F)},R0
+        BIC     #177400,R0
+        CMP     R0,#23
+        BNE     2$
+        JMP     AI313
+2$:     CMP     R0,#24
+        BEQ     3$
+        JMP     AI325
+3$:     JSR     PC,ARNG
+        BIC     #177774,R0
+        MOVB    {g(0xA904, 'R0')},R0
+        BIC     #177400,R0
+        CMP     R0,#7
+        BNE     4$
+        JMP     AI3A1
+4$:     MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        JMP     AIEND
+AI313:  JSR     PC,ARNG
+        BIC     #177774,R0
+        MOVB    {g(0xA900, 'R0')},R0
+        MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        JMP     AIEND
+AI325:  MOVB    {g(0xA5EE)},R0
+        BIC     #177400,R0
+        ADD     #63,R0
+        BIC     #177400,R0
+        MOVB    R0,{g(0xA613)}
+        JSR     PC,ARNG
+        MOVB    {g(0xA612)},R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     R1,R0
+        MOVB    {g(0xA613)},R1
+        BIC     #177400,R1
+        ADD     R1,R0
+        BIC     #177400,R0
+        MOVB    {g(0xB300, 'R0')},R0
+        BIC     #177400,R0
+        CMP     R0,#16
+        BNE     1$
+        MOV     R0,R3
+        JMP     AI383
+1$:     JSR     PC,AIA47C
+        CMP     R0,#12
+        BNE     2$
+        JMP     AI390
+2$:     CMP     R0,#7
+        BNE     3$
+        JMP     AI3A1
+3$:     CMP     R0,#17
+        BEQ     4$
+        CMP     R0,#20
+        BEQ     4$
+        MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        JMP     AIEND
+4$:     MOV     R0,R3
+        JMP     AI3DA
+AI35F:  TSTB    {g(0xA641)}
+        BNE     1$
+        TSTB    {g(0xA634)}
+        BEQ     2$
+1$:     JMP     AI22A
+2$:     MOVB    {g(0xA62F)},R0
+        BIC     #177400,R0
+        TSTB    {g(0xA90D, 'R0')}
+        BNE     3$
+        JMP     AI22A
+3$:     MOV     #1,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AI383:  MOV     R3,R4
+        MOVB    {g(0xA614)},R0
+        BIC     #177400,R0
+        CMP     R0,#7
+        BLO     1$
+        MOV     #2,R3
+        CMP     R0,#7
+        BEQ     2$
+        JMP     AI358
+2$:     JMP     AI390
+1$:     JMP     AI358
+AI358:  MOVB    R3,{g(0xA5F1)}
+        MOVB    R3,{g(0xA5F6)}
+        JMP     AIEND
+AI390:  MOVB    {g(0xA614)},R0
+        BIC     #177400,R0
+        CMP     R0,#2
+        BLO     1$
+        MOV     #12,R0
+        MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+1$:     JMP     AIEND
+AI3A1:  MOV     #5,R0
+        MOVB    R0,{g(0xA618)}
+        MOV     #4,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AI3AF:  MOVB    {g(0xA5EE)},R0
+        BIC     #177400,R0
+        ADD     #51,R0
+        BIC     #177400,R0
+        MOVB    R0,{g(0xA613)}
+        JSR     PC,ARNG
+        MOVB    {g(0xA612)},R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     R1,R0
+        MOVB    {g(0xA613)},R1
+        BIC     #177400,R1
+        ADD     R1,R0
+        BIC     #177400,R0
+        MOVB    {g(0xB352, 'R0')},R0
+        BIC     #177400,R0
+        JSR     PC,AIA47C
+        CMP     R0,#17
+        BEQ     1$
+        CMP     R0,#20
+        BEQ     1$
+        MOVB    R0,{g(0xA5F1)}
+        MOVB    R0,{g(0xA5F6)}
+        JMP     AIEND
+1$:     MOV     R0,R3
+        JMP     AI3DA
+AI3DA:  MOV     R3,R4
+        JSR     PC,ARNG
+        MOVB    {g(0xA615)},R1
+        BIC     #177400,R1
+        COM     R1
+        BIC     R1,R0
+        BIC     #177400,R0
+        BIT     #200,R0
+        BEQ     1$
+        JMP     AI292
+1$:     CMP     R0,#100
+        BLO     2$
+        JMP     AI3F7
+2$:     CMP     R0,#40
+        BLO     3$
+        MOV     #10,R4
+3$:     MOVB    R4,{g(0xA5F6)}
+        MOVB    R4,{g(0xA5F1)}
+        JMP     AIEND
+AI3F7:  MOV     #3,R0
+        MOVB    R0,{g(0xA5F6)}
+        MOVB    R0,{g(0xA5F1)}
+        JMP     AIEND
+AIEND:  RTS     PC
+"""
+
+
 def emit_yinyang():
     """$900E yin-yang total: add the score flag $AA08/$AA48 to the running
     half-point total $AA01/$AA41 (one fighter per call)."""
@@ -879,8 +1625,33 @@ def _emit_window(label, data, per=16):
     return "\n".join(out) + "\n"
 
 
+def main_ai():
+    """AI ($A090): captured with its recorded RNG stream, which is embedded as
+    ARND and replayed by ARNG so the decision logic is checked bit-exactly."""
+    win_end = 0xB500
+    win_size = win_end - GBASE
+    snap, randoms = capture_ai(0xA090, lambda m, rs: ref.ai_decide(m, rs),
+                               win_end)
+    expected = bytearray(snap)
+    ref.ai_decide(expected, list(randoms))
+    EXP_BIN.write_bytes(bytes(expected[GBASE:win_end]))
+    WIN_JSON.write_text(json.dumps({"base": GBASE, "size": win_size}))
+    src = HEADER + emit_ai(randoms)
+    src += "\n        .EVEN\n"
+    src += _emit_window("GST", snap[GBASE:win_end])
+    src += "\n        .EVEN\n        .END    START\n"
+    src = (src.replace("%ENTRY%", "AIDEC").replace("%REGSET%", "")
+              .replace("%WORDS%", str(win_size // 2) + "."))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (ai @ 0xa090, window {win_size} B, "
+          f"{len(randoms)} randoms, expected -> {EXP_BIN.name})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
+    if name == "ai":
+        return main_ai()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE
