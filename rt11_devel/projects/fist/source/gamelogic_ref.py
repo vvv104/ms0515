@@ -819,6 +819,49 @@ def reset_frame_9ca8(m):
     m[0xAA57] = 0x01
 
 
+def reset_acf0(m):
+    """$ACF0: reset the two fighters' positions/flags for a new exchange after a
+    knockdown - clear the per-fighter recovery/guard flags, park both upright
+    ($AA18/$AA58 = $7A).  (The trailing $AD0B redraw-wait loop is excluded.)"""
+    for a in (0xAA0D, 0xAA0B, 0xAA4B, 0xAA16, 0xAA56):
+        m[a] = 0
+    m[0xAA18] = m[0xAA58] = 0x7A
+
+
+def init_time(m):
+    """$AEF8: set the round timer to 30 ($1E) seconds (the $9C93 draw follows)."""
+    m[0x9CA5] = 0x1E
+
+
+def time_tick(m):
+    """$9CA0: decrement the round-time counter $9CA5."""
+    m[0x9CA5] = (m[0x9CA5] - 1) & 0xFF
+
+
+def rank_tick(m):
+    """$AF27: advance the dan/round counter $AF34 (1..3, wrapping 4 -> 1)."""
+    m[0xAF34] = (m[0xAF34] + 1) & 0xFF
+    if m[0xAF34] == 0x04:
+        m[0xAF34] = 0x01
+
+
+def contact_flag(m):
+    """$AE2E..$AE5C: set the fighter-contact flag $C427 (gates the close-combat
+    render path) from the two actions.  On if either fighter is mid-strike
+    ($A90D action-flag set) or P1 is in the $11 lunge; off otherwise (P2's $11
+    or both idle)."""
+    if m[0xAA44] == 0x11:
+        m[0xC427] = 0
+    elif m[0xAA04] == 0x11:
+        m[0xC427] = 1
+    elif m[(0xA90D + m[0xAA04]) & 0xFFFF] != 0:
+        m[0xC427] = 0
+    elif m[(0xA90D + m[0xAA44]) & 0xFFFF] != 0:
+        m[0xC427] = 1
+    else:
+        m[0xC427] = 0
+
+
 def yinyang_total(m):
     """$900E: yin-yang total controller (state part).  Each score event adds the
     flag $AA08 (P1) / $AA48 (P2) to the running half-point total $AA01 / $AA41
@@ -987,6 +1030,15 @@ def main():
     run(0xA402, "$A402 AI param load:", lambda mm, r: ai_load_params(mm),
         [0xA60F, 0xA616, 0xA612, 0xA615, 0xA61C, 0xA5F1, 0xA617, 0xA611,
          0xA60E, 0xA618, 0xA646, 0xA619, 0xA61A, 0xA610, 0xA61B, 0xA60B])
+
+    run(0xAE2E, "$AE2E contact flag:", lambda mm, r: contact_flag(mm),
+        [0xC427], until=[0xAE5C])
+    run(0xACF0, "$ACF0 exchange reset:", lambda mm, r: reset_acf0(mm),
+        [0xAA0D, 0xAA0B, 0xAA4B, 0xAA16, 0xAA56, 0xAA18, 0xAA58],
+        until=[0xAD0B], budget=40000000)
+    run(0x9CA0, "$9CA0 time tick:", lambda mm, r: time_tick(mm), [0x9CA5])
+    run(0xAF27, "$AF27 rank tick:", lambda mm, r: rank_tick(mm), [0xAF34],
+        budget=40000000)
 
     am, at, ad = validate_ai(0xA090, ai_decide, list(range(0xA5EC, 0xA61D)))
     print(f"{'$A090 AI decide:':22} {am}/{at} match"
