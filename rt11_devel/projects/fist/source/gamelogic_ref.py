@@ -370,8 +370,10 @@ def ai_decide(m, randoms):
     """$A090: AI opponent per-frame move-selection.  Picks the move intent
     ($A5F6, and often $A5F1) from the fighter scratch state + opponent action,
     using weighted random choices (replayed $A3FF stream).  Returns True if it
-    reached the $A553 special-state dispatcher (deferred: computed jump)."""
-    rnd = _Rnd(randoms)
+    reached the $A553 special-state dispatcher (deferred: computed jump).
+    `randoms` is a list (own stream) or a callable (a shared stream, so the two
+    per-frame AI calls draw the recorded $A3FF sequence continuously)."""
+    rnd = randoms if callable(randoms) else _Rnd(randoms)
     reg = {'a': 0, 'b': 0}
     label = 'A090'
     # $A553 special-state dispatcher: computed jump through $B3A9[$A618].
@@ -779,6 +781,37 @@ def ai_decide(m, randoms):
         else:
             raise RuntimeError(f"unhandled AI label {label}")
     return False
+
+
+def _mcpy(m, src, dst, n):
+    for i in range(n):
+        m[(dst + i) & 0xFFFF] = m[(src + i) & 0xFFFF]
+
+
+def move_select(m, randoms):
+    """$983D (the per-fighter move-selection part of $97CB): for each fighter a
+    queued reaction ($AA03/$AA43) forces the move; else if AI-controlled
+    ($AA06/$AA46) the AI ($A090) decides on a scratch copy (the save/restore
+    memcpy wrappers $AADC/$AB0A/$AAF3/$AB16 etc.), whose chosen $A5F6 lands in
+    $AA05/$AA45 via the restore; else keyboard (not modelled - AI demo).  The
+    two AI calls share one random stream."""
+    rnd = randoms if callable(randoms) else _Rnd(randoms)
+    if m[0xAA03] != 0:
+        m[0xAA05] = m[0xAA03]
+    elif m[0xAA06] != 0:
+        _mcpy(m, 0xAA00, 0xA5F1, 0x1A)           # $AADC
+        _mcpy(m, 0xAA8B, 0xA60B, 0x12)           # $AB0A
+        ai_decide(m, rnd)                        # $A090
+        _mcpy(m, 0xA5F1, 0xAA00, 0x1A)           # $AAF3
+        _mcpy(m, 0xA60B, 0xAA8B, 0x12)           # $AB16
+    if m[0xAA43] != 0:
+        m[0xAA45] = m[0xAA43]
+    elif m[0xAA46] != 0:
+        _mcpy(m, 0xAA40, 0xA5F1, 0x1A)           # $AB22
+        _mcpy(m, 0xAA77, 0xA60B, 0x12)           # $AB50
+        ai_decide(m, rnd)                        # $A090
+        _mcpy(m, 0xA5F1, 0xAA40, 0x1A)           # $AB39
+        _mcpy(m, 0xA60B, 0xAA77, 0x12)           # $AB5C
 
 
 def ai_load_params(m):

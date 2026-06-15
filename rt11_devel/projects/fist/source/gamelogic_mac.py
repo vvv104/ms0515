@@ -632,8 +632,8 @@ AIA583: MOVB    {g(0xA60A)},R0         ; ai_a583: in striking range? -> R0 0/1
 9$:     MOV     #1,R0
         RTS     PC
 
-AIDEC:  CLR     ARNDI
-AI090:  TSTB    {g(0xA5F4)}
+AIDEC:                                 ; ARNDI starts 0 (.WORD 0 init); not reset
+AI090:  TSTB    {g(0xA5F4)}             ; here, so two per-frame calls share ARND
         BEQ     1$
         MOVB    {g(0xA5F4)},R0
         MOVB    R0,{g(0xA5F6)}
@@ -1334,6 +1334,66 @@ def orch_subset(m):
     ref.yinyang_total(m)
 
 
+def emit_copy(label, src, dst, count):
+    """A context-switch memcpy ($AADC/$AB0A/$AAF3/... etc.): copy `count` bytes
+    from Spectrum address `src` to `dst`.  R2/R3 = pointers, R1 = counter."""
+    return (f"\n;----------------------------------------------------\n"
+            f"{label}:   MOV     #GST+{src - GBASE}.,R2\n"
+            f"        MOV     #GST+{dst - GBASE}.,R3\n"
+            f"        MOV     #{count}.,R1\n"
+            f"1$:     MOVB    (R2)+,(R3)+\n"
+            f"        DEC     R1\n"
+            f"        BNE     1$\n"
+            f"        RTS     PC\n")
+
+
+def emit_wrappers():
+    """The eight $9CA8/$97CB context-switch memcpy wrappers."""
+    return (emit_copy("AADC", 0xAA00, 0xA5F1, 0x1A) +
+            emit_copy("AB0A", 0xAA8B, 0xA60B, 0x12) +
+            emit_copy("AAF3", 0xA5F1, 0xAA00, 0x1A) +
+            emit_copy("AB16", 0xA60B, 0xAA8B, 0x12) +
+            emit_copy("AB22", 0xAA40, 0xA5F1, 0x1A) +
+            emit_copy("AB50", 0xAA77, 0xA60B, 0x12) +
+            emit_copy("AB39", 0xA5F1, 0xAA40, 0x1A) +
+            emit_copy("AB5C", 0xA60B, 0xAA77, 0x12))
+
+
+def emit_movsel():
+    """$983D move-selection: per fighter, a queued reaction forces the move,
+    else the AI decides on a scratch copy (save -> AIDEC -> restore).  The
+    keyboard branch (human player) is a stub - the attract demo is all-AI."""
+    return f"""
+;-------------------------------------------------------------------
+; MOVSEL - $983D per-fighter move selection (AI / reaction; kbd stubbed).
+MOVSEL: TSTB    {g(0xAA03)}            ; P1 queued reaction?
+        BEQ     1$
+        MOVB    {g(0xAA03)},R0
+        MOVB    R0,{g(0xAA05)}
+        BR      2$
+1$:     TSTB    {g(0xAA06)}            ; P1 AI-controlled?
+        BEQ     2$                     ; (else keyboard - stub: skip)
+        JSR     PC,AADC
+        JSR     PC,AB0A
+        JSR     PC,AIDEC
+        JSR     PC,AAF3
+        JSR     PC,AB16
+2$:     TSTB    {g(0xAA43)}            ; P2 queued reaction?
+        BEQ     3$
+        MOVB    {g(0xAA43)},R0
+        MOVB    R0,{g(0xAA45)}
+        RTS     PC
+3$:     TSTB    {g(0xAA46)}            ; P2 AI-controlled?
+        BEQ     9$
+        JSR     PC,AB22
+        JSR     PC,AB50
+        JSR     PC,AIDEC
+        JSR     PC,AB39
+        JSR     PC,AB5C
+9$:     RTS     PC
+"""
+
+
 def emit_a402():
     """$A402 ai_load_params: load the AI personality into the working state
     $A60E-$A61C from eight tables ($B3D6/$B3EC/$B401/$B40D/$B41A/$B426/$B432/
@@ -1789,10 +1849,36 @@ def main_combined():
           f"window {win_size} B, expected -> {EXP_BIN.name})")
 
 
+def main_movsel():
+    """$983D move-selection: capture with the recorded RNG stream (shared by the
+    two AI calls) and verify the wrappers + AIDEC + MOVSEL against move_select."""
+    win_end = 0xC000
+    win_size = win_end - GBASE
+    snap, randoms = capture_ai(0x983D,
+                               lambda m, rs: ref.move_select(m, list(rs)),
+                               win_end)
+    expected = bytearray(snap)
+    ref.move_select(expected, list(randoms))
+    EXP_BIN.write_bytes(bytes(expected[GBASE:win_end]))
+    WIN_JSON.write_text(json.dumps({"base": GBASE, "size": win_size}))
+    src = (HEADER + emit_wrappers() + emit_ai(randoms) + emit_movsel())
+    src += "\n        .EVEN\n"
+    src += _emit_window("GST", snap[GBASE:win_end])
+    src += "\n        .EVEN\n        .END    START\n"
+    src = (src.replace("%ENTRY%", "MOVSEL").replace("%REGSET%", "")
+              .replace("%WORDS%", str(win_size // 2) + "."))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (movsel @ 0x983d, window {win_size} B, "
+          f"{len(randoms)} randoms, expected -> {EXP_BIN.name})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
     if name == "ai":
         return main_ai()
+    if name == "movsel":
+        return main_movsel()
     if name == "combined":
         return main_combined()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
