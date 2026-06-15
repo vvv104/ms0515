@@ -1334,6 +1334,31 @@ def orch_subset(m):
     ref.yinyang_total(m)
 
 
+def emit_a402():
+    """$A402 ai_load_params: load the AI personality into the working state
+    $A60E-$A61C from eight tables ($B3D6/$B3EC/$B401/$B40D/$B41A/$B426/$B432/
+    $B43E) indexed by the AI id $A614, plus fixed seeds.  R1 = b, R0 scratch."""
+    loads = [(0xB3D6, 0xA60F), (0xB3EC, 0xA612), (0xB426, 0xA615),
+             (0xB401, 0xA617), (0xB432, 0xA646), (0xB40D, 0xA619),
+             (0xB41A, 0xA61A), (0xB43E, 0xA60B)]
+    consts = [(0xA616, 2), (0xA61C, 0o200), (0xA5F1, 1), (0xA611, 0o200),
+              (0xA610, 1), (0xA61B, 0o200)]
+    body = [";-------------------------------------------------------------------",
+            "; A402 - ai_load_params.  R1 = AI id $A614.",
+            f"A402:   MOVB    {g(0xA614)},R1",
+            "        BIC     #177400,R1"]
+    for tbl, dst in loads:
+        body.append(f"        MOVB    {g(tbl, 'R1')},R0")
+        body.append(f"        MOVB    R0,{g(dst)}")
+    for dst, val in consts:
+        body.append(f"        MOV     #{val:o},R0")    # octal MACRO literal
+        body.append(f"        MOVB    R0,{g(dst)}")
+    body.append(f"        CLRB    {g(0xA60E)}")
+    body.append(f"        CLRB    {g(0xA618)}")
+    body.append("        RTS     PC")
+    return "\n" + "\n".join(body) + "\n"
+
+
 def emit_yinyang():
     """$900E yin-yang total: add the score flag $AA08/$AA48 to the running
     half-point total $AA01/$AA41 (one fighter per call)."""
@@ -1653,6 +1678,8 @@ ROUTINES = {
                 lambda m, r: ref.contact_flag(m), 0xC500, [], None, _B),
     "rstfrm": (0x9CA8, "RSTFRM", emit_rstfrm,
                lambda m, r: ref.reset_frame_9ca8(m), 0xAB00, [], None, _B),
+    "a402": (0xA402, "A402", emit_a402,
+             lambda m, r: ref.ai_load_params(m), 0xB500, [], None, _B),
 }
 
 
