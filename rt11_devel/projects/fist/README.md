@@ -71,14 +71,23 @@ inside the emulator, producing `FIST.SAV`.
 
 ## Running
 
-In the GUI emulator, mount `package/assets/disks/fist_demo.dsk`, boot, and
-at the dot prompt:
+**Fighter demo (a karate fighter drawn by the ported decode pipeline):**
+mount `package/assets/disks/fist_fighter.dsk` in the GUI emulator and boot — it
+auto-runs `FIST` (via `STARTS.COM`) and centres a karate fighter on screen.
+Any key returns to the dot prompt.
 
 ```
-RUN FIST
+package/ms0515.exe --disk0 package/assets/disks/fist_fighter.dsk
 ```
 
-Press any key to return to the monitor.
+Build it with `FIST_MODE=gamelogic FIST_GL=demo FGHT_PRESENT=1 python
+rt11_devel/toolset/build.py rt11_devel/projects/fist/build.toml`, then refresh
+the disk's `FIST.SAV`.  (The full game GST overlaps RMON under RT-11, so the
+demo trims the GST to a low pose below RMON and relocates the compose buffer to
+low RAM — see `source/gamelogic_mac.py:main_demo`.)
+
+**Loading-screen demo:** mount `package/assets/disks/fist_demo.dsk`, boot, and
+at the dot prompt `RUN FIST`.  Press any key to return to the monitor.
 
 To preview the screen without the emulator:
 
