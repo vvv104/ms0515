@@ -1279,6 +1279,7 @@ def emit_orch():
 ORCH:   JSR     PC,TIMER
         JSR     PC,HITDP2              ; $9ED2 hit-detect P2 (+apply on hit)
         JSR     PC,HITDET              ; $9D29 hit-detect P1 (+apply on hit)
+        JSR     PC,MOVSEL              ; $97CB move-selection (AI both fighters)
         MOV     #100,R0                ; $9C29 = $40 (opponent of fighter 0)
         MOVB    R0,{g(0x9C29)}
         CLR     R4
@@ -1299,11 +1300,11 @@ ORCH:   JSR     PC,TIMER
 """
 
 
-def emit_combined():
-    """All ported game-logic routines in one module (proves they coexist - no
-    label or space conflicts) plus the ORCH integration driver.  The AI is
-    included (with a dummy random array) to prove it assembles alongside the
-    rest; ORCH does not call it."""
+def emit_combined(randoms):
+    """The full $9745 frame in one module: all ported routines + the input/AI
+    layer (A402, the memcpy wrappers, MOVSEL, the AI with the recorded random
+    stream) + the ORCH driver (timer, hit detect+apply x2, move-selection,
+    anim x2, recover x2, scoring)."""
     return (emit_timer() + emit_recover() +
             emit_hitdet("HITDET", ref.HIT_P1, apply_label="APLYP1") +
             emit_hitdet("HITDP2", ref.HIT_P2, apply_label="APLYHT") +
@@ -1311,17 +1312,21 @@ def emit_combined():
             emit_apply("APLYHT", 0xAA44, 0xAA57, 0xAA17, 0xAA03) +
             emit_apply("APLYP1", 0xAA04, 0xAA17, 0xAA57, 0xAA43) +
             emit_score() + emit_yinyang() + emit_timetik() +
-            emit_ranktk() + emit_rstacf() + emit_rstfrm() + emit_ai([0]) +
+            emit_ranktk() + emit_rstacf() + emit_rstfrm() + emit_a402() +
+            emit_wrappers() + emit_movsel() + emit_ai(randoms) +
             emit_orch())
 
 
-def orch_subset(m):
-    """Python reference for ORCH - the same sequence on the captured state."""
+def orch_subset(m, randoms):
+    """Python reference for ORCH - the full $9745 sequence (incl. the $97CB AI
+    move-selection) on the captured state, sharing the recorded random stream."""
+    rnd = randoms if callable(randoms) else ref._Rnd(randoms)
     ref.update_timer(m)
     if ref.hit_detect(m, ref.HIT_P2):            # $9ED2 -> $A01C on a hit
         ref.apply_hit(m, ref.HIT_P2)
     if ref.hit_detect(m, ref.HIT_P1):            # $9D29 -> $9E7F on a hit
         ref.apply_hit(m, ref.HIT_P1)
+    ref.move_select(m, rnd)                      # $97CB move-selection (AI)
     m[0x9C29] = 0x40
     ref.update_fighter(m, 0)
     m[0x9C29] = 0
@@ -1762,6 +1767,8 @@ VRAM   = 40000
 KBST   = 177442
 KBDT   = 177440
 
+        .ASECT                          ; absolute layout: code at 01000, so a
+        . = 1000                        ; high GST (.=100000) can sit in banks 4-7
         .EVEN
 START:  MOV     #340,R0
         MTPS    R0
@@ -1832,13 +1839,16 @@ def main_combined():
     verified against orch_subset over the GST window."""
     win_end = 0xC000                     # covers the hit-detect reach data $BB00..
     win_size = win_end - GBASE
-    snap, _ = capture_state(0x9745, lambda m, r: orch_subset(m), win_end, [])
+    snap, randoms = capture_ai(0x9745, lambda m, rs: orch_subset(m, list(rs)),
+                               win_end)
     expected = bytearray(snap)
-    orch_subset(expected)
+    orch_subset(expected, list(randoms))
     EXP_BIN.write_bytes(bytes(expected[GBASE:win_end]))
     WIN_JSON.write_text(json.dumps({"base": GBASE, "size": win_size}))
-    src = HEADER + emit_combined()
-    src += "\n        .EVEN\n"
+    src = HEADER + emit_combined(randoms)
+    # GST in the high banks (4-7, octal 0100000+) - above the VRAM window, so
+    # it is not capped by the 040000 boundary and loads fine with VRAM on.
+    src += "\n        .ASECT\n        . = 100000\n"
     src += _emit_window("GST", snap[GBASE:win_end])
     src += "\n        .EVEN\n        .END    START\n"
     src = (src.replace("%ENTRY%", "ORCH").replace("%REGSET%", "")
