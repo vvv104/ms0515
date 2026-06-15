@@ -42,39 +42,52 @@ def g(addr, reg=None):
     return f"{off}({reg})" if reg else off
 
 
+def gp(reg):
+    """MACRO-11 operand for the byte at the *runtime* Spectrum address in `reg`.
+    GST stands for $9C00 (octal 116000), so GST-116000(reg) = GST+(reg-$9C00)
+    is the mirror byte for Spectrum address `reg`."""
+    return f"GST-116000({reg})"
+
+
 # ── routine capture (entry state + entry registers) ───────────────────────────
 
-def capture_state(addr, refapply, win_end, reg_setup, budget=4000000):
-    """Run the game; return (snapshot, entry_regs) for a call to `addr` that the
-    reference exercises (changes the GST window).  Prefer a call whose
-    parameter registers are all non-zero, so indexed `(Rn)` offsets are
-    genuinely exercised (an R4=0 selector would hide a missing index).  Falls
-    back to any exercising call, then to the first call seen."""
+def capture_state(addr, refapply, win_end, reg_setup, witness=None,
+                  budget=4000000):
+    """Run the game; return (snapshot, entry_regs) for a call to `addr` that
+    exercises the routine well.  Preference order: (1) the `witness` cell
+    changes (so a guarded deep path actually ran) with all param registers
+    non-zero, (2) witness changes, (3) the GST window changes (any work) with
+    non-zero param regs, (4) any window change, (5) the first call seen.  The
+    non-zero-regs bias keeps an R4=0 selector from hiding a missing index."""
     sim, mem = build_sim(watch=(0, 0))
     regs, memory, ops = sim.registers, sim.memory, sim.opcodes
     fd, ia = sim.frame_duration, sim.int_active
     zregs = [z for _, z in reg_setup]
-    first = exercising = None
+    best = {}                               # rank -> (snap, entry)
     for _ in range(budget):
         if regs[PC] == addr:
             snap = bytes(memory)
             entry = {n: regs[i] for n, i in Z80_REG.items()}
-            if first is None:
-                first = (snap, entry)
+            best.setdefault(5, (snap, entry))
             trial = bytearray(snap)
             refapply(trial, entry)
-            if trial[GBASE:win_end] != snap[GBASE:win_end]:
-                if all(entry[z] != 0 for z in zregs):
-                    return snap, entry
-                if exercising is None:
-                    exercising = (snap, entry)
+            changed = trial[GBASE:win_end] != snap[GBASE:win_end]
+            nz = all(entry[z] != 0 for z in zregs)
+            deep = witness is not None and trial[witness] != snap[witness]
+            if deep and nz:
+                return snap, entry
+            if deep:
+                best.setdefault(2, (snap, entry))
+            if changed and nz:
+                best.setdefault(3, (snap, entry))
+            if changed:
+                best.setdefault(4, (snap, entry))
         ops[memory[regs[PC]]]()
         if regs[26] and regs[25] % fd < ia:
             sim.accept_interrupt(regs, memory, regs[PC])
-    if exercising:
-        return exercising
-    if first:
-        return first
+    for rank in (2, 3, 4, 5):
+        if rank in best:
+            return best[rank]
     raise SystemExit(f"no call to {addr:#06x} found")
 
 
@@ -153,13 +166,132 @@ RECOV:  MOV     #1,R3                  ; XOR mask for the facing toggle
 """
 
 
-# name -> (addr, label, emit, refapply(m,regs), win_end, reg_setup[(pdp,z80)])
+def emit_hitdet():
+    """$9D29 hit_detect (player 1): does P1's attack reach P2 this frame?
+    Latches both x-positions, walks the reach tables vs the measured distance,
+    and on a hit sets the result $AA08 (2 = full, 1 = half).  R1 = d (action,
+    zero-extended); R2 = e (reach threshold); R0 = c (distance); R3/R5 scratch.
+    Tables $A9BC/$A98A are addressed by their absolute Spectrum value."""
+    return f"""
+;-------------------------------------------------------------------
+; HITDET - $9D29 hit_detect (P1).  Sets $AA08 on a connecting strike.
+HITDET: MOVB    {g(0xAA19)},R0         ; latch positions ($A071=$AA19,
+        MOVB    R0,{g(0xA071)}         ;                  $A072=$AA59)
+        MOVB    {g(0xAA59)},R0
+        MOVB    R0,{g(0xA072)}
+        MOVB    {g(0xAA04)},R1         ; d = action
+        BIC     #177400,R1
+        TSTB    {g(0xA90D, 'R1')}      ; striking action? ($A90D[d])
+        BNE     10$
+11$:    RTS     PC                     ; near guard-exit trampoline (9$ is
+10$:    TSTB    {g(0xAA13)}            ;   out of branch range from here)
+        BEQ     11$                    ; g1 must be set
+        TSTB    {g(0xAA16)}            ; g2 must be clear
+        BNE     11$
+        TSTB    {g(0xAA09)}            ; g3 must be clear
+        BNE     11$
+        MOVB    {g(0xA971, 'R1')},R0   ; fg must equal $A971[d]
+        CMPB    {g(0xAA12)},R0
+        BNE     11$
+        MOVB    {g(0xAA17)},R0         ; same facing -> $A9BC, else $A98A
+        CMPB    R0,{g(0xAA57)}
+        BNE     1$
+        MOV     #43452.,R2             ; $A9BC
+        BR      2$
+1$:     MOV     #43402.,R2             ; $A98A
+2$:     MOV     R1,R0                  ; paddr = tbl + 2*d
+        ASL     R0
+        ADD     R0,R2
+        MOV     {gp('R2')},R0          ; ptr = word m[paddr] (paddr even)
+        MOVB    R0,{g(0xA06F)}         ; store ptr low -> $A06F (odd: byte
+        MOV     R0,R3                  ;   stores; a word MOV would hit $A06E)
+        SWAB    R3
+        MOVB    R3,{g(0xA070)}         ; store ptr high -> $A070
+        MOVB    {g(0xAA52)},R3         ; reach = m[ptr + ridx]
+        BIC     #177400,R3
+        ADD     R3,R0
+        MOVB    {gp('R0')},R0
+        BIC     #177400,R0
+        CMP     R0,#200                ; reach == $80 -> no
+        BEQ     9$
+        ADD     #200,R0                ; e = (reach + $80) & $FF
+        BIC     #177400,R0
+        MOV     R0,R2
+        TSTB    {g(0xAA17)}            ; dist by facing
+        BEQ     3$
+        MOVB    {g(0xA071)},R0         ; facing!=0: $A071 - $A072
+        BIC     #177400,R0
+        MOVB    {g(0xA072)},R3
+        BIC     #177400,R3
+        BR      4$
+3$:     MOVB    {g(0xA072)},R0         ; facing==0: $A072 - $A071
+        BIC     #177400,R0
+        MOVB    {g(0xA071)},R3
+        BIC     #177400,R3
+4$:     SUB     R3,R0
+        BIC     #177400,R0
+        ADD     #200,R0                ; c = (dist + $80) & $FF
+        BIC     #177400,R0
+        TSTB    {g(0xB47E, 'R1')}      ; B47E[d] selects the comparison form
+        BEQ     6$
+        CMP     R0,R2                  ; --- type != 0 ---
+        BNE     5$
+        MOVB    #2,{g(0xAA08)}         ; c == e -> full
+        BR      9$
+5$:     BLO     9$                     ; c < e -> miss
+        MOVB    {g(0xA93F, 'R1')},R3   ; (c - $A93F[d]) & $FF < e -> full
+        BIC     #177400,R3
+        MOV     R0,R5
+        SUB     R3,R5
+        BIC     #177400,R5
+        CMP     R5,R2
+        BHIS    52$
+        MOVB    #2,{g(0xAA08)}
+        BR      9$
+52$:    MOVB    {g(0xA958, 'R1')},R3   ; (c - $A958[d]) & $FF < e -> half
+        BIC     #177400,R3
+        MOV     R0,R5
+        SUB     R3,R5
+        BIC     #177400,R5
+        CMP     R5,R2
+        BHIS    9$
+        MOVB    #1,{g(0xAA08)}
+        BR      9$
+6$:     CMP     R0,R2                  ; --- type == 0 ---
+        BNE     7$
+        MOVB    #2,{g(0xAA08)}         ; c == e -> full
+        BR      9$
+7$:     BHIS    9$                     ; c > e -> miss
+        MOVB    {g(0xA93F, 'R1')},R3   ; (c + $A93F[d]) & $FF >= e -> full
+        BIC     #177400,R3
+        MOV     R0,R5
+        ADD     R3,R5
+        BIC     #177400,R5
+        CMP     R5,R2
+        BHIS    8$
+        MOVB    {g(0xA958, 'R1')},R3   ; (c + $A958[d]) & $FF >= e -> half
+        BIC     #177400,R3
+        MOV     R0,R5
+        ADD     R3,R5
+        BIC     #177400,R5
+        CMP     R5,R2
+        BLO     9$
+        MOVB    #1,{g(0xAA08)}
+        BR      9$
+8$:     MOVB    #2,{g(0xAA08)}
+9$:     RTS     PC
+"""
+
+
+# name -> (addr, label, emit, refapply(m,regs), win_end, reg_setup, witness)
 ROUTINES = {
     "timer": (0x9C6F, "TIMER", emit_timer,
-              lambda m, r: ref.update_timer(m), 0xAB00, []),
+              lambda m, r: ref.update_timer(m), 0xAB00, [], None),
     "recover": (0x9AD7, "RECOV", emit_recover,
                 lambda m, r: ref.recover_9ad7(m, r['C']), 0xB500,
-                [("R4", "C")]),
+                [("R4", "C")], None),
+    "hitdet": (0x9D29, "HITDET", emit_hitdet,
+               lambda m, r: ref.hit_detect(m, ref.HIT_P1), 0xB500, [], 0xA06F),
 }
 
 
@@ -226,11 +358,11 @@ def _emit_window(label, data, per=16):
 
 def main():
     name = os.environ.get("FIST_GL", "timer")
-    addr, entry, emit, refapply, win_end, reg_setup = ROUTINES[name]
+    addr, entry, emit, refapply, win_end, reg_setup, witness = ROUTINES[name]
     win_size = win_end - GBASE
     assert win_size % 2 == 0, "window must be word-aligned"
 
-    snap, regs = capture_state(addr, refapply, win_end, reg_setup)
+    snap, regs = capture_state(addr, refapply, win_end, reg_setup, witness)
     expected = bytearray(snap)
     refapply(expected, regs)
     EXP_BIN.write_bytes(bytes(expected[GBASE:win_end]))
