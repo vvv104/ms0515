@@ -2187,6 +2187,39 @@ def main_combined():
           f"window {win_size} B, expected -> {EXP_BIN.name})")
 
 
+# Full game-data block: the whole Spectrum $9C00..$F801 mirror = the SHARED GST
+# for the unified render image (logic state $AA, render area $C4xx, pose data
+# $C427+, the $B500-$B900 decoder tables, compose buffer $F730).  $F802 keeps it
+# even; at .=100000 it spans 0100000..0155772 - fits banks 4-6, below bank 7.
+GST_FULL_END = 0xF802
+
+
+def main_render():
+    """Render foundation (task 11 step 1a): emit the FULL $9C00..$F801 GST (the
+    shared data block the unified logic+decoder image will use) and run the
+    verified combined logic frame against it, proving the 23 KB GST loads in
+    banks 4-6 and the logic still works byte-exact over the 16 KB verify window.
+    The decoder/draw get layered on top in later steps."""
+    verify_end = 0xC000                   # 16 KB-safe verify window (logic outputs)
+    verify_size = verify_end - GBASE
+    snap, randoms = capture_ai(0x9745, lambda m, rs: orch_subset(m, list(rs)),
+                               verify_end)
+    expected = bytearray(snap)
+    orch_subset(expected, list(randoms))
+    EXP_BIN.write_bytes(bytes(expected[GBASE:verify_end]))
+    WIN_JSON.write_text(json.dumps({"base": GBASE, "size": verify_size}))
+    src = HEADER + emit_combined(randoms)
+    src += "\n        .ASECT\n        . = 100000\n"
+    src += _emit_window("GST", snap[GBASE:GST_FULL_END])   # FULL shared GST
+    src += "\n        .EVEN\n        .END    START\n"
+    src = (src.replace("%ENTRY%", "ORCH").replace("%REGSET%", "")
+              .replace("%WORDS%", str(verify_size // 2) + "."))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (render foundation: full GST "
+          f"{GST_FULL_END - GBASE} B, verify {verify_size} B -> {EXP_BIN.name})")
+
+
 def main_movsel():
     """$983D move-selection: capture with the recorded RNG stream (shared by the
     two AI calls) and verify the wrappers + AIDEC + MOVSEL against move_select."""
@@ -2550,6 +2583,8 @@ def main():
         return main_95e1()
     if name == "combined":
         return main_combined()
+    if name == "render":
+        return main_render()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE
