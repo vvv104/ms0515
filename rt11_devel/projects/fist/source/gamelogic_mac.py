@@ -50,6 +50,21 @@ def gp(reg):
     return f"GST-116000({reg})"
 
 
+def gb(reg, off):
+    """Byte at `base+off` in GST, where `reg` holds a runtime Spectrum address
+    (>= $9C00).  Offset is emitted decimal (.) so the octal default radix does
+    not corrupt it."""
+    return (f"GST-116000+{off}.({reg})" if off >= 0
+            else f"GST-116000-{-off}.({reg})")
+
+
+def lpb(reg, off=0):
+    """Byte at `addr+off` in the low-data mirror LDAT, where `reg` holds a
+    runtime Spectrum address in the LDAT span ($9368.. = octal 111550..)."""
+    return (f"LDAT-111550+{off}.({reg})" if off >= 0
+            else f"LDAT-111550-{-off}.({reg})")
+
+
 # ── routine capture (entry state + entry registers) ───────────────────────────
 
 def capture_ai(addr, refdecide, win_end, budget=4000000):
@@ -1795,6 +1810,231 @@ BF13:   MOVB    {g(0xAA52)},{g(0xC425)}
     return s
 
 
+def emit_95e1():
+    """$95E1 anim advance (entry R5 = hl = $AA16/$AA56).  base = hl-10 ($AA0C)
+    kept in R5.  PHASE scratch = m[hl].  Sub-blocks: ANIM5E dispatch, POSUPD
+    ($9698 position tail), META ($9649 sprite-meta load -> 0xFF fill -> $9698),
+    ADV962B (frame-pointer +/-4), FL96CE (new-frame-load from the $9368 table),
+    SWAP71 ($971E facing swap), RESET5 ($9613 reset).  The frame pointer and the
+    $9368 table live in the low-data mirror LDAT; the sprite-meta source tables
+    ($3900/$3A00) are ROM filler so the meta is a 0xFF fill."""
+    return f"""
+;-------------------------------------------------------------------
+; ANIM5E - $95E1 per-fighter animation advance.  R5 = hl at entry.
+ANIM5E: MOVB    {gp('R5')},R0          ; phase = m[hl]
+        BIC     #177400,R0
+        MOVB    R0,PHASE
+        SUB     #10.,R5                ; R5 = base = hl-10 (decimal 10)
+        TSTB    {gb('R5', 0)}          ; m[$AA0C]==0 -> RET
+        BNE     1$
+        RTS     PC
+1$:     TSTB    {gb('R5', -1)}         ; m[$AA0B]==0 -> $96CE new-frame-load
+        BNE     2$
+        JSR     PC,FL96CE
+        JMP     META
+2$:     TSTB    PHASE
+        BNE     20$
+        ; ---- phase == 0 ----
+        TSTB    {gb('R5', 4)}          ; a = m[$AA10]; if 0 -> $9609
+        BNE     12$
+        TSTB    {gb('R5', 2)}          ; m[$AA0E]==0 -> $9613 reset
+        BNE     11$
+        JMP     RESET5
+11$:    DECB    {gb('R5', 2)}          ; m[$AA0E] -= 1
+        JSR     PC,ADV962B
+        JMP     META
+12$:    DECB    {gb('R5', 4)}          ; m[$AA10] -= 1 ($9605)
+        MOV     R5,R1
+        ADD     #4.,R1                 ; R1 = rec = $AA10
+        JSR     PC,POSUPD
+        RTS     PC
+        ; ---- phase != 0 ($961A) ----
+20$:    MOVB    {gb('R5', 4)},R0       ; a = m[$AA10]
+        CMPB    R0,{gb('R5', 5)}       ; a == m[$AA11] ? -> $9623
+        BNE     22$
+        MOVB    {gb('R5', 3)},R0       ; (m[$AA0F]-1) == m[$AA0E] ? -> $9613
+        BIC     #177400,R0
+        DEC     R0
+        CMPB    R0,{gb('R5', 2)}
+        BNE     21$
+        JMP     RESET5
+21$:    INCB    {gb('R5', 2)}          ; m[$AA0E] += 1 ($962A)
+        JSR     PC,ADV962B
+        JMP     META
+22$:    INCB    {gb('R5', 4)}          ; m[$AA10] += 1 ($961F)
+        MOV     R5,R1
+        ADD     #4.,R1
+        JSR     PC,POSUPD
+        RTS     PC
+
+;-------------------------------------------------------------------
+; RESET5 - $9613: m[$AA0D]=1, m[$AA0C]=0, return.
+RESET5: MOV     #1,R0
+        MOVB    R0,{gb('R5', 1)}
+        CLRB    {gb('R5', 0)}
+        RTS     PC
+
+;-------------------------------------------------------------------
+; ADV962B - $962B: m[$AA13]=0, then step the 16-bit frame pointer
+; m[$AA14]/m[$AA15] by +4 (phase==0) or -4 (phase!=0).
+ADV962B:CLRB    {gb('R5', 7)}          ; m[$AA13]=0
+        MOVB    {gb('R5', 8)},R1
+        BIC     #177400,R1
+        MOVB    {gb('R5', 9)},R0
+        BIC     #177400,R0
+        SWAB    R0
+        BIS     R0,R1                  ; R1 = pointer
+        TSTB    PHASE
+        BNE     1$
+        ADD     #4,R1                  ; phase==0 -> +4
+        BR      2$
+1$:     SUB     #4,R1                  ; phase!=0 -> -4
+2$:     MOVB    R1,{gb('R5', 8)}
+        SWAB    R1
+        MOVB    R1,{gb('R5', 9)}
+        RTS     PC
+
+;-------------------------------------------------------------------
+; META - $9649: ptr=m[$AA14/15]; stage frame data into $AA10-$AA13; fill the
+; sprite-meta $AA1A-$AA2B with 0xFF; optional $971E swap; then $9698.
+META:   MOVB    {gb('R5', 8)},R1
+        BIC     #177400,R1
+        MOVB    {gb('R5', 9)},R0
+        BIC     #177400,R0
+        SWAB    R0
+        BIS     R0,R1                  ; R1 = ptr (LDAT addr)
+        MOV     #1,R0
+        MOVB    R0,{gb('R5', 4)}       ; m[$AA10]=1
+        MOVB    {lpb('R1', 0)},R2      ; v = m[ptr]
+        BIC     #177400,R2
+        TSTB    PHASE
+        BNE     1$
+        MOV     R2,R0                  ; phase==0 -> m[$AA10]=v-1
+        DEC     R0
+        MOVB    R0,{gb('R5', 4)}
+1$:     MOVB    R2,{gb('R5', 5)}       ; m[$AA11]=v
+        MOVB    {lpb('R1', 1)},R3      ; a2 = m[ptr+1]
+        MOVB    R3,{gb('R5', 6)}       ; m[$AA12]=a2
+        MOVB    R3,{gb('R5', 7)}       ; m[$AA13]=a2
+        ; sprite-meta = 0xFF fill, $AA1A..$AA2B (18 bytes)
+        MOV     R5,R1
+        ADD     #14.,R1
+        MOV     #18.,R2
+        MOV     #377,R0
+2$:     MOVB    R0,{gp('R1')}
+        INC     R1
+        DEC     R2
+        BNE     2$
+        ; facing swap if m[$AA17]==1
+        MOVB    {gb('R5', 11)},R0
+        BIC     #177400,R0
+        CMP     R0,#1
+        BNE     3$
+        JSR     PC,SWAP71
+3$:     MOV     R5,R1
+        ADD     #4.,R1
+        JSR     PC,POSUPD
+        RTS     PC
+
+;-------------------------------------------------------------------
+; SWAP71 - $971E: in each of the 3 six-byte meta groups (base+14/+20/+26),
+; swap [0]<->[4] and [1]<->[5].
+SWAP71: MOV     R5,R2
+        ADD     #14.,R2                ; first group at base+14
+        MOV     #3,R4                  ; 3 groups
+1$:     MOV     #2,R3                  ; 2 pairs per group
+        MOV     R2,R1
+2$:     MOVB    {gp('R1')},R0          ; tmp = m[i]
+        MOVB    {gb('R1', 4)},{gp('R1')}   ; m[i] = m[i+4]
+        MOVB    R0,{gb('R1', 4)}       ; m[i+4] = tmp
+        INC     R1
+        DEC     R3
+        BNE     2$
+        ADD     #6,R2                  ; next group
+        DEC     R4
+        BNE     1$
+        RTS     PC
+
+;-------------------------------------------------------------------
+; POSUPD - $9698: advance position.  R1 = rec ($AA10).
+POSUPD: MOVB    {gb('R1', 4)},R2       ; ptr = m[rec+4] | m[rec+5]<<8
+        BIC     #177400,R2
+        MOVB    {gb('R1', 5)},R3
+        BIC     #177400,R3
+        SWAB    R3
+        BIS     R3,R2                  ; R2 = ptr (LDAT addr)
+        MOVB    {lpb('R2', 2)},R3      ; m[rec+8] += m[ptr+2]
+        MOVB    {gb('R1', 8)},R4
+        ADD     R4,R3
+        MOVB    R3,{gb('R1', 8)}
+        MOVB    {gb('R1', 6)},R0       ; flag = m[rec+6]^m[rec+7]
+        BIC     #177400,R0
+        MOVB    {gb('R1', 7)},R3
+        BIC     #177400,R3
+        XOR     R3,R0
+        MOVB    {lpb('R2', 3)},R4      ; b = m[ptr+3]
+        BIC     #177400,R4
+        MOVB    {gb('R1', 9)},R3       ; pos = m[rec+9]
+        BIC     #177400,R3
+        TST     R0
+        BNE     1$
+        ADD     R4,R3                  ; flag==0 -> pos + b
+        BR      2$
+1$:     SUB     R4,R3                  ; flag!=0 -> pos - b
+2$:     BIC     #177400,R3             ; r = result & 0xFF
+        CMP     R3,#310                ; >= 0xC8 -> 0
+        BHIS    3$
+        CMP     R3,#137                ; < 0x5F -> keep
+        BLO     4$
+        MOV     #137,R3                ; else 0x5F
+        BR      4$
+3$:     CLR     R3
+4$:     MOVB    R3,{gb('R1', 9)}
+        RTS     PC
+
+;-------------------------------------------------------------------
+; FL96CE - $96CE new-frame-load: pull the next animation's pointer pair from
+; the $9368 table (LDAT) into m[$AA14/15], seed m[$AA0E]/m[$AA0F].
+FL96CE: MOVB    {gb('R5', 0)},R0       ; idx = m[$AA0C]
+        BIC     #177400,R0
+        MOVB    R0,{gb('R5', -1)}      ; m[$AA0B]=idx
+        CLRB    {gb('R5', 1)}          ; m[$AA0D]=0
+        ASL     R0                     ; 2*idx
+        MOV     #LDAT,R1               ; LDAT stands for $9368
+        ADD     R0,R1                  ; R1 = &word1 = LDAT + 2*idx
+        MOV     (R1),R2                ; word1 (LDAT is even-based; even offset)
+        MOV     2(R1),R3               ; ptr  = word at +2
+        MOV     R3,R0
+        SUB     R2,R0                  ; span = ptr - word1
+        CLC                            ; logical span >> 2 (SRL H; RR L x2)
+        ROR     R0
+        CLC
+        ROR     R0
+        BIC     #177400,R0             ; B (0..255)
+        ; choose stored pointer: phase!=0 -> ptr-4 ; phase==0 -> word1
+        TSTB    PHASE
+        BEQ     1$
+        MOV     R3,R4
+        SUB     #4,R4                  ; ptr-4
+        BR      2$
+1$:     MOV     R2,R4                  ; word1
+2$:     MOVB    R4,{gb('R5', 8)}       ; m[$AA14]=low
+        SWAB    R4
+        MOVB    R4,{gb('R5', 9)}       ; m[$AA15]=high
+        CLRB    {gb('R5', 2)}          ; m[$AA0E]=0
+        TSTB    PHASE
+        BNE     3$
+        MOV     R0,R4                  ; phase==0 -> m[$AA0E]=B-1
+        DEC     R4
+        MOVB    R4,{gb('R5', 2)}
+3$:     MOVB    R0,{gb('R5', 3)}       ; m[$AA0F]=B
+        RTS     PC
+
+PHASE:  .BYTE   0
+        .EVEN
+"""
+
+
 # name -> (addr, label, emit, refapply(m,regs), win_end, reg_setup, witness, budget)
 _B = 4000000
 ROUTINES = {
@@ -2229,6 +2469,71 @@ def main_bf13():
           f"verify {verify_size} B, expected -> {EXP_BIN.name})")
 
 
+def _capture_95e1_path(want):
+    """Scan the sim for a $95E1 call whose entry state takes the `want` path
+    ('meta' = frame-advance/new-frame-load -> sprite-meta; 'step' = frame-step ->
+    $9698 only; 'reset' = $9613 reset).  Returns (snapshot, hl)."""
+    sim, _ = build_sim(watch=(0, 0))
+    regs, memory, ops = sim.registers, sim.memory, sim.opcodes
+    fd, ia = sim.frame_duration, sim.int_active
+
+    def path_of(m, hl):
+        base = (hl - 0x0A) & 0xFFFF
+        if m[base] == 0:
+            return "retz"
+        if m[(base - 1) & 0xFFFF] == 0:
+            return "meta"                       # $96CE -> META
+        phase = m[hl]
+        a = m[(base + 4) & 0xFFFF]
+        if phase != 0:
+            if a != m[(base + 5) & 0xFFFF]:
+                return "step"
+            return "reset" if ((m[(base + 3) & 0xFFFF] - 1) & 0xFF) == \
+                m[(base + 2) & 0xFFFF] else "meta"
+        if a != 0:
+            return "step"
+        return "reset" if m[(base + 2) & 0xFFFF] == 0 else "meta"
+
+    for _ in range(8000000):
+        if regs[24] == 0x95E1:
+            hl = (regs[6] << 8) | regs[7]
+            if path_of(memory, hl) == want:
+                return bytes(memory), hl
+        ops[memory[regs[24]]]()
+        if regs[26] and regs[25] % fd < ia:
+            sim.accept_interrupt(regs, memory, regs[24])
+    raise SystemExit(f"no $95E1 call taking the {want!r} path")
+
+
+def main_95e1():
+    """$95E1 anim advance: verify the port against ref.anim_95e1 over the $AA
+    window.  FIST_95PATH selects which branch to exercise (meta/step/reset).
+    Needs a second low-data mirror LDAT ($9368..$9600 = the $9368 table + the
+    frame-data records that the frame pointer dereferences)."""
+    win_end = 0xAB00
+    win_size = win_end - GBASE
+    ldat_base, ldat_end = 0x9368, 0x9600
+    want = os.environ.get("FIST_95PATH", "meta")
+    snap, hl = _capture_95e1_path(want)
+    expected = bytearray(snap)
+    ref.anim_95e1(expected, hl)
+    EXP_BIN.write_bytes(bytes(expected[GBASE:win_end]))
+    WIN_JSON.write_text(json.dumps({"base": GBASE, "size": win_size}))
+    src = HEADER + emit_95e1()
+    src += "\n        .ASECT\n        . = 100000\n"
+    src += _emit_window("GST", snap[GBASE:win_end])
+    src += "\n        .EVEN\n"
+    src += _emit_window("LDAT", snap[ldat_base:ldat_end])
+    src += "\n        .EVEN\n        .END    START\n"
+    regset = f"        MOV     #{hl}.,R5\n"
+    src = (src.replace("%ENTRY%", "ANIM5E").replace("%REGSET%", regset)
+              .replace("%WORDS%", str(win_size // 2) + "."))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (95e1 @ 0x95e1 [{want}], hl={hl:#06x}, "
+          f"window {win_size} B, expected -> {EXP_BIN.name})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
     if os.environ.get("FIST_COV") == "ai":
@@ -2241,6 +2546,8 @@ def main():
         return main_movsel()
     if name == "bf13":
         return main_bf13()
+    if name == "95e1":
+        return main_95e1()
     if name == "combined":
         return main_combined()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
