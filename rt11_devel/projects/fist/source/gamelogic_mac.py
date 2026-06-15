@@ -1707,6 +1707,94 @@ def emit_apply(label, act, aface, tface, react):
 """
 
 
+def emit_bf13():
+    """$BF13 logic->graphics bridge: copy each fighter's logic state ($AA..)
+    into the render area ($C41B-$C420), resolve the pose-record pointers
+    ($C428/$C42A = $44CC + word[$C440 + 2*frame-index]), build the erase+redraw
+    bounding box ($C434-$C43B) over this frame's and last frame's positions
+    (read OLD $C42C-$C433 FIRST), then save this frame's positions to
+    $C42C-$C433.  Scratch bytes BIX1/BIX2/BIY1/BIY2 hold the pose-extent deltas
+    m[ix+1..2]/m[iy+1..2]; SUMX1/SUMX2/SUMY1/SUMY2 hold the clamped position+
+    extent sums (each reused by both the bbox max and the saved position)."""
+    n = [0]
+    def mm(op, a, b, dst):                    # min/max of two unsigned bytes
+        n[0] += 1; lbl = n[0]
+        br = "BLOS" if op == "min" else "BHIS"
+        return (f"        MOVB    {a},R0\n"
+                f"        CMPB    R0,{b}\n"
+                f"        {br}    {lbl}$\n"
+                f"        MOVB    {b},R0\n"
+                f"{lbl}$:     MOVB    R0,{dst}\n")
+    def sum8(a, b, dst):                      # dst = (m[a] + m[b]) & 0xFF
+        return (f"        MOVB    {a},R0\n"
+                f"        MOVB    {b},R1\n"
+                f"        ADD     R1,R0\n"
+                f"        MOVB    R0,{dst}\n")
+    s = f"""
+;-------------------------------------------------------------------
+; BF13 - $BF13 logic->graphics bridge.
+BF13:   MOVB    {g(0xAA52)},{g(0xC425)}
+        CLRB    {g(0xC426)}
+        MOVB    {g(0xAA59)},{g(0xC41D)}
+        MOVB    {g(0xAA58)},{g(0xC41E)}
+        MOVB    {g(0xAA57)},{g(0xC420)}
+        MOVB    {g(0xAA12)},{g(0xC423)}
+        CLRB    {g(0xC424)}
+        MOVB    {g(0xAA19)},{g(0xC41B)}
+        MOVB    {g(0xAA18)},{g(0xC41C)}
+        MOVB    {g(0xAA17)},{g(0xC41F)}
+        ; pose-record pointer P1 = $44CC + word[$C440 + 2*m[$C423]]
+        MOVB    {g(0xC423)},R0
+        BIC     #177400,R0
+        ASL     R0
+        MOV     {g(0xC440, 'R0')},R1
+        ADD     #{0x44CC:o},R1
+        MOV     R1,{g(0xC428)}
+        ; pose-record pointer P2 = $44CC + word[$C440 + 2*m[$C425]]
+        MOVB    {g(0xC425)},R0
+        BIC     #177400,R0
+        ASL     R0
+        MOV     {g(0xC440, 'R0')},R1
+        ADD     #{0x44CC:o},R1
+        MOV     R1,{g(0xC42A)}
+        ; pose-extent deltas: ix1=m[ix+1] ix2=m[ix+2] iy1=m[iy+1] iy2=m[iy+2]
+        MOV     {g(0xC428)},R2
+        MOVB    GST-116000+1(R2),BIX1
+        MOVB    GST-116000+2(R2),BIX2
+        MOV     {g(0xC42A)},R2
+        MOVB    GST-116000+1(R2),BIY1
+        MOVB    GST-116000+2(R2),BIY2
+"""
+    s += sum8(g(0xC41B), "BIX1", "SUMX1")
+    s += sum8(g(0xC41C), "BIX2", "SUMX2")
+    s += sum8(g(0xC41D), "BIY1", "SUMY1")
+    s += sum8(g(0xC41E), "BIY2", "SUMY2")
+    s += "        ; bounding box (reads OLD saved positions $C42C-$C432)\n"
+    s += mm("min", g(0xC41B), g(0xC42C), g(0xC434))
+    s += mm("max", "SUMX1",   g(0xC42D), g(0xC435))
+    s += mm("min", g(0xC41C), g(0xC42E), g(0xC436))
+    s += f"        MOV     #276,R0\n        MOVB    R0,{g(0xC437)}\n"
+    s += mm("min", g(0xC41D), g(0xC430), g(0xC438))
+    s += mm("max", "SUMY1",   g(0xC431), g(0xC439))
+    s += mm("min", g(0xC41E), g(0xC432), g(0xC43A))
+    s += f"        MOV     #276,R0\n        MOVB    R0,{g(0xC43B)}\n"
+    s += "        ; save this frame's positions to $C42C-$C433\n"
+    s += f"        MOVB    {g(0xC41B)},{g(0xC42C)}\n"
+    s += f"        MOVB    SUMX1,{g(0xC42D)}\n"
+    s += f"        MOVB    {g(0xC41C)},{g(0xC42E)}\n"
+    s += f"        MOVB    SUMX2,{g(0xC42F)}\n"
+    s += f"        MOVB    {g(0xC41D)},{g(0xC430)}\n"
+    s += f"        MOVB    SUMY1,{g(0xC431)}\n"
+    s += f"        MOVB    {g(0xC41E)},{g(0xC432)}\n"
+    s += f"        MOVB    SUMY2,{g(0xC433)}\n"
+    s += "        RTS     PC\n"
+    s += "        .EVEN\n"
+    s += "BIX1:   .BYTE   0\nBIX2:   .BYTE   0\nBIY1:   .BYTE   0\nBIY2:   .BYTE   0\n"
+    s += "SUMX1:  .BYTE   0\nSUMX2:  .BYTE   0\nSUMY1:  .BYTE   0\nSUMY2:  .BYTE   0\n"
+    s += "        .EVEN\n"
+    return s
+
+
 # name -> (addr, label, emit, refapply(m,regs), win_end, reg_setup, witness, budget)
 _B = 4000000
 ROUTINES = {
@@ -2111,6 +2199,36 @@ def main_coverage():
           f"expected -> {EXP_BIN.name})")
 
 
+def main_bf13():
+    """$BF13 logic->graphics bridge: capture a real call, verify the ported
+    bridge against ref.bf13.  The pose-record reads reach up to ~$DCBF, so the
+    GST DATA must extend that far - but the VRAM-mirror VERIFY window is capped
+    at 16 KB (VRAM size).  So decouple: emit GST data to data_end ($E000, holds
+    the pose records) yet copy/compare only verify_end ($DC00 = 16 KB, which
+    still covers every cell bf13 changes, $C41B-$C439).  High banks (.=100000)
+    like the combined build."""
+    data_end = 0xE000                    # GST data extent (holds pose records)
+    verify_end = 0xDC00                  # VRAM-mirror window: exactly 16 KB
+    verify_size = verify_end - GBASE
+    assert verify_size % 2 == 0 and verify_size <= 0x4000
+    snap, regs = capture_state(0xBF13, lambda m, r: ref.bf13(m), data_end, [],
+                               witness=0xC428)
+    expected = bytearray(snap)
+    ref.bf13(expected)
+    EXP_BIN.write_bytes(bytes(expected[GBASE:verify_end]))
+    WIN_JSON.write_text(json.dumps({"base": GBASE, "size": verify_size}))
+    src = HEADER + emit_bf13()
+    src += "\n        .ASECT\n        . = 100000\n"
+    src += _emit_window("GST", snap[GBASE:data_end])
+    src += "\n        .EVEN\n        .END    START\n"
+    src = (src.replace("%ENTRY%", "BF13").replace("%REGSET%", "")
+              .replace("%WORDS%", str(verify_size // 2) + "."))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (bf13 @ 0xbf13, data {data_end-GBASE} B, "
+          f"verify {verify_size} B, expected -> {EXP_BIN.name})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
     if os.environ.get("FIST_COV") == "ai":
@@ -2121,6 +2239,8 @@ def main():
         return main_ai()
     if name == "movsel":
         return main_movsel()
+    if name == "bf13":
+        return main_bf13()
     if name == "combined":
         return main_combined()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
