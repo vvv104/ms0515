@@ -1925,6 +1925,124 @@ COUTPTR:.WORD   0
 """
 
 
+def emit_cov_ai_driver(n, k):
+    """Coverage driver for the AI: run AIDEC on N random $A5EC-$A650 states,
+    each with its own k-byte slice of ARND (ARNDI reset to i*k each state)."""
+    st = f"GST+{0xA5EC - GBASE}."
+    return f"""
+;-------------------------------------------------------------------
+; COVAI - branch-coverage fuzzer over AIDEC ($A090).
+COV:    MOV     #INPUT,CINPTR
+        MOV     #OUTBUF,COUTPTR
+        CLR     CIDX
+        CLR     CRIDX
+CLOOP:  MOV     CINPTR,R1              ; load state i into $A5EC..$A650
+        MOV     #{st},R2
+        MOV     #100.,R3
+1$:     MOVB    (R1)+,(R2)+
+        DEC     R3
+        BNE     1$
+        MOV     R1,CINPTR
+        MOV     CRIDX,ARNDI           ; this state's RNG slice
+        JSR     PC,AIDEC
+        MOV     COUTPTR,R1            ; record $A5EC..$A650 output
+        MOV     #{st},R2
+        MOV     #100.,R3
+2$:     MOVB    (R2)+,(R1)+
+        DEC     R3
+        BNE     2$
+        MOV     R1,COUTPTR
+        MOV     CRIDX,R0
+        ADD     #{k}.,R0
+        MOV     R0,CRIDX
+        INC     CIDX
+        CMP     CIDX,#{n}.
+        BLO     CLOOP
+        MOV     #OUTBUF,R1            ; OUTBUF -> VRAM
+        MOV     #VRAM,R2
+        MOV     #{n * 50}.,R3
+3$:     MOV     (R1)+,(R2)+
+        DEC     R3
+        BNE     3$
+        JMP     WKEY
+CIDX:   .WORD   0
+CRIDX:  .WORD   0
+CINPTR: .WORD   0
+COUTPTR:.WORD   0
+"""
+
+
+def capture_ai_states(n, win_end, k, budget=4000000):
+    """Collect up to n distinct real $A090 calls (snapshot + recorded $A3FF),
+    preferring those that consumed randoms (the deep RNG decision paths) so the
+    fuzz actually exercises the weighted-random branches."""
+    sim, mem = build_sim(watch=(0, 0))
+    regs, memory, ops = sim.registers, sim.memory, sim.opcodes
+    fd, ia = sim.frame_duration, sim.int_active
+    deep, shallow = [], []
+    for _ in range(budget):
+        if regs[PC] == 0xA090:
+            s0 = regs[SP]
+            ret = memory[s0] | (memory[s0 + 1] << 8)
+            snap = bytes(memory)
+            randoms = []
+            for _ in range(200000):
+                cur = regs[PC]
+                ops[memory[cur]]()
+                if cur == 0xA3FF:
+                    randoms.append(regs[0])
+                if regs[26] and regs[25] % fd < ia:
+                    sim.accept_interrupt(regs, memory, regs[PC])
+                if regs[PC] == ret and regs[SP] == s0 + 2:
+                    break
+            pad = (randoms + [0] * k)[:k]
+            (deep if randoms else shallow).append((snap, pad))
+            if len(deep) >= n:
+                break
+            continue
+        cur = regs[PC]
+        ops[memory[cur]]()
+        if regs[26] and regs[25] % fd < ia:
+            sim.accept_interrupt(regs, memory, regs[PC])
+    states = (deep + shallow)[:n]
+    if not states:
+        raise SystemExit("no AI calls captured")
+    return states
+
+
+def main_coverage_ai():
+    """Fuzz the AI ($A090) against n real captured calls (deep RNG paths first),
+    each replaying its recorded $A3FF stream: MACRO (AIDEC) vs Python ai_decide."""
+    win_end = 0xC500
+    win_size = win_end - GBASE
+    n, k = 48, 16
+    states = capture_ai_states(n, win_end, k)
+    base = bytearray(states[0][0])              # GST base (tables) from call 0
+    inputs = [bytes(snap[0xA5EC:0xA650]) for snap, _ in states]
+    rnds = [bytes(r) for _, r in states]
+    flat_rnd = b"".join(rnds)
+    expect = []
+    for snap, r in states:
+        m = bytearray(snap)
+        ref.ai_decide(m, list(r))
+        expect.append(bytes(m[0xA5EC:0xA650]))
+    EXP_BIN.write_bytes(b"".join(expect))
+    WIN_JSON.write_text(json.dumps({"base": 0xA5EC, "size": n * 100}))
+    src = HEADER + emit_ai(flat_rnd) + emit_cov_ai_driver(n, k)
+    src += "\n        .ASECT\n        . = 100000\n"
+    src += _emit_window("GST", bytes(base[GBASE:win_end]))
+    src += "\n        .EVEN\n"
+    src += _emit_window("INPUT", b"".join(inputs))
+    src += f"\n        .EVEN\nOUTBUF: .BLKB   {n * 100}.\n"
+    src += "\n        .EVEN\n        .END    START\n"
+    src = (src.replace("%ENTRY%", "COV").replace("%REGSET%", "")
+              .replace("%WORDS%", "1."))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (coverage ai, {n} states, "
+          f"expected -> {EXP_BIN.name})")
+
+
 def main_coverage():
     """Fuzz one routine: N random $AA00-$AA7F states, MACRO vs the Python
     reference (the validated ground truth), to exercise branches the captured
@@ -1949,12 +2067,24 @@ def main_coverage():
     # positions/faces/ridx vary, so the deep distance logic runs each time.
     cov_free = {"hitdet": [0xAA19, 0xAA59, 0xAA17, 0xAA57, 0xAA52],
                 "hitdp2": [0xAA19, 0xAA59, 0xAA17, 0xAA57, 0xAA12]}
+    def cov_val():
+        t = rng.randrange(10)            # bias to the game's value range so the
+        if t < 6:                        # value-specific compares (E==3, ==$1A,
+            return rng.randrange(0x1C)   # action indices ...) actually fire;
+        return 0 if t < 8 else rng.randrange(256)   # plus 0-flags + wide edges
+    # Force half of anim's states through the E==3 guards so range_9ba7 runs
+    # reliably (with $AA19/$AA57/$AA17 still varying around it).
+    cov_force = {"anim": {0xAA45: 3, 0xAA44: 1, 0xAA16: 0, 0xAA09: 0, 0xAA04: 7}}
+    force = cov_force.get(name, {})
     free = [a - 0xAA00 for a in cov_free.get(name, range(0xAA00, 0xAA80))]
     inputs = []
     for _i in range(n):
         blk = bytearray(base[0xAA00:0xAA80])
         for off in free:
-            blk[off] = rng.randrange(256)
+            blk[off] = cov_val()
+        if force and _i % 2 == 0:
+            for a, v in force.items():
+                blk[a - 0xAA00] = v
         inputs.append(bytes(blk))
     expect = []
     for blk in inputs:
@@ -1983,6 +2113,8 @@ def main_coverage():
 
 def main():
     name = os.environ.get("FIST_GL", "timer")
+    if os.environ.get("FIST_COV") == "ai":
+        return main_coverage_ai()
     if os.environ.get("FIST_COV"):
         return main_coverage()
     if name == "ai":
