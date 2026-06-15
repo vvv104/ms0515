@@ -207,35 +207,39 @@ RECOV:  MOV     #1,R3                  ; XOR mask for the facing toggle
 """
 
 
-def emit_hitdet():
-    """$9D29 hit_detect (player 1): does P1's attack reach P2 this frame?
-    Latches both x-positions, walks the reach tables vs the measured distance,
-    and on a hit sets the result $AA08 (2 = full, 1 = half).  R1 = d (action,
-    zero-extended); R2 = e (reach threshold); R0 = c (distance); R3/R5 scratch.
-    Tables $A9BC/$A98A are addressed by their absolute Spectrum value."""
+def emit_hitdet(label, A):
+    """hit_detect: does this fighter's attack reach the opponent?  Walks the
+    reach tables ($A98A/$A9BC by facing) to a pointer, derefs m[ptr+ridx], and
+    compares the measured distance to set the result A['result'] (2 full /
+    1 half).  Parametrized by the P1 ($9D29) / P2 ($9ED2) address set A; P1
+    latches both x-positions ($A071/$A072) first, P2 reuses them."""
+    latch = ""
+    if A['setpos']:
+        sp0, sp1 = A['setpos']
+        latch = (f"        MOVB    {g(sp0)},R0\n"
+                 f"        MOVB    R0,{g(0xA071)}\n"
+                 f"        MOVB    {g(sp1)},R0\n"
+                 f"        MOVB    R0,{g(0xA072)}\n")
     return f"""
 ;-------------------------------------------------------------------
-; HITDET - $9D29 hit_detect (P1).  Sets $AA08 on a connecting strike.
-HITDET: MOVB    {g(0xAA19)},R0         ; latch positions ($A071=$AA19,
-        MOVB    R0,{g(0xA071)}         ;                  $A072=$AA59)
-        MOVB    {g(0xAA59)},R0
-        MOVB    R0,{g(0xA072)}
-        MOVB    {g(0xAA04)},R1         ; d = action
+; {label} - hit_detect.  Sets {A['result']:#06x} on a connecting strike.
+{label}:
+{latch}        MOVB    {g(A['act'])},R1
         BIC     #177400,R1
         TSTB    {g(0xA90D, 'R1')}      ; striking action? ($A90D[d])
         BNE     10$
-11$:    RTS     PC                     ; near guard-exit trampoline (9$ is
-10$:    TSTB    {g(0xAA13)}            ;   out of branch range from here)
-        BEQ     11$                    ; g1 must be set
-        TSTB    {g(0xAA16)}            ; g2 must be clear
+11$:    RTS     PC                     ; near guard-exit trampoline
+10$:    TSTB    {g(A['g1'])}           ; g1 must be set
+        BEQ     11$
+        TSTB    {g(A['g2'])}           ; g2 must be clear
         BNE     11$
-        TSTB    {g(0xAA09)}            ; g3 must be clear
+        TSTB    {g(A['g3'])}           ; g3 must be clear
         BNE     11$
         MOVB    {g(0xA971, 'R1')},R0   ; fg must equal $A971[d]
-        CMPB    {g(0xAA12)},R0
+        CMPB    {g(A['fg'])},R0
         BNE     11$
-        MOVB    {g(0xAA17)},R0         ; same facing -> $A9BC, else $A98A
-        CMPB    R0,{g(0xAA57)}
+        MOVB    {g(A['aface'])},R0     ; same facing -> $A9BC, else $A98A
+        CMPB    R0,{g(A['tface'])}
         BNE     1$
         MOV     #43452.,R2             ; $A9BC
         BR      2$
@@ -247,8 +251,8 @@ HITDET: MOVB    {g(0xAA19)},R0         ; latch positions ($A071=$AA19,
         MOVB    R0,{g(0xA06F)}         ; store ptr low -> $A06F (odd: byte
         MOV     R0,R3                  ;   stores; a word MOV would hit $A06E)
         SWAB    R3
-        MOVB    R3,{g(0xA070)}         ; store ptr high -> $A070
-        MOVB    {g(0xAA52)},R3         ; reach = m[ptr + ridx]
+        MOVB    R3,{g(0xA070)}
+        MOVB    {g(A['ridx'])},R3      ; reach = m[ptr + ridx]
         BIC     #177400,R3
         ADD     R3,R0
         MOVB    {gp('R0')},R0
@@ -258,7 +262,7 @@ HITDET: MOVB    {g(0xAA19)},R0         ; latch positions ($A071=$AA19,
         ADD     #200,R0                ; e = (reach + $80) & $FF
         BIC     #177400,R0
         MOV     R0,R2
-        TSTB    {g(0xAA17)}            ; dist by facing
+        TSTB    {g(A['aface'])}        ; dist by facing
         BEQ     3$
         MOVB    {g(0xA071)},R0         ; facing!=0: $A071 - $A072
         BIC     #177400,R0
@@ -277,7 +281,7 @@ HITDET: MOVB    {g(0xAA19)},R0         ; latch positions ($A071=$AA19,
         BEQ     6$
         CMP     R0,R2                  ; --- type != 0 ---
         BNE     5$
-        MOVB    #2,{g(0xAA08)}         ; c == e -> full
+        MOVB    #2,{g(A['result'])}    ; c == e -> full
         BR      9$
 5$:     BLO     9$                     ; c < e -> miss
         MOVB    {g(0xA93F, 'R1')},R3   ; (c - $A93F[d]) & $FF < e -> full
@@ -287,7 +291,7 @@ HITDET: MOVB    {g(0xAA19)},R0         ; latch positions ($A071=$AA19,
         BIC     #177400,R5
         CMP     R5,R2
         BHIS    52$
-        MOVB    #2,{g(0xAA08)}
+        MOVB    #2,{g(A['result'])}
         BR      9$
 52$:    MOVB    {g(0xA958, 'R1')},R3   ; (c - $A958[d]) & $FF < e -> half
         BIC     #177400,R3
@@ -296,11 +300,11 @@ HITDET: MOVB    {g(0xAA19)},R0         ; latch positions ($A071=$AA19,
         BIC     #177400,R5
         CMP     R5,R2
         BHIS    9$
-        MOVB    #1,{g(0xAA08)}
+        MOVB    #1,{g(A['result'])}
         BR      9$
 6$:     CMP     R0,R2                  ; --- type == 0 ---
         BNE     7$
-        MOVB    #2,{g(0xAA08)}         ; c == e -> full
+        MOVB    #2,{g(A['result'])}    ; c == e -> full
         BR      9$
 7$:     BHIS    9$                     ; c > e -> miss
         MOVB    {g(0xA93F, 'R1')},R3   ; (c + $A93F[d]) & $FF >= e -> full
@@ -317,9 +321,9 @@ HITDET: MOVB    {g(0xAA19)},R0         ; latch positions ($A071=$AA19,
         BIC     #177400,R5
         CMP     R5,R2
         BLO     9$
-        MOVB    #1,{g(0xAA08)}
+        MOVB    #1,{g(A['result'])}
         BR      9$
-8$:     MOVB    #2,{g(0xAA08)}
+8$:     MOVB    #2,{g(A['result'])}
 9$:     RTS     PC
 """
 
@@ -1285,8 +1289,12 @@ def emit_combined():
     label or space conflicts) plus the ORCH integration driver.  The AI is
     included (with a dummy random array) to prove it assembles alongside the
     rest; ORCH does not call it."""
-    return (emit_timer() + emit_recover() + emit_hitdet() + emit_anim() +
-            emit_apply() + emit_score() + emit_yinyang() + emit_timetik() +
+    return (emit_timer() + emit_recover() +
+            emit_hitdet("HITDET", ref.HIT_P1) + emit_hitdet("HITDP2", ref.HIT_P2) +
+            emit_anim() +
+            emit_apply("APLYHT", 0xAA44, 0xAA57, 0xAA17, 0xAA03) +
+            emit_apply("APLYP1", 0xAA04, 0xAA17, 0xAA57, 0xAA43) +
+            emit_score() + emit_yinyang() + emit_timetik() +
             emit_ranktk() + emit_rstacf() + emit_rstfrm() + emit_ai([0]) +
             emit_orch())
 
@@ -1547,20 +1555,21 @@ BCDADD: MOV     R0,R2                  ; lo = (x & $F) + (addend & $F) + carry
 """
 
 
-def emit_apply():
-    """$A01C apply_hit (P2 attacker): set the reaction $AA03 (stagger/knockdown)
-    and the hit value $B150 from the attacker action $AA44.  R1 = d, R0 scratch.
-    Mirror of $9E7F (which writes $AA43); the whole-game build emits both."""
+def emit_apply(label, act, aface, tface, react):
+    """apply_hit: set the opponent reaction `react` ($AA43 for the P1 attacker
+    $9E7F / $AA03 for the P2 attacker $A01C) and the hit value $B150 from the
+    attacker action `act`, keyed on facing (`aface` vs `tface`) and the
+    $B47E[d] heavy-action table.  $AA3F/$A073/$B150 are shared."""
     return f"""
 ;-------------------------------------------------------------------
-; APLYHT - $A01C apply_hit (P2).  Sets opponent reaction $AA03 + $B150.
-APLYHT: MOVB    {g(0xAA44)},R1         ; d = attacker action
+; {label} - apply_hit.  Sets opponent reaction {react:#06x} + $B150.
+{label}: MOVB    {g(act)},R1            ; d = attacker action
         BIC     #177400,R1
-        MOVB    R1,{g(0xAA3F)}         ; $AA3F = d
+        MOVB    R1,{g(0xAA3F)}
         MOVB    {g(0xA073, 'R1')},R0   ; $B150 = m[$A073 + d]
         MOVB    R0,{g(0xB150)}
-        MOVB    {g(0xAA57)},R0         ; same facing ($AA57 == $AA17) ?
-        CMPB    R0,{g(0xAA17)}
+        MOVB    {g(aface)},R0          ; same facing ?
+        CMPB    R0,{g(tface)}
         BNE     2$
         TSTB    {g(0xB47E, 'R1')}      ; same: $16 if B47E[d] else $1A
         BNE     1$
@@ -1583,7 +1592,7 @@ APLYHT: MOVB    {g(0xAA44)},R1         ; d = attacker action
 4$:     MOV     #4,R0
         MOVB    R0,{g(0xB150)}
         MOV     #33,R0
-8$:     MOVB    R0,{g(0xAA03)}
+8$:     MOVB    R0,{g(react)}
         RTS     PC
 """
 
@@ -1596,13 +1605,20 @@ ROUTINES = {
     "recover": (0x9AD7, "RECOV", emit_recover,
                 lambda m, r: ref.recover_9ad7(m, r['C']), 0xB500,
                 [("R4", "C")], None, _B),
-    "hitdet": (0x9D29, "HITDET", emit_hitdet,
-               lambda m, r: ref.hit_detect(m, ref.HIT_P1), 0xB500, [], 0xA06F, _B),
+    # win_end $C000: the $A98A/$A9BC reach pointers index data up in the
+    # $BB00.. region, which must be inside the window for the m[ptr+ridx] read.
+    "hitdet": (0x9D29, "HITDET", lambda: emit_hitdet("HITDET", ref.HIT_P1),
+               lambda m, r: ref.hit_detect(m, ref.HIT_P1), 0xC000, [], 0xA06F, _B),
+    "hitdp2": (0x9ED2, "HITDP2", lambda: emit_hitdet("HITDP2", ref.HIT_P2),
+               lambda m, r: ref.hit_detect(m, ref.HIT_P2), 0xC000, [], 0xA06F, _B),
     "anim": (0x97BB, "UPDFGT", emit_anim,
              lambda m, r: ref.update_fighter(m, r['C']), 0xB500,
              [("R4", "C")], None, _B),
-    "apply": (0xA01C, "APLYHT", emit_apply,
+    "apply": (0xA01C, "APLYHT",
+              lambda: emit_apply("APLYHT", 0xAA44, 0xAA57, 0xAA17, 0xAA03),
               lambda m, r: ref.apply_hit(m, ref.HIT_P2), 0xB500, [], 0xAA3F, _B),
+    # applyp1 ($9E7F) is never reached in the attract demo (P1 lands no hit);
+    # it is verified by symmetry with APLYHT and assembled in the combined build.
     "score": (0xAF36, "AWARD", emit_score,
               lambda m, r: ref.award_points(m), 0xB100, [], None, _B),
     "yinyang": (0x900E, "YINYNG", emit_yinyang,
