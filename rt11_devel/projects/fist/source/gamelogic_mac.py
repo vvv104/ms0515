@@ -2187,11 +2187,12 @@ def main_combined():
           f"window {win_size} B, expected -> {EXP_BIN.name})")
 
 
-# Full game-data block: the whole Spectrum $9C00..$F801 mirror = the SHARED GST
-# for the unified render image (logic state $AA, render area $C4xx, pose data
-# $C427+, the $B500-$B900 decoder tables, compose buffer $F730).  $F802 keeps it
-# even; at .=100000 it spans 0100000..0155772 - fits banks 4-6, below bank 7.
-GST_FULL_END = 0xF802
+# Full game-data block: the SHARED GST for the unified render image (logic state
+# $AA, render area $C4xx, pose data $C427+, the $B500-$B900 decoder tables, and
+# the compose buffer $F730).  The compose buffer is 884 bytes ($F730..$FAA4), so
+# the block must reach $FAA4 (NOT the nominal $F801).  At .=100000 the 24228-byte
+# block spans 0100000..0157244 - still fits banks 4-6, below bank 7 (0160000).
+GST_FULL_END = 0xFAA4
 
 
 def main_render():
@@ -2567,6 +2568,63 @@ def main_95e1():
           f"window {win_size} B, expected -> {EXP_BIN.name})")
 
 
+def main_decgst():
+    """Render step 1b: drive the (already-verified) fighter decoder from the
+    SHARED full GST.  The $B500-$B900 tables, the pose control stream, and the
+    $F730 compose buffer all live inside the full $9C00..$F801 GST, so the
+    decoder's data labels become GST-relative EQUs (TB5xx/FBUF/FCTRL) instead of
+    separate captured blocks - the decoder code itself is reused verbatim.  The
+    work area W stays a local 64-byte scratch (it holds PDP pointers, not $8AE0
+    Spectrum addresses).  Verify the composed $F730 == the decoder reference
+    (FEXP) via the VRAM oracle (TOVRAM copies $F730 -> VRAM[0..884])."""
+    import fighter_mac as fm
+    import fighter_data as fd
+    fm.STAGE_LEVEL = int(os.environ.get("FGHT_LEVEL", "1"))   # full decoder, not the no-op
+    nelem = int(os.environ.get("FGHT_NELEM", "5000"))
+    c40e = int(os.environ.get("FGHT_C40E", "4"))
+    c407 = int(os.environ.get("FGHT_C407", "0"))
+    before, hl, de = fd.capture(c40e, c407)
+    m = bytearray(before)
+    fd.run_loop(m, hl, de, limit=nelem)
+    fexp = bytes(m[fd.FBUF:fd.FBUF + fd.FBUF_LEN])      # composed fighter
+    EXP_BIN.write_bytes(fexp)
+    WIN_JSON.write_text(json.dumps({"base": fd.FBUF, "size": fd.FBUF_LEN}))
+
+    preamble = ("        .TITLE  FIST\nDPRAM  = 157700\nDISPAT = 177400\n"
+                "SYSC   = 177604\nVRAM   = 40000\n")
+    driver = fm.HEADER.split("VRAM   = 40000", 1)[1]    # .EVEN START: ... PRESENT
+    # GST-relative EQUs: tables, compose buffer, pose control stream
+    equs = "\n"
+    for t in fd.TABLES:
+        equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
+    equs += f"FBUF   = GST+{fd.FBUF - GBASE}.\n"
+    equs += f"FCTRL  = GST+{hl - GBASE}.\n"
+    gst = ("\n        .ASECT\n        . = 100000\n"
+           + _emit_window("GST", before[GBASE:GST_FULL_END]) + "        .EVEN\n")
+    data = (_emit_window("WINIT", before[0x8AE0:0x8B20])
+            + _emit_window("FINIT", before[fd.FBUF:fd.FBUF + fd.FBUF_LEN]))
+    src = (preamble + gst + equs
+           + "\n        .ASECT\n        . = 1000\n" + driver
+           + fm.emit_decrun() + fm.TAIL + "\n" + data
+           + "\n        .EVEN\n        .END    START\n")
+    fwid, fhgt = before[0xC40A], before[0xC409]
+    top, left = (200 - fhgt) // 2, (40 - fwid) // 2
+    finish = "PRESENT" if os.environ.get("FGHT_PRESENT") else "TOVRAM"
+    src = (src.replace("%C408%", str(before[0xC408]))
+              .replace("%C40E%", str(before[0xC40E]))
+              .replace("%C407%", str(before[0xC407]))
+              .replace("%DEOFF%", str(de - fd.FBUF))
+              .replace("%NELEM%", str(nelem))
+              .replace("%FWID%", str(fwid))
+              .replace("%FHGT%", str(fhgt))
+              .replace("%DSTOFF%", str((top * 40 + left) * 2))
+              .replace("%FINISH%", finish))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (decgst: decoder on shared GST, "
+          f"pose @${hl:04X}, expected $F730 -> {EXP_BIN.name})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
     if os.environ.get("FIST_COV") == "ai":
@@ -2585,6 +2643,8 @@ def main():
         return main_combined()
     if name == "render":
         return main_render()
+    if name == "decgst":
+        return main_decgst()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE
