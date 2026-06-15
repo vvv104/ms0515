@@ -504,6 +504,160 @@ RNG9BA: MOVB    {g(0xAA19, 'R4')},R0   ; d = m[$AA19+C]
 """
 
 
+def emit_score():
+    """$AF36 award_points: credit a yin-yang point.  Score flag $AA08(P1)/
+    $AA48(P2) = 1 half / 2 full; value from $B00B[$AA3F], halved for a half
+    point, into $AA02/$AA42 + the BCD display buffer ($B02D/$B030).  The Z80
+    uses ADD/DAA; PDP-11 has neither DAA nor SUBB, so BCDADD does BCD addition
+    by digit decomposition (matches the reference's decimal arithmetic)."""
+    return f"""
+;-------------------------------------------------------------------
+; AWARD - $AF36 award_points.  R0/R1 scratch, R5 = BCD buffer addr.
+AWARD:  TSTB    {g(0xAA08)}            ; P1 scored?
+        BEQ     5$
+        MOVB    {g(0xAA3F)},R0         ; b = $B00B[attacker action]
+        BIC     #177400,R0
+        MOVB    {g(0xB00B, 'R0')},R1
+        BIC     #177400,R1
+        MOVB    {g(0xAA08)},R0
+        CMP     R0,#1                  ; half point -> b >>= 1
+        BNE     1$
+        ASR     R1
+        BIC     #177400,R1
+1$:     MOVB    {g(0xAA02)},R0         ; $AA02 += b
+        BIC     #177400,R0
+        ADD     R1,R0
+        MOVB    R0,{g(0xAA02)}
+        MOV     #45101.,R5             ; score_calc into $B02D
+        JSR     PC,SCORE
+        CLRB    {g(0xAA08)}
+        RTS     PC
+5$:     TSTB    {g(0xAA48)}            ; P2 scored?
+        BEQ     9$
+        MOVB    {g(0xAA3F)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xB00B, 'R0')},R1
+        BIC     #177400,R1
+        MOVB    {g(0xAA48)},R0
+        CMP     R0,#1
+        BNE     6$
+        ASR     R1
+        BIC     #177400,R1
+6$:     MOVB    {g(0xAA42)},R0         ; $AA42 += b
+        BIC     #177400,R0
+        ADD     R1,R0
+        MOVB    R0,{g(0xAA42)}
+        MOV     #45104.,R5             ; score_calc into $B030
+        JSR     PC,SCORE
+        CLRB    {g(0xAA48)}
+9$:     RTS     PC
+
+;-------------------------------------------------------------------
+; SCORE - $AFC2.  R5 = 3-byte LE BCD buffer (Spectrum addr); R1 = b.
+; Adds b (BCD) with carry across the three bytes ($0A remaps to $10).
+SCORE:  CMP     R1,#12                 ; b == $0A -> $10
+        BNE     1$
+        MOV     #20,R1
+1$:     CLR     R4                     ; carry_in = 0
+        MOVB    {gp('R5')},R0          ; byte 0 += b
+        BIC     #177400,R0
+        JSR     PC,BCDADD
+        MOVB    R0,{gp('R5')}
+        CLR     R1                     ; bytes 1,2 add only the carry
+        INC     R5
+        MOVB    {gp('R5')},R0
+        BIC     #177400,R0
+        JSR     PC,BCDADD
+        MOVB    R0,{gp('R5')}
+        INC     R5
+        MOVB    {gp('R5')},R0
+        BIC     #177400,R0
+        JSR     PC,BCDADD
+        MOVB    R0,{gp('R5')}
+        RTS     PC
+
+;-------------------------------------------------------------------
+; BCDADD - R0 = x (BCD), R1 = addend (BCD), R4 = carry_in.  Returns
+; R0 = BCD result, R4 = carry_out.  R2/R3 scratch; R1,R5 preserved.
+BCDADD: MOV     R0,R2                  ; lo = (x & $F) + (addend & $F) + carry
+        BIC     #177760,R2
+        MOV     R1,R3
+        BIC     #177760,R3
+        ADD     R3,R2
+        ADD     R4,R2
+        MOV     R0,R3                  ; hi = (x >> 4) + (addend >> 4)
+        ASR     R3
+        ASR     R3
+        ASR     R3
+        ASR     R3
+        BIC     #177760,R3
+        MOV     R1,R0
+        ASR     R0
+        ASR     R0
+        ASR     R0
+        ASR     R0
+        BIC     #177760,R0
+        ADD     R0,R3
+        CMP     R2,#12                 ; lo >= 10 -> borrow into hi
+        BLO     1$
+        SUB     #12,R2
+        INC     R3
+1$:     CLR     R4                     ; hi >= 10 -> carry_out
+        CMP     R3,#12
+        BLO     2$
+        SUB     #12,R3
+        MOV     #1,R4
+2$:     MOV     R3,R0                  ; result = (hi << 4) | lo
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        BIS     R2,R0
+        RTS     PC
+"""
+
+
+def emit_apply():
+    """$A01C apply_hit (P2 attacker): set the reaction $AA03 (stagger/knockdown)
+    and the hit value $B150 from the attacker action $AA44.  R1 = d, R0 scratch.
+    Mirror of $9E7F (which writes $AA43); the whole-game build emits both."""
+    return f"""
+;-------------------------------------------------------------------
+; APLYHT - $A01C apply_hit (P2).  Sets opponent reaction $AA03 + $B150.
+APLYHT: MOVB    {g(0xAA44)},R1         ; d = attacker action
+        BIC     #177400,R1
+        MOVB    R1,{g(0xAA3F)}         ; $AA3F = d
+        MOVB    {g(0xA073, 'R1')},R0   ; $B150 = m[$A073 + d]
+        MOVB    R0,{g(0xB150)}
+        MOVB    {g(0xAA57)},R0         ; same facing ($AA57 == $AA17) ?
+        CMPB    R0,{g(0xAA17)}
+        BNE     2$
+        TSTB    {g(0xB47E, 'R1')}      ; same: $16 if B47E[d] else $1A
+        BNE     1$
+        MOV     #32,R0
+        BR      8$
+1$:     MOV     #26,R0
+        BR      8$
+2$:     TSTB    {g(0xB47E, 'R1')}      ; differ + B47E[d] != 0 -> $1A
+        BEQ     3$
+        MOV     #32,R0
+        BR      8$
+3$:     CMP     R1,#30                 ; heavy actions ($18,$07,$0C) -> $1B,B150=4
+        BEQ     4$
+        CMP     R1,#7
+        BEQ     4$
+        CMP     R1,#14
+        BEQ     4$
+        MOV     #26,R0                 ; else $16
+        BR      8$
+4$:     MOV     #4,R0
+        MOVB    R0,{g(0xB150)}
+        MOV     #33,R0
+8$:     MOVB    R0,{g(0xAA03)}
+        RTS     PC
+"""
+
+
 # name -> (addr, label, emit, refapply(m,regs), win_end, reg_setup, witness)
 ROUTINES = {
     "timer": (0x9C6F, "TIMER", emit_timer,
@@ -516,6 +670,10 @@ ROUTINES = {
     "anim": (0x97BB, "UPDFGT", emit_anim,
              lambda m, r: ref.update_fighter(m, r['C']), 0xB500,
              [("R4", "C")], None),
+    "apply": (0xA01C, "APLYHT", emit_apply,
+              lambda m, r: ref.apply_hit(m, ref.HIT_P2), 0xB500, [], 0xAA3F),
+    "score": (0xAF36, "AWARD", emit_score,
+              lambda m, r: ref.award_points(m), 0xB100, [], None),
 }
 
 
