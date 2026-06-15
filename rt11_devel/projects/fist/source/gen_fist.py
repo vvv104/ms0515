@@ -449,6 +449,11 @@ def main():
         fighter_mac.main()
         return
 
+    if os.environ.get("FIST_MODE") == "gamelogic":
+        import gamelogic_mac
+        gamelogic_mac.main()
+        return
+
     from bg_data import BackgroundData
 
     n = int(os.environ.get("FIST_BG", "1"))
