@@ -96,6 +96,31 @@ def setup_chain(m, hl, b_in, c_in):
     return src, dest
 
 
+def capture_c34f(want_c40e=0x04, want_c407=0, budget=2000000):
+    """Return (snapshot, b_in, c_in, pose_hl) for the $C34F entry whose decode
+    reaches a $8833 with the wanted mode/facing - the input for the MACRO port
+    of the setup chain."""
+    sim, mem = build_sim(watch=(0, 0))
+    regs, memory, ops = sim.registers, sim.memory, sim.opcodes
+    fdur, ia = sim.frame_duration, sim.int_active
+    after_c234 = False
+    last = None
+    for _ in range(budget):
+        pc = regs[PC]
+        if pc == 0xC234:
+            after_c234 = True
+        if pc == 0xC34F:
+            last = (bytes(memory), regs[B], regs[C], regs[H] * 256 + regs[L])
+        if after_c234 and pc == 0x8833 and memory[0xC40E] == want_c40e \
+                and memory[0xC407] == want_c407 and last is not None:
+            return last
+        after_c234 = after_c234 and pc != 0x8AD0
+        ops[memory[pc]]()
+        if regs[26] and regs[25] % fdur < ia:
+            sim.accept_interrupt(regs, memory, regs[PC])
+    raise SystemExit("no matching $C34F found")
+
+
 WATCH = [0x8B0A, 0x8AF3, 0x8B1B, 0x8B1C, 0xC407, 0xC408, 0xC40E]
 
 

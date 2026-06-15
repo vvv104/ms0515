@@ -2625,6 +2625,222 @@ def main_decgst():
           f"pose @${hl:04X}, expected $F730 -> {EXP_BIN.name})")
 
 
+def emit_setupchain():
+    """MACRO-11 decode-setup chain $C34F->$C36E->$C2B5->$C319->$8803 (single
+    segment).  In: R3=B_in, R4=C_in (the $C1A2 sub-offsets); reads the pose
+    pointer from GST $C428.  Out: SRCP=source ptr / DSTP=dest ptr for the $8833
+    element loop, the four $8803 cells in W, $C40E/$C407/$C408 in the GST."""
+    return f"""
+;-------------------------------------------------------------------
+; SETUPC - decode-setup chain (builds the decoder inputs from the pose pointer).
+SETUPC: MOVB    R3,{g(0xC412)}
+        MOVB    R4,{g(0xC413)}
+        MOV     {g(0xC428)},R5         ; R5 = pose ptr (Spectrum addr)
+        MOVB    GST-116000+1(R5),{g(0xC416)}
+        MOVB    GST-116000+2(R5),{g(0xC417)}
+        ADD     #3,R5
+        MOVB    GST-116000(R5),{g(0xC414)}
+        MOVB    GST-116000+1(R5),{g(0xC415)}
+        MOVB    GST-116000+2(R5),{g(0xC418)}
+        MOVB    GST-116000+3(R5),{g(0xC419)}
+        ADD     #4,R5                  ; R5 = seg_data
+        MOV     R5,SEGDAT
+        MOVB    {g(0xC40F)},{g(0xC40D)}
+        MOVB    {g(0xC410)},{g(0xC40C)}
+        MOVB    {g(0xC411)},{g(0xC40B)}
+        MOVB    {g(0xC413)},R0         ; C = $C413 + $C415
+        BIC     #177400,R0
+        MOVB    {g(0xC415)},R1
+        BIC     #177400,R1
+        ADD     R1,R0
+        CMPB    {g(0xC415)},#377       ; $C415 == $FF special
+        BNE     1$
+        MOV     #276,R0                ; $BE - $C41A - $0C
+        MOVB    {g(0xC41A)},R1
+        BIC     #177400,R1
+        SUB     R1,R0
+        SUB     #14,R0
+1$:     BIC     #177400,R0
+        MOV     R0,CVAL
+        TSTB    {g(0xC410)}            ; B
+        BNE     2$
+        MOVB    {g(0xC412)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xC414)},R1
+        BIC     #177400,R1
+        ADD     R1,R0
+        BR      3$
+2$:     MOVB    {g(0xC416)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xC414)},R1
+        BIC     #177400,R1
+        SUB     R1,R0
+        MOVB    GST-116000(R5),R1      ; m[seg_data] << 2
+        BIC     #177400,R1
+        ASL     R1
+        ASL     R1
+        SUB     R1,R0
+        MOVB    {g(0xC412)},R1
+        BIC     #177400,R1
+        ADD     R1,R0
+3$:     BIC     #177400,R0
+        MOV     R0,BVAL
+        CLR     R2                     ; dest = $C40D*C (repeated add) + (B>>2) + FBUF
+        MOVB    {g(0xC40D)},R0
+        BIC     #177400,R0
+        BEQ     5$
+        MOV     CVAL,R1
+4$:     ADD     R1,R2
+        DEC     R0
+        BNE     4$
+5$:     MOV     BVAL,R0
+        ASR     R0
+        ASR     R0
+        BIC     #177400,R0
+        ADD     R0,R2
+        ADD     #FBUF,R2
+        MOV     R2,DSTP
+        MOV     BVAL,R0                ; mode = {{0:0,1:2,2:4,3:8}}[B&3]
+        BIC     #177774,R0
+        BEQ     6$
+        MOV     #1,R1
+7$:     ASL     R1
+        DEC     R0
+        BNE     7$
+        MOV     R1,R0
+        BR      8$
+6$:     CLR     R0
+8$:     MOVB    {g(0xC40C)},R1
+        BIC     #177400,R1
+        BIS     R0,R1
+        MOVB    R1,{g(0xC40E)}
+        MOVB    {g(0xC40B)},{g(0xC407)}
+        MOVB    {g(0xC40D)},{g(0xC408)}
+        MOVB    {g(0xC40E)},R0         ; $8803: $8B0A = (A & $FE) != 0
+        BIC     #177401,R0
+        CLR     R1
+        TST     R0
+        BEQ     9$
+        MOV     #1,R1
+9$:     MOVB    R1,W8B0A
+        CLRB    WAF3
+        MOV     SEGDAT,R5
+        MOVB    GST-116000(R5),R0      ; a = m[seg_data]
+        BIC     #177400,R0
+        MOVB    R0,WB1B
+        MOVB    R0,WB1C
+        TST     R1
+        BEQ     10$
+        INC     R0
+        MOVB    R0,WB1C
+10$:    MOV     SEGDAT,R0              ; SRCP = mirror(seg_data + 1)
+        INC     R0
+        ADD     #GST-116000,R0
+        MOV     R0,SRCP
+        RTS     PC
+        .EVEN
+SEGDAT: .WORD   0
+CVAL:   .WORD   0
+BVAL:   .WORD   0
+"""
+
+
+def main_drawgst():
+    """Render step 3: draw a fighter from the pose pointer the LOGIC produces.
+    Captures at $C34F (where $C428 holds the pose pointer + the positioning
+    params are set), emits the full shared GST + the ported setup chain (SETUPC)
+    + the reused element loop (decoder reads pose/tables/compose from the GST).
+    The element loop is made runtime-driven: C40EM/C407M point at the GST cells
+    the chain writes, and the C408 stride is read into C408W.  Verify the
+    composed $F730 == the chain+loop Python reference."""
+    import fighter_mac as fm
+    import fighter_data as fd
+    import setup_ref as sr
+    fm.STAGE_LEVEL = 1
+    nelem = int(os.environ.get("FGHT_NELEM", "5000"))
+    snap, b_in, c_in, pose = sr.capture_c34f(0x04, 0)
+    mm = bytearray(snap)
+    src, dest = sr.setup_chain(mm, pose, b_in, c_in)
+    from decoder_ref import run_loop
+    run_loop(mm, src, dest)
+    fexp = bytes(mm[fd.FBUF:fd.FBUF + fd.FBUF_LEN])
+    EXP_BIN.write_bytes(fexp)
+    WIN_JSON.write_text(json.dumps({"base": fd.FBUF, "size": fd.FBUF_LEN}))
+
+    preamble = ("        .TITLE  FIST\nDPRAM  = 157700\nDISPAT = 177400\n"
+                "SYSC   = 177604\nVRAM   = 40000\nKBST   = 177442\n")
+    equs = "\n"
+    for t in fd.TABLES:
+        equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
+    equs += f"FBUF   = GST+{fd.FBUF - GBASE}.\n"
+    equs += f"C40EM  = GST+{0xC40E - GBASE}.\n"     # runtime mode flags
+    equs += f"C407M  = GST+{0xC407 - GBASE}.\n"     # runtime facing flag
+    equs += "WB1C   = W+60.\n"
+    gst = ("\n        .ASECT\n        . = 100000\n"
+           + _emit_window("GST", snap[GBASE:GST_FULL_END]) + "        .EVEN\n")
+    driver = f"""
+        .ASECT
+        . = 1000
+        .EVEN
+START:  MOV     #340,R0
+        MTPS    R0
+        MOV     @#DISPAT,ORIGDP
+        MOVB    @#SYSC,ORIGRC
+        MOVB    @#SYSC,R0
+        BIC     #17,R0
+        MOVB    R0,@#SYSC
+        MOV     #3377,@#DPRAM
+        MOV     #3377,@#DISPAT
+        MOV     #W,R0                  ; zero the work area
+        MOV     #32.,R1
+8$:     CLR     (R0)+
+        DEC     R1
+        BNE     8$
+        MOV     #{b_in}.,R3            ; $C1A2 sub-offsets (captured)
+        MOV     #{c_in}.,R4
+        JSR     PC,SETUPC
+        MOVB    {g(0xC408)},R0         ; C408W = runtime stride
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        JSR     PC,%FINISH%
+WKEY:   MOV     @#KBST,R0
+        BIT     #2,R0
+        BEQ     WKEY
+        MOV     ORIGDP,@#DPRAM
+        MOV     ORIGDP,@#DISPAT
+        MOVB    ORIGRC,@#SYSC
+        EMT     350
+"""
+    tovram_present = fm.HEADER[fm.HEADER.index("TOVRAM:"):]
+    # Use the chain's SRCP/DSTP (drop DECRUN's own init) and the runtime stride.
+    decrun = (fm.emit_decrun()
+              .replace("MOV     #FCTRL,SRCP\n        "
+                       "MOV     #FBUF+%DEOFF%.,DSTP\n        ", "")
+              .replace("ADD     #C408V,R0", "ADD     C408W,R0"))
+    # C40EM/C407M are now GST EQUs (runtime) - drop the baked .BYTE definitions.
+    tail = (fm.TAIL
+            .replace("C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)\n", "")
+            .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", ""))
+    src_txt = (preamble + gst + equs + driver + tovram_present
+               + decrun + emit_setupchain() + tail
+               + "\n        .EVEN\nC408W:  .WORD   0\n        .END    START\n")
+    fwid, fhgt = snap[0xC40A], snap[0xC409]
+    top, left = (200 - fhgt) // 2, (40 - fwid) // 2
+    finish = "PRESENT" if os.environ.get("FGHT_PRESENT") else "TOVRAM"
+    src_txt = (src_txt.replace("%C408%", str(snap[0xC408]))
+               .replace("%C40E%", str(snap[0xC40E]))
+               .replace("%C407%", str(snap[0xC407]))
+               .replace("%NELEM%", str(nelem))
+               .replace("%FWID%", str(fwid)).replace("%FHGT%", str(fhgt))
+               .replace("%DSTOFF%", str((top * 40 + left) * 2))
+               .replace("%FINISH%", finish))
+    src_txt.encode("ascii")
+    OUT_MAC.write_text(src_txt, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (drawgst: chain+decoder from pose "
+          f"${pose:04X}, B_in={b_in} C_in={c_in}, expected $F730 -> {EXP_BIN.name})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
     if os.environ.get("FIST_COV") == "ai":
@@ -2645,6 +2861,8 @@ def main():
         return main_render()
     if name == "decgst":
         return main_decgst()
+    if name == "drawgst":
+        return main_drawgst()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE
