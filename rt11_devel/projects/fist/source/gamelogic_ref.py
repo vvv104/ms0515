@@ -783,6 +783,50 @@ def ai_decide(m, randoms):
     return False
 
 
+def _sort2(a, b):
+    """$C1F6: return (min, max) of the two bytes."""
+    return (a, b) if a <= b else (b, a)
+
+
+def bf13(m):
+    """$BF13 (the logic->graphics bridge): copy each fighter's logic state
+    ($AA..) into the render area ($C41B-$C420), look up the pose record pointers
+    ($C428/$C42A via the $C440 table + $44CC base), and build the screen
+    bounding box ($C434-$C43B) spanning this frame's and last frame's positions
+    (for erase+redraw); then save this frame's positions to $C42C-$C433."""
+    m[0xC425] = m[0xAA52]; m[0xC426] = 0
+    m[0xC41D] = m[0xAA59]
+    m[0xC41E] = m[0xAA58]
+    m[0xC420] = m[0xAA57]
+    m[0xC423] = m[0xAA12]; m[0xC424] = 0
+    m[0xC41B] = m[0xAA19]
+    m[0xC41C] = m[0xAA18]
+    m[0xC41F] = m[0xAA17]
+    p1 = (0x44CC + _u16(m, (0xC440 + (_u16(m, 0xC423) << 1)) & 0xFFFF)) & 0xFFFF
+    m[0xC428] = p1 & 0xFF; m[0xC429] = (p1 >> 8) & 0xFF
+    p2 = (0x44CC + _u16(m, (0xC440 + (_u16(m, 0xC425) << 1)) & 0xFFFF)) & 0xFFFF
+    m[0xC42A] = p2 & 0xFF; m[0xC42B] = (p2 >> 8) & 0xFF
+    ix, iy = _u16(m, 0xC428), _u16(m, 0xC42A)
+    ix1, ix2 = m[(ix + 1) & 0xFFFF], m[(ix + 2) & 0xFFFF]
+    iy1, iy2 = m[(iy + 1) & 0xFFFF], m[(iy + 2) & 0xFFFF]
+    m[0xC434] = _sort2(m[0xC41B], m[0xC42C])[0]
+    m[0xC435] = _sort2((m[0xC41B] + ix1) & 0xFF, m[0xC42D])[1]
+    m[0xC436] = _sort2(m[0xC41C], m[0xC42E])[0]
+    m[0xC437] = 0xBE
+    m[0xC438] = _sort2(m[0xC41D], m[0xC430])[0]
+    m[0xC439] = _sort2((m[0xC41D] + iy1) & 0xFF, m[0xC431])[1]
+    m[0xC43A] = _sort2(m[0xC41E], m[0xC432])[0]
+    m[0xC43B] = 0xBE
+    m[0xC42C] = m[0xC41B]
+    m[0xC42D] = (m[0xC41B] + ix1) & 0xFF
+    m[0xC42E] = m[0xC41C]
+    m[0xC42F] = (m[0xC41C] + ix2) & 0xFF
+    m[0xC430] = m[0xC41D]
+    m[0xC431] = (m[0xC41D] + iy1) & 0xFF
+    m[0xC432] = m[0xC41E]
+    m[0xC433] = (m[0xC41E] + iy2) & 0xFF
+
+
 def _mcpy(m, src, dst, n):
     for i in range(n):
         m[(dst + i) & 0xFFFF] = m[(src + i) & 0xFFFF]
@@ -1074,6 +1118,12 @@ def main():
     run(0x9CA0, "$9CA0 time tick:", lambda mm, r: time_tick(mm), [0x9CA5])
     run(0xAF27, "$AF27 rank tick:", lambda mm, r: rank_tick(mm), [0xAF34],
         budget=40000000)
+    run(0xBF13, "$BF13 gfx bridge:", lambda mm, r: bf13(mm),
+        [0xC41B, 0xC41C, 0xC41D, 0xC41E, 0xC41F, 0xC420, 0xC423, 0xC425,
+         0xC428, 0xC429, 0xC42A, 0xC42B,
+         0xC434, 0xC435, 0xC436, 0xC437, 0xC438, 0xC439, 0xC43A, 0xC43B,
+         0xC42C, 0xC42D, 0xC42E, 0xC42F, 0xC430, 0xC431, 0xC432, 0xC433],
+        stops=[0xC03B])
 
     am, at, ad = validate_ai(0xA090, ai_decide, list(range(0xA5EC, 0xA61D)))
     print(f"{'$A090 AI decide:':22} {am}/{at} match"
