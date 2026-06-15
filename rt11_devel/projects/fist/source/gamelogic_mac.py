@@ -2626,25 +2626,37 @@ def main_decgst():
 
 
 def emit_setupchain():
-    """MACRO-11 decode-setup chain $C34F->$C36E->$C2B5->$C319->$8803 (single
-    segment).  In: R3=B_in, R4=C_in (the $C1A2 sub-offsets); reads the pose
-    pointer from GST $C428.  Out: SRCP=source ptr / DSTP=dest ptr for the $8833
-    element loop, the four $8803 cells in W, $C40E/$C407/$C408 in the GST."""
+    """MACRO-11 decode-setup chain $C34F (SETUPC header) + $C36E/$C2B5/$C319/
+    $8803 (SEGSET per-segment).  SETUPC: R3=B_in, R4=C_in; reads the pose pointer
+    from $C428; SEGCNT=segcount, SEGHL=first segment.  SEGSET: build the decoder
+    inputs for the current segment (SRCP/DSTP + the four $8803 cells in W +
+    $C40E/$C407/$C408 in the GST), advance SEGHL.  The driver loops SEGCNT times,
+    running the element loop per segment (multi-segment fighters layer blits)."""
     return f"""
 ;-------------------------------------------------------------------
-; SETUPC - decode-setup chain (builds the decoder inputs from the pose pointer).
+; SETUPC - $C34F header: store the sub-offsets, read the pose header.
 SETUPC: MOVB    R3,{g(0xC412)}
         MOVB    R4,{g(0xC413)}
         MOV     {g(0xC428)},R5         ; R5 = pose ptr (Spectrum addr)
+        MOVB    GST-116000(R5),SEGCNT
         MOVB    GST-116000+1(R5),{g(0xC416)}
         MOVB    GST-116000+2(R5),{g(0xC417)}
         ADD     #3,R5
+        MOV     R5,SEGHL
+        RTS     PC
+
+;-------------------------------------------------------------------
+; SEGSET - $C36E/$C2B5/$8803 for the current segment (R5 walks SEGHL).
+SEGSET: MOV     SEGHL,R5
         MOVB    GST-116000(R5),{g(0xC414)}
         MOVB    GST-116000+1(R5),{g(0xC415)}
         MOVB    GST-116000+2(R5),{g(0xC418)}
         MOVB    GST-116000+3(R5),{g(0xC419)}
         ADD     #4,R5                  ; R5 = seg_data
         MOV     R5,SEGDAT
+        MOV     R5,R0                  ; next SEGHL = seg_data + seg_len
+        ADD     {g(0xC418)},R0
+        MOV     R0,SEGHL
         MOVB    {g(0xC40F)},{g(0xC40D)}
         MOVB    {g(0xC410)},{g(0xC40C)}
         MOVB    {g(0xC411)},{g(0xC40B)}
@@ -2740,8 +2752,11 @@ SETUPC: MOVB    R3,{g(0xC412)}
         RTS     PC
         .EVEN
 SEGDAT: .WORD   0
+SEGHL:  .WORD   0
 CVAL:   .WORD   0
 BVAL:   .WORD   0
+SEGCNT: .BYTE   0
+        .EVEN
 """
 
 
@@ -2789,35 +2804,36 @@ C101C:  MOVB    {g(0xC435)},R0         ; width = (($C435-$C434)>>2)+2
 """
 
 
-def main_drawgst(full=False):
-    """Render step 3: draw a fighter from the pose pointer the LOGIC produces,
-    on the shared GST.  Two modes:
-    - chain (default): capture at $C34F (params already set); SETUPC reads the
-      pose pointer from $C428 and the captured sub-offsets, drives the decoder.
-    - full (FIST_GL=fulldraw): capture at $C101 (just after $BF13); C101C ports
-      $C101 geometry + $C1A2 dispatch to compute the positioning from the bbox,
-      so NOTHING is taken from the capture but the GST itself - fully driven by
-      the logic's bbox + pose pointer.
-    The element loop is made runtime-driven: C40EM/C407M point at the GST cells
-    the chain writes; the C408 stride is read into C408W; DECRUN's own SRCP/DSTP
-    init is dropped (SETUPC sets them).  Verify the composed $F730 byte-exact."""
+def main_drawgst(mode="chain"):
+    """Render step 3: draw a fighter from the LOGIC state on the shared GST.
+    Modes (increasing how much runs in MACRO vs is taken from the capture):
+    - chain (FIST_GL=drawgst): capture at $C34F (params already set); SETUPC
+      reads the pose pointer from $C428 + the captured sub-offsets.
+    - full (FIST_GL=fulldraw): capture at $C101; C101C computes the positioning
+      from the bbox $C434-$C437; only the GST comes from the capture.
+    - bridge (FIST_GL=bridgedraw): capture at $BF13 (raw logic state); BF13 builds
+      the bbox + pose pointers, then C101C -> SETUPC -> decode.  The whole
+      bridge->draw runs in MACRO from the $AA logic state + pose data.
+    The element loop is made runtime-driven: C40EM/C407M are GST EQUs; the C408
+    stride is read into C408W; DECRUN's own SRCP/DSTP init is dropped (SETUPC
+    sets them).  Verify the composed $F730 byte-exact vs the Python chain."""
     import fighter_mac as fm
     import fighter_data as fd
     import setup_ref as sr
     from decoder_ref import run_loop
     fm.STAGE_LEVEL = 1
     nelem = int(os.environ.get("FGHT_NELEM", "5000"))
-    if full:
-        snap = sr.capture_c101()
-        mm = bytearray(snap)
-        sr.c101_block1(mm)
-        b_in, c_in, pose = sr.c1a2(mm)
-        src, dest = sr.setup_chain(mm, pose, b_in, c_in)
-    else:
+    if mode == "chain":
         snap, b_in, c_in, pose = sr.capture_c34f(0x04, 0)
         mm = bytearray(snap)
-        src, dest = sr.setup_chain(mm, pose, b_in, c_in)
-    run_loop(mm, src, dest)
+    else:
+        snap = sr.capture_bf13() if mode == "bridge" else sr.capture_c101()
+        mm = bytearray(snap)
+        if mode == "bridge":
+            ref.bf13(mm)
+        sr.c101_block1(mm)
+        b_in, c_in, pose = sr.c1a2(mm)
+    sr.draw_fighter(mm, pose, b_in, c_in)
     fexp = bytes(mm[fd.FBUF:fd.FBUF + fd.FBUF_LEN])
     EXP_BIN.write_bytes(fexp)
     WIN_JSON.write_text(json.dumps({"base": fd.FBUF, "size": fd.FBUF_LEN}))
@@ -2852,10 +2868,13 @@ START:  MOV     #340,R0
         DEC     R1
         BNE     8$
 %PARAMS%        JSR     PC,SETUPC
+9$:     JSR     PC,SEGSET              ; per-segment setup + decode
         MOVB    {g(0xC408)},R0         ; C408W = runtime stride
         BIC     #177400,R0
         MOV     R0,C408W
         JSR     PC,DECRUN
+        DECB    SEGCNT
+        BNE     9$
         JSR     PC,%FINISH%
 WKEY:   MOV     @#KBST,R0
         BIT     #2,R0
@@ -2875,9 +2894,15 @@ WKEY:   MOV     @#KBST,R0
     tail = (fm.TAIL
             .replace("C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)\n", "")
             .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", ""))
-    chain = emit_setupchain() + (emit_c101c1a2() if full else "")
-    params = ("        JSR     PC,C101C\n" if full else
-              f"        MOV     #{b_in}.,R3\n        MOV     #{c_in}.,R4\n")
+    chain = (emit_setupchain()
+             + (emit_c101c1a2() if mode in ("full", "bridge") else "")
+             + (emit_bf13() if mode == "bridge" else ""))
+    if mode == "bridge":
+        params = "        JSR     PC,BF13\n        JSR     PC,C101C\n"
+    elif mode == "full":
+        params = "        JSR     PC,C101C\n"
+    else:
+        params = f"        MOV     #{b_in}.,R3\n        MOV     #{c_in}.,R4\n"
     src_txt = (preamble + gst + equs + driver.replace("%PARAMS%", params)
                + tovram_present + decrun + chain + tail
                + "\n        .EVEN\nC408W:  .WORD   0\n        .END    START\n")
@@ -2920,7 +2945,9 @@ def main():
     if name == "drawgst":
         return main_drawgst()
     if name == "fulldraw":
-        return main_drawgst(full=True)
+        return main_drawgst(mode="full")
+    if name == "bridgedraw":
+        return main_drawgst(mode="bridge")
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE

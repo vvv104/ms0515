@@ -166,6 +166,29 @@ def capture_c101(budget=2000000):
     raise SystemExit("no $C101 entry found")
 
 
+def capture_bf13(budget=2000000):
+    """Return the snapshot at a $BF13 entry (the raw logic state, before the
+    bridge builds the bbox) whose draw reaches a $8833."""
+    sim, mem = build_sim(watch=(0, 0))
+    regs, memory, ops = sim.registers, sim.memory, sim.opcodes
+    fdur, ia = sim.frame_duration, sim.int_active
+    after_c234 = False
+    snap = None
+    for _ in range(budget):
+        pc = regs[PC]
+        if pc == 0xC234:
+            after_c234 = True
+        if pc == 0xBF13:
+            snap = bytes(memory)
+        if after_c234 and pc == 0x8833 and snap is not None:
+            return snap
+        after_c234 = after_c234 and pc != 0x8AD0
+        ops[memory[pc]]()
+        if regs[26] and regs[25] % fdur < ia:
+            sim.accept_interrupt(regs, memory, regs[PC])
+    raise SystemExit("no $BF13 entry found")
+
+
 def validate_full(budget=2000000):
     """Capture at $C101 entry (after $BF13 set the bbox + pose pointers); run
     c101_block1 + c1a2 + setup_chain; match the source HL/dest DE/work cells
@@ -203,6 +226,24 @@ def validate_full(budget=2000000):
         if regs[26] and regs[25] % fdur < ia:
             sim.accept_interrupt(regs, memory, regs[PC])
     raise SystemExit("no $C101 -> $8833 found")
+
+
+def draw_fighter(m, pose, b_in, c_in):
+    """$C34F driver: read the pose header [segcount][$C416][$C417] then DECODE
+    every segment - each $C36E computes its own dest + setup, and the element
+    loop ($8833, here decoder_ref.run_loop) composes it into $F730.  Single-
+    segment fighters (B=1) are the common case; multi-segment poses (e.g. B=3)
+    layer several blits."""
+    from decoder_ref import run_loop
+    m[0xC412] = b_in
+    m[0xC413] = c_in
+    segcount = m[pose]
+    hl = (pose + 1) & 0xFFFF
+    m[0xC416] = m[hl]; hl = (hl + 1) & 0xFFFF
+    m[0xC417] = m[hl]; hl = (hl + 1) & 0xFFFF
+    for _ in range(segcount):
+        src, dest, hl = _c36e(m, hl)
+        run_loop(m, src, dest)
 
 
 WATCH = [0x8B0A, 0x8AF3, 0x8B1B, 0x8B1C, 0xC407, 0xC408, 0xC40E]
