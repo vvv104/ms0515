@@ -1883,8 +1883,108 @@ def main_movsel():
           f"{len(randoms)} randoms, expected -> {EXP_BIN.name})")
 
 
+def emit_cov_driver(label, regset, n):
+    """Branch-coverage fuzzer driver: run `label` on N random states (each a
+    fresh $AA00-$AA7F), record the $AA00-$AA7F output to OUTBUF, copy to VRAM.
+    i/pointers live in memory (the tested routine clobbers R0-R5)."""
+    st00 = f"GST+{0xAA00 - GBASE}."
+    return f"""
+;-------------------------------------------------------------------
+; COV - branch-coverage fuzzer over {label}.
+COV:    MOV     #INPUT,CINPTR
+        MOV     #OUTBUF,COUTPTR
+        CLR     CIDX
+CLOOP:  MOV     CINPTR,R1              ; load state i into $AA00..$AA7F
+        MOV     #{st00},R2
+        MOV     #128.,R3
+1$:     MOVB    (R1)+,(R2)+
+        DEC     R3
+        BNE     1$
+        MOV     R1,CINPTR
+{regset}        JSR     PC,{label}
+        MOV     COUTPTR,R1            ; record $AA00..$AA7F output
+        MOV     #{st00},R2
+        MOV     #128.,R3
+2$:     MOVB    (R2)+,(R1)+
+        DEC     R3
+        BNE     2$
+        MOV     R1,COUTPTR
+        INC     CIDX
+        CMP     CIDX,#{n}.
+        BLO     CLOOP
+        MOV     #OUTBUF,R1            ; OUTBUF -> VRAM for the oracle
+        MOV     #VRAM,R2
+        MOV     #{n * 64}.,R3
+3$:     MOV     (R1)+,(R2)+
+        DEC     R3
+        BNE     3$
+        JMP     WKEY
+CIDX:   .WORD   0
+CINPTR: .WORD   0
+COUTPTR:.WORD   0
+"""
+
+
+def main_coverage():
+    """Fuzz one routine: N random $AA00-$AA7F states, MACRO vs the Python
+    reference (the validated ground truth), to exercise branches the captured
+    demo state never reached."""
+    import random
+    name = os.environ.get("FIST_COV", "hitdet")
+    addr, label, emit, refapply, _we, reg_setup, _w, budget = ROUTINES[name]
+    win_end = 0xC500       # covers every cell a routine touches with random
+    win_size = win_end - GBASE   # byte indices (reach data $BB00.., $C427)
+    win_size = win_end - GBASE
+    base, _ = capture_state(addr, refapply, win_end, reg_setup, budget=budget)
+    base = bytearray(base)
+    regval = {z: 0x40 for _, z in reg_setup}
+    if reg_setup:
+        base[0x9C29] = 0          # opponent = fighter 0, whose cells are mutated
+    # Keep GST + INPUT + OUTBUF in banks 4-6 (below octal 0160000); bank 7's
+    # select shares bit 7 with VRAM_EN, so data there behaves differently.
+    n = 48
+    rng = random.Random(0xF1)
+    # By default randomize all of $AA00-$AA7F.  Hit-detect needs the action/
+    # guards/fg kept valid (else the reach pointer leaves the window); only the
+    # positions/faces/ridx vary, so the deep distance logic runs each time.
+    cov_free = {"hitdet": [0xAA19, 0xAA59, 0xAA17, 0xAA57, 0xAA52],
+                "hitdp2": [0xAA19, 0xAA59, 0xAA17, 0xAA57, 0xAA12]}
+    free = [a - 0xAA00 for a in cov_free.get(name, range(0xAA00, 0xAA80))]
+    inputs = []
+    for _i in range(n):
+        blk = bytearray(base[0xAA00:0xAA80])
+        for off in free:
+            blk[off] = rng.randrange(256)
+        inputs.append(bytes(blk))
+    expect = []
+    for blk in inputs:
+        m = bytearray(base)
+        m[0xAA00:0xAA80] = blk
+        refapply(m, regval)
+        expect.append(bytes(m[0xAA00:0xAA80]))
+    EXP_BIN.write_bytes(b"".join(expect))
+    WIN_JSON.write_text(json.dumps({"base": 0xAA00, "size": n * 128}))
+    regset = "".join(f"        MOV     #{regval[z]}.,{pdp}\n"
+                     for pdp, z in reg_setup)
+    src = HEADER + emit() + emit_cov_driver(label, regset, n)
+    src += "\n        .ASECT\n        . = 100000\n"
+    src += _emit_window("GST", bytes(base[GBASE:win_end]))
+    src += "\n        .EVEN\n"
+    src += _emit_window("INPUT", b"".join(inputs))
+    src += f"\n        .EVEN\nOUTBUF: .BLKB   {n * 128}.\n"
+    src += "\n        .EVEN\n        .END    START\n"
+    src = (src.replace("%ENTRY%", "COV").replace("%REGSET%", "")
+              .replace("%WORDS%", "1."))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (coverage {name}, {n} states, "
+          f"expected -> {EXP_BIN.name})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
+    if os.environ.get("FIST_COV"):
+        return main_coverage()
     if name == "ai":
         return main_ai()
     if name == "movsel":
