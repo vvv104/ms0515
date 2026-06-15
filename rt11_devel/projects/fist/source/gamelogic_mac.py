@@ -207,12 +207,14 @@ RECOV:  MOV     #1,R3                  ; XOR mask for the facing toggle
 """
 
 
-def emit_hitdet(label, A):
+def emit_hitdet(label, A, apply_label=None):
     """hit_detect: does this fighter's attack reach the opponent?  Walks the
     reach tables ($A98A/$A9BC by facing) to a pointer, derefs m[ptr+ridx], and
     compares the measured distance to set the result A['result'] (2 full /
     1 half).  Parametrized by the P1 ($9D29) / P2 ($9ED2) address set A; P1
-    latches both x-positions ($A071/$A072) first, P2 reuses them."""
+    latches both x-positions ($A071/$A072) first, P2 reuses them.  With
+    apply_label set, a hit JMPs there (the $9E7F/$A01C tail-call) instead of
+    returning - used by the orchestrator; a miss always RETs."""
     latch = ""
     if A['setpos']:
         sp0, sp1 = A['setpos']
@@ -220,7 +222,7 @@ def emit_hitdet(label, A):
                  f"        MOVB    R0,{g(0xA071)}\n"
                  f"        MOVB    {g(sp1)},R0\n"
                  f"        MOVB    R0,{g(0xA072)}\n")
-    return f"""
+    body = f"""
 ;-------------------------------------------------------------------
 ; {label} - hit_detect.  Sets {A['result']:#06x} on a connecting strike.
 {label}:
@@ -326,6 +328,14 @@ def emit_hitdet(label, A):
 8$:     MOVB    #2,{g(A['result'])}
 9$:     RTS     PC
 """
+    if apply_label:
+        body = body.replace("        BR      9$",
+                            f"        JMP     {apply_label}")
+        tag = f"8$:     MOVB    #2,{g(A['result'])}\n9$:"
+        body = body.replace(
+            tag, f"8$:     MOVB    #2,{g(A['result'])}\n"
+                 f"        JMP     {apply_label}\n9$:")
+    return body
 
 
 def emit_anim():
@@ -1262,8 +1272,13 @@ def emit_orch():
     too, so this checks integration, not the full $9745)."""
     return f"""
 ;-------------------------------------------------------------------
-; ORCH - integration driver: run the ported routines in $9745 order.
+; ORCH - the $9745 orchestrator (deterministic part): timer, the full hit
+; mechanic for both fighters (detect tail-calls apply on a hit), the two
+; animation passes, the two recovery passes, then scoring.  Sound ($B15A) and
+; the keyboard check ($97CB) are skipped (orch_subset skips them too).
 ORCH:   JSR     PC,TIMER
+        JSR     PC,HITDP2              ; $9ED2 hit-detect P2 (+apply on hit)
+        JSR     PC,HITDET              ; $9D29 hit-detect P1 (+apply on hit)
         MOV     #100,R0                ; $9C29 = $40 (opponent of fighter 0)
         MOVB    R0,{g(0x9C29)}
         CLR     R4
@@ -1290,7 +1305,8 @@ def emit_combined():
     included (with a dummy random array) to prove it assembles alongside the
     rest; ORCH does not call it."""
     return (emit_timer() + emit_recover() +
-            emit_hitdet("HITDET", ref.HIT_P1) + emit_hitdet("HITDP2", ref.HIT_P2) +
+            emit_hitdet("HITDET", ref.HIT_P1, apply_label="APLYP1") +
+            emit_hitdet("HITDP2", ref.HIT_P2, apply_label="APLYHT") +
             emit_anim() +
             emit_apply("APLYHT", 0xAA44, 0xAA57, 0xAA17, 0xAA03) +
             emit_apply("APLYP1", 0xAA04, 0xAA17, 0xAA57, 0xAA43) +
@@ -1302,6 +1318,10 @@ def emit_combined():
 def orch_subset(m):
     """Python reference for ORCH - the same sequence on the captured state."""
     ref.update_timer(m)
+    if ref.hit_detect(m, ref.HIT_P2):            # $9ED2 -> $A01C on a hit
+        ref.apply_hit(m, ref.HIT_P2)
+    if ref.hit_detect(m, ref.HIT_P1):            # $9D29 -> $9E7F on a hit
+        ref.apply_hit(m, ref.HIT_P1)
     m[0x9C29] = 0x40
     ref.update_fighter(m, 0)
     m[0x9C29] = 0
@@ -1723,7 +1743,7 @@ def main_ai():
 def main_combined():
     """Integration build: all routines in one module + the ORCH driver,
     verified against orch_subset over the GST window."""
-    win_end = 0xB500
+    win_end = 0xC000                     # covers the hit-detect reach data $BB00..
     win_size = win_end - GBASE
     snap, _ = capture_state(0x9745, lambda m, r: orch_subset(m), win_end, [])
     expected = bytearray(snap)

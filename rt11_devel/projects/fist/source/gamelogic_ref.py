@@ -59,22 +59,23 @@ HIT_P2 = dict(act=0xAA44, g1=0xAA53, g2=0xAA56, g3=0xAA49, fg=0xAA52,
 
 def hit_detect(m, A):
     """$9D29 / $9ED2: does this fighter's attack reach the opponent this frame?
-    Sets A['result'] (2/1) on a hit; the apply is a separate tail-call."""
+    Sets A['result'] (2/1) on a hit and returns True (the real routine then
+    tail-calls the apply); returns False on a miss (the routine RETs)."""
     if A['setpos']:                              # $9D29 latches both x-positions
         m[0xA071], m[0xA072] = m[A['setpos'][0]], m[A['setpos'][1]]
     d = m[A['act']]
     if m[(0xA90D + d) & 0xFFFF] == 0:
-        return
+        return False
     if m[A['g1']] == 0 or m[A['g2']] != 0 or m[A['g3']] != 0:
-        return
+        return False
     if m[A['fg']] != m[(0xA971 + d) & 0xFFFF]:
-        return
+        return False
     tbl = 0xA9BC if m[A['aface']] == m[A['tface']] else 0xA98A
     paddr = (tbl + ((d * 2) & 0xFF)) & 0xFFFF
     m[0xA06F], m[0xA070] = m[paddr], m[(paddr + 1) & 0xFFFF]
     reach = m[(_u16(m, 0xA06F) + m[A['ridx']]) & 0xFFFF]
     if reach == 0x80:
-        return
+        return False
     e = (reach + 0x80) & 0xFF
     if m[A['aface']] != 0:
         dist = (m[0xA071] - m[0xA072]) & 0xFF
@@ -86,21 +87,22 @@ def hit_detect(m, A):
     res = A['result']
     if m[(0xB47E + d) & 0xFFFF] != 0:
         if c == e:
-            m[res] = 2
+            m[res] = 2; return True
         elif c < e:
-            return
+            return False
         elif ((c - a93f) & 0xFF) < e:
-            m[res] = 2
+            m[res] = 2; return True
         elif ((c - a958) & 0xFF) < e:
-            m[res] = 1
+            m[res] = 1; return True
     else:
         if c == e:
-            m[res] = 2
+            m[res] = 2; return True
         elif c < e:
             if ((a93f + c) & 0xFF) >= e:
-                m[res] = 2
+                m[res] = 2; return True
             elif ((a958 + c) & 0xFF) >= e:
-                m[res] = 1
+                m[res] = 1; return True
+    return False
 
 
 def _f(m, base, off):
