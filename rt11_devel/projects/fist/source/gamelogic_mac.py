@@ -504,6 +504,134 @@ RNG9BA: MOVB    {g(0xAA19, 'R4')},R0   ; d = m[$AA19+C]
 """
 
 
+def emit_yinyang():
+    """$900E yin-yang total: add the score flag $AA08/$AA48 to the running
+    half-point total $AA01/$AA41 (one fighter per call)."""
+    return f"""
+;-------------------------------------------------------------------
+; YINYNG - $900E yin-yang total (state part; image draws are separate).
+YINYNG: TSTB    {g(0xAA08)}
+        BEQ     1$
+        MOVB    {g(0xAA01)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xAA08)},R1
+        BIC     #177400,R1
+        ADD     R1,R0
+        MOVB    R0,{g(0xAA01)}
+        RTS     PC
+1$:     TSTB    {g(0xAA48)}
+        BEQ     9$
+        MOVB    {g(0xAA41)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xAA48)},R1
+        BIC     #177400,R1
+        ADD     R1,R0
+        MOVB    R0,{g(0xAA41)}
+9$:     RTS     PC
+"""
+
+
+def emit_timetik():
+    """$9CA0 time tick: decrement the round-time counter $9CA5."""
+    return f"""
+;-------------------------------------------------------------------
+; TIMTIK - $9CA0 time tick.
+TIMTIK: DECB    {g(0x9CA5)}
+        RTS     PC
+"""
+
+
+def emit_ranktk():
+    """$AF27 rank/round counter $AF34 (1..3, wrapping 4 -> 1)."""
+    return f"""
+;-------------------------------------------------------------------
+; RANKTK - $AF27 dan/round counter.
+RANKTK: INCB    {g(0xAF34)}
+        MOVB    {g(0xAF34)},R0
+        BIC     #177400,R0
+        CMP     R0,#4
+        BNE     9$
+        MOV     #1,R0
+        MOVB    R0,{g(0xAF34)}
+9$:     RTS     PC
+"""
+
+
+def emit_rstacf():
+    """$ACF0 exchange reset: clear recovery/guard flags, park both upright."""
+    return f"""
+;-------------------------------------------------------------------
+; RSTACF - $ACF0 exchange reset (state part; the redraw-wait loop is separate).
+RSTACF: CLRB    {g(0xAA0D)}
+        CLRB    {g(0xAA0B)}
+        CLRB    {g(0xAA4B)}
+        CLRB    {g(0xAA16)}
+        CLRB    {g(0xAA56)}
+        MOV     #172,R0
+        MOVB    R0,{g(0xAA18)}
+        MOVB    R0,{g(0xAA58)}
+        RTS     PC
+"""
+
+
+def emit_contact():
+    """$AE2E contact flag $C427: on if either fighter is mid-strike or P1 in the
+    $11 lunge; off otherwise."""
+    return f"""
+;-------------------------------------------------------------------
+; CONTACT - $AE2E contact flag $C427.
+CONTACT:MOVB    {g(0xAA44)},R0
+        BIC     #177400,R0
+        CMP     R0,#21                 ; P2 action == $11 -> off
+        BNE     1$
+        CLRB    {g(0xC427)}
+        RTS     PC
+1$:     MOVB    {g(0xAA04)},R0
+        BIC     #177400,R0
+        CMP     R0,#21                 ; P1 action == $11 -> on
+        BNE     2$
+        MOV     #1,R1
+        MOVB    R1,{g(0xC427)}
+        RTS     PC
+2$:     TSTB    {g(0xA90D, 'R0')}      ; P1 striking -> off (R0 = P1 action)
+        BNE     3$
+        MOVB    {g(0xAA44)},R0
+        BIC     #177400,R0
+        TSTB    {g(0xA90D, 'R0')}      ; P2 striking -> on
+        BNE     4$
+3$:     CLRB    {g(0xC427)}
+        RTS     PC
+4$:     MOV     #1,R1
+        MOVB    R1,{g(0xC427)}
+        RTS     PC
+"""
+
+
+def emit_rstfrm():
+    """$9CA8 head: per-frame default-state reset before the input/AI chain."""
+    body = ["", ";-------------------------------------------------------------------",
+            "; RSTFRM - $9CA8 head: per-frame state reset ($A645 RNG seed omitted).",
+            "RSTFRM:"]
+    for a in (0x9C2B, 0x9CA7, 0xAA4D, 0xAA0D, 0xAA03, 0xAA43, 0xAA16, 0xAA56,
+              0xAA17, 0xAA0B, 0xAA4B, 0xAA09, 0xAA49, 0x9C28):
+        body.append(f"        CLRB    {g(a)}")
+    body.append(f"        MOV     #40,R0")
+    body.append(f"        MOVB    R0,{g(0xAA19)}")        # $20
+    body.append(f"        MOV     #74,R0")
+    body.append(f"        MOVB    R0,{g(0xAA59)}")        # $3C
+    body.append(f"        MOV     #172,R0")               # $7A
+    body.append(f"        MOVB    R0,{g(0xAA18)}")
+    body.append(f"        MOVB    R0,{g(0xAA58)}")
+    body.append(f"        MOV     #27,R0")                # $17
+    for a in (0xAA0C, 0xAA4C, 0xAA05, 0xAA45, 0xAA04, 0xAA44):
+        body.append(f"        MOVB    R0,{g(a)}")
+    body.append(f"        MOV     #1,R0")
+    for a in (0xAA0A, 0xAA4A, 0xAA57):
+        body.append(f"        MOVB    R0,{g(a)}")
+    body.append("        RTS     PC")
+    return "\n".join(body) + "\n"
+
+
 def emit_score():
     """$AF36 award_points: credit a yin-yang point.  Score flag $AA08(P1)/
     $AA48(P2) = 1 half / 2 full; value from $B00B[$AA3F], halved for a half
@@ -658,22 +786,35 @@ APLYHT: MOVB    {g(0xAA44)},R1         ; d = attacker action
 """
 
 
-# name -> (addr, label, emit, refapply(m,regs), win_end, reg_setup, witness)
+# name -> (addr, label, emit, refapply(m,regs), win_end, reg_setup, witness, budget)
+_B = 4000000
 ROUTINES = {
     "timer": (0x9C6F, "TIMER", emit_timer,
-              lambda m, r: ref.update_timer(m), 0xAB00, [], None),
+              lambda m, r: ref.update_timer(m), 0xAB00, [], None, _B),
     "recover": (0x9AD7, "RECOV", emit_recover,
                 lambda m, r: ref.recover_9ad7(m, r['C']), 0xB500,
-                [("R4", "C")], None),
+                [("R4", "C")], None, _B),
     "hitdet": (0x9D29, "HITDET", emit_hitdet,
-               lambda m, r: ref.hit_detect(m, ref.HIT_P1), 0xB500, [], 0xA06F),
+               lambda m, r: ref.hit_detect(m, ref.HIT_P1), 0xB500, [], 0xA06F, _B),
     "anim": (0x97BB, "UPDFGT", emit_anim,
              lambda m, r: ref.update_fighter(m, r['C']), 0xB500,
-             [("R4", "C")], None),
+             [("R4", "C")], None, _B),
     "apply": (0xA01C, "APLYHT", emit_apply,
-              lambda m, r: ref.apply_hit(m, ref.HIT_P2), 0xB500, [], 0xAA3F),
+              lambda m, r: ref.apply_hit(m, ref.HIT_P2), 0xB500, [], 0xAA3F, _B),
     "score": (0xAF36, "AWARD", emit_score,
-              lambda m, r: ref.award_points(m), 0xB100, [], None),
+              lambda m, r: ref.award_points(m), 0xB100, [], None, _B),
+    "yinyang": (0x900E, "YINYNG", emit_yinyang,
+                lambda m, r: ref.yinyang_total(m), 0xAB00, [], None, _B),
+    "timetik": (0x9CA0, "TIMTIK", emit_timetik,
+                lambda m, r: ref.time_tick(m), 0xAB00, [], None, _B),
+    "ranktk": (0xAF27, "RANKTK", emit_ranktk,
+               lambda m, r: ref.rank_tick(m), 0xB000, [], None, 40000000),
+    "rstacf": (0xACF0, "RSTACF", emit_rstacf,
+               lambda m, r: ref.reset_acf0(m), 0xAB00, [], None, 40000000),
+    "contact": (0xAE2E, "CONTACT", emit_contact,
+                lambda m, r: ref.contact_flag(m), 0xC500, [], None, _B),
+    "rstfrm": (0x9CA8, "RSTFRM", emit_rstfrm,
+               lambda m, r: ref.reset_frame_9ca8(m), 0xAB00, [], None, _B),
 }
 
 
@@ -740,11 +881,13 @@ def _emit_window(label, data, per=16):
 
 def main():
     name = os.environ.get("FIST_GL", "timer")
-    addr, entry, emit, refapply, win_end, reg_setup, witness = ROUTINES[name]
+    (addr, entry, emit, refapply, win_end, reg_setup, witness,
+     budget) = ROUTINES[name]
     win_size = win_end - GBASE
     assert win_size % 2 == 0, "window must be word-aligned"
 
-    snap, regs = capture_state(addr, refapply, win_end, reg_setup, witness)
+    snap, regs = capture_state(addr, refapply, win_end, reg_setup, witness,
+                               budget)
     expected = bytearray(snap)
     refapply(expected, regs)
     EXP_BIN.write_bytes(bytes(expected[GBASE:win_end]))
