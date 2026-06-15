@@ -283,6 +283,227 @@ HITDET: MOVB    {g(0xAA19)},R0         ; latch positions ($A071=$AA19,
 """
 
 
+def emit_anim():
+    """$97BB update_fighter: per-fighter animation chain.  R4 = C (selector),
+    R5 = Q (= m[$9C29], the opponent's selector), R1 = D (action), R2 = E
+    (sub-state); R0/R3 scratch.  Threads (D,E) through anim_9920/9994/9aa1
+    (inline) with the range_9ba7 helper (RNG9BA), then stores (D,E) back."""
+    return f"""
+;-------------------------------------------------------------------
+; UPDFGT - $97BB update_fighter.  Stage exits branch to the next stage's
+; global label (= the Z80 'return D,E').
+UPDFGT: MOVB    {g(0x9C29)},R5         ; Q = m[$9C29]
+        BIC     #177400,R5
+        MOVB    {g(0xAA04, 'R4')},R1   ; D = action
+        BIC     #177400,R1
+        MOVB    {g(0xAA05, 'R4')},R2   ; E = sub-state
+        BIC     #177400,R2
+; --- anim_9920: launch/recover a move ---
+A9920:  CMP     R2,#3                  ; E == 3 ?
+        BNE     20$
+        CMP     R1,#23                 ; D == $13 -> E = D
+        BEQ     21$
+        CMP     R1,#24                 ; D == $14 -> E = D
+        BNE     22$
+21$:    MOV     R1,R2                  ; E = D
+        BR      A9994
+22$:    TSTB    {g(0xAA16, 'R5')}      ; opponent guards busy -> hold
+        BNE     A9994
+        TSTB    {g(0xAA09, 'R5')}
+        BNE     A9994
+        MOVB    {g(0xAA04, 'R5')},R0   ; a = opponent action
+        BIC     #177400,R0
+        CMP     R0,#20                 ; a == $10 -> hold
+        BEQ     A9994
+        CMP     R0,#12                 ; a == $0A -> hold
+        BEQ     A9994
+        TSTB    {g(0xA90D, 'R0')}      ; opponent not striking -> hold
+        BEQ     A9994
+        JSR     PC,RNG9BA              ; in range?
+        TST     R0
+        BEQ     A9994
+        MOVB    {g(0xAA04, 'R5')},R0   ; E = m[$A926 + opponent action]
+        BIC     #177400,R0
+        MOVB    {g(0xA926, 'R0')},R2
+        BIC     #177400,R2
+        CLRB    {g(0xAA09, 'R4')}
+        CLRB    {g(0xAA16, 'R5')}
+        BR      A9994
+20$:    CMP     R2,#7                  ; E == 7 ?
+        BNE     A9994
+        CMP     R1,#4                  ; D == $04 -> hold
+        BEQ     A9994
+        CMP     R1,#7                  ; D == $07 -> hold
+        BEQ     A9994
+        MOV     #30,R2                 ; E = $18
+; --- anim_9994: action transitions / knock-downs ---
+A9994:  CMP     R2,#32                 ; E in ($1A,$1B,$16) -> knock-down
+        BEQ     94$
+        CMP     R2,#33
+        BEQ     94$
+        CMP     R2,#26
+        BNE     30$
+94$:    MOV     R2,R1                  ; D = E
+        MOV     #172,R0
+        MOVB    R0,{g(0xAA18, 'R4')}   ; $AA18+C = $7A
+        CLRB    {g(0xAA16, 'R4')}
+        CLRB    {g(0xAA09, 'R4')}
+        TSTB    {g(0xAA13, 'R4')}      ; guard not raised -> done
+        BEQ     98$                    ; (A9AA1 is just out of branch range)
+        MOVB    {g(0xAA12, 'R4')},R0   ; fg in ($2C,$28) ?
+        BIC     #177400,R0
+        CMP     R0,#54
+        BEQ     95$
+        CMP     R0,#50
+        BNE     A9AA1
+95$:    TSTB    {g(0x9CA7)}            ; once-per-fall credit already taken?
+        BNE     A9AA1
+        MOV     #1,R0
+        MOVB    R0,{g(0x9CA7)}
+        MOV     #5,R0
+        MOVB    R0,{g(0xB150)}
+        BR      A9AA1
+98$:    BR      A9AA1                  ; near relay for the AA13 guard exit
+30$:    CMP     R1,R2                  ; D == E -> done
+        BEQ     A9AA1
+        CMP     R1,#1                  ; D == 1 ?
+        BNE     31$
+        CMP     R2,#21                 ; E == $11 -> D = $12
+        BNE     301$
+        MOV     #22,R1
+        BR      A9AA1
+301$:   CMP     R2,#7                  ; E in (7,$10,$0A) -> D = $04
+        BEQ     302$
+        CMP     R2,#20
+        BEQ     302$
+        CMP     R2,#12
+        BEQ     302$
+        MOV     R2,R1                  ; else D = E
+        BR      A9AA1
+302$:   MOV     #4,R1
+        BR      A9AA1
+31$:    CMP     R2,#7                  ; E in (7,$10,$0A) ?
+        BEQ     310$
+        CMP     R2,#20
+        BEQ     310$
+        CMP     R2,#12
+        BNE     32$
+310$:   CMP     R1,#4                  ; D == $04 ?
+        BNE     311$
+        MOVB    {g(0xAA09, 'R4')},R0
+        CMP     R0,#1                  ; AA09+C != 1 -> done
+        BNE     A9AA1
+        MOV     R2,R1                  ; D = E
+        BR      A9AA1
+311$:   CMP     R1,#22                 ; D == $12 -> AA16+C = 1
+        BNE     A9AA1
+        MOV     #1,R0
+        MOVB    R0,{g(0xAA16, 'R4')}
+        BR      A9AA1
+32$:    CMP     R1,#22                 ; D == $12 and E == $11 ?
+        BNE     33$
+        CMP     R2,#21
+        BNE     33$
+        MOVB    {g(0xAA09, 'R4')},R0
+        CMP     R0,#1
+        BNE     A9AA1
+        MOV     R2,R1                  ; D = E
+        BR      A9AA1
+33$:    CMP     R1,#21                 ; D == $11 and AA09+C == 1 ?
+        BNE     34$
+        MOVB    {g(0xAA09, 'R4')},R0
+        CMP     R0,#1
+        BNE     34$
+        MOV     #1,R0
+        MOVB    R0,{g(0xAA16, 'R4')}
+        CLRB    {g(0xAA07, 'R4')}
+        CLRB    {g(0xAA0B, 'R4')}
+        CLRB    {g(0xAA09, 'R4')}
+        MOV     #25,R1                 ; D = $15
+        BR      A9AA1
+34$:    MOVB    {g(0xB462, 'R1')},R0   ; t = m[$B462+D]
+        BIC     #177400,R0
+        CMP     R0,#200                ; t == $80 ?
+        BNE     35$
+        CLRB    {g(0xAA09, 'R4')}
+        CMP     R2,#21                 ; E == $11 -> D = $12
+        BNE     341$
+        MOV     #22,R1
+        BR      A9AA1
+341$:   MOV     R2,R1                  ; D = E
+        BR      A9AA1
+35$:    TST     R0                     ; t != 0 ?
+        BEQ     36$
+        CLRB    {g(0xAA09, 'R4')}
+        BR      A9AA1
+36$:    MOV     #1,R0                  ; t == 0
+        MOVB    R0,{g(0xAA16, 'R4')}
+        CLRB    {g(0xAA09, 'R4')}
+; --- anim_9aa1: commit action to the animation slot ---
+A9AA1:  MOVB    {g(0xAA0B, 'R4')},R0   ; a = m[$AA0B+C]
+        BIC     #177400,R0
+        CMP     R0,R1                  ; a == D ?
+        BEQ     40$
+        MOVB    R1,{g(0xAA0C, 'R4')}   ; a != D: new action
+        CLRB    {g(0xAA0B, 'R4')}
+        CLRB    {g(0xAA09, 'R4')}
+        BR      49$
+40$:    MOVB    {g(0xAA09, 'R4')},R0
+        CMP     R0,#1                  ; AA09+C == 1 ?
+        BNE     41$
+        CLRB    {g(0xAA0C, 'R4')}
+        BR      49$
+41$:    MOVB    {g(0xAA0B, 'R4')},R0   ; else AA0C+C = AA0B+C
+        MOVB    R0,{g(0xAA0C, 'R4')}
+49$:    MOVB    R1,{g(0xAA04, 'R4')}   ; store D, E
+        MOVB    R2,{g(0xAA05, 'R4')}
+        RTS     PC
+
+;-------------------------------------------------------------------
+; RNG9BA - range_9ba7.  R4=C, R5=Q preserved; D,E (R1,R2) untouched.
+; Returns R0 = 1 if the opponent is in striking range, else 0.
+RNG9BA: MOVB    {g(0xAA19, 'R4')},R0   ; d = m[$AA19+C]
+        BIC     #177400,R0
+        MOVB    {g(0xAA19, 'R5')},R3   ; e = m[$AA19+Q]
+        BIC     #177400,R3
+        TSTB    {g(0xAA17, 'R4')}      ; v = (d-e) if facing else (e-d)
+        BEQ     1$
+        SUB     R3,R0
+        BR      2$
+1$:     SUB     R0,R3
+        MOV     R3,R0
+2$:     BIC     #177400,R0
+        MOVB    R0,{g(0x9C2D)}         ; m[$9C2D] = v
+        MOVB    {g(0xAA04, 'R5')},R3   ; t = m[$B47E + opponent action]
+        BIC     #177400,R3
+        MOVB    {g(0xB47E, 'R3')},R3
+        MOVB    {g(0xAA57)},R0         ; same facing ?
+        CMPB    R0,{g(0xAA17)}
+        BNE     4$
+        TSTB    R3                     ; same: t==0 -> 0
+        BEQ     8$
+        MOVB    {g(0x9C2D)},R0         ; 1 if $03 <= v < $10
+        BIC     #177400,R0
+        CMP     R0,#3
+        BLO     8$
+        CMP     R0,#20
+        BHIS    8$
+        BR      9$
+4$:     TSTB    R3                     ; differ: t!=0 -> 0
+        BNE     8$
+        MOVB    {g(0x9C2D)},R0         ; 1 if v >= $EF or v < $16
+        BIC     #177400,R0
+        CMP     R0,#357
+        BHIS    9$
+        CMP     R0,#26
+        BLO     9$
+8$:     CLR     R0                     ; return 0
+        RTS     PC
+9$:     MOV     #1,R0                  ; return 1
+        RTS     PC
+"""
+
+
 # name -> (addr, label, emit, refapply(m,regs), win_end, reg_setup, witness)
 ROUTINES = {
     "timer": (0x9C6F, "TIMER", emit_timer,
@@ -292,6 +513,9 @@ ROUTINES = {
                 [("R4", "C")], None),
     "hitdet": (0x9D29, "HITDET", emit_hitdet,
                lambda m, r: ref.hit_detect(m, ref.HIT_P1), 0xB500, [], 0xA06F),
+    "anim": (0x97BB, "UPDFGT", emit_anim,
+             lambda m, r: ref.update_fighter(m, r['C']), 0xB500,
+             [("R4", "C")], None),
 }
 
 
