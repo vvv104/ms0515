@@ -2745,23 +2745,78 @@ BVAL:   .WORD   0
 """
 
 
-def main_drawgst():
-    """Render step 3: draw a fighter from the pose pointer the LOGIC produces.
-    Captures at $C34F (where $C428 holds the pose pointer + the positioning
-    params are set), emits the full shared GST + the ported setup chain (SETUPC)
-    + the reused element loop (decoder reads pose/tables/compose from the GST).
+def emit_c101c1a2():
+    """$C101 fighter-1 geometry + $C1A2 dispatch in MACRO-11.  Reads the bbox
+    $C434-$C437 + $C41x (all set by $BF13); sets $C40A/$C40F (width), $C409
+    (height), $C41A, $C410/$C411.  Out: R3 = B_in, R4 = C_in for SETUPC."""
+    return f"""
+;-------------------------------------------------------------------
+; C101C - $C101 geometry + $C1A2 dispatch (params from the bf13 bbox).
+C101C:  MOVB    {g(0xC435)},R0         ; width = (($C435-$C434)>>2)+2
+        BIC     #177400,R0
+        MOVB    {g(0xC434)},R1
+        BIC     #177400,R1
+        SUB     R1,R0
+        BIC     #177400,R0
+        ASR     R0
+        ASR     R0
+        ADD     #2,R0
+        MOVB    R0,{g(0xC40A)}
+        MOVB    R0,{g(0xC40F)}
+        MOVB    {g(0xC437)},R0         ; height = $C437-$C436
+        BIC     #177400,R0
+        MOVB    {g(0xC436)},R1
+        BIC     #177400,R1
+        SUB     R1,R0
+        MOVB    R0,{g(0xC409)}
+        MOVB    {g(0xC436)},{g(0xC41A)}
+        MOVB    {g(0xC421)},{g(0xC411)}
+        MOVB    {g(0xC41F)},{g(0xC410)}
+        MOVB    {g(0xC41B)},R3         ; B_in = $C41B - ($C434 & $FC)
+        BIC     #177400,R3
+        MOVB    {g(0xC434)},R0
+        BIC     #177400,R0
+        BIC     #3,R0
+        SUB     R0,R3
+        BIC     #177400,R3
+        MOVB    {g(0xC41C)},R4         ; C_in = $C41C - $C436
+        BIC     #177400,R4
+        MOVB    {g(0xC436)},R0
+        BIC     #177400,R0
+        SUB     R0,R4
+        BIC     #177400,R4
+        RTS     PC
+"""
+
+
+def main_drawgst(full=False):
+    """Render step 3: draw a fighter from the pose pointer the LOGIC produces,
+    on the shared GST.  Two modes:
+    - chain (default): capture at $C34F (params already set); SETUPC reads the
+      pose pointer from $C428 and the captured sub-offsets, drives the decoder.
+    - full (FIST_GL=fulldraw): capture at $C101 (just after $BF13); C101C ports
+      $C101 geometry + $C1A2 dispatch to compute the positioning from the bbox,
+      so NOTHING is taken from the capture but the GST itself - fully driven by
+      the logic's bbox + pose pointer.
     The element loop is made runtime-driven: C40EM/C407M point at the GST cells
-    the chain writes, and the C408 stride is read into C408W.  Verify the
-    composed $F730 == the chain+loop Python reference."""
+    the chain writes; the C408 stride is read into C408W; DECRUN's own SRCP/DSTP
+    init is dropped (SETUPC sets them).  Verify the composed $F730 byte-exact."""
     import fighter_mac as fm
     import fighter_data as fd
     import setup_ref as sr
+    from decoder_ref import run_loop
     fm.STAGE_LEVEL = 1
     nelem = int(os.environ.get("FGHT_NELEM", "5000"))
-    snap, b_in, c_in, pose = sr.capture_c34f(0x04, 0)
-    mm = bytearray(snap)
-    src, dest = sr.setup_chain(mm, pose, b_in, c_in)
-    from decoder_ref import run_loop
+    if full:
+        snap = sr.capture_c101()
+        mm = bytearray(snap)
+        sr.c101_block1(mm)
+        b_in, c_in, pose = sr.c1a2(mm)
+        src, dest = sr.setup_chain(mm, pose, b_in, c_in)
+    else:
+        snap, b_in, c_in, pose = sr.capture_c34f(0x04, 0)
+        mm = bytearray(snap)
+        src, dest = sr.setup_chain(mm, pose, b_in, c_in)
     run_loop(mm, src, dest)
     fexp = bytes(mm[fd.FBUF:fd.FBUF + fd.FBUF_LEN])
     EXP_BIN.write_bytes(fexp)
@@ -2796,9 +2851,7 @@ START:  MOV     #340,R0
 8$:     CLR     (R0)+
         DEC     R1
         BNE     8$
-        MOV     #{b_in}.,R3            ; $C1A2 sub-offsets (captured)
-        MOV     #{c_in}.,R4
-        JSR     PC,SETUPC
+%PARAMS%        JSR     PC,SETUPC
         MOVB    {g(0xC408)},R0         ; C408W = runtime stride
         BIC     #177400,R0
         MOV     R0,C408W
@@ -2822,10 +2875,13 @@ WKEY:   MOV     @#KBST,R0
     tail = (fm.TAIL
             .replace("C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)\n", "")
             .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", ""))
-    src_txt = (preamble + gst + equs + driver + tovram_present
-               + decrun + emit_setupchain() + tail
+    chain = emit_setupchain() + (emit_c101c1a2() if full else "")
+    params = ("        JSR     PC,C101C\n" if full else
+              f"        MOV     #{b_in}.,R3\n        MOV     #{c_in}.,R4\n")
+    src_txt = (preamble + gst + equs + driver.replace("%PARAMS%", params)
+               + tovram_present + decrun + chain + tail
                + "\n        .EVEN\nC408W:  .WORD   0\n        .END    START\n")
-    fwid, fhgt = snap[0xC40A], snap[0xC409]
+    fwid, fhgt = mm[0xC40A], mm[0xC409]
     top, left = (200 - fhgt) // 2, (40 - fwid) // 2
     finish = "PRESENT" if os.environ.get("FGHT_PRESENT") else "TOVRAM"
     src_txt = (src_txt.replace("%C408%", str(snap[0xC408]))
@@ -2863,6 +2919,8 @@ def main():
         return main_decgst()
     if name == "drawgst":
         return main_drawgst()
+    if name == "fulldraw":
+        return main_drawgst(full=True)
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE

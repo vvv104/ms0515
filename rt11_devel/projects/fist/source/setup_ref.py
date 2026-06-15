@@ -121,6 +121,90 @@ def capture_c34f(want_c40e=0x04, want_c407=0, budget=2000000):
     raise SystemExit("no matching $C34F found")
 
 
+def c101_block1(m):
+    """$C101 fighter-1 geometry: blit width $C40A/$C40F + height $C409 from the
+    bbox $C434-$C437; $C41A = $C436."""
+    w = ((((m[0xC435] - m[0xC434]) & 0xFF) >> 2) + 2) & 0xFF
+    m[0xC40A] = w
+    m[0xC40F] = w
+    m[0xC409] = (m[0xC437] - m[0xC436]) & 0xFF
+    m[0xC41A] = m[0xC436]
+
+
+def c1a2(m):
+    """$C1A2 fighter-1 dispatch: $C411=$C421, $C410=$C41F; the sub-offsets
+    B=$C41B-($C434&$FC), C=$C41C-$C436; pose pointer = ($C428).  Returns
+    (b_in, c_in, pose)."""
+    m[0xC411] = m[0xC421]
+    m[0xC410] = m[0xC41F]
+    b_in = (m[0xC41B] - (m[0xC434] & 0xFC)) & 0xFF
+    c_in = (m[0xC41C] - m[0xC436]) & 0xFF
+    pose = m[0xC428] | (m[0xC429] << 8)
+    return b_in, c_in, pose
+
+
+def capture_c101(budget=2000000):
+    """Return the snapshot at a $C101 entry (after $BF13) whose draw reaches a
+    $8833 - the input for the MACRO port of $C101+$C1A2+chain."""
+    sim, mem = build_sim(watch=(0, 0))
+    regs, memory, ops = sim.registers, sim.memory, sim.opcodes
+    fdur, ia = sim.frame_duration, sim.int_active
+    after_c234 = False
+    snap = None
+    for _ in range(budget):
+        pc = regs[PC]
+        if pc == 0xC234:
+            after_c234 = True
+        if pc == 0xC101:
+            snap = bytes(memory)
+        if after_c234 and pc == 0x8833 and snap is not None:
+            return snap
+        after_c234 = after_c234 and pc != 0x8AD0
+        ops[memory[pc]]()
+        if regs[26] and regs[25] % fdur < ia:
+            sim.accept_interrupt(regs, memory, regs[PC])
+    raise SystemExit("no $C101 entry found")
+
+
+def validate_full(budget=2000000):
+    """Capture at $C101 entry (after $BF13 set the bbox + pose pointers); run
+    c101_block1 + c1a2 + setup_chain; match the source HL/dest DE/work cells
+    against the sim's next $8833 (the fighter-1 element loop)."""
+    sim, mem = build_sim(watch=(0, 0))
+    regs, memory, ops = sim.registers, sim.memory, sim.opcodes
+    fdur, ia = sim.frame_duration, sim.int_active
+    after_c234 = False
+    snap = None
+    for _ in range(budget):
+        pc = regs[PC]
+        if pc == 0xC234:
+            after_c234 = True
+        if pc == 0xC101:
+            snap = bytes(memory)
+        if after_c234 and pc == 0x8833 and snap is not None:
+            mm = bytearray(snap)
+            c101_block1(mm)
+            b_in, c_in, pose = c1a2(mm)
+            src, dest = setup_chain(mm, pose, b_in, c_in)
+            sim_hl = regs[H] * 256 + regs[L]
+            sim_de = regs[D] * 256 + regs[E]
+            ok = (src == sim_hl and dest == sim_de
+                  and all(mm[a] == memory[a] for a in WATCH))
+            print(f"$C101 entry -> $8833: pose ${pose:04X} B={b_in} C={c_in}")
+            print(f"  src ${src:04X} vs ${sim_hl:04X} {'OK' if src == sim_hl else 'X'}"
+                  f"  dest ${dest:04X} vs ${sim_de:04X} {'OK' if dest == sim_de else 'X'}")
+            for a in WATCH:
+                print(f"  ${a:04X}: {mm[a]:#04x} vs {memory[a]:#04x}"
+                      f" {'OK' if mm[a] == memory[a] else 'X'}")
+            print("RESULT:", "MATCH" if ok else "MISMATCH")
+            return ok
+        after_c234 = after_c234 and pc != 0x8AD0
+        ops[memory[pc]]()
+        if regs[26] and regs[25] % fdur < ia:
+            sim.accept_interrupt(regs, memory, regs[PC])
+    raise SystemExit("no $C101 -> $8833 found")
+
+
 WATCH = [0x8B0A, 0x8AF3, 0x8B1B, 0x8B1C, 0xC407, 0xC408, 0xC40E]
 
 
