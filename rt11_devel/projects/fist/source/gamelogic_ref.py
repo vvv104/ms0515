@@ -805,6 +805,124 @@ def pos_update(m, hl):
     m[(hl + 9) & 0xFFFF] = new
 
 
+def _swap_971e(m, base):
+    """$971E: facing-mirror the three 6-byte sprite-meta groups in the just-built
+    table ($AA1A-$AA2B, relative base+14..base+31): in each group swap [0]<->[4]
+    and [1]<->[5].  (In the demo the meta is all 0xFF, so this is a no-op, but it
+    is faithful for non-uniform data.)"""
+    for g in (base + 14, base + 20, base + 26):
+        for k in (0, 1):
+            i, j = (g + k) & 0xFFFF, (g + k + 4) & 0xFFFF
+            m[i], m[j] = m[j], m[i]
+
+
+def _meta_and_pos(m, base, phase):
+    """$9649 rejoin: m[base+8/+9] hold a 16-bit frame pointer; stage the frame
+    data into m[base+4..base+7], then copy the 9x2-byte sprite-meta table from
+    the $3900/$3A00 source tables (indexed via the $3100+ table, stride $3B) into
+    m[base+14..base+31], optionally facing-swap ($971E when m[base+11]==1), then
+    advance the position ($9698 tail)."""
+    def r(a): return m[a & 0xFFFF]
+    def w(a, v): m[a & 0xFFFF] = v & 0xFF
+    ptr = (r(base + 9) << 8) | r(base + 8)        # $964A-$964D
+    w(base + 4, 1)                                 # m[$AA10]=1
+    v = r(ptr)
+    if phase == 0:
+        w(base + 4, (v - 1) & 0xFF)                # m[$AA10]=m[ptr]-1
+    w(base + 5, v)                                 # m[$AA11]=m[ptr]
+    a2 = r((ptr + 1) & 0xFFFF)
+    w(base + 6, a2)                                # m[$AA12]=m[ptr+1]
+    w(base + 7, a2)                                # m[$AA13]=m[ptr+1]
+    tbl = (0x3100 + a2) & 0xFFFF                   # H=$31, L=m[ptr+1]
+    dst = base + 14                                # $AA1A
+    for _ in range(9):                             # $9744 = 9
+        idx = r(tbl)
+        w(dst, r((0x3900 + idx) & 0xFFFF)); dst += 1
+        w(dst, r((0x3A00 + idx) & 0xFFFF)); dst += 1
+        tbl = (tbl + 0x3B) & 0xFFFF
+    if r(base + 11) == 1:                          # m[$AA17]==1 -> $971E
+        _swap_971e(m, base)
+    pos_update(m, base + 4)                        # $9698
+
+
+def _frame_advance_962b(m, base, phase):
+    """$962B: a frame just finished - clear m[base+7], then step the 16-bit frame
+    pointer m[base+8]/m[base+9] by +4 (phase==0) or -4 (phase!=0) before $9649
+    reloads the new frame's data."""
+    m[(base + 7) & 0xFFFF] = 0                     # m[$AA13]=0
+    p = (m[(base + 9) & 0xFFFF] << 8) | m[(base + 8) & 0xFFFF]
+    p = (p + 4) & 0xFFFF if phase == 0 else (p - 4) & 0xFFFF
+    m[(base + 8) & 0xFFFF] = p & 0xFF
+    m[(base + 9) & 0xFFFF] = (p >> 8) & 0xFF
+
+
+def _frame_load_96ce(m, base, phase):
+    """$96CE new-frame-load branch (m[$AA0B]==0): pull the next animation's frame
+    pointer pair from the $9368 table (indexed by m[$AA0C]) into the record,
+    seed the per-frame counters m[base+2]/m[base+3], then rejoin $9649."""
+    def r(a): return m[a & 0xFFFF]
+    def w(a, v): m[a & 0xFFFF] = v & 0xFF
+    idx = r(base)                                  # m[$AA0C] (BC = idx, B=0)
+    w(base - 1, idx)                               # m[$AA0B]=m[$AA0C]
+    w(base + 1, 0)                                 # m[$AA0D]=0
+    t = (0x9368 + 2 * idx) & 0xFFFF                # $9368 + 2*idx
+    word1 = _u16(m, t)                             # base value
+    ptr = _u16(m, (t + 2) & 0xFFFF)                # frame pointer
+    span = (ptr - word1) & 0xFFFF                  # SBC HL,BC (pushed)
+    bc = (ptr - 4) & 0xFFFF if phase != 0 else word1
+    w(base + 8, bc & 0xFF)                         # m[$AA14]=low
+    w(base + 9, (bc >> 8) & 0xFF)                  # m[$AA15]=high
+    B = (span >> 2) & 0xFF                         # SRL H;RR L x2 -> >>2, LD B,L
+    w(base + 2, 0)                                 # m[$AA0E]=0
+    if phase == 0:
+        w(base + 2, (B - 1) & 0xFF)                # m[$AA0E]=B-1
+    w(base + 3, B)                                 # m[$AA0F]=B
+
+
+def anim_95e1(m, hl):
+    """$95E1 (called per-fighter by $95D4, hl = $AA16/$AA56): advance the
+    fighter's animation.  base = hl-10 ($AA0C); the record spans $AA0B..$AA2B
+    relative to base-1..base+31.  m[hl] is the phase ($9743): the animation runs
+    forward (phase==0) or backward (phase!=0).  Branches: frame-step (tick the
+    frame timer m[base+4] and step the position $9698), frame-advance (timer hit
+    its bound -> step the animation pointer +/-4, reload the sprite-meta and
+    per-frame data, then step position), and new-frame-load ($96CE)."""
+    def r(a): return m[a & 0xFFFF]
+    def w(a, v): m[a & 0xFFFF] = v & 0xFF
+    phase = r(hl)
+    m[0x9743] = phase
+    base = (hl - 0x0A) & 0xFFFF                    # $AA0C
+    if r(base) == 0:                               # $95ED RET Z (m[$AA0C]==0)
+        return
+    if r((base - 1) & 0xFFFF) == 0:                # $95F2 JP Z $96CE (m[$AA0B]==0)
+        _frame_load_96ce(m, base, phase)
+        return _meta_and_pos(m, base, phase)
+    rec = (base + 4) & 0xFFFF                       # $AA10
+    a = r(rec)
+    if phase != 0:                                  # $9600 JR NZ $961A
+        if a == r((rec + 1) & 0xFFFF):              # $961D JR Z $9623
+            if ((r((rec - 1) & 0xFFFF) - 1) & 0xFF) == r((rec - 2) & 0xFFFF):
+                w((rec - 3) & 0xFFFF, 1)            # $9613 m[$AA0D]=1
+                w((rec - 4) & 0xFFFF, 0)            #       m[$AA0C]=0
+                return
+            w((rec - 2) & 0xFFFF, r((rec - 2) & 0xFFFF) + 1)   # $962A m[$AA0E]+=1
+        else:
+            w(rec, a + 1)                           # $961F INC (HL)
+            return pos_update(m, rec)               # $9620 JP $9698
+    else:                                           # phase==0
+        if a == 0:                                  # $9603 JR Z $9609
+            if r((rec - 2) & 0xFFFF) == 0:          # $960D JR Z $9613
+                w((rec - 3) & 0xFFFF, 1)
+                w((rec - 4) & 0xFFFF, 0)
+                return
+            w((rec - 2) & 0xFFFF, r((rec - 2) & 0xFFFF) - 1)   # $960F m[$AA0E]-=1
+        else:
+            w(rec, a - 1)                           # $9605 DEC (HL)
+            return pos_update(m, rec)               # $9606 JP $9698
+    _frame_advance_962b(m, base, phase)             # $962B pointer step
+    return _meta_and_pos(m, base, phase)            # -> $9649
+
+
 def _sort2(a, b):
     """$C1F6: return (min, max) of the two bytes."""
     return (a, b) if a <= b else (b, a)
@@ -1146,6 +1264,10 @@ def main():
          0xC434, 0xC435, 0xC436, 0xC437, 0xC438, 0xC439, 0xC43A, 0xC43B,
          0xC42C, 0xC42D, 0xC42E, 0xC42F, 0xC430, 0xC431, 0xC432, 0xC433],
         stops=[0xC03B])
+
+    run(0x95E1, "$95E1 anim advance:",
+        lambda mm, r: anim_95e1(mm, (r['H'] << 8) | r['L']),
+        FIGHTER_WATCH)
 
     am, at, ad = validate_ai(0xA090, ai_decide, list(range(0xA5EC, 0xA61D)))
     print(f"{'$A090 AI decide:':22} {am}/{at} match"
