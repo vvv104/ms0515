@@ -1250,6 +1250,62 @@ AIEND:  RTS     PC
 """
 
 
+def emit_orch():
+    """A per-fighter slice of the $9745 orchestrator built from the ported
+    routines: timer, the two animation passes (C=0 then C=$40, with $9C29 set
+    to the opponent each time), the two recovery passes, then scoring.  Hit
+    detect / input are skipped here (the matching Python orch_subset skips them
+    too, so this checks integration, not the full $9745)."""
+    return f"""
+;-------------------------------------------------------------------
+; ORCH - integration driver: run the ported routines in $9745 order.
+ORCH:   JSR     PC,TIMER
+        MOV     #100,R0                ; $9C29 = $40 (opponent of fighter 0)
+        MOVB    R0,{g(0x9C29)}
+        CLR     R4
+        JSR     PC,UPDFGT              ; anim, C = 0
+        CLRB    {g(0x9C29)}            ; $9C29 = 0 (opponent of fighter $40)
+        MOV     #100,R4
+        JSR     PC,UPDFGT              ; anim, C = $40
+        MOV     #100,R0
+        MOVB    R0,{g(0x9C29)}
+        CLR     R4
+        JSR     PC,RECOV               ; recover, C = 0
+        CLRB    {g(0x9C29)}
+        MOV     #100,R4
+        JSR     PC,RECOV               ; recover, C = $40
+        JSR     PC,AWARD
+        JSR     PC,YINYNG
+        RTS     PC
+"""
+
+
+def emit_combined():
+    """All ported game-logic routines in one module (proves they coexist - no
+    label or space conflicts) plus the ORCH integration driver.  The AI is
+    included (with a dummy random array) to prove it assembles alongside the
+    rest; ORCH does not call it."""
+    return (emit_timer() + emit_recover() + emit_hitdet() + emit_anim() +
+            emit_apply() + emit_score() + emit_yinyang() + emit_timetik() +
+            emit_ranktk() + emit_rstacf() + emit_rstfrm() + emit_ai([0]) +
+            emit_orch())
+
+
+def orch_subset(m):
+    """Python reference for ORCH - the same sequence on the captured state."""
+    ref.update_timer(m)
+    m[0x9C29] = 0x40
+    ref.update_fighter(m, 0)
+    m[0x9C29] = 0
+    ref.update_fighter(m, 0x40)
+    m[0x9C29] = 0x40
+    ref.recover_9ad7(m, 0)
+    m[0x9C29] = 0
+    ref.recover_9ad7(m, 0x40)
+    ref.award_points(m)
+    ref.yinyang_total(m)
+
+
 def emit_yinyang():
     """$900E yin-yang total: add the score flag $AA08/$AA48 to the running
     half-point total $AA01/$AA41 (one fighter per call)."""
@@ -1648,10 +1704,34 @@ def main_ai():
           f"{len(randoms)} randoms, expected -> {EXP_BIN.name})")
 
 
+def main_combined():
+    """Integration build: all routines in one module + the ORCH driver,
+    verified against orch_subset over the GST window."""
+    win_end = 0xB500
+    win_size = win_end - GBASE
+    snap, _ = capture_state(0x9745, lambda m, r: orch_subset(m), win_end, [])
+    expected = bytearray(snap)
+    orch_subset(expected)
+    EXP_BIN.write_bytes(bytes(expected[GBASE:win_end]))
+    WIN_JSON.write_text(json.dumps({"base": GBASE, "size": win_size}))
+    src = HEADER + emit_combined()
+    src += "\n        .EVEN\n"
+    src += _emit_window("GST", snap[GBASE:win_end])
+    src += "\n        .EVEN\n        .END    START\n"
+    src = (src.replace("%ENTRY%", "ORCH").replace("%REGSET%", "")
+              .replace("%WORDS%", str(win_size // 2) + "."))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (combined, all routines + ORCH, "
+          f"window {win_size} B, expected -> {EXP_BIN.name})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
     if name == "ai":
         return main_ai()
+    if name == "combined":
+        return main_combined()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE
