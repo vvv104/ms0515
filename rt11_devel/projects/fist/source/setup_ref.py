@@ -96,6 +96,32 @@ def setup_chain(m, hl, b_in, c_in):
     return src, dest
 
 
+def capture_c34f_low(max_pose=0xD400, budget=2000000):
+    """Return (snapshot, b_in, c_in, pose) for a $C34F whose pose pointer is low
+    (< max_pose) - so the pose data + tables fit a GST trimmed below RMON, for a
+    runnable (non-oracle) demo.  Single-segment poses preferred (simplest)."""
+    sim, mem = build_sim(watch=(0, 0))
+    regs, memory, ops = sim.registers, sim.memory, sim.opcodes
+    fdur, ia = sim.frame_duration, sim.int_active
+    after_c234 = False
+    last = None
+    for _ in range(budget):
+        pc = regs[PC]
+        if pc == 0xC234:
+            after_c234 = True
+        if pc == 0xC34F:
+            pose = memory[0xC428] | (memory[0xC429] << 8)
+            if 0x9C00 <= pose < max_pose and memory[pose] == 1:   # B=1
+                last = (bytes(memory), regs[B], regs[C], pose)
+        if after_c234 and pc == 0x8833 and last is not None:
+            return last
+        after_c234 = after_c234 and pc != 0x8AD0
+        ops[memory[pc]]()
+        if regs[26] and regs[25] % fdur < ia:
+            sim.accept_interrupt(regs, memory, regs[PC])
+    raise SystemExit("no low-pose B=1 $C34F found")
+
+
 def capture_c34f(want_c40e=0x04, want_c407=0, budget=2000000):
     """Return (snapshot, b_in, c_in, pose_hl) for the $C34F entry whose decode
     reaches a $8833 with the wanted mode/facing - the input for the MACRO port

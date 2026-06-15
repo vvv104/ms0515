@@ -2922,6 +2922,108 @@ WKEY:   MOV     @#KBST,R0
           f"${pose:04X}, B_in={b_in} C_in={c_in}, expected $F730 -> {EXP_BIN.name})")
 
 
+# Demo: a RUNNABLE fighter-present image (boots under RT-11, no oracle).  The
+# full GST (to $FAA4) overlaps RMON ($140054); so trim it to a LOW pose's data
+# extent (fits banks 4-5, below RMON) and relocate the compose buffer to low
+# memory (a plain .BLKB, NOT the GST $F730 cell).  PRESENT centres the fighter.
+DEMO_END = 0xDB00                        # GST data extent: 0100000..0136600 < RMON
+
+
+def main_demo():
+    """Build a runnable single-fighter present demo (FIST_GL=demo).  Chain-mode
+    decode of a captured LOW pose, GST trimmed below RMON, compose buffer FBUF
+    relocated to low RAM (initialised from the captured background FINIT).  Runs
+    under RT-11 (RUN FIST) and centres the fighter on the 320x200 screen."""
+    import fighter_mac as fm
+    import fighter_data as fd
+    import setup_ref as sr
+    fm.STAGE_LEVEL = 1
+    nelem = int(os.environ.get("FGHT_NELEM", "5000"))
+    snap, b_in, c_in, pose = sr.capture_c34f_low(0xD400)
+    mm = bytearray(snap)
+    mm[fd.FBUF:fd.FBUF + fd.FBUF_LEN] = bytes(fd.FBUF_LEN)  # black background (no bg-fill yet)
+    sr.draw_fighter(mm, pose, b_in, c_in)
+    fexp = bytes(mm[fd.FBUF:fd.FBUF + fd.FBUF_LEN])
+    EXP_BIN.write_bytes(fexp)
+    WIN_JSON.write_text(json.dumps({"base": fd.FBUF, "size": fd.FBUF_LEN}))
+
+    preamble = ("        .TITLE  FIST\nDPRAM  = 157700\nDISPAT = 177400\n"
+                "SYSC   = 177604\nVRAM   = 40000\nKBST   = 177442\n")
+    equs = "\n"                                            # FBUF is LOW here, not a GST EQU
+    for t in fd.TABLES:
+        equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
+    equs += f"C40EM  = GST+{0xC40E - GBASE}.\n"
+    equs += f"C407M  = GST+{0xC407 - GBASE}.\n"
+    equs += "WB1C   = W+60.\n"
+    gst = ("\n        .ASECT\n        . = 100000\n"
+           + _emit_window("GST", snap[GBASE:DEMO_END]) + "        .EVEN\n")
+    fwid, fhgt = mm[0xC40A], mm[0xC409]
+    top, left = (200 - fhgt) // 2, (40 - fwid) // 2
+    driver = f"""
+        .ASECT
+        . = 1000
+        .EVEN
+START:  MOV     #340,R0
+        MTPS    R0
+        MOV     @#DISPAT,ORIGDP
+        MOVB    @#SYSC,ORIGRC
+        MOVB    @#SYSC,R0
+        BIC     #17,R0
+        MOVB    R0,@#SYSC
+        MOV     #3377,@#DPRAM
+        MOV     #3377,@#DISPAT
+        MOV     #W,R0                  ; zero the work area
+        MOV     #32.,R1
+8$:     CLR     (R0)+
+        DEC     R1
+        BNE     8$
+        MOV     #FBUF,R0              ; FBUF := black (clean background)
+        MOV     #442.,R1
+7$:     CLR     (R0)+
+        DEC     R1
+        BNE     7$
+        MOV     #{b_in}.,R3
+        MOV     #{c_in}.,R4
+        JSR     PC,SETUPC
+9$:     JSR     PC,SEGSET
+        MOVB    {g(0xC408)},R0
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        DECB    SEGCNT
+        BNE     9$
+        JSR     PC,%FINISH%
+WKEY:   MOV     @#KBST,R0
+        BIT     #2,R0
+        BEQ     WKEY
+        MOV     ORIGDP,@#DPRAM
+        MOV     ORIGDP,@#DISPAT
+        MOVB    ORIGRC,@#SYSC
+        EMT     350
+"""
+    tovram_present = fm.HEADER[fm.HEADER.index("TOVRAM:"):]   # TOVRAM + FWHITE + PRESENT
+    decrun = (fm.emit_decrun()
+              .replace("MOV     #FCTRL,SRCP\n        "
+                       "MOV     #FBUF+%DEOFF%.,DSTP\n        ", "")
+              .replace("ADD     #C408V,R0", "ADD     C408W,R0"))
+    tail = (fm.TAIL
+            .replace("C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)\n", "")
+            .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", ""))
+    finish = "PRESENT" if os.environ.get("FGHT_PRESENT") else "TOVRAM"
+    src_txt = (preamble + gst + equs + driver + tovram_present + decrun
+               + emit_setupchain() + tail
+               + "\n        .EVEN\nC408W:  .WORD   0\n"
+               + "FBUF:   .BLKB   884.\n        .EVEN\n        .END    START\n")
+    src_txt = (src_txt.replace("%C408%", str(snap[0xC408]))
+               .replace("%NELEM%", str(nelem)).replace("%FINISH%", finish)
+               .replace("%FWID%", str(fwid)).replace("%FHGT%", str(fhgt))
+               .replace("%DSTOFF%", str((top * 40 + left) * 2)))
+    src_txt.encode("ascii")
+    OUT_MAC.write_text(src_txt, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (DEMO: runnable present, pose ${pose:04X} "
+          f"B={snap[pose]} c40e={snap[0xC40E]:#x}, {fwid}x{fhgt})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
     if os.environ.get("FIST_COV") == "ai":
@@ -2948,6 +3050,8 @@ def main():
         return main_drawgst(mode="full")
     if name == "bridgedraw":
         return main_drawgst(mode="bridge")
+    if name == "demo":
+        return main_demo()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE
