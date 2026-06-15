@@ -31,42 +31,51 @@ EXP_BIN = HERE.parent / "gl_expected.bin"
 WIN_JSON = HERE.parent / "gl_window.json"
 
 GBASE = 0x9C00                       # GST stands for this Spectrum address
-WIN_END = 0xAB00                     # state window end (exclusive): $9C00..$AB00
-WIN_SIZE = WIN_END - GBASE           # 3840 bytes
+Z80_REG = {'A': 0, 'B': 2, 'C': 3, 'D': 4, 'E': 5, 'H': 6, 'L': 7}
 
 
-def g(addr):
-    """MACRO-11 operand for the byte at Spectrum address `addr` (relative)."""
-    return f"GST+{addr - GBASE}."
+def g(addr, reg=None):
+    """MACRO-11 operand for Spectrum address `addr` in GST - relative if `reg`
+    is None, else indexed `GST+off(reg)` (used for the fighter selector C and
+    the table-index registers)."""
+    off = f"GST+{addr - GBASE}."
+    return f"{off}({reg})" if reg else off
 
 
-def gi(addr):
-    """MACRO-11 indexed operand `GST+off(R0)` for a table base at `addr`."""
-    return f"GST+{addr - GBASE}."
+# ── routine capture (entry state + entry registers) ───────────────────────────
 
-
-# ── routine capture + reproduction (entry state + expected output) ────────────
-
-def capture_state(addr, want_change=None, watch=()):
-    """Run the game; return a 64K memory snapshot at the first call to `addr`.
-    If want_change is given, keep going until running the reference on the
-    snapshot actually changes one of `watch` (so the test exercises real work)."""
+def capture_state(addr, refapply, win_end, reg_setup, budget=4000000):
+    """Run the game; return (snapshot, entry_regs) for a call to `addr` that the
+    reference exercises (changes the GST window).  Prefer a call whose
+    parameter registers are all non-zero, so indexed `(Rn)` offsets are
+    genuinely exercised (an R4=0 selector would hide a missing index).  Falls
+    back to any exercising call, then to the first call seen."""
     sim, mem = build_sim(watch=(0, 0))
     regs, memory, ops = sim.registers, sim.memory, sim.opcodes
     fd, ia = sim.frame_duration, sim.int_active
-    for _ in range(4000000):
+    zregs = [z for _, z in reg_setup]
+    first = exercising = None
+    for _ in range(budget):
         if regs[PC] == addr:
             snap = bytes(memory)
-            if want_change is None:
-                return snap
+            entry = {n: regs[i] for n, i in Z80_REG.items()}
+            if first is None:
+                first = (snap, entry)
             trial = bytearray(snap)
-            want_change(trial)
-            if any(trial[a] != snap[a] for a in watch):
-                return snap
+            refapply(trial, entry)
+            if trial[GBASE:win_end] != snap[GBASE:win_end]:
+                if all(entry[z] != 0 for z in zregs):
+                    return snap, entry
+                if exercising is None:
+                    exercising = (snap, entry)
         ops[memory[regs[PC]]]()
         if regs[26] and regs[25] % fd < ia:
             sim.accept_interrupt(regs, memory, regs[PC])
-    raise SystemExit(f"no exercising call to {addr:#06x} found")
+    if exercising:
+        return exercising
+    if first:
+        return first
+    raise SystemExit(f"no call to {addr:#06x} found")
 
 
 # ── MACRO-11 routine bodies (transcribed from gamelogic_ref) ──────────────────
@@ -96,10 +105,61 @@ TIMER:  TSTB    {g(0x9C2B)}            ; timeout already raised?
 """
 
 
+def emit_recover():
+    """$9AD7 recover_9ad7: get-up / recovery pass, fighter selector C in R4.
+    Loads (D,E) from $AA04+C/$AA05+C, applies the recovery when the move-
+    pending flag $AA0D+C is set, stores (D,E) back."""
+    return f"""
+;-------------------------------------------------------------------
+; RECOV - $9AD7 recover_9ad7.  R4 = C (fighter selector, 0 or $40).
+; R1 = D (action, zero-extended for indexing $B462), R2 = E (sub-state).
+RECOV:  MOV     #1,R3                  ; XOR mask for the facing toggle
+        MOVB    {g(0xAA04, 'R4')},R1   ; D = m[$AA04+C]
+        BIC     #177400,R1             ; zero-extend (used as a table index)
+        MOVB    {g(0xAA05, 'R4')},R2   ; E = m[$AA05+C]
+        TSTB    {g(0xAA0D, 'R4')}      ; move-pending flag set?
+        BEQ     8$
+        CLRB    {g(0xAA0D, 'R4')}
+        MOVB    {g(0xAA03, 'R4')},R0   ; a03 = m[$AA03+C]
+        BEQ     1$
+        MOVB    R0,R2                  ; queued reaction -> E = a03
+        MOVB    R0,{g(0x9C28)}         ; m[$9C28] = a03
+        BR      8$
+1$:     TSTB    {g(0xAA16, 'R4')}      ; m[$AA16+C]
+        BEQ     2$
+        CMPB    R1,#21                 ; D == $11 ?
+        BNE     3$
+        MOVB    {g(0xAA17, 'R4')},R0   ; facing flip: m[$AA17+C] ^= 1
+        XOR     R3,R0
+        MOVB    R0,{g(0xAA17, 'R4')}
+3$:     CLRB    {g(0xAA07, 'R4')}
+        CLRB    {g(0xAA09, 'R4')}
+        CLRB    {g(0xAA0B, 'R4')}
+        MOVB    #1,{g(0xAA0C, 'R4')}
+        CLRB    {g(0xAA16, 'R4')}
+        MOVB    #1,R1                  ; D = 1
+        BR      8$
+2$:     MOVB    {g(0xB462, 'R1')},R0   ; t = m[$B462+D]
+        BEQ     4$
+        MOVB    #1,{g(0xAA00, 'R4')}
+        CLRB    {g(0xAA07, 'R4')}
+        CLRB    {g(0xAA0B, 'R4')}
+        MOVB    #1,R1                  ; D = 1
+        BR      8$
+4$:     MOVB    #1,{g(0xAA09, 'R4')}
+8$:     MOVB    R1,{g(0xAA04, 'R4')}   ; store D
+        MOVB    R2,{g(0xAA05, 'R4')}   ; store E
+        RTS     PC
+"""
+
+
+# name -> (addr, label, emit, refapply(m,regs), win_end, reg_setup[(pdp,z80)])
 ROUTINES = {
     "timer": (0x9C6F, "TIMER", emit_timer,
-              lambda m: ref.update_timer(m),
-              [0x9CA6, 0x9CA5, 0x9C2B]),
+              lambda m, r: ref.update_timer(m), 0xAB00, []),
+    "recover": (0x9AD7, "RECOV", emit_recover,
+                lambda m, r: ref.recover_9ad7(m, r['C']), 0xB500,
+                [("R4", "C")]),
 }
 
 
@@ -133,7 +193,7 @@ START:  MOV     #340,R0
         MOV     #3377,@#DPRAM
         MOV     #3377,@#DISPAT          ; VRAM window @40000 enabled
 
-        JSR     PC,%ENTRY%              ; run the ported routine on GST
+%REGSET%        JSR     PC,%ENTRY%      ; run the ported routine on GST
 
         ; --- copy the state window GST[0..WIN] to VRAM low bytes ---
         MOV     #GST,R1
@@ -166,25 +226,31 @@ def _emit_window(label, data, per=16):
 
 def main():
     name = os.environ.get("FIST_GL", "timer")
-    addr, entry, emit, pyfunc, watch = ROUTINES[name]
+    addr, entry, emit, refapply, win_end, reg_setup = ROUTINES[name]
+    win_size = win_end - GBASE
+    assert win_size % 2 == 0, "window must be word-aligned"
 
-    snap = capture_state(addr, want_change=pyfunc, watch=watch)
+    snap, regs = capture_state(addr, refapply, win_end, reg_setup)
     expected = bytearray(snap)
-    pyfunc(expected)
-    window_after = bytes(expected[GBASE:WIN_END])
-    EXP_BIN.write_bytes(window_after)
-    WIN_JSON.write_text(json.dumps({"base": GBASE, "size": WIN_SIZE}))
+    refapply(expected, regs)
+    EXP_BIN.write_bytes(bytes(expected[GBASE:win_end]))
+    WIN_JSON.write_text(json.dumps({"base": GBASE, "size": win_size}))
+
+    regset = "".join(f"        MOV     #{regs[z]}.,{pdp}\n"
+                     for pdp, z in reg_setup)
 
     src = HEADER + emit()
     src += "\n        .EVEN\n"
-    src += _emit_window("GST", snap[GBASE:WIN_END])
+    src += _emit_window("GST", snap[GBASE:win_end])
     src += "\n        .EVEN\n        .END    START\n"
     src = (src.replace("%ENTRY%", entry)
-              .replace("%WORDS%", str(WIN_SIZE // 2) + "."))
+              .replace("%REGSET%", regset)
+              .replace("%WORDS%", str(win_size // 2) + "."))
     src.encode("ascii")
     OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    setup = " ".join(f"{p}={regs[z]:#x}" for p, z in reg_setup) or "(no regs)"
     print(f"gamelogic_mac: wrote {OUT_MAC} ({name} @ {addr:#06x}, "
-          f"window {WIN_SIZE} B, expected -> {EXP_BIN.name})")
+          f"window {win_size} B, {setup}, expected -> {EXP_BIN.name})")
 
 
 if __name__ == "__main__":
