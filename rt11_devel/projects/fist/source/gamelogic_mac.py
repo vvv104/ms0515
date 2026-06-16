@@ -3351,6 +3351,237 @@ BLITBB: MOV     #BBBUF,R1
           f"fighter animation, poses {atab[0][0]:#06x}..{atab[-1][0]:#06x})")
 
 
+def main_demo_fight():
+    """Two-fighter dojo scene (FIST_GL=demofight), flicker-free.  P1 (facing
+    right) and P2 (facing left, mirrored) both cycle their 16-frame animations,
+    drawn from the ported logic: bf13 computes BOTH fighters; P1 via $C101
+    block-1 + $C1A2, P2 via $C101 block-2 + $C1CC.  $AA19/$AA59 set apart
+    start-of-round x; $AA12/$AA52 are the per-fighter frame indices.  One wide
+    back-buffer covers both fighters: each frame restore the clean dojo, compose
+    P1 then P2 into it, write the whole region to VRAM in one pass."""
+    import fighter_mac as fm
+    import fighter_data as fd
+    import setup_ref as sr
+    import gen_fist
+    from bg_data import BackgroundData
+    fm.STAGE_LEVEL = 1
+    nelem = int(os.environ.get("FGHT_NELEM", "5000"))
+    bgn = int(os.environ.get("FGHT_BG", "1"))
+    nframes = 16
+    base = bytearray(sr.capture_c34f_low(0xD400)[0])
+    base[0xAA19] = 0x18                                # P1 x (left)
+    base[0xAA59] = 0x58                                # P2 x (right)
+
+    def frame_params(fr, p2):
+        m = bytearray(base)
+        if p2:
+            m[0xAA12] = 0; m[0xAA52] = fr
+        else:
+            m[0xAA12] = fr; m[0xAA52] = 0
+        ref.bf13(m); ref.bf13(m)                       # twice -> stable bbox
+        if p2:
+            sr.c101_block2(m); b, c, _ = sr.c1cc(m)
+            bx0, bx1, by0 = 0xC438, 0xC439, 0xC43A
+        else:
+            sr.c101_block1(m); b, c, _ = sr.c1a2(m)
+            bx0, bx1, by0 = 0xC434, 0xC435, 0xC436
+        pose = (m[0xC428 + 2 * p2]) | (m[0xC429 + 2 * p2] << 8)
+        return dict(pose=pose, c40f=m[0xC40F], c410=m[0xC410], c411=m[0xC411],
+                    c41a=m[0xC41A], b=b, c=c, fwid=m[0xC40A], fhgt=m[0xC409],
+                    top=4 + m[by0], left=4 + (m[bx0] >> 2))
+
+    p1 = [frame_params(fr, 0) for fr in range(nframes)]
+    p2 = [frame_params(fr, 1) for fr in range(nframes)]
+    allf = p1 + p2
+    BTOP = min(f["top"] for f in allf)
+    BLEFT = min(f["left"] for f in allf)
+    BWID = max(f["left"] + f["fwid"] for f in allf) - BLEFT
+    BHGT = max(f["top"] + f["fhgt"] for f in allf) - BTOP
+    VOFF = (BTOP * 40 + BLEFT) * 2
+    SAVESZ = BWID * BHGT * 2
+
+    def emit_tab(label, frames):
+        s = f"\n        .EVEN\n{label}:\n"
+        for f in frames:
+            bboff = ((f["top"] - BTOP) * BWID + (f["left"] - BLEFT)) * 2
+            s += (f"        .WORD   {f['pose']}.\n"
+                  f"        .BYTE   {f['c40f']}.,{f['c410']}.,{f['c411']}.,{f['c41a']}.\n"
+                  f"        .BYTE   {f['b']}.,{f['c']}.,{f['fwid']}.,{f['fhgt']}.\n"
+                  f"        .WORD   {bboff}.\n        .WORD   0\n        .WORD   0\n")
+        return s
+
+    # one off-screen compose pass per fighter (reads its table entry via R2,
+    # writes the fighter into BBBUF); l1/l2/l3 are distinct numeric local labels.
+    def onef(l1, l2, l3):
+        return f"""        MOV     (R2)+,{g(0xC428)}
+        MOVB    (R2)+,{g(0xC40F)}
+        MOVB    (R2)+,{g(0xC410)}
+        MOVB    (R2)+,{g(0xC411)}
+        MOVB    (R2)+,{g(0xC41A)}
+        MOVB    (R2)+,R3
+        MOVB    (R2)+,R4
+        MOVB    (R2)+,FWIDR
+        MOVB    (R2)+,FHGTR
+        MOV     (R2)+,BBOFF
+        MOV     #FBUF,R0
+        MOV     #442.,R1
+{l1}$:     CLR     (R0)+
+        DEC     R1
+        BNE     {l1}$
+        MOV     #W,R0
+        MOV     #32.,R1
+{l2}$:     CLR     (R0)+
+        DEC     R1
+        BNE     {l2}$
+        JSR     PC,SETUPC
+{l3}$:     JSR     PC,SEGSET
+        MOVB    {g(0xC408)},R0
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        DECB    SEGCNT
+        BNE     {l3}$
+        JSR     PC,OVLBB"""
+
+    stage = f"""        JSR     PC,CHGBG               ; dojo -> SCRBUF (once)
+        JSR     PC,SPSCR               ; dojo -> VRAM (once)
+        JSR     PC,SAVEBB              ; save the (wide) fight region's clean dojo
+50$:    JSR     PC,RESTBB              ; BBBUF := clean dojo region
+        MOVB    FRAME,R0
+        BIC     #177400,R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ASL     R0                     ; frame*16
+        MOV     #PTAB1,R2              ; --- fighter 1 ---
+        ADD     R0,R2
+{onef(10, 11, 12)}
+        MOVB    FRAME,R0
+        BIC     #177400,R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        MOV     #PTAB2,R2              ; --- fighter 2 ---
+        ADD     R0,R2
+{onef(20, 21, 22)}
+        JSR     PC,BLITBB              ; write the whole region to VRAM, one pass
+        MOV     #6.,R1                 ; frame delay
+56$:    MOV     #60000.,R0
+54$:    SOB     R0,54$
+        SOB     R1,56$
+        INCB    FRAME
+        MOVB    FRAME,R0
+        BIC     #177400,R0
+        CMP     R0,#{nframes}.
+        BLO     55$
+        CLRB    FRAME
+55$:    MOV     @#KBST,R0
+        BIT     #2,R0
+        BNE     57$
+        JMP     50$                    ; loop back (out of branch range)
+57$:    MOV     @#KBDT,R0
+        JMP     EXITP"""
+    program = (gen_fist.PROGRAM.replace("%STAGE%", stage)
+               .replace("%BGDEF%", f"BG{bgn}DEF").replace("%BGN%", str(bgn))
+               .replace("\n        .EVEN\nSTART:",
+                        "\n        .ASECT\n        . = 1000\n        .EVEN\nSTART:"))
+    rows = gen_fist.spectrum_row_offsets()
+    bg = BackgroundData(bgn)
+
+    equs = "\nFWHITE = 043400\n"
+    for t in fd.TABLES:
+        equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
+    equs += f"C40EM  = GST+{0xC40E - GBASE}.\n"
+    equs += f"C407M  = GST+{0xC407 - GBASE}.\n"
+    equs += "FBUF   = SCRBUF\n"
+    equs += f"SAVBUF = BG{bgn}DEF\n"
+    equs += f"BBBUF  = BG{bgn}DEF+{SAVESZ}.\n"
+    equs += "WB1C   = W+60.\n"
+    ovlay = f"""
+;-------------------------------------------------------------------
+SAVEBB: MOV     #SAVBUF,R1
+        MOV     #VRAM+{VOFF}.,R2
+        MOV     #{BHGT}.,R5
+1$:     MOV     R2,R0
+        MOV     #{BWID}.,R4
+2$:     MOV     (R0)+,(R1)+
+        DEC     R4
+        BNE     2$
+        ADD     #120,R2
+        DEC     R5
+        BNE     1$
+        RTS     PC
+;-------------------------------------------------------------------
+RESTBB: MOV     #SAVBUF,R1
+        MOV     #BBBUF,R2
+        MOV     #{BWID * BHGT}.,R0
+1$:     MOV     (R1)+,(R2)+
+        DEC     R0
+        BNE     1$
+        RTS     PC
+;-------------------------------------------------------------------
+OVLBB:  MOV     #FBUF,R1
+        MOVB    FHGTR,R5
+        BIC     #177400,R5
+        MOV     BBOFF,R2
+        ADD     #BBBUF,R2
+1$:     MOV     R2,R0
+        MOVB    FWIDR,R4
+        BIC     #177400,R4
+2$:     MOVB    (R1)+,R3
+        BIC     #177400,R3
+        BEQ     3$
+        BISB    R3,(R0)
+3$:     ADD     #2,R0
+        DEC     R4
+        BNE     2$
+        ADD     #{BWID * 2}.,R2
+        DEC     R5
+        BNE     1$
+        RTS     PC
+;-------------------------------------------------------------------
+BLITBB: MOV     #BBBUF,R1
+        MOV     #VRAM+{VOFF}.,R2
+        MOV     #{BHGT}.,R5
+1$:     MOV     R2,R0
+        MOV     #{BWID}.,R4
+2$:     MOV     (R1)+,(R0)+
+        DEC     R4
+        BNE     2$
+        ADD     #120,R2
+        DEC     R5
+        BNE     1$
+        RTS     PC
+"""
+    tabsrc = (emit_tab("PTAB1", p1) + emit_tab("PTAB2", p2)
+              + "FRAME:  .BYTE   0\nFWIDR:  .BYTE   0\nFHGTR:  .BYTE   0\n"
+              + "        .EVEN\nBBOFF:  .WORD   0\n")
+
+    decrun = (fm.emit_decrun()
+              .replace("MOV     #FCTRL,SRCP\n        "
+                       "MOV     #FBUF+%DEOFF%.,DSTP\n        ", "")
+              .replace("ADD     #C408V,R0", "ADD     C408W,R0"))
+    tail = (fm.TAIL
+            .replace("ORIGDP: .WORD   0\n", "").replace("ORIGRC: .WORD   0\n", "")
+            .replace("C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)\n", "")
+            .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", ""))
+    gst = ("\n        .ASECT\n        . = 100000\n"
+           + _emit_window("GST", base[GBASE:DEMO_END]) + "        .EVEN\n")
+    src = (program
+           + f"\n;------ background {bgn} data ------\n" + bg.emit()
+           + "\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows)
+           + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
+           + equs + decrun + emit_setupchain() + ovlay + tabsrc + tail
+           + "\n        .EVEN\nC408W:  .WORD   0\n" + gst
+           + "\n        .END    START\n")
+    src = src.replace("%NELEM%", str(nelem)).replace("%C408%", str(base[0xC408]))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (DEMO+FIGHT: 2 fighters, region "
+          f"{BWID}x{BHGT} words at top={BTOP} left={BLEFT})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
     if os.environ.get("FIST_COV") == "ai":
@@ -3383,6 +3614,8 @@ def main():
         return main_demo_bg()
     if name == "demoanim":
         return main_demo_anim()
+    if name == "demofight":
+        return main_demo_fight()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE

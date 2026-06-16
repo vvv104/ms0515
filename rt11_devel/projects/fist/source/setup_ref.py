@@ -169,6 +169,28 @@ def c1a2(m):
     return b_in, c_in, pose
 
 
+def c101_block2(m):
+    """$C101 fighter-2 geometry: width $C40A/$C40F + height $C409 from the bbox
+    $C438-$C43B; $C41A = $C43A."""
+    w = ((((m[0xC439] - m[0xC438]) & 0xFF) >> 2) + 2) & 0xFF
+    m[0xC40A] = w
+    m[0xC40F] = w
+    m[0xC409] = (m[0xC43B] - m[0xC43A]) & 0xFF
+    m[0xC41A] = m[0xC43A]
+
+
+def c1cc(m):
+    """$C1CC fighter-2 dispatch (mirror of $C1A2): $C411=$C422, $C410=$C420; the
+    sub-offsets B=$C41D-($C438&$FC), C=$C41E-$C43A; pose pointer = ($C42A).
+    Returns (b_in, c_in, pose)."""
+    m[0xC411] = m[0xC422]
+    m[0xC410] = m[0xC420]
+    b_in = (m[0xC41D] - (m[0xC438] & 0xFC)) & 0xFF
+    c_in = (m[0xC41E] - m[0xC43A]) & 0xFF
+    pose = m[0xC42A] | (m[0xC42B] << 8)
+    return b_in, c_in, pose
+
+
 def capture_c101(budget=2000000):
     """Return the snapshot at a $C101 entry (after $BF13) whose draw reaches a
     $8833 - the input for the MACRO port of $C101+$C1A2+chain."""
