@@ -3024,6 +3024,112 @@ WKEY:   MOV     @#KBST,R0
           f"B={snap[pose]} c40e={snap[0xC40E]:#x}, {fwid}x{fhgt})")
 
 
+def main_demo_bg():
+    """Runnable demo with the DOJO BACKGROUND (FIST_GL=demobg).  Reuses the
+    ported background engine (gen_fist) - renders the dojo into SCRBUF and
+    presents it 1:1+coloured via SPSCR - then decodes the fighter and overlays
+    it (masked: keep the dojo where the fighter is blank).  The compose buffer
+    overlaps SCRBUF (free once the dojo is in VRAM), so it all fits the 15.5 KB
+    low RAM below the VRAM window; the trimmed fighter GST sits in banks 4-5."""
+    import fighter_mac as fm
+    import fighter_data as fd
+    import setup_ref as sr
+    import gen_fist
+    from bg_data import BackgroundData
+    fm.STAGE_LEVEL = 1
+    nelem = int(os.environ.get("FGHT_NELEM", "5000"))
+    bgn = int(os.environ.get("FGHT_BG", "1"))
+    snap, b_in, c_in, pose = sr.capture_c34f_low(0xD400)
+    fwid, fhgt = snap[0xC40A], snap[0xC409]
+    top, left = (200 - fhgt) // 2 + 20, (40 - fwid) // 2     # a touch low (on the floor)
+    dstoff = (top * 40 + left) * 2
+
+    stage = f"""        JSR     PC,CHGBG               ; render the dojo into SCRBUF
+        JSR     PC,SPSCR               ; present it 1:1 + coloured to VRAM
+        MOV     #SCRBUF,R0             ; FBUF (=SCRBUF) := black for the fighter
+        MOV     #442.,R1
+50$:    CLR     (R0)+
+        DEC     R1
+        BNE     50$
+        MOV     #W,R0
+        MOV     #32.,R1
+51$:    CLR     (R0)+
+        DEC     R1
+        BNE     51$
+        MOV     #{b_in}.,R3
+        MOV     #{c_in}.,R4
+        JSR     PC,SETUPC
+52$:    JSR     PC,SEGSET
+        MOVB    {g(0xC408)},R0
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        DECB    SEGCNT
+        BNE     52$
+        JSR     PC,OVLAY"""
+    program = (gen_fist.PROGRAM.replace("%STAGE%", stage)
+               .replace("%BGDEF%", f"BG{bgn}DEF").replace("%BGN%", str(bgn))
+               # absolute code at 1000 (match the GST .ASECT, so the .SAV load map
+               # carries both the low code and the high-bank GST).
+               .replace("\n        .EVEN\nSTART:",
+                        "\n        .ASECT\n        . = 1000\n        .EVEN\nSTART:"))
+    rows = gen_fist.spectrum_row_offsets()
+    bg = BackgroundData(bgn)
+
+    equs = "\nFWHITE = 043400\n"
+    for t in fd.TABLES:
+        equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
+    equs += f"C40EM  = GST+{0xC40E - GBASE}.\n"
+    equs += f"C407M  = GST+{0xC407 - GBASE}.\n"
+    equs += "FBUF   = SCRBUF\n"            # overlap: SCRBUF is free once the dojo is presented
+    equs += "WB1C   = W+60.\n"
+    ovlay = f"""
+;-------------------------------------------------------------------
+; OVLAY - overlay the composed fighter (FBUF) onto VRAM, masked: only the
+; non-zero (set) bytes are written white, so the dojo shows through.
+OVLAY:  MOV     #FBUF,R1
+        MOV     #{fhgt}.,R5
+        MOV     #VRAM+{dstoff}.,R2
+1$:     MOV     R2,R0
+        MOV     #{fwid}.,R4
+2$:     MOVB    (R1)+,R3
+        BIC     #177400,R3
+        BEQ     3$
+        BIS     #FWHITE,R3
+        MOV     R3,(R0)
+3$:     ADD     #2,R0
+        DEC     R4
+        BNE     2$
+        ADD     #120,R2
+        DEC     R5
+        BNE     1$
+        RTS     PC
+"""
+    decrun = (fm.emit_decrun()
+              .replace("MOV     #FCTRL,SRCP\n        "
+                       "MOV     #FBUF+%DEOFF%.,DSTP\n        ", "")
+              .replace("ADD     #C408V,R0", "ADD     C408W,R0"))
+    # PROGRAM already defines ORIGDP/ORIGRC - strip them from the fighter tail.
+    tail = (fm.TAIL
+            .replace("ORIGDP: .WORD   0\n", "").replace("ORIGRC: .WORD   0\n", "")
+            .replace("C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)\n", "")
+            .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", ""))
+    gst = ("\n        .ASECT\n        . = 100000\n"
+           + _emit_window("GST", snap[GBASE:DEMO_END]) + "        .EVEN\n")
+    src = (program
+           + f"\n;------ background {bgn} data ------\n" + bg.emit()
+           + "\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows)
+           + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
+           + equs + decrun + emit_setupchain() + ovlay + tail
+           + "\n        .EVEN\nC408W:  .WORD   0\n" + gst
+           + "\n        .END    START\n")
+    src = src.replace("%NELEM%", str(nelem)).replace("%C408%", str(snap[0xC408]))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (DEMO+DOJO: bg{bgn} + fighter pose "
+          f"${pose:04X} {fwid}x{fhgt} at top={top})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
     if os.environ.get("FIST_COV") == "ai":
@@ -3052,6 +3158,8 @@ def main():
         return main_drawgst(mode="bridge")
     if name == "demo":
         return main_demo()
+    if name == "demobg":
+        return main_demo_bg()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE
