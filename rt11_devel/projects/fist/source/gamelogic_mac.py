@@ -3132,6 +3132,223 @@ OVLAY:  MOV     #FBUF,R1
           f"${pose:04X} {fwid}x{fhgt} at top={top})")
 
 
+def main_demo_anim():
+    """Animated dojo demo (FIST_GL=demoanim), FLICKER-FREE.  The fighter cycles
+    its 16-frame animation ($C440 table, poses $C4CC..$D35C, all low).  The dojo
+    is presented ONCE; each frame the fighter's fixed region is composed OFF the
+    screen (clean-dojo copy + fighter) and written to VRAM in a single pass, so
+    no 'dojo without fighter' state is ever visible (a software back-buffer, the
+    way the Spectrum original works).  Per-frame draw params are precomputed in
+    Python (validated bf13/$C101/$C1A2 refs, $AA52=0 keeps the P2 pose low) into
+    ATAB; the MACRO loop just cycles it.  Buffers reuse SCRBUF + the bg data
+    (both free after the dojo is rendered+presented once), so it stays in low
+    RAM with no loader."""
+    import fighter_mac as fm
+    import fighter_data as fd
+    import setup_ref as sr
+    import gen_fist
+    from bg_data import BackgroundData
+    fm.STAGE_LEVEL = 1
+    nelem = int(os.environ.get("FGHT_NELEM", "5000"))
+    bgn = int(os.environ.get("FGHT_BG", "1"))
+    nframes = 16
+    snap, _b0, _c0, _p0 = sr.capture_c34f_low(0xD400)
+
+    # Per-frame params + the union bounding box of all frames (the fixed region
+    # the back-buffer covers, so a single saved clean-dojo copy serves all).
+    rows_p = []
+    for fr in range(nframes):
+        m = bytearray(snap)
+        m[0xAA52] = 0
+        m[0xAA12] = fr
+        ref.bf13(m)
+        sr.c101_block1(m)
+        b, c, _pose = sr.c1a2(m)
+        pose = m[0xC428] | (m[0xC429] << 8)
+        fwid, fhgt = m[0xC40A], m[0xC409]
+        top = 4 + m[0xC436]
+        left = 4 + (m[0xC434] >> 2)
+        rows_p.append((pose, m[0xC40F], m[0xC410], m[0xC411], m[0xC41A],
+                       b, c, fwid, fhgt, top, left))
+    BTOP = min(r[9] for r in rows_p)
+    BLEFT = min(r[10] for r in rows_p)
+    BWID = max(r[10] + r[7] for r in rows_p) - BLEFT      # words
+    BHGT = max(r[9] + r[8] for r in rows_p) - BTOP        # lines
+    VOFF = (BTOP * 40 + BLEFT) * 2                         # bbox byte offset in VRAM
+    SAVESZ = BWID * BHGT * 2                               # back-buffer size (bytes)
+    atab = []
+    for (pose, c40f, c410, c411, c41a, b, c, fwid, fhgt, top, left) in rows_p:
+        bboff = ((top - BTOP) * BWID + (left - BLEFT)) * 2  # offset inside the back-buffer
+        atab.append((pose, c40f, c410, c411, c41a, b, c, fwid, fhgt, bboff))
+
+    stage = f"""        JSR     PC,CHGBG               ; render the dojo into SCRBUF (once)
+        JSR     PC,SPSCR               ; present it to VRAM (once)
+        JSR     PC,SAVEBB              ; save the fighter region's clean dojo
+50$:    JSR     PC,RESTBB              ; BBBUF := the clean-dojo region
+        MOVB    FRAME,R0               ; entry = ATAB + FRAME*16
+        BIC     #177400,R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        MOV     #ATAB,R2
+        ADD     R0,R2
+        MOV     (R2)+,{g(0xC428)}      ; pose pointer
+        MOVB    (R2)+,{g(0xC40F)}      ; the $C101/$C1A2 cells SEGSET reads
+        MOVB    (R2)+,{g(0xC410)}
+        MOVB    (R2)+,{g(0xC411)}
+        MOVB    (R2)+,{g(0xC41A)}
+        MOVB    (R2)+,R3               ; b_in
+        MOVB    (R2)+,R4               ; c_in
+        MOVB    (R2)+,FWIDR            ; fwid
+        MOVB    (R2)+,FHGTR            ; fhgt
+        MOV     (R2)+,BBOFF            ; offset inside the back-buffer
+        MOV     #FBUF,R0               ; FBUF := black
+        MOV     #442.,R1
+51$:    CLR     (R0)+
+        DEC     R1
+        BNE     51$
+        MOV     #W,R0
+        MOV     #32.,R1
+52$:    CLR     (R0)+
+        DEC     R1
+        BNE     52$
+        JSR     PC,SETUPC
+53$:    JSR     PC,SEGSET
+        MOVB    {g(0xC408)},R0
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        DECB    SEGCNT
+        BNE     53$
+        JSR     PC,OVLBB               ; compose fighter into the back-buffer
+        JSR     PC,BLITBB              ; write the region to VRAM in one pass
+        MOV     #40000.,R0             ; frame delay
+54$:    SOB     R0,54$
+        INCB    FRAME                  ; next frame (cycle 0..{nframes-1})
+        MOVB    FRAME,R0
+        BIC     #177400,R0
+        CMP     R0,#{nframes}.
+        BLO     55$
+        CLRB    FRAME
+55$:    MOV     @#KBST,R0              ; any key -> exit
+        BIT     #2,R0
+        BEQ     50$
+        MOV     @#KBDT,R0
+        JMP     EXITP"""
+    program = (gen_fist.PROGRAM.replace("%STAGE%", stage)
+               .replace("%BGDEF%", f"BG{bgn}DEF").replace("%BGN%", str(bgn))
+               .replace("\n        .EVEN\nSTART:",
+                        "\n        .ASECT\n        . = 1000\n        .EVEN\nSTART:"))
+    rows = gen_fist.spectrum_row_offsets()
+    bg = BackgroundData(bgn)
+
+    equs = "\nFWHITE = 043400\n"
+    for t in fd.TABLES:
+        equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
+    equs += f"C40EM  = GST+{0xC40E - GBASE}.\n"
+    equs += f"C407M  = GST+{0xC407 - GBASE}.\n"
+    # Buffers reuse SCRBUF (FBUF) + the bg data (SAVBUF/BBBUF) - all free once the
+    # dojo has been rendered into SCRBUF and presented.
+    equs += "FBUF   = SCRBUF\n"
+    equs += f"SAVBUF = BG{bgn}DEF\n"
+    equs += f"BBBUF  = BG{bgn}DEF+{SAVESZ}.\n"
+    equs += "WB1C   = W+60.\n"
+    ovlay = f"""
+;-------------------------------------------------------------------
+; SAVEBB - copy the fighter region's clean dojo (VRAM) into SAVBUF.
+SAVEBB: MOV     #SAVBUF,R1
+        MOV     #VRAM+{VOFF}.,R2
+        MOV     #{BHGT}.,R5
+1$:     MOV     R2,R0
+        MOV     #{BWID}.,R4
+2$:     MOV     (R0)+,(R1)+
+        DEC     R4
+        BNE     2$
+        ADD     #120,R2
+        DEC     R5
+        BNE     1$
+        RTS     PC
+
+;-------------------------------------------------------------------
+; RESTBB - BBBUF := the clean-dojo region (SAVBUF).
+RESTBB: MOV     #SAVBUF,R1
+        MOV     #BBBUF,R2
+        MOV     #{BWID * BHGT}.,R0
+1$:     MOV     (R1)+,(R2)+
+        DEC     R0
+        BNE     1$
+        RTS     PC
+
+;-------------------------------------------------------------------
+; OVLBB - transparent overlay FBUF (FWIDR x FHGTR) into BBBUF at BBOFF.
+OVLBB:  MOV     #FBUF,R1
+        MOVB    FHGTR,R5
+        BIC     #177400,R5
+        MOV     BBOFF,R2
+        ADD     #BBBUF,R2
+1$:     MOV     R2,R0
+        MOVB    FWIDR,R4
+        BIC     #177400,R4
+2$:     MOVB    (R1)+,R3
+        BIC     #177400,R3
+        BEQ     3$
+        BISB    R3,(R0)
+3$:     ADD     #2,R0
+        DEC     R4
+        BNE     2$
+        ADD     #{BWID * 2}.,R2
+        DEC     R5
+        BNE     1$
+        RTS     PC
+
+;-------------------------------------------------------------------
+; BLITBB - write the composed region (BBBUF) to VRAM in one pass.
+BLITBB: MOV     #BBBUF,R1
+        MOV     #VRAM+{VOFF}.,R2
+        MOV     #{BHGT}.,R5
+1$:     MOV     R2,R0
+        MOV     #{BWID}.,R4
+2$:     MOV     (R1)+,(R0)+
+        DEC     R4
+        BNE     2$
+        ADD     #120,R2
+        DEC     R5
+        BNE     1$
+        RTS     PC
+"""
+    tabsrc = "\n        .EVEN\nATAB:\n"           # 16-byte entries (frame*16 indexing)
+    for pose, c40f, c410, c411, c41a, b, c, fwid, fhgt, bboff in atab:
+        tabsrc += (f"        .WORD   {pose}.\n"
+                   f"        .BYTE   {c40f}.,{c410}.,{c411}.,{c41a}.\n"
+                   f"        .BYTE   {b}.,{c}.,{fwid}.,{fhgt}.\n"
+                   f"        .WORD   {bboff}.\n        .WORD   0\n        .WORD   0\n")
+    tabsrc += "FRAME:  .BYTE   0\nFWIDR:  .BYTE   0\nFHGTR:  .BYTE   0\n        .EVEN\nBBOFF:  .WORD   0\n"
+
+    decrun = (fm.emit_decrun()
+              .replace("MOV     #FCTRL,SRCP\n        "
+                       "MOV     #FBUF+%DEOFF%.,DSTP\n        ", "")
+              .replace("ADD     #C408V,R0", "ADD     C408W,R0"))
+    tail = (fm.TAIL
+            .replace("ORIGDP: .WORD   0\n", "").replace("ORIGRC: .WORD   0\n", "")
+            .replace("C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)\n", "")
+            .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", ""))
+    gst = ("\n        .ASECT\n        . = 100000\n"
+           + _emit_window("GST", snap[GBASE:DEMO_END]) + "        .EVEN\n")
+    src = (program
+           + f"\n;------ background {bgn} data ------\n" + bg.emit()
+           + "\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows)
+           + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
+           + equs + decrun + emit_setupchain() + ovlay + tabsrc + tail
+           + "\n        .EVEN\nC408W:  .WORD   0\n" + gst
+           + "\n        .END    START\n")
+    src = src.replace("%NELEM%", str(nelem)).replace("%C408%", str(snap[0xC408]))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (DEMO+ANIM: bg{bgn} + {nframes}-frame "
+          f"fighter animation, poses {atab[0][0]:#06x}..{atab[-1][0]:#06x})")
+
+
 def main():
     name = os.environ.get("FIST_GL", "timer")
     if os.environ.get("FIST_COV") == "ai":
@@ -3162,6 +3379,8 @@ def main():
         return main_demo()
     if name == "demobg":
         return main_demo_bg()
+    if name == "demoanim":
+        return main_demo_anim()
     (addr, entry, emit, refapply, win_end, reg_setup, witness,
      budget) = ROUTINES[name]
     win_size = win_end - GBASE
