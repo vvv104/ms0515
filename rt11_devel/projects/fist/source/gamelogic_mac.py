@@ -3223,8 +3223,10 @@ def main_demo_anim():
         BNE     53$
         JSR     PC,OVLBB               ; compose fighter into the back-buffer
         JSR     PC,BLITBB              ; write the region to VRAM in one pass
-        MOV     #40000.,R0             ; frame delay
+        MOV     #6.,R1                 ; frame delay (~0.15 s, watchable)
+56$:    MOV     #60000.,R0
 54$:    SOB     R0,54$
+        SOB     R1,56$
         INCB    FRAME                  ; next frame (cycle 0..{nframes-1})
         MOVB    FRAME,R0
         BIC     #177400,R0
