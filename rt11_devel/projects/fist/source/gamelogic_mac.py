@@ -3494,9 +3494,13 @@ def main_demo_fight():
         equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
     equs += f"C40EM  = GST+{0xC40E - GBASE}.\n"
     equs += f"C407M  = GST+{0xC407 - GBASE}.\n"
-    equs += "FBUF   = SCRBUF\n"
-    equs += f"SAVBUF = BG{bgn}DEF\n"
-    equs += f"BBBUF  = BG{bgn}DEF+{SAVESZ}.\n"
+    # The wide region's two buffers (SAVESZ each) go in SCRBUF (6912 B, free
+    # after the dojo is presented); the small FBUF in the bg data (free after
+    # CHGBG).  Guard the SCRBUF capacity.
+    assert 2 * SAVESZ <= 6912, f"region too big for SCRBUF: 2*{SAVESZ} > 6912"
+    equs += f"FBUF   = BG{bgn}DEF\n"
+    equs += "SAVBUF = SCRBUF\n"
+    equs += f"BBBUF  = SCRBUF+{SAVESZ}.\n"
     equs += "WB1C   = W+60.\n"
     ovlay = f"""
 ;-------------------------------------------------------------------
