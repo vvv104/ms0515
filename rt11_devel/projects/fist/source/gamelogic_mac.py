@@ -3041,7 +3041,10 @@ def main_demo_bg():
     bgn = int(os.environ.get("FGHT_BG", "1"))
     snap, b_in, c_in, pose = sr.capture_c34f_low(0xD400)
     fwid, fhgt = snap[0xC40A], snap[0xC409]
-    top, left = (200 - fhgt) // 2 + 20, (40 - fwid) // 2     # a touch low (on the floor)
+    # Real screen position the bridge/geometry computed (bbox $C434/$C436), not
+    # centred: TMARG=4 lines + bbox line; LMARG=4 words + bbox column ($C434>>2).
+    top = 4 + snap[0xC436]
+    left = 4 + (snap[0xC434] >> 2)
     dstoff = (top * 40 + left) * 2
 
     stage = f"""        JSR     PC,CHGBG               ; render the dojo into SCRBUF
@@ -3095,8 +3098,7 @@ OVLAY:  MOV     #FBUF,R1
 2$:     MOVB    (R1)+,R3
         BIC     #177400,R3
         BEQ     3$
-        BIS     #FWHITE,R3
-        MOV     R3,(R0)
+        BISB    R3,(R0)               ; OR the fighter pixels in - transparent
 3$:     ADD     #2,R0
         DEC     R4
         BNE     2$
