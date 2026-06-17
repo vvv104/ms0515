@@ -1,0 +1,7 @@
+[project]
+name      = "BFLIP"
+language  = "macro11"
+outputs   = ["BFLIP.SAV"]
+
+[build]
+commands  = ["MACRO {name}", "LINK {name}"]
