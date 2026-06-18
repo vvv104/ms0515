@@ -3437,7 +3437,7 @@ def main_game():
         "DISPAT = 177400\nSYSC   = 177604\nVRAM   = 40000\nVRAMEN = 100000\n"
         "KBST   = 177442\nGST    = 100000\nHSPACE = 30000\nBUF    = 40000\n"
         f"N1     = {n1}.\nN2     = {n2}.\nEXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
-    equs = "\n"
+    equs = "\nFWHITE = 043400\n"          # bright-white attribute high byte ($47)
     for t in fd.TABLES:
         equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
     equs += f"FBUF   = GST+{fd.FBUF - GBASE}.\n"
@@ -3525,7 +3525,33 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         JSR     PC,DECRUN
         DECB    SEGCNT
         BNE     7$
-        JSR     PC,PRESENT
+        ; --- copy the composed buffer out of extended bank 6 to low primary RAM,
+        ;     then UNPARK RMON (banks 4-6 primary, VRAM still on @40000) so PRESENT
+        ;     runs in the proven framedraw config (03377) - RMON present means a
+        ;     stray trap is handled, not fatal; and the buffer is now in bank 1, away
+        ;     from the bank-6/7 region the parked present faulted on.
+        MOV     #FBUF,R1
+        MOV     #LOWBUF,R0
+        MOV     #442.,R2
+8$:     MOV     (R1)+,(R0)+
+        DEC     R2
+        BNE     8$
+        MOV     #3377,@#DISPAT         ; unpark: banks 0-6 primary, VRAM on @40000
+        ; inline present: LOWBUF -> VRAM, 68 rows x 19 cells, white attr, centred
+        MOV     #LOWBUF,R1
+        MOV     #68.,R5
+        MOV     #VRAM+5300.,R2
+PR1$:   MOV     R2,R0
+        MOV     #19.,R4
+PR2$:   MOVB    (R1)+,R3
+        BIC     #177400,R3
+        BIS     #FWHITE,R3
+        MOV     R3,(R0)+
+        DEC     R4
+        BNE     PR2$
+        ADD     #120,R2
+        DEC     R5
+        BNE     PR1$
         ; --- wait for a key, then unpark + restore + return to the monitor ---
 WKEY:   MOV     @#KBST,R0
         BIT     #2,R0
@@ -3535,7 +3561,12 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
         MTPS    #0
         .EXIT
 """
-    tovram_present = fm.HEADER[fm.HEADER.index("PRESENT:"):]
+    # PRESENT reads the composed buffer; the game feeds it the low-RAM copy LOWBUF
+    # (the original FBUF in bank 6 is shadowed by RMON after the unpark).  Drop the
+    # routine's own 16 KB VRAM-clear (VRAM was already cleared at render start, and
+    # the clear is what the parked present faulted in).
+    # The present is now an inline loop in the driver (LOWBUF -> VRAM at 03377);
+    # fighter_mac's PRESENT routine is not used here.
     decrun = (fm.emit_decrun()
               .replace("MOV     #FCTRL,SRCP\n        "
                        "MOV     #FBUF+%DEOFF%.,DSTP\n        ", "")
@@ -3549,8 +3580,9 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
     ldat = ("\n        .EVEN\n" + _emit_window("LDAT", snap[ldat_base:ldat_end]))
     datblk = ("\n        .EVEN\nDATFIL: .RAD50  /DK GST   DAT/\n"
               "        .EVEN\nLKAREA: .BLKW   5\n"
-              "        .EVEN\nC408W:  .WORD   0\nORIGRC: .WORD   0\n")
-    src = (preamble + equs + driver + tovram_present + decrun
+              "        .EVEN\nC408W:  .WORD   0\nORIGRC: .WORD   0\n"
+              "        .EVEN\nLOWBUF: .BLKW   442.    ; primary-RAM copy of the compose buffer\n")
+    src = (preamble + equs + driver + decrun
            + logic + chain + tail + datblk + ldat
            + "\n        .END    START\n")
     src = (src.replace("%NELEM%", str(nelem))
@@ -3558,12 +3590,6 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
               .replace("%C40E%", str(snap[0xC40E])).replace("%C407%", str(snap[0xC407]))
               .replace("%FWID%", str(fwid)).replace("%FHGT%", str(fhgt))
               .replace("%DSTOFF%", str((top * 40 + left) * 2)))
-    if os.environ.get("GAME_RAWVRAM"):       # debug: clear-mode FBUF dumped raw to VRAM[0]
-        src = src.replace(
-            "        JSR     PC,PRESENT\n",
-            "        MOV     #FBUF,R1\n        MOV     #VRAM,R0\n"
-            "        MOV     #442.,R2\nRC$:    MOV     (R1)+,(R0)+\n"
-            "        DEC     R2\n        BNE     RC$\n", 1)
     src.encode("ascii")
     OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
     print(f"gamelogic_mac: wrote {OUT_MAC} + GST.DAT (STANDALONE GAME: load GST.DAT "
