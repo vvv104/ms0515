@@ -3391,6 +3391,179 @@ WKEY:   MOV     @#KBST,R0
           f"pose ${pose:04X}, B_in={b_in} C_in={c_in}, $F730 -> {EXP_BIN.name})")
 
 
+def main_game():
+    """FIST_GL=game - the STANDALONE game (one frame), runnable on RT-11 via 'R FIST'.
+    Loads the full GST from GST.DAT into the parked extended banks 4-6 (the proven
+    chunked .READW + park/copy loader), then runs one $9745 logic frame and draws
+    BOTH fighters from the live state (the framedraw render), presented to the
+    screen.  Proves the loader + engine integrate into a runnable standalone image;
+    the per-frame loop, dojo background, sound and keyboard come next."""
+    import fighter_mac as fm
+    import fighter_data as fd
+    import setup_ref as sr
+    fm.STAGE_LEVEL = 1
+    nelem = int(os.environ.get("FGHT_NELEM", "5000"))
+    ldat_base, ldat_end = 0x9368, 0x9600
+
+    def safe_frame(m, rs):
+        tmp = bytearray(m)
+        try:
+            ref.frame_9745(tmp, list(rs))
+        except NotImplementedError:
+            return
+        m[:] = tmp
+    snap, randoms = capture_ai(0x9745, safe_frame, 0xC440)
+    mm = bytearray(snap)
+    ref.frame_9745(mm, list(randoms))
+    sr.c101_block1(mm)
+    sr.c1a2(mm)
+    sr.c101_block2(mm)
+    sr.c1cc(mm)
+    fwid, fhgt = mm[0xC40A], mm[0xC409]
+    top, left = (200 - fhgt) // 2, (40 - fwid) // 2
+
+    gstdat = bytes(snap[GBASE:0xF730])           # GST data; $F730+ compose is scratch
+    if len(gstdat) % 512:
+        gstdat = gstdat + bytes(512 - (len(gstdat) % 512))
+    nwords = len(gstdat) // 2
+    blk1 = 24
+    n1 = blk1 * 256
+    n2 = nwords - n1
+    (OUT_MAC.parent / "GST.DAT").write_bytes(gstdat)
+
+    preamble = (
+        "        .TITLE  FIST\n"
+        "        .MCALL  .FETCH,.LOOKUP,.READW,.CLOSE,.EXIT\n"
+        "DISPAT = 177400\nSYSC   = 177604\nVRAM   = 40000\nVRAMEN = 100000\n"
+        "KBST   = 177442\nGST    = 100000\nHSPACE = 2000\nBUF    = 40000\n"
+        f"N1     = {n1}.\nN2     = {n2}.\nEXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
+    equs = "\n"
+    for t in fd.TABLES:
+        equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
+    equs += f"FBUF   = GST+{fd.FBUF - GBASE}.\n"
+    equs += f"C40EM  = GST+{0xC40E - GBASE}.\n"
+    equs += f"C407M  = GST+{0xC407 - GBASE}.\n"
+    equs += "WB1C   = W+60.\n"
+    c408 = g(0xC408)
+    driver = f"""
+        .ASECT
+        . = 44
+        .WORD   21000                  ; JSW (file-I/O .SAV flags)
+        . = 1000
+        .EVEN
+START:  MOV     #37776,SP              ; stack above the code, below BUF
+        MOVB    @#SYSC,ORIGRC
+        ; --- load GST.DAT (chunked) -> extended banks 4-6 ---
+        .FETCH  #HSPACE,#DATFIL
+        BCC     .+6
+        JMP     LDERR
+        .LOOKUP #LKAREA,#0,#DATFIL
+        BCC     .+6
+        JMP     LDERR
+        .READW  #LKAREA,#0,#BUF,#N1,#0
+        BCC     .+6
+        JMP     LDERR
+        MTPS    #340
+        MOVB    #EXT,@#DISPAT
+        MOV     #BUF,R0
+        MOV     #GST,R1
+        MOV     #N1,R2
+1$:     MOV     (R0)+,(R1)+
+        SOB     R2,1$
+        MOVB    #PRIM,@#DISPAT
+        MTPS    #0
+        .READW  #LKAREA,#0,#BUF,#N2,#{blk1}.
+        BCC     .+6
+        JMP     LDERR
+        MTPS    #340
+        MOVB    #EXT,@#DISPAT
+        MOV     #BUF,R0
+        MOV     #GST+N1+N1,R1
+        MOV     #N2,R2
+2$:     MOV     (R0)+,(R1)+
+        SOB     R2,2$
+        MOVB    #PRIM,@#DISPAT
+        MTPS    #0
+        .CLOSE  #0
+        ; --- GST loaded; set medium video + game banking (banks 4-6 EXTENDED) ---
+        MTPS    #340
+        MOVB    @#SYSC,R0
+        BIC     #17,R0
+        MOVB    R0,@#SYSC
+        MOV     #GAME,@#DISPAT         ; 03217: VRAM on, window @40000, banks 4-6 ext
+        MOV     #VRAM,R0
+3$:     CLR     (R0)+
+        CMP     R0,#VRAMEN
+        BLO     3$
+        MOV     #W,R0
+        MOV     #32.,R1
+4$:     CLR     (R0)+
+        DEC     R1
+        BNE     4$
+        ; --- one logic frame + draw both fighters into $F730 ---
+        JSR     PC,ORCH
+        MOV     #FBUF,R0              ; clear the compose buffer (fighters on black)
+        MOV     #442.,R1
+5$:     CLR     (R0)+
+        DEC     R1
+        BNE     5$
+        JSR     PC,C101C
+        JSR     PC,SETUPC
+6$:     JSR     PC,SEGSET
+        MOVB    {c408},R0
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        DECB    SEGCNT
+        BNE     6$
+        JSR     PC,C1CC
+        JSR     PC,SETUPC
+7$:     JSR     PC,SEGSET
+        MOVB    {c408},R0
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        DECB    SEGCNT
+        BNE     7$
+        JSR     PC,PRESENT
+        ; --- wait for a key, then unpark + restore + return to the monitor ---
+WKEY:   MOV     @#KBST,R0
+        BIT     #2,R0
+        BEQ     WKEY
+LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
+        MOVB    ORIGRC,@#SYSC
+        MTPS    #0
+        .EXIT
+"""
+    tovram_present = fm.HEADER[fm.HEADER.index("PRESENT:"):]
+    decrun = (fm.emit_decrun()
+              .replace("MOV     #FCTRL,SRCP\n        "
+                       "MOV     #FBUF+%DEOFF%.,DSTP\n        ", "")
+              .replace("ADD     #C408V,R0", "ADD     C408W,R0"))
+    tail = (fm.TAIL
+            .replace("C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)\n", "")
+            .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", "")
+            .replace("ORIGDP: .WORD   0\n", "").replace("ORIGRC: .WORD   0\n", ""))
+    logic = emit_fullframe(randoms)
+    chain = emit_setupchain() + emit_c101c1a2()
+    ldat = ("\n        .EVEN\n" + _emit_window("LDAT", snap[ldat_base:ldat_end]))
+    datblk = ("\n        .EVEN\nDATFIL: .RAD50  /DK GST   DAT/\n"
+              "        .EVEN\nLKAREA: .BLKW   5\n"
+              "        .EVEN\nC408W:  .WORD   0\nORIGRC: .WORD   0\n")
+    src = (preamble + equs + driver + tovram_present + decrun
+           + logic + chain + tail + datblk + ldat
+           + "\n        .END    START\n")
+    src = (src.replace("%NELEM%", str(nelem))
+              .replace("%C408%", str(snap[0xC408]))
+              .replace("%C40E%", str(snap[0xC40E])).replace("%C407%", str(snap[0xC407]))
+              .replace("%FWID%", str(fwid)).replace("%FHGT%", str(fhgt))
+              .replace("%DSTOFF%", str((top * 40 + left) * 2)))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} + GST.DAT (STANDALONE GAME: load GST.DAT "
+          f"-> extended banks, one $9745 frame + draw both fighters, {fwid}x{fhgt})")
+
+
 # Demo: a RUNNABLE fighter-present image (boots under RT-11, no oracle).  The
 # full GST (to $FAA4) overlaps RMON ($140054); so trim it to a LOW pose's data
 # extent (fits banks 4-5, below RMON) and relocate the compose buffer to low
@@ -4216,6 +4389,8 @@ def main():
         return main_drawgst(mode="bridge")
     if name == "framedraw":
         return main_framedraw()
+    if name == "game":
+        return main_game()
     if name == "demo":
         return main_demo()
     if name == "demobg":
