@@ -3208,6 +3208,133 @@ OVLAY:  MOV     #FBUF,R1
           f"${pose:04X} {fwid}x{fhgt} at top={top})")
 
 
+def main_loader_bg():
+    """FIST_GL=loaderbg - the dojo+fighter demo rendered from the FULL GST via the
+    park-RMON loader (vs demobg's trimmed GST embedded below RMON).  The full
+    24 KB GST is embedded at 020000 (banks 1-3); the prologue parks banks 4-6 and
+    relocates it to its runtime home 0100000 (extended RAM), then renders with the
+    dispatcher set to keep banks 4-6 EXTENDED (03217) so the GST is reachable
+    there while VRAM is windowed at 040000.  Same render path as demobg, so the
+    picture must match - proving the full GST works in parked memory.  SCRBUF and
+    the compose buffer reuse the embed area (free once the GST is relocated)."""
+    import fighter_mac as fm
+    import fighter_data as fd
+    import setup_ref as sr
+    import gen_fist
+    from bg_data import BackgroundData
+    fm.STAGE_LEVEL = 1
+    nelem = int(os.environ.get("FGHT_NELEM", "5000"))
+    bgn = int(os.environ.get("FGHT_BG", "1"))
+    snap, b_in, c_in, pose = sr.capture_c34f_low(0xD400)
+    fwid, fhgt = snap[0xC40A], snap[0xC409]
+    top = 4 + snap[0xC436]
+    left = 4 + (snap[0xC434] >> 2)
+    dstoff = (top * 40 + left) * 2
+
+    gst_full = snap[GBASE:GST_FULL_END]
+    nwords = len(gst_full) // 2
+
+    stage = f"""        JSR     PC,CHGBG               ; render the dojo into SCRBUF
+        JSR     PC,SPSCR               ; present it 1:1 + coloured to VRAM
+        MOV     #SCRBUF,R0             ; FBUF (=SCRBUF) := black for the fighter
+        MOV     #442.,R1
+50$:    CLR     (R0)+
+        DEC     R1
+        BNE     50$
+        MOV     #W,R0
+        MOV     #32.,R1
+51$:    CLR     (R0)+
+        DEC     R1
+        BNE     51$
+        MOV     #{b_in}.,R3
+        MOV     #{c_in}.,R4
+        JSR     PC,SETUPC
+52$:    JSR     PC,SEGSET
+        MOVB    {g(0xC408)},R0
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        DECB    SEGCNT
+        BNE     52$
+        JSR     PC,OVLAY"""
+
+    # the park + relocate prologue (replaces the demos' "all banks primary" set).
+    # RT-11 sets SP to the top of our image (077244 = inside the VRAM window);
+    # move it to bank-1 RAM above SCRBUF, below the 040000 window, first.
+    reloc = f"""        MOV     #37700,SP             ; stack below the VRAM window (bank 1)
+        MOV     #17,@#DISPAT           ; park banks 4-6 (extended), VRAM off
+        MOV     #GSTLD,R0             ; relocate the full GST 020000 -> 100000
+        MOV     #GST,R1
+        MOV     #NWORD,R2
+8$:     MOV     (R0)+,(R1)+
+        SOB     R2,8$
+        MOV     #3217,@#DISPAT         ; VRAM on @40000, banks 4-6 EXTENDED"""
+
+    program = (gen_fist.PROGRAM.replace("%STAGE%", stage)
+               .replace("%BGDEF%", f"BG{bgn}DEF").replace("%BGN%", str(bgn))
+               .replace("\n        .EVEN\nSTART:",
+                        "\n        .ASECT\n        . = 1000\n        .EVEN\nSTART:")
+               .replace("        MOV     #3377,@#DPRAM\n"
+                        "        MOV     #3377,@#DISPAT", reloc))
+    rows = gen_fist.spectrum_row_offsets()
+    bg = BackgroundData(bgn)
+
+    equs = "\nFWHITE = 043400\n"
+    equs += "GST    = 100000\n"           # GST runtime home (extended banks 4-6)
+    equs += "GSTLD  = 20000\n"            # GST embed/load address (banks 1-3)
+    equs += f"NWORD  = {nwords}.\n"
+    equs += "SCRBUF = 20000\n"            # reuse the embed area, free after relocate
+    for t in fd.TABLES:
+        equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
+    equs += f"C40EM  = GST+{0xC40E - GBASE}.\n"
+    equs += f"C407M  = GST+{0xC407 - GBASE}.\n"
+    equs += "FBUF   = SCRBUF\n"
+    equs += "WB1C   = W+60.\n"
+    ovlay = f"""
+;-------------------------------------------------------------------
+; OVLAY - overlay the composed fighter (FBUF) onto VRAM, masked: only the
+; non-zero (set) bytes are written white, so the dojo shows through.
+OVLAY:  MOV     #FBUF,R1
+        MOV     #{fhgt}.,R5
+        MOV     #VRAM+{dstoff}.,R2
+1$:     MOV     R2,R0
+        MOV     #{fwid}.,R4
+2$:     MOVB    (R1)+,R3
+        BIC     #177400,R3
+        BEQ     3$
+        BISB    R3,(R0)               ; OR the fighter pixels in - transparent
+3$:     ADD     #2,R0
+        DEC     R4
+        BNE     2$
+        ADD     #120,R2
+        DEC     R5
+        BNE     1$
+        RTS     PC
+"""
+    decrun = (fm.emit_decrun()
+              .replace("MOV     #FCTRL,SRCP\n        "
+                       "MOV     #FBUF+%DEOFF%.,DSTP\n        ", "")
+              .replace("ADD     #C408V,R0", "ADD     C408W,R0"))
+    tail = (fm.TAIL
+            .replace("ORIGDP: .WORD   0\n", "").replace("ORIGRC: .WORD   0\n", "")
+            .replace("C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)\n", "")
+            .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", ""))
+    # full GST embedded at the load address (banks 1-3), relocated at runtime
+    gstemb = ("\n        .ASECT\n        . = 20000\n"
+              + _emit_window("GSTEMB", gst_full) + "        .EVEN\n")
+    src = (program
+           + f"\n;------ background {bgn} data ------\n" + bg.emit()
+           + "\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows)
+           + equs + decrun + emit_setupchain() + ovlay + tail
+           + "\n        .EVEN\nC408W:  .WORD   0\n" + gstemb
+           + "\n        .END    START\n")
+    src = src.replace("%NELEM%", str(nelem)).replace("%C408%", str(snap[0xC408]))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (LOADER+DOJO: full GST relocated "
+          f"020000->100000, bg{bgn} + fighter pose ${pose:04X} {fwid}x{fhgt})")
+
+
 def main_demo_anim():
     """Animated dojo demo (FIST_GL=demoanim), FLICKER-FREE.  The fighter cycles
     its 16-frame animation ($C440 table, poses $C4CC..$D35C, all low).  The dojo
@@ -3694,6 +3821,8 @@ def main():
         return main_demo()
     if name == "demobg":
         return main_demo_bg()
+    if name == "loaderbg":
+        return main_loader_bg()
     if name == "demoanim":
         return main_demo_anim()
     if name == "demofight":
