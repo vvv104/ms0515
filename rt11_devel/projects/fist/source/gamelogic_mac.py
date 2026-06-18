@@ -2444,7 +2444,7 @@ def main_loaderdat():
 ; copied into the parked extended banks 4-6 (the GST's 24 KB runtime home).  The
 ; .SAV carries NO GST - only this code - so the full game code fits later.
 ;
-        .MCALL  .LOOKUP,.READW,.CLOSE,.EXIT
+        .MCALL  .LOOKUP,.READW,.CLOSE,.EXIT,.SETTOP
 DISPAT = 177400
 BUF    = 40000                  ; read buffer = banks 2-3 (RAM while VRAM off)
 GSTRT  = 100000                 ; GST runtime home (extended banks 4-6)
@@ -2456,6 +2456,8 @@ NWORD  = {nwords}.
 CKSUM  = {checksum}.
 
         .ASECT
+        . = 44
+        .WORD   21000                  ; JSW - job/USR flags (a working file-I/O .SAV)
         . = 1000
         .EVEN
 START:  .LOOKUP #LKAREA,#0,#DATFIL      ; open GST.DAT on channel 0 (USR; IRQs on)
