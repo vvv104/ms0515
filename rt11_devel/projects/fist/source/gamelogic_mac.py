@@ -3426,6 +3426,10 @@ def main_game():
     fbuf_addr = 0o100000 + (fd.FBUF - GBASE)     # compose buffer home (extended bank 6)
     safe_words = (0o157777 - fbuf_addr + 1) // 2  # composed words that fit below bank 7
     copy_words = min(present_words, safe_words)   # copy only what the decode could write
+    # per-frame present: a fixed screen window the flicker-free blit fully repaints
+    maxw, maxr = 40, 90                          # window: full width x 90 rows
+    maxoff = ((200 - maxr) // 2 * 40) * 2        # centred top, byte offset into VRAM
+    frame_delay = 20000                          # crude pacing (busy loop), tune later
 
     gstdat = bytes(snap[GBASE:0xF730])           # GST data; $F730+ compose is scratch
     if len(gstdat) % 512:
@@ -3500,19 +3504,21 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
 3$:     CLR     (R0)+
         CMP     R0,#VRAMEN
         BLO     3$
-        MOV     #W,R0
+        ; --- seed the RNG, then loop logic + draw + present every frame ---
+        MOV     #12345.,RSEED
+GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
+        MOV     #W,R0                ; clear decoder scratch
         MOV     #32.,R1
 4$:     CLR     (R0)+
         DEC     R1
         BNE     4$
-        ; --- one logic frame + draw both fighters into $F730 ---
-        JSR     PC,ORCH
-        MOV     #FBUF,R0              ; clear the compose buffer (fighters on black)
-        MOV     #442.,R1
+        JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
+        MOV     #FBUF,R0             ; clear the compose buffer
+        MOV     #{present_words}.,R1
 5$:     CLR     (R0)+
         DEC     R1
         BNE     5$
-        JSR     PC,C101C
+        JSR     PC,C101C             ; draw fighter P1
         JSR     PC,SETUPC
 6$:     JSR     PC,SEGSET
         MOVB    {c408},R0
@@ -3521,7 +3527,7 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         JSR     PC,DECRUN
         DECB    SEGCNT
         BNE     6$
-        JSR     PC,C1CC
+        JSR     PC,C1CC              ; draw fighter P2
         JSR     PC,SETUPC
 7$:     JSR     PC,SEGSET
         MOVB    {c408},R0
@@ -3530,42 +3536,77 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         JSR     PC,DECRUN
         DECB    SEGCNT
         BNE     7$
-        ; --- copy the composed buffer out of extended bank 6 to low primary RAM,
-        ;     then UNPARK RMON (banks 4-6 primary, VRAM still on @40000) so PRESENT
-        ;     runs in the proven framedraw config (03377) - RMON present means a
-        ;     stray trap is handled, not fatal; and the buffer is now in bank 1, away
-        ;     from the bank-6/7 region the parked present faulted on.
-        MOV     #LOWBUF,R0             ; clear LOWBUF (tail rows -> black, not garbage)
+        MOVB    {g(0xC40A)},R0       ; stash runtime box dims (GST live while parked)
+        BIC     #177400,R0
+        MOV     R0,FWVAR
+        MOVB    {g(0xC409)},R0
+        BIC     #177400,R0
+        MOV     R0,FHVAR
+        MOV     #LOWBUF,R0           ; clear LOWBUF, then copy the box (bank-6 part) down
         MOV     #{present_words}.,R2
 8$:     CLR     (R0)+
         DEC     R2
         BNE     8$
-        MOV     #FBUF,R1              ; copy the composed box (bank-6 portion) down
+        MOV     #FBUF,R1
         MOV     #LOWBUF,R0
         MOV     #{copy_words}.,R2
 88$:    MOV     (R1)+,(R0)+
         DEC     R2
         BNE     88$
-        MOV     #3377,@#DISPAT         ; unpark: banks 0-6 primary, VRAM on @40000
-        ; inline present: LOWBUF -> VRAM, {fhgt} rows x {fwid} cells, white attr, centred
+        MOV     #3377,@#DISPAT       ; unpark: 03377 (RMON back, VRAM on) - present-safe
+        ; --- flicker-free present: repaint a fixed window (box cells + black pad) ---
         MOV     #LOWBUF,R1
-        MOV     #{fhgt}.,R5
-        MOV     #VRAM+{dstoff}.,R2
-PR1$:   MOV     R2,R0
-        MOV     #{fwid}.,R4
-PR2$:   MOVB    (R1)+,R3
+        MOV     #VRAM+{maxoff}.,R2
+        MOV     FHVAR,R5
+10$:    TST     R5                   ; fighter rows remaining?
+        BLE     14$
+        MOV     R2,R0
+        MOV     #{maxw}.,R4          ; left pad = (maxw - fwid)/2  (centre the box)
+        SUB     FWVAR,R4
+        ASR     R4
+        BLE     11$
+101$:   CLR     (R0)+
+        DEC     R4
+        BNE     101$
+11$:    MOV     FWVAR,R4             ; draw fwid fighter cells
+        TST     R4
+        BEQ     12$
+111$:   MOVB    (R1)+,R3
         BIC     #177400,R3
         BIS     #FWHITE,R3
         MOV     R3,(R0)+
         DEC     R4
-        BNE     PR2$
+        BNE     111$
+12$:    MOV     R0,R4               ; right pad = maxw - cells written so far
+        SUB     R2,R4
+        ASR     R4
+        SUB     #{maxw}.,R4
+        NEG     R4
+        BLE     13$
+121$:   CLR     (R0)+
+        DEC     R4
+        BNE     121$
+13$:    ADD     #120,R2
+        DEC     R5
+        BR      10$
+14$:    MOV     #{maxr}.,R5          ; clear rows below the box
+        SUB     FHVAR,R5
+        BLE     16$
+15$:    MOV     R2,R0
+        MOV     #{maxw}.,R4
+151$:   CLR     (R0)+
+        DEC     R4
+        BNE     151$
         ADD     #120,R2
         DEC     R5
-        BNE     PR1$
-        ; --- wait for a key, then unpark + restore + return to the monitor ---
-WKEY:   MOV     @#KBST,R0
+        BNE     15$
+16$:    MOV     #{frame_delay}.,R0   ; crude frame pacing
+9$:     DEC     R0
+        BNE     9$
+        MOV     @#KBST,R0            ; exit on a key, else next frame
         BIT     #2,R0
-        BEQ     WKEY
+        BNE     LDERR                ; key pressed -> exit
+        JMP     GLOOP                ; next frame (JMP: GLOOP is out of branch range)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC
         MTPS    #0
@@ -3586,11 +3627,32 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
             .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", "")
             .replace("ORIGDP: .WORD   0\n", "").replace("ORIGRC: .WORD   0\n", ""))
     logic = emit_fullframe(randoms)
+    # Live RNG for the loop: replace the recorded-replay ARNG with a 16-bit Galois
+    # LFSR masked to 0..127 (the Z80 R register's range, so the AI's >=$80 branches
+    # stay dead) - so the AI decides fresh each frame instead of replaying 2 bytes.
+    logic = logic.replace(
+        "ARNG:   MOV     ARNDI,R0\n"
+        "        INC     ARNDI\n"
+        "        MOVB    ARND(R0),R0\n"
+        "        BIC     #177400,R0\n"
+        "        RTS     PC\n",
+        "ARNG:   MOV     RSEED,R0\n"
+        "        CLC\n"
+        "        ROR     R0\n"
+        "        BCC     91$\n"
+        "        MOV     R1,-(SP)\n"
+        "        MOV     #132000,R1\n"
+        "        XOR     R1,R0\n"
+        "        MOV     (SP)+,R1\n"
+        "91$:    MOV     R0,RSEED\n"
+        "        BIC     #177600,R0\n"
+        "        RTS     PC\n")
     chain = emit_setupchain() + emit_c101c1a2()
     ldat = ("\n        .EVEN\n" + _emit_window("LDAT", snap[ldat_base:ldat_end]))
     datblk = ("\n        .EVEN\nDATFIL: .RAD50  /DK GST   DAT/\n"
               "        .EVEN\nLKAREA: .BLKW   5\n"
               "        .EVEN\nC408W:  .WORD   0\nORIGRC: .WORD   0\n"
+              "        .EVEN\nFWVAR:  .WORD   0\nFHVAR:  .WORD   0\nRSEED:  .WORD   1\n"
               f"        .EVEN\nLOWBUF: .BLKW   {present_words}.    ; primary-RAM copy of the compose buffer\n")
     src = (preamble + equs + driver + decrun
            + logic + chain + tail + datblk + ldat
