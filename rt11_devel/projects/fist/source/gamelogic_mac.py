@@ -3118,6 +3118,117 @@ WKEY:   MOV     @#KBST,R0
           f"${pose:04X}, B_in={b_in} C_in={c_in}, expected $F730 -> {EXP_BIN.name})")
 
 
+def main_framedraw():
+    """FIST_GL=framedraw - UNIFY the logic and draw generators (task #11): run the
+    EXACT full $9745 frame (logic, incl. $BF13) then DRAW fighter P1 from the
+    resulting live state ($C101 geometry from the bbox bf13 set -> setup chain ->
+    decoder), and verify the composed $F730 byte-exact vs frame_9745 + the Python
+    draw chain.  This proves the logic feeds the draw correctly in one image - the
+    foundation for the per-frame game loop."""
+    import fighter_mac as fm
+    import fighter_data as fd
+    import setup_ref as sr
+    fm.STAGE_LEVEL = 1
+    nelem = int(os.environ.get("FGHT_NELEM", "5000"))
+    ldat_base, ldat_end = 0x9368, 0x9600
+
+    def safe_frame(m, rs):
+        tmp = bytearray(m)
+        try:
+            ref.frame_9745(tmp, list(rs))
+        except NotImplementedError:
+            return
+        m[:] = tmp
+
+    snap, randoms = capture_ai(0x9745, safe_frame, 0xC440)
+    mm = bytearray(snap)
+    ref.frame_9745(mm, list(randoms))      # the logic frame (incl. bf13)
+    sr.c101_block1(mm)                      # $C101 geometry for fighter P1
+    b_in, c_in, pose = sr.c1a2(mm)          # $C1A2 dispatch -> decode params
+    sr.draw_fighter(mm, pose, b_in, c_in)   # decode P1 into $F730
+    fexp = bytes(mm[fd.FBUF:fd.FBUF + fd.FBUF_LEN])
+    EXP_BIN.write_bytes(fexp)
+    WIN_JSON.write_text(json.dumps({"base": fd.FBUF, "size": fd.FBUF_LEN}))
+
+    preamble = ("        .TITLE  FIST\nDPRAM  = 157700\nDISPAT = 177400\n"
+                "SYSC   = 177604\nVRAM   = 40000\nKBST   = 177442\n")
+    equs = "\n"
+    for t in fd.TABLES:
+        equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
+    equs += f"FBUF   = GST+{fd.FBUF - GBASE}.\n"
+    equs += f"C40EM  = GST+{0xC40E - GBASE}.\n"
+    equs += f"C407M  = GST+{0xC407 - GBASE}.\n"
+    equs += "WB1C   = W+60.\n"
+    gst = ("\n        .ASECT\n        . = 100000\n"
+           + _emit_window("GST", snap[GBASE:GST_FULL_END]) + "        .EVEN\n"
+           + _emit_window("LDAT", snap[ldat_base:ldat_end]) + "        .EVEN\n")
+    driver = """
+        .ASECT
+        . = 1000
+        .EVEN
+START:  MOV     #340,R0
+        MTPS    R0
+        MOV     @#DISPAT,ORIGDP
+        MOVB    @#SYSC,ORIGRC
+        MOVB    @#SYSC,R0
+        BIC     #17,R0
+        MOVB    R0,@#SYSC
+        MOV     #3377,@#DPRAM
+        MOV     #3377,@#DISPAT
+        MOV     #W,R0
+        MOV     #32.,R1
+8$:     CLR     (R0)+
+        DEC     R1
+        BNE     8$
+        JSR     PC,ORCH                ; run the EXACT full $9745 logic frame
+        JSR     PC,C101C               ; geometry from the bbox bf13 just set
+        JSR     PC,SETUPC
+9$:     JSR     PC,SEGSET
+        MOVB    %C408RT%,R0            ; runtime $C408 stride
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        DECB    SEGCNT
+        BNE     9$
+        JSR     PC,TOVRAM
+WKEY:   MOV     @#KBST,R0
+        BIT     #2,R0
+        BEQ     WKEY
+        MOV     ORIGDP,@#DPRAM
+        MOV     ORIGDP,@#DISPAT
+        MOVB    ORIGRC,@#SYSC
+        EMT     350
+"""
+    driver = driver.replace("%C408RT%", g(0xC408))
+    tovram_present = fm.HEADER[fm.HEADER.index("TOVRAM:"):]
+    decrun = (fm.emit_decrun()
+              .replace("MOV     #FCTRL,SRCP\n        "
+                       "MOV     #FBUF+%DEOFF%.,DSTP\n        ", "")
+              .replace("ADD     #C408V,R0", "ADD     C408W,R0"))
+    tail = (fm.TAIL
+            .replace("C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)\n", "")
+            .replace("C407M:  .BYTE   %C407%.                ; facing flag ($C407)\n", "")
+            .replace("ORIGDP: .WORD   0\n", "").replace("ORIGRC: .WORD   0\n", ""))
+    logic = emit_fullframe(randoms)        # all logic routines + 95e1 + bf13 + ORCH
+    chain = emit_setupchain() + emit_c101c1a2()
+    src = (preamble + gst + equs + driver + tovram_present + decrun
+           + logic + chain + tail
+           + "\n        .EVEN\nC408W:  .WORD   0\n"
+           + "ORIGDP: .WORD   0\nORIGRC: .WORD   0\n"
+           + "        .END    START\n")
+    fwid, fhgt = mm[0xC40A], mm[0xC409]
+    top, left = (200 - fhgt) // 2, (40 - fwid) // 2
+    src = (src.replace("%NELEM%", str(nelem))
+              .replace("%C408%", str(snap[0xC408]))
+              .replace("%C40E%", str(snap[0xC40E])).replace("%C407%", str(snap[0xC407]))
+              .replace("%FWID%", str(fwid)).replace("%FHGT%", str(fhgt))
+              .replace("%DSTOFF%", str((top * 40 + left) * 2)))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (FRAMEDRAW: $9745 logic + draw P1 from "
+          f"pose ${pose:04X}, B_in={b_in} C_in={c_in}, $F730 -> {EXP_BIN.name})")
+
+
 # Demo: a RUNNABLE fighter-present image (boots under RT-11, no oracle).  The
 # full GST (to $FAA4) overlaps RMON ($140054); so trim it to a LOW pose's data
 # extent (fits banks 4-5, below RMON) and relocate the compose buffer to low
@@ -3939,6 +4050,8 @@ def main():
         return main_drawgst(mode="full")
     if name == "bridgedraw":
         return main_drawgst(mode="bridge")
+    if name == "framedraw":
+        return main_framedraw()
     if name == "demo":
         return main_demo()
     if name == "demobg":
