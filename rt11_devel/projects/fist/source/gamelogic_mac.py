@@ -3421,6 +3421,11 @@ def main_game():
     sr.c1cc(mm)
     fwid, fhgt = mm[0xC40A], mm[0xC409]
     top, left = (200 - fhgt) // 2, (40 - fwid) // 2
+    dstoff = (top * 40 + left) * 2               # centred first-row byte offset in VRAM
+    present_words = (fwid * fhgt + 1) // 2       # bytes PRESENT reads, rounded to words
+    fbuf_addr = 0o100000 + (fd.FBUF - GBASE)     # compose buffer home (extended bank 6)
+    safe_words = (0o157777 - fbuf_addr + 1) // 2  # composed words that fit below bank 7
+    copy_words = min(present_words, safe_words)   # copy only what the decode could write
 
     gstdat = bytes(snap[GBASE:0xF730])           # GST data; $F730+ compose is scratch
     if len(gstdat) % 512:
@@ -3530,19 +3535,24 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         ;     runs in the proven framedraw config (03377) - RMON present means a
         ;     stray trap is handled, not fatal; and the buffer is now in bank 1, away
         ;     from the bank-6/7 region the parked present faulted on.
-        MOV     #FBUF,R1
-        MOV     #LOWBUF,R0
-        MOV     #442.,R2
-8$:     MOV     (R1)+,(R0)+
+        MOV     #LOWBUF,R0             ; clear LOWBUF (tail rows -> black, not garbage)
+        MOV     #{present_words}.,R2
+8$:     CLR     (R0)+
         DEC     R2
         BNE     8$
+        MOV     #FBUF,R1              ; copy the composed box (bank-6 portion) down
+        MOV     #LOWBUF,R0
+        MOV     #{copy_words}.,R2
+88$:    MOV     (R1)+,(R0)+
+        DEC     R2
+        BNE     88$
         MOV     #3377,@#DISPAT         ; unpark: banks 0-6 primary, VRAM on @40000
-        ; inline present: LOWBUF -> VRAM, 68 rows x 19 cells, white attr, centred
+        ; inline present: LOWBUF -> VRAM, {fhgt} rows x {fwid} cells, white attr, centred
         MOV     #LOWBUF,R1
-        MOV     #68.,R5
-        MOV     #VRAM+5300.,R2
+        MOV     #{fhgt}.,R5
+        MOV     #VRAM+{dstoff}.,R2
 PR1$:   MOV     R2,R0
-        MOV     #19.,R4
+        MOV     #{fwid}.,R4
 PR2$:   MOVB    (R1)+,R3
         BIC     #177400,R3
         BIS     #FWHITE,R3
@@ -3581,7 +3591,7 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
     datblk = ("\n        .EVEN\nDATFIL: .RAD50  /DK GST   DAT/\n"
               "        .EVEN\nLKAREA: .BLKW   5\n"
               "        .EVEN\nC408W:  .WORD   0\nORIGRC: .WORD   0\n"
-              "        .EVEN\nLOWBUF: .BLKW   442.    ; primary-RAM copy of the compose buffer\n")
+              f"        .EVEN\nLOWBUF: .BLKW   {present_words}.    ; primary-RAM copy of the compose buffer\n")
     src = (preamble + equs + driver + decrun
            + logic + chain + tail + datblk + ldat
            + "\n        .END    START\n")
