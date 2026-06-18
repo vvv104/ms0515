@@ -3536,12 +3536,18 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         JSR     PC,DECRUN
         DECB    SEGCNT
         BNE     7$
-        MOVB    {g(0xC40A)},R0       ; stash runtime box dims (GST live while parked)
+        MOVB    {g(0xC40A)},R0       ; stash box dims + screen pos (GST live, parked)
         BIC     #177400,R0
         MOV     R0,FWVAR
         MOVB    {g(0xC409)},R0
         BIC     #177400,R0
         MOV     R0,FHVAR
+        MOVB    {g(0xC434)},R0       ; box left (quarter-cell units, >>2 = cell column)
+        BIC     #177400,R0
+        MOV     R0,BXLEF
+        MOVB    {g(0xC436)},R0       ; box top (pixel rows)
+        BIC     #177400,R0
+        MOV     R0,BXTOP
         MOV     #LOWBUF,R0           ; clear LOWBUF, then copy the box (bank-6 part) down
         MOV     #{present_words}.,R2
 8$:     CLR     (R0)+
@@ -3554,52 +3560,56 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         DEC     R2
         BNE     88$
         MOV     #3377,@#DISPAT       ; unpark: 03377 (RMON back, VRAM on) - present-safe
-        ; --- flicker-free present: repaint a fixed window (box cells + black pad) ---
-        MOV     #LOWBUF,R1
-        MOV     #VRAM+{maxoff}.,R2
-        MOV     FHVAR,R5
-10$:    TST     R5                   ; fighter rows remaining?
-        BLE     14$
+        ; --- erase the PREVIOUS frame's box (flicker-free: only old+new touched) ---
+        MOV     OLDADR,R2
+        MOV     OLDH,R5
+17$:    TST     R5
+        BEQ     20$
         MOV     R2,R0
-        MOV     #{maxw}.,R4          ; left pad = (maxw - fwid)/2  (centre the box)
-        SUB     FWVAR,R4
-        ASR     R4
-        BLE     11$
-101$:   CLR     (R0)+
-        DEC     R4
-        BNE     101$
-11$:    MOV     FWVAR,R4             ; draw fwid fighter cells
+        MOV     OLDW,R4
         TST     R4
-        BEQ     12$
-111$:   MOVB    (R1)+,R3
+        BEQ     19$
+18$:    CLR     (R0)+
+        DEC     R4
+        BNE     18$
+19$:    ADD     #120,R2
+        DEC     R5
+        BR      17$
+20$:    ; --- VRAM dest = (BXTOP+4)*80 + ((BXLEF>>2)+4)*2 (Spectrum box -> centred VRAM)
+        MOV     BXTOP,R0
+        ADD     #4,R0                ; top + 4-row margin
+        CLR     R2
+21$:    ADD     #120,R2              ; R2 = (BXTOP+4) * 80
+        DEC     R0
+        BNE     21$
+        MOV     BXLEF,R0
+        ASR     R0
+        ASR     R0                   ; left >> 2 = Spectrum cell column
+        ADD     #4,R0                ; + 4-cell left margin
+        ASL     R0                   ; * 2 bytes/cell
+        ADD     R0,R2
+        ADD     #VRAM,R2             ; R2 = VRAM dest address
+        MOV     R2,OLDADR            ; remember for next frame's erase
+        MOV     FWVAR,OLDW
+        MOV     FHVAR,OLDH
+        ; --- draw the box (FWVAR cells x FHVAR rows) at its world position ---
+        MOV     #LOWBUF,R1
+        MOV     FHVAR,R5
+22$:    TST     R5
+        BLE     16$
+        MOV     R2,R0
+        MOV     FWVAR,R4
+        TST     R4
+        BEQ     24$
+23$:    MOVB    (R1)+,R3
         BIC     #177400,R3
         BIS     #FWHITE,R3
         MOV     R3,(R0)+
         DEC     R4
-        BNE     111$
-12$:    MOV     R0,R4               ; right pad = maxw - cells written so far
-        SUB     R2,R4
-        ASR     R4
-        SUB     #{maxw}.,R4
-        NEG     R4
-        BLE     13$
-121$:   CLR     (R0)+
-        DEC     R4
-        BNE     121$
-13$:    ADD     #120,R2
+        BNE     23$
+24$:    ADD     #120,R2
         DEC     R5
-        BR      10$
-14$:    MOV     #{maxr}.,R5          ; clear rows below the box
-        SUB     FHVAR,R5
-        BLE     16$
-15$:    MOV     R2,R0
-        MOV     #{maxw}.,R4
-151$:   CLR     (R0)+
-        DEC     R4
-        BNE     151$
-        ADD     #120,R2
-        DEC     R5
-        BNE     15$
+        BR      22$
 16$:    MOV     #{frame_delay}.,R0   ; crude frame pacing
 9$:     DEC     R0
         BNE     9$
@@ -3653,6 +3663,8 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
               "        .EVEN\nLKAREA: .BLKW   5\n"
               "        .EVEN\nC408W:  .WORD   0\nORIGRC: .WORD   0\n"
               "        .EVEN\nFWVAR:  .WORD   0\nFHVAR:  .WORD   0\nRSEED:  .WORD   1\n"
+              "        .EVEN\nBXLEF:  .WORD   0\nBXTOP:  .WORD   0\n"
+              "OLDADR: .WORD   0\nOLDW:   .WORD   0\nOLDH:   .WORD   0\n"
               f"        .EVEN\nLOWBUF: .BLKW   {present_words}.    ; primary-RAM copy of the compose buffer\n")
     src = (preamble + equs + driver + decrun
            + logic + chain + tail + datblk + ldat
