@@ -2433,6 +2433,9 @@ def main_loaderdat():
     nwords = len(gst) // 2
     checksum = sum(gst[i] | (gst[i + 1] << 8)
                    for i in range(0, len(gst), 2)) & 0xFFFF
+    blk1 = 24                                   # chunk 1 = 24 blocks = 6144 words (12 KB)
+    n1 = blk1 * 256
+    n2 = nwords - n1
     (OUT_MAC.parent / "GST.DAT").write_bytes(gst)
     src = f"""        .TITLE  FISTLDR
 ;
@@ -2448,10 +2451,12 @@ def main_loaderdat():
         .MCALL  .FETCH,.LOOKUP,.READW,.CLOSE,.EXIT
 DISPAT = 177400
 HSPACE = 2000                   ; device handler loads here (above the code, bank 0)
-BUF    = 20000                  ; read buffer = banks 1-3 (RAM while VRAM off)
+BUF    = 40000                  ; read buffer = banks 2-3 (RAM while VRAM off)
 GSTRT  = 100000                 ; GST runtime home (extended banks 4-6)
 EXT    = 17                     ; banks 0-3 primary, banks 4-6 EXTENDED (low byte)
 PRIM   = 177                    ; banks 0-6 primary, VRAM off (low byte)
+N1     = {n1}.
+N2     = {n2}.
 NWORD  = {nwords}.
 CKSUM  = {checksum}.
 
@@ -2460,23 +2465,36 @@ CKSUM  = {checksum}.
         .WORD   21000                  ; JSW - job/USR flags (a working file-I/O .SAV)
         . = 1000
         .EVEN
-START:  MOV     #17776,SP               ; stack in bank-0 RAM, below the read buffer
+START:  MOV     #37776,SP               ; stack above the (future) game code, below BUF
         .FETCH  #HSPACE,#DATFIL         ; load the device handler (DK) into memory
         BCS     FAIL
         .LOOKUP #LKAREA,#0,#DATFIL      ; open GST.DAT on channel 0 (USR; IRQs on)
         BCS     FAIL
-        .READW  #LKAREA,#0,#BUF,#NWORD,#0  ; read the whole GST in one go -> BUF (banks 1-3)
+        ; --- chunk 1: read N1 words from block 0 into BUF (banks 2-3), park, copy ---
+        .READW  #LKAREA,#0,#BUF,#N1,#0
         BCS     FAIL
-        .CLOSE  #0                     ; done with the file before parking RMON
-        MTPS    #340                   ; mask IRQs across the park (RMON is gone)
-        MOVB    #EXT,@#DISPAT          ; park banks 4-6 (low byte; window unchanged)
-        MOV     #BUF,R0               ; relocate the GST -> extended GSTRT
+        MTPS    #340
+        MOVB    #EXT,@#DISPAT          ; park banks 4-6 (RMON gone)
+        MOV     #BUF,R0
         MOV     #GSTRT,R1
-        MOV     #NWORD,R2
+        MOV     #N1,R2
 1$:     MOV     (R0)+,(R1)+
         SOB     R2,1$
-        MOVB    #PRIM,@#DISPAT         ; unpark
+        MOVB    #PRIM,@#DISPAT         ; unpark - the next .READW needs the USR
         MTPS    #0
+        ; --- chunk 2: read N2 words from block N1blk into BUF, park, copy after chunk 1 ---
+        .READW  #LKAREA,#0,#BUF,#N2,#{blk1}.
+        BCS     FAIL
+        MTPS    #340
+        MOVB    #EXT,@#DISPAT
+        MOV     #BUF,R0
+        MOV     #GSTRT+N1+N1,R1        ; dest = right after chunk 1 (N1 words)
+        MOV     #N2,R2
+2$:     MOV     (R0)+,(R1)+
+        SOB     R2,2$
+        MOVB    #PRIM,@#DISPAT
+        MTPS    #0
+        .CLOSE  #0
         MTPS    #340                  ; mask across the checksum park
         MOVB    #EXT,@#DISPAT         ; checksum the GST at GSTRT (banks 4-6 extended)
         MOV     #GSTRT,R0
