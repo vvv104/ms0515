@@ -2221,6 +2221,82 @@ def main_render():
           f"{GST_FULL_END - GBASE} B, verify {verify_size} B -> {EXP_BIN.name})")
 
 
+def main_loader():
+    """FIST_GL=loader - park-RMON full-GST loader, VERIFY stage.
+
+    The full 24 KB GST is embedded in the .SAV at 020000 (banks 1-3, which RT-11
+    loads as RAM because the monitor runs with VRAM disabled).  The loader parks
+    banks 4-6 (RT-11's USR + RMON) into the extended set, relocates the GST up to
+    its runtime home 0100000 (now fresh extended RAM), checksums it there, and
+    signals success by a clean .EXIT (a mismatch spins forever - a visible hang).
+    This validates the embed -> load -> park -> relocate pipeline end to end; the
+    renderer is layered on top in the next stage.  Park-RMON itself is proven in
+    rt11_devel/projects/banktest/ (BFLIP)."""
+    import setup_ref as sr
+    snap, b_in, c_in, pose = sr.capture_c34f_low(0xD400)
+    gst = snap[GBASE:GST_FULL_END]
+    assert len(gst) % 2 == 0, "GST must be word-aligned"
+    nwords = len(gst) // 2
+    checksum = 0
+    for i in range(0, len(gst), 2):
+        checksum = (checksum + gst[i] + (gst[i + 1] << 8)) & 0xFFFF
+    src = f"""        .TITLE  FISTLDR
+;
+; park-RMON full-GST loader (verify stage) - generated, do not edit by hand.
+; Memory map under live RT-11 SJ V5.04 (see rt11_devel/projects/banktest):
+;   banks 0-3  001000-077777  user area (our code + the GST embed)  PRIMARY
+;   banks 4-5  100000-137777  RT-11 USR   - parked to extended, become the
+;   bank  6    140000-157777  RMON        - GST 24 KB runtime home
+;
+        .MCALL  .EXIT
+DISPAT = 177400                 ; dispatcher (the only bank control; write-only)
+RELOC  = 17                     ; banks 0-3 primary, banks 4-6 EXTENDED, VRAM off
+PRIM   = 3177                   ; RT-11 SJ active dispatcher (all banks primary)
+GSTLD  = 20000                  ; GST embed/load address  (banks 1-3, primary)
+GSTRT  = 100000                 ; GST runtime address     (banks 4-6, extended)
+NWORD  = {nwords}.
+CKSUM  = {checksum}.
+
+        .ASECT
+        . = 1000
+        .EVEN
+START:  MOV     #340,R0
+        MTPS    R0                      ; mask IRQs across the flip
+        MOV     #RELOC,@#DISPAT         ; park banks 4-6 to extended (VRAM off)
+
+        ; --- relocate the full GST: 020000 (banks 1-3) -> 100000 (extended 4-6)
+        MOV     #GSTLD,R0
+        MOV     #GSTRT,R1
+        MOV     #NWORD,R2
+1$:     MOV     (R0)+,(R1)+
+        SOB     R2,1$
+
+        ; --- checksum the GST at its runtime home (16-bit word sum) ---
+        MOV     #GSTRT,R0
+        MOV     #NWORD,R2
+        CLR     R3
+2$:     ADD     (R0)+,R3
+        SOB     R2,2$
+
+        MOV     #PRIM,@#DISPAT          ; unpark: all banks primary, RMON restored
+        CLR     R0
+        MTPS    R0                      ; unmask before returning to the monitor
+        CMP     R3,#CKSUM               ; GST relocated intact?
+        BNE     FAIL
+        .EXIT                           ; success: clean return to the dot prompt
+FAIL:   BR      FAIL                    ; mismatch -> spin (a visible hang)
+
+        .ASECT
+        . = GSTLD
+{_emit_window("GSTEMB", gst)}        .EVEN
+        .END    START
+"""
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (LOADER verify: full GST "
+          f"{len(gst)} B @020000 -> 0100000, cksum {checksum:06o})")
+
+
 def main_movsel():
     """$983D move-selection: capture with the recorded RNG stream (shared by the
     two AI calls) and verify the wrappers + AIDEC + MOVSEL against move_select."""
@@ -3604,6 +3680,8 @@ def main():
         return main_combined()
     if name == "render":
         return main_render()
+    if name == "loader":
+        return main_loader()
     if name == "decgst":
         return main_decgst()
     if name == "drawgst":
