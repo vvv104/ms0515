@@ -3224,7 +3224,7 @@ START:  MOV     #340,R0
         DEC     R1
         BNE     8$
         JSR     PC,ORCH                ; run the EXACT full $9745 logic frame
-        JSR     PC,C101C               ; geometry from the bbox bf13 just set
+%PRECLR%        JSR     PC,C101C       ; geometry from the bbox bf13 just set
         JSR     PC,SETUPC
 9$:     JSR     PC,SEGSET
         MOVB    %C408RT%,R0            ; runtime $C408 stride
@@ -3242,7 +3242,7 @@ START:  MOV     #340,R0
         JSR     PC,DECRUN
         DECB    SEGCNT
         BNE     7$
-        JSR     PC,TOVRAM
+        JSR     PC,%FINISH%
 WKEY:   MOV     @#KBST,R0
         BIT     #2,R0
         BEQ     WKEY
@@ -3270,7 +3270,14 @@ WKEY:   MOV     @#KBST,R0
            + "        .END    START\n")
     fwid, fhgt = mm[0xC40A], mm[0xC409]
     top, left = (200 - fhgt) // 2, (40 - fwid) // 2
-    src = (src.replace("%NELEM%", str(nelem))
+    finish = "PRESENT" if os.environ.get("FGHT_PRESENT") else "TOVRAM"
+    # present mode = a clean visual: zero $F730 so only the fighters show (no
+    # $C234 bg-fill).  verify mode must NOT zero (it matches the ref's $F730).
+    preclr = ("        MOV     #FBUF,R0\n        MOV     #442.,R1\n"
+              "6$:     CLR     (R0)+\n        DEC     R1\n        BNE     6$\n"
+              if os.environ.get("FGHT_PRESENT") else "")
+    src = (src.replace("%NELEM%", str(nelem)).replace("%FINISH%", finish)
+              .replace("%PRECLR%", preclr)
               .replace("%C408%", str(snap[0xC408]))
               .replace("%C40E%", str(snap[0xC40E])).replace("%C407%", str(snap[0xC407]))
               .replace("%FWID%", str(fwid)).replace("%FHGT%", str(fhgt))
