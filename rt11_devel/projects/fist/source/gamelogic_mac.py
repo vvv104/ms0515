@@ -2433,25 +2433,25 @@ def main_loaderdat():
     nwords = len(gst) // 2
     checksum = sum(gst[i] | (gst[i + 1] << 8)
                    for i in range(0, len(gst), 2)) & 0xFFFF
-    blk1 = 24                                   # chunk 1 = 24 blocks = 6144 words
-    n1 = blk1 * 256
-    n2 = nwords - n1
     (OUT_MAC.parent / "GST.DAT").write_bytes(gst)
     src = f"""        .TITLE  FISTLDR
 ;
-; chunked-.DAT park-RMON loader (verify stage) - generated, do not edit by hand.
-; GST.DAT is .READW'd in 2 chunks into a banks-2-3 buffer, then each chunk is
-; copied into the parked extended banks 4-6 (the GST's 24 KB runtime home).  The
-; .SAV carries NO GST - only this code - so the full game code fits later.
+; .DAT park-RMON loader (verify stage) - generated, do not edit by hand.
+; GST.DAT is read (one .READW) into a banks-1-3 buffer, then relocated into the
+; parked extended banks 4-6 (the GST's runtime home).  The .SAV carries NO GST -
+; only this code - so the full game code fits the 32 KB primary budget later.
+; RT-11 plumbing learned the hard way (see project_fist_port memory):
+;   * run as a COMMAND (R FIST), not RUN FIST, or EMT 375 USR requests -> Invalid EMT;
+;   * .FETCH the device handler first, or .LOOKUP -> No device;
+;   * set SP explicitly - RT-11's default SP sits inside our read buffer.
 ;
-        .MCALL  .LOOKUP,.READW,.CLOSE,.EXIT,.SETTOP
+        .MCALL  .FETCH,.LOOKUP,.READW,.CLOSE,.EXIT
 DISPAT = 177400
-BUF    = 40000                  ; read buffer = banks 2-3 (RAM while VRAM off)
+HSPACE = 2000                   ; device handler loads here (above the code, bank 0)
+BUF    = 20000                  ; read buffer = banks 1-3 (RAM while VRAM off)
 GSTRT  = 100000                 ; GST runtime home (extended banks 4-6)
 EXT    = 17                     ; banks 0-3 primary, banks 4-6 EXTENDED (low byte)
 PRIM   = 177                    ; banks 0-6 primary, VRAM off (low byte)
-N1     = {n1}.
-N2     = {n2}.
 NWORD  = {nwords}.
 CKSUM  = {checksum}.
 
@@ -2460,31 +2460,23 @@ CKSUM  = {checksum}.
         .WORD   21000                  ; JSW - job/USR flags (a working file-I/O .SAV)
         . = 1000
         .EVEN
-START:  .LOOKUP #LKAREA,#0,#DATFIL      ; open GST.DAT on channel 0 (USR; IRQs on)
+START:  MOV     #17776,SP               ; stack in bank-0 RAM, below the read buffer
+        .FETCH  #HSPACE,#DATFIL         ; load the device handler (DK) into memory
         BCS     FAIL
-        .READW  #LKAREA,#0,#BUF,#N1,#0   ; chunk 1: N1 words from block 0 -> BUF
+        .LOOKUP #LKAREA,#0,#DATFIL      ; open GST.DAT on channel 0 (USR; IRQs on)
         BCS     FAIL
+        .READW  #LKAREA,#0,#BUF,#NWORD,#0  ; read the whole GST in one go -> BUF (banks 1-3)
+        BCS     FAIL
+        .CLOSE  #0                     ; done with the file before parking RMON
         MTPS    #340                   ; mask IRQs across the park (RMON is gone)
         MOVB    #EXT,@#DISPAT          ; park banks 4-6 (low byte; window unchanged)
-        MOV     #BUF,R0               ; copy chunk 1 -> extended GSTRT
+        MOV     #BUF,R0               ; relocate the GST -> extended GSTRT
         MOV     #GSTRT,R1
-        MOV     #N1,R2
+        MOV     #NWORD,R2
 1$:     MOV     (R0)+,(R1)+
         SOB     R2,1$
-        MOVB    #PRIM,@#DISPAT         ; unpark (RMON back for the next read)
-        MTPS    #0                     ; unmask - the next .READW needs the USR
-        .READW  #LKAREA,#0,#BUF,#N2,#{blk1}.  ; chunk 2: N2 words from block {blk1}
-        BCS     FAIL
-        MTPS    #340                  ; mask across the park
-        MOVB    #EXT,@#DISPAT          ; park
-        MOV     #BUF,R0
-        MOV     #GSTRT+N1+N1,R1        ; dest = right after chunk 1 (N1 words = N1*2 bytes)
-        MOV     #N2,R2
-2$:     MOV     (R0)+,(R1)+
-        SOB     R2,2$
         MOVB    #PRIM,@#DISPAT         ; unpark
-        MTPS    #0                    ; unmask for .CLOSE
-        .CLOSE  #0
+        MTPS    #0
         MTPS    #340                  ; mask across the checksum park
         MOVB    #EXT,@#DISPAT         ; checksum the GST at GSTRT (banks 4-6 extended)
         MOV     #GSTRT,R0
@@ -2497,7 +2489,7 @@ START:  .LOOKUP #LKAREA,#0,#DATFIL      ; open GST.DAT on channel 0 (USR; IRQs o
         CMP     R3,#CKSUM
         BNE     FAIL
         .EXIT                          ; success: clean return to the dot prompt
-FAIL:   BR      FAIL                   ; failure -> spin (a visible hang)
+FAIL:   BR      FAIL                   ; any failure -> spin (a visible hang)
 
 DATFIL: .RAD50  /DK GST   DAT/
         .EVEN
@@ -2507,7 +2499,7 @@ LKAREA: .BLKW   5
     src.encode("ascii")
     OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
     print(f"gamelogic_mac: wrote {OUT_MAC} + GST.DAT ({len(gst)} B, {nwords} words, "
-          f"chunks {n1}+{n2}, cksum {checksum:06o})")
+          f"cksum {checksum:06o})")
 
 
 def main_movsel():
