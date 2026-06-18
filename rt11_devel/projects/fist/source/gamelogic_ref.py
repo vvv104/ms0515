@@ -965,6 +965,62 @@ def bf13(m):
     m[0xC431] = (m[0xC41D] + iy1) & 0xFF
     m[0xC432] = m[0xC41E]
     m[0xC433] = (m[0xC41E] + iy2) & 0xFF
+    # --- second pass ($C03B): if the two fighters' boxes are close, MERGE them
+    #     into one combined render box + compute the fighter dimensions, then run
+    #     the background fill ($C234).  If they are far apart ($C101 path) the
+    #     per-fighter boxes stand and the draw handles each separately. ---
+    far = (((m[0xC439] + 0x0B) & 0xFF) < m[0xC434] or
+           ((m[0xC435] + 0x0B) & 0xFF) < m[0xC438])
+    if far:
+        return False                                  # $C101 separate-box path
+    m[0xC434] = _sort2(m[0xC434], m[0xC438])[0]        # merged left  = min
+    m[0xC435] = _sort2(m[0xC435], m[0xC439])[1]        # merged right = max
+    m[0xC436] = _sort2(m[0xC436], m[0xC43A])[0]        # merged top   = min
+    m[0xC437] = _sort2(m[0xC437], m[0xC43B])[1]        # merged bottom= max
+    w = ((((m[0xC435] - m[0xC434]) & 0xFF) >> 2) + 2) & 0xFF   # $C091 width
+    m[0xC40A] = w
+    m[0xC40F] = w
+    h = (m[0xC437] - m[0xC436]) & 0xFF                 # $C0A6 height
+    m[0xC409] = h
+    m[0xC41A] = m[0xC436]                              # $C0BC top for the bg-fill
+    # $C0C3 CALL $C234 (background fill into the compose buffer) - a draw op, no
+    # game-state cell effect, so omitted from this state-level reference.
+    m[0xC438] = m[0xC434]                              # $C0C6 finalize
+    m[0xC43A] = m[0xC436]                              # $C0CF
+    return True                                        # merged path
+
+
+def frame_9745(m, randoms):
+    """$9745 - the exact per-frame orchestrator (the in-round path).  Composes the
+    individually sim-validated sub-routines in $9745's real order, ADDING the
+    animation advance ($95D4 -> anim_95e1 x2) and the draw bridge ($BF13) that the
+    old orch_subset omitted.  Mirrors the disassembly:
+      $9C6F timer; $9ED2/$9D29 hit-detect(+apply) x2; $B15A sound (skipped);
+      $97CB move-select; $97BB anim x2 (C=0 then $40, opponent $9C29 set each);
+      [round-end score block $AF01/$900E/clears, gated by ($9C2C)==2 - skipped in
+      a normal frame]; $95D4 anim-advance x2; $BF13 bridge; $9AD7 recover x2."""
+    rnd = randoms if callable(randoms) else _Rnd(randoms)
+    update_timer(m)                                   # $9C6F
+    if hit_detect(m, HIT_P2):                         # $9ED2
+        apply_hit(m, HIT_P2)                          #   -> $A01C
+    if hit_detect(m, HIT_P1):                         # $9D29
+        apply_hit(m, HIT_P1)                          #   -> $9E7F
+    # $9754 CALL $B15A (sound) - skipped (no game-state effect)
+    move_select(m, rnd)                               # $9757 CALL $97CB
+    m[0x9C29] = 0x40
+    update_fighter(m, 0x00)                           # $9763 anim fighter 0
+    m[0x9C29] = 0x00
+    update_fighter(m, 0x40)                           # $976C anim fighter 1
+    if m[0x9C2C] == 2:                                # $9772 CP 2 ; $9774 JR NZ
+        raise NotImplementedError(
+            "frame_9745: round-end score block ($9C2C==2) not modelled yet")
+    anim_95e1(m, 0xAA16)                              # $978D CALL $95D4 ->
+    anim_95e1(m, 0xAA56)                              #   $95E1 x2
+    bf13(m)                                           # $9790 CALL $BF13
+    m[0x9C29] = 0x40
+    recover_9ad7(m, 0x00)                             # $979A recover fighter 0
+    m[0x9C29] = 0x00
+    recover_9ad7(m, 0x40)                             # $97A6 recover fighter 1
 
 
 def _mcpy(m, src, dst, n):
@@ -1258,12 +1314,17 @@ def main():
     run(0x9CA0, "$9CA0 time tick:", lambda mm, r: time_tick(mm), [0x9CA5])
     run(0xAF27, "$AF27 rank tick:", lambda mm, r: rank_tick(mm), [0xAF34],
         budget=40000000)
+    # run the FULL bridge (first-pass boxes + the second-pass merge / $C101
+    # split decision); stop at the post-box point of whichever path is taken
+    # ($C0D2 = merged, $C101 = separate).  The merged dimensions ($C409/$C40A..)
+    # are covered by the per-frame check (_valframe.py); the $C101 path does not
+    # set the merged box, so the box cells (first-pass) are what we compare here.
     run(0xBF13, "$BF13 gfx bridge:", lambda mm, r: bf13(mm),
         [0xC41B, 0xC41C, 0xC41D, 0xC41E, 0xC41F, 0xC420, 0xC423, 0xC425,
          0xC428, 0xC429, 0xC42A, 0xC42B,
          0xC434, 0xC435, 0xC436, 0xC437, 0xC438, 0xC439, 0xC43A, 0xC43B,
          0xC42C, 0xC42D, 0xC42E, 0xC42F, 0xC430, 0xC431, 0xC432, 0xC433],
-        stops=[0xC03B])
+        until=[0xC0D2, 0xC101])
 
     run(0x95E1, "$95E1 anim advance:",
         lambda mm, r: anim_95e1(mm, (r['H'] << 8) | r['L']),
