@@ -14,6 +14,7 @@
 #include "../src/EmulatorInternal.hpp"
 extern "C" {
 #include <ms0515/core/board.h>
+#include <ms0515/core/cpu.h>
 #include <ms0515/core/memory.h>
 }
 
@@ -79,12 +80,16 @@ TEST_CASE("fist: standalone game render via .DAT loader")
             return false;
         },
         [](uint8_t) -> bool { return true; });    // discard console output
-    for (int i = 0; i < 3000; ++i) {
+    std::string framesEnv = env("FIST_GAME_FRAMES");
+    int frames = framesEnv.empty() ? 3000 : std::atoi(framesEnv.c_str());
+    for (int i = 0; i < frames; ++i) {
         if (i < 900 && (i % 30) == 0)
             offerCR = true;
         (void)emu.stepFrame();
     }
 
+    auto &cpu = ms0515::internal::cpu(emu);
+    MESSAGE("final CPU PC = " << std::oct << cpu_get_pc(&cpu) << std::dec);
     auto &board = ms0515::internal::board(emu);
     const uint8_t *vram = board_get_vram(&board);
     {

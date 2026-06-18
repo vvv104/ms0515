@@ -3558,6 +3558,12 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
               .replace("%C40E%", str(snap[0xC40E])).replace("%C407%", str(snap[0xC407]))
               .replace("%FWID%", str(fwid)).replace("%FHGT%", str(fhgt))
               .replace("%DSTOFF%", str((top * 40 + left) * 2)))
+    if os.environ.get("GAME_RAWVRAM"):       # debug: clear-mode FBUF dumped raw to VRAM[0]
+        src = src.replace(
+            "        JSR     PC,PRESENT\n",
+            "        MOV     #FBUF,R1\n        MOV     #VRAM,R0\n"
+            "        MOV     #442.,R2\nRC$:    MOV     (R1)+,(R0)+\n"
+            "        DEC     R2\n        BNE     RC$\n", 1)
     src.encode("ascii")
     OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
     print(f"gamelogic_mac: wrote {OUT_MAC} + GST.DAT (STANDALONE GAME: load GST.DAT "
