@@ -3435,7 +3435,7 @@ def main_game():
         "        .TITLE  FIST\n"
         "        .MCALL  .FETCH,.LOOKUP,.READW,.CLOSE,.EXIT\n"
         "DISPAT = 177400\nSYSC   = 177604\nVRAM   = 40000\nVRAMEN = 100000\n"
-        "KBST   = 177442\nGST    = 100000\nHSPACE = 2000\nBUF    = 40000\n"
+        "KBST   = 177442\nGST    = 100000\nHSPACE = 30000\nBUF    = 40000\n"
         f"N1     = {n1}.\nN2     = {n2}.\nEXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
     equs = "\n"
     for t in fd.TABLES:
