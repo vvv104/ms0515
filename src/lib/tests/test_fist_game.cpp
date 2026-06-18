@@ -79,7 +79,7 @@ TEST_CASE("fist: standalone game render via .DAT loader")
             return false;
         },
         [](uint8_t) -> bool { return true; });    // discard console output
-    for (int i = 0; i < 2500; ++i) {
+    for (int i = 0; i < 3000; ++i) {
         if (i < 900 && (i % 30) == 0)
             offerCR = true;
         (void)emu.stepFrame();
