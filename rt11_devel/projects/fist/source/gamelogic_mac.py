@@ -2997,6 +2997,46 @@ C101C:  MOVB    {g(0xC435)},R0         ; width = (($C435-$C434)>>2)+2
         SUB     R0,R4
         BIC     #177400,R4
         RTS     PC
+
+;-------------------------------------------------------------------
+; C1CC - $C101 block2 + $C1CC dispatch for fighter P2 (mirror of C101C):
+; geometry from the bbox $C438-$C43B, pose pointer $C42A.  Copies $C42A -> $C428
+; so SETUPC (which reads $C428) decodes P2's pose.  Out: R3 = B_in, R4 = C_in.
+C1CC:   MOVB    {g(0xC439)},R0         ; width = (($C439-$C438)>>2)+2
+        BIC     #177400,R0
+        MOVB    {g(0xC438)},R1
+        BIC     #177400,R1
+        SUB     R1,R0
+        BIC     #177400,R0
+        ASR     R0
+        ASR     R0
+        ADD     #2,R0
+        MOVB    R0,{g(0xC40A)}
+        MOVB    R0,{g(0xC40F)}
+        MOVB    {g(0xC43B)},R0         ; height = $C43B-$C43A
+        BIC     #177400,R0
+        MOVB    {g(0xC43A)},R1
+        BIC     #177400,R1
+        SUB     R1,R0
+        MOVB    R0,{g(0xC409)}
+        MOVB    {g(0xC43A)},{g(0xC41A)}
+        MOVB    {g(0xC422)},{g(0xC411)}
+        MOVB    {g(0xC420)},{g(0xC410)}
+        MOVB    {g(0xC41D)},R3         ; B_in = $C41D - ($C438 & $FC)
+        BIC     #177400,R3
+        MOVB    {g(0xC438)},R0
+        BIC     #177400,R0
+        BIC     #3,R0
+        SUB     R0,R3
+        BIC     #177400,R3
+        MOVB    {g(0xC41E)},R4         ; C_in = $C41E - $C43A
+        BIC     #177400,R4
+        MOVB    {g(0xC43A)},R0
+        BIC     #177400,R0
+        SUB     R0,R4
+        BIC     #177400,R4
+        MOV     {g(0xC42A)},{g(0xC428)}   ; SETUPC reads the pose ptr from $C428
+        RTS     PC
 """
 
 
@@ -3146,6 +3186,9 @@ def main_framedraw():
     sr.c101_block1(mm)                      # $C101 geometry for fighter P1
     b_in, c_in, pose = sr.c1a2(mm)          # $C1A2 dispatch -> decode params
     sr.draw_fighter(mm, pose, b_in, c_in)   # decode P1 into $F730
+    sr.c101_block2(mm)                      # $C101 geometry for fighter P2
+    b2, c2, pose2 = sr.c1cc(mm)             # $C1CC dispatch (mirror)
+    sr.draw_fighter(mm, pose2, b2, c2)      # decode P2 into the same $F730
     fexp = bytes(mm[fd.FBUF:fd.FBUF + fd.FBUF_LEN])
     EXP_BIN.write_bytes(fexp)
     WIN_JSON.write_text(json.dumps({"base": fd.FBUF, "size": fd.FBUF_LEN}))
@@ -3190,6 +3233,15 @@ START:  MOV     #340,R0
         JSR     PC,DECRUN
         DECB    SEGCNT
         BNE     9$
+        JSR     PC,C1CC                ; fighter P2 geometry + pose
+        JSR     PC,SETUPC
+7$:     JSR     PC,SEGSET
+        MOVB    %C408RT%,R0
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        DECB    SEGCNT
+        BNE     7$
         JSR     PC,TOVRAM
 WKEY:   MOV     @#KBST,R0
         BIT     #2,R0
