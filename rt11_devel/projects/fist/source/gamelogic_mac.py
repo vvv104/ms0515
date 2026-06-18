@@ -1332,6 +1332,60 @@ def emit_combined(randoms):
             emit_orch())
 
 
+def emit_orch_full():
+    """ORCH - the EXACT $9745 per-frame orchestrator (the in-round path), matching
+    the disassembly's order incl. the animation advance ($95D4 -> ANIM5E x2) and
+    the draw bridge ($BF13).  The round-end score block (gated by $9C2C==2:
+    $AF01/$900E/clears) is skipped - the attract path never takes it, and it needs
+    $AF01 ported (a TODO).  Pairs with gamelogic_ref.frame_9745."""
+    return f"""
+;-------------------------------------------------------------------
+; ORCH - the exact $9745 per-frame orchestrator (in-round path).
+ORCH:   JSR     PC,TIMER               ; $9C6F round timer
+        JSR     PC,HITDP2              ; $9ED2 hit-detect P2 (+apply on hit)
+        JSR     PC,HITDET              ; $9D29 hit-detect P1 (+apply on hit)
+        ; $9754 CALL $B15A (sound) - skipped
+        JSR     PC,MOVSEL              ; $97CB move-selection (AI both fighters)
+        MOV     #100,R0                ; $9C29 = $40 (opponent of fighter 0)
+        MOVB    R0,{g(0x9C29)}
+        CLR     R4
+        JSR     PC,UPDFGT              ; $97BB anim, C = 0
+        CLRB    {g(0x9C29)}            ; $9C29 = 0 (opponent of fighter $40)
+        MOV     #100,R4
+        JSR     PC,UPDFGT              ; $97BB anim, C = $40
+        ; round-end score block ($9C2C==2) - skipped (attract path; TODO $AF01)
+        MOV     #125026,R5             ; $95D4: hl = $AA16 ->
+        JSR     PC,ANIM5E              ;   $95E1 anim advance, fighter 0
+        MOV     #125126,R5             ; hl = $AA56 ->
+        JSR     PC,ANIM5E              ;   $95E1 anim advance, fighter 1
+        JSR     PC,BF13                ; $BF13 logic->graphics bridge
+        MOV     #100,R0                ; $9C29 = $40
+        MOVB    R0,{g(0x9C29)}
+        CLR     R4
+        JSR     PC,RECOV               ; $9AD7 recover, C = 0
+        CLRB    {g(0x9C29)}
+        MOV     #100,R4
+        JSR     PC,RECOV               ; $9AD7 recover, C = $40
+        RTS     PC
+"""
+
+
+def emit_fullframe(randoms):
+    """The EXACT full $9745 frame: every combined-mode routine PLUS the animation
+    advance ($95E1) and the draw bridge ($BF13), driven by emit_orch_full."""
+    return (emit_timer() + emit_recover() +
+            emit_hitdet("HITDET", ref.HIT_P1, apply_label="APLYP1") +
+            emit_hitdet("HITDP2", ref.HIT_P2, apply_label="APLYHT") +
+            emit_anim() +
+            emit_apply("APLYHT", 0xAA44, 0xAA57, 0xAA17, 0xAA03) +
+            emit_apply("APLYP1", 0xAA04, 0xAA17, 0xAA57, 0xAA43) +
+            emit_score() + emit_yinyang() + emit_timetik() +
+            emit_ranktk() + emit_rstacf() + emit_rstfrm() + emit_a402() +
+            emit_wrappers() + emit_movsel() + emit_ai(randoms) +
+            emit_95e1() + emit_bf13() +
+            emit_orch_full())
+
+
 def orch_subset(m, randoms):
     """Python reference for ORCH - the full $9745 sequence (incl. the $97CB AI
     move-selection) on the captured state, sharing the recorded random stream."""
@@ -2210,6 +2264,47 @@ def main_combined():
     OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
     print(f"gamelogic_mac: wrote {OUT_MAC} (combined, all routines + ORCH, "
           f"window {win_size} B, expected -> {EXP_BIN.name})")
+
+
+def main_fullframe():
+    """The EXACT full $9745 frame in one module (FIST_GL=fullframe): combined +
+    the animation advance ($95E1 x2) + the draw bridge ($BF13), in $9745's real
+    order, verified against gamelogic_ref.frame_9745.  Decouples the GST data
+    extent ($E000, holds the pose records bf13 dereferences) from the 16 KB
+    VRAM-mirror verify window ($DC00, covers every changed cell $9C00-$C43B), and
+    adds the $95E1 low-data mirror LDAT ($9368-$9600)."""
+    data_end = 0xE000                     # GST data extent (pose records etc.)
+    verify_end = 0xDC00                   # VRAM-mirror compare window = 16 KB
+    verify_size = verify_end - GBASE
+    ldat_base, ldat_end = 0x9368, 0x9600
+
+    def safe_frame(m, rs):
+        # round-end frames ($9C2C==2) aren't modelled yet; leave m unchanged so
+        # capture_ai treats them as non-exercising and looks for an in-round frame.
+        tmp = bytearray(m)
+        try:
+            ref.frame_9745(tmp, list(rs))
+        except NotImplementedError:
+            return
+        m[:] = tmp
+
+    snap, randoms = capture_ai(0x9745, safe_frame, verify_end)
+    expected = bytearray(snap)
+    ref.frame_9745(expected, list(randoms))
+    EXP_BIN.write_bytes(bytes(expected[GBASE:verify_end]))
+    WIN_JSON.write_text(json.dumps({"base": GBASE, "size": verify_size}))
+    src = HEADER + emit_fullframe(randoms)
+    src += "\n        .ASECT\n        . = 100000\n"
+    src += _emit_window("GST", snap[GBASE:data_end])
+    src += "\n        .EVEN\n"
+    src += _emit_window("LDAT", snap[ldat_base:ldat_end])
+    src += "\n        .EVEN\n        .END    START\n"
+    src = (src.replace("%ENTRY%", "ORCH").replace("%REGSET%", "")
+              .replace("%WORDS%", str(verify_size // 2) + "."))
+    src.encode("ascii")
+    OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
+    print(f"gamelogic_mac: wrote {OUT_MAC} (FULL FRAME: exact $9745 + 95e1 + bf13, "
+          f"window {verify_size} B, expected -> {EXP_BIN.name})")
 
 
 # Full game-data block: the SHARED GST for the unified render image (logic state
@@ -3830,6 +3925,8 @@ def main():
         return main_95e1()
     if name == "combined":
         return main_combined()
+    if name == "fullframe":
+        return main_fullframe()
     if name == "render":
         return main_render()
     if name == "loader":
