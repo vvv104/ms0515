@@ -1802,7 +1802,32 @@ BF13:   MOVB    {g(0xAA52)},{g(0xC425)}
     s += f"        MOVB    SUMY1,{g(0xC431)}\n"
     s += f"        MOVB    {g(0xC41E)},{g(0xC432)}\n"
     s += f"        MOVB    SUMY2,{g(0xC433)}\n"
-    s += "        RTS     PC\n"
+    s += ("        ; --- second pass ($C03B): if the two fighters' boxes are\n"
+          "        ;     close, MERGE them into one combined box + compute the\n"
+          "        ;     fighter dimensions; else ($C101 path) the per-fighter\n"
+          "        ;     boxes stand and the draw handles each separately. ---\n")
+    s += (f"        MOVB    {g(0xC439)},R0\n        ADD     #11.,R0\n"
+          f"        BIC     #177400,R0\n        CMPB    R0,{g(0xC434)}\n        BLO     90$\n")
+    s += (f"        MOVB    {g(0xC435)},R0\n        ADD     #11.,R0\n"
+          f"        BIC     #177400,R0\n        CMPB    R0,{g(0xC438)}\n        BLO     90$\n")
+    s += mm("min", g(0xC434), g(0xC438), g(0xC434))    # merged left  = min
+    s += mm("max", g(0xC435), g(0xC439), g(0xC435))    # merged right = max
+    s += mm("min", g(0xC436), g(0xC43A), g(0xC436))    # merged top   = min
+    s += mm("max", g(0xC437), g(0xC43B), g(0xC437))    # merged bottom= max
+    s += ("        ; width = ((C435-C434) >> 2) + 2  ->  $C40A / $C40F\n"
+          f"        MOVB    {g(0xC435)},R0\n        BIC     #177400,R0\n"
+          f"        MOVB    {g(0xC434)},R1\n        BIC     #177400,R1\n"
+          f"        SUB     R1,R0\n        ASR     R0\n        ASR     R0\n        ADD     #2,R0\n"
+          f"        MOVB    R0,{g(0xC40A)}\n        MOVB    R0,{g(0xC40F)}\n")
+    s += ("        ; height = C437 - C436  ->  $C409 ;  top $C41A := C436\n"
+          f"        MOVB    {g(0xC437)},R0\n        BIC     #177400,R0\n"
+          f"        MOVB    {g(0xC436)},R1\n        BIC     #177400,R1\n"
+          f"        SUB     R1,R0\n        MOVB    R0,{g(0xC409)}\n")
+    s += f"        MOVB    {g(0xC436)},{g(0xC41A)}\n"
+    s += ("        ; ($C234 background fill is a pixel op - wired in the draw stage)\n"
+          f"        MOVB    {g(0xC434)},{g(0xC438)}\n"
+          f"        MOVB    {g(0xC436)},{g(0xC43A)}\n")
+    s += "90$:    RTS     PC\n"
     s += "        .EVEN\n"
     s += "BIX1:   .BYTE   0\nBIX2:   .BYTE   0\nBIY1:   .BYTE   0\nBIY2:   .BYTE   0\n"
     s += "SUMX1:  .BYTE   0\nSUMX2:  .BYTE   0\nSUMY1:  .BYTE   0\nSUMY2:  .BYTE   0\n"
