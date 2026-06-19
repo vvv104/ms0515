@@ -1860,27 +1860,40 @@ BF13:   MOVB    {g(0xAA52)},{g(0xC425)}
           "        ;     close, MERGE them into one combined box + compute the\n"
           "        ;     fighter dimensions; else ($C101 path) the per-fighter\n"
           "        ;     boxes stand and the draw handles each separately. ---\n")
+    # width/height of the box $C434-$C437 -> $C40A/$C40F/$C409 (+ top $C41A).  The
+    # MERGE path runs this after combining the two fighters' boxes.  The SEPARATE path
+    # (fighters far apart) MUST run it too: the first pass already set $C434/$C435 to
+    # the span of both fighters, but the original $C101 path left $C40A/$C409 STALE
+    # (it draws each fighter in its own box).  Our port composes both fighters into one
+    # buffer, so a stale-narrow $C40A makes the decode wrap the moved fighter past the
+    # buffer stride -> the sprite splits into horizontal lines.  Recomputing the stride
+    # from the real span keeps the single-box draw coherent.
+    dims = ("        ; width = ((C435-C434) >> 2) + 2  ->  $C40A / $C40F\n"
+            f"        MOVB    {g(0xC435)},R0\n        BIC     #177400,R0\n"
+            f"        MOVB    {g(0xC434)},R1\n        BIC     #177400,R1\n"
+            f"        SUB     R1,R0\n        ASR     R0\n        ASR     R0\n        ADD     #2,R0\n"
+            f"        MOVB    R0,{g(0xC40A)}\n        MOVB    R0,{g(0xC40F)}\n"
+            "        ; height = C437 - C436  ->  $C409 ;  top $C41A := C436\n"
+            f"        MOVB    {g(0xC437)},R0\n        BIC     #177400,R0\n"
+            f"        MOVB    {g(0xC436)},R1\n        BIC     #177400,R1\n"
+            f"        SUB     R1,R0\n        MOVB    R0,{g(0xC409)}\n"
+            f"        MOVB    {g(0xC436)},{g(0xC41A)}\n")
     s += (f"        MOVB    {g(0xC439)},R0\n        ADD     #11.,R0\n"
-          f"        BIC     #177400,R0\n        CMPB    R0,{g(0xC434)}\n        BLO     90$\n")
+          f"        BIC     #177400,R0\n        CMPB    R0,{g(0xC434)}\n        BLO     91$\n")
     s += (f"        MOVB    {g(0xC435)},R0\n        ADD     #11.,R0\n"
-          f"        BIC     #177400,R0\n        CMPB    R0,{g(0xC438)}\n        BLO     90$\n")
+          f"        BIC     #177400,R0\n        CMPB    R0,{g(0xC438)}\n        BLO     91$\n")
     s += mm("min", g(0xC434), g(0xC438), g(0xC434))    # merged left  = min
     s += mm("max", g(0xC435), g(0xC439), g(0xC435))    # merged right = max
     s += mm("min", g(0xC436), g(0xC43A), g(0xC436))    # merged top   = min
     s += mm("max", g(0xC437), g(0xC43B), g(0xC437))    # merged bottom= max
-    s += ("        ; width = ((C435-C434) >> 2) + 2  ->  $C40A / $C40F\n"
-          f"        MOVB    {g(0xC435)},R0\n        BIC     #177400,R0\n"
-          f"        MOVB    {g(0xC434)},R1\n        BIC     #177400,R1\n"
-          f"        SUB     R1,R0\n        ASR     R0\n        ASR     R0\n        ADD     #2,R0\n"
-          f"        MOVB    R0,{g(0xC40A)}\n        MOVB    R0,{g(0xC40F)}\n")
-    s += ("        ; height = C437 - C436  ->  $C409 ;  top $C41A := C436\n"
-          f"        MOVB    {g(0xC437)},R0\n        BIC     #177400,R0\n"
-          f"        MOVB    {g(0xC436)},R1\n        BIC     #177400,R1\n"
-          f"        SUB     R1,R0\n        MOVB    R0,{g(0xC409)}\n")
-    s += f"        MOVB    {g(0xC436)},{g(0xC41A)}\n"
+    s += dims
     s += ("        ; ($C234 background fill is a pixel op - wired in the draw stage)\n"
           f"        MOVB    {g(0xC434)},{g(0xC438)}\n"
           f"        MOVB    {g(0xC436)},{g(0xC43A)}\n")
+    s += "        BR      90$\n"
+    s += ("91$:    ; far apart ($C101 separate-box): recompute dims from the first-pass\n"
+          "        ;     span so the one-buffer draw still spans the moved fighter\n")
+    s += dims
     s += "90$:    RTS     PC\n"
     s += "        .EVEN\n"
     s += "BIX1:   .BYTE   0\nBIX2:   .BYTE   0\nBIY1:   .BYTE   0\nBIY2:   .BYTE   0\n"
