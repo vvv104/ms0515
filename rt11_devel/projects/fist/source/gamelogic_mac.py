@@ -3426,9 +3426,11 @@ def main_game():
     fbuf_addr = 0o100000 + (fd.FBUF - GBASE)     # compose buffer home (extended bank 6)
     safe_words = (0o157777 - fbuf_addr + 1) // 2  # composed words that fit below bank 7
     copy_words = min(present_words, safe_words)   # copy only what the decode could write
-    # per-frame present: a fixed screen window the flicker-free blit fully repaints
-    maxw, maxr = 40, 90                          # window: full width x 90 rows
-    maxoff = ((200 - maxr) // 2 * 40) * 2        # centred top, byte offset into VRAM
+    # per-frame present clamps: a runtime box can grow taller/wider than the captured
+    # one (a jump/somersault) - cap it so the blit can't over-read LOWBUF or run off
+    # the screen (both showed as garbage).  LOWBUF holds the largest clamped box.
+    fwmax, fhmax = 24, 96
+    lowbuf_words = (fwmax * fhmax + 1) // 2
     frame_delay = 20000                          # crude pacing (busy loop), tune later
 
     gstdat = bytes(snap[GBASE:0xF730])           # GST data; $F730+ compose is scratch
@@ -3548,8 +3550,41 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOVB    {g(0xC436)},R0       ; box top (pixel rows)
         BIC     #177400,R0
         MOV     R0,BXTOP
+        ; --- clamp the box so the blit fits LOWBUF + the screen (a jump makes it tall) ---
+        MOV     FWVAR,R0             ; width: <= fwmax and col+width <= 40
+        CMP     R0,#{fwmax}.
+        BLE     30$
+        MOV     #{fwmax}.,R0
+30$:    MOV     BXLEF,R1
+        ASR     R1
+        ASR     R1
+        ADD     #4,R1                ; R1 = cell column
+        MOV     #40.,R2
+        SUB     R1,R2                ; R2 = 40 - col = horizontal room
+        CMP     R0,R2
+        BLE     31$
+        MOV     R2,R0
+31$:    TST     R0
+        BGT     32$
+        CLR     R0                   ; off left/right or wrapped -> skip
+32$:    MOV     R0,FWVAR
+        MOV     FHVAR,R0             ; height: <= fhmax and (top+4)+height <= 200
+        CMP     R0,#{fhmax}.
+        BLE     33$
+        MOV     #{fhmax}.,R0
+33$:    MOV     BXTOP,R1
+        ADD     #4,R1
+        MOV     #200.,R2
+        SUB     R1,R2                ; R2 = 200 - (top+4); negative if off the top/bottom
+        CMP     R0,R2
+        BLE     34$
+        MOV     R2,R0
+34$:    TST     R0
+        BGT     35$
+        CLR     R0                   ; off-screen / wrapped -> height 0 = skip this frame
+35$:    MOV     R0,FHVAR
         MOV     #LOWBUF,R0           ; clear LOWBUF, then copy the box (bank-6 part) down
-        MOV     #{present_words}.,R2
+        MOV     #{lowbuf_words}.,R2
 8$:     CLR     (R0)+
         DEC     R2
         BNE     8$
@@ -3665,7 +3700,7 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
               "        .EVEN\nFWVAR:  .WORD   0\nFHVAR:  .WORD   0\nRSEED:  .WORD   1\n"
               "        .EVEN\nBXLEF:  .WORD   0\nBXTOP:  .WORD   0\n"
               "OLDADR: .WORD   0\nOLDW:   .WORD   0\nOLDH:   .WORD   0\n"
-              f"        .EVEN\nLOWBUF: .BLKW   {present_words}.    ; primary-RAM copy of the compose buffer\n")
+              f"        .EVEN\nLOWBUF: .BLKW   {lowbuf_words}.    ; primary-RAM copy of the compose buffer\n")
     src = (preamble + equs + driver + decrun
            + logic + chain + tail + datblk + ldat
            + "\n        .END    START\n")
