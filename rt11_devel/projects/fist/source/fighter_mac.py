@@ -146,7 +146,17 @@ DLOOP:  JSR     PC,STAGE               ; R0 = $8B01 ptr, or 0 at terminator
         TST     R0
         BEQ     1$
         MOV     R0,R4                  ; HL = $8B01 (work stream)
-        MOV     DSTP,R3                ; DE = current dest
+        ; Clamp the dest to the bank-6 FBUF window; redirect any overflow to a scratch
+        ; so the decode can NEVER write into bank 7 (RMON / I/O).  A tall or wide merged
+        ; box (a jump/landing, or fighters far apart) composes more than the ~1232-byte
+        ; bank-6 buffer holds and would otherwise corrupt the screen.  SRCP is untouched,
+        ; so only the out-of-range pixels drop - the fighter clips instead of trashing.
+        CMP     DSTP,#FBUF
+        BLO     2$
+        CMP     DSTP,#FBUF+1104.
+        BLO     3$
+2$:     MOV     #DUMPBUF,DSTP
+3$:     MOV     DSTP,R3                ; DE = current dest
         JSR     PC,DECODE
         MOV     WHL14,SRCP             ; reload next src/dest ($8B14/$8B16)
         MOV     WDE16,DSTP
@@ -554,6 +564,8 @@ ORIGRC: .WORD   0
 SRCP:   .WORD   0
 DSTP:   .WORD   0
 NCOUNT: .WORD   0
+        .EVEN
+DUMPBUF: .BLKW  64.                    ; sink for decode writes that overflow the FBUF window
 C40EM:  .BYTE   %C40E%.                ; per-fighter mode flags ($C40E)
 C407M:  .BYTE   %C407%.                ; facing flag ($C407)
         .EVEN
