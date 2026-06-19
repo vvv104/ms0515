@@ -1878,23 +1878,15 @@ BF13:   MOVB    {g(0xAA52)},{g(0xC425)}
             f"        MOVB    {g(0xC436)},R1\n        BIC     #177400,R1\n"
             f"        SUB     R1,R0\n        MOVB    R0,{g(0xC409)}\n"
             f"        MOVB    {g(0xC436)},{g(0xC41A)}\n")
-    s += (f"        MOVB    {g(0xC439)},R0\n        ADD     #11.,R0\n"
-          f"        BIC     #177400,R0\n        CMPB    R0,{g(0xC434)}\n        BLO     91$\n")
-    s += (f"        MOVB    {g(0xC435)},R0\n        ADD     #11.,R0\n"
-          f"        BIC     #177400,R0\n        CMPB    R0,{g(0xC438)}\n        BLO     91$\n")
-    s += mm("min", g(0xC434), g(0xC438), g(0xC434))    # merged left  = min
-    s += mm("max", g(0xC435), g(0xC439), g(0xC435))    # merged right = max
-    s += mm("min", g(0xC436), g(0xC43A), g(0xC436))    # merged top   = min
-    s += mm("max", g(0xC437), g(0xC43B), g(0xC437))    # merged bottom= max
-    s += dims
-    s += ("        ; ($C234 background fill is a pixel op - wired in the draw stage)\n"
-          f"        MOVB    {g(0xC434)},{g(0xC438)}\n"
-          f"        MOVB    {g(0xC436)},{g(0xC43A)}\n")
-    s += "        BR      90$\n"
-    s += ("91$:    ; far apart ($C101 separate-box): recompute dims from the first-pass\n"
-          "        ;     span so the one-buffer draw still spans the moved fighter\n")
-    s += dims
-    s += "90$:    RTS     PC\n"
+    # Always keep the per-fighter boxes: box A ($C434-$C437) = P1, box B ($C438-$C43B)
+    # = P2.  The original MERGES them when close and draws both into one buffer, but our
+    # bank-6 FBUF (~1.2 KB) can't hold a tall merged box (a jumper spanning down to the
+    # grounded fighter) -> overflow/garbage.  So we always take the original's $C101
+    # separate path: C101C/C1CC decode each fighter in its OWN box (<= 884 B) and the
+    # compositor blits them side by side.  (dims above are recomputed per-box by C101C.)
+    del dims
+    s += "        ; second pass omitted: per-fighter boxes ($C101 path) - see C101C/C1CC\n"
+    s += "        RTS     PC\n"
     s += "        .EVEN\n"
     s += "BIX1:   .BYTE   0\nBIX2:   .BYTE   0\nBIY1:   .BYTE   0\nBIY2:   .BYTE   0\n"
     s += "SUMX1:  .BYTE   0\nSUMX2:  .BYTE   0\nSUMY1:  .BYTE   0\nSUMY2:  .BYTE   0\n"
@@ -3443,7 +3435,10 @@ def main_game():
     # one (a jump/somersault) - cap it so the blit can't over-read LOWBUF or run off
     # the screen (both showed as garbage).  LOWBUF holds the largest clamped box.
     fwmax, fhmax = 40, 96
-    lowbuf_words = (fwmax * fhmax + 1) // 2
+    # Per-fighter compose buffers: each holds ONE fighter (the original FBUF_LEN = 884 B),
+    # which fits below bank 7 (safe_words).  The decode writes each fighter into FBUF
+    # (bank 6) then we copy it down to LBUF1 / LBUF2 for the compositor to blit.
+    lb_words = safe_words
     frame_delay = 20000                          # crude pacing (busy loop), tune later
 
     gstdat = bytes(snap[GBASE:0xF730])           # GST data; $F730+ compose is scratch
@@ -3528,12 +3523,13 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         DEC     R1
         BNE     4$
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
-        MOV     #FBUF,R0             ; clear the compose buffer
-        MOV     #{present_words}.,R1
+        ; --- Fighter 1: clear FBUF, decode box A, stash its box, copy to LBUF1 ---
+        MOV     #FBUF,R0
+        MOV     #{lb_words}.,R1
 5$:     CLR     (R0)+
         DEC     R1
         BNE     5$
-        JSR     PC,C101C             ; draw fighter P1
+        JSR     PC,C101C
         JSR     PC,SETUPC
 6$:     JSR     PC,SEGSET
         MOVB    {c408},R0
@@ -3542,7 +3538,28 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         JSR     PC,DECRUN
         DECB    SEGCNT
         BNE     6$
-        JSR     PC,C1CC              ; draw fighter P2
+        MOVB    {g(0xC40A)},R0       ; box A: width, top ($C436), left ($C434)
+        BIC     #177400,R0
+        MOV     R0,RW1
+        MOVB    {g(0xC436)},R0
+        BIC     #177400,R0
+        MOV     R0,RT1
+        MOVB    {g(0xC434)},R0
+        BIC     #177400,R0
+        MOV     R0,RL1
+        MOV     #FBUF,R1
+        MOV     #LBUF1,R0
+        MOV     #{lb_words}.,R2
+62$:    MOV     (R1)+,(R0)+
+        DEC     R2
+        BNE     62$
+        ; --- Fighter 2: clear FBUF, decode box B, stash its box, copy to LBUF2 ---
+        MOV     #FBUF,R0
+        MOV     #{lb_words}.,R1
+56$:    CLR     (R0)+
+        DEC     R1
+        BNE     56$
+        JSR     PC,C1CC
         JSR     PC,SETUPC
 7$:     JSR     PC,SEGSET
         MOVB    {c408},R0
@@ -3551,129 +3568,100 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         JSR     PC,DECRUN
         DECB    SEGCNT
         BNE     7$
-        MOVB    {g(0xC40A)},R0       ; stash box dims + screen pos (GST live, parked)
+        MOVB    {g(0xC40A)},R0       ; box B: width, top ($C43A), left ($C438)
         BIC     #177400,R0
-        MOV     R0,FWVAR
-        MOVB    {g(0xC409)},R0
+        MOV     R0,RW2
+        MOVB    {g(0xC43A)},R0
         BIC     #177400,R0
-        MOV     R0,FHVAR
-        MOVB    {g(0xC434)},R0       ; box left (quarter-cell units, >>2 = cell column)
+        MOV     R0,RT2
+        MOVB    {g(0xC438)},R0
         BIC     #177400,R0
-        MOV     R0,BXLEF
-        MOVB    {g(0xC436)},R0       ; box top (pixel rows)
-        BIC     #177400,R0
-        MOV     R0,BXTOP
-        CMP     R0,#150.             ; a high jump wraps the top above row 0
-        BLE     29$
-        CLR     BXTOP
-29$:    ; --- clamp the box so the blit fits LOWBUF + the screen (a jump makes it tall) ---
-        MOV     FWVAR,R0             ; BWID = actual compose-buffer row stride (<= fwmax)
-        CMP     R0,#{fwmax}.
-        BLE     30$
-        MOV     #{fwmax}.,R0
-30$:    MOV     R0,BWID              ; R1 advances by BWID/row so reads stay row-aligned
-        MOV     BXLEF,R1             ; FWVAR = drawn width = min(BWID, 40 - col)
-        ASR     R1
-        ASR     R1
-        ADD     #4,R1                ; R1 = cell column
-        MOV     #40.,R2
-        SUB     R1,R2                ; R2 = 40 - col = horizontal room
-        CMP     R0,R2
-        BLE     31$
-        MOV     R2,R0
-31$:    TST     R0
-        BGT     32$
-        CLR     R0                   ; off left/right or wrapped -> skip
-32$:    MOV     R0,FWVAR
-        MOV     FHVAR,R0             ; height: <= fhmax and (top+4)+height <= 200
-        CMP     R0,#{fhmax}.
-        BLE     33$
-        MOV     #{fhmax}.,R0
-33$:    MOV     BXTOP,R1
-        ADD     #4,R1
-        MOV     #200.,R2
-        SUB     R1,R2                ; R2 = 200 - (top+4); negative if off the top/bottom
-        CMP     R0,R2
-        BLE     34$
-        MOV     R2,R0
-34$:    TST     R0
-        BGT     35$
-        CLR     R0                   ; off-screen / wrapped -> height 0 = skip this frame
-35$:    MOV     R0,FHVAR
-        MOV     #LOWBUF,R0           ; clear LOWBUF, then copy the box (bank-6 part) down
-        MOV     #{lowbuf_words}.,R2
-8$:     CLR     (R0)+
-        DEC     R2
-        BNE     8$
+        MOV     R0,RL2
         MOV     #FBUF,R1
-        MOV     #LOWBUF,R0
-        MOV     #{copy_words}.,R2
-88$:    MOV     (R1)+,(R0)+
+        MOV     #LBUF2,R0
+        MOV     #{lb_words}.,R2
+72$:    MOV     (R1)+,(R0)+
         DEC     R2
-        BNE     88$
+        BNE     72$
+        ; --- on-screen geometry for both fighters (each clamped to the screen) ---
+        MOV     RW1,R3               ; fighter 1: raw width / top / left -> COL1/TOP1/BWID1/W1
+        MOV     RT1,R4
+        MOV     RL1,R5
+        JSR     PC,GEOMC
+        MOV     R0,COL1
+        MOV     R1,TOP1
+        MOV     R2,BWID1
+        MOV     R3,W1
+        MOV     RW2,R3               ; fighter 2
+        MOV     RT2,R4
+        MOV     RL2,R5
+        JSR     PC,GEOMC
+        MOV     R0,COL2
+        MOV     R1,TOP2
+        MOV     R2,BWID2
+        MOV     R3,W2
         MOV     #3377,@#DISPAT       ; unpark: 03377 (RMON back, VRAM on) - present-safe
-        ; --- flicker-free full-screen repaint: clear-above + phased box + clear-below ---
-        MOV     BXLEF,R0             ; world cell column, clamped to the row width
-        ASR     R0
-        ASR     R0
-        ADD     #4,R0
-        CMP     R0,#40.
-        BLE     39$
-        MOV     #40.,R0
-39$:    MOV     R0,WCOL
-        MOV     #LOWBUF,R1
-        MOV     #VRAM,R2
-        MOV     BXTOP,R5             ; clear (BXTOP+4) rows above the box
-        ADD     #4,R5
-        TST     R5
-        BEQ     42$
-40$:    MOV     #40.,R4
-41$:    CLR     (R2)+
-        DEC     R4
-        BNE     41$
-        DEC     R5
-        BNE     40$
-42$:    MOV     FHVAR,R5             ; box rows: left-pad + fighter + right-pad
-        TST     R5
-        BLE     47$
-43$:    MOV     R2,R0
-        MOV     WCOL,R4
-        TST     R4
-        BLE     44$
-431$:   CLR     (R0)+
-        DEC     R4
-        BNE     431$
-44$:    MOV     FWVAR,R4
-        TST     R4
-        BEQ     45$
-441$:   MOVB    (R1)+,R3
-        BIC     #177400,R3
-        BIS     #FWHITE,R3
-        MOV     R3,(R0)+
-        DEC     R4
-        BNE     441$
-        MOV     BWID,R4              ; skip the clipped tail of this compose row so R1
-        SUB     FWVAR,R4             ; stays aligned with the next row (BWID >= FWVAR)
-        ADD     R4,R1
-45$:    MOV     R0,R4
-        SUB     R2,R4
-        ASR     R4
-        SUB     #40.,R4
-        NEG     R4
-        BLE     46$
-451$:   CLR     (R0)+
-        DEC     R4
-        BNE     451$
-46$:    ADD     #120,R2
-        DEC     R5
-        BNE     43$                 ; loop FHVAR rows (BNE, not BR - else R5 runs away!)
-47$:    CMP     R2,#VRAM+16000.     ; clear rows below the box
-        BHIS    16$
-        MOV     #40.,R4
-49$:    CLR     (R2)+
-        DEC     R4
-        BNE     49$
-        BR      47$
+        ; --- flicker-free compositor: per screen row, CLEAR then overlay each fighter ---
+        ; Each fighter is drawn from its own buffer (LBUF1 / LBUF2) at its own column
+        ; (COL) and top (TOP).  SRCn walks the sprite one stride (BWIDn) per row once the
+        ; row reaches TOPn, and stops at the buffer end; black (zero) cells are skipped so
+        ; the two sprites overlay transparently.  Clearing each row before overlay means
+        ; the screen is never globally blank -> no flicker.
+        MOV     #VRAM,R2             ; R2 = current VRAM row
+        MOV     #LBUF1,SRC1
+        MOV     #LBUF2,SRC2
+        CLR     ROWN
+CLOOP:  MOV     R2,R0                ; clear this row (40 cells)
+        MOV     #40.,R3
+CCLR:   CLR     (R0)+
+        DEC     R3
+        BNE     CCLR
+        MOV     ROWN,R0              ; --- fighter 1 ---
+        CMP     R0,TOP1
+        BLO     C1SK                 ; row above the sprite
+        CMP     SRC1,#LBUF1+{lb_words}.*2
+        BHIS    C1SK                 ; sprite exhausted
+        MOV     W1,R3
+        BEQ     C1AD                 ; off-screen width -> advance src only
+        MOV     R2,R0                ; dst = VRAM row + COL1*2
+        MOV     COL1,R4
+        ASL     R4
+        ADD     R4,R0
+        MOV     SRC1,R1
+C1OV:   MOVB    (R1)+,R4
+        BEQ     C1TR                 ; zero cell = transparent
+        BIC     #177400,R4
+        BIS     #FWHITE,R4
+        MOV     R4,(R0)
+C1TR:   TST     (R0)+
+        DEC     R3
+        BNE     C1OV
+C1AD:   ADD     BWID1,SRC1           ; next compose row (full stride)
+C1SK:   MOV     ROWN,R0              ; --- fighter 2 ---
+        CMP     R0,TOP2
+        BLO     C2SK
+        CMP     SRC2,#LBUF2+{lb_words}.*2
+        BHIS    C2SK
+        MOV     W2,R3
+        BEQ     C2AD
+        MOV     R2,R0
+        MOV     COL2,R4
+        ASL     R4
+        ADD     R4,R0
+        MOV     SRC2,R1
+C2OV:   MOVB    (R1)+,R4
+        BEQ     C2TR
+        BIC     #177400,R4
+        BIS     #FWHITE,R4
+        MOV     R4,(R0)
+C2TR:   TST     (R0)+
+        DEC     R3
+        BNE     C2OV
+C2AD:   ADD     BWID2,SRC2
+C2SK:   ADD     #80.,R2              ; next screen row
+        INC     ROWN
+        CMP     ROWN,#200.
+        BLO     CLOOP
 16$:    MOV     #{frame_delay}.,R0   ; crude frame pacing
 9$:     DEC     R0
         BNE     9$
@@ -3685,6 +3673,32 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
         MOVB    ORIGRC,@#SYSC
         MTPS    #0
         .EXIT
+        ; --- GEOMC: clamp one fighter's raw box to the screen ----------------------
+        ; in:  R3 = raw width ($C40A), R4 = raw top, R5 = raw left
+        ; out: R0 = COL (cell), R1 = TOP (screen row), R2 = BWID (stride), R3 = W (cells)
+GEOMC:  MOV     R5,R0                ; col = (left >> 2) + 4
+        ASR     R0
+        ASR     R0
+        ADD     #4,R0
+        MOV     R3,R2                ; BWID = min(raw width, fwmax)
+        CMP     R2,#{fwmax}.
+        BLE     1$
+        MOV     #{fwmax}.,R2
+1$:     MOV     #40.,R5              ; W = min(BWID, 40 - col)
+        SUB     R0,R5
+        MOV     R2,R3
+        CMP     R3,R5
+        BLE     2$
+        MOV     R5,R3
+2$:     TST     R3
+        BGT     3$
+        CLR     R3                   ; off the right edge / wrapped -> skip
+3$:     MOV     R4,R1                ; top: a high jump wraps above row 0
+        CMP     R1,#150.
+        BLE     4$
+        CLR     R1
+4$:     ADD     #4,R1                ; +4 = top centring margin
+        RTS     PC
 """
     # PRESENT reads the composed buffer; the game feeds it the low-RAM copy LOWBUF
     # (the original FBUF in bank 6 is shadowed by RMON after the unpark).  Drop the
@@ -3726,10 +3740,14 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
     datblk = ("\n        .EVEN\nDATFIL: .RAD50  /DK GST   DAT/\n"
               "        .EVEN\nLKAREA: .BLKW   5\n"
               "        .EVEN\nC408W:  .WORD   0\nORIGRC: .WORD   0\n"
-              "        .EVEN\nFWVAR:  .WORD   0\nFHVAR:  .WORD   0\nRSEED:  .WORD   1\n"
-              "        .EVEN\nBXLEF:  .WORD   0\nBXTOP:  .WORD   0\nWCOL:   .WORD   0\n"
-              "BWID:   .WORD   0\n"
-              f"        .EVEN\nLOWBUF: .BLKW   {lowbuf_words}.    ; primary-RAM copy of the compose buffer\n")
+              "        .EVEN\nRSEED:  .WORD   1\n"
+              "        .EVEN\nRW1:    .WORD   0\nRT1:    .WORD   0\nRL1:    .WORD   0\n"
+              "RW2:    .WORD   0\nRT2:    .WORD   0\nRL2:    .WORD   0\n"
+              "COL1:   .WORD   0\nTOP1:   .WORD   0\nBWID1:  .WORD   0\nW1:     .WORD   0\n"
+              "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
+              "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\n"
+              f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
+              f"LBUF2: .BLKW  {lb_words}.\n")
     src = (preamble + equs + driver + decrun
            + logic + chain + tail + datblk + ldat
            + "\n        .END    START\n")
