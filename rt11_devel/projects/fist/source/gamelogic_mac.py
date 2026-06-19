@@ -3523,7 +3523,21 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         DEC     R1
         BNE     4$
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
-        ; --- Fighter 1: clear FBUF, decode box A, stash its box, copy to LBUF1 ---
+        ; --- sound: tick the current effect, then trigger any the hit logic queued ---
+        MOV     SNDCNT,R0            ; count down the playing effect; silence at 0
+        BEQ     80$
+        DEC     R0
+        MOV     R0,SNDCNT
+        BNE     80$
+        MOVB    @#SYSC,R0            ; clear Reg C bit 6 (sound enable) -> silence
+        BIC     #100,R0
+        MOVB    R0,@#SYSC
+80$:    MOVB    {g(0xB150)},R0       ; $B150 = sound code queued by $9ED2/$9D29 hit-detect
+        BIC     #177400,R0
+        BEQ     81$
+        JSR     PC,SNDFX             ; start the effect (timer ch2 tone)
+        CLRB    {g(0xB150)}          ; ($B15A clears it after playing)
+81$:    ; --- Fighter 1: clear FBUF, decode box A, stash its box, copy to LBUF1 ---
         MOV     #FBUF,R0
         MOV     #{lb_words}.,R1
 5$:     CLR     (R0)+
@@ -3699,6 +3713,33 @@ GEOMC:  MOV     R5,R0                ; col = (left >> 2) + 4
         CLR     R1
 4$:     ADD     #4,R1                ; +4 = top centring margin
         RTS     PC
+        ; --- SNDFX: start a sound effect on timer channel 2 -----------------------
+        ; The original ($B15A) bit-bangs the Spectrum beeper; the MS-0515 speaker
+        ; instead follows timer ch2 (Reg C bit 6), so each of the 6 effect codes maps
+        ; to a tone (divisor SNDFRQ) held for SNDDUR frames.  Frequencies approximate
+        ; the beeper pitches (HL params $0400/$0300/$0100/.../$0120/$0100) - tunable.
+        ; in: R0 = sound code (1..6); 0 / out-of-range = no-op.
+SNDFX:  TST     R0
+        BEQ     9$
+        CMP     R0,#6.
+        BHI     9$
+        DEC     R0
+        ASL     R0                   ; word index
+        MOV     R0,R1
+        MOVB    #266,@#177526        ; ch2, LSB+MSB, mode 3 (square wave)
+        MOV     SNDFRQ(R1),R2        ; divisor = 2 MHz / freq
+        MOVB    R2,@#177524          ; divisor LSB
+        SWAB    R2
+        MOVB    R2,@#177524          ; divisor MSB
+        MOVB    @#SYSC,R2            ; Reg C: set bits 7+6 (ch2 gate + sound enable)
+        BIS     #300,R2
+        MOVB    R2,@#SYSC
+        MOV     SNDDUR(R1),R2
+        MOV     R2,SNDCNT
+9$:     RTS     PC
+        .EVEN
+SNDFRQ: .WORD   1667.,2222.,4545.,2857.,3824.,3333.
+SNDDUR: .WORD   3.,3.,6.,4.,7.,4.
 """
     # PRESENT reads the composed buffer; the game feeds it the low-RAM copy LOWBUF
     # (the original FBUF in bank 6 is shadowed by RMON after the unpark).  Drop the
@@ -3745,7 +3786,7 @@ GEOMC:  MOV     R5,R0                ; col = (left >> 2) + 4
               "RW2:    .WORD   0\nRT2:    .WORD   0\nRL2:    .WORD   0\n"
               "COL1:   .WORD   0\nTOP1:   .WORD   0\nBWID1:  .WORD   0\nW1:     .WORD   0\n"
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
-              "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\n"
+              "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\nSNDCNT: .WORD   0\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")
     src = (preamble + equs + driver + decrun
