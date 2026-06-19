@@ -3429,7 +3429,7 @@ def main_game():
     # per-frame present clamps: a runtime box can grow taller/wider than the captured
     # one (a jump/somersault) - cap it so the blit can't over-read LOWBUF or run off
     # the screen (both showed as garbage).  LOWBUF holds the largest clamped box.
-    fwmax, fhmax = 24, 96
+    fwmax, fhmax = 40, 96
     lowbuf_words = (fwmax * fhmax + 1) // 2
     frame_delay = 20000                          # crude pacing (busy loop), tune later
 
@@ -3554,11 +3554,12 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         BLE     29$
         CLR     BXTOP
 29$:    ; --- clamp the box so the blit fits LOWBUF + the screen (a jump makes it tall) ---
-        MOV     FWVAR,R0             ; width: <= fwmax and col+width <= 40
+        MOV     FWVAR,R0             ; BWID = actual compose-buffer row stride (<= fwmax)
         CMP     R0,#{fwmax}.
         BLE     30$
         MOV     #{fwmax}.,R0
-30$:    MOV     BXLEF,R1
+30$:    MOV     R0,BWID              ; R1 advances by BWID/row so reads stay row-aligned
+        MOV     BXLEF,R1             ; FWVAR = drawn width = min(BWID, 40 - col)
         ASR     R1
         ASR     R1
         ADD     #4,R1                ; R1 = cell column
@@ -3638,6 +3639,9 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOV     R3,(R0)+
         DEC     R4
         BNE     441$
+        MOV     BWID,R4              ; skip the clipped tail of this compose row so R1
+        SUB     FWVAR,R4             ; stays aligned with the next row (BWID >= FWVAR)
+        ADD     R4,R1
 45$:    MOV     R0,R4
         SUB     R2,R4
         ASR     R4
@@ -3711,7 +3715,7 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
               "        .EVEN\nC408W:  .WORD   0\nORIGRC: .WORD   0\n"
               "        .EVEN\nFWVAR:  .WORD   0\nFHVAR:  .WORD   0\nRSEED:  .WORD   1\n"
               "        .EVEN\nBXLEF:  .WORD   0\nBXTOP:  .WORD   0\nWCOL:   .WORD   0\n"
-              "OLDADR: .WORD   0\nOLDW:   .WORD   0\nOLDH:   .WORD   0\n"
+              "BWID:   .WORD   0\n"
               f"        .EVEN\nLOWBUF: .BLKW   {lowbuf_words}.    ; primary-RAM copy of the compose buffer\n")
     src = (preamble + equs + driver + decrun
            + logic + chain + tail + datblk + ldat
