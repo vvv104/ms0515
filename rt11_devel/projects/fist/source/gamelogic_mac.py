@@ -3522,6 +3522,13 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
 4$:     CLR     (R0)+
         DEC     R1
         BNE     4$
+        ; --- keyboard -> P1 move (AA05).  P1 is human (AA06=0), so MOVSEL leaves AA05
+        ;     unless a reaction is queued (which correctly overrides player input). ---
+        JSR     PC,KSCAN             ; drain keyboard -> HELDK
+        JSR     PC,KCTRL             ; R0 = Kempston control bits
+        JSR     PC,C98A0             ; R0 = &move ($98DD table)
+        MOVB    (R0),R0
+        MOVB    R0,{g(0xAA05)}       ; P1 selected move
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
         ; --- sound: tick the current effect, then trigger any the hit logic queued ---
         MOV     SNDCNT,R0            ; count down the playing effect; silence at 0
@@ -3679,10 +3686,7 @@ C2SK:   ADD     #80.,R2              ; next screen row
 16$:    MOV     #{frame_delay}.,R0   ; crude frame pacing
 9$:     DEC     R0
         BNE     9$
-        MOV     @#KBST,R0            ; exit on a key, else next frame
-        BIT     #2,R0
-        BNE     LDERR                ; key pressed -> exit
-        JMP     GLOOP                ; next frame (JMP: GLOOP is out of branch range)
+        JMP     GLOOP                ; next frame (KSCAN consumes keys; close window to quit)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC
         MTPS    #0
@@ -3740,6 +3744,72 @@ SNDFX:  TST     R0
         .EVEN
 SNDFRQ: .WORD   1667.,2222.,4545.,2857.,3824.,3333.
 SNDDUR: .WORD   3.,3.,6.,4.,7.,4.
+        ; --- KSCAN: drain the MS7004 keyboard, track the held key in HELDK ----------
+        ; The MS7004 is event-based (scancode on press, auto-repeat while held, ALL-UP
+        ; on last release), so only one key tracks reliably - fine for basic moves.
+KSCAN:  MOVB    @#177442,R0          ; keyboard status
+        BITB    #2,R0                ; RXRDY (byte available)?
+        BEQ     5$
+        MOVB    @#177440,R0          ; read the scancode
+        BIC     #177400,R0
+        CMP     R0,#263              ; ALL-UP -> nothing held
+        BNE     1$
+        CLRB    HELDK
+        BR      KSCAN
+1$:     CMP     R0,#254              ; auto-repeat -> keep the current key
+        BEQ     KSCAN
+        CMP     R0,#247              ; movement keys are 0247..0252 and 0324 (fire)
+        BLO     KSCAN
+        CMP     R0,#252
+        BLOS    2$
+        CMP     R0,#324
+        BNE     KSCAN                ; other key -> ignore
+2$:     MOVB    R0,HELDK
+        BR      KSCAN
+5$:     RTS     PC
+        ; --- KCTRL: HELDK -> Kempston control bits (R=1 L=2 D=4 U=10 fire=20) --------
+KCTRL:  CLR     R0
+        MOVB    HELDK,R1
+        BIC     #177400,R1
+        CMP     R1,#250              ; RIGHT
+        BNE     1$
+        BIS     #1,R0
+        RTS     PC
+1$:     CMP     R1,#247              ; LEFT
+        BNE     2$
+        BIS     #2,R0
+        RTS     PC
+2$:     CMP     R1,#251              ; DOWN
+        BNE     3$
+        BIS     #4,R0
+        RTS     PC
+3$:     CMP     R1,#252              ; UP
+        BNE     4$
+        BIS     #10,R0
+        RTS     PC
+4$:     CMP     R1,#324              ; SPACE = fire
+        BNE     9$
+        BIS     #20,R0
+9$:     RTS     PC
+        ; --- C98A0: control (R0) -> &move ($98DD table; +0x21 if P1 is mid-move) ------
+C98A0:  BIT     #40,R0
+        BEQ     1$
+        BIS     #20,R0
+1$:     BIC     #177740,R0           ; keep 5 control bits
+        MOV     #MTAB,R1
+        ADD     R0,R1
+        MOVB    {g(0xAA17)},R0       ; P1 current pose/move
+        BIC     #177400,R0
+        BEQ     2$
+        ADD     #41,R1               ; mid-move uses the second 0x21-offset table
+2$:     MOV     R1,R0
+        RTS     PC
+        .EVEN
+MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
+        .BYTE   1,16,12,1,21,17,20,1,14,15,13,1,1,1,1,1
+        .BYTE   1,5,4,1,2,6,7,1,3,11,10,1,1,1,1,1
+        .BYTE   1,16,12,1,14,15,13,1,21,17,20,1,1,1,1,1
+        .BYTE   1,1
 """
     # PRESENT reads the composed buffer; the game feeds it the low-RAM copy LOWBUF
     # (the original FBUF in bank 6 is shadowed by RMON after the unpark).  Drop the
@@ -3787,6 +3857,7 @@ SNDDUR: .WORD   3.,3.,6.,4.,7.,4.
               "COL1:   .WORD   0\nTOP1:   .WORD   0\nBWID1:  .WORD   0\nW1:     .WORD   0\n"
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\nSNDCNT: .WORD   0\n"
+              "        .EVEN\nHELDK:  .WORD   0\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")
     src = (preamble + equs + driver + decrun
