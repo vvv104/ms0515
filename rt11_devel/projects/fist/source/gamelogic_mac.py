@@ -3514,8 +3514,9 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
 3$:     CLR     (R0)+
         CMP     R0,#VRAMEN
         BLO     3$
-        ; --- seed the RNG, then loop logic + draw + present every frame ---
+        ; --- seed the RNG; make P1 human (keyboard), leave P2 AI as the opponent ---
         MOV     #12345.,RSEED
+        CLRB    {g(0xAA06)}          ; AA06=0 -> P1 human (GST.DAT had 1 = AI/attract)
 GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOV     #W,R0                ; clear decoder scratch
         MOV     #32.,R1
