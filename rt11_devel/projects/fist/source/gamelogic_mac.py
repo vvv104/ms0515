@@ -3768,29 +3768,31 @@ KSCAN:  MOVB    @#177442,R0          ; keyboard status
 2$:     MOVB    R0,HELDK
         BR      KSCAN
 5$:     RTS     PC
-        ; --- KCTRL: HELDK -> Kempston control bits (R=1 L=2 D=4 U=10 fire=20) --------
+        ; --- KCTRL: HELDK -> WotEF joystick bits.  Empirically the move table wants
+        ;     bit0=UP(jump) bit1=DOWN(crouch) bit2=LEFT bit3=RIGHT bit4=FIRE (NOT the
+        ;     standard Kempston order).  SPACE = forward(right)+fire = a punch. ---------
 KCTRL:  CLR     R0
         MOVB    HELDK,R1
         BIC     #177400,R1
-        CMP     R1,#250              ; RIGHT
+        CMP     R1,#252              ; UP -> jump
         BNE     1$
         BIS     #1,R0
         RTS     PC
-1$:     CMP     R1,#247              ; LEFT
+1$:     CMP     R1,#251              ; DOWN -> crouch
         BNE     2$
         BIS     #2,R0
         RTS     PC
-2$:     CMP     R1,#251              ; DOWN
+2$:     CMP     R1,#247              ; LEFT
         BNE     3$
         BIS     #4,R0
         RTS     PC
-3$:     CMP     R1,#252              ; UP
+3$:     CMP     R1,#250              ; RIGHT
         BNE     4$
         BIS     #10,R0
         RTS     PC
-4$:     CMP     R1,#324              ; SPACE = fire
+4$:     CMP     R1,#324              ; SPACE -> right+fire (a forward attack)
         BNE     9$
-        BIS     #20,R0
+        BIS     #30,R0
 9$:     RTS     PC
         ; --- C98A0: control (R0) -> &move ($98DD table; +0x21 if P1 is mid-move) ------
 C98A0:  BIT     #40,R0
