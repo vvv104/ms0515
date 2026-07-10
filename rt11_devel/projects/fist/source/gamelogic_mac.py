@@ -3629,10 +3629,31 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         ; row reaches TOPn, and stops at the buffer end; black (zero) cells are skipped so
         ; the two sprites overlay transparently.  Clearing each row before overlay means
         ; the screen is never globally blank -> no flicker.
-        MOV     #VRAM,R2             ; R2 = current VRAM row
+        ; Only clear/composite the fighters' active band [TOPCLR..200): TOPCLR =
+        ; min(TOP1, TOP2, last frame's min top) so a descending fighter's old rows still
+        ; get erased.  Rows above stay black from the start-up clear -> big speed win.
+        MOV     TOP1,R0
+        CMP     R0,TOP2
+        BLE     60$
+        MOV     TOP2,R0
+60$:    MOV     R0,R1                ; R1 = this frame's min top
+        CMP     R0,LASTTP
+        BLE     61$
+        MOV     LASTTP,R0            ; include last frame's top so descents don't ghost
+61$:    MOV     R1,LASTTP
+        MOV     R0,ROWN
+        MOV     R0,R2                ; VRAM row ptr = VRAM + ROWN*80
+        ASL     R2
+        ASL     R2
+        ASL     R2
+        ASL     R2
+        MOV     R2,R1
+        ASL     R2
+        ASL     R2
+        ADD     R1,R2
+        ADD     #VRAM,R2
         MOV     #LBUF1,SRC1
         MOV     #LBUF2,SRC2
-        CLR     ROWN
 CLOOP:  MOV     R2,R0                ; clear this row (40 cells)
         MOV     #40.,R3
 CCLR:   CLR     (R0)+
@@ -3684,10 +3705,7 @@ C2SK:   ADD     #80.,R2              ; next screen row
         INC     ROWN
         CMP     ROWN,#200.
         BLO     CLOOP
-16$:    MOV     #{frame_delay}.,R0   ; crude frame pacing
-9$:     DEC     R0
-        BNE     9$
-        JMP     GLOOP                ; next frame (KSCAN consumes keys; close window to quit)
+        JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC
         MTPS    #0
@@ -3860,7 +3878,7 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "COL1:   .WORD   0\nTOP1:   .WORD   0\nBWID1:  .WORD   0\nW1:     .WORD   0\n"
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\nSNDCNT: .WORD   0\n"
-              "        .EVEN\nHELDK:  .WORD   0\n"
+              "        .EVEN\nHELDK:  .WORD   0\nLASTTP: .WORD   0\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")
     src = (preamble + equs + driver + decrun
