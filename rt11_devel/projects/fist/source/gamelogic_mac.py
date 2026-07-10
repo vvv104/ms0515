@@ -3439,7 +3439,7 @@ def main_game():
     # which fits below bank 7 (safe_words).  The decode writes each fighter into FBUF
     # (bank 6) then we copy it down to LBUF1 / LBUF2 for the compositor to blit.
     lb_words = safe_words
-    ktmout = 15                                  # frames a key stays 'held' after its last event
+    ktmout = 7                                   # frames a key stays 'held' after its last event
     frame_delay = 20000                          # crude pacing (busy loop), tune later
 
     gstdat = bytes(snap[GBASE:0xF730])           # GST data; $F730+ compose is scratch
@@ -3794,10 +3794,12 @@ KSCAN:  MOVB    @#177442,R0          ; keyboard status
         CMP     R0,#263              ; ALL-UP (only sent with a modifier) -> release
         BNE     1$
         CLRB    HELDK
+        CLRB    LASTKY
         CLR     KTMR
         BR      KSCAN
-1$:     CMP     R0,#254              ; auto-repeat -> key still held: refresh the timeout
-        BNE     11$
+1$:     CMP     R0,#254              ; auto-repeat -> key still held: restore it + refresh.
+        BNE     11$                  ; (a short timeout makes a TAP one step; the repeat
+        MOVB    LASTKY,HELDK         ;  restores HELDK for a HOLD once repeats start)
         MOV     #{ktmout}.,KTMR
         BR      KSCAN
 11$:    CMP     R0,#247              ; movement keys are 0247..0252 and 0324 (fire)
@@ -3807,6 +3809,7 @@ KSCAN:  MOVB    @#177442,R0          ; keyboard status
         CMP     R0,#324
         BNE     KSCAN                ; other key -> ignore
 2$:     MOVB    R0,HELDK             ; new key: hold it + start the release timeout
+        MOVB    R0,LASTKY
         MOV     #{ktmout}.,KTMR
         BR      KSCAN
 5$:     RTS     PC
