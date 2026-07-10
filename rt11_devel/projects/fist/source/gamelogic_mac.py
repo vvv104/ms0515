@@ -3439,6 +3439,7 @@ def main_game():
     # which fits below bank 7 (safe_words).  The decode writes each fighter into FBUF
     # (bank 6) then we copy it down to LBUF1 / LBUF2 for the compositor to blit.
     lb_words = safe_words
+    ktmout = 15                                  # frames a key stays 'held' after its last event
     frame_delay = 20000                          # crude pacing (busy loop), tune later
 
     gstdat = bytes(snap[GBASE:0xF730])           # GST data; $F730+ compose is scratch
@@ -3517,6 +3518,13 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         ; --- seed the RNG; make P1 human (keyboard), leave P2 AI as the opponent ---
         MOV     #12345.,RSEED
         CLRB    {g(0xAA06)}          ; AA06=0 -> P1 human (GST.DAT had 1 = AI/attract)
+        ; tell the MS7004 keyboard 0o231 (keyclick off) - the firmware treats this as the
+        ; "a game is running" signal and switches auto-repeat to the fast game preset
+        ; (125 ms delay vs 250 ms typing), so held-key tracking is snappier.
+83$:    MOVB    @#177442,R0          ; wait for the keyboard UART transmitter
+        BITB    #1,R0                ; TXRDY?
+        BEQ     83$
+        MOVB    #231,@#177440
 GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOV     #W,R0                ; clear decoder scratch
         MOV     #32.,R1
@@ -3525,8 +3533,14 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         BNE     4$
         ; --- keyboard -> P1 move (AA05).  P1 is human (AA06=0), so MOVSEL leaves AA05
         ;     unless a reaction is queued (which correctly overrides player input). ---
-        JSR     PC,KSCAN             ; drain keyboard -> HELDK
-        JSR     PC,KCTRL             ; R0 = Kempston control bits
+        JSR     PC,KSCAN             ; drain keyboard -> HELDK (resets KTMR on events)
+        MOV     KTMR,R0              ; the MS7004 sends no release code, so treat "no key
+        BEQ     82$                  ; event for KTMR frames" (auto-repeat stopped) as release
+        DEC     R0
+        MOV     R0,KTMR
+        BNE     82$
+        CLRB    HELDK
+82$:    JSR     PC,KCTRL             ; R0 = Kempston control bits
         JSR     PC,C98A0             ; R0 = &move ($98DD table)
         MOVB    (R0),R0
         MOVB    R0,{g(0xAA05)}       ; P1 selected move
@@ -3771,19 +3785,23 @@ KSCAN:  MOVB    @#177442,R0          ; keyboard status
         BEQ     5$
         MOVB    @#177440,R0          ; read the scancode
         BIC     #177400,R0
-        CMP     R0,#263              ; ALL-UP -> nothing held
+        CMP     R0,#263              ; ALL-UP (only sent with a modifier) -> release
         BNE     1$
         CLRB    HELDK
+        CLR     KTMR
         BR      KSCAN
-1$:     CMP     R0,#254              ; auto-repeat -> keep the current key
-        BEQ     KSCAN
-        CMP     R0,#247              ; movement keys are 0247..0252 and 0324 (fire)
+1$:     CMP     R0,#254              ; auto-repeat -> key still held: refresh the timeout
+        BNE     11$
+        MOV     #{ktmout}.,KTMR
+        BR      KSCAN
+11$:    CMP     R0,#247              ; movement keys are 0247..0252 and 0324 (fire)
         BLO     KSCAN
         CMP     R0,#252
         BLOS    2$
         CMP     R0,#324
         BNE     KSCAN                ; other key -> ignore
-2$:     MOVB    R0,HELDK
+2$:     MOVB    R0,HELDK             ; new key: hold it + start the release timeout
+        MOV     #{ktmout}.,KTMR
         BR      KSCAN
 5$:     RTS     PC
         ; --- KCTRL: HELDK -> WotEF joystick bits.  Empirically the move table wants
