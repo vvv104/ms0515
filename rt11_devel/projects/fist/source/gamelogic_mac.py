@@ -3668,7 +3668,7 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         ADD     #VRAM,R2
         MOV     #LBUF1,SRC1
         MOV     #LBUF2,SRC2
-CLOOP:  MOV     R2,R0                ; clear this row (40 cells)
+CLOOP:  MOV     #SCRATC,R0           ; build the row off-screen (no black flash in VRAM)
         MOV     #40.,R3
 CCLR:   CLR     (R0)+
         DEC     R3
@@ -3680,7 +3680,7 @@ CCLR:   CLR     (R0)+
         BHIS    C1SK                 ; sprite exhausted
         MOV     W1,R3
         BEQ     C1AD                 ; off-screen width -> advance src only
-        MOV     R2,R0                ; dst = VRAM row + COL1*2
+        MOV     #SCRATC,R0           ; dst = scratch + COL1*2
         MOV     COL1,R4
         ASL     R4
         ADD     R4,R0
@@ -3701,7 +3701,7 @@ C1SK:   MOV     ROWN,R0              ; --- fighter 2 ---
         BHIS    C2SK
         MOV     W2,R3
         BEQ     C2AD
-        MOV     R2,R0
+        MOV     #SCRATC,R0
         MOV     COL2,R4
         ASL     R4
         ADD     R4,R0
@@ -3715,7 +3715,13 @@ C2TR:   TST     (R0)+
         DEC     R3
         BNE     C2OV
 C2AD:   ADD     BWID2,SRC2
-C2SK:   ADD     #80.,R2              ; next screen row
+C2SK:   MOV     #SCRATC,R0           ; blit the finished row to VRAM in one pass:
+        MOV     R2,R1                ; cells go old->new directly, never black
+        MOV     #40.,R3
+CCPY:   MOV     (R0)+,(R1)+
+        DEC     R3
+        BNE     CCPY
+        ADD     #80.,R2              ; next screen row
         INC     ROWN
         CMP     ROWN,#200.
         BLO     CLOOP
@@ -3896,7 +3902,8 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "COL1:   .WORD   0\nTOP1:   .WORD   0\nBWID1:  .WORD   0\nW1:     .WORD   0\n"
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\nSNDCNT: .WORD   0\n"
-              "        .EVEN\nHELDK:  .WORD   0\nLASTTP: .WORD   0\n"
+              "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\n"
+              "        .EVEN\nSCRATC: .BLKW   40.\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")
     src = (preamble + equs + driver + decrun
