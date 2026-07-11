@@ -3639,6 +3639,8 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOVB    R0,{g(0xAA05)}       ; P1 selected move
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
         JSR     PC,ROUNDE            ; 1P match: score the exchange on knockdown/timeout
+        MOVB    {g(0xAA01)},SC1      ; stash the scores for the HUD (GST unseen at 3377)
+        MOVB    {g(0xAA41)},SC2
         ; --- sound: tick the current effect, then trigger any the hit logic queued ---
         MOV     SNDCNT,R0            ; count down the playing effect; silence at 0
         BEQ     80$
@@ -3820,7 +3822,8 @@ CCPY:   MOV     (R0)+,(R1)+
         CMP     ROWN,#200.
         BHIS    58$                  ; done -> next frame
         JMP     CLOOP                ; (JMP: CLOOP is out of branch range)
-58$:    JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
+58$:    JSR     PC,HUD               ; draw the yin-yang score bar (top border)
+        JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC
         MTPS    #0
@@ -3892,6 +3895,42 @@ ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter in hit-recovery? (exchange over
         CLRB    {g(0xAA41)}
 72$:    JSR     PC,RSTFRM            ; $9CA8: reset both fighters for the next exchange
 78$:    RTS     PC
+        ; --- HUD: simple yin-yang score bar in the top border (rows 0-3, above the
+        ;     dojo).  P1's SC1 half-points as white cells on the left, P2's SC2 on the
+        ;     right.  Reads the stashed SC1/SC2 (the live $AA01/$AA41 are in the GST,
+        ;     invisible at the 3377 compositor banking).  DRAWCL fills one 4-row cell. -
+DRAWCL: MOV     #4.,R1
+6$:     MOV     #43777,(R0)          ; white ink + full pixels
+        ADD     #80.,R0
+        DEC     R1
+        BNE     6$
+        RTS     PC
+HUD:    MOV     #VRAM,R0             ; clear rows 0-3 (the HUD strip) to black
+        MOV     #160.,R1
+7$:     CLR     (R0)+
+        DEC     R1
+        BNE     7$
+        MOVB    SC1,R4               ; P1 half-points (0..4) -> cells at cols 3,5,7,9
+        BIC     #177400,R4
+        MOV     #VRAM+6.,R2
+1$:     TST     R4
+        BEQ     2$
+        MOV     R2,R0
+        JSR     PC,DRAWCL
+        ADD     #4,R2
+        DEC     R4
+        BR      1$
+2$:     MOVB    SC2,R4               ; P2 half-points -> cells at cols 29,31,33,35
+        BIC     #177400,R4
+        MOV     #VRAM+58.,R2
+3$:     TST     R4
+        BEQ     4$
+        MOV     R2,R0
+        JSR     PC,DRAWCL
+        ADD     #4,R2
+        DEC     R4
+        BR      3$
+4$:     RTS     PC
         ; --- SNDFX: start a sound effect on timer channel 2 -----------------------
         ; The original ($B15A) bit-bangs the Spectrum beeper; the MS-0515 speaker
         ; instead follows timer ch2 (Reg C bit 6), so each of the 6 effect codes maps
@@ -4042,7 +4081,7 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\nSNDCNT: .WORD   0\n"
               "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\n"
-              "        .EVEN\nWINS:   .WORD   0\n"
+              "        .EVEN\nWINS:   .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")

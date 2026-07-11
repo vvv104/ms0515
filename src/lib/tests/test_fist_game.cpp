@@ -240,6 +240,8 @@ TEST_CASE("fist: yin-yang score accumulates")
     int a01_0 = gst(0xAA01), a41_0 = gst(0xAA41);
     // Drive P1 aggressively: hold RIGHT to close, punch (SPACE) in bursts, so real
     // hits/knockdowns happen and ROUNDE has exchanges to score.
+    std::string vout = env("FIST_GAME_VRAM_OUT");
+    bool dumped = false;
     int peak = 0, changes = 0;
     int prev = gst(0xAA01) + gst(0xAA41);
     emu.keyPress(ms0515::Key::Right, true);
@@ -254,6 +256,14 @@ TEST_CASE("fist: yin-yang score accumulates")
         peak = std::max(peak, std::max((int)gst(0xAA01), (int)gst(0xAA41)));
         int s = gst(0xAA01) + gst(0xAA41);
         if (s != prev) { ++changes; prev = s; }
+        // Snapshot VRAM whenever a score is on screen (overwrite -> keep the last
+        // full frame) to eyeball the HUD.
+        if (!vout.empty() && s >= 2) {
+            dumped = true;
+            const uint8_t *vram = board_get_vram(&board);
+            std::ofstream o(vout, std::ios::binary);
+            o.write(reinterpret_cast<const char *>(vram), MEM_VRAM_SIZE);
+        }
     }
     MESSAGE("start AA01/AA41=" << a01_0 << "/" << a41_0
             << "  peak yin-yang=" << peak << "  score-changes=" << changes);
