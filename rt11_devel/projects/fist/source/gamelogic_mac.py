@@ -3479,6 +3479,12 @@ def main_game(withbg=False):
 
     # --- dojo background: engine + data + the driver fragments (empty when !withbg) ---
     dojo_boot, dojo_row, bgsrc = "", "", ""
+    # fighter ink in the overlay: white on the plain black-background game (else the
+    # fighter is black-on-black), BLACK over the dojo (black figures on the light
+    # dojo paper, as on the Spectrum) - keep the dojo paper colour either way.
+    ovl_ink = ("BICB    #7,1(R0)             ; black ink, keep the dojo paper colour"
+               if withbg else
+               "BISB    #107,1(R0)           ; white bright ink on the black background")
     if withbg:
         equs += ("LMARG  = 8.\nTMARG  = 4.\nLSTRID = 80.\n"
                  "SVBASE = 40000\nSVATTR = 54000\nSVTOP  = 40200\n")
@@ -3766,8 +3772,8 @@ CCLR:   CLR     (R0)+
 C1OV:   MOVB    (R1)+,R4
         BEQ     C1TR                 ; zero cell = fully transparent (dojo shows)
         BIC     #177400,R4
-        BISB    R4,(R0)              ; OR the fighter pixels into the dojo cell
-        BISB    #107,1(R0)           ; white bright ink in the attr, keep dojo paper
+        BISB    R4,(R0)              ; OR the fighter pixels into the background cell
+        {ovl_ink}
 C1TR:   TST     (R0)+
         DEC     R3
         BNE     C1OV
@@ -3787,8 +3793,8 @@ C1SK:   MOV     ROWN,R0              ; --- fighter 2 ---
 C2OV:   MOVB    (R1)+,R4
         BEQ     C2TR
         BIC     #177400,R4
-        BISB    R4,(R0)              ; OR the fighter pixels into the dojo cell
-        BISB    #107,1(R0)           ; white bright ink in the attr, keep dojo paper
+        BISB    R4,(R0)              ; OR the fighter pixels into the background cell
+        {ovl_ink}
 C2TR:   TST     (R0)+
         DEC     R3
         BNE     C2OV
