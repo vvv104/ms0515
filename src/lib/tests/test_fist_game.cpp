@@ -104,3 +104,82 @@ TEST_CASE("fist: standalone game render via .DAT loader")
     // frame is ~900 nz.  >500 distinguishes that from a blank/trapped screen (<=560).
     CHECK(nz > 300);
 }
+
+TEST_CASE("fist: keyboard drives P1")
+{
+    std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
+                sys = env("FIST_SYSTEM_DIR");
+    if (sav.empty() || dat.empty() || sys.empty()) {
+        MESSAGE("FIST game env not set - skipping");
+        return;
+    }
+
+    fs::path tmp = fs::temp_directory_path() / "fist_kbd_lib";
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::path boot = tmp / "boot", work = tmp / "work";
+    fs::create_directories(boot, ec);
+    fs::copy(sys, boot, fs::copy_options::recursive, ec);
+    REQUIRE_FALSE(ec);
+    fs::copy_file(sav, boot / "FIST.SAV", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(boot / "STARTS.COM", std::ios::binary);
+        s << "ASSIGN DZ1 DK\r\nR FIST\r\n";
+    }
+    fs::create_directories(work, ec);
+    fs::copy_file(dat, work / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(work / "device.rtfs", std::ios::binary);
+        s << "device: floppy\nblocks: 800\n";
+    }
+
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, (boot / "device.rtfs").string()));
+    REQUIRE(emu.mountDisk(1, (work / "device.rtfs").string()));
+
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool {
+            if (offerCR) { b = '\r'; offerCR = false; return true; }
+            return false;
+        },
+        [](uint8_t) -> bool { return true; });
+
+    auto &board = ms0515::internal::board(emu);
+    // GST lives in the extended banks (slot N -> physical bank N+8); $AA19 = P1 x.
+    auto gst = [&](uint16_t spec) -> uint8_t {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);   // runtime home 0100000
+        uint32_t bank = (addr >> 13) + 8;              // extended bank 12..14
+        return board.mem.ram[bank * 8192 + (addr & 8191)];
+    };
+
+    // Boot the game (clear the date prompts, let the loader run).
+    for (int i = 0; i < 1500; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+    }
+
+    auto settle = [&](int n) { for (int i = 0; i < n; ++i) (void)emu.stepFrame(); };
+    // P1 must be human (AA06=0) or MOVSEL's AI overrides the keyboard.
+    int human = gst(0xAA06);
+    MESSAGE("P1 AA06 (0=human): " << human);
+    CHECK(human == 0);
+
+    int xBase = gst(0xAA19);
+    emu.keyPress(ms0515::Key::Right, true);
+    settle(400);
+    int xRight = gst(0xAA19);
+    emu.keyPress(ms0515::Key::Right, false);
+    settle(80);
+    emu.keyPress(ms0515::Key::Left, true);
+    settle(400);
+    int xLeft = gst(0xAA19);
+    emu.keyPress(ms0515::Key::Left, false);
+
+    MESSAGE("P1 x ($AA19): baseline=" << xBase
+            << "  after RIGHT=" << xRight << "  after LEFT=" << xLeft);
+    CHECK(xRight != xLeft);      // keyboard moves P1
+    CHECK(xRight >= xLeft);      // RIGHT ends further right than LEFT
+}

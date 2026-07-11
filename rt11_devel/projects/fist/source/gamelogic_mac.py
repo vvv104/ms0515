@@ -3492,7 +3492,9 @@ def main_game(withbg=False):
         dojo_boot = ("        MOV     #3377,@#DISPAT        ; slots 4-6 primary: dojo code+SCRBUF at 100000\n"
                      f"        MOV     #{bgn}.,BGREF          ; select the dojo background\n"
                      "        JSR     PC,CHGBG              ; render dojo -> SCRBUF (banks 4-6)\n"
-                     "        JSR     PC,SPSCR              ; present dojo -> VRAM (1:1 centred)\n")
+                     "        JSR     PC,SPSCR              ; present dojo -> VRAM (1:1 centred)\n"
+                     "        MOV     #GAME,@#DISPAT        ; back to 3217 so the GST (banks 12-14) is\n"
+                     "                                     ; visible for the RNG seed + CLRB AA06 below\n")
         # per-row: seed SCRATC with the clean dojo row for ROWN (SCRBUF Spectrum ->
         # VRAM word format, inline; = SPSCR's inner pass for one row) then the fighter
         # overlay writes over it, zero cells transparent -> the dojo shows through.
