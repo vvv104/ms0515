@@ -3396,18 +3396,27 @@ WKEY:   MOV     @#KBST,R0
           f"pose ${pose:04X}, B_in={b_in} C_in={c_in}, $F730 -> {EXP_BIN.name})")
 
 
-def main_game():
-    """FIST_GL=game - the STANDALONE game (one frame), runnable on RT-11 via 'R FIST'.
+def main_game(withbg=False):
+    """FIST_GL=game - the STANDALONE game, runnable on RT-11 via 'R FIST'.
     Loads the full GST from GST.DAT into the parked extended banks 4-6 (the proven
-    chunked .READW + park/copy loader), then runs one $9745 logic frame and draws
-    BOTH fighters from the live state (the framedraw render), presented to the
-    screen.  Proves the loader + engine integrate into a runnable standalone image;
-    the per-frame loop, dojo background, sound and keyboard come next."""
+    chunked .READW + park/copy loader), then runs the live per-frame loop (keyboard
+    -> P1, LFSR AI -> P2, sound) and draws BOTH fighters from the live state with a
+    flicker-free per-row compositor.
+
+    withbg (FIST_GL=gamebg): also render the dojo background.  The bg engine
+    (CHGBG/CREBG) renders the Spectrum-format dojo into the resident SCRBUF once at
+    start-up and SPSCR presents it to VRAM; the compositor then seeds each rebuilt
+    row with that clean dojo row (converted SCRBUF->VRAM format inline) instead of
+    black, so the two fighters composite transparently over the dojo.  SCRBUF is the
+    only extra resident buffer - no per-fighter save-under, no 16 KB dojo copy."""
     import fighter_mac as fm
     import fighter_data as fd
     import setup_ref as sr
+    import gen_fist
+    from bg_data import BackgroundData
     fm.STAGE_LEVEL = 1
     nelem = int(os.environ.get("FGHT_NELEM", "5000"))
+    bgn = int(os.environ.get("FGHT_BG", "1"))
     ldat_base, ldat_end = 0x9368, 0x9600
 
     def safe_frame(m, rs):
@@ -3438,7 +3447,10 @@ def main_game():
     # Per-fighter compose buffers: each holds ONE fighter (the original FBUF_LEN = 884 B),
     # which fits below bank 7 (safe_words).  The decode writes each fighter into FBUF
     # (bank 6) then we copy it down to LBUF1 / LBUF2 for the compositor to blit.
-    lb_words = safe_words
+    # The low-RAM per-fighter copies only need one fighter (FBUF_LEN); the fatter
+    # safe_words bound is for the extended FBUF the decode writes into.  With the bg,
+    # trim the copies to the real fighter size so SCRBUF (6912 B) fits banks 0-1.
+    lb_words = ((fd.FBUF_LEN + 1) // 2) if withbg else safe_words
     ktmout = 7                                   # frames a key stays 'held' after its last event
     frame_delay = 20000                          # crude pacing (busy loop), tune later
 
@@ -3464,6 +3476,72 @@ def main_game():
     equs += f"C40EM  = GST+{0xC40E - GBASE}.\n"
     equs += f"C407M  = GST+{0xC407 - GBASE}.\n"
     equs += "WB1C   = W+60.\n"
+
+    # --- dojo background: engine + data + the driver fragments (empty when !withbg) ---
+    dojo_boot, dojo_row, bgsrc = "", "", ""
+    if withbg:
+        equs += ("LMARG  = 8.\nTMARG  = 4.\nLSTRID = 80.\n"
+                 "SVBASE = 40000\nSVATTR = 54000\nSVTOP  = 40200\n")
+        # render the dojo once, right after the VRAM clear (banking already GAME 3217)
+        dojo_boot = ("        MOV     #3377,@#DISPAT        ; slots 4-6 primary: dojo code+SCRBUF at 100000\n"
+                     f"        MOV     #{bgn}.,BGREF          ; select the dojo background\n"
+                     "        JSR     PC,CHGBG              ; render dojo -> SCRBUF (banks 4-6)\n"
+                     "        JSR     PC,SPSCR              ; present dojo -> VRAM (1:1 centred)\n")
+        # per-row: seed SCRATC with the clean dojo row for ROWN (SCRBUF Spectrum ->
+        # VRAM word format, inline; = SPSCR's inner pass for one row) then the fighter
+        # overlay writes over it, zero cells transparent -> the dojo shows through.
+        # NB: R2 holds the persistent VRAM row pointer across the whole CLOOP
+        # iteration (set before CLOOP, consumed by the C2SK blit) - so this must
+        # touch only R0/R1/R3/R4/R5 and leave R2 alone.
+        dojo_row = ("""        MOV     ROWN,R4              ; dojo row: y = ROWN - TMARG
+        SUB     #TMARG,R4
+        BLT     CDDN                 ; above the dojo band -> leave black
+        CMP     R4,#192.
+        BGE     CDDN                 ; below the dojo band -> leave black
+        MOV     R4,R0                ; pix = SCRBUF + SROWS[y]
+        ASL     R0
+        MOV     SROWS(R0),R1
+        ADD     #SCRBUF,R1
+        MOV     R4,R5                ; attr = SCRBUF + 6144 + (y>>3)*32
+        ASR     R5
+        ASR     R5
+        ASR     R5
+        ASL     R5
+        ASL     R5
+        ASL     R5
+        ASL     R5
+        ASL     R5
+        ADD     #SCRBUF+6144.,R5
+        MOV     #SCRATC+8.,R0        ; LMARG = 8 bytes (4 word-cells) left margin
+        MOV     #32.,R4              ; column count
+CDDX:   MOVB    (R5)+,R3             ; word = (attr << 8) | pixel
+        SWAB    R3
+        BIC     #377,R3
+        BISB    (R1)+,R3
+        MOV     R3,(R0)+
+        DEC     R4
+        BNE     CDDX
+CDDN:   """)
+        eng_start = gen_fist.PROGRAM.index(
+            ";-------------------------------------------------------------------\n; CHGBG")
+        engine = gen_fist.PROGRAM[eng_start:]
+        # main_game owns ORIGRC (datblk) and its own exit; drop the engine's copies
+        # (ORIGDP is only used by the demo's EXITP, which we don't include).
+        engine = (engine.replace("ORIGDP: .WORD   0\n", "")
+                  .replace("ORIGRC: .WORD   0\n", "")
+                  .replace("%BGDEF%", f"BG{bgn}DEF").replace("%BGN%", str(bgn)))
+        rows = gen_fist.spectrum_row_offsets()
+        bg = BackgroundData(bgn)
+        # The dojo engine + bg data + SROWS + SCRBUF live at 0100000 in the PRIMARY
+        # banks 4-6 (embedded in the .SAV), which the compositor's 3377 banking makes
+        # visible; the GST loads into the EXTENDED banks 12-14 at the same window
+        # (decode's 3217 banking).  One dispatcher bit switches between them, so the
+        # 6912 B SCRBUF costs nothing in the tight banks 0-1.
+        bgsrc = ("\n        .ASECT\n        . = 100000\n"
+                 + engine
+                 + f"\n;------ background {bgn} data ------\n" + bg.emit()
+                 + "\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows)
+                 + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n        .EVEN\n")
     c408 = g(0xC408)
     driver = f"""
         .ASECT
@@ -3515,7 +3593,7 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
 3$:     CLR     (R0)+
         CMP     R0,#VRAMEN
         BLO     3$
-        ; --- seed the RNG; make P1 human (keyboard), leave P2 AI as the opponent ---
+{dojo_boot}        ; --- seed the RNG; make P1 human (keyboard), leave P2 AI as the opponent ---
         MOV     #12345.,RSEED
         CLRB    {g(0xAA06)}          ; AA06=0 -> P1 human (GST.DAT had 1 = AI/attract)
         ; tell the MS7004 keyboard 0o231 (keyclick off) - the firmware treats this as the
@@ -3673,7 +3751,7 @@ CLOOP:  MOV     #SCRATC,R0           ; build the row off-screen (no black flash 
 CCLR:   CLR     (R0)+
         DEC     R3
         BNE     CCLR
-        MOV     ROWN,R0              ; --- fighter 1 ---
+{dojo_row}        MOV     ROWN,R0              ; --- fighter 1 ---
         CMP     R0,TOP1
         BLO     C1SK                 ; row above the sprite
         CMP     SRC1,#LBUF1+{lb_words}.*2
@@ -3686,10 +3764,10 @@ CCLR:   CLR     (R0)+
         ADD     R4,R0
         MOV     SRC1,R1
 C1OV:   MOVB    (R1)+,R4
-        BEQ     C1TR                 ; zero cell = transparent
+        BEQ     C1TR                 ; zero cell = fully transparent (dojo shows)
         BIC     #177400,R4
-        BIS     #FWHITE,R4
-        MOV     R4,(R0)
+        BISB    R4,(R0)              ; OR the fighter pixels into the dojo cell
+        BISB    #107,1(R0)           ; white bright ink in the attr, keep dojo paper
 C1TR:   TST     (R0)+
         DEC     R3
         BNE     C1OV
@@ -3709,8 +3787,8 @@ C1SK:   MOV     ROWN,R0              ; --- fighter 2 ---
 C2OV:   MOVB    (R1)+,R4
         BEQ     C2TR
         BIC     #177400,R4
-        BIS     #FWHITE,R4
-        MOV     R4,(R0)
+        BISB    R4,(R0)              ; OR the fighter pixels into the dojo cell
+        BISB    #107,1(R0)           ; white bright ink in the attr, keep dojo paper
 C2TR:   TST     (R0)+
         DEC     R3
         BNE     C2OV
@@ -3910,7 +3988,7 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")
     src = (preamble + equs + driver + decrun
-           + logic + chain + tail + datblk + ldat
+           + logic + chain + tail + datblk + ldat + bgsrc
            + "\n        .END    START\n")
     src = (src.replace("%NELEM%", str(nelem))
               .replace("%C408%", str(snap[0xC408]))
@@ -4750,6 +4828,8 @@ def main():
         return main_framedraw()
     if name == "game":
         return main_game()
+    if name == "gamebg":
+        return main_game(withbg=True)
     if name == "demo":
         return main_demo()
     if name == "demobg":
