@@ -3478,7 +3478,7 @@ def main_game(withbg=False):
     equs += "WB1C   = W+60.\n"
 
     # --- dojo background: engine + data + the driver fragments (empty when !withbg) ---
-    dojo_boot, dojo_row, bgsrc = "", "", ""
+    dojo_boot, dojo_row, bgsrc, srows_src = "", "", "", ""
     # fighter ink in the overlay: white on the plain black-background game (else the
     # fighter is black-on-black), BLACK over the dojo (black figures on the light
     # dojo paper, as on the Spectrum) - keep the dojo paper colour either way.
@@ -3543,10 +3543,13 @@ CDDN:   """)
         # visible; the GST loads into the EXTENDED banks 12-14 at the same window
         # (decode's 3217 banking).  One dispatcher bit switches between them, so the
         # 6912 B SCRBUF costs nothing in the tight banks 0-1.
+        # SROWS lives in banks 0-1 (with the code): the compositor reads it EVERY
+        # frame, and only there is it immune to whatever aliases the dojo block's
+        # 0100000 addresses across the primary/extended bank split at runtime.
+        srows_src = ("\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows))
         bgsrc = ("\n        .ASECT\n        . = 100000\n"
                  + engine
                  + f"\n;------ background {bgn} data ------\n" + bg.emit()
-                 + "\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows)
                  + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n        .EVEN\n")
     c408 = g(0xC408)
     driver = f"""
@@ -3808,8 +3811,9 @@ CCPY:   MOV     (R0)+,(R1)+
         ADD     #80.,R2              ; next screen row
         INC     ROWN
         CMP     ROWN,#200.
-        BLO     CLOOP
-        JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
+        BHIS    58$                  ; done -> next frame
+        JMP     CLOOP                ; (JMP: CLOOP is out of branch range)
+58$:    JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC
         MTPS    #0
@@ -3994,7 +3998,7 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")
     src = (preamble + equs + driver + decrun
-           + logic + chain + tail + datblk + ldat + bgsrc
+           + logic + chain + tail + datblk + ldat + srows_src + bgsrc
            + "\n        .END    START\n")
     src = (src.replace("%NELEM%", str(nelem))
               .replace("%C408%", str(snap[0xC408]))
