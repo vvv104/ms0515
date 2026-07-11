@@ -3554,6 +3554,14 @@ CDDN:   """)
                  + f"\n;------ background {bgn} data ------\n" + bg.emit()
                  + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n        .EVEN\n")
     c408 = g(0xC408)
+    # yin-yang HUD symbols (2x2 UDGs) - extracted from the snapshot ($928A full,
+    # $92AA half), embedded as data like the rest of the art.
+    def _yybytes(b):
+        # MACRO-11 numbers default to OCTAL - suffix each byte with '.' for decimal.
+        return "\n".join("        .BYTE   " + ",".join(f"{x}." for x in b[i:i + 8])
+                         for i in range(0, len(b), 8))
+    yyfull_s = _yybytes(snap[0x928A:0x928A + 32])
+    yyhalf_s = _yybytes(snap[0x92AA:0x92AA + 32])
     driver = f"""
         .ASECT
         . = 44
@@ -3895,42 +3903,78 @@ ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter in hit-recovery? (exchange over
         CLRB    {g(0xAA41)}
 72$:    JSR     PC,RSTFRM            ; $9CA8: reset both fighters for the next exchange
 78$:    RTS     PC
-        ; --- HUD: simple yin-yang score bar in the top border (rows 0-3, above the
-        ;     dojo).  P1's SC1 half-points as white cells on the left, P2's SC2 on the
-        ;     right.  Reads the stashed SC1/SC2 (the live $AA01/$AA41 are in the GST,
-        ;     invisible at the 3377 compositor banking).  DRAWCL fills one 4-row cell. -
-DRAWCL: MOV     #4.,R1
-6$:     MOV     #43777,(R0)          ; white ink + full pixels
+        ; --- HUD: the yin-yang score in a top status strip (rows 0-15).  Each fighter
+        ;     has two yin-yang slots that fill half then full as its score (SC1/SC2,
+        ;     stashed from $AA01/$AA41) climbs 0..4.  The real 2x2-UDG symbol
+        ;     (YYFULL/YYHALF, from the snapshot) is drawn white over the cleared strip.
+DRAW1U: MOV     #8.,R3               ; one UDG cell: 8 pixel rows of (R1)+ pixels
+1$:     MOVB    (R1)+,R4
+        BIC     #177400,R4
+        BIS     #FWHITE,R4           ; white ink + the UDG pixels
+        MOV     R4,(R0)
         ADD     #80.,R0
-        DEC     R1
-        BNE     6$
+        DEC     R3
+        BNE     1$
         RTS     PC
-HUD:    MOV     #VRAM,R0             ; clear rows 0-3 (the HUD strip) to black
-        MOV     #160.,R1
+DRAWYY: MOV     R2,R0                ; draw the 2x2 symbol (R1 = 32-byte block) at cell R2
+        JSR     PC,DRAW1U            ; top-left
+        MOV     R2,R0
+        ADD     #2,R0
+        JSR     PC,DRAW1U            ; top-right
+        MOV     R2,R0
+        ADD     #640.,R0             ; +8 rows
+        JSR     PC,DRAW1U            ; bottom-left
+        MOV     R2,R0
+        ADD     #642.,R0
+        JSR     PC,DRAW1U            ; bottom-right
+        RTS     PC
+DYYSL:  TST     R4                   ; R4 = level (0 none / 1 half / >=2 full), R2 = pos
+        BEQ     9$
+        MOV     #YYHALF,R1
+        CMP     R4,#2.
+        BLO     8$
+        MOV     #YYFULL,R1
+8$:     JSR     PC,DRAWYY
+9$:     RTS     PC
+HUD:    MOV     #VRAM,R0             ; clear the status strip (rows 0-15) to black
+        MOV     #640.,R1
 7$:     CLR     (R0)+
         DEC     R1
         BNE     7$
-        MOVB    SC1,R4               ; P1 half-points (0..4) -> cells at cols 3,5,7,9
+        MOVB    SC1,R4               ; P1 slot 0 = min(2, score)
         BIC     #177400,R4
-        MOV     #VRAM+6.,R2
-1$:     TST     R4
-        BEQ     2$
-        MOV     R2,R0
-        JSR     PC,DRAWCL
-        ADD     #4,R2
-        DEC     R4
-        BR      1$
-2$:     MOVB    SC2,R4               ; P2 half-points -> cells at cols 29,31,33,35
+        CMP     R4,#2.
+        BLE     2$
+        MOV     #2.,R4
+2$:     MOV     #VRAM+4.,R2          ; row 0, col 2
+        JSR     PC,DYYSL
+        MOVB    SC1,R4               ; P1 slot 1 = score - 2
         BIC     #177400,R4
-        MOV     #VRAM+58.,R2
-3$:     TST     R4
-        BEQ     4$
-        MOV     R2,R0
-        JSR     PC,DRAWCL
-        ADD     #4,R2
-        DEC     R4
-        BR      3$
-4$:     RTS     PC
+        SUB     #2.,R4
+        BGT     3$
+        CLR     R4
+3$:     MOV     #VRAM+10.,R2         ; row 0, col 5
+        JSR     PC,DYYSL
+        MOVB    SC2,R4               ; P2 slot 0
+        BIC     #177400,R4
+        CMP     R4,#2.
+        BLE     5$
+        MOV     #2.,R4
+5$:     MOV     #VRAM+64.,R2         ; row 0, col 32
+        JSR     PC,DYYSL
+        MOVB    SC2,R4               ; P2 slot 1
+        BIC     #177400,R4
+        SUB     #2.,R4
+        BGT     6$
+        CLR     R4
+6$:     MOV     #VRAM+70.,R2         ; row 0, col 35
+        JSR     PC,DYYSL
+        RTS     PC
+        .EVEN
+YYFULL:
+{yyfull_s}
+YYHALF:
+{yyhalf_s}
         ; --- SNDFX: start a sound effect on timer channel 2 -----------------------
         ; The original ($B15A) bit-bangs the Spectrum beeper; the MS-0515 speaker
         ; instead follows timer ch2 (Reg C bit 6), so each of the 6 effect codes maps
