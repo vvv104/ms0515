@@ -3607,6 +3607,10 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
 {dojo_boot}        ; --- seed the RNG; make P1 human (keyboard), leave P2 AI as the opponent ---
         MOV     #12345.,RSEED
         CLRB    {g(0xAA06)}          ; AA06=0 -> P1 human (GST.DAT had 1 = AI/attract)
+        CLRB    {g(0xAA01)}          ; start the match 0-0 (GST.DAT is a mid-demo snapshot)
+        CLRB    {g(0xAA41)}
+        CLRB    {g(0xAA02)}
+        CLRB    {g(0xAA42)}
         ; tell the MS7004 keyboard 0o231 (keyclick off) - the firmware treats this as the
         ; "a game is running" signal and switches auto-repeat to the fast game preset
         ; (125 ms delay vs 250 ms typing), so held-key tracking is snappier.
@@ -3634,6 +3638,7 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOVB    (R0),R0
         MOVB    R0,{g(0xAA05)}       ; P1 selected move
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
+        JSR     PC,ROUNDE            ; 1P match: score the exchange on knockdown/timeout
         ; --- sound: tick the current effect, then trigger any the hit logic queued ---
         MOV     SNDCNT,R0            ; count down the playing effect; silence at 0
         BEQ     80$
@@ -3846,6 +3851,47 @@ GEOMC:  MOV     R5,R0                ; col = (left >> 2) + 4
         CLR     R1
 4$:     ADD     #4,R1                ; +4 = top centring margin
         RTS     PC
+        ; --- SCDET: $AF01 clean-hit detect.  ($AA03 XOR $AA43) & $10 -> R0 (nz = a
+        ;     fighter took an un-blocked hit this exchange).  Bit 4 of the reaction
+        ;     differs when exactly one guard was open. ------------------------------
+SCDET:  MOVB    {g(0xAA03)},R0
+        BIC     #177400,R0
+        MOVB    {g(0xAA43)},R1
+        BIC     #177400,R1
+        XOR     R1,R0
+        BIC     #177757,R0           ; keep bit 4 ($10)
+        RTS     PC
+        ; --- ROUNDE: the 1P match round-loop tail ($AD18 core).  An exchange ends
+        ;     when a fighter takes a hit into recovery ($9C28 set, as $AE26 tests) or
+        ;     the clock runs out ($9C2B).  Score it - SCDET (clean hit?) -> YINYNG
+        ;     (accumulate the yin-yang total) + AWARD (BCD points) - then RSTFRM
+        ;     ($9CA8) resets both fighters to the idle start stance for the next
+        ;     exchange, which clears $9C28 so this fires exactly once per exchange.
+        ;     At 2 yin-yang ($AA01/$AA41 >= 4) count a win and restart the tally. -----
+ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter in hit-recovery? (exchange over)
+        BIC     #177400,R0
+        BNE     71$
+        MOVB    {g(0x9C2B)},R0       ; time-out?
+        BIC     #177400,R0
+        BEQ     78$                  ; neither -> the exchange continues
+71$:    JSR     PC,SCDET
+        TST     R0
+        BEQ     72$                  ; no clean hit -> no score this exchange
+        JSR     PC,YINYNG            ; $AA08/$AA48 -> running total $AA01/$AA41
+        JSR     PC,AWARD             ; BCD points + clear the score flags
+        MOVB    {g(0xAA01)},R0       ; P1 at 2 yin-yang?
+        BIC     #177400,R0
+        CMP     R0,#4.
+        BHIS    77$
+        MOVB    {g(0xAA41)},R0       ; P2 at 2 yin-yang?
+        BIC     #177400,R0
+        CMP     R0,#4.
+        BLO     72$
+77$:    INC     WINS                 ; someone won the match; restart the tally
+        CLRB    {g(0xAA01)}
+        CLRB    {g(0xAA41)}
+72$:    JSR     PC,RSTFRM            ; $9CA8: reset both fighters for the next exchange
+78$:    RTS     PC
         ; --- SNDFX: start a sound effect on timer channel 2 -----------------------
         ; The original ($B15A) bit-bangs the Spectrum beeper; the MS-0515 speaker
         ; instead follows timer ch2 (Reg C bit 6), so each of the 6 effect codes maps
@@ -3996,6 +4042,7 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\nSNDCNT: .WORD   0\n"
               "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\n"
+              "        .EVEN\nWINS:   .WORD   0\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")

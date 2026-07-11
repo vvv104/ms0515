@@ -183,3 +183,81 @@ TEST_CASE("fist: keyboard drives P1")
     CHECK(xRight != xLeft);      // keyboard moves P1
     CHECK(xRight >= xLeft);      // RIGHT ends further right than LEFT
 }
+
+TEST_CASE("fist: yin-yang score accumulates")
+{
+    std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
+                sys = env("FIST_SYSTEM_DIR");
+    if (sav.empty() || dat.empty() || sys.empty()) {
+        MESSAGE("FIST game env not set - skipping");
+        return;
+    }
+
+    fs::path tmp = fs::temp_directory_path() / "fist_score_lib";
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::path boot = tmp / "boot", work = tmp / "work";
+    fs::create_directories(boot, ec);
+    fs::copy(sys, boot, fs::copy_options::recursive, ec);
+    REQUIRE_FALSE(ec);
+    fs::copy_file(sav, boot / "FIST.SAV", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(boot / "STARTS.COM", std::ios::binary);
+        s << "ASSIGN DZ1 DK\r\nR FIST\r\n";
+    }
+    fs::create_directories(work, ec);
+    fs::copy_file(dat, work / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(work / "device.rtfs", std::ios::binary);
+        s << "device: floppy\nblocks: 800\n";
+    }
+
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, (boot / "device.rtfs").string()));
+    REQUIRE(emu.mountDisk(1, (work / "device.rtfs").string()));
+
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool {
+            if (offerCR) { b = '\r'; offerCR = false; return true; }
+            return false;
+        },
+        [](uint8_t) -> bool { return true; });
+
+    auto &board = ms0515::internal::board(emu);
+    auto gst = [&](uint16_t spec) -> uint8_t {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        return board.mem.ram[bank * 8192 + (addr & 8191)];
+    };
+
+    for (int i = 0; i < 1200; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+    }
+    int a01_0 = gst(0xAA01), a41_0 = gst(0xAA41);
+    // Drive P1 aggressively: hold RIGHT to close, punch (SPACE) in bursts, so real
+    // hits/knockdowns happen and ROUNDE has exchanges to score.
+    int peak = 0, changes = 0;
+    int prev = gst(0xAA01) + gst(0xAA41);
+    emu.keyPress(ms0515::Key::Right, true);
+    for (int i = 0; i < 16000; ++i) {
+        if (i == 600) { emu.keyPress(ms0515::Key::Right, false); }
+        if (i >= 600) {
+            bool atk = (i / 40) % 2 == 0;      // alternate punch / approach
+            emu.keyPress(ms0515::Key::Space, atk);
+            emu.keyPress(ms0515::Key::Right, !atk);
+        }
+        (void)emu.stepFrame();
+        peak = std::max(peak, std::max((int)gst(0xAA01), (int)gst(0xAA41)));
+        int s = gst(0xAA01) + gst(0xAA41);
+        if (s != prev) { ++changes; prev = s; }
+    }
+    MESSAGE("start AA01/AA41=" << a01_0 << "/" << a41_0
+            << "  peak yin-yang=" << peak << "  score-changes=" << changes);
+    CHECK(a01_0 == 0);           // the match starts 0-0 (GST.DAT snapshot cleared)
+    CHECK(changes > 0);          // clean hits are scored into the yin-yang total
+    CHECK(peak >= 2);            // at least a full yin-yang accrues over the bout
+}
