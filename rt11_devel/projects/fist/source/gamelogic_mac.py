@@ -3940,38 +3940,36 @@ DYYSL:  MOV     #43400,R5            ; R4 = level (0/1/>=2), R2 = pos; white ink
         MOV     #YYFULL,R1           ; full point
 8$:     JSR     PC,DRAWYY
         RTS     PC
-HUD:    MOV     #VRAM,R0             ; clear the status strip (rows 0-15) to black
-        MOV     #640.,R1
-7$:     CLR     (R0)+
-        DEC     R1
-        BNE     7$
-        MOVB    SC1,R4               ; P1 slot 0 = min(2, score)
+        ; No strip clear (that black-flash caused the flicker); each of the four
+        ; slots is always drawn, in the top corners INSIDE the dojo (row 6, over the
+        ; sky, above the fighters' redraw band), so drawing straight to VRAM is stable.
+HUD:    MOVB    SC1,R4               ; P1 slot 0 = min(2, score)
         BIC     #177400,R4
         CMP     R4,#2.
         BLE     2$
         MOV     #2.,R4
-2$:     MOV     #VRAM+4.,R2          ; row 0, col 2
+2$:     MOV     #VRAM+490.,R2        ; row 6, col 5 (top-left, inside the picture)
         JSR     PC,DYYSL
         MOVB    SC1,R4               ; P1 slot 1 = score - 2
         BIC     #177400,R4
         SUB     #2.,R4
         BGT     3$
         CLR     R4
-3$:     MOV     #VRAM+10.,R2         ; row 0, col 5
+3$:     MOV     #VRAM+496.,R2        ; row 6, col 8
         JSR     PC,DYYSL
         MOVB    SC2,R4               ; P2 slot 0
         BIC     #177400,R4
         CMP     R4,#2.
         BLE     5$
         MOV     #2.,R4
-5$:     MOV     #VRAM+64.,R2         ; row 0, col 32
+5$:     MOV     #VRAM+540.,R2        ; row 6, col 30 (top-right)
         JSR     PC,DYYSL
         MOVB    SC2,R4               ; P2 slot 1
         BIC     #177400,R4
         SUB     #2.,R4
         BGT     6$
         CLR     R4
-6$:     MOV     #VRAM+70.,R2         ; row 0, col 35
+6$:     MOV     #VRAM+546.,R2        ; row 6, col 33
         JSR     PC,DYYSL
         RTS     PC
         .EVEN
