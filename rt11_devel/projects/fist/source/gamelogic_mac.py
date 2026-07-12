@@ -3945,14 +3945,14 @@ HUD:    MOVB    SC1,R4               ; P1 slot 0 = min(2, score)
         CMP     R4,#2.
         BLE     2$
         MOV     #2.,R4
-2$:     MOV     #VRAM+490.,R2        ; row 6, col 5 (top-left, inside the picture)
+2$:     MOV     #VRAM+496.,R2        ; P1 first yin-yang: Spectrum col 4 (the inner one)
         JSR     PC,DYYSL
         MOVB    SC1,R4               ; P1 slot 1 = score - 2
         BIC     #177400,R4
         SUB     #2.,R4
         BGT     3$
         CLR     R4
-3$:     MOV     #VRAM+496.,R2        ; row 6, col 8
+3$:     MOV     #VRAM+490.,R2        ; P1 second yin-yang: Spectrum col 1 (fills 3rd/4th)
         JSR     PC,DYYSL
         MOVB    SC2,R4               ; P2 slot 0
         BIC     #177400,R4
