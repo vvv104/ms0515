@@ -105,6 +105,43 @@ TEST_CASE("fist: standalone game render via .DAT loader")
     CHECK(nz > 300);
 }
 
+TEST_CASE("fist: real .dsk boots and shows the HUD")
+{
+    // Replicates the GUI exactly: one .dsk image on disk0, its own STARTS.COM
+    // (R FIST) with GST.DAT alongside on the same volume.  Opt-in via FIST_DSK.
+    std::string dsk = env("FIST_DSK");
+    if (dsk.empty()) {
+        MESSAGE("FIST_DSK not set - skipping");
+        return;
+    }
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, dsk));
+
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool {
+            if (offerCR) { b = '\r'; offerCR = false; return true; }
+            return false;
+        },
+        [](uint8_t) -> bool { return true; });
+    for (int i = 0; i < 3000; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+    }
+    auto &board = ms0515::internal::board(emu);
+    const uint8_t *vram = board_get_vram(&board);
+    // The HUD's four yin-yang slots sit in rows 0-15 at cols 2-3/5-6/32-33/35-36;
+    // the dojo itself never draws in the top border, so any pixels there are the HUD.
+    int hud = 0;
+    for (int r = 0; r < 16; ++r)
+        for (int c : {2, 3, 5, 6, 32, 33, 35, 36})
+            if (vram[r * 80 + c * 2]) ++hud;
+    MESSAGE("HUD slot pixels in the top strip: " << hud);
+    CHECK(hud > 0);      // the score UI renders when booted from the real disk
+}
+
 TEST_CASE("fist: keyboard drives P1")
 {
     std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
@@ -258,7 +295,7 @@ TEST_CASE("fist: yin-yang score accumulates")
         if (s != prev) { ++changes; prev = s; }
         // Snapshot VRAM whenever a score is on screen (overwrite -> keep the last
         // full frame) to eyeball the HUD.
-        if (!vout.empty() && s >= 2) {
+        if (!vout.empty() && s >= 1) {
             dumped = true;
             const uint8_t *vram = board_get_vram(&board);
             std::ofstream o(vout, std::ios::binary);
