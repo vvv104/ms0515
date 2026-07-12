@@ -3910,7 +3910,7 @@ ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter in hit-recovery? (exchange over
 DRAW1U: MOV     #8.,R3               ; one UDG cell: 8 pixel rows of (R1)+ pixels
 1$:     MOVB    (R1)+,R4
         BIC     #177400,R4
-        BIS     #FWHITE,R4           ; white ink + the UDG pixels
+        BIS     R5,R4                ; ink attribute (R5) + the UDG pixels
         MOV     R4,(R0)
         ADD     #80.,R0
         DEC     R3
@@ -3928,14 +3928,18 @@ DRAWYY: MOV     R2,R0                ; draw the 2x2 symbol (R1 = 32-byte block) 
         ADD     #642.,R0
         JSR     PC,DRAW1U            ; bottom-right
         RTS     PC
-DYYSL:  TST     R4                   ; R4 = level (0 none / 1 half / >=2 full), R2 = pos
-        BEQ     9$
-        MOV     #YYHALF,R1
+DYYSL:  MOV     #43400,R5            ; R4 = level (0/1/>=2), R2 = pos; white ink (scored)
+        TST     R4
+        BNE     3$
+        MOV     #40400,R5            ; empty slot -> dim blue placeholder yin-yang
+        MOV     #YYFULL,R1
+        BR      8$
+3$:     MOV     #YYHALF,R1           ; half point
         CMP     R4,#2.
         BLO     8$
-        MOV     #YYFULL,R1
+        MOV     #YYFULL,R1           ; full point
 8$:     JSR     PC,DRAWYY
-9$:     RTS     PC
+        RTS     PC
 HUD:    MOV     #VRAM,R0             ; clear the status strip (rows 0-15) to black
         MOV     #640.,R1
 7$:     CLR     (R0)+
