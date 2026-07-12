@@ -354,6 +354,9 @@ TEST_CASE("fist: yin-yang score accumulates")
     int prev = gst(0xAA01) + gst(0xAA41);
     // Phase 1 (idle P1): let the AI P2 try to score.  Phase 2: P1 attacks.
     if (bothAI) poke(0xAA06, 1);              // P1 becomes an AI, MOVSEL drives it
+    std::string traj = env("FIST_TRAJ_OUT");
+    std::ofstream trajf;
+    if (!traj.empty()) trajf.open(traj);
     for (int i = 0; i < 24000; ++i) {
         if (bothAI) poke(0xAA06, 1);          // keep it AI across any reset
         if (!bothAI && i == 8600) emu.keyPress(ms0515::Key::Right, true);
@@ -363,6 +366,10 @@ TEST_CASE("fist: yin-yang score accumulates")
             emu.keyPress(ms0515::Key::Right, !atk);
         }
         (void)emu.stepFrame();
+        if (trajf && i < 1200)
+            trajf << i << ',' << (int)gst(0xAA19) << ',' << (int)gst(0xAA59)
+                  << ',' << (int)gst(0xAA17) << ',' << (int)gst(0xAA57)
+                  << ',' << (int)gst(0xAA04) << ',' << (int)gst(0xAA44) << '\n';
         p2peak = std::max(p2peak, (int)gst(0xAA41));
         mAA03 = std::max(mAA03, (int)gst(0xAA03)); mAA43 = std::max(mAA43, (int)gst(0xAA43));
         mAA08 = std::max(mAA08, (int)gst(0xAA08)); mAA48 = std::max(mAA48, (int)gst(0xAA48));
@@ -382,11 +389,17 @@ TEST_CASE("fist: yin-yang score accumulates")
         // Snapshot the GST when P2 is attacking within striking range, to replay
         // hit_detect(HIT_P2) offline and see which test rejects the hit.
         std::string gout = env("FIST_GST_OUT");
-        if (!gout.empty() && i < 8600) {   // phase 1: P1 idle, isolate the AI attack
+        if (!gout.empty()) {
             int d = std::abs((int)gst(0xAA59) - (int)gst(0xAA19));
-            int hitFrame = gst(0xA971 + gst(0xAA44));
-            // capture when P2 is attacking, close, AND at its hit frame
-            if (gst(0xA90D + gst(0xAA44)) && d < 18 && gst(0xAA52) == hitFrame) {
+            bool cap;
+            if (bothAI)                    // both-AI: capture an early (pre-flee) frame
+                cap = (i == 2);
+            else {                         // human: P2 attacking at its hit frame in range
+                int hitFrame = gst(0xA971 + gst(0xAA44));
+                cap = (i < 8600 && gst(0xA90D + gst(0xAA44)) && d < 18
+                       && gst(0xAA52) == hitFrame);
+            }
+            if (cap) {
                 std::ofstream o(gout, std::ios::binary);
                 o.write(reinterpret_cast<const char *>(&board.mem.ram[12 * 8192]), 24576);
             }
