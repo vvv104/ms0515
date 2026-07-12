@@ -3907,12 +3907,13 @@ ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter in hit-recovery? (exchange over
         ;     has two yin-yang slots that fill half then full as its score (SC1/SC2,
         ;     stashed from $AA01/$AA41) climbs 0..4.  The real 2x2-UDG symbol
         ;     (YYFULL/YYHALF, from the snapshot) is drawn white over the cleared strip.
-DRAW1U: MOV     #8.,R3               ; one UDG cell: 8 pixel rows of (R1)+ pixels
-1$:     MOVB    (R1)+,R4
+DRAW1U: MOV     #8.,R3               ; one UDG cell: 8 pixel rows of (R1)+ pixels,
+1$:     MOVB    (R1)+,R4             ; drawn TRANSPARENT black over the background
         BIC     #177400,R4
-        BIS     R5,R4                ; ink attribute (R5) + the UDG pixels
-        MOV     R4,(R0)
-        ADD     #80.,R0
+        BEQ     2$                   ; blank UDG row -> leave the background alone
+        BISB    R4,(R0)              ; OR the symbol pixels onto the background cell
+        BICB    #7,1(R0)             ; black ink, keep the background paper colour
+2$:     ADD     #80.,R0
         DEC     R3
         BNE     1$
         RTS     PC
@@ -3928,18 +3929,14 @@ DRAWYY: MOV     R2,R0                ; draw the 2x2 symbol (R1 = 32-byte block) 
         ADD     #642.,R0
         JSR     PC,DRAW1U            ; bottom-right
         RTS     PC
-DYYSL:  MOV     #43400,R5            ; R4 = level (0/1/>=2), R2 = pos; white ink (scored)
-        TST     R4
-        BNE     3$
-        MOV     #40400,R5            ; empty slot -> dim blue placeholder yin-yang
-        MOV     #YYFULL,R1
-        BR      8$
-3$:     MOV     #YYHALF,R1           ; half point
+DYYSL:  TST     R4                   ; R4 = level (0 none / 1 half / >=2 full), R2 = pos
+        BEQ     9$                   ; empty -> draw nothing (background shows)
+        MOV     #YYHALF,R1           ; half point
         CMP     R4,#2.
         BLO     8$
         MOV     #YYFULL,R1           ; full point
 8$:     JSR     PC,DRAWYY
-        RTS     PC
+9$:     RTS     PC
         ; No strip clear (that black-flash caused the flicker); each of the four
         ; slots is always drawn, in the top corners INSIDE the dojo (row 6, over the
         ; sky, above the fighters' redraw band), so drawing straight to VRAM is stable.
