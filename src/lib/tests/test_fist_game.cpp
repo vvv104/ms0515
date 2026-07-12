@@ -338,6 +338,8 @@ TEST_CASE("fist: yin-yang score accumulates")
     bool dumped = false;
     int peak = 0, changes = 0, p2peak = 0;
     int mAA03 = 0, mAA43 = 0, mAA08 = 0, mAA48 = 0;   // reactions + score flags
+    int x2min = 255, x2max = 0, mMove2 = 0, mAct2 = 0;  // P2 movement + AI move/action
+    int mAct2atk = 0, mAct1atk = 0;                     // frames each fighter is attacking
     int prev = gst(0xAA01) + gst(0xAA41);
     // Phase 1 (idle P1): let the AI P2 try to score.  Phase 2: P1 attacks.
     for (int i = 0; i < 24000; ++i) {
@@ -351,9 +353,26 @@ TEST_CASE("fist: yin-yang score accumulates")
         p2peak = std::max(p2peak, (int)gst(0xAA41));
         mAA03 = std::max(mAA03, (int)gst(0xAA03)); mAA43 = std::max(mAA43, (int)gst(0xAA43));
         mAA08 = std::max(mAA08, (int)gst(0xAA08)); mAA48 = std::max(mAA48, (int)gst(0xAA48));
+        int x2 = gst(0xAA59); x2min = std::min(x2min, x2); x2max = std::max(x2max, x2);
+        mMove2 = std::max(mMove2, (int)gst(0xAA45)); mAct2 = std::max(mAct2, (int)gst(0xAA44));
+        // A90D[action] != 0 marks an *attack* action; count frames each fighter is in one.
+        if (gst(0xA90D + gst(0xAA44))) ++mAct2atk;    // P2 attacking
+        if (gst(0xA90D + gst(0xAA04))) ++mAct1atk;    // P1 attacking
         peak = std::max(peak, std::max((int)gst(0xAA01), (int)gst(0xAA41)));
         int s = gst(0xAA01) + gst(0xAA41);
         if (s != prev) { ++changes; prev = s; }
+        // Snapshot the GST when P2 is attacking within striking range, to replay
+        // hit_detect(HIT_P2) offline and see which test rejects the hit.
+        std::string gout = env("FIST_GST_OUT");
+        if (!gout.empty() && i < 8600) {   // phase 1: P1 idle, isolate the AI attack
+            int d = std::abs((int)gst(0xAA59) - (int)gst(0xAA19));
+            int hitFrame = gst(0xA971 + gst(0xAA44));
+            // capture when P2 is attacking, close, AND at its hit frame
+            if (gst(0xA90D + gst(0xAA44)) && d < 18 && gst(0xAA52) == hitFrame) {
+                std::ofstream o(gout, std::ios::binary);
+                o.write(reinterpret_cast<const char *>(&board.mem.ram[12 * 8192]), 24576);
+            }
+        }
         // Snapshot VRAM whenever a score is on screen (overwrite -> keep the last
         // full frame) to eyeball the HUD.
         if (!vout.empty() && s >= 1) {
@@ -368,9 +387,10 @@ TEST_CASE("fist: yin-yang score accumulates")
             << "  score-changes=" << changes);
     MESSAGE("  reactions max: P1 hit(AA03)=" << mAA03 << " P2 hit(AA43)=" << mAA43
             << "  score flags max: AA08=" << mAA08 << " AA48=" << mAA48);
-    MESSAGE("  P2 AI flag AA46=" << (int)gst(0xAA46) << " (1=AI)  P1 AA06=" << (int)gst(0xAA06)
-            << "  P2 action AA44=" << (int)gst(0xAA44) << " move AA45=" << (int)gst(0xAA45)
-            << "  P2 x AA59=" << (int)gst(0xAA59) << " P1 x AA19=" << (int)gst(0xAA19));
+    MESSAGE("  P2 AI flag AA46=" << (int)gst(0xAA46) << " (1=AI)  P1 AA06=" << (int)gst(0xAA06));
+    MESSAGE("  P2 x range=[" << x2min << ".." << x2max << "] (RSTFRM sets 60)  "
+            << "P2 max move(AA45)=" << mMove2 << " max action(AA44)=" << mAct2);
+    MESSAGE("  attack-action frames: P1=" << mAct1atk << " P2=" << mAct2atk);
     CHECK(a01_0 == 0);           // the match starts 0-0 (GST.DAT snapshot cleared)
     CHECK(changes > 0);          // clean hits are scored into the yin-yang total
     CHECK(peak >= 2);            // at least a full yin-yang accrues over the bout
