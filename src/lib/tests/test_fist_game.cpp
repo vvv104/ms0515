@@ -326,6 +326,15 @@ TEST_CASE("fist: yin-yang score accumulates")
         uint32_t bank = (addr >> 13) + 8;
         return board.mem.ram[bank * 8192 + (addr & 8191)];
     };
+    auto poke = [&](uint16_t spec, uint8_t v) {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        board.mem.ram[bank * 8192 + (addr & 8191)] = v;
+    };
+    // Diagnostic: with FIST_BOTH_AI, make P1 an AI too (as in the attract demo) so
+    // both fighters move & cross freely - checks whether the faithful hit-detection
+    // yields a two-sided match once the fighters aren't pinned left/right.
+    bool bothAI = !env("FIST_BOTH_AI").empty();
 
     for (int i = 0; i < 1200; ++i) {
         if (i < 900 && (i % 30) == 0) offerCR = true;
@@ -340,11 +349,15 @@ TEST_CASE("fist: yin-yang score accumulates")
     int mAA03 = 0, mAA43 = 0, mAA08 = 0, mAA48 = 0;   // reactions + score flags
     int x2min = 255, x2max = 0, mMove2 = 0, mAct2 = 0;  // P2 movement + AI move/action
     int mAct2atk = 0, mAct1atk = 0;                     // frames each fighter is attacking
+    int minGap = 255, closeFrames = 0, resets = 0;      // fighter spacing + RSTFRM activity
+    int prevGap = -1;
     int prev = gst(0xAA01) + gst(0xAA41);
     // Phase 1 (idle P1): let the AI P2 try to score.  Phase 2: P1 attacks.
+    if (bothAI) poke(0xAA06, 1);              // P1 becomes an AI, MOVSEL drives it
     for (int i = 0; i < 24000; ++i) {
-        if (i == 8600) emu.keyPress(ms0515::Key::Right, true);
-        if (i >= 8600) {
+        if (bothAI) poke(0xAA06, 1);          // keep it AI across any reset
+        if (!bothAI && i == 8600) emu.keyPress(ms0515::Key::Right, true);
+        if (!bothAI && i >= 8600) {
             bool atk = (i / 40) % 2 == 0;      // alternate punch / approach
             emu.keyPress(ms0515::Key::Space, atk);
             emu.keyPress(ms0515::Key::Right, !atk);
@@ -354,6 +367,11 @@ TEST_CASE("fist: yin-yang score accumulates")
         mAA03 = std::max(mAA03, (int)gst(0xAA03)); mAA43 = std::max(mAA43, (int)gst(0xAA43));
         mAA08 = std::max(mAA08, (int)gst(0xAA08)); mAA48 = std::max(mAA48, (int)gst(0xAA48));
         int x2 = gst(0xAA59); x2min = std::min(x2min, x2); x2max = std::max(x2max, x2);
+        int gap = std::abs((int)gst(0xAA59) - (int)gst(0xAA19));
+        minGap = std::min(minGap, gap); if (gap < 20) ++closeFrames;
+        // RSTFRM snaps P2 to 0x3C(=60); count big outward jumps as reset events.
+        if (prevGap >= 0 && gap - prevGap > 15) ++resets;
+        prevGap = gap;
         mMove2 = std::max(mMove2, (int)gst(0xAA45)); mAct2 = std::max(mAct2, (int)gst(0xAA44));
         // A90D[action] != 0 marks an *attack* action; count frames each fighter is in one.
         if (gst(0xA90D + gst(0xAA44))) ++mAct2atk;    // P2 attacking
@@ -391,6 +409,8 @@ TEST_CASE("fist: yin-yang score accumulates")
     MESSAGE("  P2 x range=[" << x2min << ".." << x2max << "] (RSTFRM sets 60)  "
             << "P2 max move(AA45)=" << mMove2 << " max action(AA44)=" << mAct2);
     MESSAGE("  attack-action frames: P1=" << mAct1atk << " P2=" << mAct2atk);
+    MESSAGE("  fighter spacing: min gap=" << minGap << "  frames in range(<20)=" << closeFrames
+            << "  reset jumps=" << resets);
     CHECK(a01_0 == 0);           // the match starts 0-0 (GST.DAT snapshot cleared)
     CHECK(changes > 0);          // clean hits are scored into the yin-yang total
     CHECK(peak >= 2);            // at least a full yin-yang accrues over the bout
