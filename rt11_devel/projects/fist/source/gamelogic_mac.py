@@ -3619,6 +3619,8 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         CLRB    {g(0xAA41)}
         CLRB    {g(0xAA02)}
         CLRB    {g(0xAA42)}
+        JSR     PC,A402              ; load the AI personality ($A614 -> $A60E..): without
+                                     ; it the P2 AI never commits to an attack (stays idle)
         ; tell the MS7004 keyboard 0o231 (keyclick off) - the firmware treats this as the
         ; "a game is running" signal and switches auto-repeat to the fast game preset
         ; (125 ms delay vs 250 ms typing), so held-key tracking is snappier.
@@ -3879,7 +3881,7 @@ SCDET:  MOVB    {g(0xAA03)},R0
         ;     ($9CA8) resets both fighters to the idle start stance for the next
         ;     exchange, which clears $9C28 so this fires exactly once per exchange.
         ;     At 2 yin-yang ($AA01/$AA41 >= 4) count a win and restart the tally. -----
-ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter in hit-recovery? (exchange over)
+ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter knocked into recovery? (exchange over)
         BIC     #177400,R0
         BNE     71$
         MOVB    {g(0x9C2B)},R0       ; time-out?
@@ -3901,7 +3903,9 @@ ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter in hit-recovery? (exchange over
 77$:    INC     WINS                 ; someone won the match; restart the tally
         CLRB    {g(0xAA01)}
         CLRB    {g(0xAA41)}
-72$:    JSR     PC,RSTFRM            ; $9CA8: reset both fighters for the next exchange
+72$:    CLRB    {g(0xAA08)}          ; $AD37: clear the score flags EVERY exchange, so a
+        CLRB    {g(0xAA48)}          ; set-but-unscored flag can't leak into the next one
+        JSR     PC,RSTFRM            ; $9CA8: reset both fighters for the next exchange
 78$:    RTS     PC
         ; --- HUD: the yin-yang score in a top status strip (rows 0-15).  Each fighter
         ;     has two yin-yang slots that fill half then full as its score (SC1/SC2,

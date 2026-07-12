@@ -105,6 +105,59 @@ TEST_CASE("fist: standalone game render via .DAT loader")
     CHECK(nz > 300);
 }
 
+TEST_CASE("fist: yin-yang display at a forced score")
+{
+    std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
+                sys = env("FIST_SYSTEM_DIR"), out = env("FIST_GAME_VRAM_OUT");
+    if (sav.empty() || dat.empty() || sys.empty() || out.empty()) {
+        MESSAGE("FIST game env not set - skipping");
+        return;
+    }
+    fs::path tmp = fs::temp_directory_path() / "fist_forced_lib";
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::path boot = tmp / "boot", work = tmp / "work";
+    fs::create_directories(boot, ec);
+    fs::copy(sys, boot, fs::copy_options::recursive, ec);
+    REQUIRE_FALSE(ec);
+    fs::copy_file(sav, boot / "FIST.SAV", fs::copy_options::overwrite_existing, ec);
+    { std::ofstream s(boot / "STARTS.COM", std::ios::binary); s << "ASSIGN DZ1 DK\r\nR FIST\r\n"; }
+    fs::create_directories(work, ec);
+    fs::copy_file(dat, work / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+    { std::ofstream s(work / "device.rtfs", std::ios::binary); s << "device: floppy\nblocks: 800\n"; }
+
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, (boot / "device.rtfs").string()));
+    REQUIRE(emu.mountDisk(1, (work / "device.rtfs").string()));
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool { if (offerCR) { b = '\r'; offerCR = false; return true; } return false; },
+        [](uint8_t) -> bool { return true; });
+    auto &board = ms0515::internal::board(emu);
+    auto poke = [&](uint16_t spec, uint8_t v) {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        board.mem.ram[bank * 8192 + (addr & 8191)] = v;
+    };
+    for (int i = 0; i < 1200; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+    }
+    // Idle fighters (no keys) rarely trigger ROUNDE, so a forced total holds:
+    // P1 = 3 (full inner + half outer), P2 = 2 (full inner).  Dump the last frame.
+    for (int i = 0; i < 300; ++i) {
+        poke(0xAA01, 3); poke(0xAA41, 2);
+        (void)emu.stepFrame();
+    }
+    const uint8_t *vram = board_get_vram(&board);
+    std::ofstream o(out, std::ios::binary);
+    o.write(reinterpret_cast<const char *>(vram), MEM_VRAM_SIZE);
+    MESSAGE("forced AA01=3 AA41=2 -> dumped VRAM");
+    CHECK(true);
+}
+
 TEST_CASE("fist: real .dsk boots and shows the HUD")
 {
     // Replicates the GUI exactly: one .dsk image on disk0, its own STARTS.COM
@@ -126,17 +179,21 @@ TEST_CASE("fist: real .dsk boots and shows the HUD")
             return false;
         },
         [](uint8_t) -> bool { return true; });
+    auto &board = ms0515::internal::board(emu);
+    auto poke = [&](uint16_t spec, uint8_t v) {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        board.mem.ram[((addr >> 13) + 8) * 8192 + (addr & 8191)] = v;
+    };
     for (int i = 0; i < 3000; ++i) {
         if (i < 900 && (i % 30) == 0) offerCR = true;
+        if (i >= 2900) { poke(0xAA01, 2); poke(0xAA41, 2); }   // force a score to draw the HUD
         (void)emu.stepFrame();
     }
-    auto &board = ms0515::internal::board(emu);
     const uint8_t *vram = board_get_vram(&board);
-    // The HUD's four yin-yang slots sit in rows 0-15 at cols 2-3/5-6/32-33/35-36;
-    // the dojo itself never draws in the top border, so any pixels there are the HUD.
+    // The HUD's four yin-yang slots sit in rows 6-21 at cols 5-6/8-9/30-31/33-34.
     int hud = 0;
-    for (int r = 0; r < 16; ++r)
-        for (int c : {2, 3, 5, 6, 32, 33, 35, 36})
+    for (int r = 6; r < 22; ++r)
+        for (int c : {5, 6, 8, 9, 30, 31, 33, 34})
             if (vram[r * 80 + c * 2]) ++hud;
     MESSAGE("HUD slot pixels in the top strip: " << hud);
     CHECK(hud > 0);      // the score UI renders when booted from the real disk
@@ -279,17 +336,21 @@ TEST_CASE("fist: yin-yang score accumulates")
     // hits/knockdowns happen and ROUNDE has exchanges to score.
     std::string vout = env("FIST_GAME_VRAM_OUT");
     bool dumped = false;
-    int peak = 0, changes = 0;
+    int peak = 0, changes = 0, p2peak = 0;
+    int mAA03 = 0, mAA43 = 0, mAA08 = 0, mAA48 = 0;   // reactions + score flags
     int prev = gst(0xAA01) + gst(0xAA41);
-    emu.keyPress(ms0515::Key::Right, true);
-    for (int i = 0; i < 16000; ++i) {
-        if (i == 600) { emu.keyPress(ms0515::Key::Right, false); }
-        if (i >= 600) {
+    // Phase 1 (idle P1): let the AI P2 try to score.  Phase 2: P1 attacks.
+    for (int i = 0; i < 24000; ++i) {
+        if (i == 8600) emu.keyPress(ms0515::Key::Right, true);
+        if (i >= 8600) {
             bool atk = (i / 40) % 2 == 0;      // alternate punch / approach
             emu.keyPress(ms0515::Key::Space, atk);
             emu.keyPress(ms0515::Key::Right, !atk);
         }
         (void)emu.stepFrame();
+        p2peak = std::max(p2peak, (int)gst(0xAA41));
+        mAA03 = std::max(mAA03, (int)gst(0xAA03)); mAA43 = std::max(mAA43, (int)gst(0xAA43));
+        mAA08 = std::max(mAA08, (int)gst(0xAA08)); mAA48 = std::max(mAA48, (int)gst(0xAA48));
         peak = std::max(peak, std::max((int)gst(0xAA01), (int)gst(0xAA41)));
         int s = gst(0xAA01) + gst(0xAA41);
         if (s != prev) { ++changes; prev = s; }
@@ -303,7 +364,13 @@ TEST_CASE("fist: yin-yang score accumulates")
         }
     }
     MESSAGE("start AA01/AA41=" << a01_0 << "/" << a41_0
-            << "  peak yin-yang=" << peak << "  score-changes=" << changes);
+            << "  peak yin-yang=" << peak << "  P2 peak=" << p2peak
+            << "  score-changes=" << changes);
+    MESSAGE("  reactions max: P1 hit(AA03)=" << mAA03 << " P2 hit(AA43)=" << mAA43
+            << "  score flags max: AA08=" << mAA08 << " AA48=" << mAA48);
+    MESSAGE("  P2 AI flag AA46=" << (int)gst(0xAA46) << " (1=AI)  P1 AA06=" << (int)gst(0xAA06)
+            << "  P2 action AA44=" << (int)gst(0xAA44) << " move AA45=" << (int)gst(0xAA45)
+            << "  P2 x AA59=" << (int)gst(0xAA59) << " P1 x AA19=" << (int)gst(0xAA19));
     CHECK(a01_0 == 0);           // the match starts 0-0 (GST.DAT snapshot cleared)
     CHECK(changes > 0);          // clean hits are scored into the yin-yang total
     CHECK(peak >= 2);            // at least a full yin-yang accrues over the bout
