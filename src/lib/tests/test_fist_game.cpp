@@ -352,6 +352,8 @@ TEST_CASE("fist: yin-yang score accumulates")
     int minGap = 255, closeFrames = 0, resets = 0;      // fighter spacing + RSTFRM activity
     int prevGap = -1;
     int prev = gst(0xAA01) + gst(0xAA41);
+    int holdAt4 = 0, maxHold = 0, firstHold = 0;         // win-freeze: tally held at the 4 win
+    bool sawWin = false, sawResetAfterWin = false;
     // Phase 1 (idle P1): let the AI P2 try to score.  Phase 2: P1 attacks.
     if (bothAI) poke(0xAA06, 1);              // P1 becomes an AI, MOVSEL drives it
     std::string traj = env("FIST_TRAJ_OUT");
@@ -386,6 +388,15 @@ TEST_CASE("fist: yin-yang score accumulates")
         peak = std::max(peak, std::max((int)gst(0xAA01), (int)gst(0xAA41)));
         int s = gst(0xAA01) + gst(0xAA41);
         if (s != prev) { ++changes; prev = s; }
+        // Win-freeze: when a fighter hits 4 (bout won), the tally holds at 4 for the
+        // freeze, then GLOOP clears it -> the winning yin-yang stays on screen a while.
+        if (gst(0xAA01) == 4 || gst(0xAA41) == 4) {
+            sawWin = true; ++holdAt4; maxHold = std::max(maxHold, holdAt4);
+        } else {
+            if (sawWin && firstHold == 0) firstHold = holdAt4;   // length of the 1st freeze
+            if (sawWin) sawResetAfterWin = true;   // dropped back to 0 after a win
+            holdAt4 = 0;
+        }
         // Snapshot the GST when P2 is attacking within striking range, to replay
         // hit_detect(HIT_P2) offline and see which test rejects the hit.
         std::string gout = env("FIST_GST_OUT");
@@ -424,7 +435,14 @@ TEST_CASE("fist: yin-yang score accumulates")
     MESSAGE("  attack-action frames: P1=" << mAct1atk << " P2=" << mAct2atk);
     MESSAGE("  fighter spacing: min gap=" << minGap << "  frames in range(<20)=" << closeFrames
             << "  reset jumps=" << resets);
+    MESSAGE("  bout win: saw win(tally==4)=" << sawWin << " first freeze=" << firstHold
+            << " max hold=" << maxHold << " reset-after-win=" << sawResetAfterWin);
     CHECK(a01_0 == 0);           // the match starts 0-0 (GST.DAT snapshot cleared)
     CHECK(changes > 0);          // clean hits are scored into the yin-yang total
     CHECK(peak >= 2);            // at least a full yin-yang accrues over the bout
+    // Match outcome: reaching 4 (two yin-yang) wins the bout, which freezes the
+    // winning frame (tally held at 4 for many frames) then resets for the next bout.
+    CHECK(sawWin);               // a bout was won (a fighter reached 4)
+    CHECK(maxHold > 60);         // the win freezes the frame (~150-frame hold)
+    CHECK(sawResetAfterWin);     // then the tally resets for the next bout
 }

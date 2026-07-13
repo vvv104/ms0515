@@ -3647,9 +3647,18 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         JSR     PC,C98A0             ; R0 = &move ($98DD table)
         MOVB    (R0),R0
         MOVB    R0,{g(0xAA05)}       ; P1 selected move
+        TST     WINTMR               ; a bout just ended? freeze the winning frame
+        BNE     83$                  ;   (skip the fight logic; hold the knockdown pose)
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
         JSR     PC,ROUNDE            ; 1P match: score the exchange on knockdown/timeout
-        MOVB    {g(0xAA01)},SC1      ; stash the scores for the HUD (GST unseen at 3377)
+        BR      84$
+83$:    DEC     WINTMR               ; count the win-freeze down
+        BNE     84$                  ;   still frozen -> just re-present the held frame
+        CLRB    {g(0xAA01)}          ; freeze over: $909E new-round (clear both tallies)
+        CLRB    {g(0xAA41)}
+        JSR     PC,NXTDAN            ; advance the dan/background for the next bout
+        JSR     PC,RSTFRM            ; reset both fighters to the idle start stance
+84$:    MOVB    {g(0xAA01)},SC1      ; stash the scores for the HUD (GST unseen at 3377)
         MOVB    {g(0xAA41)},SC2
         ; --- sound: tick the current effect, then trigger any the hit logic queued ---
         MOV     SNDCNT,R0            ; count down the playing effect; silence at 0
@@ -3900,13 +3909,26 @@ ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter knocked into recovery? (exchang
         BIC     #177400,R0
         CMP     R0,#4.
         BLO     72$
-77$:    INC     WINS                 ; someone won the match; restart the tally
-        CLRB    {g(0xAA01)}
-        CLRB    {g(0xAA41)}
+77$:    INC     WINS                 ; someone reached two yin-yang: the bout is won
+        MOV     #30.,WINTMR         ; freeze ~3s on the knockdown so the win reads
+        CLRB    {g(0xAA08)}          ;   (GLOOP clears the tally + resets when it expires)
+        CLRB    {g(0xAA48)}
+        BR      78$                  ; skip RSTFRM: hold the winning frame, don't restart
 72$:    CLRB    {g(0xAA08)}          ; $AD37: clear the score flags EVERY exchange, so a
         CLRB    {g(0xAA48)}          ; set-but-unscored flag can't leak into the next one
         JSR     PC,RSTFRM            ; $9CA8: reset both fighters for the next exchange
 78$:    RTS     PC
+        ; --- NXTDAN: advance to the next bout after a win.  Bumps the dan/bout
+        ;     counter (drives the status line + future per-dan background) and
+        ;     cycles BGREF 1..3 so the dojo can change as ranks climb. -----------
+NXTDAN: INC     DANNO                ; next bout number / dan rank
+        INC     BGREF                ; cycle the dojo selector 1..3
+        MOVB    BGREF,R0
+        BIC     #177400,R0
+        CMP     R0,#3.
+        BLOS    1$
+        MOV     #1.,BGREF
+1$:     RTS     PC
         ; --- HUD: the yin-yang score in a top status strip (rows 0-15).  Each fighter
         ;     has two yin-yang slots that fill half then full as its score (SC1/SC2,
         ;     stashed from $AA01/$AA41) climbs 0..4.  The real 2x2-UDG symbol
@@ -4129,6 +4151,7 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\nSNDCNT: .WORD   0\n"
               "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\n"
               "        .EVEN\nWINS:   .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
+              "        .EVEN\nWINTMR: .WORD   0\nDANNO:  .WORD   1\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")
