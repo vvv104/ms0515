@@ -3658,7 +3658,6 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         BITB    #1,R0                ; TXRDY?
         BEQ     83$
         MOVB    #231,@#177440
-        JSR     PC,INTRO             ; title screen over the dojo, then the fight begins
 GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOV     #W,R0                ; clear decoder scratch
         MOV     #32.,R1
@@ -3880,6 +3879,11 @@ CCPY:   MOV     (R0)+,(R1)+
         JSR     PC,DRWSCR            ; draw the numeric score across the top strip
         JSR     PC,DRWTIM            ; draw the round timer beside it
         JSR     PC,DRWDAN            ; draw the dan / bout number at the left
+        TST     INTMR                ; intro still up? overlay the title on the live fight
+        BEQ     59$
+        JSR     PC,INTRO
+        DEC     INTMR
+59$:
         JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC
@@ -4108,8 +4112,9 @@ DRWDAN: MOV     DANNO,R0
         MOV     (SP)+,R4
         JSR     PC,DRWDIG
         RTS     PC
-        ; --- INTRO: draw the title over the (already presented) dojo, hold it a
-        ;     couple of seconds, then return to start the fight. --------------------
+        ; --- INTRO: overlay the title on top of the live fight (called each frame
+        ;     while INTMR>0), so the fighters are on screen from the very first frame
+        ;     with the title over them for the first couple of seconds. -------------
 INTRO:  MOV     #ITTL1,R1
         MOV     #VRAM+4836.,R2       ; row 60, centred
         JSR     PC,DRWSTR
@@ -4119,12 +4124,6 @@ INTRO:  MOV     #ITTL1,R1
         MOV     #ITTL3,R1
         MOV     #VRAM+8031.,R2       ; row 100
         JSR     PC,DRWSTR
-        MOV     #35.,R3              ; hold ~2s (nested busy-wait; no vsync primitive)
-2$:     CLR     R2
-1$:     DEC     R2
-        BNE     1$
-        DEC     R3
-        BNE     2$
         RTS     PC
         .EVEN
 {_strb("ITTL1", "FIST")}
@@ -4291,6 +4290,7 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "        .EVEN\nWINS:   .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nDANNO:  .WORD   1\n"
               "        .EVEN\nSCRBCD: .BLKB   3.\n        .EVEN\nSTIM:   .WORD   0\n"
+              "        .EVEN\nINTMR:  .WORD   40.\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")

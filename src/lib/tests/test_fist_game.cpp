@@ -415,7 +415,7 @@ TEST_CASE("fist: yin-yang score accumulates")
         if (s != prev) { ++changes; prev = s; }
         // Win-freeze: when a fighter hits 4 (bout won), the tally holds at 4 for the
         // freeze, then GLOOP clears it -> the winning yin-yang stays on screen a while.
-        if (gst(0xAA01) == 4 || gst(0xAA41) == 4) {
+        if (gst(0xAA01) >= 4 || gst(0xAA41) >= 4) {   // win threshold (tally can land on 4 or 5)
             sawWin = true; ++holdAt4; maxHold = std::max(maxHold, holdAt4);
         } else {
             if (sawWin && firstHold == 0) firstHold = holdAt4;   // length of the 1st freeze
