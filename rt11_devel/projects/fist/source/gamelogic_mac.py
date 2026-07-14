@@ -3562,6 +3562,36 @@ CDDN:   """)
                          for i in range(0, len(b), 8))
     yyfull_s = _yybytes(snap[0x928A:0x928A + 32])
     yyhalf_s = _yybytes(snap[0x92AA:0x92AA + 32])
+
+    # An OWN 8x8 font: digits 0-9 (codes 0-9), space (10), A-Z (11-36).  The
+    # original's text uses the copyrighted Spectrum ROM font, not ours to copy.
+    _FONT_HEX = {
+        '0': [0x3C,0x66,0x6E,0x76,0x66,0x66,0x3C,0], '1': [0x18,0x38,0x18,0x18,0x18,0x18,0x7E,0],
+        '2': [0x3C,0x66,0x06,0x0C,0x18,0x30,0x7E,0], '3': [0x3C,0x66,0x06,0x1C,0x06,0x66,0x3C,0],
+        '4': [0x0C,0x1C,0x2C,0x6C,0x7E,0x0C,0x0C,0], '5': [0x7E,0x60,0x7C,0x06,0x06,0x66,0x3C,0],
+        '6': [0x1C,0x30,0x60,0x7C,0x66,0x66,0x3C,0], '7': [0x7E,0x06,0x0C,0x18,0x30,0x30,0x30,0],
+        '8': [0x3C,0x66,0x66,0x3C,0x66,0x66,0x3C,0], '9': [0x3C,0x66,0x66,0x3E,0x06,0x0C,0x38,0],
+        ' ': [0,0,0,0,0,0,0,0],
+        'A': [0x18,0x3C,0x66,0x66,0x7E,0x66,0x66,0], 'B': [0x7C,0x66,0x66,0x7C,0x66,0x66,0x7C,0],
+        'C': [0x3C,0x66,0x60,0x60,0x60,0x66,0x3C,0], 'D': [0x78,0x6C,0x66,0x66,0x66,0x6C,0x78,0],
+        'E': [0x7E,0x60,0x60,0x7C,0x60,0x60,0x7E,0], 'F': [0x7E,0x60,0x60,0x7C,0x60,0x60,0x60,0],
+        'G': [0x3C,0x66,0x60,0x6E,0x66,0x66,0x3C,0], 'H': [0x66,0x66,0x66,0x7E,0x66,0x66,0x66,0],
+        'I': [0x3C,0x18,0x18,0x18,0x18,0x18,0x3C,0], 'J': [0x1E,0x0C,0x0C,0x0C,0x0C,0x6C,0x38,0],
+        'K': [0x66,0x6C,0x78,0x70,0x78,0x6C,0x66,0], 'L': [0x60,0x60,0x60,0x60,0x60,0x60,0x7E,0],
+        'M': [0x63,0x77,0x7F,0x6B,0x63,0x63,0x63,0], 'N': [0x66,0x76,0x7E,0x7E,0x6E,0x66,0x66,0],
+        'O': [0x3C,0x66,0x66,0x66,0x66,0x66,0x3C,0], 'P': [0x7C,0x66,0x66,0x7C,0x60,0x60,0x60,0],
+        'Q': [0x3C,0x66,0x66,0x66,0x6E,0x6C,0x36,0], 'R': [0x7C,0x66,0x66,0x7C,0x78,0x6C,0x66,0],
+        'S': [0x3C,0x66,0x60,0x3C,0x06,0x66,0x3C,0], 'T': [0x7E,0x18,0x18,0x18,0x18,0x18,0x18,0],
+        'U': [0x66,0x66,0x66,0x66,0x66,0x66,0x3C,0], 'V': [0x66,0x66,0x66,0x66,0x66,0x3C,0x18,0],
+        'W': [0x63,0x63,0x63,0x6B,0x7F,0x77,0x63,0], 'X': [0x66,0x66,0x3C,0x18,0x3C,0x66,0x66,0],
+        'Y': [0x66,0x66,0x66,0x3C,0x18,0x18,0x18,0], 'Z': [0x7E,0x06,0x0C,0x18,0x30,0x60,0x7E,0],
+    }
+    _FONT_ORDER = "0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    _font_bytes = [b for ch in _FONT_ORDER for b in _FONT_HEX[ch]]
+    font_s = _yybytes(_font_bytes)
+    def _strb(label, s):
+        codes = ",".join(f"{_FONT_ORDER.index(c)}." for c in s.upper())
+        return f"{label}: .BYTE   {codes},377\n        .EVEN"
     driver = f"""
         .ASECT
         . = 44
@@ -3628,6 +3658,7 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         BITB    #1,R0                ; TXRDY?
         BEQ     83$
         MOVB    #231,@#177440
+        JSR     PC,INTRO             ; title screen over the dojo, then the fight begins
 GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOV     #W,R0                ; clear decoder scratch
         MOV     #32.,R1
@@ -4006,11 +4037,22 @@ HUD:    MOVB    SC1,R4               ; P1 slot 0 = min(2, score)
 DRWDIG: MOV     R4,R1
         ASL     R1
         ASL     R1
-        ASL     R1                   ; digit * 8
+        ASL     R1                   ; code * 8
         ADD     #DIGFNT,R1
         MOV     R2,R0
         JSR     PC,DRAW1U
         RTS     PC
+        ; --- DRWSTR: draw the font-code string at R1 (ending 377) at VRAM cell R2. ---
+DRWSTR: MOVB    (R1)+,R4
+        BIC     #177400,R4           ; zero-extend the code
+        CMP     R4,#255.
+        BEQ     9$                   ; 377 terminator
+        MOV     R1,-(SP)             ; DRWDIG clobbers R1 (glyph ptr)
+        JSR     PC,DRWDIG
+        MOV     (SP)+,R1
+        ADD     #2,R2                ; next cell
+        BR      DRWSTR
+9$:     RTS     PC
         ; --- DRWSCR: draw P1's six-digit BCD score (SCRBCD, stashed from $B02D) across
         ;     the top strip (row 6, centre - clear of the corner yin-yang symbols).
         ;     Own digit font: the original's status text uses the Spectrum ROM font,
@@ -4066,17 +4108,31 @@ DRWDAN: MOV     DANNO,R0
         MOV     (SP)+,R4
         JSR     PC,DRWDIG
         RTS     PC
+        ; --- INTRO: draw the title over the (already presented) dojo, hold it a
+        ;     couple of seconds, then return to start the fight. --------------------
+INTRO:  MOV     #ITTL1,R1
+        MOV     #VRAM+4836.,R2       ; row 60, centred
+        JSR     PC,DRWSTR
+        MOV     #ITTL2,R1
+        MOV     #VRAM+6432.,R2       ; row 80
+        JSR     PC,DRWSTR
+        MOV     #ITTL3,R1
+        MOV     #VRAM+8031.,R2       ; row 100
+        JSR     PC,DRWSTR
+        MOV     #35.,R3              ; hold ~2s (nested busy-wait; no vsync primitive)
+2$:     CLR     R2
+1$:     DEC     R2
+        BNE     1$
+        DEC     R3
+        BNE     2$
+        RTS     PC
         .EVEN
-DIGFNT: .BYTE   074.,146.,156.,166.,146.,146.,074.,000.   ; 0
-        .BYTE   030.,070.,030.,030.,030.,030.,176.,000.   ; 1
-        .BYTE   074.,146.,006.,014.,030.,060.,176.,000.   ; 2
-        .BYTE   074.,146.,006.,034.,006.,146.,074.,000.   ; 3
-        .BYTE   014.,034.,054.,154.,176.,014.,014.,000.   ; 4
-        .BYTE   176.,140.,174.,006.,006.,146.,074.,000.   ; 5
-        .BYTE   034.,060.,140.,174.,146.,146.,074.,000.   ; 6
-        .BYTE   176.,006.,014.,030.,060.,060.,060.,000.   ; 7
-        .BYTE   074.,146.,146.,074.,146.,146.,074.,000.   ; 8
-        .BYTE   074.,146.,146.,076.,006.,014.,070.,000.   ; 9
+{_strb("ITTL1", "FIST")}
+{_strb("ITTL2", "1 PLAYER")}
+{_strb("ITTL3", "GET READY")}
+        .EVEN
+DIGFNT:                              ; codes 0-9 digits, 10 space, 11-36 A-Z
+{font_s}
         .EVEN
 YYFULL:
 {yyfull_s}
