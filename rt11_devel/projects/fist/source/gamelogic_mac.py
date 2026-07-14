@@ -3848,6 +3848,7 @@ CCPY:   MOV     (R0)+,(R1)+
 58$:    JSR     PC,HUD               ; draw the yin-yang score bar (top border)
         JSR     PC,DRWSCR            ; draw the numeric score across the top strip
         JSR     PC,DRWTIM            ; draw the round timer beside it
+        JSR     PC,DRWDAN            ; draw the dan / bout number at the left
         JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC
@@ -4051,6 +4052,18 @@ DRWTIM: MOVB    STIM,R0
         JSR     PC,DRWDIG            ; tens digit
         ADD     #2,R2
         MOV     (SP)+,R4             ; ones digit
+        JSR     PC,DRWDIG
+        RTS     PC
+        ; --- DRWDAN: draw the dan / bout number (DANNO) at the left of the strip. ----
+DRWDAN: MOV     DANNO,R0
+        BIC     #177400,R0
+        JSR     PC,BIN2              ; R3 = tens, R0 = ones
+        MOV     R0,-(SP)
+        MOV     #VRAM+498.,R2        ; row 6, byte 18 (left, clear of the P1 yin-yang)
+        MOV     R3,R4
+        JSR     PC,DRWDIG
+        ADD     #2,R2
+        MOV     (SP)+,R4
         JSR     PC,DRWDIG
         RTS     PC
         .EVEN
