@@ -197,6 +197,25 @@ TEST_CASE("fist: real .dsk boots and shows the HUD")
             if (vram[r * 80 + c * 2]) ++hud;
     MESSAGE("HUD slot pixels in the top strip: " << hud);
     CHECK(hud > 0);      // the score UI renders when booted from the real disk
+
+    // Numeric score (DRWSCR): the six-digit BCD score at $B02D draws across the top
+    // strip (row 6, byte 34+).  Two different values must produce different pixels.
+    auto scoreSig = [&]() {
+        const uint8_t *v = board_get_vram(&board);
+        unsigned h = 0, n = 0;
+        for (int r = 6; r < 14; ++r)
+            for (int c = 34; c < 48; ++c) { h = h * 131 + v[r*80+c]; n += v[r*80+c]; }
+        return std::make_pair(h, n);
+    };
+    poke(0xB02D, 0); poke(0xB02E, 0); poke(0xB02F, 0);       // score 000000
+    for (int i = 0; i < 40; ++i) (void)emu.stepFrame();
+    auto sZero = scoreSig();
+    poke(0xB02D, 0x34); poke(0xB02E, 0x12); poke(0xB02F, 0x56);  // distinct digits
+    for (int i = 0; i < 40; ++i) (void)emu.stepFrame();
+    auto sVal = scoreSig();
+    MESSAGE("score-region pixel sum: zero=" << sZero.second << " nonzero=" << sVal.second);
+    CHECK(sVal.second > 0);            // digits are drawn in the score strip
+    CHECK(sVal.first != sZero.first);  // and they track the actual score value
 }
 
 TEST_CASE("fist: keyboard drives P1")
@@ -361,8 +380,8 @@ TEST_CASE("fist: yin-yang score accumulates")
     if (!traj.empty()) trajf.open(traj);
     for (int i = 0; i < 24000; ++i) {
         if (bothAI) poke(0xAA06, 1);          // keep it AI across any reset
-        if (!bothAI && i == 8600) emu.keyPress(ms0515::Key::Right, true);
-        if (!bothAI && i >= 8600) {
+        if (!bothAI && i == 1500) emu.keyPress(ms0515::Key::Right, true);
+        if (!bothAI && i >= 1500) {
             bool atk = (i / 40) % 2 == 0;      // alternate punch / approach
             emu.keyPress(ms0515::Key::Space, atk);
             emu.keyPress(ms0515::Key::Right, !atk);

@@ -3660,6 +3660,10 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         JSR     PC,RSTFRM            ; reset both fighters to the idle start stance
 84$:    MOVB    {g(0xAA01)},SC1      ; stash the scores for the HUD (GST unseen at 3377)
         MOVB    {g(0xAA41)},SC2
+        MOVB    {g(0xB02D)},SCRBCD   ; and P1's BCD point score, for DRWSCR at 3377
+        MOVB    {g(0xB02D)}+1.,SCRBCD+1.
+        MOVB    {g(0xB02D)}+2.,SCRBCD+2.
+        MOVB    {g(0x9CA5)},STIM     ; and the round timer, for DRWTIM at 3377
         ; --- sound: tick the current effect, then trigger any the hit logic queued ---
         MOV     SNDCNT,R0            ; count down the playing effect; silence at 0
         BEQ     80$
@@ -3842,6 +3846,8 @@ CCPY:   MOV     (R0)+,(R1)+
         BHIS    58$                  ; done -> next frame
         JMP     CLOOP                ; (JMP: CLOOP is out of branch range)
 58$:    JSR     PC,HUD               ; draw the yin-yang score bar (top border)
+        JSR     PC,DRWSCR            ; draw the numeric score across the top strip
+        JSR     PC,DRWTIM            ; draw the round timer beside it
         JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC
@@ -3995,6 +4001,69 @@ HUD:    MOVB    SC1,R4               ; P1 slot 0 = min(2, score)
 6$:     MOV     #VRAM+546.,R2        ; row 6, col 33
         JSR     PC,DYYSL
         RTS     PC
+        ; --- DRWDIG: draw digit R4 (0..9) as an 8x8 glyph at VRAM cell R2. ---------
+DRWDIG: MOV     R4,R1
+        ASL     R1
+        ASL     R1
+        ASL     R1                   ; digit * 8
+        ADD     #DIGFNT,R1
+        MOV     R2,R0
+        JSR     PC,DRAW1U
+        RTS     PC
+        ; --- DRWSCR: draw P1's six-digit BCD score (SCRBCD, stashed from $B02D) across
+        ;     the top strip (row 6, centre - clear of the corner yin-yang symbols).
+        ;     Own digit font: the original's status text uses the Spectrum ROM font,
+        ;     which is not ours to reproduce. ----------------------------------------
+DRWSCR: MOV     #VRAM+514.,R2        ; row 6, byte 34 (top centre)
+        MOV     #2.,R5               ; BCD byte index 2..0 (most significant first)
+1$:     MOVB    SCRBCD(R5),R0        ; a packed BCD byte = two digits
+        BIC     #177400,R0
+        MOV     R0,R4
+        ASR     R4                   ; high nibble (R0 is 0..255, so ASR fills zeros)
+        ASR     R4
+        ASR     R4
+        ASR     R4
+        JSR     PC,DRWDIG
+        ADD     #2,R2                ; next character cell
+        MOVB    SCRBCD(R5),R4
+        BIC     #177760,R4           ; low nibble
+        JSR     PC,DRWDIG
+        ADD     #2,R2
+        DEC     R5
+        BGE     1$
+        RTS     PC
+        ; --- BIN2: split R0 (0..99) into R3 = tens, R0 = ones (no EIS DIV on core). -
+BIN2:   CLR     R3
+2$:     CMP     R0,#10.
+        BLO     3$
+        SUB     #10.,R0
+        INC     R3
+        BR      2$
+3$:     RTS     PC
+        ; --- DRWTIM: draw the round timer (STIM, stashed from $9CA5) as two digits
+        ;     in the top strip, to the right of the score. --------------------------
+DRWTIM: MOVB    STIM,R0
+        BIC     #177400,R0
+        JSR     PC,BIN2              ; R3 = tens, R0 = ones
+        MOV     R0,-(SP)             ; DRWDIG (via DRAW1U) clobbers R0 - save the ones
+        MOV     #VRAM+526.,R2        ; row 6, byte 46 (clear of score + P2 yin-yang)
+        MOV     R3,R4
+        JSR     PC,DRWDIG            ; tens digit
+        ADD     #2,R2
+        MOV     (SP)+,R4             ; ones digit
+        JSR     PC,DRWDIG
+        RTS     PC
+        .EVEN
+DIGFNT: .BYTE   074.,146.,156.,166.,146.,146.,074.,000.   ; 0
+        .BYTE   030.,070.,030.,030.,030.,030.,176.,000.   ; 1
+        .BYTE   074.,146.,006.,014.,030.,060.,176.,000.   ; 2
+        .BYTE   074.,146.,006.,034.,006.,146.,074.,000.   ; 3
+        .BYTE   014.,034.,054.,154.,176.,014.,014.,000.   ; 4
+        .BYTE   176.,140.,174.,006.,006.,146.,074.,000.   ; 5
+        .BYTE   034.,060.,140.,174.,146.,146.,074.,000.   ; 6
+        .BYTE   176.,006.,014.,030.,060.,060.,060.,000.   ; 7
+        .BYTE   074.,146.,146.,074.,146.,146.,074.,000.   ; 8
+        .BYTE   074.,146.,146.,076.,006.,014.,070.,000.   ; 9
         .EVEN
 YYFULL:
 {yyfull_s}
@@ -4152,6 +4221,7 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\n"
               "        .EVEN\nWINS:   .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nDANNO:  .WORD   1\n"
+              "        .EVEN\nSCRBCD: .BLKB   3.\n        .EVEN\nSTIM:   .WORD   0\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n")
