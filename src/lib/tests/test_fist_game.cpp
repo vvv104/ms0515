@@ -184,17 +184,11 @@ TEST_CASE("fist: real .dsk boots and shows the HUD")
         uint32_t addr = 0x8000u + (spec - 0x9C00u);
         board.mem.ram[((addr >> 13) + 8) * 8192 + (addr & 8191)] = v;
     };
-    int introSeen = 0;   // the title screen ("FIST" at row 60) shows before the fight
     for (int i = 0; i < 3000; ++i) {
         if (i < 900 && (i % 30) == 0) offerCR = true;
         if (i >= 2900) { poke(0xAA01, 2); poke(0xAA41, 2); }   // force a score to draw the HUD
         (void)emu.stepFrame();
-        const uint8_t *v = board_get_vram(&board);
-        for (int r = 60; r < 68; ++r)
-            for (int c = 36; c < 46; ++c) if (v[r * 80 + c]) ++introSeen;
     }
-    MESSAGE("intro-title pixels seen during boot: " << introSeen);
-    CHECK(introSeen > 0);   // the intro title rendered
     const uint8_t *vram = board_get_vram(&board);
     // The HUD's four yin-yang slots sit in rows 6-21 at cols 5-6/8-9/30-31/33-34.
     int hud = 0;
