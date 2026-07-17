@@ -3492,6 +3492,7 @@ def main_game(withbg=False):
         dojo_boot = ("        MOV     #3377,@#DISPAT        ; slots 4-6 primary: dojo code+SCRBUF at 100000\n"
                      f"        MOV     #{bgn}.,BGREF          ; select the dojo background\n"
                      "        JSR     PC,CHGBG              ; render dojo -> SCRBUF (banks 4-6)\n"
+                     "        JSR     PC,BUILDDB            ; pre-convert dojo -> DOJOBUF (VRAM format)\n"
                      "        JSR     PC,SPSCR              ; present dojo -> VRAM (1:1 centred)\n"
                      "        MOV     #GAME,@#DISPAT        ; back to 3217 so the GST (banks 12-14) is\n"
                      "                                     ; visible for the RNG seed + CLRB AA06 below\n")
@@ -3506,30 +3507,19 @@ def main_game(withbg=False):
         BLT     CDDN                 ; above the dojo band -> leave black
         CMP     R4,#192.
         BGE     CDDN                 ; below the dojo band -> leave black
-        MOV     R4,R0                ; pix = SCRBUF + SROWS[y]
+        MOV     R4,R0                ; src = DOJOBUF + y*64 (pre-converted, 32 words/row)
         ASL     R0
-        MOV     SROWS(R0),R1
-        ADD     #SCRBUF,R1
-        MOV     R4,R5                ; attr = SCRBUF + 6144 + (y>>3)*32
-        ASR     R5
-        ASR     R5
-        ASR     R5
-        ASL     R5
-        ASL     R5
-        ASL     R5
-        ASL     R5
-        ASL     R5
-        ADD     #SCRBUF+6144.,R5
-        MOV     #SCRATC+8.,R0        ; LMARG = 8 bytes (4 word-cells) left margin
-        MOV     #32.,R4              ; column count
-CDDX:   MOVB    (R5)+,R3             ; word = (attr << 8) | pixel
-        SWAB    R3
-        BIC     #377,R3
-        BISB    (R1)+,R3
-        MOV     R3,(R0)+
-        DEC     R4
-        BNE     CDDX
-CDDN:   """)
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ADD     #DOJOBUF,R0
+        MOV     #SCRATC+8.,R1        ; LMARG = 8 bytes (4 word-cells) left margin
+"""
+        # copy the 32 clean dojo cells fully unrolled (no loop overhead per word)
+        + "".join("        MOV     (R0)+,(R1)+\n" for _ in range(32))
+        + """CDDN:   """)
         eng_start = gen_fist.PROGRAM.index(
             ";-------------------------------------------------------------------\n; CHGBG")
         engine = gen_fist.PROGRAM[eng_start:]
@@ -3549,10 +3539,56 @@ CDDN:   """)
         # frame, and only there is it immune to whatever aliases the dojo block's
         # 0100000 addresses across the primary/extended bank split at runtime.
         srows_src = ("\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows))
+        # BUILDDB: pre-convert the whole dojo (SCRBUF Spectrum planes -> VRAM word
+        # format) into DOJOBUF once at boot.  Same per-cell convert as the CLOOP, but
+        # for all 192 dojo rows, stored 32 words/row.  Runs at 3377 (SCRBUF visible).
+        builddb = ("""
+BUILDDB: CLR     R2                   ; dojo y = 0..191
+BDB1:    MOV     R2,R0                ; pix = SCRBUF + SROWS[y]
+        ASL     R0
+        MOV     SROWS(R0),R1
+        ADD     #SCRBUF,R1
+        MOV     R2,R5                ; attr = SCRBUF+6144 + (y>>3)*32
+        ASR     R5
+        ASR     R5
+        ASR     R5
+        ASL     R5
+        ASL     R5
+        ASL     R5
+        ASL     R5
+        ASL     R5
+        ADD     #SCRBUF+6144.,R5
+        MOV     R2,R0                ; dst = DOJOBUF + y*64 (32 words)
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ADD     #DOJOBUF,R0
+        MOV     #32.,R3
+BDB2:    MOVB    (R5)+,R4
+        SWAB    R4
+        BIC     #377,R4
+        BISB    (R1)+,R4
+        MOV     R4,(R0)+
+        DEC     R3
+        BNE     BDB2
+        INC     R2
+        CMP     R2,#192.
+        BLO     BDB1
+        RTS     PC
+""")
         bgsrc = ("\n        .ASECT\n        . = 100000\n"
-                 + engine
+                 + engine + builddb
                  + f"\n;------ background {bgn} data ------\n" + bg.emit()
-                 + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n        .EVEN\n")
+                 + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
+                 # DOJOBUF: the dojo pre-converted to VRAM word format (32 cells x 192
+                 # rows), built once at boot; the compositor copies a band row from here
+                 # instead of re-converting SCRBUF every frame (the ~62%-of-frame cost).
+                 # An address EQU (runtime RAM right above SCRBUF), NOT reserved storage,
+                 # so it stays out of the .SAV image (keeps the load small).
+                 + "DOJOBUF = SCRBUF+6912.\n        .EVEN\n")
     c408 = g(0xC408)
     # yin-yang HUD symbols (2x2 UDGs) - extracted from the snapshot ($928A full,
     # $92AA half), embedded as data like the rest of the art.
@@ -3818,8 +3854,11 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOV     #LBUF1,SRC1
         MOV     #LBUF2,SRC2
 CLOOP:  MOV     #SCRATC,R0           ; build the row off-screen (no black flash in VRAM)
-        MOV     #40.,R3
+        MOV     #10.,R3              ; clear 40 words, unrolled x4 (less loop overhead)
 CCLR:   CLR     (R0)+
+        CLR     (R0)+
+        CLR     (R0)+
+        CLR     (R0)+
         DEC     R3
         BNE     CCLR
 {dojo_row}        MOV     ROWN,R0              ; --- fighter 1 ---
@@ -3866,8 +3905,11 @@ C2TR:   TST     (R0)+
 C2AD:   ADD     BWID2,SRC2
 C2SK:   MOV     #SCRATC,R0           ; blit the finished row to VRAM in one pass:
         MOV     R2,R1                ; cells go old->new directly, never black
-        MOV     #40.,R3
+        MOV     #10.,R3              ; copy 40 words, unrolled x4
 CCPY:   MOV     (R0)+,(R1)+
+        MOV     (R0)+,(R1)+
+        MOV     (R0)+,(R1)+
+        MOV     (R0)+,(R1)+
         DEC     R3
         BNE     CCPY
         ADD     #80.,R2              ; next screen row
