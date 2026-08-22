@@ -100,6 +100,7 @@ async function boot() {
   }
   api.reset(h);
   say(`${diskName}${local ? " (your copy)" : ""} · ROM ${romSel.toUpperCase()} · Enter accepts the date prompts`);
+  canvas.focus();
   start();
 }
 
@@ -153,6 +154,15 @@ function paint() {
   image.data.set(M.HEAPU8.subarray(ptr, ptr + image.data.length));
   ctx.putImageData(image, 0, 0);
 }
+
+// A peek for scripted checks (the CI's browser run): the frame count, the
+// status line, the colours of the picture now.
+window.__ms = () => {
+  const ptr = h ? api.render(h) : 0;
+  const hist = {};
+  if (ptr) for (const v of M.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + 640 * 400)) hist[v >>> 0] = (hist[v >>> 0] ?? 0) + 1;
+  return { frames, running, status: status.textContent, colours: Object.keys(hist).length, hist };
+};
 
 // ── sound: each frame's PCM on the AudioContext's clock ────────────────────
 function queueAudio() {
@@ -251,4 +261,6 @@ async function main() {
   if (q.get("autostart") !== "0") boot().catch((e) => say("error: " + e.message));
 }
 
+window.addEventListener("error", (e) => say("error: " + e.message));
+window.addEventListener("unhandledrejection", (e) => say("error: " + (e.reason?.message ?? e.reason)));
 main().catch((e) => say("error: " + e.message));

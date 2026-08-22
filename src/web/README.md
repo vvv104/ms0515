@@ -38,7 +38,11 @@ Serve the folder as is (`python -m http.server` in it, or GitHub Pages);
 
 `node src/web/smoke.mjs build/emscripten-release/web/dist` boots the OSA
 disk for three seconds and expects RT-11's screen (the same oracle the
-native tests use).  CI runs it in the `web / emscripten` job.
+native tests use).  `node src/web/browser_check.mjs http://localhost:8515/`
+does the same through the page in a headless Chromium-family browser
+started with `--remote-debugging-port=9222` (the page exposes
+`window.__ms()` - the frame count and the picture's colours - for it).
+CI runs both in the `web / emscripten` job.
 
 ## The C API
 

@@ -22,6 +22,7 @@ set_target_properties(ms0515_web PROPERTIES
 # test); the in-memory file system carries the ROM and the disk images.
 target_link_options(ms0515_web PRIVATE
     -sMODULARIZE=1
+    -sEXPORT_ES6=1
     -sEXPORT_NAME=createMs0515
     -sENVIRONMENT=web,worker,node
     -sALLOW_MEMORY_GROWTH=1
