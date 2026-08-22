@@ -120,7 +120,7 @@ def _driver(withbg, snap, lb_words, boot_code, bgn):
     ovl_ink = game_dojo.ovl_ink(withbg)
     text = "" if withbg else game_text.stubs()    # (the text lives in the dojo block)
     return ("\n" + game_loader.start(boot_inline, dojo_boot)
-            + game_compose.frame_head(dbgmove)
+            + game_compose.frame_input(dbgmove) + game_compose.frame_logic()
             + game_compose.fighter(1, lb_words, g(0xC408))
             + game_compose.fighter(2, lb_words, g(0xC408))
             + game_compose.geometry()

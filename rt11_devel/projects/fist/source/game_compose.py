@@ -6,8 +6,8 @@ Every function returns MACRO-11 text; game_build.py assembles the game.
 from gst_addr import g
 
 
-def frame_head(dbgmove):
-    """GLOOP: the keyboard, the quit chord, the demo start, the logic frame, the sound."""
+def frame_input(dbgmove):
+    """GLOOP: the keyboard, the quit chord, the demo's starts, both players' moves."""
     return f"""GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOV     #W,R0                ; clear decoder scratch
         MOV     #32.,R1
@@ -80,7 +80,12 @@ def frame_head(dbgmove):
         JSR     PC,C98A0
         MOVB    (R0),R0
         MOVB    R0,{g(0xAA45)}       ; P2 selected move
-76$:        TST     RPHASE                ; a round-end sequence in progress?
+76$:"""
+
+
+def frame_logic():
+    """The logic frame (or the round-end sequence), the stashes for the strip, the sound."""
+    return f"""        TST     RPHASE                ; a round-end sequence in progress?
         BNE     83$
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
         JSR     PC,ROUNDE            ; $AD18: score the exchange, end the round
