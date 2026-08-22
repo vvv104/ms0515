@@ -3413,10 +3413,10 @@ def main_game(withbg=False):
     import fighter_data as fd
     import setup_ref as sr
     import gen_fist
-    from bg_data import BackgroundData
+    from bg_data import emit_all
     fm.STAGE_LEVEL = 1
     nelem = int(os.environ.get("FGHT_NELEM", "5000"))
-    bgn = int(os.environ.get("FGHT_BG", "1"))
+    bgn = int(os.environ.get("FGHT_BG", "2"))    # $AF34 at the 1UP start ($AC59)
     ldat_base, ldat_end = 0x9368, 0x9600
 
     def safe_frame(m, rs):
@@ -3457,18 +3457,38 @@ def main_game(withbg=False):
     gstdat = bytes(snap[GBASE:0xF730])           # GST data; $F730+ compose is scratch
     if len(gstdat) % 512:
         gstdat = gstdat + bytes(512 - (len(gstdat) % 512))
-    nwords = len(gstdat) // 2
-    blk1 = 24
-    n1 = blk1 * 256
-    n2 = nwords - n1
     (OUT_MAC.parent / "GST.DAT").write_bytes(gstdat)
+    # The .DAT is read in CHUNK-block pieces into BUF, the top of the primary
+    # banks 2-3 just under the dojo block at 0100000 (VRAM is off under RT-11, so
+    # that is plain RAM), each piece copied into the parked extended banks.  The
+    # rest of banks 2-3 (040000..BUF) is free for data the .SAV carries itself -
+    # the three backgrounds' tables live there (see bgdat_src).
+    nblocks = len(gstdat) // 512
+    CHUNK = 8                                    # blocks per .READW (4 KB)
+    BUF = 0o100000 - CHUNK * 512
+    chunks = [(sb, min(CHUNK, nblocks - sb)) for sb in range(0, nblocks, CHUNK)]
+    ldr_reads = ""
+    for i, (sb, nb) in enumerate(chunks):
+        ldr_reads += f"""        .READW  #LKAREA,#0,#BUF,#{nb * 256}.,#{sb}.
+        BCC     .+6
+        JMP     LDERR
+        MTPS    #340
+        MOVB    #EXT,@#DISPAT
+        MOV     #BUF,R0
+        MOV     #GST+{sb * 512}.,R1
+        MOV     #{nb * 256}.,R2
+{11 + i}$:    MOV     (R0)+,(R1)+
+        SOB     R2,{11 + i}$
+        MOVB    #PRIM,@#DISPAT
+        MTPS    #0
+"""
 
     preamble = (
         "        .TITLE  FIST\n"
         "        .MCALL  .FETCH,.LOOKUP,.READW,.CLOSE,.EXIT\n"
         "DISPAT = 177400\nSYSC   = 177604\nVRAM   = 40000\nVRAMEN = 100000\n"
-        "KBST   = 177442\nGST    = 100000\nHSPACE = 30000\nBUF    = 40000\n"
-        f"N1     = {n1}.\nN2     = {n2}.\nEXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
+        f"KBST   = 177442\nGST    = 100000\nHSPACE = 30000\nBUF    = {BUF:o}\n"
+        "EXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
     equs = "\nFWHITE = 043400\n"          # bright-white attribute high byte ($47)
     for t in fd.TABLES:
         equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
@@ -3479,6 +3499,7 @@ def main_game(withbg=False):
 
     # --- dojo background: engine + data + the driver fragments (empty when !withbg) ---
     dojo_boot, dojo_row, bgsrc, srows_src = "", "", "", ""
+    bgdat_src, bgvars, rendbg = "", "", ""
     # fighter ink in the overlay: white on the plain black-background game (else the
     # fighter is black-on-black), BLACK over the dojo (black figures on the light
     # dojo paper, as on the Spectrum) - keep the dojo paper colour either way.
@@ -3489,13 +3510,8 @@ def main_game(withbg=False):
         equs += ("LMARG  = 8.\nTMARG  = 4.\nLSTRID = 80.\n"
                  "SVBASE = 40000\nSVATTR = 54000\nSVTOP  = 40200\n")
         # render the dojo once, right after the VRAM clear (banking already GAME 3217)
-        dojo_boot = ("        MOV     #3377,@#DISPAT        ; slots 4-6 primary: dojo code+SCRBUF at 100000\n"
-                     f"        MOV     #{bgn}.,BGREF          ; select the dojo background\n"
-                     "        JSR     PC,CHGBG              ; render dojo -> SCRBUF (banks 4-6)\n"
-                     "        JSR     PC,BUILDDB            ; pre-convert dojo -> DOJOBUF (VRAM format)\n"
-                     "        JSR     PC,SPSCR              ; present dojo -> VRAM (1:1 centred)\n"
-                     "        MOV     #GAME,@#DISPAT        ; back to 3217 so the GST (banks 12-14) is\n"
-                     "                                     ; visible for the RNG seed + CLRB AA06 below\n")
+        dojo_boot = (f"        MOVB    #{bgn}.,{g(0xAF34)}     ; $AC59: a 1UP game opens on background 2\n"
+                     "        JSR     PC,RENDBG             ; render + present the dojo (returns at GAME)\n")
         # per-row: seed SCRATC with the clean dojo row for ROWN (SCRBUF Spectrum ->
         # VRAM word format, inline; = SPSCR's inner pass for one row) then the fighter
         # overlay writes over it, zero cells transparent -> the dojo shows through.
@@ -3527,9 +3543,17 @@ def main_game(withbg=False):
         # (ORIGDP is only used by the demo's EXITP, which we don't include).
         engine = (engine.replace("ORIGDP: .WORD   0\n", "")
                   .replace("ORIGRC: .WORD   0\n", "")
-                  .replace("%BGDEF%", f"BG{bgn}DEF").replace("%BGN%", str(bgn)))
+                  .replace("BGREF:  .WORD   0                       ; selected background (1..3)\n", "")
+                  .replace("%BGN%", str(bgn)))
+        # Change_Background's reference dispatch ($5F3C..$5F52): BGREF 1..3 picks
+        # the definition table.  BGREF/BGTAB live in banks 0-1 (always mapped).
+        assert engine.count("        MOV     #%BGDEF%,R1") == 1
+        engine = engine.replace(
+            "        MOV     #%BGDEF%,R1            ; definition for the built-in background\n",
+            "        MOV     BGREF,R1               ; background reference 1..3 ($5F00)\n"
+            "        ASL     R1\n"
+            "        MOV     BGTAB-2(R1),R1         ; -> its definition table\n")
         rows = gen_fist.spectrum_row_offsets()
-        bg = BackgroundData(bgn)
         # The dojo engine + bg data + SROWS + SCRBUF live at 0100000 in the PRIMARY
         # banks 4-6 (embedded in the .SAV), which the compositor's 3377 banking makes
         # visible; the GST loads into the EXTENDED banks 12-14 at the same window
@@ -3581,7 +3605,6 @@ BDB2:    MOVB    (R5)+,R4
 """)
         bgsrc = ("\n        .ASECT\n        . = 100000\n"
                  + engine + builddb
-                 + f"\n;------ background {bgn} data ------\n" + bg.emit()
                  + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
                  # DOJOBUF: the dojo pre-converted to VRAM word format (32 cells x 192
                  # rows), built once at boot; the compositor copies a band row from here
@@ -3589,6 +3612,31 @@ BDB2:    MOVB    (R5)+,R4
                  # An address EQU (runtime RAM right above SCRBUF), NOT reserved storage,
                  # so it stays out of the .SAV image (keeps the load small).
                  + "DOJOBUF = SCRBUF+6912.\n        .EVEN\n")
+        # All three backgrounds' tables (UDGs, position + attribute streams) in
+        # the primary bank 2 at 040000: under the VRAM window, so only reachable
+        # with the window off - which is how RENDBG runs CHGBG.  RT-11 loads it
+        # as plain RAM (the monitor runs with VRAM off); it must end below BUF.
+        bgdat, bgdat_len = emit_all((1, 2, 3))
+        assert 0o40000 + bgdat_len <= BUF, f"bg data {bgdat_len} B overruns BUF {BUF:o}"
+        bgdat_src = "\n        .ASECT\n        . = 40000\n" + bgdat
+        bgvars = ("        .EVEN\nBGREF:  .WORD   0                ; background reference ($5F00), 1..3\n"
+                  "BGTAB:  .WORD   BG1DEF,BG2DEF,BG3DEF\n")
+        rendbg = f"""        ; --- RENDBG: render the background $AF34 selects and present it ($9200 ->
+        ;     Change_Background).  The bg tables sit in bank 2 (040000, under the
+        ;     VRAM window) and the engine + SCRBUF in the primary banks 4-6, so the
+        ;     render runs with every slot primary and the window OFF; the convert +
+        ;     present then run with the window on.  Returns at GAME banking. --------
+RENDBG: MOVB    {g(0xAF34)},R0
+        BIC     #177400,R0
+        MOV     R0,BGREF
+        MOV     #3177,@#DISPAT       ; all slots primary, VRAM window off
+        JSR     PC,CHGBG             ; bg tables -> SCRBUF (Spectrum format)
+        MOV     #3377,@#DISPAT       ; VRAM on @40000, banks 4-6 primary
+        JSR     PC,BUILDDB           ; SCRBUF -> DOJOBUF (VRAM word format)
+        JSR     PC,SPSCR             ; present the dojo 1:1 centred
+        MOV     #GAME,@#DISPAT
+        RTS     PC
+"""
     c408 = g(0xC408)
     # yin-yang HUD symbols (2x2 UDGs) - extracted from the snapshot ($928A full,
     # $92AA half), embedded as data like the rest of the art.
@@ -3643,31 +3691,7 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         .LOOKUP #LKAREA,#0,#DATFIL
         BCC     .+6
         JMP     LDERR
-        .READW  #LKAREA,#0,#BUF,#N1,#0
-        BCC     .+6
-        JMP     LDERR
-        MTPS    #340
-        MOVB    #EXT,@#DISPAT
-        MOV     #BUF,R0
-        MOV     #GST,R1
-        MOV     #N1,R2
-1$:     MOV     (R0)+,(R1)+
-        SOB     R2,1$
-        MOVB    #PRIM,@#DISPAT
-        MTPS    #0
-        .READW  #LKAREA,#0,#BUF,#N2,#{blk1}.
-        BCC     .+6
-        JMP     LDERR
-        MTPS    #340
-        MOVB    #EXT,@#DISPAT
-        MOV     #BUF,R0
-        MOV     #GST+N1+N1,R1
-        MOV     #N2,R2
-2$:     MOV     (R0)+,(R1)+
-        SOB     R2,2$
-        MOVB    #PRIM,@#DISPAT
-        MTPS    #0
-        .CLOSE  #0
+{ldr_reads}        .CLOSE  #0
         ; --- GST loaded; set medium video + game banking (banks 4-6 EXTENDED) ---
         MTPS    #340
         MOVB    @#SYSC,R0
@@ -4001,14 +4025,10 @@ ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter knocked into recovery? (exchang
         ;     counter (drives the status line + future per-dan background) and
         ;     cycles BGREF 1..3 so the dojo can change as ranks climb. -----------
 NXTDAN: INC     DANNO                ; next bout number / dan rank
-        INC     BGREF                ; cycle the dojo selector 1..3
-        MOVB    BGREF,R0
-        BIC     #177400,R0
-        CMP     R0,#3.
-        BLOS    1$
-        MOV     #1.,BGREF
-1$:     RTS     PC
-        ; --- HUD: the yin-yang score in a top status strip (rows 0-15).  Each fighter
+        JSR     PC,RANKTK            ; $AF27: advance the rank / background ref $AF34
+{"        JSR     PC,RENDBG            ; redraw the dojo for the new background" if withbg else ""}
+        RTS     PC
+{rendbg}        ; --- HUD: the yin-yang score in a top status strip (rows 0-15).  Each fighter
         ;     has two yin-yang slots that fill half then full as its score (SC1/SC2,
         ;     stashed from $AA01/$AA41) climbs 0..4.  The real 2x2-UDG symbol
         ;     (YYFULL/YYHALF, from the snapshot) is drawn white over the cleared strip.
@@ -4312,9 +4332,9 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "        .EVEN\nSCRBCD: .BLKB   3.\n        .EVEN\nSTIM:   .WORD   0\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
-              f"LBUF2: .BLKW  {lb_words}.\n")
+              f"LBUF2: .BLKW  {lb_words}.\n" + bgvars)
     src = (preamble + equs + driver + decrun
-           + logic + chain + tail + datblk + ldat + srows_src + bgsrc
+           + logic + chain + tail + datblk + ldat + srows_src + bgsrc + bgdat_src
            + "\n        .END    START\n")
     src = (src.replace("%NELEM%", str(nelem))
               .replace("%C408%", str(snap[0xC408]))

@@ -95,6 +95,42 @@ class BackgroundData:
         return "\n".join(out) + "\n"
 
 
+def emit_all(refs=(1, 2, 3)):
+    """MACRO-11 source for several backgrounds in one block: each definition
+    table + its data blocks (a block shared by two backgrounds is emitted
+    once).  Returns (source, byte_count) - the count is exact so the caller
+    can assert the block fits its address window."""
+    out, seen, nbytes = [], {}, 0
+    for ref in refs:
+        bd = BackgroundData(ref)
+        out.append(f"; --- Background {ref} data (extracted, relocated) ---")
+        out.append(f"BG{ref}DEF:")
+        # route the definition's labels through the shared map so a block
+        # already emitted under an earlier background is referenced, not copied
+        remap = {}
+        for addr, (label, data) in bd.blocks.items():
+            if addr not in seen:
+                seen[addr] = (label, data)
+            remap[label] = seen[addr][0]
+        dl = [remap[l] for l in bd.def_labels]
+        for i in range(0, 8, 2):
+            out.append(f"        .WORD   {dl[i]},{dl[i+1]}")
+        out.append(f"        .WORD   {dl[8]}")
+        nbytes += 18
+        for addr, (label, data) in sorted(bd.blocks.items()):
+            if seen[addr][0] != label:
+                continue
+            out.append(f"{label}:")
+            for i in range(0, len(data), 16):
+                chunk = data[i:i + 16]
+                out.append("        .BYTE   " + ",".join(f"{b}." for b in chunk))
+            nbytes += len(data)
+        out.append("        .EVEN")
+        nbytes += nbytes & 1
+        out.append("")
+    return chr(10).join(out) + chr(10), nbytes
+
+
 if __name__ == "__main__":
     bd = BackgroundData(1)
     print(bd.emit()[:800])

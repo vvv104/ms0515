@@ -21,6 +21,8 @@ extern "C" {
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -464,4 +466,117 @@ TEST_CASE("fist: yin-yang score accumulates")
     CHECK(sawWin);               // a bout was won (a fighter reached 4)
     CHECK(maxHold > 60);         // the win freezes the frame (~150-frame hold)
     CHECK(sawResetAfterWin);     // then the tally resets for the next bout
+}
+
+// The dojo follows the rank: a 1UP game opens on background 2 ($AF34 = 2), and
+// each won bout advances $AF34 (3 -> 1 -> 2 ...) and re-renders the dojo.  The
+// static rows of the picture (above the fighters' band, below the HUD strip)
+// must match the Python reference render of that background byte for byte.
+// Opt-in via FIST_BG_EXPECT_DIR = dir holding bg{1,2,3}_vram.bin (bg_expect.py).
+TEST_CASE("fist: background follows the rank")
+{
+    std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
+                sys = env("FIST_SYSTEM_DIR"), expDir = env("FIST_BG_EXPECT_DIR");
+    if (sav.empty() || dat.empty() || sys.empty() || expDir.empty()) {
+        MESSAGE("FIST game / bg-expect env not set - skipping");
+        return;
+    }
+    std::vector<std::vector<uint8_t>> expect(4);
+    for (int ref = 1; ref <= 3; ++ref) {
+        std::ifstream f(fs::path(expDir) / ("bg" + std::to_string(ref) + "_vram.bin"),
+                        std::ios::binary);
+        REQUIRE(f.good());
+        expect[ref].assign(std::istreambuf_iterator<char>(f), {});
+        REQUIRE(expect[ref].size() >= 200u * 80u);
+    }
+
+    fs::path tmp = fs::temp_directory_path() / "fist_bg_lib";
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::path boot = tmp / "boot", work = tmp / "work";
+    fs::create_directories(boot, ec);
+    fs::copy(sys, boot, fs::copy_options::recursive, ec);
+    REQUIRE_FALSE(ec);
+    fs::copy_file(sav, boot / "FIST.SAV", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(boot / "STARTS.COM", std::ios::binary);
+        s << "ASSIGN DZ1 DK\r\nR FIST\r\n";
+    }
+    fs::create_directories(work, ec);
+    fs::copy_file(dat, work / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(work / "device.rtfs", std::ios::binary);
+        s << "device: floppy\nblocks: 800\n";
+    }
+
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, (boot / "device.rtfs").string()));
+    REQUIRE(emu.mountDisk(1, (work / "device.rtfs").string()));
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool {
+            if (offerCR) { b = '\r'; offerCR = false; return true; }
+            return false;
+        },
+        [](uint8_t) -> bool { return true; });
+
+    auto &board = ms0515::internal::board(emu);
+    auto gst = [&](uint16_t spec) -> uint8_t {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        return board.mem.ram[bank * 8192 + (addr & 8191)];
+    };
+    auto poke = [&](uint16_t spec, uint8_t v) {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        board.mem.ram[bank * 8192 + (addr & 8191)] = v;
+    };
+    // Static picture rows 24..63 (below the row-6 HUD strip, above any fighter),
+    // picture columns 4..35 (the centred 256 px) -> bytes [row*80+8, row*80+72).
+    auto mismatches = [&](int ref) {
+        const uint8_t *vram = board_get_vram(&board);
+        int bad = 0;
+        for (int row = 24; row < 64; ++row)
+            for (int b = row * 80 + 8; b < row * 80 + 72; ++b)
+                if (vram[b] != expect[ref][b]) ++bad;
+        return bad;
+    };
+
+    for (int i = 0; i < 1200; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+    }
+    CHECK(gst(0xAF34) == 2);                 // $AC59: the 1UP game opens on bg 2
+    CHECK(mismatches(2) == 0);
+
+    // Win a bout (P1 lands a clean full point at 2 -> 4 = two yin-yang), wait out
+    // the win-freeze: NXTDAN -> RANKTK advances $AF34 and RENDBG redraws the dojo.
+    int expectRef = 2;
+    for (int bout = 0; bout < 4; ++bout) {
+        int before = gst(0xAF34);
+        bool changed = false;
+        for (int i = 0; i < 1500 && !changed; ++i) {
+            if (gst(0xAA01) < 4) {
+                poke(0xAA01, 2); poke(0xAA08, 2);          // P1 at 2, scored a full point
+                poke(0xAA03, 0x10); poke(0xAA43, 0);       // a clean hit (SCDET bit 4)
+                poke(0x9C28, 1);                           // knocked into recovery
+            }
+            (void)emu.stepFrame();
+            changed = gst(0xAF34) != before;
+        }
+        REQUIRE(changed);
+        expectRef = expectRef % 3 + 1;                     // $AF27: 1..3, 4 -> 1
+        CHECK(gst(0xAF34) == expectRef);
+        for (int i = 0; i < 120; ++i)                      // let the loop re-present
+            (void)emu.stepFrame();
+        int bad = mismatches(expectRef);
+        MESSAGE("bout " << bout << ": $AF34=" << (int)gst(0xAF34)
+                << " static-row mismatches vs bg" << expectRef << " = " << bad);
+        CHECK(bad == 0);
+    }
+    for (int i = 0; i < 1500; ++i)                         // and it stays stable
+        (void)emu.stepFrame();
+    CHECK(mismatches(expectRef) == 0);
 }
