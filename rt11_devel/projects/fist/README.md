@@ -99,8 +99,9 @@ the byte-exact oracles compare against the Python references.
 
 ## Running
 
-`FIST.SAV` + `FIST.DAT` also live on `src/assets/disks/omega-games.dsk`
-(next to SABOT2, the other ported game): boot it and `R FIST`.  Or mount
+`FIST.SAV` + `FIST.DAT` also live on `src/assets/disks/osa.dsk` (next to
+SABOT2, the other ported game; omega-games.dsk had 115 free blocks for the
+148 needed): boot it and `R FIST`.  Or mount
 `package/assets/disks/fist_game.dsk` in the GUI emulator and boot -
 it auto-runs `FIST` (via `STARTS.COM`).  As on the tape: the loading screen
 shows while the game state loads, then the attract demo runs (two computer
