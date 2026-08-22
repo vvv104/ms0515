@@ -210,6 +210,43 @@ def compositor(dojo_row, lb_words, ovl_ink):
         MOV     LASTTP,R0            ; include last frame's top so descents don't ghost
 61$:    MOV     R1,LASTTP
         MOV     R0,ROWN
+        ; the dirty column range, cells lo..hi-1: this frame's fighter spans
+        ; and last frame's (a cell a fighter left must get its dojo back);
+        ; every other cell of the band already holds the clean dojo.
+        MOV     #36.,R0              ; lo (36 = empty)
+        CLR     R1                   ; hi
+        TST     W1
+        BEQ     64$
+        MOV     COL1,R0
+        MOV     COL1,R1
+        ADD     W1,R1
+64$:    TST     W2
+        BEQ     66$
+        CMP     COL2,R0
+        BGE     65$
+        MOV     COL2,R0
+65$:    MOV     COL2,R3
+        ADD     W2,R3
+        CMP     R3,R1
+        BLE     66$
+        MOV     R3,R1
+66$:    MOV     R0,R4                ; this frame's span, kept for the next frame
+        MOV     R1,R5
+        CMP     PLO,R0
+        BGE     67$
+        MOV     PLO,R0
+67$:    CMP     PHI,R1
+        BLE     68$
+        MOV     PHI,R1
+68$:    MOV     R4,PLO
+        MOV     R5,PHI
+        SUB     R0,R1                ; DCNT = hi - lo cells (0 when empty)
+        BGT     74$
+        CLR     R1
+74$:    MOV     R1,DCNT
+        ASL     R0
+        MOV     R0,DLO2              ; the range's byte offset in a row
+        MOV     ROWN,R0
         MOV     R0,R2                ; VRAM row ptr = VRAM + ROWN*80
         ASL     R2
         ASL     R2
@@ -222,11 +259,12 @@ def compositor(dojo_row, lb_words, ovl_ink):
         ADD     #VRAM,R2
         MOV     #LBUF1,SRC1
         MOV     #LBUF2,SRC2
-        ; Each row is composed IN PLACE in VRAM: the clean dojo row is copied
-        ; over it, then the fighters are overlaid - a cell is never black in
-        ; between, only "dojo without the fighter" for the few microseconds
-        ; between the copy and the overlay.
-CLOOP:  {dojo_row}CCLR:   MOV     R2,R0                ; outside the dojo band: clear the row
+        ; Each row is composed in the scratch row SCRATC - the dirty range of
+        ; the clean dojo row, the fighters over it - and that range is blitted
+        ; to VRAM in one pass: every VRAM cell goes straight from its old to
+        ; its new value (no "dojo without the fighter" gap to catch, no black),
+        ; and the range is what the blit costs, not the whole row.
+CLOOP:  {dojo_row}CCLR:   MOV     #SCRATC,R0           ; outside the dojo band: clear the row
         MOV     #10.,R3              ; clear 40 words, unrolled x4 (less loop overhead)
 CCL1:   CLR     (R0)+
         CLR     (R0)+
@@ -241,7 +279,7 @@ CDDN:   MOV     ROWN,R0              ; --- fighter 1 ---
         BHIS    C1SK                 ; sprite exhausted
         MOV     W1,R3
         BEQ     C1AD                 ; off-screen width -> advance src only
-        MOV     R2,R0                ; dst = the VRAM row + COL1*2
+        MOV     #SCRATC,R0           ; dst = the scratch row + COL1*2
         MOV     COL1,R4
         ASL     R4
         ADD     R4,R0
@@ -262,7 +300,7 @@ C1SK:   MOV     ROWN,R0              ; --- fighter 2 ---
         BHIS    C2SK
         MOV     W2,R3
         BEQ     C2AD
-        MOV     R2,R0
+        MOV     #SCRATC,R0
         MOV     COL2,R4
         ASL     R4
         ADD     R4,R0
@@ -276,7 +314,13 @@ C2TR:   TST     (R0)+
         DEC     R3
         BNE     C2OV
 C2AD:   ADD     BWID2,SRC2
-C2SK:   ADD     #80.,R2              ; next screen row
+C2SK:   MOV     #SCRATC,R0           ; blit the finished row's dirty range
+        ADD     DLO2,R0
+        MOV     R2,R1
+        ADD     DLO2,R1
+        MOV     DCNT,R4
+        JSR     PC,CPYR
+        ADD     #80.,R2              ; next screen row
         INC     ROWN
         CMP     ROWN,#196.           ; the band ends with the dojo (the floor is row 194)
         BHIS    58$                  ; done -> next frame
@@ -411,6 +455,21 @@ CSTOR:  MOV     SLOT,R3
         .EVEN
 SLOTAB: .WORD   {slotab}
 """
+
+
+def cpyr():
+    """CPYR: copy R4 (0..32) words from (R0) to (R1) by jumping into an
+    unrolled copy - a short range costs no loop overhead.  Clobbers R3."""
+    return ("""        ; --- CPYR: copy R4 (0..32) words (R0) -> (R1): a jump into the unrolled
+        ;     copy, so a short range costs no loop overhead.  Clobbers R3. -----
+CPYR:   MOV     #CPYEND,R3
+        SUB     R4,R3
+        SUB     R4,R3
+        JMP     (R3)
+"""
+            + "".join("        MOV     (R0)+,(R1)+\n" for _ in range(32))
+            + """CPYEND: RTS     PC
+""")
 
 
 def geomc(fwmax):

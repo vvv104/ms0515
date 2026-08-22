@@ -127,6 +127,7 @@ def _driver(withbg, snap, lb_words, boot_code, bgn):
             + game_compose.hud_gate()
             + game_compose.sprite_cache(lb_words)
             + game_compose.geomc(FWMAX)
+            + game_compose.cpyr()
             + game_round.scoring(CAP) + game_round.decision(CAP)
             + game_round.round_end(PAUSE) + game_round.outcome(withbg)
             + game_round.inits()
@@ -187,6 +188,8 @@ def _datblk(lb_words, withbg):
               "COL1:   .WORD   0\nTOP1:   .WORD   0\nBWID1:  .WORD   0\nW1:     .WORD   0\n"
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\n"
+              "DLO2:   .WORD   0\nDCNT:   .WORD   0\nPLO:    .WORD   36.\nPHI:    .WORD   0\n"
+              "        .EVEN\nSCRATC: .BLKW   40.\n"
               "        .EVEN\nRCSHAD: .WORD   0\nSSEED:  .WORD   52525\n"
               "        .EVEN\nLASTTP: .WORD   0\nKTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\nKTG:    .WORD   0\nKTH:    .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"

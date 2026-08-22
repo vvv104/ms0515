@@ -42,9 +42,9 @@ def boot_override(bgn):
 
 
 def row():
-    """Per-row: copy the clean dojo row for ROWN (DOJOBUF, VRAM row layout)
-    straight over the VRAM row, then the fighter overlays write over it,
-    zero cells transparent -> the dojo shows through.
+    """Per-row: copy the dirty column range of the clean dojo row for ROWN
+    (DOJOBUF, VRAM row layout) into the scratch row, then the fighter
+    overlays write over it, zero cells transparent -> the dojo shows through.
     NB: R2 holds the persistent VRAM row pointer across the whole CLOOP
     iteration (set before CLOOP, advanced at C2SK) - so this must touch
     only R0/R1/R3/R4/R5 and leave R2 alone."""
@@ -62,14 +62,13 @@ def row():
         ASL     R0
         ASL     R0
         ADD     R1,R0
-        ADD     #DOJOBUF+8.,R0
-        MOV     R2,R1                ; straight into the VRAM row, past the 4-cell margin
-        ADD     #8.,R1
-"""
-            # copy the 32 clean dojo cells fully unrolled (no loop overhead per word)
-            + "".join("        MOV     (R0)+,(R1)+\n" for _ in range(32))
-            + """        BR      CDDN                 ; the 32 picture cells are rewritten in place;
-                                     ; the margins stay black (fighters are clamped to the picture)
+        ADD     #DOJOBUF,R0
+        ADD     DLO2,R0              ; only the dirty column range (DLO2 = lo*2, DCNT cells)
+        MOV     #SCRATC,R1
+        ADD     DLO2,R1
+        MOV     DCNT,R4
+        JSR     PC,CPYR              ; the clean dojo cells -> the scratch row
+        BR      CDDN
 """)
 
 
