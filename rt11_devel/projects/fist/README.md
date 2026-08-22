@@ -106,10 +106,17 @@ the opponent.
 | fire alone         |                      | nothing                |                                  |
 
 (With the fighter facing left the keypad diagonals mirror: KP7 = up+forward
-etc. - exactly the original's two table halves.)  There are no block moves:
-whether an attack connects depends on the defender's pose - crouching ducks
-high attacks, jumping clears sweeps, somersaults evade - and the score is a
-full or half yin-yang by distance.
+etc. - exactly the original's two table halves.)
+
+**Blocking** is automatic: step *back* (KP4 / Left) while the opponent's
+attack is in range and the fighter raises the matching guard - a high block
+(action 20, arm up) against high attacks, a low block (19) against low ones
+(`$9920`/`$9964`: the walk-back move 3 takes the `$A926` guard for the
+incoming attack).  The guard pose then leaves the attack out of reach (the
+reach tables are indexed by the defender's pose).  Crouching ducks high
+attacks, jumping clears sweeps, somersaults evade; a connecting hit scores a
+full or half yin-yang by distance.  The computer also holds an on-guard
+stance (18) of its own.
 
 ```
 package/ms0515.exe --disk0 package/assets/disks/fist_game.dsk

@@ -769,10 +769,17 @@ TEST_CASE("fist: match transition log (diagnostic)")
                                              std::to_string(i) + ".bin"), std::ios::binary);
         o.write(reinterpret_cast<const char *>(board_get_vram(&board)), MEM_VRAM_SIZE);
     };
+    bool holdBack = !env("FIST_MATCH_BACK").empty();   // P1 just walks back (auto-block study)
+    int blocks = 0;
     for (int i = 0; i < frames; ++i) {
         bool atk = (i / 40) % 2 == 0;
-        emu.keyPress(ms0515::Key::Space, atk);
-        emu.keyPress(ms0515::Key::Right, !atk);
+        if (holdBack) {
+            emu.keyPress(ms0515::Key::Left, true);
+        } else {
+            emu.keyPress(ms0515::Key::Space, atk);
+            emu.keyPress(ms0515::Key::Right, !atk);
+        }
+        if (gst(0xAA04) == 19 || gst(0xAA04) == 20) ++blocks;
         nowMs += 20;
         emu.keyTick(nowMs);
         (void)emu.stepFrame();
@@ -813,6 +820,7 @@ TEST_CASE("fist: match transition log (diagnostic)")
         pDan = dan; pBg = bg; pRounds = rounds; pYY = yy; pReact = react; p9c28 = c28; p9c2b = c2b;
     }
     snap(frames, "END");
+    MESSAGE("frames with P1 in a block action (19 low / 20 high): " << blocks);
     CHECK(true);
 }
 
@@ -1126,7 +1134,7 @@ TEST_CASE("fist: move catalogue (diagnostic)")
     poke(0xAA46, 0);
     auto step = [&]() { poke(0xAA45, 1); (void)emu.stepFrame(); };
     for (int i = 0; i < 60; ++i) step();
-    for (int mv = 2; mv <= 17; ++mv) {
+    for (int mv = 2; mv <= 21; ++mv) {
         poke(0xAA19, 40); poke(0xAA59, 76);          // re-centre the pair
         poke(0x9CA5, 30);                            // no clock-out during the catalogue
         for (int i = 0; i < 30; ++i) step();
