@@ -7,107 +7,123 @@ graphics, re-expressed in MS-0515 MACRO-11.
 
 The original game's code and artwork are **external, non-committed data**
 (the SAPER `K.DAT` pattern) - this repo never vendors them.  The build
-reads the original tape image and emits the MACRO-11 source.
+reads the original tape image / runtime snapshot and emits the MACRO-11
+source plus the game-state data file.
 
 ## Status
 
-**Stage 1 - display foundation (done).**  The core display primitive is in
-place: a Spectrum 256x192 framebuffer is shown 1:1 (pixel for pixel),
-centred in the MS-0515's larger 320x200 medium-resolution colour screen.
-As a runnable proof, `FIST.SAV` displays the game's loading screen and
-returns to the monitor on any key.
+**Playable 1-player game.**  `FIST_GL=gamebg` builds the standalone game:
 
-The 1:1 mapping is exact because the two machines' hardware attribute
-models coincide:
+- the whole per-frame engine (`$9745`: round timer, hit detection and
+  application for both fighters, the animation / recovery chains, the
+  computer opponent's move selection and its scratch-state context switch)
+  ported routine by routine and verified byte-exact against a Python
+  reference that was itself validated against the Z80 simulation;
+- the procedural fighter renderer (`$8833` / `$8A30` pose decoder in all
+  four modes, `$BF13` logic-to-graphics bridge, per-fighter boxes) and the
+  background engine (all three dojos), composited flicker-free over the
+  scene with the 1:1 centred Spectrum framebuffer presentation;
+- the 1UP match structure (`$AD18` round loop, `$AC5F` opponent loop):
+  exchanges end on a knockdown or the 30 s clock, clean hits score half /
+  full yin-yang, two yin-yang win the round, the clock is paid out as
+  points, two rounds beat an opponent, the rank (`NOVICE`, `1ST DAN` ..
+  `10TH DAN`) climbs and the dojo changes with it (`$AF34` -> `$9200`), a
+  lost round is game over and a new game starts;
+- a status strip (yin-yang, rank, six-digit score, clock) in an own 8x8
+  font (the original's text uses the Spectrum ROM font), sound effects on
+  timer channel 2, MS7004 keyboard control of player 1 (arrows + SPACE).
 
-| Spectrum (per 8x8 cell) | MS-0515 VRAM high byte (per 8x1 word) |
-|-------------------------|----------------------------------------|
-| bit 7 FLASH             | bit 7 F (flash)                        |
-| bit 6 BRIGHT            | bit 6 I (intensity)                    |
-| bits 5-3 PAPER (G,R,B)  | bits 5-3 G' R' B' (background)          |
-| bits 2-0 INK (G,R,B)    | bits 2-0 G R B (foreground)            |
-
-So the present routine `SPSCR` is a pure copy: VRAM word =
-`(attr_byte << 8) | pixel_byte`.  A pixel byte's bit 7 is the leftmost
-pixel on both machines, so no bit reversal is needed.  The only real work
-is de-interleaving the Spectrum screen's thirds-major row order, which
-`gen_fist.py` precomputes into the `SROWS` table.
-
-Centring: 256 px = 32 word-columns inside a 40-column MS-0515 line (a
-4-word margin each side); 192 lines inside 200 (a 4-line margin top and
-bottom).  The margin shows as a border.
-
-**Next - one-to-one routine port.**  The game engine is being translated
-subsystem by subsystem from `wotef.skool`, each routine assembled and
-verified against the source as it lands.
+Not (yet) ported: the menu / attract screen, the 2-player mode and key
+redefinition, the intro music, the winner's bow and get-up animations
+(the final frame holds instead).
 
 ## Layout
 
 ```
 rt11_devel/projects/fist/
-├── README.md         this file
-├── build.toml        declarative build manifest (macro11)
-├── FIST.MAC          generated MACRO-11 source (build artifact)
-├── FIST.SAV          built .SAV image - RUN FIST at the dot prompt
-├── validate.py       OS-oracle smoke test (boots, runs, checks clean exit)
-├── fist_screen.png   host-rendered preview of the 1:1 screen
+├── README.md          this file
+├── LAYOUT.md          the whole-game memory layout decision
+├── build.toml         declarative build manifest (macro11)
+├── FIST.MAC           generated MACRO-11 source (build artifact)
+├── FIST.SAV           built .SAV image - `R FIST` at the dot prompt
+├── GST.DAT            game-state data the loader reads (build artifact)
+├── validate.py        OS-oracle smoke test (boots, runs, checks clean exit)
 └── source/
-    ├── gen_fist.py     pre_build hook - extracts the loading screen, emits FIST.MAC
-    └── preview.py      renders the expected VRAM to PNG (display cross-check)
+    ├── gen_fist.py      pre_build hook: dispatches on FIST_MODE, emits FIST.MAC
+    ├── gamelogic_mac.py the game generator (FIST_GL=gamebg = the full game)
+    ├── gamelogic_ref.py Python reference of the game logic (validated vs the sim)
+    ├── fighter_mac.py   the fighter decoder port; decoder_ref.py its reference
+    ├── setup_ref.py     the draw set-up chain reference ($C101 / $BF13 ...)
+    ├── bg_data.py       background table extraction; bg_reference.py the engine
+    ├── bg_expect.py     expected VRAM of each background (for the lib test)
+    ├── sim_capture.py / trace_sprites.py   Z80-simulation capture tools
+    └── preview.py / render_vram.py        host-side renderers (PNG)
 ```
 
 ## Building
 
-The generator needs the original tape (not committed).  Point it at your
-WotEF checkout with `WOTEF_DIR` (default `C:\Users\voron\wotef`):
+The generator needs the original tape and runtime snapshot (not
+committed).  Point it at your WotEF checkout with `WOTEF_DIR` (default
+`C:\Users\voron\wotef`); SkoolKit 10 is used to read the snapshot.
 
 ```
-python rt11_devel/toolset/build.py rt11_devel/projects/fist/build.toml
+FIST_MODE=gamelogic FIST_GL=gamebg python rt11_devel/toolset/build.py rt11_devel/projects/fist/build.toml
 ```
 
-This runs `gen_fist.py` (emits `FIST.MAC` from the tape's loading screen),
-then assembles and links it with the real RT-11 SJ V5.04 `MACRO`/`LINK`
-inside the emulator, producing `FIST.SAV`.
+This runs `gen_fist.py` (emits `FIST.MAC` and `GST.DAT`), then assembles
+and links with the real RT-11 SJ V5.04 `MACRO`/`LINK` inside the emulator,
+producing `FIST.SAV`.  Other `FIST_GL` values build the verification
+images (single routines, the combined frame, the draw chain, demos) that
+the byte-exact oracles compare against the Python references.
 
 ## Running
 
-**Dojo demo (a karate fighter standing in the full-colour dojo):** mount
-`package/assets/disks/fist_fighter.dsk` in the GUI emulator and boot — it
-auto-runs `FIST` (via `STARTS.COM`), renders the dojo background (Buddha,
-pagoda, mountains, blossom) and overlays a karate fighter.  Any key returns to
-the dot prompt.
+Mount `package/assets/disks/fist_game.dsk` in the GUI emulator and boot -
+it auto-runs `FIST` (via `STARTS.COM`).  Player 1: arrows move / jump /
+crouch, SPACE attacks; the opponent is the computer.
 
 ```
-package/ms0515.exe --disk0 package/assets/disks/fist_fighter.dsk
+package/ms0515.exe --disk0 package/assets/disks/fist_game.dsk
 ```
 
-Build it with `FIST_MODE=gamelogic FIST_GL=demobg python rt11_devel/toolset/
-build.py rt11_devel/projects/fist/build.toml`, then refresh the disk's
-`FIST.SAV`.  `FIST_GL=demo` (without `bg`) is the plain fighter-on-black variant.
-(The full game GST overlaps RMON under RT-11, so the demo trims the GST to a low
-pose below RMON and relocates/overlaps the compose buffer to low RAM — see
-`source/gamelogic_mac.py:main_demo_bg`.)
+Refresh the disk after a build with `ms0515-disk rm` + `put` (not
+`squeeze`) of `FIST.SAV` and `GST.DAT`, and verify with `get` + compare.
+The game must be started as a command (`R FIST`), not `RUN FIST` - the
+loader's file I/O (`.LOOKUP`/`.READW`) is rejected under `RUN`.
 
-**Loading-screen demo:** mount `package/assets/disks/fist_demo.dsk`, boot, and
-at the dot prompt `RUN FIST`.  Press any key to return to the monitor.
+## Memory layout (runtime)
 
-To preview the screen without the emulator:
+See `LAYOUT.md` for the decision; the live game uses:
+
+| octal            | banks   | holds                                          |
+|------------------|---------|------------------------------------------------|
+| 01000-037777     | 0-1     | code, per-fighter compose copies, stack         |
+| 040000-057777    | 2       | the three backgrounds' tables (read with the VRAM window off) |
+| 060000-077777    | 3       | `GST.DAT` read buffer (top 4 KB) during the load |
+| 040000-077777    | VRAM    | the video window while the game runs (03217 / 03377) |
+| 0100000-0157777  | 4-6     | background engine + `SCRBUF` + `DOJOBUF` (primary) |
+| 0100000-0157777  | 12-14   | the game state `$9C00..$F801` (extended, from `GST.DAT`) |
+
+One dispatcher bit flips slots 4-6 between the dojo (primary) and the game
+state (extended); the logic and the decode run at 03217, the compositor
+and the HUD at 03377.
+
+## Tests
+
+`src/lib/tests/test_fist_game.cpp` boots the game headlessly on a folder
+device and checks it from the outside (VRAM + the extended-bank state):
+render, forced-score HUD, keyboard, scoring over a long fight, and that
+the background follows the rank pixel-exactly (needs `bg_expect.py`'s
+dumps).  All opt in through env vars:
 
 ```
-python rt11_devel/projects/fist/source/preview.py fist_screen.png
+FIST_GAME_SAV=rt11_devel/projects/fist/FIST.SAV FIST_GAME_DAT=rt11_devel/projects/fist/GST.DAT \
+FIST_SYSTEM_DIR=rt11_devel/toolset/system FIST_BG_EXPECT_DIR=rt11_devel/projects/fist \
+FIST_GAME_VRAM_OUT=rt11_devel/projects/fist/game_run.bin \
+src/build/Release/lib/tests/ms0515_lib_tests.exe --test-case="fist: *"
 ```
 
-## Pixel-exact verification (VRAM oracle)
-
-`src/lib/tests/test_fist_screen.cpp` runs the built `FIST.SAV` in the real
-emulator (headless) and dumps the 16 KB VRAM, giving pixel-exact proof of
-what the MACRO-11 code actually draws.  After building `FIST.SAV` and the
-test suite (`cd src && conan build . --build=missing`):
-
-```
-src/build/Release/lib/tests/ms0515_lib_tests.exe --test-case="fist: VRAM oracle"
-python rt11_devel/projects/fist/source/render_vram.py \
-    src/build/Release/lib/tests/fist_vram.bin fist_emu_vram.png
-```
-
-The test skips itself when `FIST.SAV` is absent.
+`FIST_DSK=package/assets/disks/fist_game.dsk` additionally boots the real
+disk.  `render_vram.py` turns a VRAM dump into a PNG to eyeball a frame.
+`test_fist_screen.cpp` is the byte-exact oracle the verification images
+use (loads a `.SAV` directly, runs it, compares windows of memory).
