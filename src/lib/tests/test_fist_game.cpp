@@ -741,3 +741,77 @@ TEST_CASE("fist: match transition log (diagnostic)")
     snap(frames, "END");
     CHECK(true);
 }
+
+// Profiler (opt-in via FIST_PROFILE_OUT=<file>): boot the game, then single-step
+// the CPU for FIST_PROFILE_STEPS instructions (default 3M) while a fight runs,
+// and write a histogram of the PC (one line per distinct PC, "octal count").
+TEST_CASE("fist: PC profile (diagnostic)")
+{
+    std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
+                sys = env("FIST_SYSTEM_DIR"), outPath = env("FIST_PROFILE_OUT");
+    if (sav.empty() || dat.empty() || sys.empty() || outPath.empty()) {
+        MESSAGE("FIST_PROFILE_OUT not set - skipping");
+        return;
+    }
+    fs::path tmp = fs::temp_directory_path() / "fist_prof_lib";
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::path boot = tmp / "boot", work = tmp / "work";
+    fs::create_directories(boot, ec);
+    fs::copy(sys, boot, fs::copy_options::recursive, ec);
+    REQUIRE_FALSE(ec);
+    fs::copy_file(sav, boot / "FIST.SAV", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(boot / "STARTS.COM", std::ios::binary);
+        s << "ASSIGN DZ1 DK\r\nR FIST\r\n";
+    }
+    fs::create_directories(work, ec);
+    fs::copy_file(dat, work / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(work / "device.rtfs", std::ios::binary);
+        s << "device: floppy\nblocks: 800\n";
+    }
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, (boot / "device.rtfs").string()));
+    REQUIRE(emu.mountDisk(1, (work / "device.rtfs").string()));
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool {
+            if (offerCR) { b = '\r'; offerCR = false; return true; }
+            return false;
+        },
+        [](uint8_t) -> bool { return true; });
+    for (int i = 0; i < 1500; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+    }
+    emu.keyPress(ms0515::Key::Right, true);       // P1 walks in so a fight happens
+    for (int i = 0; i < 300; ++i) (void)emu.stepFrame();
+    emu.keyPress(ms0515::Key::Right, false);
+    auto &board = ms0515::internal::board(emu);
+    auto &cpu = ms0515::internal::cpu(emu);
+    std::string se = env("FIST_PROFILE_STEPS");
+    long steps = se.empty() ? 3000000L : std::atol(se.c_str());
+    std::vector<uint32_t> hist(65536, 0);
+    // Sample during a real fight: P1 alternates attacking / approaching (as the
+    // scoring test does) so both fighters animate, with the keyboard clock ticking.
+    uint32_t nowMs = 0;
+    for (long i = 0; i < steps; ++i) {
+        if (i % 20000 == 0) {
+            bool atk = (i / 800000) % 2 == 0;
+            emu.keyPress(ms0515::Key::Space, atk);
+            emu.keyPress(ms0515::Key::Right, !atk);
+            nowMs += 60;
+            emu.keyTick(nowMs);
+            (void)emu.stepFrame();          // let the devices (keyboard UART) tick
+        }
+        hist[cpu_get_pc(&cpu)]++;
+        board_step_cpu(&board);
+    }
+    std::ofstream o(outPath);
+    for (int pc = 0; pc < 65536; ++pc)
+        if (hist[pc]) o << std::oct << pc << ' ' << std::dec << hist[pc] << '\n';
+    CHECK(true);
+}

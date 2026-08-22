@@ -3520,9 +3520,9 @@ def main_game(withbg=False):
         # touch only R0/R1/R3/R4/R5 and leave R2 alone.
         dojo_row = ("""        MOV     ROWN,R4              ; dojo row: y = ROWN - TMARG
         SUB     #TMARG,R4
-        BLT     CDDN                 ; above the dojo band -> leave black
+        BLT     CCLR                 ; above the dojo band -> clear the row
         CMP     R4,#192.
-        BGE     CDDN                 ; below the dojo band -> leave black
+        BGE     CCLR                 ; below the dojo band -> clear the row
         MOV     R4,R0                ; src = DOJOBUF + y*80 + 8 (pre-converted, VRAM row layout)
         ASL     R0
         ASL     R0
@@ -3537,7 +3537,9 @@ def main_game(withbg=False):
 """
         # copy the 32 clean dojo cells fully unrolled (no loop overhead per word)
         + "".join("        MOV     (R0)+,(R1)+\n" for _ in range(32))
-        + """CDDN:   """)
+        + """        BR      CDDN                 ; the 32 picture cells are rewritten; the
+                                     ; margins stay zero (fighters are clamped to the picture)
+""")
         eng_start = gen_fist.PROGRAM.index(
             ";-------------------------------------------------------------------\n; CHGBG")
         engine = gen_fist.PROGRAM[eng_start:]
@@ -3649,6 +3651,7 @@ RENDBG: MOVB    {g(0xAF34)},R0
         MOV     #3377,@#DISPAT       ; VRAM on @40000, banks 4-6 primary
         JSR     PC,BUILDDB           ; SCRBUF -> DOJOBUF (VRAM word format)
         JSR     PC,SPSCR             ; present the dojo 1:1 centred
+        MOV     #1,HUDDRT            ; the strip was wiped: redraw it next frame
         MOV     #GAME,@#DISPAT
         RTS     PC
 """
@@ -3794,6 +3797,47 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         JSR     PC,SNDFX             ; start the effect (timer ch2 tone)
         CLRB    {g(0xB150)}          ; ($B15A clears it after playing)
 81$:    ; --- Fighter 1: clear FBUF, decode box A, stash its box, copy to LBUF1 ---
+        ; Decode cache: the draw set-up ($C101 / $C1A2) reads only these render
+        ; cells (box, sprite origin, pose record, facing, mode); when none changed
+        ; since the last decode, LBUF1 / RW1 / RT1 / RL1 still hold its result.
+        CMPB    {g(0xc41b)},KEY1+0.
+        BNE     87$
+        CMPB    {g(0xc41c)},KEY1+1.
+        BNE     87$
+        CMPB    {g(0xc41f)},KEY1+2.
+        BNE     87$
+        CMPB    {g(0xc421)},KEY1+3.
+        BNE     87$
+        CMPB    {g(0xc428)},KEY1+4.
+        BNE     87$
+        CMPB    {g(0xc429)},KEY1+5.
+        BNE     87$
+        CMPB    {g(0xc434)},KEY1+6.
+        BNE     87$
+        CMPB    {g(0xc435)},KEY1+7.
+        BNE     87$
+        CMPB    {g(0xc436)},KEY1+8.
+        BNE     87$
+        CMPB    {g(0xc437)},KEY1+9.
+        BNE     87$
+        CMPB    {g(0xc407)},KEY1+10.
+        BNE     87$
+        CMPB    {g(0xc40e)},KEY1+11.
+        BNE     87$
+        BR      86$
+87$:        MOVB    {g(0xc41b)},KEY1+0.
+        MOVB    {g(0xc41c)},KEY1+1.
+        MOVB    {g(0xc41f)},KEY1+2.
+        MOVB    {g(0xc421)},KEY1+3.
+        MOVB    {g(0xc428)},KEY1+4.
+        MOVB    {g(0xc429)},KEY1+5.
+        MOVB    {g(0xc434)},KEY1+6.
+        MOVB    {g(0xc435)},KEY1+7.
+        MOVB    {g(0xc436)},KEY1+8.
+        MOVB    {g(0xc437)},KEY1+9.
+        MOVB    {g(0xc407)},KEY1+10.
+        MOVB    {g(0xc40e)},KEY1+11.
+
         MOV     #FBUF,R0
         MOV     #{lb_words}.,R1
 5$:     CLR     (R0)+
@@ -3823,7 +3867,45 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
 62$:    MOV     (R1)+,(R0)+
         DEC     R2
         BNE     62$
-        ; --- Fighter 2: clear FBUF, decode box B, stash its box, copy to LBUF2 ---
+86$:    ; --- Fighter 2: clear FBUF, decode box B, stash its box, copy to LBUF2 ---
+        CMPB    {g(0xc41d)},KEY2+0.
+        BNE     89$
+        CMPB    {g(0xc41e)},KEY2+1.
+        BNE     89$
+        CMPB    {g(0xc420)},KEY2+2.
+        BNE     89$
+        CMPB    {g(0xc422)},KEY2+3.
+        BNE     89$
+        CMPB    {g(0xc42a)},KEY2+4.
+        BNE     89$
+        CMPB    {g(0xc42b)},KEY2+5.
+        BNE     89$
+        CMPB    {g(0xc438)},KEY2+6.
+        BNE     89$
+        CMPB    {g(0xc439)},KEY2+7.
+        BNE     89$
+        CMPB    {g(0xc43a)},KEY2+8.
+        BNE     89$
+        CMPB    {g(0xc43b)},KEY2+9.
+        BNE     89$
+        CMPB    {g(0xc407)},KEY2+10.
+        BNE     89$
+        CMPB    {g(0xc40e)},KEY2+11.
+        BNE     89$
+        BR      88$
+89$:        MOVB    {g(0xc41d)},KEY2+0.
+        MOVB    {g(0xc41e)},KEY2+1.
+        MOVB    {g(0xc420)},KEY2+2.
+        MOVB    {g(0xc422)},KEY2+3.
+        MOVB    {g(0xc42a)},KEY2+4.
+        MOVB    {g(0xc42b)},KEY2+5.
+        MOVB    {g(0xc438)},KEY2+6.
+        MOVB    {g(0xc439)},KEY2+7.
+        MOVB    {g(0xc43a)},KEY2+8.
+        MOVB    {g(0xc43b)},KEY2+9.
+        MOVB    {g(0xc407)},KEY2+10.
+        MOVB    {g(0xc40e)},KEY2+11.
+
         MOV     #FBUF,R0
         MOV     #{lb_words}.,R1
 56$:    CLR     (R0)+
@@ -3853,7 +3935,7 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
 72$:    MOV     (R1)+,(R0)+
         DEC     R2
         BNE     72$
-        ; --- on-screen geometry for both fighters (each clamped to the screen) ---
+88$:    ; --- on-screen geometry for both fighters (each clamped to the screen) ---
         MOV     RW1,R3               ; fighter 1: raw width / top / left -> COL1/TOP1/BWID1/W1
         MOV     RT1,R4
         MOV     RL1,R5
@@ -3902,15 +3984,15 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         ADD     #VRAM,R2
         MOV     #LBUF1,SRC1
         MOV     #LBUF2,SRC2
-CLOOP:  MOV     #SCRATC,R0           ; build the row off-screen (no black flash in VRAM)
+CLOOP:  {dojo_row}CCLR:   MOV     #SCRATC,R0           ; build the row off-screen (no black flash in VRAM)
         MOV     #10.,R3              ; clear 40 words, unrolled x4 (less loop overhead)
-CCLR:   CLR     (R0)+
+CCL1:   CLR     (R0)+
         CLR     (R0)+
         CLR     (R0)+
         CLR     (R0)+
         DEC     R3
-        BNE     CCLR
-{dojo_row}        MOV     ROWN,R0              ; --- fighter 1 ---
+        BNE     CCL1
+CDDN:   MOV     ROWN,R0              ; --- fighter 1 ---
         CMP     R0,TOP1
         BLO     C1SK                 ; row above the sprite
         CMP     SRC1,#LBUF1+{lb_words}.*2
@@ -3952,9 +4034,10 @@ C2TR:   TST     (R0)+
         DEC     R3
         BNE     C2OV
 C2AD:   ADD     BWID2,SRC2
-C2SK:   MOV     #SCRATC,R0           ; blit the finished row to VRAM in one pass:
-        MOV     R2,R1                ; cells go old->new directly, never black
-        MOV     #10.,R3              ; copy 40 words, unrolled x4
+C2SK:   MOV     #SCRATC+8.,R0        ; blit the finished row's 32 picture cells to VRAM
+        MOV     R2,R1                ; in one pass (old->new directly, never black);
+        ADD     #8.,R1               ; the VRAM margins stay black from the start-up clear
+        MOV     #8.,R3               ; copy 32 words, unrolled x4
 CCPY:   MOV     (R0)+,(R1)+
         MOV     (R0)+,(R1)+
         MOV     (R0)+,(R1)+
@@ -3963,10 +4046,37 @@ CCPY:   MOV     (R0)+,(R1)+
         BNE     CCPY
         ADD     #80.,R2              ; next screen row
         INC     ROWN
-        CMP     ROWN,#200.
+        CMP     ROWN,#196.           ; the band ends with the dojo (the floor is row 194)
         BHIS    58$                  ; done -> next frame
         JMP     CLOOP                ; (JMP: CLOOP is out of branch range)
-58$:    JSR     PC,HUD               ; draw the yin-yang score bar (top border)
+        ; --- status strip: redrawn only when a shown value changed (or the dojo
+        ;     was re-presented, HUDDRT) - it is ~7% of a frame otherwise ---
+58$:    TST     HUDDRT
+        BNE     59$
+        CMPB    SC1,HUDK
+        BNE     59$
+        CMPB    SC2,HUDK+1.
+        BNE     59$
+        CMPB    SCRBCD,HUDK+2.
+        BNE     59$
+        CMPB    SCRBCD+1.,HUDK+3.
+        BNE     59$
+        CMPB    SCRBCD+2.,HUDK+4.
+        BNE     59$
+        CMPB    STIM,HUDK+5.
+        BNE     59$
+        CMPB    RANKB,HUDK+6.
+        BNE     59$
+        JMP     GLOOP
+59$:    MOVB    SC1,HUDK
+        MOVB    SC2,HUDK+1.
+        MOVB    SCRBCD,HUDK+2.
+        MOVB    SCRBCD+1.,HUDK+3.
+        MOVB    SCRBCD+2.,HUDK+4.
+        MOVB    STIM,HUDK+5.
+        MOVB    RANKB,HUDK+6.
+        CLR     HUDDRT
+        JSR     PC,HUD               ; draw the yin-yang score bar (top border)
         JSR     PC,DRWSCR            ; draw the numeric score across the top strip
         JSR     PC,DRWTIM            ; draw the round timer beside it
         JSR     PC,DRWRNK            ; draw the rank ("NOVICE" / "1ST DAN" ...) at the left
@@ -3986,7 +4096,7 @@ GEOMC:  MOV     R5,R0                ; col = (left >> 2) + 4
         CMP     R2,#{fwmax}.
         BLE     1$
         MOV     #{fwmax}.,R2
-1$:     MOV     #40.,R5              ; W = min(BWID, 40 - col)
+1$:     MOV     #36.,R5              ; W = min(BWID, 36 - col): clip to the picture
         SUB     R0,R5
         MOV     R2,R3
         CMP     R3,R5
@@ -4509,13 +4619,26 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRANKB:  .WORD   0\nRANKS:  .BLKB   10.\n"
+              "        .EVEN\nKEY1:   .BLKB   12.\nKEY2:   .BLKB   12.\n"
+              "        .EVEN\nHUDDRT: .WORD   1\nHUDK:   .BLKB   8.\n"
               "        .EVEN\nSCRBCD: .BLKB   3.\n        .EVEN\nSTIM:   .WORD   0\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n" + bgvars)
-    src = (preamble + equs + driver + decrun
-           + logic + chain + tail + datblk + ldat + srows_src + bgsrc + bgdat_src
-           + "\n        .END    START\n")
+    body = (preamble + equs + driver + decrun
+            + logic + chain + tail + datblk + ldat + srows_src)
+    # FIST_SYMTAB=1: append a self-describing symbol table (marker words, count,
+    # then every global label's address) so a profiler can map sampled PCs to
+    # routines without a LINK map; the names go to symtab.json in the same order.
+    symtab = ""
+    if os.environ.get("FIST_SYMTAB"):
+        import re, json
+        names = list(dict.fromkeys(re.findall(r"^([A-Z][A-Z0-9.$]*):", body + bgsrc, re.M)))
+        symtab = ("\n        .EVEN\nSYMTAB: .WORD   125252,52525," + f"{len(names)}.\n"
+                  + "".join(f"        .WORD   {','.join(names[i:i + 8])}\n"
+                            for i in range(0, len(names), 8)))
+        (OUT_MAC.parent / "symtab.json").write_text(json.dumps(names))
+    src = body + symtab + bgsrc + bgdat_src + "\n        .END    START\n"
     src = (src.replace("%NELEM%", str(nelem))
               .replace("%C408%", str(snap[0xC408]))
               .replace("%C40E%", str(snap[0xC40E])).replace("%C407%", str(snap[0xC407]))
