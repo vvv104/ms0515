@@ -633,3 +633,105 @@ TEST_CASE("fist: background follows the rank")
         (void)emu.stepFrame();
     CHECK(mismatches(2) == 0);
 }
+
+// Diagnostic (opt-in via FIST_MATCH_LOG=<file>): drive a long real fight and log
+// every match-state transition - rank, background, rounds, tallies, the two
+// fighters' actions/reactions - to see what the match loop does at a round end.
+TEST_CASE("fist: match transition log (diagnostic)")
+{
+    std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
+                sys = env("FIST_SYSTEM_DIR"), logPath = env("FIST_MATCH_LOG");
+    if (sav.empty() || dat.empty() || sys.empty() || logPath.empty()) {
+        MESSAGE("FIST_MATCH_LOG not set - skipping");
+        return;
+    }
+    fs::path tmp = fs::temp_directory_path() / "fist_match_lib";
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::path boot = tmp / "boot", work = tmp / "work";
+    fs::create_directories(boot, ec);
+    fs::copy(sys, boot, fs::copy_options::recursive, ec);
+    REQUIRE_FALSE(ec);
+    fs::copy_file(sav, boot / "FIST.SAV", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(boot / "STARTS.COM", std::ios::binary);
+        s << "ASSIGN DZ1 DK\r\nR FIST\r\n";
+    }
+    fs::create_directories(work, ec);
+    fs::copy_file(dat, work / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(work / "device.rtfs", std::ios::binary);
+        s << "device: floppy\nblocks: 800\n";
+    }
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, (boot / "device.rtfs").string()));
+    REQUIRE(emu.mountDisk(1, (work / "device.rtfs").string()));
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool {
+            if (offerCR) { b = '\r'; offerCR = false; return true; }
+            return false;
+        },
+        [](uint8_t) -> bool { return true; });
+    auto &board = ms0515::internal::board(emu);
+    auto gst = [&](uint16_t spec) -> uint8_t {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        return board.mem.ram[bank * 8192 + (addr & 8191)];
+    };
+    for (int i = 0; i < 1200; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+    }
+    std::ofstream log(logPath);
+    auto snap = [&](int i, const char *why) {
+        log << i << ' ' << why << " dan=" << (int)gst(0xB05F) << " bg=" << (int)gst(0xAF34)
+            << " rounds=" << (int)gst(0xAA3C) << " setup=" << (int)gst(0xAF35)
+            << " yy=" << (int)gst(0xAA01) << "/" << (int)gst(0xAA41)
+            << " pts=" << (int)gst(0xAA02) << "/" << (int)gst(0xAA42)
+            << " act=" << (int)gst(0xAA04) << "/" << (int)gst(0xAA44)
+            << " react=" << (int)gst(0xAA03) << "/" << (int)gst(0xAA43)
+            << " 9C28=" << (int)gst(0x9C28) << " 9C2B=" << (int)gst(0x9C2B)
+            << " clock=" << (int)gst(0x9CA5) << " x=" << (int)gst(0xAA19) << "/" << (int)gst(0xAA59)
+            << " score=" << std::hex << (int)gst(0xB02F) << (int)gst(0xB02E) << (int)gst(0xB02D)
+            << std::dec << '\n';
+    };
+    uint32_t nowMs = 0;
+    int frames = 90000;
+    std::string fe = env("FIST_GAME_FRAMES");
+    if (!fe.empty()) frames = std::atoi(fe.c_str());
+    int pDan = -1, pBg = -1, pRounds = -1, pYY = -1, pReact = -1, p9c28 = -1, p9c2b = -1;
+    std::string dumpDir = env("FIST_MATCH_DUMPS");        // optional VRAM frames at events
+    int dumpAt = -1, dumpN = 0;
+    auto dump = [&](int i, const char *tag) {
+        if (dumpDir.empty()) return;
+        std::ofstream o(fs::path(dumpDir) / ("m" + std::to_string(dumpN++) + "_" + tag + "_" +
+                                             std::to_string(i) + ".bin"), std::ios::binary);
+        o.write(reinterpret_cast<const char *>(board_get_vram(&board)), MEM_VRAM_SIZE);
+    };
+    for (int i = 0; i < frames; ++i) {
+        bool atk = (i / 40) % 2 == 0;
+        emu.keyPress(ms0515::Key::Space, atk);
+        emu.keyPress(ms0515::Key::Right, !atk);
+        nowMs += 20;
+        emu.keyTick(nowMs);
+        (void)emu.stepFrame();
+        int dan = gst(0xB05F), bg = gst(0xAF34), rounds = gst(0xAA3C);
+        int yy = gst(0xAA01) * 16 + gst(0xAA41);
+        int react = gst(0xAA03) * 256 + gst(0xAA43);
+        int c28 = gst(0x9C28), c2b = gst(0x9C2B);
+        if (dan != pDan) { snap(i, "DAN"); dump(i, "dan"); dumpAt = i; }
+        else if (bg != pBg) snap(i, "BG");
+        else if (rounds != pRounds) { snap(i, "ROUNDS"); dump(i, "rounds"); dumpAt = i; }
+        if (dumpAt >= 0 && (i == dumpAt + 60 || i == dumpAt + 400)) dump(i, "after");
+        if (c2b && !p9c2b) { dump(i, "timeout"); }
+        else if (yy != pYY) snap(i, "YY");
+        else if (c28 != p9c28 || c2b != p9c2b) snap(i, "FLAG");
+        else if (react != pReact && react != 0) snap(i, "REACT");
+        pDan = dan; pBg = bg; pRounds = rounds; pYY = yy; pReact = react; p9c28 = c28; p9c2b = c2b;
+    }
+    snap(frames, "END");
+    CHECK(true);
+}
