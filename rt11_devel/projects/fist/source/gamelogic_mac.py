@@ -3592,12 +3592,12 @@ def main_game(withbg=False):
         # render the dojo once, right after the VRAM clear (banking already GAME 3217)
         if "FGHT_BG" in os.environ:                # override the opening background
             dojo_boot = f"        MOVB    #{bgn}.,{g(0xAF34)}     ; FGHT_BG: opening background override\n"
-        # per-row: seed SCRATC with the clean dojo row for ROWN (SCRBUF Spectrum ->
-        # VRAM word format, inline; = SPSCR's inner pass for one row) then the fighter
-        # overlay writes over it, zero cells transparent -> the dojo shows through.
+        # per-row: copy the clean dojo row for ROWN (DOJOBUF, VRAM word format)
+        # straight over the VRAM row, then the fighter overlays write over it,
+        # zero cells transparent -> the dojo shows through.
         # NB: R2 holds the persistent VRAM row pointer across the whole CLOOP
-        # iteration (set before CLOOP, consumed by the C2SK blit) - so this must
-        # touch only R0/R1/R3/R4/R5 and leave R2 alone.
+        # iteration (set before CLOOP, advanced at C2SK) - so this must touch
+        # only R0/R1/R3/R4/R5 and leave R2 alone.
         dojo_row = ("""        MOV     ROWN,R4              ; dojo row: y = ROWN - TMARG
         SUB     #TMARG,R4
         BLT     CCLR                 ; above the dojo band -> clear the row
@@ -3613,12 +3613,13 @@ def main_game(withbg=False):
         ASL     R0
         ADD     R1,R0
         ADD     #DOJOBUF+8.,R0
-        MOV     #SCRATC+8.,R1        ; LMARG = 8 bytes (4 word-cells) left margin
+        MOV     R2,R1                ; straight into the VRAM row, past the 4-cell margin
+        ADD     #8.,R1
 """
         # copy the 32 clean dojo cells fully unrolled (no loop overhead per word)
         + "".join("        MOV     (R0)+,(R1)+\n" for _ in range(32))
-        + """        BR      CDDN                 ; the 32 picture cells are rewritten; the
-                                     ; margins stay zero (fighters are clamped to the picture)
+        + """        BR      CDDN                 ; the 32 picture cells are rewritten in place;
+                                     ; the margins stay black (fighters are clamped to the picture)
 """)
         eng_start = gen_fist.PROGRAM.index(
             ";-------------------------------------------------------------------\n; CHGBG")
@@ -4144,7 +4145,11 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         ADD     #VRAM,R2
         MOV     #LBUF1,SRC1
         MOV     #LBUF2,SRC2
-CLOOP:  {dojo_row}CCLR:   MOV     #SCRATC,R0           ; build the row off-screen (no black flash in VRAM)
+        ; Each row is composed IN PLACE in VRAM: the clean dojo row is copied
+        ; over it, then the fighters are overlaid - a cell is never black in
+        ; between, only "dojo without the fighter" for the few microseconds
+        ; between the copy and the overlay.
+CLOOP:  {dojo_row}CCLR:   MOV     R2,R0                ; outside the dojo band: clear the row
         MOV     #10.,R3              ; clear 40 words, unrolled x4 (less loop overhead)
 CCL1:   CLR     (R0)+
         CLR     (R0)+
@@ -4159,7 +4164,7 @@ CDDN:   MOV     ROWN,R0              ; --- fighter 1 ---
         BHIS    C1SK                 ; sprite exhausted
         MOV     W1,R3
         BEQ     C1AD                 ; off-screen width -> advance src only
-        MOV     #SCRATC,R0           ; dst = scratch + COL1*2
+        MOV     R2,R0                ; dst = the VRAM row + COL1*2
         MOV     COL1,R4
         ASL     R4
         ADD     R4,R0
@@ -4180,7 +4185,7 @@ C1SK:   MOV     ROWN,R0              ; --- fighter 2 ---
         BHIS    C2SK
         MOV     W2,R3
         BEQ     C2AD
-        MOV     #SCRATC,R0
+        MOV     R2,R0
         MOV     COL2,R4
         ASL     R4
         ADD     R4,R0
@@ -4194,17 +4199,7 @@ C2TR:   TST     (R0)+
         DEC     R3
         BNE     C2OV
 C2AD:   ADD     BWID2,SRC2
-C2SK:   MOV     #SCRATC+8.,R0        ; blit the finished row's 32 picture cells to VRAM
-        MOV     R2,R1                ; in one pass (old->new directly, never black);
-        ADD     #8.,R1               ; the VRAM margins stay black from the start-up clear
-        MOV     #8.,R3               ; copy 32 words, unrolled x4
-CCPY:   MOV     (R0)+,(R1)+
-        MOV     (R0)+,(R1)+
-        MOV     (R0)+,(R1)+
-        MOV     (R0)+,(R1)+
-        DEC     R3
-        BNE     CCPY
-        ADD     #80.,R2              ; next screen row
+C2SK:   ADD     #80.,R2              ; next screen row
         INC     ROWN
         CMP     ROWN,#196.           ; the band ends with the dojo (the floor is row 194)
         BHIS    58$                  ; done -> next frame
@@ -5066,8 +5061,7 @@ C98A0:  BIT     #40,R0
               "        .EVEN\nCKEY:   .BLKB   6.\nSLOT:   .WORD   0\n"
               "        .EVEN\nHUDDRT: .WORD   1\nHUDK:   .BLKB   8.\n"
               "        .EVEN\nSCRBCD: .BLKB   3.\n        .EVEN\nSTIM:   .WORD   0\n"
-              "        .EVEN\nSCRATC: .BLKW   40.\n"
-              f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
+                            f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n" + bgvars)
     body = (preamble + equs + driver + decrun
             + logic + chain + tail + datblk + ldat + srows_src)
