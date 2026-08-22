@@ -13,6 +13,7 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **CLI** (`src/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer.
 - **Frontend** (`src/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
 - **Disk** (`src/disk/`) — Offline RT-11 / MS-0515 disk-image library (lib `ms0515_disk`): LBN→byte geometry mirroring the emulator FDC, directory parse, file read, and volume create/init/put/rm/squeeze + per-entry protect/date metadata. No emulator dependency.
+- **Web** (`src/web/`) — The browser build: the core + lib compiled with Emscripten behind a flat C API (`ms0515_web.cpp`), a static page (`www/`) that runs the machine in the tab, a Node smoke test. Configured only under the Emscripten toolchain (`src/profiles/emscripten`); no host layers.
 - **Tools** (`src/tools/`) — Standalone offline binaries over the libs. `tools/disk/` builds `ms0515-disk` (`create/init/put/rm/squeeze/protect/unprotect/get/dir/split/merge`). Heuristic recovery (consensus/donor) stays out — see `disk_recovery/`.
 
 ## Key rules
@@ -46,6 +47,8 @@ src/                — emulator source code and build files
   disk/             — offline RT-11 disk-image lib (Layout, Directory, Image, Build)
   disk/tests/       — disk lib unit tests
   tools/disk/       — ms0515-disk binary (offline disk utility)
+  web/              — browser build: C API shim, www/ page, smoke.mjs (Emscripten only)
+  profiles/         — Conan host profiles (emscripten)
   platform/cli/     — CLI host abstractions (Platform_unix.cpp / Platform_win32.cpp)
   platform/gui/     — GUI host abstractions (file dialogs, fonts, console attach) + tests/
   cli/              — text-mode binary (main.cpp, StdioBridge, Koi8)

@@ -27,6 +27,9 @@ T-11), produced in the late 1980s.
 - Save / load state snapshots (Machine menu)
 - YAML config file for persistent settings
 - Boots RT-11 and its Soviet derivatives (OSA, Omega, Mihinsoft OS-16SJ)
+- Runs in the browser too: the core and the lib compiled with Emscripten
+  behind a small C API and a static page (`src/web/`) - the machine runs
+  in the tab, disks the guest writes to stay in the browser's storage
 - Guest programs built with the real RT-11 toolchain inside the emulator
   (`rt11_devel/`): a faithful MACRO-11 port of *The Way of the Exploding
   Fist* (`rt11_devel/projects/fist/`), playable from `assets/disks/osa.dsk`
