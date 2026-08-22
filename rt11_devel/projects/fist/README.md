@@ -34,9 +34,9 @@ source plus the game-state data file.
   reg C bit 5 bit-banged as the original's beeper effects, MS7004 keyboard
   control of player 1 (8 directions + fire, see Controls).
 
-Not (yet) ported: the menu / attract screen, the 2-player mode and key
-redefinition, the intro music, the winner's bow and get-up animations
-(the final frame holds instead).
+Not (yet) ported: the options screen ("0": key redefinition / sound), the
+2-player mode, the in-game quit ("G"+"H"), the high-score table, the intro
+music, the get-up animation after a knockdown (the frame holds instead).
 
 ## Layout
 
@@ -80,8 +80,12 @@ the byte-exact oracles compare against the Python references.
 ## Running
 
 Mount `package/assets/disks/fist_game.dsk` in the GUI emulator and boot -
-it auto-runs `FIST` (via `STARTS.COM`).  Player 1 is the human, the opponent
-is the computer.
+it auto-runs `FIST` (via `STARTS.COM`).  As on the tape: the loading screen
+shows while the game state loads, then the attract demo runs (two computer
+fighters, "DEMO" on the strip); **fire (Space) or "1" starts a 1-player
+game** - you are the left fighter, the opponent is the computer, its
+personality climbs with the rank.  A lost round is game over and returns to
+the demo.
 
 ### Controls
 

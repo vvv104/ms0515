@@ -275,6 +275,12 @@ TEST_CASE("fist: keyboard drives P1")
         if (i < 900 && (i % 30) == 0) offerCR = true;
         (void)emu.stepFrame();
     }
+    // The game opens on the attract demo (both fighters computer-controlled);
+    // fire starts the 1-player game.
+    emu.keyPress(ms0515::Key::Space, true);
+    for (int i = 0; i < 5; ++i) (void)emu.stepFrame();
+    emu.keyPress(ms0515::Key::Space, false);
+    for (int i = 0; i < 60; ++i) (void)emu.stepFrame();
 
     // P1 must be human (AA06=0) or MOVSEL's AI overrides the keyboard.
     int human = gst(0xAA06);
@@ -358,10 +364,11 @@ TEST_CASE("fist: keyboard drives P1")
     };
     for (const Combo &c : combos) {
         emu.keyReleaseAll();
+        settle(30);                                    // let the previous move play out
         poke(0xAA19, 40); poke(0xAA59, 76); poke(0x9CA5, 30);
-        poke(0xAA17, 0); poke(0xAA57, 1);              // P1 faces right (a somersault flips it)
-        poke(0xAA04, 1); poke(0xAA05, 1);              // idle
-        settle(30);
+        poke(0xAA17, 0); poke(0xAA57, 1);              // P1 faces right (a somersault /
+        poke(0xAA04, 1); poke(0xAA05, 1);              // spinning kick flips it); idle
+        settle(5);
         bool withFire = c.fire != c.dir;
         emu.keyPress(c.dir, true);                   // first key, then the second a frame
         settle(1);                                   // later (a chord either way)
@@ -1174,4 +1181,97 @@ TEST_CASE("fist: move catalogue (diagnostic)")
         poke(0xB156, 0);
     }
     CHECK(true);
+}
+
+
+// The start-up sequence: the tape's loading screen shows while GST.DAT loads
+// (FIST_INTRO_VRAM_OUT dumps it), then the attract demo runs with both
+// fighters computer-controlled and "DEMO" on the strip; fire starts a
+// 1-player game (P1 human, novice, background 2).
+TEST_CASE("fist: loading screen, demo, fire starts the game")
+{
+    std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
+                sys = env("FIST_SYSTEM_DIR"), out = env("FIST_INTRO_VRAM_OUT");
+    if (sav.empty() || dat.empty() || sys.empty()) {
+        MESSAGE("FIST game env not set - skipping");
+        return;
+    }
+    fs::path tmp = fs::temp_directory_path() / "fist_intro_lib";
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::path boot = tmp / "boot", work = tmp / "work";
+    fs::create_directories(boot, ec);
+    fs::copy(sys, boot, fs::copy_options::recursive, ec);
+    REQUIRE_FALSE(ec);
+    fs::copy_file(sav, boot / "FIST.SAV", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(boot / "STARTS.COM", std::ios::binary);
+        s << "ASSIGN DZ1 DK\r\nR FIST\r\n";
+    }
+    fs::create_directories(work, ec);
+    fs::copy_file(dat, work / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(work / "device.rtfs", std::ios::binary);
+        s << "device: floppy\nblocks: 800\n";
+    }
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, (boot / "device.rtfs").string()));
+    REQUIRE(emu.mountDisk(1, (work / "device.rtfs").string()));
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool {
+            if (offerCR) { b = '\r'; offerCR = false; return true; }
+            return false;
+        },
+        [](uint8_t) -> bool { return true; });
+    auto &board = ms0515::internal::board(emu);
+    auto gst = [&](uint16_t spec) -> uint8_t {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        return board.mem.ram[bank * 8192 + (addr & 8191)];
+    };
+    auto nonzero = [&]() {
+        const uint8_t *v = board_get_vram(&board);
+        int n = 0;
+        for (int i = 0; i < MEM_VRAM_SIZE; ++i) if (v[i]) ++n;
+        return n;
+    };
+    // The loading screen: the first non-blank VRAM after the loader starts.  Its
+    // hold is ~3 s, so sample every 10 frames and keep the first lit frame.
+    int titleAt = -1, titleNz = 0;
+    for (int i = 0; i < 1400; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+        if (titleAt < 0 && i % 10 == 0 && i > 300) {
+            int nz = nonzero();
+            if (nz > 3000) {
+                titleAt = i; titleNz = nz;
+                if (!out.empty()) {
+                    std::ofstream o(out, std::ios::binary);
+                    o.write(reinterpret_cast<const char *>(board_get_vram(&board)), MEM_VRAM_SIZE);
+                }
+            }
+        }
+    }
+    MESSAGE("loading screen first seen at frame " << titleAt << " (nz=" << titleNz << ")");
+    CHECK(titleAt > 0);
+    // After the hold: the attract demo - both fighters AI-controlled.
+    CHECK(gst(0xAA06) == 1);
+    CHECK(gst(0xAA46) == 1);
+    int id1 = gst(0xAA94), id2 = gst(0xAA80);
+    MESSAGE("demo AI personalities: P1 " << id1 << " P2 " << id2);
+    CHECK((id1 >= 7 && id1 <= 10));
+    CHECK((id2 >= 7 && id2 <= 10));
+    // Fire -> 1-player game: P1 human, novice, opponent personality 0, bg 2.
+    emu.keyPress(ms0515::Key::Space, true);
+    for (int i = 0; i < 5; ++i) (void)emu.stepFrame();
+    emu.keyPress(ms0515::Key::Space, false);
+    for (int i = 0; i < 60; ++i) (void)emu.stepFrame();
+    CHECK(gst(0xAA06) == 0);
+    CHECK(gst(0xAA46) == 1);
+    CHECK(gst(0xB05F) == 0);
+    CHECK(gst(0xAA80) == 0);
+    CHECK(gst(0xAF34) == 2);
 }

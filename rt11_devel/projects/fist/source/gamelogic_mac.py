@@ -3475,13 +3475,20 @@ def main_game(withbg=False):
     gstdat = bytes(snap[GBASE:0xF730])           # GST data; $F730+ compose is scratch
     if len(gstdat) % 512:
         gstdat = gstdat + bytes(512 - (len(gstdat) % 512))
-    (OUT_MAC.parent / "GST.DAT").write_bytes(gstdat)
+    nblocks = len(gstdat) // 512
+    # The tape's loading screen (SCREEN$, 6912 B) rides behind the game state in
+    # GST.DAT: the loader reads it straight into SCRBUF and presents it while the
+    # state loads - the picture the original shows while its tape loads.
+    scrdat = bytes(gen_fist.load_loading_screen()) if withbg else b""
+    if len(scrdat) % 512:
+        scrdat = scrdat + bytes(512 - (len(scrdat) % 512))
+    SCRBLK = nblocks                             # its first block in GST.DAT
+    (OUT_MAC.parent / "GST.DAT").write_bytes(gstdat + scrdat)
     # The .DAT is read in CHUNK-block pieces into BUF, the top of the primary
     # banks 2-3 just under the dojo block at 0100000 (VRAM is off under RT-11, so
     # that is plain RAM), each piece copied into the parked extended banks.  The
     # rest of banks 2-3 (040000..BUF) is free for data the .SAV carries itself -
     # the three backgrounds' tables live there (see bgdat_src).
-    nblocks = len(gstdat) // 512
     CHUNK = 8                                    # blocks per .READW (4 KB)
     BUF = 0o100000 - CHUNK * 512
     chunks = [(sb, min(CHUNK, nblocks - sb)) for sb in range(0, nblocks, CHUNK)]
@@ -3508,6 +3515,56 @@ def main_game(withbg=False):
         f"KBST   = 177442\nGST    = 100000\nHSPACE = 30000\nBUF    = {BUF:o}\n"
         "EXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
     equs = "\nFWHITE = 043400\n"          # bright-white attribute high byte ($47)
+    if withbg:
+        title_load = f"""        ; --- the loading screen: read it into SCRBUF (plain RAM under RT-11),
+        ;     switch to the medium-res colour mode and present it - then load
+        ;     the game state behind it, as the tape loader did ---
+        .READW  #LKAREA,#0,#SCRBUF,#3456.,#{SCRBLK}.
+        BCC     .+6
+        JMP     LDERR
+        MTPS    #340
+        MOVB    @#SYSC,R0
+        BIC     #17,R0
+        MOVB    R0,@#SYSC
+        MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 5 in it
+        MOV     #3377,@#DISPAT         ; VRAM on @40000, banks 4-6 primary (SCRBUF)
+        MOV     #VRAM,R0
+7$:     CLR     (R0)+
+        CMP     R0,#VRAMEN
+        BLO     7$
+        JSR     PC,SPSCR
+        MOV     #3177,@#DISPAT         ; window off again for the reads (the picture stays)
+        MTPS    #0
+"""
+        after_load = """        ; --- state loaded: hold the loading screen ~3 s, or until fire / "1" ---
+        MTPS    #340
+        MOV     #GAME,@#DISPAT         ; 03217: VRAM on, window @40000, banks 4-6 ext
+        MOV     #1000.,R3
+8$:     JSR     PC,KSCAN
+        TST     KTFR
+        BNE     9$
+        TST     KSTART
+        BNE     9$
+        MOV     #2500.,R4              ; ~3 ms
+81$:    SOB     R4,81$
+        SOB     R3,8$
+9$:     CLR     KSTART
+        CLR     KTFR
+"""
+    else:
+        title_load = ""
+        after_load = """        ; --- GST loaded; set medium video + game banking (banks 4-6 EXTENDED) ---
+        MTPS    #340
+        MOVB    @#SYSC,R0
+        BIC     #17,R0
+        MOVB    R0,@#SYSC
+        MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 5 in it
+        MOV     #GAME,@#DISPAT         ; 03217: VRAM on, window @40000, banks 4-6 ext
+        MOV     #VRAM,R0
+3$:     CLR     (R0)+
+        CMP     R0,#VRAMEN
+        BLO     3$
+"""
     for t in fd.TABLES:
         equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
     equs += f"FBUF   = GST+{fd.FBUF - GBASE}.\n"
@@ -3770,27 +3827,14 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         .LOOKUP #LKAREA,#0,#DATFIL
         BCC     .+6
         JMP     LDERR
-{ldr_reads}        .CLOSE  #0
-        ; --- GST loaded; set medium video + game banking (banks 4-6 EXTENDED) ---
-        MTPS    #340
-        MOVB    @#SYSC,R0
-        BIC     #17,R0
-        MOVB    R0,@#SYSC
-        MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 5 in it
-        MOV     #GAME,@#DISPAT         ; 03217: VRAM on, window @40000, banks 4-6 ext
-        MOV     #VRAM,R0
-3$:     CLR     (R0)+
-        CMP     R0,#VRAMEN
-        BLO     3$
-        ; --- $AC3E Start_1UP_Game: the match-state batch (P1 human, P2 the
+{title_load}{ldr_reads}        .CLOSE  #0
+{after_load}        ; --- $AC3E Start_1UP_Game: the match-state batch (P1 human, P2 the
         ;     computer, score 0, rank 0), then the first opponent's set-up (the
         ;     background) and a new round.  GST.DAT is a mid-attract snapshot, so
         ;     every cell this touches is deliberately re-initialised here. ---
         MOV     #12345.,RSEED
-        JSR     PC,GINIT
+        JSR     PC,DINIT             ; $AC05: the attract demo first ($9C2C = 0)
 {dojo_boot}        JSR     PC,SETUP
-        JSR     PC,A402              ; load the AI personality ($A614 -> $A60E..): without
-                                     ; it the P2 AI never commits to an attack (stays idle)
         ; tell the MS7004 keyboard 0o231 (keyclick off) - the firmware treats this as the
         ; "a game is running" signal and switches auto-repeat to the fast game preset
         ; (125 ms delay vs 250 ms typing), so held-key tracking is snappier.
@@ -3808,7 +3852,17 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         ;     unless a reaction is queued (which correctly overrides player input). ---
         JSR     PC,KSCAN             ; drain the keyboard into the hold timers
         JSR     PC,KCTRL             ; R0 = the control bits (ticks the timers)
-        JSR     PC,C98A0             ; R0 = &move ($98DD table)
+        TST     DEMO                 ; in the demo, fire ($97E3) or "1" ($97DC) starts
+        BEQ     70$                  ;   a 1-player game
+        BIT     #20,R0
+        BNE     71$
+        TST     KSTART
+        BEQ     70$
+71$:    CLR     KSTART
+        JSR     PC,GINIT             ; $AC3E
+        JSR     PC,SETUP
+        CLR     R0
+70$:    JSR     PC,C98A0             ; R0 = &move ($98DD table)
         MOVB    (R0),R0
 {dbgmove}        MOVB    R0,{g(0xAA05)}       ; P1 selected move
         TST     WINTMR               ; a round just ended? hold its final frame
@@ -3830,7 +3884,10 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOVB    {g(0xB02D)}+2.,SCRBCD+2.
         MOVB    {g(0x9CA5)},STIM     ; and the round timer, for DRWTIM at 3377
         MOVB    {g(0xB05F)},RANKB    ; and the rank ($B05F, BCD), for DRWRNK at 3377
-        ; --- sound ($9754): play the effect the hit logic queued in $B150 ---
+        TST     DEMO
+        BEQ     69$
+        MOVB    #377,RANKB           ; (377 = "DEMO")
+69$:        ; --- sound ($9754): play the effect the hit logic queued in $B150 ---
 80$:    MOVB    {g(0xB150)},R0       ; $B150 = sound code queued by $9ED2/$9D29 hit-detect
         BIC     #177400,R0
         BEQ     81$
@@ -4195,6 +4252,7 @@ ROUNDE: MOVB    {g(0x9C28)},R0
         BIC     #177400,R0
         BNE     73$
         JSR     PC,RSTFRM
+        JSR     PC,RSTAI
         BR      78$
 73$:    MOVB    {g(0xAA01)},R0       ; $AD44 time-out: the yin-yang totals decide...
         BIC     #177400,R0
@@ -4264,7 +4322,7 @@ OUTCOM: MOV     RESULT,R0
         BEQ     1$
         CMP     R0,#201
         BEQ     SETUP                ; draw: same opponent, new round
-        JSR     PC,GINIT             ; P2 won -> game over -> new game ($AC3E)
+        JSR     PC,DINIT             ; P2 won -> game over -> back to the demo ($AC09)
         BR      SETUP
 1$:     JSR     PC,TBONUS            ; flush the clock pay-out ($AD6E loop)
         TSTB    {g(0x9CA5)}
@@ -4301,9 +4359,29 @@ NEWRND: CLRB    {g(0xAA01)}          ; $909E: both tallies and points to 0
         CLRB    {g(0xAA42)}
         MOVB    #36,{g(0x9CA5)}      ; $AEF8: 30 seconds on the clock
         JSR     PC,RSTFRM            ; $9CA8: both fighters to the start stance
+        JSR     PC,RSTAI             ; $9D0B: and both AI states re-initialised
+        RTS     PC
+        ; --- RSTAI: the $9D0B..$9D26 tail of the exchange reset.  For each
+        ;     fighter: swap its state + its AI block into the scratch area, run
+        ;     $A402 (load the AI personality's parameters, reset its counters),
+        ;     swap back.  P1's AI block is $AA8B (id $AA94), P2's is $AA77 (id
+        ;     $AA80 - the one the 1UP game advances per opponent).  Without this
+        ;     the port ran $A402 once at boot on a stale scratch copy, so the
+        ;     computer only fought in its first exchange. --------------------
+RSTAI:  JSR     PC,AADC
+        JSR     PC,AB0A
+        JSR     PC,A402
+        JSR     PC,AAF3
+        JSR     PC,AB16
+        JSR     PC,AB22
+        JSR     PC,AB50
+        JSR     PC,A402
+        JSR     PC,AB39
+        JSR     PC,AB5C
         RTS     PC
         ; --- GINIT: $AC3E Start_1UP_Game's state batch. --------------------------
-GINIT:  CLRB    {g(0xAA80)}          ; opponent index
+GINIT:  CLR     DEMO
+        CLRB    {g(0xAA80)}          ; opponent index (= the computer's AI personality)
         CLRB    {g(0xB05F)}          ; rank: novice
         CLRB    {g(0xAA06)}          ; P1 human (keyboard)
         CLRB    {g(0xAA08)}
@@ -4318,6 +4396,20 @@ GINIT:  CLRB    {g(0xAA80)}          ; opponent index
         CLRB    {g(0xB02D)}+3.
         CLRB    {g(0xB02D)}+4.
         CLRB    {g(0xB02D)}+5.
+        RTS     PC
+        ; --- DINIT: $AB70 Demo - both fighters computer-controlled with random
+        ;     personalities 7..10, rank 0, background 2; "DEMO" on the strip. ----
+DINIT:  JSR     PC,GINIT
+        MOV     #1,DEMO
+        MOVB    #1,{g(0xAA06)}       ; P1 is the computer too ($AB90)
+        JSR     PC,ARNG              ; $AB77: P1's AI personality $AA94 = rnd & 3 + 7
+        BIC     #177774,R0
+        ADD     #7,R0
+        MOVB    R0,{g(0xAA94)}
+        JSR     PC,ARNG              ; $AB81: P2's $AA80 likewise
+        BIC     #177774,R0
+        ADD     #7,R0
+        MOVB    R0,{g(0xAA80)}
         RTS     PC
 {rendbg}        ; --- HUD: the yin-yang score in a top status strip (rows 0-15).  Each fighter
         ;     has two yin-yang slots that fill half then full as its score (SC1/SC2,
@@ -4455,6 +4547,11 @@ DRWTIM: MOVB    STIM,R0
         ;     to 9 cells so a shorter rank overwrites a longer one. ----------------
 DRWRNK: MOVB    RANKB,R0
         BIC     #177400,R0
+        CMP     R0,#377
+        BNE     11$
+        MOV     #DEMSTR,R1           ; the attract demo
+        BR      8$
+11$:    TST     R0
         BNE     1$
         MOV     #NOVSTR,R1
         BR      8$
@@ -4494,6 +4591,7 @@ DRWRNK: MOVB    RANKB,R0
         RTS     PC
         .EVEN
 {_strb("NOVSTR", "NOVICE   ")}
+{_strb("DEMSTR", "DEMO     ")}
 {_strb("SFXST", "ST")}
 {_strb("SFXND", "ND")}
 {_strb("SFXRD", "RD")}
@@ -4680,7 +4778,11 @@ KS1:    MOVB    @#177440,R0          ; read the scancode
         BEQ     3$
         CMP     R0,#257
         BEQ     3$
-        MOV     R0,R1                ; directions: DIRTAB[scancode - 0226] = bits
+        CMP     R0,#300              ; "1": start a 1-player game from the demo
+        BNE     14$
+        MOV     #1,KSTART
+        BR      KS0
+14$:    MOV     R0,R1                ; directions: DIRTAB[scancode - 0226] = bits
         SUB     #226,R1
         BLT     KS0
         CMP     R1,#20.
@@ -4812,7 +4914,7 @@ C98A0:  BIT     #40,R0
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\n"
               "        .EVEN\nRCSHAD: .WORD   0\nSSEED:  .WORD   52525\n"
-              "        .EVEN\nLASTTP: .WORD   0\nKTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\n"
+              "        .EVEN\nLASTTP: .WORD   0\nKTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRANKB:  .WORD   0\nRANKS:  .BLKB   10.\n"
               "        .EVEN\nKEY1:   .BLKB   12.\nKEY2:   .BLKB   12.\n"
