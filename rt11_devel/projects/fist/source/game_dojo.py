@@ -25,15 +25,6 @@ def ovl_ink(withbg):
             "BISB    #107,1(R0)           ; white bright ink on the black background")
 
 
-def cell_restore(withbg):
-    """HUD cells: restore the clean dojo cell (DOJOBUF is the picture in VRAM
-    row layout, rows offset by the 4-row top margin) before the glyph goes
-    on, so a changed digit / a cleared yin-yang leaves no trace.  No dojo ->
-    clear."""
-    return ("MOV     DOJOBUF-VRAM-320.(R0),(R0) ; restore the clean dojo cell row"
-            if withbg else "CLR     (R0)                 ; clear the cell row")
-
-
 def boot_override(bgn):
     """FGHT_BG: override the opening background ($AF34)."""
     if "FGHT_BG" not in os.environ:
@@ -53,16 +44,14 @@ def row():
         BLT     CCLR                 ; above the dojo band -> clear the row
         CMP     R4,#192.
         BGE     CCLR                 ; below the dojo band -> clear the row
-        MOV     R4,R0                ; src = DOJOBUF + y*80 + 8 (pre-converted, VRAM row layout)
+        MOV     R4,R0                ; src = DOJOBUF + y*64 + (lo - 4)*2 (32 cells per row)
         ASL     R0
         ASL     R0
         ASL     R0
         ASL     R0
-        MOV     R0,R1
         ASL     R0
         ASL     R0
-        ADD     R1,R0
-        ADD     #DOJOBUF,R0
+        ADD     #DOJOBUF-8.,R0
         ADD     DLO2,R0              ; only the dirty column range (DLO2 = lo*2, DCNT cells)
         MOV     #SCRATC,R1
         ADD     DLO2,R1
@@ -94,10 +83,10 @@ def engine(bgn):
 
 
 # BUILDDB: pre-convert the whole dojo (SCRBUF Spectrum planes -> VRAM word
-# format) into DOJOBUF once at boot.  Same per-cell convert as the CLOOP, but
-# for all 192 dojo rows, stored in the VRAM row layout (40 words/row, the
-# 4-cell margins zero) so DOJOBUF + (vram - VRAM - 4*80) is the clean cell
-# under any picture cell - the HUD restores cells from it.  Runs at 3377.
+# format) into DOJOBUF at every dojo draw.  Same per-cell convert as the
+# CLOOP, but for all 192 dojo rows, 32 cells (64 bytes) per row, so the
+# compositor copies a row's clean cells from here instead of re-converting
+# SCRBUF every frame (the ~62%-of-frame cost).  Runs at 3377.
 # No row table: SPSCR / BUILDDB compute the Spectrum row offset (ROWOFF), and
 # the per-frame compositor reads DOJOBUF - banks 0-1 are full, every byte
 # there counts.
@@ -116,20 +105,14 @@ BDB1:    MOV     R2,R0                ; pix = SCRBUF + ROWOFF(y)
         ASL     R5
         ASL     R5
         ADD     #SCRBUF+6144.,R5
-        MOV     R2,R0                ; dst = DOJOBUF + y*80 (VRAM row layout, 40 words)
+        MOV     R2,R0                ; dst = DOJOBUF + y*64 (32 cells per row)
         ASL     R0
         ASL     R0
         ASL     R0
         ASL     R0
-        MOV     R0,R3
         ASL     R0
         ASL     R0
-        ADD     R3,R0
         ADD     #DOJOBUF,R0
-        CLR     (R0)+                ; 4-cell left margin
-        CLR     (R0)+
-        CLR     (R0)+
-        CLR     (R0)+
         MOV     #32.,R3
 BDB2:    MOVB    (R5)+,R4
         SWAB    R4
@@ -138,10 +121,6 @@ BDB2:    MOVB    (R5)+,R4
         MOV     R4,(R0)+
         DEC     R3
         BNE     BDB2
-        CLR     (R0)+                ; 4-cell right margin
-        CLR     (R0)+
-        CLR     (R0)+
-        CLR     (R0)+
         INC     R2
         CMP     R2,#192.
         BLO     BDB1
@@ -149,19 +128,18 @@ BDB2:    MOVB    (R5)+,R4
 """
 
 
-def block(bgn, boot_code):
+def block(bgn, boot_code, extra):
     """The dojo block at 0100000 in the PRIMARY banks 4-6 (embedded in the
     .SAV), which the compositor's 3377 banking makes visible; the GST loads
     into the EXTENDED banks 12-14 at the same window (decode's 3217 banking).
     One dispatcher bit switches between them, so the 6912 B SCRBUF costs
     nothing in the tight banks 0-1.  Holds the engine, BUILDDB, the loader,
-    SCRBUF and (as an address EQU, not reserved storage, so it stays out of
-    the .SAV image) DOJOBUF: the dojo pre-converted to VRAM word format (40
-    words x 192 rows = the picture's VRAM rows 4..195, margins zero), built
-    once at boot; the compositor copies a band row from here instead of
-    re-converting SCRBUF every frame (the ~62%-of-frame cost)."""
+    the text and the music (`extra`), SCRBUF and (as an address EQU, not
+    reserved storage, so it stays out of the .SAV image) DOJOBUF: the dojo
+    pre-converted to VRAM word format (32 words x 192 rows = the picture's
+    VRAM rows 4..195, 12288 bytes), built at every dojo draw."""
     return ("\n        .ASECT\n        . = 100000\n"
-            + engine(bgn) + BUILDDB + boot_code
+            + engine(bgn) + BUILDDB + boot_code + extra
             + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
             + "DOJOBUF = SCRBUF+6912.\n        .EVEN\n")
 
@@ -187,11 +165,15 @@ RENDBG: MOVB    {g(0xAF34)},R0
         BIC     #177400,R0
         MOV     R0,BGREF
         MOV     #3177,@#DISPAT       ; all slots primary, VRAM window off
-        JSR     PC,CHGBG             ; bg tables -> SCRBUF (Spectrum format)
+        TST     DEMO                 ; $AC69: the tune before the draw (a game's
+        BNE     1$                   ;   set-up only, not the demo's $AB9A)
+        JSR     PC,MUSIC
+1$:     JSR     PC,CHGBG             ; bg tables -> SCRBUF (Spectrum format)
         MOV     #3377,@#DISPAT       ; VRAM on @40000, banks 4-6 primary
         JSR     PC,BUILDDB           ; SCRBUF -> DOJOBUF (VRAM word format)
         JSR     PC,SPSCR             ; present the dojo 1:1 centred
-        MOV     #1,HUDDRT            ; the strip was wiped: redraw it next frame
+        JSR     PC,BORDER            ; the cyan border around it
+        MOV     #1,HUDDRT            ; the strip goes on it next frame (HUDALL)
         MOV     #GAME,@#DISPAT
         RTS     PC
 """

@@ -33,8 +33,22 @@ def frame_head(dbgmove):
         JSR     PC,SETUP
         CLR     R0
 79$:    TST     DEMO                 ; in the demo, fire ($97E3) or "1" ($97DC) starts
-        BEQ     70$                  ;   a 1-player game
-        BIT     #20,R0
+        BEQ     70$                  ;   a 1-player game, "0" ($981A) the settings
+        TST     KOPT
+        BEQ     82$
+        CLR     KOPT
+        MOV     #3377,@#DISPAT       ; the settings screens live in the dojo block
+        JSR     PC,SETTNG            ;   and draw at 3377; one choice and they
+        MOV     #GAME,@#DISPAT       ;   return - the demo restarts ($AC09)
+        MOVB    SNDENA,{g(0xB2FA)}   ; the sound flag they may have set
+        CLR     KTFR
+        CLR     KSTART
+        CLR     RPHASE
+        JSR     PC,DINIT
+        JSR     PC,SETUP
+        CLR     R0
+        BR      70$
+82$:    BIT     #20,R0
         BNE     71$
         TST     KSTART
         BEQ     70$
@@ -58,11 +72,12 @@ def frame_head(dbgmove):
         MOVB    {g(0xB02D)}+1.,SCRBCD+1.
         MOVB    {g(0xB02D)}+2.,SCRBCD+2.
         MOVB    {g(0x9CA5)},STIM     ; and the round timer, for DRWTIM at 3377
-        MOVB    {g(0xB05F)},RANKB    ; and the rank ($B05F, BCD), for DRWRNK at 3377
-        TST     DEMO
-        BEQ     69$
-        MOVB    #377,RANKB           ; (377 = "DEMO")
-69$:        ; --- sound ($9754): play the effect the hit logic queued in $B150 ---
+        MOVB    {g(0xB05F)},RANKB    ; and the rank ($B05F, BCD), for HUDRNK at 3377
+        MOVB    {g(0xB033)},HISC     ; and the high score ($B033..$B035), for HUDALL
+        MOVB    {g(0xB033)}+1.,HISC+1.
+        MOVB    {g(0xB033)}+2.,HISC+2.
+        MOVB    {g(0xB2FA)},SNDENA   ; and the sound flag ($B2FA), for the drivers
+        ; --- sound ($9754): play the effect the hit logic queued in $B150 ---
 80$:    MOVB    {g(0xB150)},R0       ; $B150 = sound code queued by $9ED2/$9D29 hit-detect
         BIC     #177400,R0
         BEQ     81$
@@ -210,6 +225,10 @@ def compositor(dojo_row, lb_words, ovl_ink):
         MOV     LASTTP,R0            ; include last frame's top so descents don't ghost
 61$:    MOV     R1,LASTTP
         MOV     R0,ROWN
+        CMP     R0,#46.              ; the band reaches the strip's rows (a high
+        BGE     75$                  ;   jump): the strip is redrawn after it
+        MOV     #1,HUDDRT
+75$:
         ; the dirty column range, cells lo..hi-1: this frame's fighter spans
         ; and last frame's (a cell a fighter left must get its dojo back);
         ; every other cell of the band already holds the clean dojo.
@@ -330,37 +349,37 @@ C2SK:   MOV     #SCRATC,R0           ; blit the finished row's dirty range
 
 def hud_gate():
     """The status strip redraw gate, the frame's end, and LDERR."""
-    return f"""        ; --- status strip: redrawn only when a shown value changed (or the dojo
-        ;     was re-presented, HUDDRT) - it is ~7% of a frame otherwise ---
+    return f"""        ; --- the status strip: all of it after a dojo draw (HUDDRT: the set-up's
+        ;     prints), else only what changed - the yin-yang, the score (not in
+        ;     the demo, $AF62), the clock - as the original prints on change ---
 58$:    TST     HUDDRT
-        BNE     59$
-        CMPB    SC1,HUDK
-        BNE     59$
+        BEQ     50$
+        CLR     HUDDRT
+        JSR     PC,HUDALL
+        BR      57$
+50$:    CMPB    SC1,HUDK
+        BNE     51$
         CMPB    SC2,HUDK+1.
-        BNE     59$
+        BEQ     52$
+51$:    JSR     PC,HUDYY
+52$:    TST     DEMO
+        BNE     54$
         CMPB    SCRBCD,HUDK+2.
-        BNE     59$
+        BNE     53$
         CMPB    SCRBCD+1.,HUDK+3.
-        BNE     59$
+        BNE     53$
         CMPB    SCRBCD+2.,HUDK+4.
-        BNE     59$
-        CMPB    STIM,HUDK+5.
-        BNE     59$
-        CMPB    RANKB,HUDK+6.
-        BNE     59$
-        JMP     GLOOP
-59$:    MOVB    SC1,HUDK
+        BEQ     54$
+53$:    JSR     PC,HUDSCR
+54$:    CMPB    STIM,HUDK+5.
+        BEQ     57$
+        JSR     PC,HUDTIM
+57$:    MOVB    SC1,HUDK
         MOVB    SC2,HUDK+1.
         MOVB    SCRBCD,HUDK+2.
         MOVB    SCRBCD+1.,HUDK+3.
         MOVB    SCRBCD+2.,HUDK+4.
         MOVB    STIM,HUDK+5.
-        MOVB    RANKB,HUDK+6.
-        CLR     HUDDRT
-        JSR     PC,HUD               ; draw the yin-yang score bar (top border)
-        JSR     PC,DRWSCR            ; draw the numeric score across the top strip
-        JSR     PC,DRWTIM            ; draw the round timer beside it
-        JSR     PC,DRWRNK            ; draw the rank ("NOVICE" / "1ST DAN" ...) at the left
         JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC

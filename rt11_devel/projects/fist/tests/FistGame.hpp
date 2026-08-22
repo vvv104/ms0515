@@ -139,8 +139,14 @@ public:
     }
 
     /* Leave the attract demo: fire starts the 1-player game ($97E3). */
+    /* Fire from the demo -> the 1UP game.  The sound flag ($B2FA) is cleared
+     * first: the opponent set-up plays the original's tune otherwise (~3.5 s
+     * of blocking beeper), which no test needs - the sound diagnostic sets
+     * the flag back. */
     void startGame()
     {
+        poke(0xB2FA, 0);
+        settle(5);                                  // a game frame stashes it
         keyTap(ms0515::Key::Space);
         settle(60);
     }

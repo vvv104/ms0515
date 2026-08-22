@@ -52,9 +52,7 @@ def mtab(cmap):
             "        .BYTE   1\n")
 
 
-def kscan(ktmout):
-    """KSCAN: drain the MS7004 keyboard into the hold timers."""
-    return f"""        ; --- KSCAN: drain the MS7004 keyboard into the control state -----------
+KSCAN_NOTE = """        ; --- KSCAN: drain the MS7004 keyboard into the control state -----------
         ; The original reads 9 definable keys (8 directions + fire) or a Kempston
         ; joystick.  The MS7004 sends make codes only: no release codes, auto-
         ; repeat for the LAST regular key, modifiers emit their own code on every
@@ -66,10 +64,17 @@ def kscan(ktmout):
         ; Arrows and Space/VR/SU give chords (up+right, right+fire ...); the
         ; keypad 1-9 gives a diagonal in one key.  A key released less than KTMR
         ; before the next press is read as part of the chord - the price of a
-        ; keyboard without release codes.
+        ; keyboard without release codes.  The settings screen can replace the
+        ; set with nine keys of its own (KEYMOD / KEYTAB, as the original's
+        ; redefinition); the fixed keys ("1", "0", "G" + "H") stay.
         ; The UART presents one byte per ~2 ms (4800 baud) from a 16-byte FIFO, so
         ; after a byte, poll ~3 ms for the next one so the queue drains each frame.
-KSCAN:  CLR     R2                   ; poll budget: none until a byte was read
+"""
+
+
+def kscan(ktmout):
+    """KSCAN: drain the MS7004 keyboard into the hold timers."""
+    return KSCAN_NOTE + f"""KSCAN:  CLR     R2                   ; poll budget: none until a byte was read
 KS0:    MOVB    @#177442,R0          ; keyboard status
         BITB    #2,R0                ; RXRDY (byte available)?
         BNE     KS1
@@ -94,12 +99,6 @@ KS1:    MOVB    @#177440,R0          ; read the scancode
 1$:     JSR     PC,KREFR             ; any key event: refresh the running timers
         CMP     R0,#254              ; auto-repeat code (real MS7004): that is all
         BEQ     KS0
-        CMP     R0,#324              ; fire: Space, VR/Shift (0256), SU/Ctrl (0257)
-        BEQ     3$
-        CMP     R0,#256
-        BEQ     3$
-        CMP     R0,#257
-        BEQ     3$
         CMP     R0,#300              ; "1": start a 1-player game from the demo
         BNE     15$
         MOV     #1,KSTART
@@ -109,17 +108,38 @@ KS1:    MOVB    @#177440,R0          ; read the scancode
         MOV     #{ktmout}.,KTG
         BR      KS0
 16$:    CMP     R0,#366
-        BNE     14$
+        BNE     17$
         MOV     #{ktmout}.,KTH
         BR      KS0
-14$:    MOV     R0,R1                ; directions: DIRTAB[scancode - 0226] = bits
+17$:    CMP     R0,#357              ; "0": the settings screen, from the demo
+        BNE     18$
+        MOV     #1,KOPT
+        JMP     KS0
+18$:    TST     KEYMOD               ; the keys the settings screen defined?
+        BEQ     2$
+        MOV     #KEYTAB,R3           ; the nine controls: a match -> its bits
+        MOV     #9.,R4
+19$:    CMPB    R0,(R3)+
+        BEQ     20$
+        DEC     R4
+        BNE     19$
+        JMP     KS0
+20$:    MOVB    KEYBIT-KEYTAB-1(R3),R1
+        BR      10$
+2$:     CMP     R0,#324              ; the default set.  fire: Space, VR/Shift
+        BEQ     3$                   ;   (0256), SU/Ctrl (0257)
+        CMP     R0,#256
+        BEQ     3$
+        CMP     R0,#257
+        BEQ     3$
+        MOV     R0,R1                ; directions: DIRTAB[scancode - 0226] = bits
         SUB     #226,R1
-        BLT     KS0
+        BLT     7$
         CMP     R1,#20.
-        BHI     KS0
+        BHI     7$
         MOVB    DIRTAB(R1),R1
-        BEQ     KS0                  ; not a direction key
-        BIT     #1,R1
+        BEQ     7$                   ; not a direction key
+10$:    BIT     #1,R1                ; the bits -> the hold timers
         BEQ     11$
         MOV     #{ktmout}.,KTUP
 11$:    BIT     #2,R1
@@ -129,11 +149,12 @@ KS1:    MOVB    @#177440,R0          ; read the scancode
         BEQ     13$
         MOV     #{ktmout}.,KTLF
 13$:    BIT     #10,R1
-        BEQ     KS0
+        BEQ     14$
         MOV     #{ktmout}.,KTRT
-        BR      KS0
+14$:    BIT     #20,R1
+        BEQ     7$
 3$:     MOV     #{ktmout}.,KTFR
-        BR      KS0
+7$:     JMP     KS0
 """
 
 

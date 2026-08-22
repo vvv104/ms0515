@@ -14,7 +14,9 @@ def effects():
         ;     and the timer gate (7) off; an LFSR replaces the ROM bytes; one
         ;     Z80 T-state = 7.5/3.5 CPU cycles, calibrated into the delay loops.
         ;     in: R0 = code 1..6 (0 / other = no-op). -------------------------------
-SNDFX:  TST     R0
+SNDFX:  TST     SNDENA               ; silent with the sound off ($B15D: $B2FA)
+        BEQ     9$
+        TST     R0
         BEQ     9$
         CMP     R0,#6.
         BHI     9$

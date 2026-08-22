@@ -29,14 +29,19 @@ source plus the game-state data file.
   points, two rounds beat an opponent, the rank (`NOVICE`, `1ST DAN` ..
   `10TH DAN`) climbs and the dojo changes with it (`$AF34` -> `$9200`), a
   lost round is game over and a new game starts;
-- a status strip (yin-yang, rank, six-digit score, clock) in the Spectrum
-  ROM font the original prints with (read from the ROM at build time, not
-  committed - like the rest of the art), sound effects on
-  reg C bit 5 bit-banged as the original's beeper effects, MS7004 keyboard
-  control of player 1 (8 directions + fire, see Controls).
+- the original's status strip in the Spectrum ROM font (read from the ROM
+  at build time, not committed - like the rest of the art): the score and
+  the clock at the top, the yin-yang symbols, "1 PLAYER" and the high
+  score, the rank line - printed as the original prints, pixels over the
+  dojo at its positions; the cyan border; the intro tune at every opponent
+  presentation and the sound effects, both on reg C bit 5 bit-banged as the
+  original's beeper; the high score (kept for the session); the settings
+  screen ("0" in the demo: key redefinition, sound on / off); MS7004
+  keyboard control of player 1 (8 directions + fire, see Controls).
 
-Not (yet) ported: the options screen ("0": key redefinition / sound), the
-2-player mode, the high-score table, the intro music.
+Not (yet) ported: the 2-player mode.  The settings screen's joystick
+choices (Sinclair / Kempston) have no joystick on the MS-0515 and fall
+back to the default keys.
 
 ## Layout
 
@@ -128,6 +133,12 @@ etc. - exactly the original's two table halves.)
 
 Space (or "1") starts a game from the attract demo; "G" and "H" held
 together quit a game back to the demo (the original's `$9827`).
+
+"0" in the demo opens the original's settings screen (`$8C54`): "1" -> the
+controls menu ("1" the default keys above, "4" redefine the nine controls
+one key each: up, up-right, right, down-right, down, down-left, left,
+up-left, fire), "3" / "4" the sound on / off, "E" back.  As in the
+original, one choice and the screen is over.
 
 **Blocking** is automatic: step *back* (KP4 / Left) while the opponent's
 attack is in range and the fighter raises the matching guard - a high block

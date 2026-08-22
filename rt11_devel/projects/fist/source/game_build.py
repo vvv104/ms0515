@@ -9,11 +9,12 @@ withbg (FIST_GL=gamebg): also render the dojo background.  The bg engine
 (CHGBG / CREBG) renders the Spectrum-format dojo into the resident SCRBUF
 at every opponent set-up and SPSCR presents it to VRAM; BUILDDB keeps a
 pre-converted copy (DOJOBUF) the compositor seeds each rebuilt row with, so
-the two fighters composite transparently over the dojo.
+the two fighters composite transparently over the dojo.  The dojo block
+also carries the text (the strip, the settings screens) and the tune.
 
 The MACRO text comes from the per-subsystem modules (game_loader, game_dojo,
-game_compose, game_round, game_hud, game_sound, game_keys); this module
-captures the state, sizes the buffers and assembles the image.
+game_compose, game_round, game_text, game_music, game_sound, game_keys);
+this module captures the state, sizes the buffers and assembles the image.
 """
 import json
 import os
@@ -23,11 +24,12 @@ import fighter_data as fd
 import fighter_mac as fm
 import game_compose
 import game_dojo
-import game_hud
+import game_music
 import game_keys
 import game_loader
 import game_round
 import game_sound
+import game_text
 import gamelogic_mac as gm
 import gamelogic_ref as ref
 import gen_fist
@@ -116,8 +118,7 @@ def _driver(withbg, snap, lb_words, boot_code, bgn):
     dojo_row = game_dojo.row() if withbg else ""
     rendbg = game_dojo.rendbg() if withbg else ""
     ovl_ink = game_dojo.ovl_ink(withbg)
-    cell_restore = game_dojo.cell_restore(withbg)
-    font_s, yyfull_s, yyhalf_s = game_hud.data(snap)
+    text = "" if withbg else game_text.stubs()    # (the text lives in the dojo block)
     return ("\n" + game_loader.start(boot_inline, dojo_boot)
             + game_compose.frame_head(dbgmove)
             + game_compose.fighter(1, lb_words, g(0xC408))
@@ -130,10 +131,8 @@ def _driver(withbg, snap, lb_words, boot_code, bgn):
             + game_compose.cpyr()
             + game_round.scoring(CAP) + game_round.decision(CAP)
             + game_round.round_end(PAUSE) + game_round.outcome(withbg)
-            + game_round.inits()
-            + rendbg
-            + game_hud.draw(cell_restore, ovl_ink) + game_hud.text()
-            + game_hud.rank(font_s, yyfull_s, yyhalf_s)
+            + game_round.inits() + game_round.hiscore()
+            + rendbg + text
             + game_sound.sound()
             + game_keys.kscan(KTMOUT) + game_keys.kctrl(KTMOUT)
             + game_keys.c98a0(game_keys.control_map()))
@@ -191,9 +190,13 @@ def _datblk(lb_words, withbg):
               "DLO2:   .WORD   0\nDCNT:   .WORD   0\nPLO:    .WORD   36.\nPHI:    .WORD   0\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
               "        .EVEN\nRCSHAD: .WORD   0\nSSEED:  .WORD   52525\n"
-              "        .EVEN\nLASTTP: .WORD   0\nKTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\nKTG:    .WORD   0\nKTH:    .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\n"
+              "        .EVEN\nLASTTP: .WORD   196.   ; (no band yet: nothing above the dojo to restore)\nKTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\nKTG:    .WORD   0\nKTH:    .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
-              "        .EVEN\nWINTMR: .WORD   0\nRPHASE: .WORD   0\nRANKB:  .WORD   0\nRANKS:  .BLKB   10.\n"
+              "        .EVEN\nWINTMR: .WORD   0\nRPHASE: .WORD   0\nRANKB:  .WORD   0\n"
+              "        .EVEN\nKEYMOD: .WORD   0\nKOPT:   .WORD   0\nSETPLY: .WORD   0\nSNDENA: .WORD   1\n"
+              "KEYTAB: .BLKB   9.\nKEYTB2: .BLKB   9.\n"
+              "KEYBIT: .BYTE   1,9.,8.,10.,2,6,4,5,16.  ; up, up-right, right, down-right, down, down-left, left, up-left, fire\n"
+              "HISC:   .BLKB   3.\n"
               "        .EVEN\nKEY1:   .BLKB   12.\nKEY2:   .BLKB   12.\n"
               "        .EVEN\nCKEY:   .BLKB   6.\nSLOT:   .WORD   0\n"
               "        .EVEN\nHUDDRT: .WORD   1\nHUDK:   .BLKB   8.\n"
@@ -235,7 +238,8 @@ def main_game(withbg=False):
     lb_words = ((fd.FBUF_LEN + 1) // 2) if withbg else safe_words
     nblocks, scrblk = _gst_dat(snap, withbg)
     boot_code = game_loader.boot(withbg, nblocks, scrblk)
-    bgsrc = game_dojo.block(bgn, boot_code) if withbg else ""
+    extra = game_text.all_text(snap) + game_music.music()
+    bgsrc = game_dojo.block(bgn, boot_code, extra) if withbg else ""
     bgdat_src = game_dojo.tables(game_loader.BUF) if withbg else ""
     engine, ldat = _engine(randoms, snap)
     body = (game_loader.preamble() + _equs(withbg)

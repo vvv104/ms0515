@@ -61,6 +61,7 @@ def title_load(scrblk):
         CMP     R0,#VRAMEN
         BLO     7$
         JSR     PC,SPSCR
+        JSR     PC,BORDER              ; the cyan border
         MOV     #3177,@#DISPAT         ; window off again for the reads (the picture stays)
         MTPS    #0
 """

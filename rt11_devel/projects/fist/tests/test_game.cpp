@@ -13,14 +13,15 @@ using fist::FistGame;
 
 namespace {
 
-/* Static picture rows 24..63 (below the row-6 strip, above any fighter),
- * picture columns 4..35 -> bytes [row*80+8, row*80+72): compared byte for
- * byte with the Python reference render of background `ref`. */
+/* Static picture rows 46..63 (below the status text, whose last line sits
+ * at y = 34..41 = rows 38..45; above any fighter), picture columns 4..35 ->
+ * bytes [row*80+8, row*80+72): compared byte for byte with the Python
+ * reference render of background `ref`. */
 int bgMismatches(FistGame &g, const std::vector<uint8_t> &expect)
 {
     const uint8_t *v = g.vram();
     int bad = 0;
-    for (int row = 24; row < 64; ++row)
+    for (int row = 46; row < 64; ++row)
         for (int b = row * 80 + 8; b < row * 80 + 72; ++b)
             if (v[b] != expect[b]) ++bad;
     return bad;
@@ -42,13 +43,14 @@ bool p1Wins(FistGame &g, int maxFrames, F until)
     return false;
 }
 
-/* The numeric score strip (row 6, bytes 34..47): a hash + pixel sum. */
+/* The score text: the original's (1, 0) = rows 4..11, cells 5..12 (bytes
+ * 10..25): a hash + pixel sum. */
 std::pair<unsigned, unsigned> scoreSig(FistGame &g)
 {
     const uint8_t *v = g.vram();
     unsigned h = 0, n = 0;
-    for (int r = 6; r < 14; ++r)
-        for (int c = 34; c < 48; ++c) { h = h * 131 + v[r * 80 + c]; n += v[r * 80 + c]; }
+    for (int r = 4; r < 12; ++r)
+        for (int c = 10; c < 26; ++c) { h = h * 131 + v[r * 80 + c]; n += v[r * 80 + c]; }
     return {h, n};
 }
 
@@ -79,10 +81,11 @@ TEST_CASE("fist: yin-yang HUD at a forced score")
     }
     std::string out = fist::opt("vram-out");
     if (!out.empty()) g.dumpVram(out);
-    // The four yin-yang slots sit in rows 6-21 at cols 5-6 / 8-9 / 30-31 / 33-34.
+    // The four yin-yang slots sit at the original's (1, 8) / (4, 8) / (26, 8) /
+    // (29, 8): rows 12-27 at cells 5-6 / 8-9 / 30-31 / 33-34.
     const uint8_t *v = g.vram();
     int p1 = 0, p2 = 0;
-    for (int r = 6; r < 22; ++r) {
+    for (int r = 12; r < 28; ++r) {
         for (int c : {5, 6, 8, 9}) if (v[r * 80 + c * 2]) ++p1;
         for (int c : {30, 31, 33, 34}) if (v[r * 80 + c * 2]) ++p2;
     }
@@ -100,13 +103,17 @@ TEST_CASE("fist: the real .dsk boots and shows the HUD")
     for (int i = 0; i < 100; ++i) { g.poke(0xAA01, 2); g.poke(0xAA41, 2); g.step(); }
     const uint8_t *v = g.vram();
     int hud = 0;
-    for (int r = 6; r < 22; ++r)
+    for (int r = 12; r < 28; ++r)
         for (int c : {5, 6, 8, 9, 30, 31, 33, 34})
             if (v[r * 80 + c * 2]) ++hud;
     MESSAGE("HUD slot pixels in the top strip: " << hud);
     CHECK(hud > 0);
-    // The six-digit BCD score ($B02D) draws across the strip; two different
-    // values must produce different pixels.
+    // The BCD score ($B02D) shows in a game (not in the demo, $AF62) at the
+    // original's (1, 0); two different values must produce different pixels.
+    g.startGame();
+    g.settle(100);
+    std::string out = fist::opt("game-out");
+    if (!out.empty()) g.dumpVram(out);
     g.poke(0xB02D, 0); g.poke(0xB02E, 0); g.poke(0xB02F, 0);
     g.settle(40);
     auto sZero = scoreSig(g);
@@ -372,4 +379,49 @@ TEST_CASE("fist: \"G\"+\"H\" held together quit the game to the demo ($9827)")
     // And it stays in the demo (the chord does not restart the game).
     for (int i = 0; i < 20; ++i) g.step();
     CHECK(g.gst(0xAA06) == 1);
+}
+
+TEST_CASE("fist: \"0\" in the demo opens the settings screen ($8C54)")
+{
+    if (!fist::built()) { MESSAGE("FIST not built - skipping"); return; }
+    FistGame g("fist_settings_lib");
+    REQUIRE(g.gst(0xAA06) == 1);                    // the attract demo
+    auto blueCells = [&]() {
+        const uint8_t *v = g.vram();
+        int n = 0;
+        for (int r = 4; r < 196; ++r)
+            for (int c = 4; c < 36; ++c) if (v[r * 80 + c * 2 + 1] == 0x0D) ++n;
+        return n;
+    };
+    g.keyTap(ms0515::Key::Digit0);
+    g.settle(30);
+    // $8E4C: the picture cleared to cyan ink on blue paper, the menu on it
+    // ("CHANGE CONTROLS FOR PLAYER 1 (1)" at y = 45 = rows 49..56).
+    const uint8_t *v = g.vram();
+    int ink = 0;
+    for (int r = 49; r < 57; ++r)
+        for (int c = 4; c < 36; ++c) if (v[r * 80 + c * 2]) ++ink;
+    MESSAGE("settings screen: blue cells " << blueCells() << " of " << 32 * 192
+            << ", text pixels in rows 49-56: " << ink);
+    CHECK(blueCells() == 32 * 192);
+    CHECK(ink > 0);
+    std::string out = fist::opt("settings-out");
+    if (!out.empty()) g.dumpVram(out);
+    // "E": back to the demo, the dojo redrawn.
+    g.keyTap(ms0515::Key::E);
+    g.settle(60);
+    CHECK(blueCells() < 32 * 192 / 4);
+    CHECK(g.gst(0xAA06) == 1);
+    // "4": the sound off ($B2FA = 0), "3": on again - each choice ends the screen.
+    g.keyTap(ms0515::Key::Digit0);
+    g.settle(30);
+    g.keyTap(ms0515::Key::Digit4);
+    g.settle(60);
+    CHECK(g.gst(0xB2FA) == 0);
+    CHECK(blueCells() < 32 * 192 / 4);
+    g.keyTap(ms0515::Key::Digit0);
+    g.settle(30);
+    g.keyTap(ms0515::Key::Digit3);
+    g.settle(60);
+    CHECK(g.gst(0xB2FA) == 1);
 }

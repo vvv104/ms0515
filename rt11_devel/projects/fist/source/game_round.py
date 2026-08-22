@@ -190,6 +190,7 @@ OUTCOM: MOV     RESULT,R0
         BEQ     1$
         CMP     R0,#201
         BEQ     SETUP                ; draw: same opponent, new round
+        JSR     PC,HISCK             ; $AC39: a new high score?
         JSR     PC,DINIT             ; P2 won -> game over -> back to the demo ($AC09)
         BR      SETUP
 1$:     JSR     PC,TBONUS            ; flush the clock pay-out ($AD6E loop)
@@ -284,4 +285,24 @@ DINIT:  JSR     PC,GINIT
         ADD     #7,R0
         MOVB    R0,{g(0xAA80)}
         RTS     PC
+"""
+
+
+def hiscore():
+    """HISCK ($AC39 -> $A647 / $A697): the high score check after a game."""
+    return f"""        ; --- HISCK: $AC39 -> $A647 / $A697 - a new high score?  P1's score
+        ;     ($B02D..$B02F, BCD, most significant last) against the high score
+        ;     ($B033..$B035, the default 1000); higher -> copied over it. ----------
+HISCK:  CMPB    {g(0xB02F)},{g(0xB035)}
+        BHI     1$
+        BLO     9$
+        CMPB    {g(0xB02E)},{g(0xB034)}
+        BHI     1$
+        BLO     9$
+        CMPB    {g(0xB02D)},{g(0xB033)}
+        BLOS    9$
+1$:     MOVB    {g(0xB02D)},{g(0xB033)}
+        MOVB    {g(0xB02E)},{g(0xB034)}
+        MOVB    {g(0xB02F)},{g(0xB035)}
+9$:     RTS     PC
 """
