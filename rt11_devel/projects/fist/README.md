@@ -29,8 +29,9 @@ source plus the game-state data file.
   points, two rounds beat an opponent, the rank (`NOVICE`, `1ST DAN` ..
   `10TH DAN`) climbs and the dojo changes with it (`$AF34` -> `$9200`), a
   lost round is game over and a new game starts;
-- a status strip (yin-yang, rank, six-digit score, clock) in an own 8x8
-  font (the original's text uses the Spectrum ROM font), sound effects on
+- a status strip (yin-yang, rank, six-digit score, clock) in the Spectrum
+  ROM font the original prints with (read from the ROM at build time, not
+  committed - like the rest of the art), sound effects on
   reg C bit 5 bit-banged as the original's beeper effects, MS7004 keyboard
   control of player 1 (8 directions + fire, see Controls).
 
