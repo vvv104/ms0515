@@ -96,17 +96,25 @@ gives a diagonal in one key.  The one quirk of such a keyboard: a key
 released less than ~0.2 s before the next press still counts as held.
 "Forward" is towards the opponent.
 
-| direction          | keys                 | no fire                | with fire (Space / Shift / Ctrl) |
-|--------------------|----------------------|------------------------|----------------------------------|
-| up                 | KP8, Up              | jump                   | flying kick                      |
-| up + forward       | KP9 (facing right)   | high punch             | roundhouse kick                  |
-| forward            | KP6, Right           | walk forward           | front kick                       |
-| down + forward     | KP3                  | low punch              | low kick                         |
-| down               | KP2, Down            | crouch                 | foot sweep                       |
-| down + back        | KP1                  | backward somersault    | reverse (back) sweep             |
-| back               | KP4, Left            | walk back              | spinning back kick               |
-| up + back          | KP7                  | forward somersault     | reverse high kick                |
-| fire alone         |                      | nothing                |                                  |
+| direction          | keys                 | no fire                | with fire (Space)        |
+|--------------------|----------------------|------------------------|--------------------------|
+| up                 | KP8, Up              | jump                   | high punch               |
+| up + forward       | KP9 (facing right)   | forward somersault     | flying kick              |
+| forward            | KP6, Right           | walk forward           | front kick               |
+| down + forward     | KP3                  | foot sweep             | low kick                 |
+| down               | KP2, Down            | crouch                 | low punch                |
+| down + back        | KP1                  | reverse (back) sweep   | spinning back kick       |
+| back               | KP4, Left            | walk back              | roundhouse kick          |
+| up + back          | KP7                  | backward somersault    | reverse high kick        |
+| fire alone         |                      | nothing                |                          |
+
+This is the port's own map (chosen by the user); VR (Shift) and SU (Ctrl)
+also act as fire.  `FIST_ORIG_KEYS=1` at build time emits the original's
+`$98DD` map instead (up+forward = high punch, up+back = forward somersault,
+down+forward = low punch, down+back = backward somersault; fire+up = flying
+kick, fire+down = foot sweep, fire+back = spinning back kick, fire+up+forward
+= roundhouse, fire+up+back = reverse high kick, fire+down+forward = low kick,
+fire+down+back = reverse sweep).
 
 (With the fighter facing left the keypad diagonals mirror: KP7 = up+forward
 etc. - exactly the original's two table halves.)

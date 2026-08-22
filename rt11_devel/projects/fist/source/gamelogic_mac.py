@@ -3709,6 +3709,41 @@ RENDBG: MOVB    {g(0xAF34)},R0
     _FONT_ORDER = "0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     _font_bytes = [b for ch in _FONT_ORDER for b in _FONT_HEX[ch]]
     font_s = _yybytes(_font_bytes)
+    # --- the control map ($98DD): control bits -> move, per facing -----------
+    # Keys: U D F B = up, down, forward (towards the opponent), back; X = fire.
+    # The original's own map (FIST_ORIG_KEYS=1) and the port's default, chosen
+    # by the user: fire on Space, the sweeps on the down diagonals without fire,
+    # the punches on fire+up / fire+down, the somersaults on the up diagonals.
+    # (original: up+forward = 6 high punch, up+back = 9 forward somersault,
+    #  down+forward = 7 low punch, down+back = 8 backward somersault)
+    ORIG_MAP = {"U": 5, "D": 4, "F": 2, "B": 3, "UF": 6, "UB": 9, "DF": 7, "DB": 8,
+                "XU": 14, "XD": 10, "XF": 12, "XB": 17, "XDF": 11, "XUF": 13,
+                "XUB": 15, "XDB": 16}
+    USER_MAP = {"U": 5, "D": 4, "F": 2, "B": 3, "UB": 8, "UF": 9, "DF": 10, "DB": 16,
+                "XU": 6, "XD": 7, "XF": 12, "XB": 13, "XDF": 11, "XUF": 14,
+                "XUB": 15, "XDB": 17}
+    cmap = ORIG_MAP if os.environ.get("FIST_ORIG_KEYS") else USER_MAP
+
+    def _ctrl_table(fwd_bit, back_bit):
+        out = []
+        for idx in range(32):
+            k = ""
+            if idx & 16: k += "X"
+            if idx & 1: k += "U"
+            if idx & 2: k += "D"
+            if idx & fwd_bit: k += "F"
+            if idx & back_bit: k += "B"
+            out.append(cmap.get(k, 1))
+        return out
+    tab_a = _ctrl_table(8, 4)                     # facing right: forward = RIGHT
+    tab_b = _ctrl_table(4, 8)                     # facing left:  forward = LEFT
+    mtab = ("MTAB:   .BYTE   " + ",".join(f"{v}." for v in tab_a[:16]) + "\n"
+            "        .BYTE   " + ",".join(f"{v}." for v in tab_a[16:]) + "\n"
+            "        .BYTE   1\n"
+            "        .BYTE   " + ",".join(f"{v}." for v in tab_b[:16]) + "\n"
+            "        .BYTE   " + ",".join(f"{v}." for v in tab_b[16:]) + "\n"
+            "        .BYTE   1\n")
+
     def _strb(label, s):
         codes = ",".join(f"{_FONT_ORDER.index(c)}." for c in s.upper())
         return f"{label}: .BYTE   {codes},377\n        .EVEN"
@@ -4729,12 +4764,7 @@ C98A0:  BIT     #40,R0
 2$:     MOV     R1,R0
         RTS     PC
         .EVEN
-MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
-        .BYTE   1,16,12,1,21,17,20,1,14,15,13,1,1,1,1,1
-        .BYTE   1,5,4,1,2,6,7,1,3,11,10,1,1,1,1,1
-        .BYTE   1,16,12,1,14,15,13,1,21,17,20,1,1,1,1,1
-        .BYTE   1,1
-"""
+{mtab}"""
     # PRESENT reads the composed buffer; the game feeds it the low-RAM copy LOWBUF
     # (the original FBUF in bank 6 is shadowed by RMON after the unpark).  Drop the
     # routine's own 16 KB VRAM-clear (VRAM was already cleared at render start, and

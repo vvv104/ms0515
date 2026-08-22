@@ -325,37 +325,42 @@ TEST_CASE("fist: keyboard drives P1")
     // into the 16 moves (P1 faces right here: table A).  $AA05 = selected move.
     struct Combo { ms0515::Key dir; ms0515::Key fire; int move; const char *name; };
     const Combo combos[] = {
+        // the port's control map (fire = Space; forward = towards the opponent)
         {ms0515::Key::Kp8, ms0515::Key::Kp8, 5, "KP8 jump"},
         {ms0515::Key::Kp2, ms0515::Key::Kp2, 4, "KP2 crouch"},
         {ms0515::Key::Kp6, ms0515::Key::Kp6, 2, "KP6 forward"},
         {ms0515::Key::Kp4, ms0515::Key::Kp4, 3, "KP4 back"},
-        {ms0515::Key::Kp9, ms0515::Key::Kp9, 6, "KP9 high punch"},
-        {ms0515::Key::Kp3, ms0515::Key::Kp3, 7, "KP3 low punch"},
-        {ms0515::Key::Kp7, ms0515::Key::Kp7, 9, "KP7 forward somersault"},
-        {ms0515::Key::Kp1, ms0515::Key::Kp1, 8, "KP1 backward somersault"},
-        {ms0515::Key::Kp8, ms0515::Key::ShiftL, 14, "Shift+KP8 flying kick"},
-        {ms0515::Key::Kp6, ms0515::Key::ShiftL, 12, "Shift+KP6 front kick"},
-        {ms0515::Key::Kp2, ms0515::Key::ShiftL, 10, "Shift+KP2 foot sweep"},
-        {ms0515::Key::Kp4, ms0515::Key::ShiftL, 17, "Shift+KP4 back kick"},
-        {ms0515::Key::Kp9, ms0515::Key::Ctrl, 13, "Ctrl+KP9 roundhouse"},
-        {ms0515::Key::Kp7, ms0515::Key::Ctrl, 15, "Ctrl+KP7 reverse high kick"},
+        {ms0515::Key::Kp9, ms0515::Key::Kp9, 9, "KP9 forward somersault"},
+        {ms0515::Key::Kp7, ms0515::Key::Kp7, 8, "KP7 backward somersault"},
+        {ms0515::Key::Kp3, ms0515::Key::Kp3, 10, "KP3 foot sweep"},
+        {ms0515::Key::Kp1, ms0515::Key::Kp1, 16, "KP1 reverse sweep"},
+        {ms0515::Key::Kp8, ms0515::Key::Space, 6, "Space+KP8 high punch"},
+        {ms0515::Key::Kp2, ms0515::Key::Space, 7, "Space+KP2 low punch"},
+        {ms0515::Key::Kp6, ms0515::Key::Space, 12, "Space+KP6 front kick"},
+        {ms0515::Key::Kp4, ms0515::Key::Space, 13, "Space+KP4 roundhouse"},
         {ms0515::Key::Kp3, ms0515::Key::Space, 11, "Space+KP3 low kick"},
-        {ms0515::Key::Kp1, ms0515::Key::Space, 16, "Space+KP1 reverse sweep"},
-        {ms0515::Key::Right, ms0515::Key::Space, 12, "Space+RIGHT front kick"},
+        {ms0515::Key::Kp9, ms0515::Key::Space, 14, "Space+KP9 flying kick"},
+        {ms0515::Key::Kp7, ms0515::Key::Space, 15, "Space+KP7 reverse high kick"},
+        {ms0515::Key::Kp1, ms0515::Key::Space, 17, "Space+KP1 spinning back kick"},
+        {ms0515::Key::Right, ms0515::Key::ShiftL, 12, "Shift+RIGHT front kick"},
+        {ms0515::Key::Up, ms0515::Key::Ctrl, 6, "Ctrl+UP high punch"},
         // arrow chords (the keyboard repeats only the last key; the chord rule
         // keeps the earlier one held) - pressed in either order
-        {ms0515::Key::Up, ms0515::Key::Right, 6, "UP then RIGHT high punch"},
-        {ms0515::Key::Right, ms0515::Key::Up, 6, "RIGHT then UP high punch"},
-        {ms0515::Key::Down, ms0515::Key::Right, 7, "DOWN then RIGHT low punch"},
-        {ms0515::Key::Left, ms0515::Key::Up, 9, "LEFT then UP forward somersault"},
-        {ms0515::Key::Down, ms0515::Key::Left, 8, "DOWN then LEFT backward somersault"},
-        {ms0515::Key::Space, ms0515::Key::Up, 14, "Space then UP flying kick"},
-        {ms0515::Key::Space, ms0515::Key::Down, 10, "Space then DOWN foot sweep"},
-        {ms0515::Key::Space, ms0515::Key::Left, 17, "Space then LEFT back kick"},
+        {ms0515::Key::Up, ms0515::Key::Right, 9, "UP then RIGHT forward somersault"},
+        {ms0515::Key::Right, ms0515::Key::Up, 9, "RIGHT then UP forward somersault"},
+        {ms0515::Key::Down, ms0515::Key::Right, 10, "DOWN then RIGHT foot sweep"},
+        {ms0515::Key::Left, ms0515::Key::Up, 8, "LEFT then UP backward somersault"},
+        {ms0515::Key::Down, ms0515::Key::Left, 16, "DOWN then LEFT reverse sweep"},
+        {ms0515::Key::Space, ms0515::Key::Up, 6, "Space then UP high punch"},
+        {ms0515::Key::Space, ms0515::Key::Down, 7, "Space then DOWN low punch"},
+        {ms0515::Key::Space, ms0515::Key::Left, 13, "Space then LEFT roundhouse"},
+        {ms0515::Key::Space, ms0515::Key::Right, 12, "Space then RIGHT front kick"},
     };
     for (const Combo &c : combos) {
         emu.keyReleaseAll();
         poke(0xAA19, 40); poke(0xAA59, 76); poke(0x9CA5, 30);
+        poke(0xAA17, 0); poke(0xAA57, 1);              // P1 faces right (a somersault flips it)
+        poke(0xAA04, 1); poke(0xAA05, 1);              // idle
         settle(30);
         bool withFire = c.fire != c.dir;
         emu.keyPress(c.dir, true);                   // first key, then the second a frame
@@ -369,7 +374,8 @@ TEST_CASE("fist: keyboard drives P1")
         }
         if (withFire) emu.keyPress(c.fire, false);
         emu.keyPress(c.dir, false);
-        MESSAGE(c.name << " -> move " << c.move << (seen ? " ok" : " MISSING") << " (AA05=" << (int)gst(0xAA05) << ")");
+        MESSAGE(std::string(c.name) << " -> move " << c.move << std::string(seen ? " ok" : " MISSING")
+                << " (AA05=" << (int)gst(0xAA05) << " AA04=" << (int)gst(0xAA04) << ")");
         CHECK(seen);
     }
     emu.keyReleaseAll();
