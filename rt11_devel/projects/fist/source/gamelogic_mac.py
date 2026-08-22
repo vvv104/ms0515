@@ -1838,14 +1838,21 @@ BF13:   MOVB    {g(0xAA52)},{g(0xC425)}
     s += sum8(g(0xC41C), "BIX2", "SUMX2")
     s += sum8(g(0xC41D), "BIY1", "SUMY1")
     s += sum8(g(0xC41E), "BIY2", "SUMY2")
-    s += "        ; bounding box (reads OLD saved positions $C42C-$C432)\n"
-    s += mm("min", g(0xC41B), g(0xC42C), g(0xC434))
-    s += mm("max", "SUMX1",   g(0xC42D), g(0xC435))
-    s += mm("min", g(0xC41C), g(0xC42E), g(0xC436))
+    # DELIBERATE DEVIATION: the original's box is the union of this frame's and
+    # LAST frame's extents because it erases (restores background under) the old
+    # sprite through the same box.  This port's compositor rebuilds the whole band
+    # every frame, so nothing needs erasing - and after a teleport (RSTFRM's
+    # exchange reset) the union spanned the old and the new position, far wider
+    # than the 884-byte per-fighter compose buffer: the sprite came out cut at
+    # the waist with its legs displaced.  The box is this frame's extents only.
+    s += "        ; bounding box = this frame's sprite extents (no erase union)\n"
+    s += f"        MOVB    {g(0xC41B)},{g(0xC434)}\n"
+    s += f"        MOVB    SUMX1,{g(0xC435)}\n"
+    s += f"        MOVB    {g(0xC41C)},{g(0xC436)}\n"
     s += f"        MOV     #276,R0\n        MOVB    R0,{g(0xC437)}\n"
-    s += mm("min", g(0xC41D), g(0xC430), g(0xC438))
-    s += mm("max", "SUMY1",   g(0xC431), g(0xC439))
-    s += mm("min", g(0xC41E), g(0xC432), g(0xC43A))
+    s += f"        MOVB    {g(0xC41D)},{g(0xC438)}\n"
+    s += f"        MOVB    SUMY1,{g(0xC439)}\n"
+    s += f"        MOVB    {g(0xC41E)},{g(0xC43A)}\n"
     s += f"        MOV     #276,R0\n        MOVB    R0,{g(0xC43B)}\n"
     s += "        ; save this frame's positions to $C42C-$C433\n"
     s += f"        MOVB    {g(0xC41B)},{g(0xC42C)}\n"

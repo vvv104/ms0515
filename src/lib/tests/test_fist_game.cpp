@@ -709,7 +709,10 @@ TEST_CASE("fist: match transition log (diagnostic)")
     if (!fe.empty()) frames = std::atoi(fe.c_str());
     int pDan = -1, pBg = -1, pRounds = -1, pYY = -1, pReact = -1, p9c28 = -1, p9c2b = -1;
     std::string dumpDir = env("FIST_MATCH_DUMPS");        // optional VRAM frames at events
-    int dumpAt = -1, dumpN = 0, holdAt = -1;
+    int dumpAt = -1, dumpN = 0, holdAt = -1, knockAt = -1, knockN = 0;
+    std::vector<std::vector<uint8_t>> ring(10);
+    size_t ringPos = 0;
+    bool pStart = false;
     auto dump = [&](int i, const char *tag) {
         if (dumpDir.empty()) return;
         std::ofstream o(fs::path(dumpDir) / ("m" + std::to_string(dumpN++) + "_" + tag + "_" +
@@ -732,6 +735,27 @@ TEST_CASE("fist: match transition log (diagnostic)")
         else if (rounds != pRounds) { snap(i, "ROUNDS"); dump(i, "rounds"); dumpAt = i; }
         if (dumpAt >= 0 && (i == dumpAt + 60 || i == dumpAt + 400)) dump(i, "after");
         if (c2b && !p9c2b) { dump(i, "timeout"); holdAt = i; }
+        // exchange reset (RSTFRM: both at the start stance/positions) after a score:
+        // dump the ring of the frames BEFORE it and a few after (mid-round resets
+        // happen inside one game frame, the knockdown flag is never sampled set).
+        bool atStart = gst(0xAA19) == 32 && gst(0xAA59) == 60 && gst(0xAA04) == 23 && gst(0xAA44) == 23;
+        if (atStart && !pStart && knockN < 3 && (yy != 0 || pYY != 0)) {
+            knockAt = i; ++knockN;
+            for (size_t r = 0; r < ring.size(); ++r) {
+                auto &fr = ring[(ringPos + r) % ring.size()];
+                if (fr.empty()) continue;
+                std::ofstream o(fs::path(dumpDir) / ("m" + std::to_string(dumpN++) + "_pre" +
+                                                     std::to_string(r) + "_" + std::to_string(i) + ".bin"),
+                                std::ios::binary);
+                o.write(reinterpret_cast<const char *>(fr.data()), MEM_VRAM_SIZE);
+            }
+        }
+        pStart = atStart;
+        if (knockAt >= 0 && i - knockAt <= 12 && (i - knockAt) % 2 == 0) dump(i, "post");
+        if (!dumpDir.empty()) {
+            auto &fr = ring[ringPos]; fr.assign(board_get_vram(&board), board_get_vram(&board) + MEM_VRAM_SIZE);
+            ringPos = (ringPos + 1) % ring.size();
+        }
         if (holdAt >= 0 && (i == holdAt + 40 || i == holdAt + 150)) dump(i, "hold");
         else if (yy != pYY) snap(i, "YY");
         else if (c28 != p9c28 || c2b != p9c2b) snap(i, "FLAG");
