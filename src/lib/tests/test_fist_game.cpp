@@ -342,15 +342,25 @@ TEST_CASE("fist: keyboard drives P1")
         {ms0515::Key::Kp3, ms0515::Key::Space, 11, "Space+KP3 low kick"},
         {ms0515::Key::Kp1, ms0515::Key::Space, 16, "Space+KP1 reverse sweep"},
         {ms0515::Key::Right, ms0515::Key::Space, 12, "Space+RIGHT front kick"},
+        // arrow chords (the keyboard repeats only the last key; the chord rule
+        // keeps the earlier one held) - pressed in either order
+        {ms0515::Key::Up, ms0515::Key::Right, 6, "UP then RIGHT high punch"},
+        {ms0515::Key::Right, ms0515::Key::Up, 6, "RIGHT then UP high punch"},
+        {ms0515::Key::Down, ms0515::Key::Right, 7, "DOWN then RIGHT low punch"},
+        {ms0515::Key::Left, ms0515::Key::Up, 9, "LEFT then UP forward somersault"},
+        {ms0515::Key::Down, ms0515::Key::Left, 8, "DOWN then LEFT backward somersault"},
+        {ms0515::Key::Space, ms0515::Key::Up, 14, "Space then UP flying kick"},
+        {ms0515::Key::Space, ms0515::Key::Down, 10, "Space then DOWN foot sweep"},
+        {ms0515::Key::Space, ms0515::Key::Left, 17, "Space then LEFT back kick"},
     };
     for (const Combo &c : combos) {
         emu.keyReleaseAll();
         poke(0xAA19, 40); poke(0xAA59, 76); poke(0x9CA5, 30);
         settle(30);
         bool withFire = c.fire != c.dir;
-        if (withFire) emu.keyPress(c.fire, true);   // fire first: a direction alone would
-        settle(1);                                   // already start a jump / crouch / step
-        emu.keyPress(c.dir, true);
+        emu.keyPress(c.dir, true);                   // first key, then the second a frame
+        settle(1);                                   // later (a chord either way)
+        if (withFire) emu.keyPress(c.fire, true);
         bool seen = false;
         for (int i = 0; i < 30 && !seen; ++i) {
             settle(1);
@@ -363,11 +373,14 @@ TEST_CASE("fist: keyboard drives P1")
         CHECK(seen);
     }
     emu.keyReleaseAll();
-    settle(20);
+    settle(80);                                       // let the hold timers run out
+    poke(0xAA04, 1); poke(0xAA05, 1); poke(0xAA17, 0);  // P1 idle, facing right
+    settle(10);
     emu.keyPress(ms0515::Key::Space, true);           // fire alone does nothing ($98DD)
     int fireAlone = 1;
-    for (int i = 0; i < 12; ++i) { settle(1); fireAlone = std::max(fireAlone, (int)gst(0xAA05)); }
+    for (int i = 0; i < 12; ++i) { settle(1); fireAlone = std::max(fireAlone, (int)gst(0xAA04)); }
     emu.keyPress(ms0515::Key::Space, false);
+    MESSAGE("fire alone: max P1 action " << fireAlone << " (1 = idle)");
     CHECK(fireAlone == 1);
 }
 

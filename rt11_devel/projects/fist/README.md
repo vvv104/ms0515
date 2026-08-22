@@ -88,10 +88,13 @@ is the computer.
 The original reads a joystick (or 8 definable direction keys + fire) and
 resolves the control bits through its `$98DD` table *relative to the way the
 fighter faces*.  The MS7004 sends make codes only (no release codes, auto-
-repeat for the last key), so the port takes the direction from the keypad /
-arrows and FIRE as a pulse from Space, VR (Shift) or SU (Ctrl) - hold the
-direction and tap the fire key (or press fire first).  "Forward" is towards
-the opponent.
+repeat for the last key pressed), so the port keeps a hold timer per control
+and treats keys pressed together as a chord: arrows + Space work like a
+joystick (up+right, right+fire ...), held as long as any key of the chord
+repeats; VR (Shift) and SU (Ctrl) are fire keys too, and the keypad 1-9
+gives a diagonal in one key.  The one quirk of such a keyboard: a key
+released less than ~0.2 s before the next press still counts as held.
+"Forward" is towards the opponent.
 
 | direction          | keys                 | no fire                | with fire (Space / Shift / Ctrl) |
 |--------------------|----------------------|------------------------|----------------------------------|

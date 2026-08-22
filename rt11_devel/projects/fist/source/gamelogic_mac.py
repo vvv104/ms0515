@@ -3466,7 +3466,7 @@ def main_game(withbg=False):
                "        BEQ     79$\n"
                "        MOV     R1,R0\n"
                "79$:")
-    ktmout = 3                                   # game frames a key stays 'held' after its last event:
+    ktmout = 3                                   # game frames a control stays held after its last event:
                                                  # the MS7004 game preset repeats after 125 ms then every
                                                  # 50 ms, so three frames bridge the first gap (a TAP = 1-3
                                                  # steps); 7 was a 1.5 s ghost hold at ~7 game-fps
@@ -3771,14 +3771,8 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         BNE     4$
         ; --- keyboard -> P1 move (AA05).  P1 is human (AA06=0), so MOVSEL leaves AA05
         ;     unless a reaction is queued (which correctly overrides player input). ---
-        JSR     PC,KSCAN             ; drain keyboard -> HELDK (resets KTMR on events)
-        MOV     KTMR,R0              ; the MS7004 sends no release code, so treat "no key
-        BEQ     82$                  ; event for KTMR frames" (auto-repeat stopped) as release
-        DEC     R0
-        MOV     R0,KTMR
-        BNE     82$
-        CLRB    HELDK
-82$:    JSR     PC,KCTRL             ; R0 = Kempston control bits
+        JSR     PC,KSCAN             ; drain the keyboard into the hold timers
+        JSR     PC,KCTRL             ; R0 = the control bits (ticks the timers)
         JSR     PC,C98A0             ; R0 = &move ($98DD table)
         MOVB    (R0),R0
 {dbgmove}        MOVB    R0,{g(0xAA05)}       ; P1 selected move
@@ -4609,15 +4603,17 @@ SRND:   MOV     SSEED,R0
         .EVEN
         ; --- KSCAN: drain the MS7004 keyboard into the control state -----------
         ; The original reads 9 definable keys (8 directions + fire) or a Kempston
-        ; joystick.  The MS7004 sends make codes only (no release; auto-repeat for
-        ; the LAST regular key; modifiers emit their own code on every press and
-        ; ALL-UP once everything is released), so the state is:
-        ;   HELDK = the last DIRECTION key (arrows, keypad 1-9 = 8 directions, 5 =
-        ;           neutral), kept for KTMR frames past its last event;
-        ;   FTMR  = a FIRE pulse (frames) from Space / VR (Shift) / SU (Ctrl) - the
-        ;           combo is read while the pulse and the held direction overlap;
-        ;           Space auto-repeats (a held fire), the modifiers never steal the
-        ;           direction's auto-repeat, so "hold direction, tap Shift" is clean.
+        ; joystick.  The MS7004 sends make codes only: no release codes, auto-
+        ; repeat for the LAST regular key, modifiers emit their own code on every
+        ; press and ALL-UP once everything is released.  So each control (UP,
+        ; DOWN, LEFT, RIGHT, FIRE) has a hold timer KT..: a key's make/repeat code
+        ; sets its timer to KTMR frames, and - the CHORD rule - refreshes every
+        ; other timer still running: keys pressed together stay "held" as long
+        ; as any one of them repeats (the keyboard only repeats the last one).
+        ; Arrows and Space/VR/SU give chords (up+right, right+fire ...); the
+        ; keypad 1-9 gives a diagonal in one key.  A key released less than KTMR
+        ; before the next press is read as part of the chord - the price of a
+        ; keyboard without release codes.
         ; The UART presents one byte per ~2 ms (4800 baud) from a 16-byte FIFO, so
         ; after a byte, poll ~3 ms for the next one so the queue drains each frame.
 KSCAN:  CLR     R2                   ; poll budget: none until a byte was read
@@ -4632,57 +4628,86 @@ KS0:    MOVB    @#177442,R0          ; keyboard status
 KS1:    MOVB    @#177440,R0          ; read the scancode
         MOV     #250.,R2             ; ~3 ms of polling for a follow-up byte
         BIC     #177400,R0
-        CMP     R0,#263              ; ALL-UP (only sent with a modifier) -> release
+        CMP     R0,#263              ; ALL-UP (only sent with a modifier) -> release all
         BNE     1$
-        CLRB    HELDK
-        CLRB    LASTKY
-        CLR     KTMR
-        CLR     FTMR
+        CLR     KTUP
+        CLR     KTDN
+        CLR     KTLF
+        CLR     KTRT
+        CLR     KTFR
         BR      KS0
-1$:     CMP     R0,#254              ; auto-repeat code (real MS7004) -> key still held
-        BNE     11$
-        MOVB    LASTKY,HELDK
-        MOV     #{ktmout}.,KTMR
-        BR      KS0
-11$:    CMP     R0,#324              ; fire: Space, VR/Shift (0256), SU/Ctrl (0257)
+1$:     JSR     PC,KREFR             ; any key event: refresh the running timers
+        CMP     R0,#254              ; auto-repeat code (real MS7004): that is all
+        BEQ     KS0
+        CMP     R0,#324              ; fire: Space, VR/Shift (0256), SU/Ctrl (0257)
         BEQ     3$
         CMP     R0,#256
         BEQ     3$
         CMP     R0,#257
         BEQ     3$
-        CMP     R0,#247              ; directions: arrows 0247..0252 ...
-        BLO     12$
-        CMP     R0,#252
-        BLOS    2$
-        BR      KS0
-12$:    CMP     R0,#226              ; ... and keypad 1-9 (0226..0237, 0234 is ',')
-        BLO     KS0
-        CMP     R0,#237
-        BHI     KS0
-        CMP     R0,#234
-        BEQ     KS0
-2$:     MOVB    R0,HELDK             ; new direction: hold it + start the timeout
-        MOVB    R0,LASTKY
-        MOV     #{ktmout}.,KTMR
-        BR      KS0
-3$:     MOV     #5,FTMR              ; fire pulse: ~5 game frames (a crouch or a jump
-                                     ;   may have to complete before the attack starts)
-        BR      KS0
-        ; --- KCTRL: control state -> the original's control bits (the $8B4x key
-        ;     scan): bit0 UP, bit1 DOWN, bit2 LEFT, bit3 RIGHT, bit4 FIRE.  The $98DD
-        ;     table then resolves them by facing into the 16 moves. ----------------
-KCTRL:  CLR     R0
-        MOVB    HELDK,R1
-        BIC     #177400,R1
-        BEQ     1$
-        SUB     #226,R1              ; DIRTAB is indexed by scancode - 0226
-        BLT     1$
+        MOV     R0,R1                ; directions: DIRTAB[scancode - 0226] = bits
+        SUB     #226,R1
+        BLT     KS0
         CMP     R1,#20.
-        BHI     1$
-        MOVB    DIRTAB(R1),R0
-1$:     TST     FTMR
+        BHI     KS0
+        MOVB    DIRTAB(R1),R1
+        BEQ     KS0                  ; not a direction key
+        BIT     #1,R1
+        BEQ     11$
+        MOV     #{ktmout}.,KTUP
+11$:    BIT     #2,R1
+        BEQ     12$
+        MOV     #{ktmout}.,KTDN
+12$:    BIT     #4,R1
+        BEQ     13$
+        MOV     #{ktmout}.,KTLF
+13$:    BIT     #10,R1
+        BEQ     KS0
+        MOV     #{ktmout}.,KTRT
+        BR      KS0
+3$:     MOV     #{ktmout}.,KTFR
+        BR      KS0
+        ; KREFR: the chord rule - every timer still running gets the full hold
+KREFR:  TST     KTUP
+        BEQ     1$
+        MOV     #{ktmout}.,KTUP
+1$:     TST     KTDN
+        BEQ     2$
+        MOV     #{ktmout}.,KTDN
+2$:     TST     KTLF
+        BEQ     3$
+        MOV     #{ktmout}.,KTLF
+3$:     TST     KTRT
+        BEQ     4$
+        MOV     #{ktmout}.,KTRT
+4$:     TST     KTFR
+        BEQ     5$
+        MOV     #{ktmout}.,KTFR
+5$:     RTS     PC
+        ; --- KCTRL: the hold timers -> the original's control bits (the $8B4x key
+        ;     scan: bit0 UP, bit1 DOWN, bit2 LEFT, bit3 RIGHT, bit4 FIRE), each
+        ;     timer counting down one per frame.  The $98DD table then resolves
+        ;     the bits by facing into the 16 moves. ------------------------------
+KCTRL:  CLR     R0
+        TST     KTUP
+        BEQ     1$
+        DEC     KTUP
+        BIS     #1,R0
+1$:     TST     KTDN
+        BEQ     2$
+        DEC     KTDN
+        BIS     #2,R0
+2$:     TST     KTLF
+        BEQ     3$
+        DEC     KTLF
+        BIS     #4,R0
+3$:     TST     KTRT
+        BEQ     4$
+        DEC     KTRT
+        BIS     #10,R0
+4$:     TST     KTFR
         BEQ     9$
-        DEC     FTMR
+        DEC     KTFR
         BIS     #20,R0
 9$:     RTS     PC
         ; 0226 KP1 DN+LF, 0227 KP2 DN, 0230 KP3 DN+RT, 0231 KP4 LF, 0232 KP5 -,
@@ -4757,7 +4782,7 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\n"
               "        .EVEN\nRCSHAD: .WORD   0\nSSEED:  .WORD   52525\n"
-              "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\nFTMR:   .WORD   0\nLASTKY: .WORD   0\n"
+              "        .EVEN\nLASTTP: .WORD   0\nKTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRANKB:  .WORD   0\nRANKS:  .BLKB   10.\n"
               "        .EVEN\nKEY1:   .BLKB   12.\nKEY2:   .BLKB   12.\n"
