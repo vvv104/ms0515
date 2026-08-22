@@ -395,8 +395,11 @@ TEST_CASE("fist: yin-yang score accumulates")
     int minGap = 255, closeFrames = 0, resets = 0;      // fighter spacing + RSTFRM activity
     int prevGap = -1;
     int prev = gst(0xAA01) + gst(0xAA41);
-    int holdAt4 = 0, maxHold = 0, firstHold = 0;         // win-freeze: tally held at the 4 win
-    bool sawWin = false, sawResetAfterWin = false;
+    // Round end: the round is decided (two yin-yang, or the clock / a knockdown
+    // ends it - ROUNDE), its final frame holds while the winner bows, then the
+    // tallies reset (NEWRND).  Count decided rounds, the hold length, the resets.
+    int holdLen = 0, maxHold = 0, firstHold = 0, roundsDecided = 0, roundsReset = 0;
+    bool decided = false;
     // Phase 1 (idle P1): let the AI P2 try to score.  Phase 2: P1 attacks.
     if (bothAI) poke(0xAA06, 1);              // P1 becomes an AI, MOVSEL drives it
     std::string traj = env("FIST_TRAJ_OUT");
@@ -431,14 +434,16 @@ TEST_CASE("fist: yin-yang score accumulates")
         peak = std::max(peak, std::max((int)gst(0xAA01), (int)gst(0xAA41)));
         int s = gst(0xAA01) + gst(0xAA41);
         if (s != prev) { ++changes; prev = s; }
-        // Win-freeze: when a fighter hits 4 (bout won), the tally holds at 4 for the
-        // freeze, then GLOOP clears it -> the winning yin-yang stays on screen a while.
-        if (gst(0xAA01) >= 4 || gst(0xAA41) >= 4) {   // win threshold (tally can land on 4 or 5)
-            sawWin = true; ++holdAt4; maxHold = std::max(maxHold, holdAt4);
-        } else {
-            if (sawWin && firstHold == 0) firstHold = holdAt4;   // length of the 1st freeze
-            if (sawWin) sawResetAfterWin = true;   // dropped back to 0 after a win
-            holdAt4 = 0;
+        bool won4 = gst(0xAA01) >= 4 || gst(0xAA41) >= 4;
+        bool clockOut = gst(0x9C2B) != 0;
+        if (!decided && (won4 || clockOut) && s > 0) { decided = true; ++roundsDecided; holdLen = 0; }
+        if (decided) {
+            ++holdLen;
+            if (s == 0 && gst(0x9CA5) == 30) {          // NEWRND: tallies cleared, clock reset
+                decided = false; ++roundsReset;
+                maxHold = std::max(maxHold, holdLen);
+                if (firstHold == 0) firstHold = holdLen;
+            }
         }
         // Snapshot the GST when P2 is attacking within striking range, to replay
         // hit_detect(HIT_P2) offline and see which test rejects the hit.
@@ -478,16 +483,16 @@ TEST_CASE("fist: yin-yang score accumulates")
     MESSAGE("  attack-action frames: P1=" << mAct1atk << " P2=" << mAct2atk);
     MESSAGE("  fighter spacing: min gap=" << minGap << "  frames in range(<20)=" << closeFrames
             << "  reset jumps=" << resets);
-    MESSAGE("  bout win: saw win(tally==4)=" << sawWin << " first freeze=" << firstHold
-            << " max hold=" << maxHold << " reset-after-win=" << sawResetAfterWin);
+    MESSAGE("  rounds: decided=" << roundsDecided << " reset=" << roundsReset
+            << " first hold=" << firstHold << " max hold=" << maxHold);
     CHECK(a01_0 == 0);           // the match starts 0-0 (GST.DAT snapshot cleared)
     CHECK(changes > 0);          // clean hits are scored into the yin-yang total
     CHECK(peak >= 2);            // at least a full yin-yang accrues over the bout
-    // Match outcome: reaching 4 (two yin-yang) wins the bout, which freezes the
-    // winning frame (tally held at 4 for many frames) then resets for the next bout.
-    CHECK(sawWin);               // a bout was won (a fighter reached 4)
-    CHECK(maxHold > 60);         // the win freezes the frame (~150-frame hold)
-    CHECK(sawResetAfterWin);     // then the tally resets for the next bout
+    // Match outcome: a decided round (two yin-yang, or the clock with a score on
+    // the board) holds its final frame while the winner bows, then resets.
+    CHECK(roundsDecided >= 1);
+    CHECK(maxHold > 60);         // the hold is many video frames long
+    CHECK(roundsReset >= 1);     // then the tallies reset for the next round
 }
 
 // The dojo follows the rank: a 1UP game opens on background 2 ($AF34 = 2), and
@@ -704,7 +709,7 @@ TEST_CASE("fist: match transition log (diagnostic)")
     if (!fe.empty()) frames = std::atoi(fe.c_str());
     int pDan = -1, pBg = -1, pRounds = -1, pYY = -1, pReact = -1, p9c28 = -1, p9c2b = -1;
     std::string dumpDir = env("FIST_MATCH_DUMPS");        // optional VRAM frames at events
-    int dumpAt = -1, dumpN = 0;
+    int dumpAt = -1, dumpN = 0, holdAt = -1;
     auto dump = [&](int i, const char *tag) {
         if (dumpDir.empty()) return;
         std::ofstream o(fs::path(dumpDir) / ("m" + std::to_string(dumpN++) + "_" + tag + "_" +
@@ -726,7 +731,8 @@ TEST_CASE("fist: match transition log (diagnostic)")
         else if (bg != pBg) snap(i, "BG");
         else if (rounds != pRounds) { snap(i, "ROUNDS"); dump(i, "rounds"); dumpAt = i; }
         if (dumpAt >= 0 && (i == dumpAt + 60 || i == dumpAt + 400)) dump(i, "after");
-        if (c2b && !p9c2b) { dump(i, "timeout"); }
+        if (c2b && !p9c2b) { dump(i, "timeout"); holdAt = i; }
+        if (holdAt >= 0 && (i == holdAt + 40 || i == holdAt + 150)) dump(i, "hold");
         else if (yy != pYY) snap(i, "YY");
         else if (c28 != p9c28 || c2b != p9c2b) snap(i, "FLAG");
         else if (react != pReact && react != 0) snap(i, "REACT");

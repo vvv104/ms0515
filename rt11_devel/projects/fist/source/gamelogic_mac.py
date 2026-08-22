@@ -3765,8 +3765,9 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
         JSR     PC,ROUNDE            ; $AD18: score the exchange, decide the round
         BR      84$
-83$:    CMP     RESULT,#1            ; P1 won: $AD5F pays the clock out as points,
-        BNE     85$                  ;   a second per frame, while the pose holds
+83$:    JSR     PC,HOLDFR            ; $AE8E/$AEB2/$AD0B: animate + re-bridge the poses
+        CMP     RESULT,#1            ; P1 won: $AD5F pays the clock out as points,
+        BNE     85$                  ;   a second per frame, while the bow plays
         JSR     PC,TBONUS
 85$:    DEC     WINTMR               ; count the hold down
         BNE     84$                  ;   still held -> just re-present the frame
@@ -4059,13 +4060,36 @@ ROUNDE: MOVB    {g(0x9C28)},R0
         CMP     R0,R1
         BLO     75$
         BHI     74$
-        MOV     #201,RESULT          ; ...else a draw ($81)
+        MOV     #201,RESULT          ; ...else a draw ($81): $ACE8 - both bow ($19),
+        MOVB    #31,{g(0xAA0C)}      ;   then $ACF0 clears the recovery state
+        MOVB    #31,{g(0xAA4C)}
+        JSR     PC,RSTACF
         BR      76$
-74$:    MOV     #1,RESULT            ; P1 won the round
+74$:    MOV     #1,RESULT            ; P1 won the round: $AE7A - P1 bows ($19)
+        MOVB    #31,{g(0xAA0C)}
+        MOVB    #172,{g(0xAA18)}
+        CLRB    {g(0xAA0B)}
+        CLRB    {g(0xAA16)}
+        CLRB    {g(0xC427)}
         BR      76$
-75$:    CLR     RESULT               ; P2 won the round
-76$:    MOV     #{hold}.,WINTMR      ; hold the final frame (the bow / get-up pause)
+75$:    CLR     RESULT               ; P2 won the round: $AE9D - P2 bows ($19)
+        MOVB    #31,{g(0xAA4C)}
+        MOVB    #172,{g(0xAA58)}
+        CLRB    {g(0xAA4B)}
+        CLRB    {g(0xAA56)}
+        MOVB    #1,{g(0xC427)}
+76$:    MOV     #{hold}.,WINTMR      ; hold while the bow plays (HOLDFR animates it)
 78$:    RTS     PC
+        ; --- HOLDFR: one iteration of the original's round-end loops ($AE8E /
+        ;     $AEB2 / $AD0B): advance both animations ($95D4) and re-run the
+        ;     logic->graphics bridge ($BF13), so the bow plays and the draw chain
+        ;     keeps valid inputs (re-drawing without the bridge drifts the poses). -
+HOLDFR: MOV     #125026,R5           ; hl = $AA16 -> fighter 0
+        JSR     PC,ANIM5E
+        MOV     #125126,R5           ; hl = $AA56 -> fighter 1
+        JSR     PC,ANIM5E
+        JSR     PC,BF13
+        RTS     PC
         ; --- TBONUS: one step of $AD5F's clock pay-out: while the clock shows time,
         ;     $AF52 credits a point ($AA02 + the BCD score) and $9CA0 ticks. ------
 TBONUS: TSTB    {g(0x9CA5)}
