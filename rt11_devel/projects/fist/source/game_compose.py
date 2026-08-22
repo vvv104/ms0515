@@ -71,198 +71,96 @@ def frame_head(dbgmove):
 """
 
 
-def fighter1(lb_words, c408):
-    """Fighter 1: the decode cache, the sprite cache, the decode into LBUF1."""
-    return f"""81$:    ; --- Fighter 1: clear FBUF, decode box A, stash its box, copy to LBUF1 ---
-        ; Decode cache: the draw set-up ($C101 / $C1A2) reads only these render
-        ; cells (box, sprite origin, pose record, facing, mode); when none changed
-        ; since the last decode, LBUF1 / RW1 / RT1 / RL1 still hold its result.
-        CMPB    {g(0xc41b)},KEY1+0.
-        BNE     87$
-        CMPB    {g(0xc41c)},KEY1+1.
-        BNE     87$
-        CMPB    {g(0xc41f)},KEY1+2.
-        BNE     87$
-        CMPB    {g(0xc421)},KEY1+3.
-        BNE     87$
-        CMPB    {g(0xc428)},KEY1+4.
-        BNE     87$
-        CMPB    {g(0xc429)},KEY1+5.
-        BNE     87$
-        CMPB    {g(0xc434)},KEY1+6.
-        BNE     87$
-        CMPB    {g(0xc435)},KEY1+7.
-        BNE     87$
-        CMPB    {g(0xc436)},KEY1+8.
-        BNE     87$
-        CMPB    {g(0xc437)},KEY1+9.
-        BNE     87$
-        CMPB    {g(0xc407)},KEY1+10.
-        BNE     87$
-        CMPB    {g(0xc40e)},KEY1+11.
-        BNE     87$
-        JMP     86$
-87$:        MOVB    {g(0xc41b)},KEY1+0.
-        MOVB    {g(0xc41c)},KEY1+1.
-        MOVB    {g(0xc41f)},KEY1+2.
-        MOVB    {g(0xc421)},KEY1+3.
-        MOVB    {g(0xc428)},KEY1+4.
-        MOVB    {g(0xc429)},KEY1+5.
-        MOVB    {g(0xc434)},KEY1+6.
-        MOVB    {g(0xc435)},KEY1+7.
-        MOVB    {g(0xc436)},KEY1+8.
-        MOVB    {g(0xc437)},KEY1+9.
-        MOVB    {g(0xc407)},KEY1+10.
-        MOVB    {g(0xc40e)},KEY1+11.
-        ; sprite cache: the decoded image depends only on the pose record, the
+# Per-fighter decode parameters: the local labels (block start, key miss,
+# done, cache miss, the clear / segment / copy loops), the render cells the
+# decode cache watches (box, sprite origin, pose record, facing, mode), the
+# sprite origin (top, left), the draw set-up routine, the box letter and
+# the box cells (top, left).
+FIGHTERS = {
+    1: dict(labels=(81, 87, 86, 63, 5, 6, 62),
+            cells=(0xC41B, 0xC41C, 0xC41F, 0xC421, 0xC428, 0xC429,
+                   0xC434, 0xC435, 0xC436, 0xC437, 0xC407, 0xC40E),
+            origin=(0xC41C, 0xC41B), chain="C101C", box="A", boxcells=(0xC436, 0xC434)),
+    2: dict(labels=(86, 89, 88, 73, 56, 7, 72),
+            cells=(0xC41D, 0xC41E, 0xC420, 0xC422, 0xC42A, 0xC42B,
+                   0xC438, 0xC439, 0xC43A, 0xC43B, 0xC407, 0xC40E),
+            origin=(0xC41E, 0xC41D), chain="C1CC", box="B", boxcells=(0xC43A, 0xC438)),
+}
+
+
+def _lab(n):
+    """A local label in its 8-column field."""
+    return f"{n}$:".ljust(8)
+
+
+def fighter(n, lb_words, c408):
+    """Fighter `n`: the decode cache (KEYn), the sprite cache, else the decode
+    into FBUF and its copy to LBUFn; RWn / RTn / RLn = its box."""
+    f = FIGHTERS[n]
+    start, miss, done, cmiss, clr, seg, copy = f["labels"]
+    cells, (otop, oleft), (btop, bleft) = f["cells"], f["origin"], f["boxcells"]
+    chain, box = f["chain"], f["box"]
+    out = f"{start}$:    ; --- Fighter {n}: clear FBUF, decode box {box}, stash its box, copy to LBUF{n} ---\n"
+    if n == 1:
+        out += ("        ; Decode cache: the draw set-up ($C101 / $C1A2) reads only these render\n"
+                "        ; cells (box, sprite origin, pose record, facing, mode); when none changed\n"
+                "        ; since the last decode, LBUF1 / RW1 / RT1 / RL1 still hold its result.\n")
+    out += "".join(f"        CMPB    {g(c)},KEY{n}+{i}.\n        BNE     {miss}$\n"
+                   for i, c in enumerate(cells))
+    out += f"        JMP     {done}$\n{miss}$:"
+    out += "".join(f"        MOVB    {g(c)},KEY{n}+{i}.\n" for i, c in enumerate(cells))
+    return out + f"""        ; sprite cache: the decoded image depends only on the pose record, the
         ; sub-cell x shift, facing and mode - look it up (16 slots in the extended
         ; banks 10-11, visible at 040000 with slots 2-3 extended and the VRAM
         ; window off: 03003) before decoding; a hit is a copy instead of a decode.
-        JSR     PC,CKEY1
+        JSR     PC,CKEY{n}
         MOV     #3003,@#DISPAT
-        MOV     #LBUF1,R1
+        MOV     #LBUF{n},R1
         JSR     PC,CLOOK
         MOV     #GAME,@#DISPAT
         TST     R0
-        BNE     63$
-        MOV     R2,RW1               ; hit: the image is in LBUF1, its width in R2;
-        MOVB    {g(0xc41c)},R0       ;   the (tight) box is the sprite origin
+        BNE     {cmiss}$
+        MOV     R2,RW{n}               ; hit: the image is in LBUF{n}, its width in R2;
+        MOVB    {g(otop)},R0       ;   the (tight) box is the sprite origin
         BIC     #177400,R0
-        MOV     R0,RT1
-        MOVB    {g(0xc41b)},R0
+        MOV     R0,RT{n}
+        MOVB    {g(oleft)},R0
         BIC     #177400,R0
-        MOV     R0,RL1
-        JMP     86$
-63$:
+        MOV     R0,RL{n}
+        JMP     {done}$
+{cmiss}$:
         MOV     #FBUF,R0
         MOV     #{lb_words}.,R1
-5$:     CLR     (R0)+
+{_lab(clr)}CLR     (R0)+
         DEC     R1
-        BNE     5$
-        JSR     PC,C101C
+        BNE     {clr}$
+        JSR     PC,{chain}
         JSR     PC,SETUPC
-6$:     JSR     PC,SEGSET
+{_lab(seg)}JSR     PC,SEGSET
         MOVB    {c408},R0
         BIC     #177400,R0
         MOV     R0,C408W
         JSR     PC,DECRUN
         DECB    SEGCNT
-        BNE     6$
-        MOVB    {g(0xC40A)},R0       ; box A: width, top ($C436), left ($C434)
+        BNE     {seg}$
+        MOVB    {g(0xC40A)},R0       ; box {box}: width, top (${btop:X}), left (${bleft:X})
         BIC     #177400,R0
-        MOV     R0,RW1
-        MOVB    {g(0xC436)},R0
+        MOV     R0,RW{n}
+        MOVB    {g(btop)},R0
         BIC     #177400,R0
-        MOV     R0,RT1
-        MOVB    {g(0xC434)},R0
+        MOV     R0,RT{n}
+        MOVB    {g(bleft)},R0
         BIC     #177400,R0
-        MOV     R0,RL1
+        MOV     R0,RL{n}
         MOV     #FBUF,R1
-        MOV     #LBUF1,R0
+        MOV     #LBUF{n},R0
         MOV     #{lb_words}.,R2
-62$:    MOV     (R1)+,(R0)+
+{_lab(copy)}MOV     (R1)+,(R0)+
         DEC     R2
-        BNE     62$
+        BNE     {copy}$
         MOV     #3003,@#DISPAT       ; a miss: remember the decode in the cache
-        MOV     #LBUF1,R1
-        MOV     RW1,R2
-        JSR     PC,CSTOR
-        MOV     #GAME,@#DISPAT
-"""
-
-
-def fighter2(lb_words, c408):
-    """Fighter 2: likewise into LBUF2."""
-    return f"""86$:    ; --- Fighter 2: clear FBUF, decode box B, stash its box, copy to LBUF2 ---
-        CMPB    {g(0xc41d)},KEY2+0.
-        BNE     89$
-        CMPB    {g(0xc41e)},KEY2+1.
-        BNE     89$
-        CMPB    {g(0xc420)},KEY2+2.
-        BNE     89$
-        CMPB    {g(0xc422)},KEY2+3.
-        BNE     89$
-        CMPB    {g(0xc42a)},KEY2+4.
-        BNE     89$
-        CMPB    {g(0xc42b)},KEY2+5.
-        BNE     89$
-        CMPB    {g(0xc438)},KEY2+6.
-        BNE     89$
-        CMPB    {g(0xc439)},KEY2+7.
-        BNE     89$
-        CMPB    {g(0xc43a)},KEY2+8.
-        BNE     89$
-        CMPB    {g(0xc43b)},KEY2+9.
-        BNE     89$
-        CMPB    {g(0xc407)},KEY2+10.
-        BNE     89$
-        CMPB    {g(0xc40e)},KEY2+11.
-        BNE     89$
-        JMP     88$
-89$:        MOVB    {g(0xc41d)},KEY2+0.
-        MOVB    {g(0xc41e)},KEY2+1.
-        MOVB    {g(0xc420)},KEY2+2.
-        MOVB    {g(0xc422)},KEY2+3.
-        MOVB    {g(0xc42a)},KEY2+4.
-        MOVB    {g(0xc42b)},KEY2+5.
-        MOVB    {g(0xc438)},KEY2+6.
-        MOVB    {g(0xc439)},KEY2+7.
-        MOVB    {g(0xc43a)},KEY2+8.
-        MOVB    {g(0xc43b)},KEY2+9.
-        MOVB    {g(0xc407)},KEY2+10.
-        MOVB    {g(0xc40e)},KEY2+11.
-        ; sprite cache: the decoded image depends only on the pose record, the
-        ; sub-cell x shift, facing and mode - look it up (16 slots in the extended
-        ; banks 10-11, visible at 040000 with slots 2-3 extended and the VRAM
-        ; window off: 03003) before decoding; a hit is a copy instead of a decode.
-        JSR     PC,CKEY2
-        MOV     #3003,@#DISPAT
-        MOV     #LBUF2,R1
-        JSR     PC,CLOOK
-        MOV     #GAME,@#DISPAT
-        TST     R0
-        BNE     73$
-        MOV     R2,RW2               ; hit: the image is in LBUF2, its width in R2;
-        MOVB    {g(0xc41e)},R0       ;   the (tight) box is the sprite origin
-        BIC     #177400,R0
-        MOV     R0,RT2
-        MOVB    {g(0xc41d)},R0
-        BIC     #177400,R0
-        MOV     R0,RL2
-        JMP     88$
-73$:
-        MOV     #FBUF,R0
-        MOV     #{lb_words}.,R1
-56$:    CLR     (R0)+
-        DEC     R1
-        BNE     56$
-        JSR     PC,C1CC
-        JSR     PC,SETUPC
-7$:     JSR     PC,SEGSET
-        MOVB    {c408},R0
-        BIC     #177400,R0
-        MOV     R0,C408W
-        JSR     PC,DECRUN
-        DECB    SEGCNT
-        BNE     7$
-        MOVB    {g(0xC40A)},R0       ; box B: width, top ($C43A), left ($C438)
-        BIC     #177400,R0
-        MOV     R0,RW2
-        MOVB    {g(0xC43A)},R0
-        BIC     #177400,R0
-        MOV     R0,RT2
-        MOVB    {g(0xC438)},R0
-        BIC     #177400,R0
-        MOV     R0,RL2
-        MOV     #FBUF,R1
-        MOV     #LBUF2,R0
-        MOV     #{lb_words}.,R2
-72$:    MOV     (R1)+,(R0)+
-        DEC     R2
-        BNE     72$
-        MOV     #3003,@#DISPAT       ; a miss: remember the decode in the cache
-        MOV     #LBUF2,R1
-        MOV     RW2,R2
+        MOV     #LBUF{n},R1
+        MOV     RW{n},R2
         JSR     PC,CSTOR
         MOV     #GAME,@#DISPAT
 """
