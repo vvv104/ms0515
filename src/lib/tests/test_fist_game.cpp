@@ -291,8 +291,17 @@ TEST_CASE("fist: keyboard drives P1")
         board.mem.ram[bank * 8192 + (addr & 8191)] = v;
     };
     poke(0xAA46, 0);
+    // Tick the keyboard model's clock (the frontend does this from SDL time) so
+    // a held key auto-repeats; KSCAN treats a key with no repeat for KTMR frames
+    // as released, so without the ticks a hold is a single step.
+    uint32_t nowMs = 0;
     auto settle = [&](int n) {
-        for (int i = 0; i < n; ++i) { poke(0xAA45, 1); (void)emu.stepFrame(); }
+        for (int i = 0; i < n; ++i) {
+            poke(0xAA45, 1);
+            nowMs += 20;
+            emu.keyTick(nowMs);
+            (void)emu.stepFrame();
+        }
     };
 
     int xBase = gst(0xAA19);
