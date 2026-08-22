@@ -38,10 +38,22 @@ source plus the game-state data file.
   original's beeper; the high score (kept for the session); the settings
   screen ("0" in the demo: key redefinition, sound on / off); the
   2-player game ("2"); MS7004 keyboard control of both players (8
-  directions + fire each, see Controls).
+  directions + fire each, see Controls); the original's pace - a frame
+  every 1/13 s, timed on timer channel 1 (its clock counts 13 frames a
+  second, so a 30 s round is 30 s); the attract demo's own round flow
+  (`$ABC8`: a round per dojo, three and it starts over).  The noise
+  effects read the very ROM bytes the original reads and the rumble runs
+  its `$B2D7` shift register, so each effect sounds as it does there.
 
 Not ported: the settings screen's joystick choices (Sinclair / Kempston)
-have no joystick on the MS-0515 and fall back to the default keys.
+have no joystick on the MS-0515 and fall back to the default keys.  What
+stays different by nature: the MS7004 sends no key-release codes, so a
+held key is a timer refreshed by its auto-repeat (a key released less than
+~0.2 s before the next press still counts as held); the AI's randomness
+is an LFSR where the original reads the Z80's R register; the loading
+screen holds ~3 s (or until fire) where the original's stayed for the
+tape's minutes; a scene heavier than the MS-0515 can draw in 1/13 s (the
+demo's two AI fighters changing pose every frame) runs below the pace.
 
 ## Layout
 

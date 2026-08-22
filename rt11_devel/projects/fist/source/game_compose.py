@@ -8,7 +8,10 @@ from gst_addr import g
 
 def frame_input(dbgmove):
     """GLOOP: the keyboard, the quit chord, the demo's starts, both players' moves."""
-    return f"""GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
+    return f"""GLOOP:  JSR     PC,PACE              ; the original's pace: 13 frames a second
+        MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
+        INC     {g(0xB158)}          ; a frame counter in a spare (even) cell of the
+                                     ;   original's sound scratch - the tests read the pace
         MOV     #W,R0                ; clear decoder scratch
         MOV     #32.,R1
 4$:     CLR     (R0)+
@@ -17,8 +20,6 @@ def frame_input(dbgmove):
         ; --- keyboard -> P1 move (AA05).  P1 is human (AA06=0), so MOVSEL leaves AA05
         ;     unless a reaction is queued (which correctly overrides player input). ---
         JSR     PC,KSCAN             ; drain the keyboard into the hold timers
-        MOV     #KT2UP,R1            ; (player 2's timers tick whether or not a
-        JSR     PC,KCTRL             ;   human holds them - a 2UP game reads them)
         MOV     #KTUP,R1
         JSR     PC,KCTRL             ; R0 = player 1's control bits (ticks the timers)
         TST     DEMO
@@ -72,11 +73,11 @@ def frame_input(dbgmove):
         JSR     PC,C98A0             ; R0 = &move ($98DD table)
         MOVB    (R0),R0
 {dbgmove}        MOVB    R0,{g(0xAA05)}       ; P1 selected move
+        MOV     #KT2UP,R1            ; player 2's bits (its timers tick once a frame
+        JSR     PC,KCTRL             ;   whether or not a human holds them)
         TSTB    {g(0xAA46)}          ; player 2 human (a 2UP game, $9891)?
         BNE     76$
-        MOV     #KT2UP,R1            ; its bits (the timers ticked above: KCTRL
-        JSR     PC,KCTRL             ;   once more costs nothing, they are 0 or
-        MOV     #100,R5              ;   refreshed every key event)
+        MOV     #100,R5
         JSR     PC,C98A0
         MOVB    (R0),R0
         MOVB    R0,{g(0xAA45)}       ; P2 selected move
@@ -91,7 +92,8 @@ def frame_logic():
         JSR     PC,ROUNDE            ; $AD18: score the exchange, end the round
         BR      84$
 83$:    JSR     PC,RNDEND            ; one frame of the round-end sequence
-84$:    MOVB    {g(0xAA01)},SC1      ; stash the scores for the HUD (GST unseen at 3377)
+84$:    JSR     PC,TSAMP             ; (the pace's clock wraps every 33 ms: sample)
+        MOVB    {g(0xAA01)},SC1      ; stash the scores for the HUD (GST unseen at 3377)
         MOVB    {g(0xAA41)},SC2
         MOVB    {g(0xB02D)},SCRBCD   ; and P1's BCD point score, for DRWSCR at 3377
         MOVB    {g(0xB02D)}+1.,SCRBCD+1.
@@ -114,6 +116,7 @@ def frame_logic():
         BEQ     81$
         JSR     PC,SNDFX             ; $B15A: play it (blocking, bit-banged speaker)
         CLRB    {g(0xB150)}          ; ($B15A clears it after playing)
+        JSR     PC,TSYNC             ; (the pace restarts after a blocking sound)
 """
 
 
@@ -146,7 +149,8 @@ def fighter(n, lb_words, c408):
     start, miss, done, cmiss, clr, seg, copy = f["labels"]
     cells, (otop, oleft), (btop, bleft) = f["cells"], f["origin"], f["boxcells"]
     chain, box = f["chain"], f["box"]
-    out = f"{start}$:    ; --- Fighter {n}: clear FBUF, decode box {box}, stash its box, copy to LBUF{n} ---\n"
+    out = f"{start}$:    JSR     PC,TSAMP             ; (the pace's clock wraps every 33 ms: sample)\n"
+    out += f"        ; --- Fighter {n}: clear FBUF, decode box {box}, stash its box, copy to LBUF{n} ---\n"
     if n == 1:
         out += ("        ; Decode cache: the draw set-up ($C101 / $C1A2) reads only these render\n"
                 "        ; cells (box, sprite origin, pose record, facing, mode); when none changed\n"
@@ -187,6 +191,7 @@ def fighter(n, lb_words, c408):
         BIC     #177400,R0
         MOV     R0,C408W
         JSR     PC,DECRUN
+        JSR     PC,TSAMP             ; (the pace's clock wraps every 33 ms: sample)
         DECB    SEGCNT
         BNE     {seg}$
         MOVB    {g(0xC40A)},R0       ; box {box}: width, top (${btop:X}), left (${bleft:X})
@@ -214,7 +219,8 @@ def fighter(n, lb_words, c408):
 
 def geometry():
     """The on-screen geometry of both fighters (GEOMC, clamped to the screen)."""
-    return f"""88$:    ; --- on-screen geometry for both fighters (each clamped to the screen) ---
+    return f"""88$:    JSR     PC,TSAMP             ; (the pace's clock wraps every 33 ms: sample)
+        ; --- on-screen geometry for both fighters (each clamped to the screen) ---
         MOV     RW1,R3               ; fighter 1: raw width / top / left -> COL1/TOP1/BWID1/W1
         MOV     RT1,R4
         MOV     RL1,R5
@@ -371,7 +377,10 @@ C2TR:   TST     (R0)+
         DEC     R3
         BNE     C2OV
 C2AD:   ADD     BWID2,SRC2
-C2SK:   MOV     #SCRATC,R0           ; blit the finished row's dirty range
+C2SK:   BIT     #17,ROWN             ; every 16 rows: the pace's clock sample
+        BNE     C2BL
+        JSR     PC,TSAMP
+C2BL:   MOV     #SCRATC,R0           ; blit the finished row's dirty range
         ADD     DLO2,R0
         MOV     R2,R1
         ADD     DLO2,R1
@@ -390,7 +399,8 @@ def hud_gate():
     return f"""        ; --- the status strip: all of it after a dojo draw (HUDDRT: the set-up's
         ;     prints), else only what changed - the yin-yang, the score (not in
         ;     the demo, $AF62), the clock - as the original prints on change ---
-58$:    TST     HUDDRT
+58$:    JSR     PC,TSAMP             ; (the pace's clock wraps every 33 ms: sample)
+        TST     HUDDRT
         BEQ     50$
         CLR     HUDDRT
         JSR     PC,HUDALL
@@ -568,5 +578,52 @@ GEOMC:  MOV     R5,R0                ; col = (left >> 2) + 4
         BLE     4$
         CLR     R1
 4$:     ADD     #4,R1                ; +4 = top centring margin
+        RTS     PC
+"""
+
+
+def pace():
+    """PACE / TSAMP / TSYNC / TREAD: the original's frame pace on timer channel 1."""
+    return """        ; --- PACE: the original's pace - a frame every 1/13 s (its clock counts
+        ;     13 frames a second).  Timer channel 1 (the printer's baud clock,
+        ;     free here) runs mode 2 at 2 MHz with the full 65536 count; the
+        ;     frame samples it often enough (TSAMP, under 33 ms apart) to sum
+        ;     the elapsed ticks in ELAPSD:ELAPSH, and PACE spins until 153846
+        ;     passed since the last frame's start, carrying the excess.  Two
+        ;     frames behind (a blocking sound) -> no catching up. -----------------
+PACE:   JSR     PC,TSAMP
+        CMP     ELAPSH,#4
+        BLO     1$
+        CLR     ELAPSD
+        CLR     ELAPSH
+        RTS     PC
+1$:     CMP     ELAPSH,#2
+        BLO     PACE
+        BHI     2$
+        CMP     ELAPSD,#22774.
+        BLO     PACE
+2$:     SUB     #22774.,ELAPSD
+        SBC     ELAPSH
+        SUB     #2,ELAPSH
+        RTS     PC
+TSAMP:  JSR     PC,TREAD             ; the ticks since the last sample -> the sum
+        MOV     TLAST,R1
+        SUB     R0,R1                ; (the counter counts down)
+        MOV     R0,TLAST
+        ADD     R1,ELAPSD
+        ADC     ELAPSH
+        RTS     PC
+TSYNC:  JSR     PC,TREAD             ; start the pace afresh (after a long block)
+        MOV     R0,TLAST
+        CLR     ELAPSD
+        CLR     ELAPSH
+        RTS     PC
+TREAD:  MOVB    #100,@#177526        ; latch channel 1, read its 16-bit count
+        MOVB    @#177502,R0
+        BIC     #177400,R0
+        MOVB    @#177502,R1
+        SWAB    R1
+        BIC     #377,R1
+        BIS     R1,R0
         RTS     PC
 """

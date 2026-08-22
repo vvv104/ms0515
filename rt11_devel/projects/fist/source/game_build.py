@@ -133,8 +133,9 @@ def _driver(withbg, snap, lb_words, boot_code, bgn):
             + game_round.scoring(CAP) + game_round.decision(CAP)
             + game_round.round_end(PAUSE) + game_round.outcome(withbg)
             + game_round.inits() + game_round.hiscore() + game_round.twoup()
+            + game_round.demo() + game_compose.pace()
             + rendbg + text
-            + game_sound.sound()
+            + game_sound.stub()
             + game_keys.kscan(KTMOUT) + game_keys.kctrl(KTMOUT)
             + game_keys.c98a0(game_keys.control_map()))
 
@@ -173,6 +174,10 @@ def _engine(randoms, snap):
         "        RTS     PC\n")
     chain = gm.emit_setupchain() + gm.emit_c101c1a2()
     ldat = ("\n        .EVEN\n" + gm._emit_window("LDAT", snap[LDAT_BASE:LDAT_END]))
+    # the pace's clock wraps every 33 ms: a sample half-way through the logic
+    # (after the first animation pass of ORCH)
+    m = re.search(r"^        JSR     PC,UPDFGT[^\n]*C = 0\n", logic, re.M)
+    logic = logic[:m.end()] + "        JSR     PC,TSAMP\n" + logic[m.end():]
     return decrun + logic + chain + tail, ldat
 
 
@@ -190,7 +195,8 @@ def _datblk(lb_words, withbg):
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\n"
               "DLO2:   .WORD   0\nDCNT:   .WORD   0\nPLO:    .WORD   36.\nPHI:    .WORD   0\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
-              "        .EVEN\nRCSHAD: .WORD   0\nSSEED:  .WORD   52525\n"
+              "        .EVEN\nRCSHAD: .WORD   0\n"
+              "TLAST:  .WORD   0\nELAPSD: .WORD   0\nELAPSH: .WORD   0\nRUMB:   .BLKB   3.\n"
               "        .EVEN\nLASTTP: .WORD   196.   ; (no band yet: nothing above the dojo to restore)\n"
               "KTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\n"
               "KT2UP:  .WORD   0\nKT2DN:  .WORD   0\nKT2LF:  .WORD   0\nKT2RT:  .WORD   0\nKT2FR:  .WORD   0\n"
@@ -241,7 +247,7 @@ def main_game(withbg=False):
     lb_words = ((fd.FBUF_LEN + 1) // 2) if withbg else safe_words
     nblocks, scrblk = _gst_dat(snap, withbg)
     boot_code = game_loader.boot(withbg, nblocks, scrblk)
-    extra = game_text.all_text(snap) + game_music.music()
+    extra = game_text.all_text(snap) + game_music.music() + game_sound.driver()
     bgsrc = game_dojo.block(bgn, boot_code, extra) if withbg else ""
     bgdat_src = game_dojo.tables(game_loader.BUF) if withbg else ""
     engine, ldat = _engine(randoms, snap)

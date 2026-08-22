@@ -174,6 +174,7 @@ RENDBG: MOVB    {g(0xAF34)},R0
         JSR     PC,SPSCR             ; present the dojo 1:1 centred
         JSR     PC,BORDER            ; the cyan border around it
         MOV     #1,HUDDRT            ; the strip goes on it next frame (HUDALL)
+        JSR     PC,TSYNC             ; (the pace restarts after the draw / the tune)
         MOV     #GAME,@#DISPAT
         RTS     PC
 """

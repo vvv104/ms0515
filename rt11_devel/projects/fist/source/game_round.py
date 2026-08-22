@@ -45,7 +45,10 @@ ROUNDE: TST     TWOUP                ; a 2UP game has its own loop ($AE14)
         ;     ($AA01/$AA41 >= 4) wins the round; $AD37 clears the score flags;
         ;     on the clock ($9C2B) the round is decided ($AD44 = DECIDE), else
         ;     RSTFRM ($9CA8, via $AE26) + RSTAI restart the exchange. -----------
-SCOREX: JSR     PC,SCDET
+SCOREX: TST     DEMO                 ; the demo scores its own way ($ABC8)
+        BEQ     76$
+        JMP     DSCORE
+76$:    JSR     PC,SCDET
         TST     R0
         BEQ     72$                  ; no clean hit -> no score this exchange
         JSR     PC,YINYNG
@@ -192,7 +195,10 @@ OUTCOM: TST     TWOUP                ; a 2UP game's bows were its end ($AE12):
         BEQ     3$                   ;   back to the demo
         JSR     PC,DINIT
         BR      SETUP
-3$:     MOV     RESULT,R0
+3$:     TST     DEMO                 ; the demo's round-end: the next dojo ($ABBB)
+        BEQ     4$
+        JMP     DEMEND
+4$:     MOV     RESULT,R0
         CMP     R0,#1
         BEQ     1$
         CMP     R0,#201
@@ -396,4 +402,55 @@ HISCK2: MOV     #2,R0
         MOVB    1(R1),{g(0xB037)}
         MOVB    2(R1),{g(0xB038)}
 9$:     RTS     PC
+"""
+
+
+def demo():
+    """DSCORE ($ABC8's scoring: the demo's exchange over) and DEMEND ($ABBB:
+    its round over - the next dojo, three of them, then the demo restarts)."""
+    return f"""        ; --- DSCORE: $ABCD..$AC04 - the demo's exchange over: a clean hit scores
+        ;     ($900E / $AF36); the one who was hit decides whose total is
+        ;     checked - at two yin-yang the winner bows and the round is over;
+        ;     on the clock the round is over without a bow; else the next
+        ;     exchange. -----------------------------------------------------------
+DSCORE: JSR     PC,SCDET
+        TST     R0
+        BEQ     2$
+        JSR     PC,YINYNG
+        JSR     PC,AWARD
+        TSTB    {g(0xAA03)}          ; $ABD8: P1 was hit -> P2's total...
+        BEQ     3$
+        MOVB    {g(0xAA41)},R0
+        BIC     #177400,R0
+        CMP     R0,#4.
+        BLO     2$
+        JMP     WIN2                 ; $AE9D
+3$:     MOVB    {g(0xAA01)},R0       ; ...else P1's
+        BIC     #177400,R0
+        CMP     R0,#4.
+        BLO     2$
+        JMP     WIN1                 ; $AE7A
+2$:     CLRB    {g(0xAA08)}          ; $ABF1
+        CLRB    {g(0xAA48)}
+        MOVB    {g(0x9C2B)},R0
+        BIC     #177400,R0
+        BEQ     4$
+        JMP     DEMEND               ; the clock: the round is over, no bow
+4$:     JSR     PC,RSTFRM            ; the next exchange ($AE26)
+        JSR     PC,RSTAI
+        RTS     PC
+        ; --- DEMEND: $ABBB - the demo's round over: the next background ($AF27),
+        ;     the rank + 1; after the third round the demo starts over ($AC09:
+        ;     new personalities, background 2). ---------------------------------
+DEMEND: JSR     PC,RANKTK
+        MOVB    {g(0xB05F)},R0
+        BIC     #177400,R0
+        INC     R0
+        MOVB    R0,{g(0xB05F)}
+        CMP     R0,#4
+        BNE     1$
+        JSR     PC,DINIT
+        JMP     SETUP
+1$:     MOVB    #1,{g(0xAF35)}
+        JMP     SETUP
 """

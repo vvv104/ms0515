@@ -317,6 +317,7 @@ TEST_CASE("fist: the dojo follows the rank, game over returns to novice")
         REQUIRE(expect[ref].size() >= 200u * 80u);
     }
     FistGame g("fist_bg_lib");
+    g.startGame();                                  // (the demo has its own round flow)
     CHECK(g.gst(0xAF34) == 2);                      // a game opens on bg 2 ($AC59)
     CHECK(g.gst(0xB05F) == 0);                      // a novice
     CHECK(g.gst(0xAA3C) == 2);                      // two rounds per opponent
@@ -326,7 +327,7 @@ TEST_CASE("fist: the dojo follows the rank, game over returns to novice")
     int ref = 2;
     for (int opp = 0; opp < 4; ++opp) {
         int before = g.gst(0xAF34);
-        REQUIRE(p1Wins(g, 3000, [&] { return g.gst(0xAF34) != before; }));
+        REQUIRE(p1Wins(g, 8000, [&] { return g.gst(0xAF34) != before; }));
         ref = ref % 3 + 1;                          // $AF27: 1..3, 4 -> 1
         CHECK(g.gst(0xAF34) == ref);
         CHECK(g.gst(0xB05F) == opp + 1);
@@ -442,16 +443,38 @@ TEST_CASE("fist: 2 in the demo starts a 2-player game; player 2 on Q W E / A S D
     g.resetFighters();
     g.emu.keyPress(ms0515::Key::X, true);
     int p2 = 0;
-    for (int i = 0; i < 40 && !p2; ++i) { g.step(); if (g.gst(0xAA44) == 4) p2 = 4; }
+    for (int i = 0; i < 100 && !p2; ++i) { g.step(); if (g.gst(0xAA44) == 4) p2 = 4; }
     g.emu.keyPress(ms0515::Key::X, false);
     g.settle(30);
     g.emu.keyPress(ms0515::Key::Kp2, true);
     int p1 = 0;
-    for (int i = 0; i < 40 && !p1; ++i) { g.step(); if (g.gst(0xAA04) == 4) p1 = 4; }
+    for (int i = 0; i < 100 && !p1; ++i) { g.step(); if (g.gst(0xAA04) == 4) p1 = 4; }
     g.emu.keyPress(ms0515::Key::Kp2, false);
     MESSAGE("2UP: P2 crouch on X -> " << p2 << ", P1 crouch on KP2 -> " << p1);
     CHECK(p2 == 4);
     CHECK(p1 == 4);
     std::string out = fist::opt("twoup-out");
     if (!out.empty()) g.dumpVram(out);
+}
+
+TEST_CASE("fist: the pace is the original's, 13 frames a second")
+{
+    if (!fist::built()) { MESSAGE("FIST not built - skipping"); return; }
+    FistGame g("fist_pace_lib");
+    auto frames = [&]() { return g.gst(0xB158) + 256 * g.gst(0xB159); };   // the frame counter
+    int f0 = frames();
+    for (int i = 0; i < 400; ++i) g.step();
+    double demo = 8000.0 / (frames() - f0);
+    g.startGame();
+    g.parkP2();
+    g.emu.keyPress(ms0515::Key::Right, true);
+    f0 = frames();
+    for (int i = 0; i < 400; ++i) g.step();
+    g.emu.keyPress(ms0515::Key::Right, false);
+    double game = 8000.0 / (frames() - f0);
+    // The demo decodes two ever-changing AI fighters a frame and is CPU-bound
+    // a little above the pace; a game's walking frame sits on it.
+    MESSAGE("ms per game frame: demo " << demo << ", a game (walking) " << game << " (the original: 1000 / 13 = 76.9)");
+    CHECK(demo > 70); CHECK(demo < 100);
+    CHECK(game > 70); CHECK(game < 90);
 }

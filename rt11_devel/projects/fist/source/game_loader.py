@@ -137,6 +137,10 @@ BOOT2:  MOV     #GAME,@#DISPAT         ; 03217: VRAM on, window @40000, banks 4-
 3$:     CLR     (R0)+
         CMP     R0,#VRAMEN
         BLO     3$
+        MOVB    #164,@#177526          ; timer channel 1: mode 2, binary, the full
+        MOVB    #0,@#177522            ;   65536 count - the frame pace's clock
+        MOVB    #0,@#177522
+        JSR     PC,TSYNC
         MOV     #3003,@#DISPAT         ; the sprite cache (extended banks 10-11): empty
         MOV     #40000,R0
 10$:    CLR     (R0)+
