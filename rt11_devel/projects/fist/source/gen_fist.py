@@ -349,11 +349,34 @@ BARET:  RTS     PC
 
 
 ;-------------------------------------------------------------------
+; ROWOFF - the offset of Spectrum pixel row R0 (0..191) in the 6144-byte
+; pixel area -> R1: the thirds-major interleave
+;   (y & 7) << 8  |  (y & 070) << 2  |  (y & 0300) << 5
+; (computed, so no 384-byte row table has to live in low RAM).  Keeps R0.
+ROWOFF: MOV     R0,R1
+        BIC     #177770,R1
+        SWAB    R1                      ; (y & 7) << 8
+        MOV     R0,-(SP)
+        BIC     #177707,(SP)
+        ASL     (SP)
+        ASL     (SP)
+        BIS     (SP)+,R1                ; | (y & 070) << 2
+        MOV     R0,-(SP)
+        BIC     #177477,(SP)
+        ASL     (SP)
+        ASL     (SP)
+        ASL     (SP)
+        ASL     (SP)
+        ASL     (SP)
+        BIS     (SP)+,R1                ; | (y & 0300) << 5
+        RTS     PC
+
+;-------------------------------------------------------------------
 ; SPSCR - present the Spectrum framebuffer SCRBUF (6144 pixels + 768
 ; attrs) to VRAM, 1:1 and centred.
 ;
 ; For each Spectrum pixel row y = 0..191:
-;   pix  = SCRBUF + SROWS[y]                 ; 32 pixel bytes
+;   pix  = SCRBUF + ROWOFF(y)                ; 32 pixel bytes
 ;   attr = SCRBUF + 6144 + (y>>3)*32         ; 32 attribute bytes (per cell)
 ;   dst  = VRAM + (TMARG+y)*LSTRID + LMARG    ; centred destination
 ;   for cx = 0..31:
@@ -362,8 +385,7 @@ BARET:  RTS     PC
 SPSCR:  CLR     R5                      ; R5 = y
 SPRY:   ; pix source -> R1
         MOV     R5,R0
-        ASL     R0                      ; y*2, word index into SROWS
-        MOV     SROWS(R0),R1
+        JSR     PC,ROWOFF               ; R1 = the row's offset in the pixel area
         ADD     #SCRBUF,R1              ; R1 = &pix[0]
         ; attr source -> R2 = SCRBUF + 6144 + (y>>3)*32
         MOV     R5,R2

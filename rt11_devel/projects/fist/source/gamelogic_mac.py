@@ -3497,15 +3497,9 @@ def main_game(withbg=False):
         ldr_reads += f"""        .READW  #LKAREA,#0,#BUF,#{nb * 256}.,#{sb}.
         BCC     .+6
         JMP     LDERR
-        MTPS    #340
-        MOVB    #EXT,@#DISPAT
-        MOV     #BUF,R0
         MOV     #GST+{sb * 512}.,R1
         MOV     #{nb * 256}.,R2
-{11 + i}$:    MOV     (R0)+,(R1)+
-        SOB     R2,{11 + i}$
-        MOVB    #PRIM,@#DISPAT
-        MTPS    #0
+        JSR     PC,CHUNK
 """
 
     preamble = (
@@ -3538,7 +3532,6 @@ def main_game(withbg=False):
 """
         after_load = """        ; --- state loaded: hold the loading screen ~3 s, or until fire / "1" ---
         MTPS    #340
-        MOV     #GAME,@#DISPAT         ; 03217: VRAM on, window @40000, banks 4-6 ext
         MOV     #1000.,R3
 8$:     JSR     PC,KSCAN
         TST     KTFR
@@ -3550,21 +3543,32 @@ def main_game(withbg=False):
         SOB     R3,8$
 9$:     CLR     KSTART
         CLR     KTFR
+        JMP     BOOT2
 """
     else:
         title_load = ""
-        after_load = """        ; --- GST loaded; set medium video + game banking (banks 4-6 EXTENDED) ---
+        after_load = """        ; --- GST loaded; set medium video ---
         MTPS    #340
         MOVB    @#SYSC,R0
         BIC     #17,R0
         MOVB    R0,@#SYSC
         MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 5 in it
-        MOV     #GAME,@#DISPAT         ; 03217: VRAM on, window @40000, banks 4-6 ext
-        MOV     #VRAM,R0
-3$:     CLR     (R0)+
-        CMP     R0,#VRAMEN
-        BLO     3$
+        JMP     BOOT2
 """
+    # The loader (boot-only code: .FETCH/.LOOKUP, the loading screen, the chunk
+    # reads, the hold) lives in the dojo block at 0100000 when there is one -
+    # banks 0-1 are full - and runs there at RT-11's all-primary banking; the
+    # chunk copies (which hide banks 4-6) go through CHUNK in banks 0-1.
+    boot_code = f"""BOOT:   .FETCH  #HSPACE,#DATFIL
+        BCC     .+6
+        JMP     LDERR
+        .LOOKUP #LKAREA,#0,#DATFIL
+        BCC     .+6
+        JMP     LDERR
+{title_load}{ldr_reads}        .CLOSE  #0
+{after_load}"""
+    if not withbg:
+        boot_inline = boot_code                  # no dojo block: the loader stays inline
     for t in fd.TABLES:
         equs += f"T{t:04X}  = GST+{t - GBASE}.\n"
     equs += f"FBUF   = GST+{fd.FBUF - GBASE}.\n"
@@ -3574,6 +3578,7 @@ def main_game(withbg=False):
 
     # --- dojo background: engine + data + the driver fragments (empty when !withbg) ---
     dojo_boot, dojo_row, bgsrc, srows_src = "", "", "", ""
+    boot_inline = ""
     bgdat_src, bgvars, rendbg = "", "", ""
     # fighter ink in the overlay: white on the plain black-background game (else the
     # fighter is black-on-black), BLACK over the dojo (black figures on the light
@@ -3632,16 +3637,14 @@ def main_game(withbg=False):
             "        MOV     BGREF,R1               ; background reference 1..3 ($5F00)\n"
             "        ASL     R1\n"
             "        MOV     BGTAB-2(R1),R1         ; -> its definition table\n")
-        rows = gen_fist.spectrum_row_offsets()
         # The dojo engine + bg data + SROWS + SCRBUF live at 0100000 in the PRIMARY
         # banks 4-6 (embedded in the .SAV), which the compositor's 3377 banking makes
         # visible; the GST loads into the EXTENDED banks 12-14 at the same window
         # (decode's 3217 banking).  One dispatcher bit switches between them, so the
         # 6912 B SCRBUF costs nothing in the tight banks 0-1.
-        # SROWS lives in banks 0-1 (with the code): the compositor reads it EVERY
-        # frame, and only there is it immune to whatever aliases the dojo block's
-        # 0100000 addresses across the primary/extended bank split at runtime.
-        srows_src = ("\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows))
+        # No row table: SPSCR / BUILDDB compute the Spectrum row offset (ROWOFF),
+        # and the per-frame compositor reads DOJOBUF (VRAM row layout) - banks
+        # 0-1 are full, every byte there counts.
         # BUILDDB: pre-convert the whole dojo (SCRBUF Spectrum planes -> VRAM word
         # format) into DOJOBUF once at boot.  Same per-cell convert as the CLOOP, but
         # for all 192 dojo rows, stored in the VRAM row layout (40 words/row, the
@@ -3649,9 +3652,8 @@ def main_game(withbg=False):
         # under any picture cell - the HUD restores cells from it.  Runs at 3377.
         builddb = ("""
 BUILDDB: CLR     R2                   ; dojo y = 0..191
-BDB1:    MOV     R2,R0                ; pix = SCRBUF + SROWS[y]
-        ASL     R0
-        MOV     SROWS(R0),R1
+BDB1:    MOV     R2,R0                ; pix = SCRBUF + ROWOFF(y)
+        JSR     PC,ROWOFF
         ADD     #SCRBUF,R1
         MOV     R2,R5                ; attr = SCRBUF+6144 + (y>>3)*32
         ASR     R5
@@ -3695,7 +3697,7 @@ BDB2:    MOVB    (R5)+,R4
         RTS     PC
 """)
         bgsrc = ("\n        .ASECT\n        . = 100000\n"
-                 + engine + builddb
+                 + engine + builddb + boot_code
                  + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
                  # DOJOBUF: the dojo pre-converted to VRAM word format (40 words x 192
                  # rows = the picture's VRAM rows 4..195, margins zero), built once at
@@ -3820,15 +3822,28 @@ RENDBG: MOVB    {g(0xAF34)},R0
         .EVEN
 START:  MOV     #37776,SP              ; stack above the code, below BUF
         MOVB    @#SYSC,ORIGRC
-        ; --- load GST.DAT (chunked) -> extended banks 4-6 ---
-        .FETCH  #HSPACE,#DATFIL
-        BCC     .+6
-        JMP     LDERR
-        .LOOKUP #LKAREA,#0,#DATFIL
-        BCC     .+6
-        JMP     LDERR
-{title_load}{ldr_reads}        .CLOSE  #0
-{after_load}        ; --- $AC3E Start_1UP_Game: the match-state batch (P1 human, P2 the
+        JMP     BOOT                   ; the loader (boot-only code, see boot_code)
+{boot_inline}        ; CHUNK: copy R2 words from BUF into the parked extended banks at R1
+CHUNK:  MTPS    #340
+        MOVB    #EXT,@#DISPAT
+        MOV     #BUF,R0
+1$:     MOV     (R0)+,(R1)+
+        SOB     R2,1$
+        MOVB    #PRIM,@#DISPAT
+        MTPS    #0
+        RTS     PC
+BOOT2:  MOV     #GAME,@#DISPAT         ; 03217: VRAM on, window @40000, banks 4-6 ext
+        MOV     #VRAM,R0
+3$:     CLR     (R0)+
+        CMP     R0,#VRAMEN
+        BLO     3$
+        MOV     #3003,@#DISPAT         ; the sprite cache (extended banks 10-11): empty
+        MOV     #40000,R0
+10$:    CLR     (R0)+
+        CMP     R0,#100000
+        BLO     10$
+        MOV     #GAME,@#DISPAT
+        ; --- $AC3E Start_1UP_Game: the match-state batch (P1 human, P2 the
         ;     computer, score 0, rank 0), then the first opponent's set-up (the
         ;     background) and a new round.  GST.DAT is a mid-attract snapshot, so
         ;     every cell this touches is deliberately re-initialised here. ---
@@ -3921,7 +3936,7 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         BNE     87$
         CMPB    {g(0xc40e)},KEY1+11.
         BNE     87$
-        BR      86$
+        JMP     86$
 87$:        MOVB    {g(0xc41b)},KEY1+0.
         MOVB    {g(0xc41c)},KEY1+1.
         MOVB    {g(0xc41f)},KEY1+2.
@@ -3934,7 +3949,26 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOVB    {g(0xc437)},KEY1+9.
         MOVB    {g(0xc407)},KEY1+10.
         MOVB    {g(0xc40e)},KEY1+11.
-
+        ; sprite cache: the decoded image depends only on the pose record, the
+        ; sub-cell x shift, facing and mode - look it up (16 slots in the extended
+        ; banks 10-11, visible at 040000 with slots 2-3 extended and the VRAM
+        ; window off: 03003) before decoding; a hit is a copy instead of a decode.
+        JSR     PC,CKEY1
+        MOV     #3003,@#DISPAT
+        MOV     #LBUF1,R1
+        JSR     PC,CLOOK
+        MOV     #GAME,@#DISPAT
+        TST     R0
+        BNE     63$
+        MOV     R2,RW1               ; hit: the image is in LBUF1, its width in R2;
+        MOVB    {g(0xc41c)},R0       ;   the (tight) box is the sprite origin
+        BIC     #177400,R0
+        MOV     R0,RT1
+        MOVB    {g(0xc41b)},R0
+        BIC     #177400,R0
+        MOV     R0,RL1
+        JMP     86$
+63$:
         MOV     #FBUF,R0
         MOV     #{lb_words}.,R1
 5$:     CLR     (R0)+
@@ -3964,6 +3998,11 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
 62$:    MOV     (R1)+,(R0)+
         DEC     R2
         BNE     62$
+        MOV     #3003,@#DISPAT       ; a miss: remember the decode in the cache
+        MOV     #LBUF1,R1
+        MOV     RW1,R2
+        JSR     PC,CSTOR
+        MOV     #GAME,@#DISPAT
 86$:    ; --- Fighter 2: clear FBUF, decode box B, stash its box, copy to LBUF2 ---
         CMPB    {g(0xc41d)},KEY2+0.
         BNE     89$
@@ -3989,7 +4028,7 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         BNE     89$
         CMPB    {g(0xc40e)},KEY2+11.
         BNE     89$
-        BR      88$
+        JMP     88$
 89$:        MOVB    {g(0xc41d)},KEY2+0.
         MOVB    {g(0xc41e)},KEY2+1.
         MOVB    {g(0xc420)},KEY2+2.
@@ -4002,7 +4041,26 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOVB    {g(0xc43b)},KEY2+9.
         MOVB    {g(0xc407)},KEY2+10.
         MOVB    {g(0xc40e)},KEY2+11.
-
+        ; sprite cache: the decoded image depends only on the pose record, the
+        ; sub-cell x shift, facing and mode - look it up (16 slots in the extended
+        ; banks 10-11, visible at 040000 with slots 2-3 extended and the VRAM
+        ; window off: 03003) before decoding; a hit is a copy instead of a decode.
+        JSR     PC,CKEY2
+        MOV     #3003,@#DISPAT
+        MOV     #LBUF2,R1
+        JSR     PC,CLOOK
+        MOV     #GAME,@#DISPAT
+        TST     R0
+        BNE     73$
+        MOV     R2,RW2               ; hit: the image is in LBUF2, its width in R2;
+        MOVB    {g(0xc41e)},R0       ;   the (tight) box is the sprite origin
+        BIC     #177400,R0
+        MOV     R0,RT2
+        MOVB    {g(0xc41d)},R0
+        BIC     #177400,R0
+        MOV     R0,RL2
+        JMP     88$
+73$:
         MOV     #FBUF,R0
         MOV     #{lb_words}.,R1
 56$:    CLR     (R0)+
@@ -4032,6 +4090,11 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
 72$:    MOV     (R1)+,(R0)+
         DEC     R2
         BNE     72$
+        MOV     #3003,@#DISPAT       ; a miss: remember the decode in the cache
+        MOV     #LBUF2,R1
+        MOV     RW2,R2
+        JSR     PC,CSTOR
+        MOV     #GAME,@#DISPAT
 88$:    ; --- on-screen geometry for both fighters (each clamped to the screen) ---
         MOV     RW1,R3               ; fighter 1: raw width / top / left -> COL1/TOP1/BWID1/W1
         MOV     RT1,R4
@@ -4182,6 +4245,88 @@ LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON b
         MOVB    ORIGRC,@#SYSC
         MTPS    #0
         .EXIT
+        ; --- sprite cache.  Slot = 5-byte key (pose record lo/hi, x & 3, $C41F,
+        ;     $C421 - facing / mode come from the last two), pad, width, pad, the
+        ;     884-byte image: 892 bytes, 16 slots direct-mapped by a hash of the
+        ;     key.  CKEY1/CKEY2 build the key for a fighter and pick the slot;
+        ;     CLOOK / CSTOR run with the cache mapped (03003). ------------------
+CKEY1:  MOVB    {g(0xc428)},CKEY
+        MOVB    {g(0xc429)},CKEY+1.
+        MOVB    {g(0xc41b)},R0
+        BIC     #177774,R0
+        MOVB    R0,CKEY+2.
+        MOVB    {g(0xc41f)},CKEY+3.
+        MOVB    {g(0xc421)},CKEY+4.
+        BR      CSLOT
+CKEY2:  MOVB    {g(0xc42a)},CKEY
+        MOVB    {g(0xc42b)},CKEY+1.
+        MOVB    {g(0xc41d)},R0
+        BIC     #177774,R0
+        MOVB    R0,CKEY+2.
+        MOVB    {g(0xc420)},CKEY+3.
+        MOVB    {g(0xc422)},CKEY+4.
+CSLOT:  MOVB    CKEY,R0              ; hash: lo ^ lo>>3 ^ hi ^ sub ^ facing<<2, & 15
+        BIC     #177400,R0
+        MOV     R0,R1
+        ASR     R1
+        ASR     R1
+        ASR     R1
+        XOR     R1,R0
+        MOVB    CKEY+1.,R1
+        BIC     #177400,R1
+        XOR     R1,R0
+        MOVB    CKEY+2.,R1
+        BIC     #177400,R1
+        XOR     R1,R0
+        MOVB    CKEY+3.,R1
+        BIC     #177400,R1
+        ASL     R1
+        ASL     R1
+        XOR     R1,R0
+        BIC     #177760,R0
+        ASL     R0
+        MOV     SLOTAB(R0),SLOT
+        RTS     PC
+        ; CLOOK (at 03003): the slot holds CKEY? -> copy its image to (R1), R2 =
+        ; width, R0 = 0; else R0 = 1.
+CLOOK:  MOV     SLOT,R3
+        CMPB    CKEY,(R3)
+        BNE     9$
+        CMPB    CKEY+1.,1(R3)
+        BNE     9$
+        CMPB    CKEY+2.,2(R3)
+        BNE     9$
+        CMPB    CKEY+3.,3(R3)
+        BNE     9$
+        CMPB    CKEY+4.,4(R3)
+        BNE     9$
+        MOVB    6(R3),R2
+        BIC     #177400,R2
+        ADD     #8.,R3
+        MOV     #{lb_words}.,R4
+1$:     MOV     (R3)+,(R1)+
+        DEC     R4
+        BNE     1$
+        CLR     R0
+        RTS     PC
+9$:     MOV     #1,R0
+        RTS     PC
+        ; CSTOR (at 03003): store CKEY, the width R2 and the image at (R1).
+CSTOR:  MOV     SLOT,R3
+        MOVB    CKEY,(R3)
+        MOVB    CKEY+1.,1(R3)
+        MOVB    CKEY+2.,2(R3)
+        MOVB    CKEY+3.,3(R3)
+        MOVB    CKEY+4.,4(R3)
+        MOVB    R2,6(R3)
+        ADD     #8.,R3
+        MOV     #{lb_words}.,R4
+1$:     MOV     (R1)+,(R3)+
+        DEC     R4
+        BNE     1$
+        RTS     PC
+        .EVEN
+SLOTAB: .WORD   16384.,17276.,18168.,19060.,19952.,20844.,21736.,22628.,23520.,24412.,25304.,26196.,27088.,27980.,28872.,29764.
         ; --- GEOMC: clamp one fighter's raw box to the screen ----------------------
         ; in:  R3 = raw width ($C40A), R4 = raw top, R5 = raw left
         ; out: R0 = COL (cell), R1 = TOP (screen row), R2 = BWID (stride), R3 = W (cells)
@@ -4918,6 +5063,7 @@ C98A0:  BIT     #40,R0
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRANKB:  .WORD   0\nRANKS:  .BLKB   10.\n"
               "        .EVEN\nKEY1:   .BLKB   12.\nKEY2:   .BLKB   12.\n"
+              "        .EVEN\nCKEY:   .BLKB   6.\nSLOT:   .WORD   0\n"
               "        .EVEN\nHUDDRT: .WORD   1\nHUDK:   .BLKB   8.\n"
               "        .EVEN\nSCRBCD: .BLKB   3.\n        .EVEN\nSTIM:   .WORD   0\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
@@ -4936,7 +5082,9 @@ C98A0:  BIT     #40,R0
                   + "".join(f"        .WORD   {','.join(names[i:i + 8])}\n"
                             for i in range(0, len(names), 8)))
         (OUT_MAC.parent / "symtab.json").write_text(json.dumps(names))
-    src = body + symtab + bgsrc + bgdat_src + "\n        .END    START\n"
+    # (the symbol table goes behind the dojo block: it is only read from the
+    #  .SAV file, and banks 0-1 have no room to spare)
+    src = body + bgsrc + symtab + bgdat_src + "\n        .END    START\n"
     src = (src.replace("%NELEM%", str(nelem))
               .replace("%C408%", str(snap[0xC408]))
               .replace("%C40E%", str(snap[0xC40E])).replace("%C407%", str(snap[0xC407]))
