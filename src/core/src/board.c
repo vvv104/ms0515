@@ -25,7 +25,11 @@
  * VBlank at 50 Hz: 150000 CPU cycles per frame
  */
 #define CPU_CLOCK_HZ        7500000
-#define TIMER_DIVIDER       4       /* CPU cycles per timer tick (7.5/2 ≈ 4) */
+#define TIMER_DIVIDER       4       /* CPU cycles per timer tick, rounded (7.5/2); the
+                                     * keyboard UART divider builds on it            */
+#define TIMER_PERIOD_Q      15      /* The exact timer period in quarter CPU cycles:
+                                     * 7.5 MHz / 2 MHz = 3.75 cycles = 15 quarters      */
+#define CPU_CYCLE_Q         4       /* Quarter cycles per CPU cycle                     */
 #define FRAME_CYCLES_50HZ   150000  /* 7500000 / 50 */
 #define FRAME_CYCLES_60HZ   125000  /* 7500000 / 60 */
 #define FRAME_CYCLES_72HZ   104167  /* 7500000 / 72 (approximate) */
@@ -87,13 +91,16 @@ static void update_sound(ms0515_board_t *board)
      *     When 0, speaker is silent.
      *     When 1, speaker follows timer channel 2 OUT.
      *
-     *   Reg C bit 5 (УПР ГР): direct speaker drive.
-     *     Software can toggle this bit to produce clicks/tones
-     *     without using the timer (like IBM PC port 61 bit 1).
+     *   Reg C bit 5 (УПР ГР): direct speaker drive - "changing this bit
+     *     changes the speaker's tone" (tech desc 4.8).  Software toggles
+     *     it to bit-bang clicks and noise without the timer (like IBM PC
+     *     port 61 bit 1); modelled as XOR with the channel 2 output, so
+     *     with the gate low (mode 3 OUT held high) the speaker follows
+     *     the bit, and with a tone playing the bit inverts its phase.
      *
      * The POST melody uses timer-driven mode: programs ch2 in mode 3,
      * sets bits 7+6 to start the tone, clears them for silence.
-     * Bit 5 is not used by POST but may be used by games for effects.
+     * Bit 5 is not used by POST; games use it for effects.
      */
     int new_value;
 
@@ -101,8 +108,9 @@ static void update_sound(ms0515_board_t *board)
         /* Sound disabled — speaker off */
         new_value = 0;
     } else {
-        /* Sound enabled — speaker follows timer channel 2 output */
-        new_value = timer_get_out(&board->timer, 2) ? 1 : 0;
+        /* Sound enabled — speaker follows timer channel 2 output XOR bit 5 */
+        int out = timer_get_out(&board->timer, 2) ? 1 : 0;
+        new_value = out ^ ((board->reg_c >> 5) & 1);
     }
 
     if (new_value != board->sound_value) {
@@ -491,7 +499,7 @@ void board_init(ms0515_board_t *board)
     cpu_init(&board->cpu, board);
 
     board->dip_refresh   = 0;  /* 50 Hz default */
-    board->timer_counter = TIMER_DIVIDER;
+    board->timer_counter = TIMER_PERIOD_Q;
     board->frame_counter = get_frame_cycles(board);
 
     ramdisk_init(&board->ramdisk);
@@ -564,7 +572,7 @@ void board_reset(ms0515_board_t *board)
     board->sound_on      = false;
     board->sound_value   = 0;
 
-    board->timer_counter = TIMER_DIVIDER;
+    board->timer_counter = TIMER_PERIOD_Q;
     board->frame_counter = get_frame_cycles(board);
 
     /* Reset CPU last — it reads the boot vector from memory */
@@ -594,10 +602,12 @@ bool board_step_frame(ms0515_board_t *board)
         cycles_left           -= c;
         board->frame_cycle_pos = frame_cycles - cycles_left;
 
-        /* Tick timer at ~2 MHz (every TIMER_DIVIDER CPU cycles) */
-        board->timer_counter -= c;
+        /* Tick timer at exactly 2 MHz: 4 ticks every 15 CPU cycles, counted
+         * in quarter cycles (the NS4 tech desc gives the PIT clock as 2 MHz;
+         * a game that paces itself on a channel's count relies on it). */
+        board->timer_counter -= c * CPU_CYCLE_Q;
         while (board->timer_counter <= 0) {
-            board->timer_counter += TIMER_DIVIDER;
+            board->timer_counter += TIMER_PERIOD_Q;
             timer_tick(&board->timer);
             update_sound(board);
 

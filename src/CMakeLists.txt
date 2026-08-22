@@ -55,3 +55,10 @@ add_subdirectory(tools)
 if(MS0515_BUILD_FRONTEND)
     add_subdirectory(frontend)
 endif()
+
+# The RT-11 development tree's program harnesses (rt11_devel/projects/*/tests)
+# test built guest programs through the lib - they are tests of those
+# programs, so they live with them, not under src/.
+if(MS0515_BUILD_TESTS AND EXISTS "${CMAKE_SOURCE_DIR}/../rt11_devel/CMakeLists.txt")
+    add_subdirectory("${CMAKE_SOURCE_DIR}/../rt11_devel" "${CMAKE_BINARY_DIR}/rt11_devel")
+endif()

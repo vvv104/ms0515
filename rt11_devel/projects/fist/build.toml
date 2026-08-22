@@ -1,0 +1,5 @@
+[project]
+name      = "FIST"
+language  = "macro11"
+pre_build = "source/gen_fist.py"      # extracts the loading screen, emits FIST.MAC
+outputs   = ["FIST.SAV"]              # pulled off the work disk after build

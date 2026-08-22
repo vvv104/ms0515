@@ -1,0 +1,629 @@
+"""The per-frame draw: the two fighters' decode (with the decode and
+sprite caches), the geometry, the in-place row compositor, the HUD gate.
+
+Every function returns MACRO-11 text; game_build.py assembles the game.
+"""
+from gst_addr import g
+
+
+def frame_input(dbgmove):
+    """GLOOP: the keyboard, the quit chord, the demo's starts, both players' moves."""
+    return f"""GLOOP:  JSR     PC,PACE              ; the original's pace: 13 frames a second
+        MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
+        INC     {g(0xB158)}          ; a frame counter in a spare (even) cell of the
+                                     ;   original's sound scratch - the tests read the pace
+        MOV     #W,R0                ; clear decoder scratch
+        MOV     #32.,R1
+4$:     CLR     (R0)+
+        DEC     R1
+        BNE     4$
+        ; --- keyboard -> P1 move (AA05).  P1 is human (AA06=0), so MOVSEL leaves AA05
+        ;     unless a reaction is queued (which correctly overrides player input). ---
+        JSR     PC,KSCAN             ; drain the keyboard into the hold timers
+        MOV     #KTUP,R1
+        JSR     PC,KCTRL             ; R0 = player 1's control bits (ticks the timers)
+        TST     DEMO
+        BNE     79$
+        TST     KTG                  ; $9827: "G" and "H" held together quit the
+        BEQ     79$                  ;   game -> the demo ($9C2C = 0, A = $80)
+        TST     KTH
+        BEQ     79$
+        CLR     KTG
+        CLR     KTH
+        CLR     KTFR                 ; (the chord must not restart the game at once)
+        CLR     KSTART
+        CLR     RPHASE
+        JSR     PC,DINIT
+        JSR     PC,SETUP
+        CLR     R0
+79$:    TST     DEMO                 ; in the demo, fire ($97E3) or "1" ($97DC) starts
+        BEQ     70$                  ;   a 1-player game, "0" ($981A) the settings
+        TST     KOPT
+        BEQ     82$
+        CLR     KOPT
+        MOV     #3377,@#DISPAT       ; the settings screens live in the dojo block
+        JSR     PC,SETTNG            ;   and draw at 3377; one choice and they
+        MOV     #GAME,@#DISPAT       ;   return - the demo restarts ($AC09)
+        MOVB    SNDENA,{g(0xB2FA)}   ; the sound flag they may have set
+        CLR     KTFR
+        CLR     KSTART
+        CLR     RPHASE
+        JSR     PC,DINIT
+        JSR     PC,SETUP
+        CLR     R0
+        BR      70$
+82$:    BIT     #20,R0
+        BNE     71$
+        CMP     KSTART,#2            ; "2" ($9808): a 2-player game
+        BNE     77$
+        CLR     KSTART
+        CLR     RPHASE
+        JSR     PC,GINIT2            ; $AD9C
+        JSR     PC,SETUP
+        CLR     R0
+        BR      70$
+77$:    TST     KSTART
+        BEQ     70$
+71$:    CLR     KSTART
+        CLR     RPHASE                ; (the demo's round-end sequence, if any, is over)
+        JSR     PC,GINIT             ; $AC3E
+        JSR     PC,SETUP
+        CLR     R0
+70$:    CLR     R5
+        JSR     PC,C98A0             ; R0 = &move ($98DD table)
+        MOVB    (R0),R0
+{dbgmove}        MOVB    R0,{g(0xAA05)}       ; P1 selected move
+        MOV     #KT2UP,R1            ; player 2's bits (its timers tick once a frame
+        JSR     PC,KCTRL             ;   whether or not a human holds them)
+        TSTB    {g(0xAA46)}          ; player 2 human (a 2UP game, $9891)?
+        BNE     76$
+        MOV     #100,R5
+        JSR     PC,C98A0
+        MOVB    (R0),R0
+        MOVB    R0,{g(0xAA45)}       ; P2 selected move
+76$:"""
+
+
+def frame_logic():
+    """The logic frame (or the round-end sequence), the stashes for the strip, the sound."""
+    return f"""        TST     RPHASE                ; a round-end sequence in progress?
+        BNE     83$
+        JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
+        JSR     PC,ROUNDE            ; $AD18: score the exchange, end the round
+        BR      84$
+83$:    JSR     PC,RNDEND            ; one frame of the round-end sequence
+84$:    JSR     PC,TSAMP             ; (the pace's clock wraps every 33 ms: sample)
+        MOVB    {g(0xAA01)},SC1      ; stash the scores for the HUD (GST unseen at 3377)
+        MOVB    {g(0xAA41)},SC2
+        MOVB    {g(0xB02D)},SCRBCD   ; and P1's BCD point score, for DRWSCR at 3377
+        MOVB    {g(0xB02D)}+1.,SCRBCD+1.
+        MOVB    {g(0xB02D)}+2.,SCRBCD+2.
+        MOVB    {g(0x9CA5)},STIM     ; and the round timer, for DRWTIM at 3377
+        MOVB    {g(0xB05F)},RANKB    ; and the rank ($B05F, BCD), for HUDRNK at 3377
+        MOVB    {g(0xB033)},HISC     ; and the high score ($B033..$B035), for HUDALL
+        MOVB    {g(0xB033)}+1.,HISC+1.
+        MOVB    {g(0xB033)}+2.,HISC+2.
+        MOVB    {g(0xB036)},HISC2    ; the 2UP high score ($B036..$B038)
+        MOVB    {g(0xB036)}+1.,HISC2+1.
+        MOVB    {g(0xB036)}+2.,HISC2+2.
+        MOVB    {g(0xB030)},SC2BCD   ; and P2's BCD score, for HUDSC2
+        MOVB    {g(0xB030)}+1.,SC2BCD+1.
+        MOVB    {g(0xB030)}+2.,SC2BCD+2.
+        MOVB    {g(0xB2FA)},SNDENA   ; and the sound flag ($B2FA), for the drivers
+        ; --- sound ($9754): play the effect the hit logic queued in $B150 ---
+80$:    MOVB    {g(0xB150)},R0       ; $B150 = sound code queued by $9ED2/$9D29 hit-detect
+        BIC     #177400,R0
+        BEQ     81$
+        JSR     PC,SNDFX             ; $B15A: play it (blocking, bit-banged speaker)
+        CLRB    {g(0xB150)}          ; ($B15A clears it after playing)
+        JSR     PC,TSYNC             ; (the pace restarts after a blocking sound)
+"""
+
+
+# Per-fighter decode parameters: the local labels (block start, key miss,
+# done, cache miss, the clear / segment / copy loops), the render cells the
+# decode cache watches (box, sprite origin, pose record, facing, mode), the
+# sprite origin (top, left), the draw set-up routine, the box letter and
+# the box cells (top, left).
+FIGHTERS = {
+    1: dict(labels=(81, 87, 86, 63, 5, 6, 62),
+            cells=(0xC41B, 0xC41C, 0xC41F, 0xC421, 0xC428, 0xC429,
+                   0xC434, 0xC435, 0xC436, 0xC437, 0xC407, 0xC40E),
+            origin=(0xC41C, 0xC41B), chain="C101C", box="A", boxcells=(0xC436, 0xC434)),
+    2: dict(labels=(86, 89, 88, 73, 56, 7, 72),
+            cells=(0xC41D, 0xC41E, 0xC420, 0xC422, 0xC42A, 0xC42B,
+                   0xC438, 0xC439, 0xC43A, 0xC43B, 0xC407, 0xC40E),
+            origin=(0xC41E, 0xC41D), chain="C1CC", box="B", boxcells=(0xC43A, 0xC438)),
+}
+
+
+def _lab(n):
+    """A local label in its 8-column field."""
+    return f"{n}$:".ljust(8)
+
+
+def fighter(n, lb_words, c408):
+    """Fighter `n`: the decode cache (KEYn), the sprite cache, else the decode
+    into FBUF and its copy to LBUFn; RWn / RTn / RLn = its box."""
+    f = FIGHTERS[n]
+    start, miss, done, cmiss, clr, seg, copy = f["labels"]
+    cells, (otop, oleft), (btop, bleft) = f["cells"], f["origin"], f["boxcells"]
+    chain, box = f["chain"], f["box"]
+    out = f"{start}$:    JSR     PC,TSAMP             ; (the pace's clock wraps every 33 ms: sample)\n"
+    out += f"        ; --- Fighter {n}: clear FBUF, decode box {box}, stash its box, copy to LBUF{n} ---\n"
+    if n == 1:
+        out += ("        ; Decode cache: the draw set-up ($C101 / $C1A2) reads only these render\n"
+                "        ; cells (box, sprite origin, pose record, facing, mode); when none changed\n"
+                "        ; since the last decode, LBUF1 / RW1 / RT1 / RL1 still hold its result.\n")
+    out += "".join(f"        CMPB    {g(c)},KEY{n}+{i}.\n        BNE     {miss}$\n"
+                   for i, c in enumerate(cells))
+    out += f"        JMP     {done}$\n{miss}$:"
+    out += "".join(f"        MOVB    {g(c)},KEY{n}+{i}.\n" for i, c in enumerate(cells))
+    return out + f"""        ; sprite cache: the decoded image depends only on the pose record, the
+        ; sub-cell x shift, facing and mode - look it up (16 slots in the extended
+        ; banks 10-11, visible at 040000 with slots 2-3 extended and the VRAM
+        ; window off: 03003) before decoding; a hit is a copy instead of a decode.
+        JSR     PC,CKEY{n}
+        MOV     #3003,@#DISPAT
+        MOV     #LBUF{n},R1
+        JSR     PC,CLOOK
+        MOV     #GAME,@#DISPAT
+        TST     R0
+        BNE     {cmiss}$
+        MOV     R2,RW{n}               ; hit: the image is in LBUF{n}, its width in R2;
+        MOVB    {g(otop)},R0       ;   the (tight) box is the sprite origin
+        BIC     #177400,R0
+        MOV     R0,RT{n}
+        MOVB    {g(oleft)},R0
+        BIC     #177400,R0
+        MOV     R0,RL{n}
+        JMP     {done}$
+{cmiss}$:
+        MOV     #FBUF,R0
+        MOV     #{lb_words}.,R1
+{_lab(clr)}CLR     (R0)+
+        DEC     R1
+        BNE     {clr}$
+        JSR     PC,{chain}
+        JSR     PC,SETUPC
+{_lab(seg)}JSR     PC,SEGSET
+        MOVB    {c408},R0
+        BIC     #177400,R0
+        MOV     R0,C408W
+        JSR     PC,DECRUN
+        JSR     PC,TSAMP             ; (the pace's clock wraps every 33 ms: sample)
+        DECB    SEGCNT
+        BNE     {seg}$
+        MOVB    {g(0xC40A)},R0       ; box {box}: width, top (${btop:X}), left (${bleft:X})
+        BIC     #177400,R0
+        MOV     R0,RW{n}
+        MOVB    {g(btop)},R0
+        BIC     #177400,R0
+        MOV     R0,RT{n}
+        MOVB    {g(bleft)},R0
+        BIC     #177400,R0
+        MOV     R0,RL{n}
+        MOV     #FBUF,R1
+        MOV     #LBUF{n},R0
+        MOV     #{lb_words}.,R2
+{_lab(copy)}MOV     (R1)+,(R0)+
+        DEC     R2
+        BNE     {copy}$
+        MOV     #3003,@#DISPAT       ; a miss: remember the decode in the cache
+        MOV     #LBUF{n},R1
+        MOV     RW{n},R2
+        JSR     PC,CSTOR
+        MOV     #GAME,@#DISPAT
+"""
+
+
+def geometry():
+    """The on-screen geometry of both fighters (GEOMC, clamped to the screen)."""
+    return f"""88$:    JSR     PC,TSAMP             ; (the pace's clock wraps every 33 ms: sample)
+        ; --- on-screen geometry for both fighters (each clamped to the screen) ---
+        MOV     RW1,R3               ; fighter 1: raw width / top / left -> COL1/TOP1/BWID1/W1
+        MOV     RT1,R4
+        MOV     RL1,R5
+        JSR     PC,GEOMC
+        MOV     R0,COL1
+        MOV     R1,TOP1
+        MOV     R2,BWID1
+        MOV     R3,W1
+        MOV     RW2,R3               ; fighter 2
+        MOV     RT2,R4
+        MOV     RL2,R5
+        JSR     PC,GEOMC
+        MOV     R0,COL2
+        MOV     R1,TOP2
+        MOV     R2,BWID2
+        MOV     R3,W2
+        MOV     #3377,@#DISPAT       ; unpark: 03377 (RMON back, VRAM on) - present-safe
+"""
+
+
+def band():
+    """The band of rows to rebuild (both fighters' tops, last frame's too) and
+    the dirty column range; the strip redraw when the band reaches it."""
+    return f"""        ; --- flicker-free compositor: per screen row, CLEAR then overlay each fighter ---
+        ; Each fighter is drawn from its own buffer (LBUF1 / LBUF2) at its own column
+        ; (COL) and top (TOP).  SRCn walks the sprite one stride (BWIDn) per row once the
+        ; row reaches TOPn, and stops at the buffer end; black (zero) cells are skipped so
+        ; the two sprites overlay transparently.  Clearing each row before overlay means
+        ; the screen is never globally blank -> no flicker.
+        ; Only clear/composite the fighters' active band [TOPCLR..200): TOPCLR =
+        ; min(TOP1, TOP2, last frame's min top) so a descending fighter's old rows still
+        ; get erased.  Rows above stay black from the start-up clear -> big speed win.
+        MOV     TOP1,R0
+        CMP     R0,TOP2
+        BLE     60$
+        MOV     TOP2,R0
+60$:    MOV     R0,R1                ; R1 = this frame's min top
+        CMP     R0,LASTTP
+        BLE     61$
+        MOV     LASTTP,R0            ; include last frame's top so descents don't ghost
+61$:    MOV     R1,LASTTP
+        MOV     R0,ROWN
+        CMP     R0,#46.              ; the band reaches the strip's rows (a high
+        BGE     75$                  ;   jump): the strip is redrawn after it
+        MOV     #1,HUDDRT
+75$:
+        ; the dirty column range, cells lo..hi-1: this frame's fighter spans
+        ; and last frame's (a cell a fighter left must get its dojo back);
+        ; every other cell of the band already holds the clean dojo.
+        MOV     #36.,R0              ; lo (36 = empty)
+        CLR     R1                   ; hi
+        TST     W1
+        BEQ     64$
+        MOV     COL1,R0
+        MOV     COL1,R1
+        ADD     W1,R1
+64$:    TST     W2
+        BEQ     66$
+        CMP     COL2,R0
+        BGE     65$
+        MOV     COL2,R0
+65$:    MOV     COL2,R3
+        ADD     W2,R3
+        CMP     R3,R1
+        BLE     66$
+        MOV     R3,R1
+66$:    MOV     R0,R4                ; this frame's span, kept for the next frame
+        MOV     R1,R5
+        CMP     PLO,R0
+        BGE     67$
+        MOV     PLO,R0
+67$:    CMP     PHI,R1
+        BLE     68$
+        MOV     PHI,R1
+68$:    MOV     R4,PLO
+        MOV     R5,PHI
+        SUB     R0,R1                ; DCNT = hi - lo cells (0 when empty)
+        BGT     74$
+        CLR     R1
+74$:    MOV     R1,DCNT
+        ASL     R0
+        MOV     R0,DLO2              ; the range's byte offset in a row
+        MOV     ROWN,R0
+        MOV     R0,R2                ; VRAM row ptr = VRAM + ROWN*80
+        ASL     R2
+        ASL     R2
+        ASL     R2
+        ASL     R2
+        MOV     R2,R1
+        ASL     R2
+        ASL     R2
+        ADD     R1,R2
+        ADD     #VRAM,R2
+        MOV     #LBUF1,SRC1
+        MOV     #LBUF2,SRC2
+"""
+
+
+def compositor(dojo_row, lb_words, ovl_ink):
+    """The row compositor (CLOOP): the dojo row's dirty range into the scratch
+    row, each fighter over it, the range blitted to VRAM."""
+    return f"""        ; Each row is composed in the scratch row SCRATC - the dirty range of
+        ; the clean dojo row, the fighters over it - and that range is blitted
+        ; to VRAM in one pass: every VRAM cell goes straight from its old to
+        ; its new value (no "dojo without the fighter" gap to catch, no black),
+        ; and the range is what the blit costs, not the whole row.
+CLOOP:  {dojo_row}CCLR:   MOV     #SCRATC,R0           ; outside the dojo band: clear the row
+        MOV     #10.,R3              ; clear 40 words, unrolled x4 (less loop overhead)
+CCL1:   CLR     (R0)+
+        CLR     (R0)+
+        CLR     (R0)+
+        CLR     (R0)+
+        DEC     R3
+        BNE     CCL1
+CDDN:   MOV     ROWN,R0              ; --- fighter 1 ---
+        CMP     R0,TOP1
+        BLO     C1SK                 ; row above the sprite
+        CMP     SRC1,#LBUF1+{lb_words}.*2
+        BHIS    C1SK                 ; sprite exhausted
+        MOV     W1,R3
+        BEQ     C1AD                 ; off-screen width -> advance src only
+        MOV     #SCRATC,R0           ; dst = the scratch row + COL1*2
+        MOV     COL1,R4
+        ASL     R4
+        ADD     R4,R0
+        MOV     SRC1,R1
+C1OV:   MOVB    (R1)+,R4
+        BEQ     C1TR                 ; zero cell = fully transparent (dojo shows)
+        BIC     #177400,R4
+        BISB    R4,(R0)              ; OR the fighter pixels into the background cell
+        {ovl_ink}
+C1TR:   TST     (R0)+
+        DEC     R3
+        BNE     C1OV
+C1AD:   ADD     BWID1,SRC1           ; next compose row (full stride)
+C1SK:   MOV     ROWN,R0              ; --- fighter 2 ---
+        CMP     R0,TOP2
+        BLO     C2SK
+        CMP     SRC2,#LBUF2+{lb_words}.*2
+        BHIS    C2SK
+        MOV     W2,R3
+        BEQ     C2AD
+        MOV     #SCRATC,R0
+        MOV     COL2,R4
+        ASL     R4
+        ADD     R4,R0
+        MOV     SRC2,R1
+C2OV:   MOVB    (R1)+,R4
+        BEQ     C2TR
+        BIC     #177400,R4
+        BISB    R4,(R0)              ; OR the fighter pixels into the background cell
+        {ovl_ink}
+C2TR:   TST     (R0)+
+        DEC     R3
+        BNE     C2OV
+C2AD:   ADD     BWID2,SRC2
+C2SK:   BIT     #17,ROWN             ; every 16 rows: the pace's clock sample
+        BNE     C2BL
+        JSR     PC,TSAMP
+C2BL:   MOV     #SCRATC,R0           ; blit the finished row's dirty range
+        ADD     DLO2,R0
+        MOV     R2,R1
+        ADD     DLO2,R1
+        MOV     DCNT,R4
+        JSR     PC,CPYR
+        ADD     #80.,R2              ; next screen row
+        INC     ROWN
+        CMP     ROWN,#196.           ; the band ends with the dojo (the floor is row 194)
+        BHIS    58$                  ; done -> next frame
+        JMP     CLOOP                ; (JMP: CLOOP is out of branch range)
+"""
+
+
+def hud_gate():
+    """The status strip redraw gate, the frame's end, and LDERR."""
+    return f"""        ; --- the status strip: all of it after a dojo draw (HUDDRT: the set-up's
+        ;     prints), else only what changed - the yin-yang, the score (not in
+        ;     the demo, $AF62), the clock - as the original prints on change ---
+58$:    JSR     PC,TSAMP             ; (the pace's clock wraps every 33 ms: sample)
+        TST     HUDDRT
+        BEQ     50$
+        CLR     HUDDRT
+        JSR     PC,HUDALL
+        BR      57$
+50$:    CMPB    SC1,HUDK
+        BNE     51$
+        CMPB    SC2,HUDK+1.
+        BEQ     52$
+51$:    JSR     PC,HUDYY
+52$:    TST     DEMO
+        BNE     54$
+        CMPB    SCRBCD,HUDK+2.
+        BNE     53$
+        CMPB    SCRBCD+1.,HUDK+3.
+        BNE     53$
+        CMPB    SCRBCD+2.,HUDK+4.
+        BEQ     54$
+53$:    JSR     PC,HUDSCR
+54$:    CMPB    STIM,HUDK+5.
+        BEQ     55$
+        JSR     PC,HUDTIM
+55$:    TST     TWOUP                ; ...and player 2's score in a 2UP game
+        BEQ     57$
+        CMPB    SC2BCD,HUDK+6.
+        BNE     90$
+        CMPB    SC2BCD+1.,HUDK+7.
+        BNE     90$
+        CMPB    SC2BCD+2.,HUDK+8.
+        BEQ     57$
+90$:    JSR     PC,HUDSC2
+57$:    MOVB    SC1,HUDK
+        MOVB    SC2,HUDK+1.
+        MOVB    SCRBCD,HUDK+2.
+        MOVB    SCRBCD+1.,HUDK+3.
+        MOVB    SCRBCD+2.,HUDK+4.
+        MOVB    STIM,HUDK+5.
+        MOVB    SC2BCD,HUDK+6.
+        MOVB    SC2BCD+1.,HUDK+7.
+        MOVB    SC2BCD+2.,HUDK+8.
+        JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
+LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
+        MOVB    ORIGRC,@#SYSC
+        MTPS    #0
+        .EXIT
+"""
+
+
+def sprite_cache(lb_words):
+    """CKEY1 / CKEY2 / CSLOT / CLOOK / CSTOR and the slot table."""
+    slotab = ",".join(f"{0o40000 + k * 892}." for k in range(16))
+    return f"""        ; --- sprite cache.  Slot = 5-byte key (pose record lo/hi, x & 3, $C41F,
+        ;     $C421 - facing / mode come from the last two), pad, width, pad, the
+        ;     884-byte image: 892 bytes, 16 slots direct-mapped by a hash of the
+        ;     key.  CKEY1/CKEY2 build the key for a fighter and pick the slot;
+        ;     CLOOK / CSTOR run with the cache mapped (03003). ------------------
+CKEY1:  MOVB    {g(0xc428)},CKEY
+        MOVB    {g(0xc429)},CKEY+1.
+        MOVB    {g(0xc41b)},R0
+        BIC     #177774,R0
+        MOVB    R0,CKEY+2.
+        MOVB    {g(0xc41f)},CKEY+3.
+        MOVB    {g(0xc421)},CKEY+4.
+        BR      CSLOT
+CKEY2:  MOVB    {g(0xc42a)},CKEY
+        MOVB    {g(0xc42b)},CKEY+1.
+        MOVB    {g(0xc41d)},R0
+        BIC     #177774,R0
+        MOVB    R0,CKEY+2.
+        MOVB    {g(0xc420)},CKEY+3.
+        MOVB    {g(0xc422)},CKEY+4.
+CSLOT:  MOVB    CKEY,R0              ; hash: lo ^ lo>>3 ^ hi ^ sub ^ facing<<2, & 15
+        BIC     #177400,R0
+        MOV     R0,R1
+        ASR     R1
+        ASR     R1
+        ASR     R1
+        XOR     R1,R0
+        MOVB    CKEY+1.,R1
+        BIC     #177400,R1
+        XOR     R1,R0
+        MOVB    CKEY+2.,R1
+        BIC     #177400,R1
+        XOR     R1,R0
+        MOVB    CKEY+3.,R1
+        BIC     #177400,R1
+        ASL     R1
+        ASL     R1
+        XOR     R1,R0
+        BIC     #177760,R0
+        ASL     R0
+        MOV     SLOTAB(R0),SLOT
+        RTS     PC
+        ; CLOOK (at 03003): the slot holds CKEY? -> copy its image to (R1), R2 =
+        ; width, R0 = 0; else R0 = 1.
+CLOOK:  MOV     SLOT,R3
+        CMPB    CKEY,(R3)
+        BNE     9$
+        CMPB    CKEY+1.,1(R3)
+        BNE     9$
+        CMPB    CKEY+2.,2(R3)
+        BNE     9$
+        CMPB    CKEY+3.,3(R3)
+        BNE     9$
+        CMPB    CKEY+4.,4(R3)
+        BNE     9$
+        MOVB    6(R3),R2
+        BIC     #177400,R2
+        ADD     #8.,R3
+        MOV     #{lb_words}.,R4
+1$:     MOV     (R3)+,(R1)+
+        DEC     R4
+        BNE     1$
+        CLR     R0
+        RTS     PC
+9$:     MOV     #1,R0
+        RTS     PC
+        ; CSTOR (at 03003): store CKEY, the width R2 and the image at (R1).
+CSTOR:  MOV     SLOT,R3
+        MOVB    CKEY,(R3)
+        MOVB    CKEY+1.,1(R3)
+        MOVB    CKEY+2.,2(R3)
+        MOVB    CKEY+3.,3(R3)
+        MOVB    CKEY+4.,4(R3)
+        MOVB    R2,6(R3)
+        ADD     #8.,R3
+        MOV     #{lb_words}.,R4
+1$:     MOV     (R1)+,(R3)+
+        DEC     R4
+        BNE     1$
+        RTS     PC
+        .EVEN
+SLOTAB: .WORD   {slotab}
+"""
+
+
+def cpyr():
+    """CPYR: copy R4 (0..32) words from (R0) to (R1) by jumping into an
+    unrolled copy - a short range costs no loop overhead.  Clobbers R3."""
+    return ("""        ; --- CPYR: copy R4 (0..32) words (R0) -> (R1): a jump into the unrolled
+        ;     copy, so a short range costs no loop overhead.  Clobbers R3. -----
+CPYR:   MOV     #CPYEND,R3
+        SUB     R4,R3
+        SUB     R4,R3
+        JMP     (R3)
+"""
+            + "".join("        MOV     (R0)+,(R1)+\n" for _ in range(32))
+            + """CPYEND: RTS     PC
+""")
+
+
+def geomc(fwmax):
+    """GEOMC: clamp one fighter's raw box to the screen."""
+    return f"""        ; --- GEOMC: clamp one fighter's raw box to the screen ----------------------
+        ; in:  R3 = raw width ($C40A), R4 = raw top, R5 = raw left
+        ; out: R0 = COL (cell), R1 = TOP (screen row), R2 = BWID (stride), R3 = W (cells)
+GEOMC:  MOV     R5,R0                ; col = (left >> 2) + 4
+        ASR     R0
+        ASR     R0
+        ADD     #4,R0
+        MOV     R3,R2                ; BWID = min(raw width, fwmax)
+        CMP     R2,#{fwmax}.
+        BLE     1$
+        MOV     #{fwmax}.,R2
+1$:     MOV     #36.,R5              ; W = min(BWID, 36 - col): clip to the picture
+        SUB     R0,R5
+        MOV     R2,R3
+        CMP     R3,R5
+        BLE     2$
+        MOV     R5,R3
+2$:     TST     R3
+        BGT     3$
+        CLR     R3                   ; off the right edge / wrapped -> skip
+3$:     MOV     R4,R1                ; top: a high jump wraps above row 0
+        CMP     R1,#150.
+        BLE     4$
+        CLR     R1
+4$:     ADD     #4,R1                ; +4 = top centring margin
+        RTS     PC
+"""
+
+
+def pace():
+    """PACE / TSAMP / TSYNC / TREAD: the original's frame pace on timer channel 1."""
+    return """        ; --- PACE: the original's pace - a frame every 1/13 s (its clock counts
+        ;     13 frames a second).  Timer channel 1 (the printer's baud clock,
+        ;     free here) runs mode 2 at 2 MHz with the full 65536 count; the
+        ;     frame samples it often enough (TSAMP, under 33 ms apart) to sum
+        ;     the elapsed ticks in ELAPSD:ELAPSH, and PACE spins until 153846
+        ;     passed since the last frame's start, carrying the excess.  Two
+        ;     frames behind (a blocking sound) -> no catching up. -----------------
+PACE:   JSR     PC,TSAMP
+        CMP     ELAPSH,#4
+        BLO     1$
+        CLR     ELAPSD
+        CLR     ELAPSH
+        RTS     PC
+1$:     CMP     ELAPSH,#2
+        BLO     PACE
+        BHI     2$
+        CMP     ELAPSD,#22774.
+        BLO     PACE
+2$:     SUB     #22774.,ELAPSD
+        SBC     ELAPSH
+        SUB     #2,ELAPSH
+        RTS     PC
+TSAMP:  JSR     PC,TREAD             ; the ticks since the last sample -> the sum
+        MOV     TLAST,R1
+        SUB     R0,R1                ; (the counter counts down)
+        MOV     R0,TLAST
+        ADD     R1,ELAPSD
+        ADC     ELAPSH
+        RTS     PC
+TSYNC:  JSR     PC,TREAD             ; start the pace afresh (after a long block)
+        MOV     R0,TLAST
+        CLR     ELAPSD
+        CLR     ELAPSH
+        RTS     PC
+TREAD:  MOVB    #100,@#177526        ; latch channel 1, read its 16-bit count
+        MOVB    @#177502,R0
+        BIC     #177400,R0
+        MOVB    @#177502,R1
+        SWAB    R1
+        BIC     #377,R1
+        BIS     R1,R0
+        RTS     PC
+"""

@@ -1,0 +1,55 @@
+        .TITLE  BFLIP
+;
+; Minimal park-RMON bank-flip proof (the core of the FIST loader).
+;
+; Park the banks holding RT-11's USR + RMON to the EXTENDED set (so that
+; memory becomes fresh RAM the game can use), do work there, flip back, and
+; return cleanly to the monitor with RT-11 fully intact.
+;
+; Memory map under a running RT-11 SJ V5.04 (verified by live tracing):
+;   banks 0-3  (001000-077777)  user program area  - FREE, stays PRIMARY
+;   banks 4-5  (100000-137777)  RT-11 USR           - parked
+;   bank  6    (140000-157777)  RMON                - parked
+; Because banks 0-3 stay primary, THIS code keeps running across the flip - no
+; stub relocation or in-place copy is needed; the flip is done inline.  We park
+; only banks 4-6, so primary USR/RMON are never written and RT-11 survives.
+;
+; Dispatcher (0177400) notes:
+;   * bits 0-6 select banks (1=primary, 0=extended); we clear only bits 4,5,6.
+;   * the dispatcher is write-only: a word read returns the low byte duplicated,
+;     so we hardcode RT-11 SJ's active value 003177 (banks 0-6 primary, window
+;     bit, timer-gate bit; VRAM off).  0157700 is bank-6 RAM, NOT the register.
+;
+; Proof: with banks 4-6 extended, write a marker to bank 6 (0140100, now fresh
+; extended RAM) and read it back; a correct read-back proves the extended banks
+; are real, separate storage.  We never touch PRIMARY bank 6 (RMON), so the
+; clean return to the dot prompt proves RMON was parked and restored intact.
+;
+        .MCALL  .EXIT
+DISPAT = 177400                 ; dispatcher register
+PARK   = 160                    ; bank-select bits 4,5,6 (USR + RMON)
+PRIM   = 3177                   ; RT-11 SJ active dispatcher (banks 0-6 primary)
+
+        .ASECT
+        . = 1000
+        .EVEN
+START:  MOV     #340,R0
+        MTPS    R0                      ; mask IRQs across the flip
+        MOV     #PRIM,R5                ; R5 = PRIMARY dispatcher
+        MOV     R5,R4
+        BIC     #PARK,R4                ; R4 = banks 4-6 EXTENDED, banks 0-3 primary
+
+        MOV     R4,@#DISPAT             ; PARK USR+RMON; banks 0-3 (this code) keep running
+        MOV     #54321,@#140100         ; write fresh EXTENDED bank 6
+        MOV     @#140100,R2             ; read it back (still extended)
+        MOV     R5,@#DISPAT             ; UNPARK: all banks primary, RMON restored
+        CLR     R0
+        MTPS    R0                      ; unmask IRQs before returning to RMON
+
+        CMP     R2,#54321               ; did the extended write/read hold?
+        BNE     FAIL                    ; mismatch -> spin (visible hang = failure)
+        .EXIT                           ; success: clean return to the monitor
+FAIL:   BR      FAIL
+
+        .EVEN
+        .END    START
