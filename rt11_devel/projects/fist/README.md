@@ -161,20 +161,33 @@ and the HUD at 03377.
 
 ## Tests
 
-`src/lib/tests/test_fist_game.cpp` boots the game headlessly on a folder
-device and checks it from the outside (VRAM + the extended-bank state):
-render, forced-score HUD, keyboard, scoring over a long fight, and that
-the background follows the rank pixel-exactly (needs `bg_expect.py`'s
-dumps).  All opt in through env vars:
+`tests/` is the port's own harness, a doctest binary built with the
+emulator's test build (`fist_tests`, under `src/build/<config>/rt11_devel/
+projects/fist/tests/`).  It boots the built game headlessly through
+`ms0515_lib` on a folder device (`FistGame.hpp`) and checks it from the
+outside - VRAM and the game state in the extended banks:
+
+- `test_game.cpp` - the render, the yin-yang / score strip, the real `.dsk`,
+  the loading screen -> demo -> fire sequence, the keyboard (walking, the 27
+  key combinations of the control map, fire alone), a long real fight
+  (scoring, decided rounds, the hold and the reset), and the dojo following
+  the rank pixel-exactly (needs `bg_expect.py`'s `bg{1,2,3}_vram.bin`);
+- `test_oracle.cpp` - the VRAM oracle for the verification builds (a `.SAV`
+  loaded straight into RAM, run, VRAM dumped for `gl_check.py` /
+  `render_vram.py`);
+- `test_diag.cpp` - diagnostics, each on by a `--fist-<name>=...` option:
+  `match-log` (+ `match-dumps`, `match-back`, `frames`), `profile-out`
+  (+ `profile-steps`; with a `FIST_SYMTAB=1` build and `profile_agg.py`),
+  `keylat`, `sndlog`, `moves-dir` (with a `FIST_DBGMOVE=1` build).
+
+All paths default to the repo layout (`--fist-sav`, `--fist-dat`,
+`--fist-system`, `--fist-dsk`, `--fist-expect` override them) and every test
+skips itself when the game is not built:
 
 ```
-FIST_GAME_SAV=rt11_devel/projects/fist/FIST.SAV FIST_GAME_DAT=rt11_devel/projects/fist/GST.DAT \
-FIST_SYSTEM_DIR=rt11_devel/toolset/system FIST_BG_EXPECT_DIR=rt11_devel/projects/fist \
-FIST_GAME_VRAM_OUT=rt11_devel/projects/fist/game_run.bin \
-src/build/Release/lib/tests/ms0515_lib_tests.exe --test-case="fist: *"
+src/build/Release/rt11_devel/projects/fist/tests/fist_tests.exe
+src/build/Release/rt11_devel/projects/fist/tests/fist_tests.exe --fist-keylat -tc="*latency*"
 ```
 
-`FIST_DSK=package/assets/disks/fist_game.dsk` additionally boots the real
-disk.  `render_vram.py` turns a VRAM dump into a PNG to eyeball a frame.
-`test_fist_screen.cpp` is the byte-exact oracle the verification images
-use (loads a `.SAV` directly, runs it, compares windows of memory).
+These are tests of the game, not of the emulator; the emulator's own suites
+(`ms0515_core_tests`, `ms0515_lib_tests`) know nothing about FIST.

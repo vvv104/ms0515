@@ -53,6 +53,10 @@ src/                — emulator source code and build files
   frontend/tests/   — placeholder for future frontend tests
   assets/           — runtime resources (ROM files, keyboard layout, disk images)
 package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.exe, ms0515.yaml, assets/
+rt11_devel/         — RT-11 guest programs: toolset/ (build.py: MACRO/LINK inside the emulator),
+                      projects/<name>/ (sources, generators, README) and projects/<name>/tests/
+                      (the program's own doctest harness on ms0515_lib; pulled in by the emulator's
+                      test build via rt11_devel/CMakeLists.txt - game tests never live under src/)
 docs/               — architecture and subsystem documentation
   kb/              — knowledge base (references, verification, known issues)
 disk_recovery/      — disk-recovery knowledge base + verified-image vault (no build inputs)
