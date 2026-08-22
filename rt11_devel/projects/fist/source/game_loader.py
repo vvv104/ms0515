@@ -1,4 +1,4 @@
-"""The boot: the .SAV's start-up, the GST.DAT loader (chunked .READW +
+"""The boot: the .SAV's start-up, the FIST.DAT loader (chunked .READW +
 park / copy into the extended banks), the loading screen.
 
 Every function returns MACRO-11 text; game_build.py assembles the game.
@@ -23,7 +23,7 @@ def preamble():
 
 
 def chunks(nblocks):
-    """(start block, blocks) of each .READW of GST.DAT."""
+    """(start block, blocks) of each .READW of FIST.DAT."""
     return [(sb, min(CHUNK, nblocks - sb)) for sb in range(0, nblocks, CHUNK)]
 
 
@@ -42,7 +42,7 @@ def reads(nblocks):
 
 
 def title_load(scrblk):
-    """Read the loading screen (block `scrblk` of GST.DAT) into SCRBUF and
+    """Read the loading screen (block `scrblk` of FIST.DAT) into SCRBUF and
     present it before the state loads."""
     return f"""        ; --- the loading screen: read it into SCRBUF (plain RAM under RT-11),
         ;     switch to the medium-res colour mode and present it - then load
@@ -97,7 +97,7 @@ def after_load(withbg):
 
 
 def boot(withbg, nblocks, scrblk):
-    """BOOT: .FETCH / .LOOKUP GST.DAT, the loading screen, the chunk reads,
+    """BOOT: .FETCH / .LOOKUP FIST.DAT, the loading screen, the chunk reads,
     the hold.  Boot-only code: it lives in the dojo block at 0100000 when
     there is one (banks 0-1 are full) and runs there at RT-11's all-primary
     banking; the chunk copies (which hide banks 4-6) go through CHUNK in
@@ -149,7 +149,7 @@ BOOT2:  MOV     #GAME,@#DISPAT         ; 03217: VRAM on, window @40000, banks 4-
         MOV     #GAME,@#DISPAT
         ; --- $AC3E Start_1UP_Game: the match-state batch (P1 human, P2 the
         ;     computer, score 0, rank 0), then the first opponent's set-up (the
-        ;     background) and a new round.  GST.DAT is a mid-attract snapshot, so
+        ;     background) and a new round.  FIST.DAT is a mid-attract snapshot, so
         ;     every cell this touches is deliberately re-initialised here. ---
         MOV     #12345.,RSEED
         JSR     PC,DINIT             ; $AC05: the attract demo first ($9C2C = 0)

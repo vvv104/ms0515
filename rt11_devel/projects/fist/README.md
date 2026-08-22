@@ -64,7 +64,7 @@ rt11_devel/projects/fist/
 ├── build.toml         declarative build manifest (macro11)
 ├── FIST.MAC           generated MACRO-11 source (build artifact)
 ├── FIST.SAV           built .SAV image - `R FIST` at the dot prompt
-├── GST.DAT            game-state data the loader reads (build artifact)
+├── FIST.DAT            game-state data the loader reads (build artifact)
 ├── validate.py        OS-oracle smoke test (boots, runs, checks clean exit)
 └── source/
     ├── gen_fist.py      pre_build hook: dispatches on FIST_MODE, emits FIST.MAC
@@ -91,7 +91,7 @@ committed).  Point it at your WotEF checkout with `WOTEF_DIR` (default
 FIST_MODE=gamelogic FIST_GL=gamebg python rt11_devel/toolset/build.py rt11_devel/projects/fist/build.toml
 ```
 
-This runs `gen_fist.py` (emits `FIST.MAC` and `GST.DAT`), then assembles
+This runs `gen_fist.py` (emits `FIST.MAC` and `FIST.DAT`), then assembles
 and links with the real RT-11 SJ V5.04 `MACRO`/`LINK` inside the emulator,
 producing `FIST.SAV`.  Other `FIST_GL` values build the verification
 images (single routines, the combined frame, the draw chain, demos) that
@@ -99,7 +99,9 @@ the byte-exact oracles compare against the Python references.
 
 ## Running
 
-Mount `package/assets/disks/fist_game.dsk` in the GUI emulator and boot -
+`FIST.SAV` + `FIST.DAT` also live on `src/assets/disks/omega-games.dsk`
+(next to SABOT2, the other ported game): boot it and `R FIST`.  Or mount
+`package/assets/disks/fist_game.dsk` in the GUI emulator and boot -
 it auto-runs `FIST` (via `STARTS.COM`).  As on the tape: the loading screen
 shows while the game state loads, then the attract demo runs (two computer
 fighters, "DEMO" on the strip); **fire (Space) or "1" starts a 1-player
@@ -172,7 +174,7 @@ package/ms0515.exe --disk0 package/assets/disks/fist_game.dsk
 ```
 
 Refresh the disk after a build with `ms0515-disk rm` + `put` (not
-`squeeze`) of `FIST.SAV` and `GST.DAT`, and verify with `get` + compare.
+`squeeze`) of `FIST.SAV` and `FIST.DAT`, and verify with `get` + compare.
 The game must be started as a command (`R FIST`), not `RUN FIST` - the
 loader's file I/O (`.LOOKUP`/`.READW`) is rejected under `RUN`.
 
@@ -184,10 +186,10 @@ See `LAYOUT.md` for the decision; the live game uses:
 |------------------|---------|------------------------------------------------|
 | 01000-037777     | 0-1     | code, per-fighter compose copies, stack         |
 | 040000-057777    | 2       | the three backgrounds' tables (read with the VRAM window off) |
-| 060000-077777    | 3       | `GST.DAT` read buffer (top 4 KB) during the load |
+| 060000-077777    | 3       | `FIST.DAT` read buffer (top 4 KB) during the load |
 | 040000-077777    | VRAM    | the video window while the game runs (03217 / 03377) |
 | 0100000-0157777  | 4-6     | background engine + `SCRBUF` + `DOJOBUF` (primary) |
-| 0100000-0157777  | 12-14   | the game state `$9C00..$F801` (extended, from `GST.DAT`) |
+| 0100000-0157777  | 12-14   | the game state `$9C00..$F801` (extended, from `FIST.DAT`) |
 
 One dispatcher bit flips slots 4-6 between the dojo (primary) and the game
 state (extended); the logic and the decode run at 03217, the compositor

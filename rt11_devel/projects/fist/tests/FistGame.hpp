@@ -3,7 +3,7 @@
  *
  * Boots RT-11 headlessly with the built game on a folder device (boot/ =
  * the system template + FIST.SAV + STARTS.COM auto-running "R FIST", work/ =
- * GST.DAT as DK), feeds the date prompts, and exposes the game's state: the
+ * FIST.DAT as DK), feeds the date prompts, and exposes the game's state: the
  * $9C00.. game-state block lives in the extended banks 12-14, VRAM through
  * board_get_vram().  Every path has a default under the repo (overridable
  * with --fist-<name>=... options, see test_main.cpp), and the suite skips
@@ -52,12 +52,12 @@ inline std::string optOr(const char *name, const std::string &dflt)
 }
 
 inline std::string savPath()    { return optOr("sav", std::string{FIST_DIR} + "/FIST.SAV"); }
-inline std::string datPath()    { return optOr("dat", std::string{FIST_DIR} + "/GST.DAT"); }
+inline std::string datPath()    { return optOr("dat", std::string{FIST_DIR} + "/FIST.DAT"); }
 inline std::string systemDir()  { return optOr("system", std::string{FIST_SYSTEM_DIR}); }
 inline std::string dskPath()    { return optOr("dsk", std::string{FIST_DSK}); }
 inline std::string expectDir()  { return optOr("expect", std::string{FIST_DIR}); }
 
-/* The game is built (FIST.SAV + GST.DAT present)?  Tests skip otherwise. */
+/* The game is built (FIST.SAV + FIST.DAT present)?  Tests skip otherwise. */
 inline bool built()
 {
     return fs::exists(savPath()) && fs::exists(datPath()) && fs::exists(systemDir());
@@ -199,7 +199,7 @@ private:
         const char starts[] = "ASSIGN DZ1 DK\r\nR FIST\r\n";
         writeFile(boot_ / "STARTS.COM", starts, sizeof starts - 1);
         fs::create_directories(work_, ec);
-        fs::copy_file(datPath(), work_ / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+        fs::copy_file(datPath(), work_ / "FIST.DAT", fs::copy_options::overwrite_existing, ec);
         const char rtfs[] = "device: floppy\nblocks: 800\n";
         writeFile(work_ / "device.rtfs", rtfs, sizeof rtfs - 1);
     }

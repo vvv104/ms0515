@@ -1,5 +1,5 @@
 # ── FIST port tests ──────────────────────────────────────────────────────────
-# The game's own test harness: boots the built FIST.SAV / GST.DAT headlessly
+# The game's own test harness: boots the built FIST.SAV / FIST.DAT headlessly
 # through ms0515_lib (the emulator's public API) and checks the port from the
 # outside - pixel-exact renders, the match logic's state, the keyboard map.
 # These are tests of the GAME, not of the emulator, which is why they live

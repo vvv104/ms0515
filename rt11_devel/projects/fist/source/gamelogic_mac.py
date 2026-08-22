@@ -2423,9 +2423,9 @@ FAIL:   BR      FAIL                    ; mismatch -> spin (a visible hang)
 
 def main_loaderdat():
     """FIST_GL=loaderdat - chunked-.DAT park-RMON loader, VERIFY stage.  Solves the
-    memory wall: the GST ships as GST.DAT (NOT embedded), so the .SAV is code only
+    memory wall: the GST ships as FIST.DAT (NOT embedded), so the .SAV is code only
     and the full game code fits the 32 KB primary banks later.  The loader
-    .LOOKUP/.READW's GST.DAT in 2 chunks into a banks-2-3 buffer (040000, RAM while
+    .LOOKUP/.READW's FIST.DAT in 2 chunks into a banks-2-3 buffer (040000, RAM while
     VRAM is off), parks banks 4-6 and copies each chunk to the GST runtime home in
     extended RAM (0100000), checksums it, and clean-.EXITs on match (a failure spins
     - a visible hang).  SABOT2/SAPER .READW pattern (rt11_devel/projects/saper)."""
@@ -2440,11 +2440,11 @@ def main_loaderdat():
     blk1 = 24                                   # chunk 1 = 24 blocks = 6144 words (12 KB)
     n1 = blk1 * 256
     n2 = nwords - n1
-    (OUT_MAC.parent / "GST.DAT").write_bytes(gst)
+    (OUT_MAC.parent / "FIST.DAT").write_bytes(gst)
     src = f"""        .TITLE  FISTLDR
 ;
 ; .DAT park-RMON loader (verify stage) - generated, do not edit by hand.
-; GST.DAT is read (one .READW) into a banks-1-3 buffer, then relocated into the
+; FIST.DAT is read (one .READW) into a banks-1-3 buffer, then relocated into the
 ; parked extended banks 4-6 (the GST's runtime home).  The .SAV carries NO GST -
 ; only this code - so the full game code fits the 32 KB primary budget later.
 ; RT-11 plumbing learned the hard way (see project_fist_port memory):
@@ -2472,7 +2472,7 @@ CKSUM  = {checksum}.
 START:  MOV     #37776,SP               ; stack above the (future) game code, below BUF
         .FETCH  #HSPACE,#DATFIL         ; load the device handler (DK) into memory
         BCS     FAIL
-        .LOOKUP #LKAREA,#0,#DATFIL      ; open GST.DAT on channel 0 (USR; IRQs on)
+        .LOOKUP #LKAREA,#0,#DATFIL      ; open FIST.DAT on channel 0 (USR; IRQs on)
         BCS     FAIL
         ; --- chunk 1: read N1 words from block 0 into BUF (banks 2-3), park, copy ---
         .READW  #LKAREA,#0,#BUF,#N1,#0
@@ -2513,14 +2513,14 @@ START:  MOV     #37776,SP               ; stack above the (future) game code, be
         .EXIT                          ; success: clean return to the dot prompt
 FAIL:   BR      FAIL                   ; any failure -> spin (a visible hang)
 
-DATFIL: .RAD50  /DK GST   DAT/
+DATFIL: .RAD50  /DK FIST  DAT/
         .EVEN
 LKAREA: .BLKW   5
         .END    START
 """
     src.encode("ascii")
     OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
-    print(f"gamelogic_mac: wrote {OUT_MAC} + GST.DAT ({len(gst)} B, {nwords} words, "
+    print(f"gamelogic_mac: wrote {OUT_MAC} + FIST.DAT ({len(gst)} B, {nwords} words, "
           f"cksum {checksum:06o})")
 
 

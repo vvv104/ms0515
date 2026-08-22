@@ -1,6 +1,6 @@
 """FIST_GL=game / gamebg - the STANDALONE game, runnable on RT-11 via 'R FIST'.
 
-Loads the full GST from GST.DAT into the parked extended banks 4-6 (the
+Loads the full GST from FIST.DAT into the parked extended banks 4-6 (the
 proven chunked .READW + park / copy loader), then runs the live per-frame
 loop (keyboard -> P1, LFSR AI -> P2, sound) and draws BOTH fighters from the
 live state with a flicker-free per-row compositor.
@@ -73,7 +73,7 @@ def _state():
 
 
 def _gst_dat(snap, withbg):
-    """Write GST.DAT: the GST data ($F730+ compose is scratch), block-padded,
+    """Write FIST.DAT: the GST data ($F730+ compose is scratch), block-padded,
     with the tape's loading screen (SCREEN$, 6912 B) behind it - the loader
     reads it straight into SCRBUF and presents it while the state loads, the
     picture the original shows while its tape loads.  Returns (state blocks,
@@ -85,7 +85,7 @@ def _gst_dat(snap, withbg):
     scrdat = bytes(gen_fist.load_loading_screen()) if withbg else b""
     if len(scrdat) % 512:
         scrdat = scrdat + bytes(512 - (len(scrdat) % 512))
-    (gm.OUT_MAC.parent / "GST.DAT").write_bytes(gstdat + scrdat)
+    (gm.OUT_MAC.parent / "FIST.DAT").write_bytes(gstdat + scrdat)
     return nblocks, nblocks
 
 
@@ -184,7 +184,7 @@ def _engine(randoms, snap):
 def _datblk(lb_words, withbg):
     """The game's own variables (banks 0-1)."""
     bgvars = game_dojo.BGVARS if withbg else ""
-    datblk = ("\n        .EVEN\nDATFIL: .RAD50  /DK GST   DAT/\n"
+    datblk = ("\n        .EVEN\nDATFIL: .RAD50  /DK FIST  DAT/\n"
               "        .EVEN\nLKAREA: .BLKW   5\n"
               "        .EVEN\nC408W:  .WORD   0\nORIGRC: .WORD   0\n"
               "        .EVEN\nRSEED:  .WORD   1\n"
@@ -230,7 +230,7 @@ def _symtab(body, bgsrc):
 
 
 def main_game(withbg=False):
-    """Build FIST.MAC + GST.DAT for the standalone game."""
+    """Build FIST.MAC + FIST.DAT for the standalone game."""
     nelem = int(os.environ.get("FGHT_NELEM", "5000"))
     bgn = int(os.environ.get("FGHT_BG", "2"))    # $AF34 at the 1UP start ($AC59)
     snap, randoms, mm = _state()
@@ -264,5 +264,5 @@ def main_game(withbg=False):
               .replace("%DSTOFF%", str((top * 40 + left) * 2)))
     src.encode("ascii")
     gm.OUT_MAC.write_text(src, encoding="ascii", newline="\r\n")
-    print(f"gamelogic_mac: wrote {gm.OUT_MAC} + GST.DAT (STANDALONE GAME: load GST.DAT "
+    print(f"gamelogic_mac: wrote {gm.OUT_MAC} + FIST.DAT (STANDALONE GAME: load FIST.DAT "
           f"-> extended banks, one $9745 frame + draw both fighters, {fwid}x{fhgt})")
