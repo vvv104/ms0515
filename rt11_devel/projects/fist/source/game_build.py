@@ -124,6 +124,7 @@ def _driver(withbg, snap, lb_words, boot_code, bgn):
             + game_compose.fighter(1, lb_words, g(0xC408))
             + game_compose.fighter(2, lb_words, g(0xC408))
             + game_compose.geometry()
+            + game_compose.band()
             + game_compose.compositor(dojo_row, lb_words, ovl_ink)
             + game_compose.hud_gate()
             + game_compose.sprite_cache(lb_words)

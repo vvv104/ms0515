@@ -204,8 +204,9 @@ def geometry():
 """
 
 
-def compositor(dojo_row, lb_words, ovl_ink):
-    """The in-place row compositor (CLOOP): the dojo row, then each fighter."""
+def band():
+    """The band of rows to rebuild (both fighters' tops, last frame's too) and
+    the dirty column range; the strip redraw when the band reaches it."""
     return f"""        ; --- flicker-free compositor: per screen row, CLEAR then overlay each fighter ---
         ; Each fighter is drawn from its own buffer (LBUF1 / LBUF2) at its own column
         ; (COL) and top (TOP).  SRCn walks the sprite one stride (BWIDn) per row once the
@@ -278,7 +279,13 @@ def compositor(dojo_row, lb_words, ovl_ink):
         ADD     #VRAM,R2
         MOV     #LBUF1,SRC1
         MOV     #LBUF2,SRC2
-        ; Each row is composed in the scratch row SCRATC - the dirty range of
+"""
+
+
+def compositor(dojo_row, lb_words, ovl_ink):
+    """The row compositor (CLOOP): the dojo row's dirty range into the scratch
+    row, each fighter over it, the range blitted to VRAM."""
+    return f"""        ; Each row is composed in the scratch row SCRATC - the dirty range of
         ; the clean dojo row, the fighters over it - and that range is blitted
         ; to VRAM in one pass: every VRAM cell goes straight from its old to
         ; its new value (no "dojo without the fighter" gap to catch, no black),
