@@ -350,3 +350,26 @@ TEST_CASE("fist: the dojo follows the rank, game over returns to novice")
     g.settle(120);
     CHECK(bgMismatches(g, expect[2]) == 0);
 }
+
+TEST_CASE("fist: \"G\"+\"H\" held together quit the game to the demo ($9827)")
+{
+    if (!fist::built()) { MESSAGE("skip"); return; }
+    FistGame g("fist_quit_lib");
+    g.startGame();
+    REQUIRE(g.gst(0xAA06) == 0);                    // a 1-player game: P1 human
+    // One key alone does nothing.
+    g.emu.keyPress(ms0515::Key::G, true);
+    for (int i = 0; i < 8; ++i) g.step();
+    CHECK(g.gst(0xAA06) == 0);
+    // The chord: the keyboard auto-repeats the held keys, the scanner keeps
+    // both hold timers running, and the game drops back to the demo.
+    g.emu.keyPress(ms0515::Key::H, true);
+    for (int i = 0; i < 8; ++i) g.step();
+    g.emu.keyPress(ms0515::Key::G, false);
+    g.emu.keyPress(ms0515::Key::H, false);
+    CHECK(g.gst(0xAA06) == 1);                      // the demo: P1 is the computer
+    CHECK(g.gst(0xAA46) == 1);
+    // And it stays in the demo (the chord does not restart the game).
+    for (int i = 0; i < 20; ++i) g.step();
+    CHECK(g.gst(0xAA06) == 1);
+}

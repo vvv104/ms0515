@@ -35,8 +35,7 @@ source plus the game-state data file.
   control of player 1 (8 directions + fire, see Controls).
 
 Not (yet) ported: the options screen ("0": key redefinition / sound), the
-2-player mode, the in-game quit ("G"+"H"), the high-score table, the intro
-music, the get-up animation after a knockdown (the frame holds instead).
+2-player mode, the high-score table, the intro music.
 
 ## Layout
 
@@ -122,6 +121,9 @@ fire+down+back = reverse sweep).
 
 (With the fighter facing left the keypad diagonals mirror: KP7 = up+forward
 etc. - exactly the original's two table halves.)
+
+Space (or "1") starts a game from the attract demo; "G" and "H" held
+together quit a game back to the demo (the original's `$9827`).
 
 **Blocking** is automatic: step *back* (KP4 / Left) while the opponent's
 attack is in range and the fighter raises the matching guard - a high block

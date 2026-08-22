@@ -3809,7 +3809,8 @@ RENDBG: MOVB    {g(0xAF34)},R0
         return f"{label}: .BYTE   {codes},377\n        .EVEN"
     def _fc(ch):
         return _FONT_ORDER.index(ch)
-    hold = 40                                     # game frames a decided round holds
+    cap = 120                                     # game frames that cap a round-end wait
+    pause = 40                                    # the $AF1A x2 pause after a time-out: held frames (~33 ms each) -> ~1.3 s
     # HUD cells: restore the clean dojo cell (DOJOBUF is the picture in VRAM row
     # layout, rows offset by the 4-row top margin) before the glyph goes on, so
     # a changed digit / a cleared yin-yang leaves no trace.  No dojo -> clear.
@@ -3868,31 +3869,40 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         ;     unless a reaction is queued (which correctly overrides player input). ---
         JSR     PC,KSCAN             ; drain the keyboard into the hold timers
         JSR     PC,KCTRL             ; R0 = the control bits (ticks the timers)
-        TST     DEMO                 ; in the demo, fire ($97E3) or "1" ($97DC) starts
+        TST     DEMO
+        BNE     79$
+        TST     KTG                  ; $9827: "G" and "H" held together quit the
+        BEQ     79$                  ;   game -> the demo ($9C2C = 0, A = $80)
+        TST     KTH
+        BEQ     79$
+        CLR     KTG
+        CLR     KTH
+        CLR     KTFR                 ; (the chord must not restart the game at once)
+        CLR     KSTART
+        CLR     RPHASE
+        JSR     PC,DINIT
+        JSR     PC,SETUP
+        CLR     R0
+79$:    TST     DEMO                 ; in the demo, fire ($97E3) or "1" ($97DC) starts
         BEQ     70$                  ;   a 1-player game
         BIT     #20,R0
         BNE     71$
         TST     KSTART
         BEQ     70$
 71$:    CLR     KSTART
+        CLR     RPHASE                ; (the demo's round-end sequence, if any, is over)
         JSR     PC,GINIT             ; $AC3E
         JSR     PC,SETUP
         CLR     R0
 70$:    JSR     PC,C98A0             ; R0 = &move ($98DD table)
         MOVB    (R0),R0
 {dbgmove}        MOVB    R0,{g(0xAA05)}       ; P1 selected move
-        TST     WINTMR               ; a round just ended? hold its final frame
-        BNE     83$                  ;   (skip the fight logic; hold the knockdown pose)
+        TST     RPHASE                ; a round-end sequence in progress?
+        BNE     83$
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
-        JSR     PC,ROUNDE            ; $AD18: score the exchange, decide the round
+        JSR     PC,ROUNDE            ; $AD18: score the exchange, end the round
         BR      84$
-83$:    JSR     PC,HOLDFR            ; $AE8E/$AEB2/$AD0B: animate + re-bridge the poses
-        CMP     RESULT,#1            ; P1 won: $AD5F pays the clock out as points,
-        BNE     85$                  ;   a second per frame, while the bow plays
-        JSR     PC,TBONUS
-85$:    DEC     WINTMR               ; count the hold down
-        BNE     84$                  ;   still held -> just re-present the frame
-        JSR     PC,OUTCOM            ; $ACA6: next round / next opponent / game over
+83$:    JSR     PC,RNDEND            ; one frame of the round-end sequence
 84$:    MOVB    {g(0xAA01)},SC1      ; stash the scores for the HUD (GST unseen at 3377)
         MOVB    {g(0xAA41)},SC2
         MOVB    {g(0xB02D)},SCRBCD   ; and P1's BCD point score, for DRWSCR at 3377
@@ -4359,75 +4369,128 @@ SCDET:  MOVB    {g(0xAA03)},R0
         BIC     #177757,R0           ; keep bit 4 ($10)
         RTS     PC
         ; --- ROUNDE: the $AD18 round loop, per frame.  An exchange ends when a
-        ;     fighter is knocked into recovery ($9C28, as $AE26 tests) or the clock
-        ;     runs out ($9C2B).  Score it - SCDET ($AF01 clean hit?) -> YINYNG
-        ;     ($900E total) + AWARD ($AF36 points) - and decide the round: two
-        ;     yin-yang ($AA01/$AA41 >= 4) wins it; on the clock the totals decide,
-        ;     then the $AA02/$AA42 points, else it is a draw ($AD44).  Otherwise
-        ;     RSTFRM ($9CA8, via $AE26) restarts the exchange.  A decided round
-        ;     holds its final frame (WINTMR) and OUTCOM then applies $ACA6.
-        ;     RESULT = $AD18's A: 1 = P1 won, 0 = P2 won, 201 ($81) = draw. ------
+        ;     fighter is knocked into recovery ($9C28, as $AE26 tests) - SCOREX
+        ;     scores it - or the clock runs out ($9C2B): $AE67 - both return to
+        ;     the stance ($1C), $ACF0 clears the recovery state and $AD0B
+        ;     animates until $AA0D is set (RNDEND phase 2), then the $AF1A
+        ;     pause (phase 3) and the scoring + decision (SCOREX -> DECIDE). ----
 ROUNDE: MOVB    {g(0x9C28)},R0
         BIC     #177400,R0
-        BNE     71$
-        MOVB    {g(0x9C2B)},R0
+        BEQ     70$
+        JMP     SCOREX
+70$:    MOVB    {g(0x9C2B)},R0
         BIC     #177400,R0
         BEQ     78$                  ; neither -> the exchange continues
-71$:    JSR     PC,SCDET
+        MOVB    #34,{g(0xAA0C)}      ; $AE67: both to $1C
+        MOVB    #34,{g(0xAA4C)}
+        JSR     PC,RSTACF            ; $ACF0
+        MOV     #2,RPHASE             ; $AD0B: until $AA0D (WINTMR caps the wait)
+        MOV     #{cap}.,WINTMR
+78$:    RTS     PC
+        ; --- SCOREX: $AD1D..$AD42 - score the exchange: SCDET ($AF01 clean hit?)
+        ;     -> YINYNG ($900E total) + AWARD ($AF36 points); two yin-yang
+        ;     ($AA01/$AA41 >= 4) wins the round; $AD37 clears the score flags;
+        ;     on the clock ($9C2B) the round is decided ($AD44 = DECIDE), else
+        ;     RSTFRM ($9CA8, via $AE26) + RSTAI restart the exchange. -----------
+SCOREX: JSR     PC,SCDET
         TST     R0
         BEQ     72$                  ; no clean hit -> no score this exchange
         JSR     PC,YINYNG
         JSR     PC,AWARD
-        MOVB    {g(0xAA01)},R0       ; P1 at two yin-yang?
+        MOVB    {g(0xAA01)},R0       ; P1 at two yin-yang? the round is P1's
         BIC     #177400,R0
         CMP     R0,#4.
-        BHIS    74$
-        MOVB    {g(0xAA41)},R0       ; P2?
+        BLO     77$
+        JMP     WIN1
+77$:    MOVB    {g(0xAA41)},R0       ; P2?
         BIC     #177400,R0
         CMP     R0,#4.
-        BHIS    75$
+        BLO     72$
+        JMP     WIN2
 72$:    CLRB    {g(0xAA08)}          ; $AD37: clear the score flags every exchange
         CLRB    {g(0xAA48)}
-        MOVB    {g(0x9C2B)},R0       ; clock still running -> next exchange
+        MOVB    {g(0x9C2B)},R0       ; on the clock -> the decision
         BIC     #177400,R0
-        BNE     73$
-        JSR     PC,RSTFRM
+        BEQ     79$
+        JMP     DECIDE
+79$:    JSR     PC,RSTFRM            ; else the next exchange
         JSR     PC,RSTAI
-        BR      78$
-73$:    MOVB    {g(0xAA01)},R0       ; $AD44 time-out: the yin-yang totals decide...
+        RTS     PC
+        ; --- DECIDE: $AD44 - on the clock the yin-yang totals decide, then the
+        ;     $AA02/$AA42 points, else it is a draw ($ACE8: both bow, $ACF0).
+        ;     WIN1 / WIN2: $AE7A / $AE9D - the winner bows ($19) while the
+        ;     loser's get-up keeps playing.  HOLD starts RNDEND phase 1, which
+        ;     lasts until the winner's move-done flag ($AA0D / $AA4D) is set.
+        ;     RESULT = $AD18's A: 1 = P1 won, 0 = P2 won, 201 ($81) = draw. ------
+DECIDE: MOVB    {g(0xAA01)},R0
         BIC     #177400,R0
         MOVB    {g(0xAA41)},R1
         BIC     #177400,R1
         CMP     R0,R1
-        BLO     75$
-        BHI     74$
-        MOVB    {g(0xAA02)},R0       ; ...then the points...
+        BLO     WIN2
+        BHI     WIN1
+        MOVB    {g(0xAA02)},R0
         BIC     #177400,R0
         MOVB    {g(0xAA42)},R1
         BIC     #177400,R1
         CMP     R0,R1
-        BLO     75$
-        BHI     74$
-        MOV     #201,RESULT          ; ...else a draw ($81): $ACE8 - both bow ($19),
+        BLO     WIN2
+        BHI     WIN1
+        MOV     #201,RESULT          ; a draw ($81): $ACE8 - both bow ($19),
         MOVB    #31,{g(0xAA0C)}      ;   then $ACF0 clears the recovery state
         MOVB    #31,{g(0xAA4C)}
         JSR     PC,RSTACF
-        BR      76$
-74$:    MOV     #1,RESULT            ; P1 won the round: $AE7A - P1 bows ($19)
+        BR      HOLD
+WIN1:   MOV     #1,RESULT            ; P1 won the round: $AE7A - P1 bows ($19)
         MOVB    #31,{g(0xAA0C)}
         MOVB    #172,{g(0xAA18)}
         CLRB    {g(0xAA0B)}
         CLRB    {g(0xAA16)}
         CLRB    {g(0xC427)}
-        BR      76$
-75$:    CLR     RESULT               ; P2 won the round: $AE9D - P2 bows ($19)
+        BR      HOLD
+WIN2:   CLR     RESULT               ; P2 won the round: $AE9D - P2 bows ($19)
         MOVB    #31,{g(0xAA4C)}
         MOVB    #172,{g(0xAA58)}
         CLRB    {g(0xAA4B)}
         CLRB    {g(0xAA56)}
         MOVB    #1,{g(0xC427)}
-76$:    MOV     #{hold}.,WINTMR      ; hold while the bow plays (HOLDFR animates it)
-78$:    RTS     PC
+HOLD:   MOV     #1,RPHASE
+        MOV     #{cap}.,WINTMR       ; (a cap: a missing flag can never hang the game)
+        RTS     PC
+        ; --- RNDEND: one frame of the round-end sequence (RPHASE).  2: the $AD0B
+        ;     loop after a time-out - both animate back to the stance until
+        ;     $AA0D; 3: the $AF1A x2 pause (~1.3 s, the frame held), then the
+        ;     scoring; 1: the bow ($AE8E / $AEB2 / $AD0B) until the winner's
+        ;     flag, P1's clock paying out a second per frame meanwhile ($AD5F);
+        ;     then OUTCOM ($ACA6).  WINTMR caps every wait. -----------------------
+RNDEND: CMP     RPHASE,#3
+        BEQ     3$
+        JSR     PC,HOLDFR            ; $95D4 + $BF13: animate + re-bridge the poses
+        CMP     RPHASE,#2
+        BEQ     2$
+        CMP     RESULT,#1
+        BNE     1$
+        JSR     PC,TBONUS
+1$:     TST     RESULT               ; P2 won: its flag is $AA4D, else $AA0D
+        BEQ     6$
+        TSTB    {g(0xAA0D)}
+        BR      7$
+6$:     TSTB    {g(0xAA4D)}
+7$:     BNE     9$
+        DEC     WINTMR
+        BNE     8$
+9$:     CLR     RPHASE
+        JMP     OUTCOM               ; $ACA6: next round / next opponent / game over
+2$:     TSTB    {g(0xAA0D)}          ; phase 2: both back in the stance?
+        BNE     4$
+        DEC     WINTMR
+        BNE     8$
+4$:     MOV     #3,RPHASE
+        MOV     #{pause}.,WINTMR
+8$:     RTS     PC
+3$:     DEC     WINTMR               ; phase 3: the pause, then the scoring
+        BNE     8$
+        JMP     SCOREX
         ; --- HOLDFR: one iteration of the original's round-end loops ($AE8E /
         ;     $AEB2 / $AD0B): advance both animations ($95D4) and re-run the
         ;     logic->graphics bridge ($BF13), so the bow plays and the draw chain
@@ -4908,6 +4971,8 @@ KS1:    MOVB    @#177440,R0          ; read the scancode
         CLR     KTLF
         CLR     KTRT
         CLR     KTFR
+        CLR     KTG
+        CLR     KTH
         BR      KS0
 1$:     JSR     PC,KREFR             ; any key event: refresh the running timers
         CMP     R0,#254              ; auto-repeat code (real MS7004): that is all
@@ -4919,8 +4984,16 @@ KS1:    MOVB    @#177440,R0          ; read the scancode
         CMP     R0,#257
         BEQ     3$
         CMP     R0,#300              ; "1": start a 1-player game from the demo
-        BNE     14$
+        BNE     15$
         MOV     #1,KSTART
+        BR      KS0
+15$:    CMP     R0,#341              ; "G" / "H": held together they quit the game
+        BNE     16$
+        MOV     #{ktmout}.,KTG
+        BR      KS0
+16$:    CMP     R0,#366
+        BNE     14$
+        MOV     #{ktmout}.,KTH
         BR      KS0
 14$:    MOV     R0,R1                ; directions: DIRTAB[scancode - 0226] = bits
         SUB     #226,R1
@@ -4960,7 +5033,13 @@ KREFR:  TST     KTUP
 4$:     TST     KTFR
         BEQ     5$
         MOV     #{ktmout}.,KTFR
-5$:     RTS     PC
+5$:     TST     KTG
+        BEQ     6$
+        MOV     #{ktmout}.,KTG
+6$:     TST     KTH
+        BEQ     7$
+        MOV     #{ktmout}.,KTH
+7$:     RTS     PC
         ; --- KCTRL: the hold timers -> the original's control bits (the $8B4x key
         ;     scan: bit0 UP, bit1 DOWN, bit2 LEFT, bit3 RIGHT, bit4 FIRE), each
         ;     timer counting down one per frame.  The $98DD table then resolves
@@ -5054,9 +5133,9 @@ C98A0:  BIT     #40,R0
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\n"
               "        .EVEN\nRCSHAD: .WORD   0\nSSEED:  .WORD   52525\n"
-              "        .EVEN\nLASTTP: .WORD   0\nKTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\n"
+              "        .EVEN\nLASTTP: .WORD   0\nKTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\nKTG:    .WORD   0\nKTH:    .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
-              "        .EVEN\nWINTMR: .WORD   0\nRANKB:  .WORD   0\nRANKS:  .BLKB   10.\n"
+              "        .EVEN\nWINTMR: .WORD   0\nRPHASE: .WORD   0\nRANKB:  .WORD   0\nRANKS:  .BLKB   10.\n"
               "        .EVEN\nKEY1:   .BLKB   12.\nKEY2:   .BLKB   12.\n"
               "        .EVEN\nCKEY:   .BLKB   6.\nSLOT:   .WORD   0\n"
               "        .EVEN\nHUDDRT: .WORD   1\nHUDK:   .BLKB   8.\n"
