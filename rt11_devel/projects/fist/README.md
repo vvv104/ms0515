@@ -31,7 +31,8 @@ source plus the game-state data file.
   lost round is game over and a new game starts;
 - a status strip (yin-yang, rank, six-digit score, clock) in an own 8x8
   font (the original's text uses the Spectrum ROM font), sound effects on
-  timer channel 2, MS7004 keyboard control of player 1 (arrows + SPACE).
+  reg C bit 5 bit-banged as the original's beeper effects, MS7004 keyboard
+  control of player 1 (8 directions + fire, see Controls).
 
 Not (yet) ported: the menu / attract screen, the 2-player mode and key
 redefinition, the intro music, the winner's bow and get-up animations
@@ -79,8 +80,36 @@ the byte-exact oracles compare against the Python references.
 ## Running
 
 Mount `package/assets/disks/fist_game.dsk` in the GUI emulator and boot -
-it auto-runs `FIST` (via `STARTS.COM`).  Player 1: arrows move / jump /
-crouch, SPACE attacks; the opponent is the computer.
+it auto-runs `FIST` (via `STARTS.COM`).  Player 1 is the human, the opponent
+is the computer.
+
+### Controls
+
+The original reads a joystick (or 8 definable direction keys + fire) and
+resolves the control bits through its `$98DD` table *relative to the way the
+fighter faces*.  The MS7004 sends make codes only (no release codes, auto-
+repeat for the last key), so the port takes the direction from the keypad /
+arrows and FIRE as a pulse from Space, VR (Shift) or SU (Ctrl) - hold the
+direction and tap the fire key (or press fire first).  "Forward" is towards
+the opponent.
+
+| direction          | keys                 | no fire                | with fire (Space / Shift / Ctrl) |
+|--------------------|----------------------|------------------------|----------------------------------|
+| up                 | KP8, Up              | jump                   | flying kick                      |
+| up + forward       | KP9 (facing right)   | high punch             | roundhouse kick                  |
+| forward            | KP6, Right           | walk forward           | front kick                       |
+| down + forward     | KP3                  | low punch              | low kick                         |
+| down               | KP2, Down            | crouch                 | foot sweep                       |
+| down + back        | KP1                  | backward somersault    | reverse (back) sweep             |
+| back               | KP4, Left            | walk back              | spinning back kick               |
+| up + back          | KP7                  | forward somersault     | reverse high kick                |
+| fire alone         |                      | nothing                |                                  |
+
+(With the fighter facing left the keypad diagonals mirror: KP7 = up+forward
+etc. - exactly the original's two table halves.)  There are no block moves:
+whether an attack connects depends on the defender's pose - crouching ducks
+high attacks, jumping clears sweeps, somersaults evade - and the score is a
+full or half yin-yang by distance.
 
 ```
 package/ms0515.exe --disk0 package/assets/disks/fist_game.dsk

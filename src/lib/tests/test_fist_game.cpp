@@ -319,6 +319,56 @@ TEST_CASE("fist: keyboard drives P1")
             << "  after RIGHT=" << xRight << "  after LEFT=" << xLeft);
     CHECK(xRight != xLeft);      // keyboard moves P1
     CHECK(xRight >= xLeft);      // RIGHT ends further right than LEFT
+
+    // The 8-way + fire scheme: keypad 1-9 (and arrows) give the original's
+    // control bits, Space / Shift / Ctrl pulse FIRE; the $98DD table turns them
+    // into the 16 moves (P1 faces right here: table A).  $AA05 = selected move.
+    struct Combo { ms0515::Key dir; ms0515::Key fire; int move; const char *name; };
+    const Combo combos[] = {
+        {ms0515::Key::Kp8, ms0515::Key::Kp8, 5, "KP8 jump"},
+        {ms0515::Key::Kp2, ms0515::Key::Kp2, 4, "KP2 crouch"},
+        {ms0515::Key::Kp6, ms0515::Key::Kp6, 2, "KP6 forward"},
+        {ms0515::Key::Kp4, ms0515::Key::Kp4, 3, "KP4 back"},
+        {ms0515::Key::Kp9, ms0515::Key::Kp9, 6, "KP9 high punch"},
+        {ms0515::Key::Kp3, ms0515::Key::Kp3, 7, "KP3 low punch"},
+        {ms0515::Key::Kp7, ms0515::Key::Kp7, 9, "KP7 forward somersault"},
+        {ms0515::Key::Kp1, ms0515::Key::Kp1, 8, "KP1 backward somersault"},
+        {ms0515::Key::Kp8, ms0515::Key::ShiftL, 14, "Shift+KP8 flying kick"},
+        {ms0515::Key::Kp6, ms0515::Key::ShiftL, 12, "Shift+KP6 front kick"},
+        {ms0515::Key::Kp2, ms0515::Key::ShiftL, 10, "Shift+KP2 foot sweep"},
+        {ms0515::Key::Kp4, ms0515::Key::ShiftL, 17, "Shift+KP4 back kick"},
+        {ms0515::Key::Kp9, ms0515::Key::Ctrl, 13, "Ctrl+KP9 roundhouse"},
+        {ms0515::Key::Kp7, ms0515::Key::Ctrl, 15, "Ctrl+KP7 reverse high kick"},
+        {ms0515::Key::Kp3, ms0515::Key::Space, 11, "Space+KP3 low kick"},
+        {ms0515::Key::Kp1, ms0515::Key::Space, 16, "Space+KP1 reverse sweep"},
+        {ms0515::Key::Right, ms0515::Key::Space, 12, "Space+RIGHT front kick"},
+    };
+    for (const Combo &c : combos) {
+        emu.keyReleaseAll();
+        poke(0xAA19, 40); poke(0xAA59, 76); poke(0x9CA5, 30);
+        settle(30);
+        bool withFire = c.fire != c.dir;
+        if (withFire) emu.keyPress(c.fire, true);   // fire first: a direction alone would
+        settle(1);                                   // already start a jump / crouch / step
+        emu.keyPress(c.dir, true);
+        bool seen = false;
+        for (int i = 0; i < 30 && !seen; ++i) {
+            settle(1);
+            int mv = gst(0xAA05);
+            seen = mv == c.move || (c.move == 7 && mv == 24);   // 7 is re-staged as action 24
+        }
+        if (withFire) emu.keyPress(c.fire, false);
+        emu.keyPress(c.dir, false);
+        MESSAGE(c.name << " -> move " << c.move << (seen ? " ok" : " MISSING") << " (AA05=" << (int)gst(0xAA05) << ")");
+        CHECK(seen);
+    }
+    emu.keyReleaseAll();
+    settle(20);
+    emu.keyPress(ms0515::Key::Space, true);           // fire alone does nothing ($98DD)
+    int fireAlone = 1;
+    for (int i = 0; i < 12; ++i) { settle(1); fireAlone = std::max(fireAlone, (int)gst(0xAA05)); }
+    emu.keyPress(ms0515::Key::Space, false);
+    CHECK(fireAlone == 1);
 }
 
 TEST_CASE("fist: yin-yang score accumulates")
@@ -1014,6 +1064,87 @@ TEST_CASE("fist: sound effects (diagnostic)")
         MESSAGE("code " << code << ": transitions=" << log.size()
                 << " half-period cycles mean=" << (long)(sum / n) << " min=" << mn << " max=" << mx
                 << " pauses=" << gaps << " total=" << (log.back().cyc - log.front().cyc) / 7500 << " ms");
+    }
+    CHECK(true);
+}
+
+// Diagnostic (opt-in via FIST_MOVES_DIR=<dir>, needs a FIST_DBGMOVE=1 build): play
+// every P1 move 2..17 through the $B156 override and dump VRAM frames of it.
+TEST_CASE("fist: move catalogue (diagnostic)")
+{
+    std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
+                sys = env("FIST_SYSTEM_DIR"), outDir = env("FIST_MOVES_DIR");
+    if (sav.empty() || dat.empty() || sys.empty() || outDir.empty()) {
+        MESSAGE("FIST_MOVES_DIR not set - skipping");
+        return;
+    }
+    fs::path tmp = fs::temp_directory_path() / "fist_moves_lib";
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::path boot = tmp / "boot", work = tmp / "work";
+    fs::create_directories(boot, ec);
+    fs::copy(sys, boot, fs::copy_options::recursive, ec);
+    REQUIRE_FALSE(ec);
+    fs::copy_file(sav, boot / "FIST.SAV", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(boot / "STARTS.COM", std::ios::binary);
+        s << "ASSIGN DZ1 DK\r\nR FIST\r\n";
+    }
+    fs::create_directories(work, ec);
+    fs::copy_file(dat, work / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(work / "device.rtfs", std::ios::binary);
+        s << "device: floppy\nblocks: 800\n";
+    }
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, (boot / "device.rtfs").string()));
+    REQUIRE(emu.mountDisk(1, (work / "device.rtfs").string()));
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool {
+            if (offerCR) { b = '\r'; offerCR = false; return true; }
+            return false;
+        },
+        [](uint8_t) -> bool { return true; });
+    auto &board = ms0515::internal::board(emu);
+    auto gst = [&](uint16_t spec) -> uint8_t {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        return board.mem.ram[bank * 8192 + (addr & 8191)];
+    };
+    auto poke = [&](uint16_t spec, uint8_t v) {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        board.mem.ram[bank * 8192 + (addr & 8191)] = v;
+    };
+    for (int i = 0; i < 1500; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+    }
+    poke(0xAA46, 0);
+    auto step = [&]() { poke(0xAA45, 1); (void)emu.stepFrame(); };
+    for (int i = 0; i < 60; ++i) step();
+    for (int mv = 2; mv <= 17; ++mv) {
+        poke(0xAA19, 40); poke(0xAA59, 76);          // re-centre the pair
+        poke(0x9CA5, 30);                            // no clock-out during the catalogue
+        for (int i = 0; i < 30; ++i) step();
+        int n = 0, x0 = gst(0xAA19), f0 = gst(0xAA17);
+        std::string acts;
+        for (int i = 0; i < 72; ++i) {
+            poke(0xB156, (uint8_t)(i < 40 ? mv : 0));  // hold the move ~40 frames, then release
+            step();
+            if (i % 4 == 0 && i < 48) {
+                std::ofstream o(fs::path(outDir) / ("mv" + std::to_string(mv) + "_" + std::to_string(n++) + ".bin"),
+                                std::ios::binary);
+                o.write(reinterpret_cast<const char *>(board_get_vram(&board)), MEM_VRAM_SIZE);
+                acts += std::to_string((int)gst(0xAA04)) + " ";
+            }
+        }
+        MESSAGE("move " << mv << ": P1 actions " << acts << " x " << x0 << "->" << (int)gst(0xAA19)
+                << " facing " << f0 << "->" << (int)gst(0xAA17));
+        poke(0xB156, 0);
     }
     CHECK(true);
 }

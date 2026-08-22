@@ -3458,6 +3458,14 @@ def main_game(withbg=False):
     # safe_words bound is for the extended FBUF the decode writes into.  With the bg,
     # trim the copies to the real fighter size so SCRBUF (6912 B) fits banks 0-1.
     lb_words = ((fd.FBUF_LEN + 1) // 2) if withbg else safe_words
+    # FIST_DBGMOVE=1: a test hook - a non-zero $B156 (an unused sound scratch cell)
+    # overrides P1's selected move, so a test can play every move for a look.
+    dbgmove = ("" if not os.environ.get("FIST_DBGMOVE") else
+               f"        MOVB    {g(0xB156)},R1       ; FIST_DBGMOVE: forced move, if any\n"
+               "        BIC     #177400,R1\n"
+               "        BEQ     79$\n"
+               "        MOV     R1,R0\n"
+               "79$:")
     ktmout = 3                                   # game frames a key stays 'held' after its last event:
                                                  # the MS7004 game preset repeats after 125 ms then every
                                                  # 50 ms, so three frames bridge the first gap (a TAP = 1-3
@@ -3773,7 +3781,7 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
 82$:    JSR     PC,KCTRL             ; R0 = Kempston control bits
         JSR     PC,C98A0             ; R0 = &move ($98DD table)
         MOVB    (R0),R0
-        MOVB    R0,{g(0xAA05)}       ; P1 selected move
+{dbgmove}        MOVB    R0,{g(0xAA05)}       ; P1 selected move
         TST     WINTMR               ; a round just ended? hold its final frame
         BNE     83$                  ;   (skip the fight logic; hold the knockdown pose)
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
@@ -4599,13 +4607,19 @@ SRND:   MOV     SSEED,R0
         BIC     #177400,R0
         RTS     PC
         .EVEN
-        ; --- KSCAN: drain the MS7004 keyboard, track the held key in HELDK ----------
-        ; The MS7004 is event-based (scancode on press, auto-repeat while held, ALL-UP
-        ; on last release), so only one key tracks reliably - fine for basic moves.
+        ; --- KSCAN: drain the MS7004 keyboard into the control state -----------
+        ; The original reads 9 definable keys (8 directions + fire) or a Kempston
+        ; joystick.  The MS7004 sends make codes only (no release; auto-repeat for
+        ; the LAST regular key; modifiers emit their own code on every press and
+        ; ALL-UP once everything is released), so the state is:
+        ;   HELDK = the last DIRECTION key (arrows, keypad 1-9 = 8 directions, 5 =
+        ;           neutral), kept for KTMR frames past its last event;
+        ;   FTMR  = a FIRE pulse (frames) from Space / VR (Shift) / SU (Ctrl) - the
+        ;           combo is read while the pulse and the held direction overlap;
+        ;           Space auto-repeats (a held fire), the modifiers never steal the
+        ;           direction's auto-repeat, so "hold direction, tap Shift" is clean.
         ; The UART presents one byte per ~2 ms (4800 baud) from a 16-byte FIFO, so
-        ; "read while RXRDY" takes ONE byte per frame and the auto-repeat stream
-        ; backlogs during a hold, then plays out for a second after the release.
-        ; After a byte, poll ~3 ms for the next one so the queue drains each frame.
+        ; after a byte, poll ~3 ms for the next one so the queue drains each frame.
 KSCAN:  CLR     R2                   ; poll budget: none until a byte was read
 KS0:    MOVB    @#177442,R0          ; keyboard status
         BITB    #2,R0                ; RXRDY (byte available)?
@@ -4623,49 +4637,59 @@ KS1:    MOVB    @#177440,R0          ; read the scancode
         CLRB    HELDK
         CLRB    LASTKY
         CLR     KTMR
+        CLR     FTMR
         BR      KS0
-1$:     CMP     R0,#254              ; auto-repeat -> key still held: restore it + refresh.
-        BNE     11$                  ; (a short timeout makes a TAP one step; the repeat
-        MOVB    LASTKY,HELDK         ;  restores HELDK for a HOLD once repeats start)
+1$:     CMP     R0,#254              ; auto-repeat code (real MS7004) -> key still held
+        BNE     11$
+        MOVB    LASTKY,HELDK
         MOV     #{ktmout}.,KTMR
         BR      KS0
-11$:    CMP     R0,#247              ; movement keys are 0247..0252 and 0324 (fire)
-        BLO     KS0
+11$:    CMP     R0,#324              ; fire: Space, VR/Shift (0256), SU/Ctrl (0257)
+        BEQ     3$
+        CMP     R0,#256
+        BEQ     3$
+        CMP     R0,#257
+        BEQ     3$
+        CMP     R0,#247              ; directions: arrows 0247..0252 ...
+        BLO     12$
         CMP     R0,#252
         BLOS    2$
-        CMP     R0,#324
-        BNE     KS0                ; other key -> ignore
-2$:     MOVB    R0,HELDK             ; new key: hold it + start the release timeout
+        BR      KS0
+12$:    CMP     R0,#226              ; ... and keypad 1-9 (0226..0237, 0234 is ',')
+        BLO     KS0
+        CMP     R0,#237
+        BHI     KS0
+        CMP     R0,#234
+        BEQ     KS0
+2$:     MOVB    R0,HELDK             ; new direction: hold it + start the timeout
         MOVB    R0,LASTKY
         MOV     #{ktmout}.,KTMR
         BR      KS0
-5$:     RTS     PC
-        ; --- KCTRL: HELDK -> WotEF joystick bits.  Empirically the move table wants
-        ;     bit0=UP(jump) bit1=DOWN(crouch) bit2=LEFT bit3=RIGHT bit4=FIRE (NOT the
-        ;     standard Kempston order).  SPACE = forward(right)+fire = a punch. ---------
+3$:     MOV     #5,FTMR              ; fire pulse: ~5 game frames (a crouch or a jump
+                                     ;   may have to complete before the attack starts)
+        BR      KS0
+        ; --- KCTRL: control state -> the original's control bits (the $8B4x key
+        ;     scan): bit0 UP, bit1 DOWN, bit2 LEFT, bit3 RIGHT, bit4 FIRE.  The $98DD
+        ;     table then resolves them by facing into the 16 moves. ----------------
 KCTRL:  CLR     R0
         MOVB    HELDK,R1
         BIC     #177400,R1
-        CMP     R1,#252              ; UP -> jump
-        BNE     1$
-        BIS     #1,R0
-        RTS     PC
-1$:     CMP     R1,#251              ; DOWN -> crouch
-        BNE     2$
-        BIS     #2,R0
-        RTS     PC
-2$:     CMP     R1,#247              ; LEFT
-        BNE     3$
-        BIS     #4,R0
-        RTS     PC
-3$:     CMP     R1,#250              ; RIGHT
-        BNE     4$
-        BIS     #10,R0
-        RTS     PC
-4$:     CMP     R1,#324              ; SPACE -> right+fire (a forward attack)
-        BNE     9$
-        BIS     #30,R0
+        BEQ     1$
+        SUB     #226,R1              ; DIRTAB is indexed by scancode - 0226
+        BLT     1$
+        CMP     R1,#20.
+        BHI     1$
+        MOVB    DIRTAB(R1),R0
+1$:     TST     FTMR
+        BEQ     9$
+        DEC     FTMR
+        BIS     #20,R0
 9$:     RTS     PC
+        ; 0226 KP1 DN+LF, 0227 KP2 DN, 0230 KP3 DN+RT, 0231 KP4 LF, 0232 KP5 -,
+        ; 0233 KP6 RT, 0234 -, 0235 KP7 UP+LF, 0236 KP8 UP, 0237 KP9 UP+RT,
+        ; 0240-0246 -, 0247 LEFT, 0250 RIGHT, 0251 DOWN, 0252 UP
+DIRTAB: .BYTE   6.,2.,10.,4.,0.,8.,0.,5.,1.,9.,0.,0.,0.,0.,0.,0.,0.,4.,8.,2.,1.
+        .EVEN
         ; --- C98A0: control (R0) -> &move ($98DD table; +0x21 if P1 is mid-move) ------
 C98A0:  BIT     #40,R0
         BEQ     1$
@@ -4733,7 +4757,7 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\n"
               "        .EVEN\nRCSHAD: .WORD   0\nSSEED:  .WORD   52525\n"
-              "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\n"
+              "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\nFTMR:   .WORD   0\nLASTKY: .WORD   0\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRANKB:  .WORD   0\nRANKS:  .BLKB   10.\n"
               "        .EVEN\nKEY1:   .BLKB   12.\nKEY2:   .BLKB   12.\n"
