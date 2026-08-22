@@ -3451,7 +3451,10 @@ def main_game(withbg=False):
     # safe_words bound is for the extended FBUF the decode writes into.  With the bg,
     # trim the copies to the real fighter size so SCRBUF (6912 B) fits banks 0-1.
     lb_words = ((fd.FBUF_LEN + 1) // 2) if withbg else safe_words
-    ktmout = 7                                   # frames a key stays 'held' after its last event
+    ktmout = 3                                   # game frames a key stays 'held' after its last event:
+                                                 # the MS7004 game preset repeats after 125 ms then every
+                                                 # 50 ms, so three frames bridge the first gap (a TAP = 1-3
+                                                 # steps); 7 was a 1.5 s ghost hold at ~7 game-fps
     frame_delay = 20000                          # crude pacing (busy loop), tune later
 
     gstdat = bytes(snap[GBASE:0xF730])           # GST data; $F730+ compose is scratch
@@ -4497,32 +4500,43 @@ SNDDUR: .WORD   3.,3.,6.,4.,7.,4.
         ; --- KSCAN: drain the MS7004 keyboard, track the held key in HELDK ----------
         ; The MS7004 is event-based (scancode on press, auto-repeat while held, ALL-UP
         ; on last release), so only one key tracks reliably - fine for basic moves.
-KSCAN:  MOVB    @#177442,R0          ; keyboard status
+        ; The UART presents one byte per ~2 ms (4800 baud) from a 16-byte FIFO, so
+        ; "read while RXRDY" takes ONE byte per frame and the auto-repeat stream
+        ; backlogs during a hold, then plays out for a second after the release.
+        ; After a byte, poll ~3 ms for the next one so the queue drains each frame.
+KSCAN:  CLR     R2                   ; poll budget: none until a byte was read
+KS0:    MOVB    @#177442,R0          ; keyboard status
         BITB    #2,R0                ; RXRDY (byte available)?
-        BEQ     5$
-        MOVB    @#177440,R0          ; read the scancode
+        BNE     KS1
+        TST     R2
+        BEQ     6$                   ; nothing read this frame -> done
+        DEC     R2                   ; a byte was read: the next may still be
+        BR      KS0                  ;   shifting in - keep polling a little
+6$:     RTS     PC
+KS1:    MOVB    @#177440,R0          ; read the scancode
+        MOV     #250.,R2             ; ~3 ms of polling for a follow-up byte
         BIC     #177400,R0
         CMP     R0,#263              ; ALL-UP (only sent with a modifier) -> release
         BNE     1$
         CLRB    HELDK
         CLRB    LASTKY
         CLR     KTMR
-        BR      KSCAN
+        BR      KS0
 1$:     CMP     R0,#254              ; auto-repeat -> key still held: restore it + refresh.
         BNE     11$                  ; (a short timeout makes a TAP one step; the repeat
         MOVB    LASTKY,HELDK         ;  restores HELDK for a HOLD once repeats start)
         MOV     #{ktmout}.,KTMR
-        BR      KSCAN
+        BR      KS0
 11$:    CMP     R0,#247              ; movement keys are 0247..0252 and 0324 (fire)
-        BLO     KSCAN
+        BLO     KS0
         CMP     R0,#252
         BLOS    2$
         CMP     R0,#324
-        BNE     KSCAN                ; other key -> ignore
+        BNE     KS0                ; other key -> ignore
 2$:     MOVB    R0,HELDK             ; new key: hold it + start the release timeout
         MOVB    R0,LASTKY
         MOV     #{ktmout}.,KTMR
-        BR      KSCAN
+        BR      KS0
 5$:     RTS     PC
         ; --- KCTRL: HELDK -> WotEF joystick bits.  Empirically the move table wants
         ;     bit0=UP(jump) bit1=DOWN(crouch) bit2=LEFT bit3=RIGHT bit4=FIRE (NOT the

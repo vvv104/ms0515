@@ -815,3 +815,92 @@ TEST_CASE("fist: PC profile (diagnostic)")
         if (hist[pc]) o << std::oct << pc << ' ' << std::dec << hist[pc] << '\n';
     CHECK(true);
 }
+
+// Diagnostic (opt-in via FIST_KEYLAT=1): key press / release latency in video
+// frames.  P2 is parked; RIGHT is pressed, held ~1 s and released; the log says
+// when P1's move ($AA05) and x ($AA19) react.
+TEST_CASE("fist: key latency (diagnostic)")
+{
+    std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
+                sys = env("FIST_SYSTEM_DIR");
+    if (sav.empty() || dat.empty() || sys.empty() || env("FIST_KEYLAT").empty()) {
+        MESSAGE("FIST_KEYLAT not set - skipping");
+        return;
+    }
+    fs::path tmp = fs::temp_directory_path() / "fist_keylat_lib";
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::path boot = tmp / "boot", work = tmp / "work";
+    fs::create_directories(boot, ec);
+    fs::copy(sys, boot, fs::copy_options::recursive, ec);
+    REQUIRE_FALSE(ec);
+    fs::copy_file(sav, boot / "FIST.SAV", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(boot / "STARTS.COM", std::ios::binary);
+        s << "ASSIGN DZ1 DK\r\nR FIST\r\n";
+    }
+    fs::create_directories(work, ec);
+    fs::copy_file(dat, work / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(work / "device.rtfs", std::ios::binary);
+        s << "device: floppy\nblocks: 800\n";
+    }
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, (boot / "device.rtfs").string()));
+    REQUIRE(emu.mountDisk(1, (work / "device.rtfs").string()));
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool {
+            if (offerCR) { b = '\r'; offerCR = false; return true; }
+            return false;
+        },
+        [](uint8_t) -> bool { return true; });
+    auto &board = ms0515::internal::board(emu);
+    auto gst = [&](uint16_t spec) -> uint8_t {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        return board.mem.ram[bank * 8192 + (addr & 8191)];
+    };
+    auto poke = [&](uint16_t spec, uint8_t v) {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        board.mem.ram[bank * 8192 + (addr & 8191)] = v;
+    };
+    for (int i = 0; i < 1500; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+    }
+    poke(0xAA46, 0);
+    uint32_t nowMs = 0;
+    int frame = 0;
+    auto step = [&]() {
+        poke(0xAA45, 1);
+        nowMs += 20;
+        emu.keyTick(nowMs);
+        (void)emu.stepFrame();
+        ++frame;
+    };
+    for (int i = 0; i < 100; ++i) step();
+    auto trace = [&](const char *phase, int n) {
+        int px = gst(0xAA19), pm = gst(0xAA05), pa = gst(0xAA04), f0 = frame;
+        for (int i = 0; i < n; ++i) {
+            step();
+            int x = gst(0xAA19), m = gst(0xAA05), a = gst(0xAA04);
+            if (x != px || m != pm || a != pa)
+                MESSAGE(phase << " +" << (frame - f0) << " frames (" << (frame - f0) * 20
+                        << " ms): x=" << x << " move=" << m << " act=" << a);
+            px = x; pm = m; pa = a;
+        }
+    };
+    emu.keyPress(ms0515::Key::Right, true);
+    trace("PRESS", 60);
+    emu.keyPress(ms0515::Key::Right, false);
+    trace("RELEASE", 200);
+    emu.keyPress(ms0515::Key::Space, true);
+    trace("SPACE-PRESS", 40);
+    emu.keyPress(ms0515::Key::Space, false);
+    trace("SPACE-RELEASE", 200);
+    CHECK(true);
+}
