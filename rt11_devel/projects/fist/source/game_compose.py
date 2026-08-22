@@ -17,7 +17,10 @@ def frame_head(dbgmove):
         ; --- keyboard -> P1 move (AA05).  P1 is human (AA06=0), so MOVSEL leaves AA05
         ;     unless a reaction is queued (which correctly overrides player input). ---
         JSR     PC,KSCAN             ; drain the keyboard into the hold timers
-        JSR     PC,KCTRL             ; R0 = the control bits (ticks the timers)
+        MOV     #KT2UP,R1            ; (player 2's timers tick whether or not a
+        JSR     PC,KCTRL             ;   human holds them - a 2UP game reads them)
+        MOV     #KTUP,R1
+        JSR     PC,KCTRL             ; R0 = player 1's control bits (ticks the timers)
         TST     DEMO
         BNE     79$
         TST     KTG                  ; $9827: "G" and "H" held together quit the
@@ -50,17 +53,34 @@ def frame_head(dbgmove):
         BR      70$
 82$:    BIT     #20,R0
         BNE     71$
-        TST     KSTART
+        CMP     KSTART,#2            ; "2" ($9808): a 2-player game
+        BNE     77$
+        CLR     KSTART
+        CLR     RPHASE
+        JSR     PC,GINIT2            ; $AD9C
+        JSR     PC,SETUP
+        CLR     R0
+        BR      70$
+77$:    TST     KSTART
         BEQ     70$
 71$:    CLR     KSTART
         CLR     RPHASE                ; (the demo's round-end sequence, if any, is over)
         JSR     PC,GINIT             ; $AC3E
         JSR     PC,SETUP
         CLR     R0
-70$:    JSR     PC,C98A0             ; R0 = &move ($98DD table)
+70$:    CLR     R5
+        JSR     PC,C98A0             ; R0 = &move ($98DD table)
         MOVB    (R0),R0
 {dbgmove}        MOVB    R0,{g(0xAA05)}       ; P1 selected move
-        TST     RPHASE                ; a round-end sequence in progress?
+        TSTB    {g(0xAA46)}          ; player 2 human (a 2UP game, $9891)?
+        BNE     76$
+        MOV     #KT2UP,R1            ; its bits (the timers ticked above: KCTRL
+        JSR     PC,KCTRL             ;   once more costs nothing, they are 0 or
+        MOV     #100,R5              ;   refreshed every key event)
+        JSR     PC,C98A0
+        MOVB    (R0),R0
+        MOVB    R0,{g(0xAA45)}       ; P2 selected move
+76$:        TST     RPHASE                ; a round-end sequence in progress?
         BNE     83$
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
         JSR     PC,ROUNDE            ; $AD18: score the exchange, end the round
@@ -76,6 +96,12 @@ def frame_head(dbgmove):
         MOVB    {g(0xB033)},HISC     ; and the high score ($B033..$B035), for HUDALL
         MOVB    {g(0xB033)}+1.,HISC+1.
         MOVB    {g(0xB033)}+2.,HISC+2.
+        MOVB    {g(0xB036)},HISC2    ; the 2UP high score ($B036..$B038)
+        MOVB    {g(0xB036)}+1.,HISC2+1.
+        MOVB    {g(0xB036)}+2.,HISC2+2.
+        MOVB    {g(0xB030)},SC2BCD   ; and P2's BCD score, for HUDSC2
+        MOVB    {g(0xB030)}+1.,SC2BCD+1.
+        MOVB    {g(0xB030)}+2.,SC2BCD+2.
         MOVB    {g(0xB2FA)},SNDENA   ; and the sound flag ($B2FA), for the drivers
         ; --- sound ($9754): play the effect the hit logic queued in $B150 ---
 80$:    MOVB    {g(0xB150)},R0       ; $B150 = sound code queued by $9ED2/$9D29 hit-detect
@@ -379,14 +405,26 @@ def hud_gate():
         BEQ     54$
 53$:    JSR     PC,HUDSCR
 54$:    CMPB    STIM,HUDK+5.
-        BEQ     57$
+        BEQ     55$
         JSR     PC,HUDTIM
+55$:    TST     TWOUP                ; ...and player 2's score in a 2UP game
+        BEQ     57$
+        CMPB    SC2BCD,HUDK+6.
+        BNE     90$
+        CMPB    SC2BCD+1.,HUDK+7.
+        BNE     90$
+        CMPB    SC2BCD+2.,HUDK+8.
+        BEQ     57$
+90$:    JSR     PC,HUDSC2
 57$:    MOVB    SC1,HUDK
         MOVB    SC2,HUDK+1.
         MOVB    SCRBCD,HUDK+2.
         MOVB    SCRBCD+1.,HUDK+3.
         MOVB    SCRBCD+2.,HUDK+4.
         MOVB    STIM,HUDK+5.
+        MOVB    SC2BCD,HUDK+6.
+        MOVB    SC2BCD+1.,HUDK+7.
+        MOVB    SC2BCD+2.,HUDK+8.
         JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC

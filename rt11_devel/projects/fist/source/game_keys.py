@@ -53,27 +53,29 @@ def mtab(cmap):
 
 
 KSCAN_NOTE = """        ; --- KSCAN: drain the MS7004 keyboard into the control state -----------
-        ; The original reads 9 definable keys (8 directions + fire) or a Kempston
-        ; joystick.  The MS7004 sends make codes only: no release codes, auto-
-        ; repeat for the LAST regular key, modifiers emit their own code on every
-        ; press and ALL-UP once everything is released.  So each control (UP,
-        ; DOWN, LEFT, RIGHT, FIRE) has a hold timer KT..: a key's make/repeat code
-        ; sets its timer to KTMR frames, and - the CHORD rule - refreshes every
-        ; other timer still running: keys pressed together stay "held" as long
-        ; as any one of them repeats (the keyboard only repeats the last one).
-        ; Arrows and Space/VR/SU give chords (up+right, right+fire ...); the
-        ; keypad 1-9 gives a diagonal in one key.  A key released less than KTMR
-        ; before the next press is read as part of the chord - the price of a
-        ; keyboard without release codes.  The settings screen can replace the
-        ; set with nine keys of its own (KEYMOD / KEYTAB, as the original's
-        ; redefinition); the fixed keys ("1", "0", "G" + "H") stay.
-        ; The UART presents one byte per ~2 ms (4800 baud) from a 16-byte FIFO, so
-        ; after a byte, poll ~3 ms for the next one so the queue drains each frame.
+        ; The original reads 9 definable keys (8 directions + fire) per player.
+        ; The MS7004 sends make codes only: no release codes, auto-repeat for
+        ; the LAST regular key, modifiers emit their own code on every press
+        ; and ALL-UP once everything is released.  So each control (UP, DOWN,
+        ; LEFT, RIGHT, FIRE) of each player has a hold timer: a key's make /
+        ; repeat code sets its timer to KTMR frames, and - the CHORD rule -
+        ; refreshes every other timer still running: keys pressed together
+        ; stay "held" as long as any one of them repeats (the keyboard only
+        ; repeats the last one).  A key released less than KTMR before the
+        ; next press is read as part of the chord - the price of a keyboard
+        ; without release codes.  Each player's keys are a table of (scancode,
+        ; bits) pairs - the defaults DEF1 (the keypad, the arrows, Space / VR /
+        ; SU) and DEF2 (Q W E / A S D / Z X C, S = fire), or the nine keys the
+        ; settings screen defined (KEYTAB / KEYTB2); the fixed keys ("1", "2",
+        ; "0", "G" + "H") stay.
+        ; The UART presents one byte per ~2 ms (4800 baud) from a 16-byte FIFO,
+        ; so after a byte, poll ~3 ms for the next one so the queue drains.
 """
 
 
 def kscan(ktmout):
-    """KSCAN: drain the MS7004 keyboard into the hold timers."""
+    """KSCAN: drain the MS7004 keyboard into the hold timers; KMATCH: one
+    player's key table against a scancode."""
     return KSCAN_NOTE + f"""KSCAN:  CLR     R2                   ; poll budget: none until a byte was read
 KS0:    MOVB    @#177442,R0          ; keyboard status
         BITB    #2,R0                ; RXRDY (byte available)?
@@ -88,13 +90,11 @@ KS1:    MOVB    @#177440,R0          ; read the scancode
         BIC     #177400,R0
         CMP     R0,#263              ; ALL-UP (only sent with a modifier) -> release all
         BNE     1$
-        CLR     KTUP
-        CLR     KTDN
-        CLR     KTLF
-        CLR     KTRT
-        CLR     KTFR
-        CLR     KTG
-        CLR     KTH
+        MOV     #KTUP,R3             ; the twelve timers: both players' and G / H
+        MOV     #12.,R1
+2$:     CLR     (R3)+
+        DEC     R1
+        BNE     2$
         BR      KS0
 1$:     JSR     PC,KREFR             ; any key event: refresh the running timers
         CMP     R0,#254              ; auto-repeat code (real MS7004): that is all
@@ -103,134 +103,140 @@ KS1:    MOVB    @#177440,R0          ; read the scancode
         BNE     15$
         MOV     #1,KSTART
         BR      KS0
-15$:    CMP     R0,#341              ; "G" / "H": held together they quit the game
+15$:    CMP     R0,#305              ; "2": a 2-player game
         BNE     16$
+        MOV     #2,KSTART
+        BR      KS0
+16$:    CMP     R0,#341              ; "G" / "H": held together they quit the game
+        BNE     17$
         MOV     #{ktmout}.,KTG
         BR      KS0
-16$:    CMP     R0,#366
-        BNE     17$
+17$:    CMP     R0,#366
+        BNE     18$
         MOV     #{ktmout}.,KTH
         BR      KS0
-17$:    CMP     R0,#357              ; "0": the settings screen, from the demo
-        BNE     18$
-        MOV     #1,KOPT
-        JMP     KS0
-18$:    TST     KEYMOD               ; the keys the settings screen defined?
-        BEQ     2$
-        MOV     #KEYTAB,R3           ; the nine controls: a match -> its bits
-        MOV     #9.,R4
-19$:    CMPB    R0,(R3)+
-        BEQ     20$
-        DEC     R4
+18$:    CMP     R0,#357              ; "0": the settings screen, from the demo
         BNE     19$
+        MOV     #1,KOPT
+        BR      KS0
+19$:    MOV     KMAP1,R3             ; player 1's keys -> its timers
+        MOV     #KTUP,R4
+        JSR     PC,KMATCH
+        MOV     KMAP2,R3             ; player 2's
+        MOV     #KT2UP,R4
+        JSR     PC,KMATCH
         JMP     KS0
-20$:    MOVB    KEYBIT-KEYTAB-1(R3),R1
-        BR      10$
-2$:     CMP     R0,#324              ; the default set.  fire: Space, VR/Shift
-        BEQ     3$                   ;   (0256), SU/Ctrl (0257)
-        CMP     R0,#256
+        ; KMATCH: the scancode R0 in the (scancode, bits) table R3 (0 ends it)
+        ; -> the bits' timers in the block R4 (UP, DOWN, LEFT, RIGHT, FIRE)
+KMATCH: MOVB    (R3)+,R1
+        BEQ     9$
+        CMPB    R1,R0
+        BEQ     1$
+        INC     R3
+        BR      KMATCH
+1$:     MOVB    (R3),R1
+        BIT     #1,R1
+        BEQ     2$
+        MOV     #{ktmout}.,(R4)
+2$:     BIT     #2,R1
         BEQ     3$
-        CMP     R0,#257
-        BEQ     3$
-        MOV     R0,R1                ; directions: DIRTAB[scancode - 0226] = bits
-        SUB     #226,R1
-        BLT     7$
-        CMP     R1,#20.
-        BHI     7$
-        MOVB    DIRTAB(R1),R1
-        BEQ     7$                   ; not a direction key
-10$:    BIT     #1,R1                ; the bits -> the hold timers
-        BEQ     11$
-        MOV     #{ktmout}.,KTUP
-11$:    BIT     #2,R1
-        BEQ     12$
-        MOV     #{ktmout}.,KTDN
-12$:    BIT     #4,R1
-        BEQ     13$
-        MOV     #{ktmout}.,KTLF
-13$:    BIT     #10,R1
-        BEQ     14$
-        MOV     #{ktmout}.,KTRT
-14$:    BIT     #20,R1
-        BEQ     7$
-3$:     MOV     #{ktmout}.,KTFR
-7$:     JMP     KS0
+        MOV     #{ktmout}.,2(R4)
+3$:     BIT     #4,R1
+        BEQ     4$
+        MOV     #{ktmout}.,4(R4)
+4$:     BIT     #10,R1
+        BEQ     5$
+        MOV     #{ktmout}.,6(R4)
+5$:     BIT     #20,R1
+        BEQ     9$
+        MOV     #{ktmout}.,10(R4)
+9$:     RTS     PC
 """
 
 
 def kctrl(ktmout):
-    """KREFR (the chord rule), KCTRL (timers -> control bits) and DIRTAB."""
+    """KREFR (the chord rule) and KCTRL (one player's timers -> control bits)."""
     return f"""        ; KREFR: the chord rule - every timer still running gets the full hold
-KREFR:  TST     KTUP
-        BEQ     1$
-        MOV     #{ktmout}.,KTUP
-1$:     TST     KTDN
+KREFR:  MOV     #KTUP,R3
+        MOV     #12.,R4
+1$:     TST     (R3)
         BEQ     2$
-        MOV     #{ktmout}.,KTDN
-2$:     TST     KTLF
-        BEQ     3$
-        MOV     #{ktmout}.,KTLF
-3$:     TST     KTRT
-        BEQ     4$
-        MOV     #{ktmout}.,KTRT
-4$:     TST     KTFR
-        BEQ     5$
-        MOV     #{ktmout}.,KTFR
-5$:     TST     KTG
-        BEQ     6$
-        MOV     #{ktmout}.,KTG
-6$:     TST     KTH
-        BEQ     7$
-        MOV     #{ktmout}.,KTH
-7$:     RTS     PC
-        ; --- KCTRL: the hold timers -> the original's control bits (the $8B4x key
-        ;     scan: bit0 UP, bit1 DOWN, bit2 LEFT, bit3 RIGHT, bit4 FIRE), each
-        ;     timer counting down one per frame.  The $98DD table then resolves
-        ;     the bits by facing into the 16 moves. ------------------------------
+        MOV     #{ktmout}.,(R3)
+2$:     TST     (R3)+
+        DEC     R4
+        BNE     1$
+        RTS     PC
+        ; --- KCTRL: a player's hold timers (R1 = its block) -> the original's
+        ;     control bits (the $8B4x key scan: bit0 UP, bit1 DOWN, bit2 LEFT,
+        ;     bit3 RIGHT, bit4 FIRE) in R0, each timer counting down one per
+        ;     frame.  The $98DD table then resolves the bits by facing. ---------
 KCTRL:  CLR     R0
-        TST     KTUP
+        TST     (R1)
         BEQ     1$
-        DEC     KTUP
+        DEC     (R1)
         BIS     #1,R0
-1$:     TST     KTDN
+1$:     TST     2(R1)
         BEQ     2$
-        DEC     KTDN
+        DEC     2(R1)
         BIS     #2,R0
-2$:     TST     KTLF
+2$:     TST     4(R1)
         BEQ     3$
-        DEC     KTLF
+        DEC     4(R1)
         BIS     #4,R0
-3$:     TST     KTRT
+3$:     TST     6(R1)
         BEQ     4$
-        DEC     KTRT
+        DEC     6(R1)
         BIS     #10,R0
-4$:     TST     KTFR
+4$:     TST     10(R1)
         BEQ     9$
-        DEC     KTFR
+        DEC     10(R1)
         BIS     #20,R0
 9$:     RTS     PC
-        ; 0226 KP1 DN+LF, 0227 KP2 DN, 0230 KP3 DN+RT, 0231 KP4 LF, 0232 KP5 -,
-        ; 0233 KP6 RT, 0234 -, 0235 KP7 UP+LF, 0236 KP8 UP, 0237 KP9 UP+RT,
-        ; 0240-0246 -, 0247 LEFT, 0250 RIGHT, 0251 DOWN, 0252 UP
-DIRTAB: .BYTE   6.,2.,10.,4.,0.,8.,0.,5.,1.,9.,0.,0.,0.,0.,0.,0.,0.,4.,8.,2.,1.
-        .EVEN
 """
 
 
 def c98a0(cmap):
-    """C98A0: control bits -> &move in MTAB.  Returns the routine + MTAB."""
-    return f"""        ; --- C98A0: control (R0) -> &move ($98DD table; +0x21 if P1 is mid-move) ------
+    """C98A0: control bits -> &move in MTAB, for the player R5 (0 = P1, 0o100
+    = P2).  Returns the routine + MTAB."""
+    return f"""        ; --- C98A0: control (R0) -> &move ($98DD table; the second table when
+        ;     the fighter faces left).  R5 = the player's cell offset (C). ------
 C98A0:  BIT     #40,R0
         BEQ     1$
         BIS     #20,R0
 1$:     BIC     #177740,R0           ; keep 5 control bits
         MOV     #MTAB,R1
         ADD     R0,R1
-        MOVB    {g(0xAA17)},R0       ; P1 current pose/move
+        MOVB    {g(0xAA17, 'R5')},R0 ; the player's facing
         BIC     #177400,R0
         BEQ     2$
-        ADD     #41,R1               ; mid-move uses the second 0x21-offset table
+        ADD     #41,R1               ; facing left: the second 0x21-offset table
 2$:     MOV     R1,R0
         RTS     PC
         .EVEN
 """ + mtab(cmap)
+
+
+# The default key tables - (scancode, bits) pairs, 0-terminated.  Bits: 1 up,
+# 2 down, 4 left, 8 right, 16 fire.  Player 1: the keypad as the original's
+# 3x3 block (KP5 = fire), the arrows, Space / VR / SU as fire; player 2: Q W
+# E / A S D / Z X C with S as fire.  KEYTAB / KEYTB2: the settings screen's
+# nine keys (the scancodes filled in there; up, up-right, right, down-right,
+# down, down-left, left, up-left, fire).
+DEF1 = [(0o236, 1), (0o237, 9), (0o233, 8), (0o230, 10), (0o227, 2), (0o226, 6),
+        (0o231, 4), (0o235, 5), (0o232, 16),
+        (0o252, 1), (0o250, 8), (0o251, 2), (0o247, 4),
+        (0o324, 16), (0o256, 16), (0o257, 16)]
+DEF2 = [(0o315, 1), (0o327, 9), (0o354, 8), (0o306, 10), (0o343, 2), (0o360, 6),
+        (0o322, 4), (0o303, 5), (0o316, 16)]
+REDEF_BITS = [1, 9, 8, 10, 2, 6, 4, 5, 16]
+
+
+def tables():
+    """The key tables and the active-table pointers (banks 0-1 data)."""
+    def pairs(label, t):
+        rows = [",".join(f"{c}.,{b}." for c, b in t[i:i + 6]) for i in range(0, len(t), 6)]
+        return f"{label}: .BYTE   " + "\n        .BYTE   ".join(rows) + ",0\n"
+    return ("        .EVEN\nKMAP1:  .WORD   DEF1\nKMAP2:  .WORD   DEF2\n"
+            + pairs("DEF1", DEF1) + pairs("DEF2", DEF2)
+            + pairs("KEYTAB", [(0, b) for b in REDEF_BITS])
+            + pairs("KEYTB2", [(0, b) for b in REDEF_BITS]))

@@ -425,3 +425,33 @@ TEST_CASE("fist: \"0\" in the demo opens the settings screen ($8C54)")
     g.settle(60);
     CHECK(g.gst(0xB2FA) == 1);
 }
+
+TEST_CASE("fist: 2 in the demo starts a 2-player game; player 2 on Q W E / A S D / Z X C")
+{
+    if (!fist::built()) { MESSAGE("FIST not built - skipping"); return; }
+    FistGame g("fist_2up_lib");
+    REQUIRE(g.gst(0xAA06) == 1);                    // the attract demo
+    g.poke(0xB2FA, 0);                              // (no tune)
+    g.settle(5);
+    g.keyTap(ms0515::Key::Digit2);
+    g.settle(60);
+    CHECK(g.gst(0xAA06) == 0);                      // both fighters human ($AD9C)
+    CHECK(g.gst(0xAA46) == 0);
+    CHECK(g.gst(0xB05F) == 0);
+    // Player 2 crouches on X (down), jumps on W (up); player 1 on the keypad.
+    g.resetFighters();
+    g.emu.keyPress(ms0515::Key::X, true);
+    int p2 = 0;
+    for (int i = 0; i < 40 && !p2; ++i) { g.step(); if (g.gst(0xAA44) == 4) p2 = 4; }
+    g.emu.keyPress(ms0515::Key::X, false);
+    g.settle(30);
+    g.emu.keyPress(ms0515::Key::Kp2, true);
+    int p1 = 0;
+    for (int i = 0; i < 40 && !p1; ++i) { g.step(); if (g.gst(0xAA04) == 4) p1 = 4; }
+    g.emu.keyPress(ms0515::Key::Kp2, false);
+    MESSAGE("2UP: P2 crouch on X -> " << p2 << ", P1 crouch on KP2 -> " << p1);
+    CHECK(p2 == 4);
+    CHECK(p1 == 4);
+    std::string out = fist::opt("twoup-out");
+    if (!out.empty()) g.dumpVram(out);
+}

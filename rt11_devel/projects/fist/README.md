@@ -36,12 +36,12 @@ source plus the game-state data file.
   dojo at its positions; the cyan border; the intro tune at every opponent
   presentation and the sound effects, both on reg C bit 5 bit-banged as the
   original's beeper; the high score (kept for the session); the settings
-  screen ("0" in the demo: key redefinition, sound on / off); MS7004
-  keyboard control of player 1 (8 directions + fire, see Controls).
+  screen ("0" in the demo: key redefinition, sound on / off); the
+  2-player game ("2"); MS7004 keyboard control of both players (8
+  directions + fire each, see Controls).
 
-Not (yet) ported: the 2-player mode.  The settings screen's joystick
-choices (Sinclair / Kempston) have no joystick on the MS-0515 and fall
-back to the default keys.
+Not ported: the settings screen's joystick choices (Sinclair / Kempston)
+have no joystick on the MS-0515 and fall back to the default keys.
 
 ## Layout
 
@@ -108,20 +108,22 @@ gives a diagonal in one key.  The one quirk of such a keyboard: a key
 released less than ~0.2 s before the next press still counts as held.
 "Forward" is towards the opponent.
 
-| direction          | keys                 | no fire                | with fire (Space)        |
-|--------------------|----------------------|------------------------|--------------------------|
-| up                 | KP8, Up              | jump                   | high punch               |
-| up + forward       | KP9 (facing right)   | forward somersault     | flying kick              |
-| forward            | KP6, Right           | walk forward           | front kick               |
-| down + forward     | KP3                  | foot sweep             | low kick                 |
-| down               | KP2, Down            | crouch                 | low punch                |
-| down + back        | KP1                  | reverse (back) sweep   | spinning back kick       |
-| back               | KP4, Left            | walk back              | roundhouse kick          |
-| up + back          | KP7                  | backward somersault    | reverse high kick        |
-| fire alone         |                      | nothing                |                          |
+| direction          | player 1             | player 2 | no fire                | with fire                |
+|--------------------|----------------------|----------|------------------------|--------------------------|
+| up                 | KP8, Up              | W        | jump                   | high punch               |
+| up + forward       | KP9 (facing right)   | E        | forward somersault     | flying kick              |
+| forward            | KP6, Right           | D        | walk forward           | front kick               |
+| down + forward     | KP3                  | C        | foot sweep             | low kick                 |
+| down               | KP2, Down            | X        | crouch                 | low punch                |
+| down + back        | KP1                  | Z        | reverse (back) sweep   | spinning back kick       |
+| back               | KP4, Left            | A        | walk back              | roundhouse kick          |
+| up + back          | KP7                  | Q        | backward somersault    | reverse high kick        |
+| fire               | KP5, Space, VR, SU   | S        | nothing alone          |                          |
 
-This is the port's own map (chosen by the user); VR (Shift) and SU (Ctrl)
-also act as fire.  `FIST_ORIG_KEYS=1` at build time emits the original's
+The original's nine definable keys, as two 3x3 blocks with fire in the
+middle: player 1 on the keypad (the arrows and Space / VR / SU too),
+player 2 on Q W E / A S D / Z X C.  The moves are the port's own map
+(chosen by the user).  `FIST_ORIG_KEYS=1` at build time emits the original's
 `$98DD` map instead (up+forward = high punch, up+back = forward somersault,
 down+forward = low punch, down+back = backward somersault; fire+up = flying
 kick, fire+down = foot sweep, fire+back = spinning back kick, fire+up+forward
@@ -131,14 +133,17 @@ fire+down+back = reverse sweep).
 (With the fighter facing left the keypad diagonals mirror: KP7 = up+forward
 etc. - exactly the original's two table halves.)
 
-Space (or "1") starts a game from the attract demo; "G" and "H" held
-together quit a game back to the demo (the original's `$9827`).
+Space (or "1") starts a 1-player game from the attract demo, "2" a
+2-player game (the original's `$AD9C`: three 30 s rounds on the three
+dojos, no yin-yang - only the points count, the higher score wins and
+bows, the 2UP high score is its own); "G" and "H" held together quit a
+game back to the demo (the original's `$9827`).
 
 "0" in the demo opens the original's settings screen (`$8C54`): "1" -> the
-controls menu ("1" the default keys above, "4" redefine the nine controls
-one key each: up, up-right, right, down-right, down, down-left, left,
-up-left, fire), "3" / "4" the sound on / off, "E" back.  As in the
-original, one choice and the screen is over.
+controls menu of player 1 / 2 ("1" the default keys above, "4" redefine
+the nine controls one key each: up, up-right, right, down-right, down,
+down-left, left, up-left, fire), "3" / "4" the sound on / off, "E" back.
+As in the original, one choice and the screen is over.
 
 **Blocking** is automatic: step *back* (KP4 / Left) while the opponent's
 attack is in range and the fighter raises the matching guard - a high block

@@ -132,7 +132,7 @@ def _driver(withbg, snap, lb_words, boot_code, bgn):
             + game_compose.cpyr()
             + game_round.scoring(CAP) + game_round.decision(CAP)
             + game_round.round_end(PAUSE) + game_round.outcome(withbg)
-            + game_round.inits() + game_round.hiscore()
+            + game_round.inits() + game_round.hiscore() + game_round.twoup()
             + rendbg + text
             + game_sound.sound()
             + game_keys.kscan(KTMOUT) + game_keys.kctrl(KTMOUT)
@@ -191,16 +191,18 @@ def _datblk(lb_words, withbg):
               "DLO2:   .WORD   0\nDCNT:   .WORD   0\nPLO:    .WORD   36.\nPHI:    .WORD   0\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
               "        .EVEN\nRCSHAD: .WORD   0\nSSEED:  .WORD   52525\n"
-              "        .EVEN\nLASTTP: .WORD   196.   ; (no band yet: nothing above the dojo to restore)\nKTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\nKTG:    .WORD   0\nKTH:    .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\n"
+              "        .EVEN\nLASTTP: .WORD   196.   ; (no band yet: nothing above the dojo to restore)\n"
+              "KTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\n"
+              "KT2UP:  .WORD   0\nKT2DN:  .WORD   0\nKT2LF:  .WORD   0\nKT2RT:  .WORD   0\nKT2FR:  .WORD   0\n"
+              "KTG:    .WORD   0\nKTH:    .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\nTWOUP:  .WORD   0\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRPHASE: .WORD   0\nRANKB:  .WORD   0\n"
-              "        .EVEN\nKEYMOD: .WORD   0\nKOPT:   .WORD   0\nSETPLY: .WORD   0\nSNDENA: .WORD   1\n"
-              "KEYTAB: .BLKB   9.\nKEYTB2: .BLKB   9.\n"
-              "KEYBIT: .BYTE   1,9.,8.,10.,2,6,4,5,16.  ; up, up-right, right, down-right, down, down-left, left, up-left, fire\n"
-              "HISC:   .BLKB   3.\n"
+              "        .EVEN\nKOPT:   .WORD   0\nSETPLY: .WORD   0\nSNDENA: .WORD   1\n"
+              "HISC:   .BLKB   3.\nHISC2:  .BLKB   3.\nSC2BCD: .BLKB   3.\n"
+              + game_keys.tables() +
               "        .EVEN\nKEY1:   .BLKB   12.\nKEY2:   .BLKB   12.\n"
               "        .EVEN\nCKEY:   .BLKB   6.\nSLOT:   .WORD   0\n"
-              "        .EVEN\nHUDDRT: .WORD   1\nHUDK:   .BLKB   8.\n"
+              "        .EVEN\nHUDDRT: .WORD   1\nHUDK:   .BLKB   10.\n"
               "        .EVEN\nSCRBCD: .BLKB   3.\n        .EVEN\nSTIM:   .WORD   0\n"
                             f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"
               f"LBUF2: .BLKW  {lb_words}.\n" + bgvars)

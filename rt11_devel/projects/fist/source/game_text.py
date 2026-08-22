@@ -163,7 +163,11 @@ def strip():
 HUDALL: TST     DEMO
         BNE     1$
         JSR     PC,HUDSCR
-        MOV     #1,R0                ; $98BF: " 1" and "PLAYER"
+        TST     TWOUP                ; a 2UP game: player 2's score too ($AF97)
+        BEQ     3$
+        JSR     PC,HUDSC2
+3$:     MOV     TWOUP,R0             ; $98BF: " 1" / " 2" and "PLAYER"
+        INC     R0
         JSR     PC,BCD2
         MOV     #VRAM+{at(0, 25)}.,R0
         MOV     #NBUF,R1
@@ -176,8 +180,11 @@ HUDALL: TST     DEMO
 1$:     MOV     #VRAM+{at(2, 34)}.,R0  ; $AB9D
         MOV     #DEMOS,R1
         JSR     PC,PRTXT
-2$:     MOV     #HISC,R1             ; $A685: the high score
-        JSR     PC,BCD6
+2$:     MOV     #HISC,R1             ; $A685: the high score (a 2UP game has its
+        TST     TWOUP                ;   own, $B036..$B038)
+        BEQ     4$
+        MOV     #HISC2,R1
+4$:     JSR     PC,BCD6
         MOV     #VRAM+{at(10, 25)}.,R0
         MOV     #NBUF,R1
         JSR     PC,PRTXT
@@ -187,6 +194,12 @@ HUDALL: TST     DEMO
 HUDSCR: MOV     #SCRBCD,R1
         JSR     PC,BCD6
         MOV     #VRAM+{at(1, 0)}.,R0
+        MOV     #NBUF,R1
+        JMP     PRTXT
+        ; --- HUDSC2: P2's score ($AFAD) at (22, 0). ------------------------------
+HUDSC2: MOV     #SC2BCD,R1
+        JSR     PC,BCD6
+        MOV     #VRAM+{at(22, 0)}.,R0
         MOV     #NBUF,R1
         JMP     PRTXT
         ; --- HUDTIM: the clock ($9C93) at (11, 0). ------------------------------
@@ -423,15 +436,18 @@ SETCTL: JSR     PC,CLS
         BEQ     2$
         CMP     R0,#325
         BNE     1$
-2$:     TST     SETPLY               ; the default keys (player 1: the arrows, the
-        BNE     9$                   ;   keypad, Space / VR / SU)
-        CLR     KEYMOD
-9$:     RTS     PC
+2$:     TST     SETPLY               ; the default keys (DEF1: the keypad, the
+        BNE     3$                   ;   arrows, Space / VR / SU; DEF2: Q W E /
+        MOV     #DEF1,KMAP1          ;   A S D / Z X C)
+        RTS     PC
+3$:     MOV     #DEF2,KMAP2
+        RTS     PC
 """
 
 
 def settings_keys():
-    """SETKEY: the key redefinition ($8D99)."""
+    """SETKEY: the key redefinition ($8D99) - the player's nine keys, which
+    then replace its default table."""
     return f"""        ; --- SETKEY: $8D99 - for each of the nine controls, show its name at
         ;     (5, 92), take the next key, blank the name.  Player 1's keys then
         ;     replace the default set (KEYMODE). ------------------------------------
@@ -455,7 +471,8 @@ SETKEY: JSR     PC,CLS
         MOV     (R3)+,R1
         JSR     PC,PRTXT
         JSR     PC,KGET
-        MOVB    R0,(R5)+
+        MOVB    R0,(R5)              ; the pair's scancode (its bits are fixed)
+        ADD     #2,R5
         MOV     #VRAM+{at(5, 92)}.,R0
         MOV     #BLNK12,R1
         JSR     PC,PRTXT
@@ -463,8 +480,10 @@ SETKEY: JSR     PC,CLS
         BNE     2$
         TST     SETPLY
         BNE     9$
-        MOV     #1,KEYMOD
-9$:     RTS     PC
+        MOV     #KEYTAB,KMAP1
+        RTS     PC
+9$:     MOV     #KEYTB2,KMAP2
+        RTS     PC
 """
 
 

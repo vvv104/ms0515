@@ -24,7 +24,10 @@ SCDET:  MOVB    {g(0xAA03)},R0
         ;     the stance ($1C), $ACF0 clears the recovery state and $AD0B
         ;     animates until $AA0D is set (RNDEND phase 2), then the $AF1A
         ;     pause (phase 3) and the scoring + decision (SCOREX -> DECIDE). ----
-ROUNDE: MOVB    {g(0x9C28)},R0
+ROUNDE: TST     TWOUP                ; a 2UP game has its own loop ($AE14)
+        BEQ     71$
+        JMP     ROUND2
+71$:    MOVB    {g(0x9C28)},R0
         BIC     #177400,R0
         BEQ     70$
         JMP     SCOREX
@@ -91,7 +94,7 @@ DECIDE: MOVB    {g(0xAA01)},R0
         CMP     R0,R1
         BLO     WIN2
         BHI     WIN1
-        MOV     #201,RESULT          ; a draw ($81): $ACE8 - both bow ($19),
+DRAWN:  MOV     #201,RESULT          ; a draw ($81): $ACE8 - both bow ($19),
         MOVB    #31,{g(0xAA0C)}      ;   then $ACF0 clears the recovery state
         MOVB    #31,{g(0xAA4C)}
         JSR     PC,RSTACF
@@ -185,7 +188,11 @@ def outcome(withbg):
         ;     - rank / background ($AF27), dan $B05F (BCD; at 10 it stays and the
         ;     opponent is a random 7..10), $AA80++ - and flags the set-up.  A draw
         ;     ($81) replays the round.  P2 won: game over - a fresh 1UP game. -----
-OUTCOM: MOV     RESULT,R0
+OUTCOM: TST     TWOUP                ; a 2UP game's bows were its end ($AE12):
+        BEQ     3$                   ;   back to the demo
+        JSR     PC,DINIT
+        BR      SETUP
+3$:     MOV     RESULT,R0
         CMP     R0,#1
         BEQ     1$
         CMP     R0,#201
@@ -255,6 +262,7 @@ RSTAI:  JSR     PC,AADC
         RTS     PC
         ; --- GINIT: $AC3E Start_1UP_Game's state batch. --------------------------
 GINIT:  CLR     DEMO
+        CLR     TWOUP
         CLRB    {g(0xAA80)}          ; opponent index (= the computer's AI personality)
         CLRB    {g(0xB05F)}          ; rank: novice
         CLRB    {g(0xAA06)}          ; P1 human (keyboard)
@@ -270,6 +278,12 @@ GINIT:  CLR     DEMO
         CLRB    {g(0xB02D)}+3.
         CLRB    {g(0xB02D)}+4.
         CLRB    {g(0xB02D)}+5.
+        RTS     PC
+        ; --- GINIT2: $AD9C Start_2UP_Game - both human, rank 0, background 2,
+        ;     the scores 0 ($AF0B); the set-up flagged. -------------------------
+GINIT2: JSR     PC,GINIT
+        MOV     #1,TWOUP
+        CLRB    {g(0xAA46)}          ; P2 human too
         RTS     PC
         ; --- DINIT: $AB70 Demo - both fighters computer-controlled with random
         ;     personalities 7..10, rank 0, background 2; "DEMO" on the strip. ----
@@ -304,5 +318,82 @@ HISCK:  CMPB    {g(0xB02F)},{g(0xB035)}
 1$:     MOVB    {g(0xB02D)},{g(0xB033)}
         MOVB    {g(0xB02E)},{g(0xB034)}
         MOVB    {g(0xB02F)},{g(0xB035)}
+9$:     RTS     PC
+"""
+
+
+def twoup():
+    """ROUND2 ($AE14: the 2UP round loop, per frame) and HISCK2 ($ADF3 ->
+    $A647: the winner and the 2UP high score)."""
+    return f"""        ; --- ROUND2: $AE14 - a 2UP game, per frame.  An exchange over (a hit,
+        ;     $9C28, or the clock, $9C2B): $909E zeroes the totals and points,
+        ;     $AF36 credits the points to the BCD scores; then the next exchange
+        ;     ($AE26) - or, on the clock, the round is over ($ADE2): the next
+        ;     background ($AF27), the rank + 1, the set-up again; after the third
+        ;     round the result ($ADF3). ------------------------------------------
+ROUND2: MOVB    {g(0x9C28)},R0
+        BIC     #177400,R0
+        BNE     1$
+        MOVB    {g(0x9C2B)},R0
+        BIC     #177400,R0
+        BNE     1$
+        RTS     PC                   ; neither -> the exchange continues
+1$:     CLRB    {g(0xAA01)}          ; $909E
+        CLRB    {g(0xAA41)}
+        CLRB    {g(0xAA02)}
+        CLRB    {g(0xAA42)}
+        JSR     PC,AWARD             ; $AF36
+        MOVB    {g(0x9C2B)},R0
+        BIC     #177400,R0
+        BNE     2$
+        JSR     PC,RSTFRM            ; the next exchange
+        JSR     PC,RSTAI
+        RTS     PC
+2$:     JSR     PC,RANKTK            ; $AF27: the next background
+        MOVB    {g(0xB05F)},R0       ; the rank + 1 (0..3, no BCD needed)
+        BIC     #177400,R0
+        INC     R0
+        MOVB    R0,{g(0xB05F)}
+        CMP     R0,#4
+        BEQ     3$
+        MOVB    #1,{g(0xAF35)}       ; the set-up: the tune, the dojo, the prints
+        JMP     SETUP
+3$:     JSR     PC,HISCK2            ; $ADF3: the winner, the 2UP high score
+        CMP     R0,#1
+        BLO     4$
+        BEQ     5$
+        JMP     WIN1                 ; P1's score is higher: $AE7A
+4$:     JMP     WIN2                 ; P2's: $AE9D
+5$:     JMP     DRAWN                ; equal: $ACE8
+        ; --- HISCK2: $A647 in a 2UP game - R0 = 2 if P1's BCD score ($B02D..)
+        ;     beats P2's ($B030..), 0 if P2's beats P1's, 1 if equal ($A6B6);
+        ;     the winner's score against the 2UP high score ($B036..$B038),
+        ;     higher -> copied over it. ------------------------------------------
+HISCK2: MOV     #2,R0
+        CMPB    {g(0xB02F)},{g(0xB032)}
+        BHI     1$
+        BLO     2$
+        CMPB    {g(0xB02E)},{g(0xB031)}
+        BHI     1$
+        BLO     2$
+        CMPB    {g(0xB02D)},{g(0xB030)}
+        BHI     1$
+        BLO     2$
+        MOV     #1,R0                ; equal: either against the high score
+1$:     MOV     #{g(0xB02D)},R1      ; the winner's score
+        BR      3$
+2$:     CLR     R0
+        MOV     #{g(0xB030)},R1
+3$:     CMPB    2(R1),{g(0xB038)}
+        BHI     4$
+        BLO     9$
+        CMPB    1(R1),{g(0xB037)}
+        BHI     4$
+        BLO     9$
+        CMPB    (R1),{g(0xB036)}
+        BLOS    9$
+4$:     MOVB    (R1),{g(0xB036)}
+        MOVB    1(R1),{g(0xB037)}
+        MOVB    2(R1),{g(0xB038)}
 9$:     RTS     PC
 """
