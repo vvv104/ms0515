@@ -87,13 +87,16 @@ static void update_sound(ms0515_board_t *board)
      *     When 0, speaker is silent.
      *     When 1, speaker follows timer channel 2 OUT.
      *
-     *   Reg C bit 5 (УПР ГР): direct speaker drive.
-     *     Software can toggle this bit to produce clicks/tones
-     *     without using the timer (like IBM PC port 61 bit 1).
+     *   Reg C bit 5 (УПР ГР): direct speaker drive - "changing this bit
+     *     changes the speaker's tone" (tech desc 4.8).  Software toggles
+     *     it to bit-bang clicks and noise without the timer (like IBM PC
+     *     port 61 bit 1); modelled as XOR with the channel 2 output, so
+     *     with the gate low (mode 3 OUT held high) the speaker follows
+     *     the bit, and with a tone playing the bit inverts its phase.
      *
      * The POST melody uses timer-driven mode: programs ch2 in mode 3,
      * sets bits 7+6 to start the tone, clears them for silence.
-     * Bit 5 is not used by POST but may be used by games for effects.
+     * Bit 5 is not used by POST; games use it for effects.
      */
     int new_value;
 
@@ -101,8 +104,9 @@ static void update_sound(ms0515_board_t *board)
         /* Sound disabled — speaker off */
         new_value = 0;
     } else {
-        /* Sound enabled — speaker follows timer channel 2 output */
-        new_value = timer_get_out(&board->timer, 2) ? 1 : 0;
+        /* Sound enabled — speaker follows timer channel 2 output XOR bit 5 */
+        int out = timer_get_out(&board->timer, 2) ? 1 : 0;
+        new_value = out ^ ((board->reg_c >> 5) & 1);
     }
 
     if (new_value != board->sound_value) {

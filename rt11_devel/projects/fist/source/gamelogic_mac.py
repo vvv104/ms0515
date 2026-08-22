@@ -3726,6 +3726,7 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
         MOVB    @#SYSC,R0
         BIC     #17,R0
         MOVB    R0,@#SYSC
+        MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 5 in it
         MOV     #GAME,@#DISPAT         ; 03217: VRAM on, window @40000, banks 4-6 ext
         MOV     #VRAM,R0
 3$:     CLR     (R0)+
@@ -3785,19 +3786,11 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         MOVB    {g(0xB02D)}+2.,SCRBCD+2.
         MOVB    {g(0x9CA5)},STIM     ; and the round timer, for DRWTIM at 3377
         MOVB    {g(0xB05F)},RANKB    ; and the rank ($B05F, BCD), for DRWRNK at 3377
-        ; --- sound: tick the current effect, then trigger any the hit logic queued ---
-        MOV     SNDCNT,R0            ; count down the playing effect; silence at 0
-        BEQ     80$
-        DEC     R0
-        MOV     R0,SNDCNT
-        BNE     80$
-        MOVB    @#SYSC,R0            ; clear Reg C bit 6 (sound enable) -> silence
-        BIC     #100,R0
-        MOVB    R0,@#SYSC
+        ; --- sound ($9754): play the effect the hit logic queued in $B150 ---
 80$:    MOVB    {g(0xB150)},R0       ; $B150 = sound code queued by $9ED2/$9D29 hit-detect
         BIC     #177400,R0
         BEQ     81$
-        JSR     PC,SNDFX             ; start the effect (timer ch2 tone)
+        JSR     PC,SNDFX             ; $B15A: play it (blocking, bit-banged speaker)
         CLRB    {g(0xB150)}          ; ($B15A clears it after playing)
 81$:    ; --- Fighter 1: clear FBUF, decode box A, stash its box, copy to LBUF1 ---
         ; Decode cache: the draw set-up ($C101 / $C1A2) reads only these render
@@ -4470,33 +4463,135 @@ YYFULL:
 YYHALF:
 {yyhalf_s}
 YYNONE: .BLKB   32.                  ; the blank symbol: restores the dojo cells
-        ; --- SNDFX: start a sound effect on timer channel 2 -----------------------
-        ; The original ($B15A) bit-bangs the Spectrum beeper; the MS-0515 speaker
-        ; instead follows timer ch2 (Reg C bit 6), so each of the 6 effect codes maps
-        ; to a tone (divisor SNDFRQ) held for SNDDUR frames.  Frequencies approximate
-        ; the beeper pitches (HL params $0400/$0300/$0100/.../$0120/$0100) - tunable.
-        ; in: R0 = sound code (1..6); 0 / out-of-range = no-op.
+        ; --- SNDFX: $B15A, the six beeper effects, blocking as in the original.
+        ;     The Spectrum bit-bangs its beeper: an effect is a run of half-periods
+        ;     whose lengths come from ROM bytes masked to $7F/$3F/$FF (B x 29 T-
+        ;     states each) - i.e. NOISE of a given grain - except code 4, a low
+        ;     rumble of 9-bit random half-periods (26/30/38 T per unit, $B19D), and
+        ;     code 5 = two deep bursts around a 61 ms pause ($B2F0).  Here the
+        ;     speaker is reg C bit 5 (direct drive, tech desc 4.8) with bit 6 on
+        ;     and the timer gate (7) off; an LFSR replaces the ROM bytes; one
+        ;     Z80 T-state = 7.5/3.5 CPU cycles, calibrated into the delay loops.
+        ;     in: R0 = code 1..6 (0 / other = no-op). -------------------------------
 SNDFX:  TST     R0
         BEQ     9$
         CMP     R0,#6.
         BHI     9$
-        DEC     R0
-        ASL     R0                   ; word index
-        MOV     R0,R1
-        MOVB    #266,@#177526        ; ch2, LSB+MSB, mode 3 (square wave)
-        MOV     SNDFRQ(R1),R2        ; divisor = 2 MHz / freq
-        MOVB    R2,@#177524          ; divisor LSB
-        SWAB    R2
-        MOVB    R2,@#177524          ; divisor MSB
-        MOVB    @#SYSC,R2            ; Reg C: set bits 7+6 (ch2 gate + sound enable)
-        BIS     #300,R2
-        MOVB    R2,@#SYSC
-        MOV     SNDDUR(R1),R2
-        MOV     R2,SNDCNT
+        ASL     R0
+        JMP     @SNDTAB-2(R0)
 9$:     RTS     PC
+SNDTAB: .WORD   SND1,SND2,SND3,SND4,SND5,SND6
+SND1:   MOV     #177,R1              ; $B179: mask $7F, 1014 half-periods (~540 ms)
+        MOV     #1014.,R2
+        BR      NOISE
+SND2:   MOV     #77,R1               ; $B185: mask $3F, 758 half-periods (~200 ms)
+        MOV     #758.,R2
+        BR      NOISE
+SND3:   MOV     #77,R1               ; $B191: mask $3F, 64 half-periods (~17 ms)
+        MOV     #64.,R2
+        BR      NOISE
+SND6:   MOV     #77,R1               ; $B221: mask $3F, 128 half-periods (~34 ms)
+        MOV     #128.,R2
+        BR      NOISE
+SND5:   MOV     #377,R1              ; $B1FB: mask $FF, 64 half-periods (~68 ms),
+        MOV     #64.,R2
+        JSR     PC,NOISE
+        MOV     #61.,R3              ;   a 61 ms pause ($B2F0: 8192 x 26 T),
+51$:    MOV     #800.,R4
+52$:    SOB     R4,52$
+        SOB     R3,51$
+        MOV     #377,R1              ;   and again 64 deep half-periods
+        MOV     #64.,R2
+        BR      NOISE
+        ; NOISE: R1 = mask, R2 = half-periods.  Each: B = rnd & mask (0 -> 1),
+        ; toggle the speaker, wait B x 29 T-states.
+NOISE:  JSR     PC,SNDON
+        COM     R1                   ; R1 = ~mask for BIC
+1$:     JSR     PC,SRND              ; R0 = random byte
+        BIC     R1,R0
+        BNE     2$
+        INC     R0
+2$:     JSR     PC,SPKTOG
+        MOV     R0,R4                ; delay 6.5 x B loop turns (~62 cycles per B
+        ASL     R4                   ;   = 29 T-states; calibrated: a SOB turn is
+        ASL     R4                   ;   ~9.3 cycles, the per-half overhead ~340)
+        ADD     R0,R4
+        ADD     R0,R4
+        MOV     R0,R5
+        ASR     R5
+        ADD     R5,R4
+3$:     SOB     R4,3$
+        DEC     R2
+        BNE     1$
+        JMP     SNDOFF
+        ; SND4 ($B19D): three rumble segments of D x E cycles, half-periods of
+        ; BC x (26 / 30 / 38) T where C = rnd | rnd and B = C & 1 (the original's
+        ; $B22D / $B244 loops with 0 / 1 / 3 NOPs of padding).
+SND4:   JSR     PC,SNDON
+        MOV     #3.,R1               ; R1 = inner turns per BC unit: 3 / 4 / 5 ~=
+        MOV     #3,R3                ;   26 / 30 / 38 T (measured ~60 / 70 / 82 cycles)
+        JSR     PC,RSEG
+        MOV     #4.,R1
+        MOV     #2,R3
+        JSR     PC,RSEG
+        MOV     #5.,R1
+        MOV     #2,R3
+        JSR     PC,RSEG
+        JMP     SNDOFF
+RSEG:   MOV     #8.,R2               ; E = 8 on/off cycles per D
+1$:     JSR     PC,RHALF
+        JSR     PC,RHALF
+        DEC     R2
+        BNE     1$
+        DEC     R3
+        BNE     RSEG
+        RTS     PC
+RHALF:  JSR     PC,SRND              ; C = rnd | rnd  (the $B2D7 shift register)
+        MOV     R0,-(SP)
+        JSR     PC,SRND
+        BIS     (SP)+,R0
+        JSR     PC,SPKTOG            ; (clobbers R4/R5, keeps R0)
+        MOV     R0,R4                ; BC = C + (C & 1) << 8
+        BIT     #1,R0
+        BEQ     1$
+        ADD     #256.,R4
+1$:     INC     R4                   ; (a zero count ran the Z80 loop 65536 times: never
+2$:     MOV     R1,R5                ;  seen with the OR'd bytes; keep the count >= 1)
+3$:     SOB     R5,3$                ; delay BC x R1 loop turns
+        SOB     R4,2$
+        RTS     PC
+        ; speaker control via the reg C shadow: SNDON = bit 6 on, 5 and 7 off;
+        ; SPKTOG flips bit 5; SNDOFF = bits 5-7 off (silence).
+SNDON:  MOVB    RCSHAD,R4
+        BIC     #177640,R4
+        BIS     #100,R4
+        MOVB    R4,RCSHAD
+        MOVB    R4,@#SYSC
+        RTS     PC
+SPKTOG: MOVB    RCSHAD,R4
+        BIC     #177400,R4
+        MOV     #40,R5
+        XOR     R5,R4
+        MOVB    R4,RCSHAD
+        MOVB    R4,@#SYSC
+        RTS     PC
+SNDOFF: MOVB    RCSHAD,R4
+        BIC     #177740,R4
+        MOVB    R4,RCSHAD
+        MOVB    R4,@#SYSC
+        RTS     PC
+        ; SRND: 16-bit Galois LFSR (own seed - the ROM-byte stream of the original
+        ; is independent of the game's RNG); R0 = low byte 0..255.  Clobbers R5.
+SRND:   MOV     SSEED,R0
+        CLC
+        ROR     R0
+        BCC     1$
+        MOV     #132000,R5
+        XOR     R5,R0
+1$:     MOV     R0,SSEED
+        BIC     #177400,R0
+        RTS     PC
         .EVEN
-SNDFRQ: .WORD   1667.,2222.,4545.,2857.,3824.,3333.
-SNDDUR: .WORD   3.,3.,6.,4.,7.,4.
         ; --- KSCAN: drain the MS7004 keyboard, track the held key in HELDK ----------
         ; The MS7004 is event-based (scancode on press, auto-repeat while held, ALL-UP
         ; on last release), so only one key tracks reliably - fine for basic moves.
@@ -4629,7 +4724,8 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "RW2:    .WORD   0\nRT2:    .WORD   0\nRL2:    .WORD   0\n"
               "COL1:   .WORD   0\nTOP1:   .WORD   0\nBWID1:  .WORD   0\nW1:     .WORD   0\n"
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
-              "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\nSNDCNT: .WORD   0\n"
+              "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\n"
+              "        .EVEN\nRCSHAD: .WORD   0\nSSEED:  .WORD   52525\n"
               "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRANKB:  .WORD   0\nRANKS:  .BLKB   10.\n"

@@ -904,3 +904,92 @@ TEST_CASE("fist: key latency (diagnostic)")
     trace("SPACE-RELEASE", 200);
     CHECK(true);
 }
+
+// Diagnostic (opt-in via FIST_SNDLOG=1): play each sound code by poking $B150
+// and record the speaker transitions (reg C bit 5 bit-banging) with CPU-cycle
+// timestamps: count, mean / min / max half-period, total duration per code.
+TEST_CASE("fist: sound effects (diagnostic)")
+{
+    std::string sav = env("FIST_GAME_SAV"), dat = env("FIST_GAME_DAT"),
+                sys = env("FIST_SYSTEM_DIR");
+    if (sav.empty() || dat.empty() || sys.empty() || env("FIST_SNDLOG").empty()) {
+        MESSAGE("FIST_SNDLOG not set - skipping");
+        return;
+    }
+    fs::path tmp = fs::temp_directory_path() / "fist_snd_lib";
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::path boot = tmp / "boot", work = tmp / "work";
+    fs::create_directories(boot, ec);
+    fs::copy(sys, boot, fs::copy_options::recursive, ec);
+    REQUIRE_FALSE(ec);
+    fs::copy_file(sav, boot / "FIST.SAV", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(boot / "STARTS.COM", std::ios::binary);
+        s << "ASSIGN DZ1 DK\r\nR FIST\r\n";
+    }
+    fs::create_directories(work, ec);
+    fs::copy_file(dat, work / "GST.DAT", fs::copy_options::overwrite_existing, ec);
+    {
+        std::ofstream s(work / "device.rtfs", std::ios::binary);
+        s << "device: floppy\nblocks: 800\n";
+    }
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
+    emu.reset();
+    REQUIRE(emu.mountDisk(0, (boot / "device.rtfs").string()));
+    REQUIRE(emu.mountDisk(1, (work / "device.rtfs").string()));
+    bool offerCR = false;
+    emu.setSerialCallbacks(
+        [&offerCR](uint8_t &b) -> bool {
+            if (offerCR) { b = '\r'; offerCR = false; return true; }
+            return false;
+        },
+        [](uint8_t) -> bool { return true; });
+    auto &board = ms0515::internal::board(emu);
+    auto &cpu = ms0515::internal::cpu(emu);
+    auto poke = [&](uint16_t spec, uint8_t v) {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        board.mem.ram[bank * 8192 + (addr & 8191)] = v;
+    };
+    for (int i = 0; i < 1500; ++i) {
+        if (i < 900 && (i % 30) == 0) offerCR = true;
+        (void)emu.stepFrame();
+    }
+    poke(0xAA46, 0);                                   // park P2 (no AI hits = no sounds)
+    struct Rec { uint64_t cyc; int lvl; };
+    std::vector<Rec> log;
+    uint64_t cycles = 0;
+    struct Ctx { std::vector<Rec> *log; uint64_t *cyc; } ctx{&log, &cycles};
+    board_set_sound_callback(&board,
+        [](void *u, int v) { auto *c = static_cast<Ctx *>(u); c->log->push_back({*c->cyc, v}); },
+        &ctx);
+    for (int code = 1; code <= 6; ++code) {
+        log.clear();
+        poke(0xAA45, 1);
+        poke(0xB150, (uint8_t)code);
+        // step until the effect has played: transitions stop for > 1M cycles
+        uint64_t lastEvent = cycles, start = cycles;
+        bool started = false;
+        while (cycles - start < 60'000'000ULL) {          // 8 s budget
+            board_step_cpu(&board);
+            cycles += (uint64_t)cpu.cycles;
+            if (!log.empty() && log.back().cyc != lastEvent) { lastEvent = log.back().cyc; started = true; }
+            if (started && cycles - lastEvent > 1'000'000ULL) break;
+        }
+        if (log.size() < 2) { MESSAGE("code " << code << ": no speaker transitions"); continue; }
+        double sum = 0; uint64_t mn = ~0ULL, mx = 0;
+        int gaps = 0;
+        for (size_t k = 1; k < log.size(); ++k) {
+            uint64_t d = log[k].cyc - log[k - 1].cyc;
+            if (d > 2'000'000ULL) { ++gaps; continue; }   // the code-5 pause
+            sum += (double)d; mn = std::min(mn, d); mx = std::max(mx, d);
+        }
+        double n = (double)(log.size() - 1 - gaps);
+        MESSAGE("code " << code << ": transitions=" << log.size()
+                << " half-period cycles mean=" << (long)(sum / n) << " min=" << mn << " max=" << mx
+                << " pauses=" << gaps << " total=" << (log.back().cyc - log.front().cyc) / 7500 << " ms");
+    }
+    CHECK(true);
+}
