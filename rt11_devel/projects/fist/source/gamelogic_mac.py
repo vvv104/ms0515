@@ -3510,8 +3510,8 @@ def main_game(withbg=False):
         equs += ("LMARG  = 8.\nTMARG  = 4.\nLSTRID = 80.\n"
                  "SVBASE = 40000\nSVATTR = 54000\nSVTOP  = 40200\n")
         # render the dojo once, right after the VRAM clear (banking already GAME 3217)
-        dojo_boot = (f"        MOVB    #{bgn}.,{g(0xAF34)}     ; $AC59: a 1UP game opens on background 2\n"
-                     "        JSR     PC,RENDBG             ; render + present the dojo (returns at GAME)\n")
+        if "FGHT_BG" in os.environ:                # override the opening background
+            dojo_boot = f"        MOVB    #{bgn}.,{g(0xAF34)}     ; FGHT_BG: opening background override\n"
         # per-row: seed SCRATC with the clean dojo row for ROWN (SCRBUF Spectrum ->
         # VRAM word format, inline; = SPSCR's inner pass for one row) then the fighter
         # overlay writes over it, zero cells transparent -> the dojo shows through.
@@ -3523,14 +3523,16 @@ def main_game(withbg=False):
         BLT     CDDN                 ; above the dojo band -> leave black
         CMP     R4,#192.
         BGE     CDDN                 ; below the dojo band -> leave black
-        MOV     R4,R0                ; src = DOJOBUF + y*64 (pre-converted, 32 words/row)
+        MOV     R4,R0                ; src = DOJOBUF + y*80 + 8 (pre-converted, VRAM row layout)
         ASL     R0
         ASL     R0
         ASL     R0
         ASL     R0
+        MOV     R0,R1
         ASL     R0
         ASL     R0
-        ADD     #DOJOBUF,R0
+        ADD     R1,R0
+        ADD     #DOJOBUF+8.,R0
         MOV     #SCRATC+8.,R1        ; LMARG = 8 bytes (4 word-cells) left margin
 """
         # copy the 32 clean dojo cells fully unrolled (no loop overhead per word)
@@ -3565,7 +3567,9 @@ def main_game(withbg=False):
         srows_src = ("\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows))
         # BUILDDB: pre-convert the whole dojo (SCRBUF Spectrum planes -> VRAM word
         # format) into DOJOBUF once at boot.  Same per-cell convert as the CLOOP, but
-        # for all 192 dojo rows, stored 32 words/row.  Runs at 3377 (SCRBUF visible).
+        # for all 192 dojo rows, stored in the VRAM row layout (40 words/row, the
+        # 4-cell margins zero) so DOJOBUF + (vram - VRAM - 4*80) is the clean cell
+        # under any picture cell - the HUD restores cells from it.  Runs at 3377.
         builddb = ("""
 BUILDDB: CLR     R2                   ; dojo y = 0..191
 BDB1:    MOV     R2,R0                ; pix = SCRBUF + SROWS[y]
@@ -3582,14 +3586,20 @@ BDB1:    MOV     R2,R0                ; pix = SCRBUF + SROWS[y]
         ASL     R5
         ASL     R5
         ADD     #SCRBUF+6144.,R5
-        MOV     R2,R0                ; dst = DOJOBUF + y*64 (32 words)
+        MOV     R2,R0                ; dst = DOJOBUF + y*80 (VRAM row layout, 40 words)
         ASL     R0
         ASL     R0
         ASL     R0
         ASL     R0
+        MOV     R0,R3
         ASL     R0
         ASL     R0
+        ADD     R3,R0
         ADD     #DOJOBUF,R0
+        CLR     (R0)+                ; 4-cell left margin
+        CLR     (R0)+
+        CLR     (R0)+
+        CLR     (R0)+
         MOV     #32.,R3
 BDB2:    MOVB    (R5)+,R4
         SWAB    R4
@@ -3598,6 +3608,10 @@ BDB2:    MOVB    (R5)+,R4
         MOV     R4,(R0)+
         DEC     R3
         BNE     BDB2
+        CLR     (R0)+                ; 4-cell right margin
+        CLR     (R0)+
+        CLR     (R0)+
+        CLR     (R0)+
         INC     R2
         CMP     R2,#192.
         BLO     BDB1
@@ -3606,8 +3620,9 @@ BDB2:    MOVB    (R5)+,R4
         bgsrc = ("\n        .ASECT\n        . = 100000\n"
                  + engine + builddb
                  + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
-                 # DOJOBUF: the dojo pre-converted to VRAM word format (32 cells x 192
-                 # rows), built once at boot; the compositor copies a band row from here
+                 # DOJOBUF: the dojo pre-converted to VRAM word format (40 words x 192
+                 # rows = the picture's VRAM rows 4..195, margins zero), built once at
+                 # boot; the compositor copies a band row from here
                  # instead of re-converting SCRBUF every frame (the ~62%-of-frame cost).
                  # An address EQU (runtime RAM right above SCRBUF), NOT reserved storage,
                  # so it stays out of the .SAV image (keeps the load small).
@@ -3676,6 +3691,14 @@ RENDBG: MOVB    {g(0xAF34)},R0
     def _strb(label, s):
         codes = ",".join(f"{_FONT_ORDER.index(c)}." for c in s.upper())
         return f"{label}: .BYTE   {codes},377\n        .EVEN"
+    def _fc(ch):
+        return _FONT_ORDER.index(ch)
+    hold = 40                                     # game frames a decided round holds
+    # HUD cells: restore the clean dojo cell (DOJOBUF is the picture in VRAM row
+    # layout, rows offset by the 4-row top margin) before the glyph goes on, so
+    # a changed digit / a cleared yin-yang leaves no trace.  No dojo -> clear.
+    cell_restore = ("MOV     DOJOBUF-VRAM-320.(R0),(R0) ; restore the clean dojo cell row"
+                    if withbg else "CLR     (R0)                 ; clear the cell row")
     driver = f"""
         .ASECT
         . = 44
@@ -3702,13 +3725,13 @@ START:  MOV     #37776,SP              ; stack above the code, below BUF
 3$:     CLR     (R0)+
         CMP     R0,#VRAMEN
         BLO     3$
-{dojo_boot}        ; --- seed the RNG; make P1 human (keyboard), leave P2 AI as the opponent ---
+        ; --- $AC3E Start_1UP_Game: the match-state batch (P1 human, P2 the
+        ;     computer, score 0, rank 0), then the first opponent's set-up (the
+        ;     background) and a new round.  GST.DAT is a mid-attract snapshot, so
+        ;     every cell this touches is deliberately re-initialised here. ---
         MOV     #12345.,RSEED
-        CLRB    {g(0xAA06)}          ; AA06=0 -> P1 human (GST.DAT had 1 = AI/attract)
-        CLRB    {g(0xAA01)}          ; start the match 0-0 (GST.DAT is a mid-demo snapshot)
-        CLRB    {g(0xAA41)}
-        CLRB    {g(0xAA02)}
-        CLRB    {g(0xAA42)}
+        JSR     PC,GINIT
+{dojo_boot}        JSR     PC,SETUP
         JSR     PC,A402              ; load the AI personality ($A614 -> $A60E..): without
                                      ; it the P2 AI never commits to an attack (stays idle)
         ; tell the MS7004 keyboard 0o231 (keyclick off) - the firmware treats this as the
@@ -3737,23 +3760,24 @@ GLOOP:  MOV     #GAME,@#DISPAT       ; (re-)park: 03217, banks 4-6 extended
         JSR     PC,C98A0             ; R0 = &move ($98DD table)
         MOVB    (R0),R0
         MOVB    R0,{g(0xAA05)}       ; P1 selected move
-        TST     WINTMR               ; a bout just ended? freeze the winning frame
+        TST     WINTMR               ; a round just ended? hold its final frame
         BNE     83$                  ;   (skip the fight logic; hold the knockdown pose)
         JSR     PC,ORCH              ; one logic frame (AI driven by the LFSR ARNG)
-        JSR     PC,ROUNDE            ; 1P match: score the exchange on knockdown/timeout
+        JSR     PC,ROUNDE            ; $AD18: score the exchange, decide the round
         BR      84$
-83$:    DEC     WINTMR               ; count the win-freeze down
-        BNE     84$                  ;   still frozen -> just re-present the held frame
-        CLRB    {g(0xAA01)}          ; freeze over: $909E new-round (clear both tallies)
-        CLRB    {g(0xAA41)}
-        JSR     PC,NXTDAN            ; advance the dan/background for the next bout
-        JSR     PC,RSTFRM            ; reset both fighters to the idle start stance
+83$:    CMP     RESULT,#1            ; P1 won: $AD5F pays the clock out as points,
+        BNE     85$                  ;   a second per frame, while the pose holds
+        JSR     PC,TBONUS
+85$:    DEC     WINTMR               ; count the hold down
+        BNE     84$                  ;   still held -> just re-present the frame
+        JSR     PC,OUTCOM            ; $ACA6: next round / next opponent / game over
 84$:    MOVB    {g(0xAA01)},SC1      ; stash the scores for the HUD (GST unseen at 3377)
         MOVB    {g(0xAA41)},SC2
         MOVB    {g(0xB02D)},SCRBCD   ; and P1's BCD point score, for DRWSCR at 3377
         MOVB    {g(0xB02D)}+1.,SCRBCD+1.
         MOVB    {g(0xB02D)}+2.,SCRBCD+2.
         MOVB    {g(0x9CA5)},STIM     ; and the round timer, for DRWTIM at 3377
+        MOVB    {g(0xB05F)},RANKB    ; and the rank ($B05F, BCD), for DRWRNK at 3377
         ; --- sound: tick the current effect, then trigger any the hit logic queued ---
         MOV     SNDCNT,R0            ; count down the playing effect; silence at 0
         BEQ     80$
@@ -3944,7 +3968,7 @@ CCPY:   MOV     (R0)+,(R1)+
 58$:    JSR     PC,HUD               ; draw the yin-yang score bar (top border)
         JSR     PC,DRWSCR            ; draw the numeric score across the top strip
         JSR     PC,DRWTIM            ; draw the round timer beside it
-        JSR     PC,DRWDAN            ; draw the dan / bout number at the left
+        JSR     PC,DRWRNK            ; draw the rank ("NOVICE" / "1ST DAN" ...) at the left
         JMP     GLOOP                ; next frame (no busy-wait; the work itself paces it)
 LDERR:  MOV     #2177,@#DISPAT         ; unpark: banks primary, VRAM off (RMON back)
         MOVB    ORIGRC,@#SYSC
@@ -3986,58 +4010,152 @@ SCDET:  MOVB    {g(0xAA03)},R0
         XOR     R1,R0
         BIC     #177757,R0           ; keep bit 4 ($10)
         RTS     PC
-        ; --- ROUNDE: the 1P match round-loop tail ($AD18 core).  An exchange ends
-        ;     when a fighter takes a hit into recovery ($9C28 set, as $AE26 tests) or
-        ;     the clock runs out ($9C2B).  Score it - SCDET (clean hit?) -> YINYNG
-        ;     (accumulate the yin-yang total) + AWARD (BCD points) - then RSTFRM
-        ;     ($9CA8) resets both fighters to the idle start stance for the next
-        ;     exchange, which clears $9C28 so this fires exactly once per exchange.
-        ;     At 2 yin-yang ($AA01/$AA41 >= 4) count a win and restart the tally. -----
-ROUNDE: MOVB    {g(0x9C28)},R0       ; a fighter knocked into recovery? (exchange over)
+        ; --- ROUNDE: the $AD18 round loop, per frame.  An exchange ends when a
+        ;     fighter is knocked into recovery ($9C28, as $AE26 tests) or the clock
+        ;     runs out ($9C2B).  Score it - SCDET ($AF01 clean hit?) -> YINYNG
+        ;     ($900E total) + AWARD ($AF36 points) - and decide the round: two
+        ;     yin-yang ($AA01/$AA41 >= 4) wins it; on the clock the totals decide,
+        ;     then the $AA02/$AA42 points, else it is a draw ($AD44).  Otherwise
+        ;     RSTFRM ($9CA8, via $AE26) restarts the exchange.  A decided round
+        ;     holds its final frame (WINTMR) and OUTCOM then applies $ACA6.
+        ;     RESULT = $AD18's A: 1 = P1 won, 0 = P2 won, 201 ($81) = draw. ------
+ROUNDE: MOVB    {g(0x9C28)},R0
         BIC     #177400,R0
         BNE     71$
-        MOVB    {g(0x9C2B)},R0       ; time-out?
+        MOVB    {g(0x9C2B)},R0
         BIC     #177400,R0
         BEQ     78$                  ; neither -> the exchange continues
 71$:    JSR     PC,SCDET
         TST     R0
         BEQ     72$                  ; no clean hit -> no score this exchange
-        JSR     PC,YINYNG            ; $AA08/$AA48 -> running total $AA01/$AA41
-        JSR     PC,AWARD             ; BCD points + clear the score flags
-        MOVB    {g(0xAA01)},R0       ; P1 at 2 yin-yang?
+        JSR     PC,YINYNG
+        JSR     PC,AWARD
+        MOVB    {g(0xAA01)},R0       ; P1 at two yin-yang?
         BIC     #177400,R0
         CMP     R0,#4.
-        BHIS    77$
-        MOVB    {g(0xAA41)},R0       ; P2 at 2 yin-yang?
+        BHIS    74$
+        MOVB    {g(0xAA41)},R0       ; P2?
         BIC     #177400,R0
         CMP     R0,#4.
-        BLO     72$
-77$:    INC     WINS                 ; someone reached two yin-yang: the bout is won
-        MOV     #30.,WINTMR         ; freeze ~3s on the knockdown so the win reads
-        CLRB    {g(0xAA08)}          ;   (GLOOP clears the tally + resets when it expires)
+        BHIS    75$
+72$:    CLRB    {g(0xAA08)}          ; $AD37: clear the score flags every exchange
         CLRB    {g(0xAA48)}
-        BR      78$                  ; skip RSTFRM: hold the winning frame, don't restart
-72$:    CLRB    {g(0xAA08)}          ; $AD37: clear the score flags EVERY exchange, so a
-        CLRB    {g(0xAA48)}          ; set-but-unscored flag can't leak into the next one
-        JSR     PC,RSTFRM            ; $9CA8: reset both fighters for the next exchange
+        MOVB    {g(0x9C2B)},R0       ; clock still running -> next exchange
+        BIC     #177400,R0
+        BNE     73$
+        JSR     PC,RSTFRM
+        BR      78$
+73$:    MOVB    {g(0xAA01)},R0       ; $AD44 time-out: the yin-yang totals decide...
+        BIC     #177400,R0
+        MOVB    {g(0xAA41)},R1
+        BIC     #177400,R1
+        CMP     R0,R1
+        BLO     75$
+        BHI     74$
+        MOVB    {g(0xAA02)},R0       ; ...then the points...
+        BIC     #177400,R0
+        MOVB    {g(0xAA42)},R1
+        BIC     #177400,R1
+        CMP     R0,R1
+        BLO     75$
+        BHI     74$
+        MOV     #201,RESULT          ; ...else a draw ($81)
+        BR      76$
+74$:    MOV     #1,RESULT            ; P1 won the round
+        BR      76$
+75$:    CLR     RESULT               ; P2 won the round
+76$:    MOV     #{hold}.,WINTMR      ; hold the final frame (the bow / get-up pause)
 78$:    RTS     PC
-        ; --- NXTDAN: advance to the next bout after a win.  Bumps the dan/bout
-        ;     counter (drives the status line + future per-dan background) and
-        ;     cycles BGREF 1..3 so the dojo can change as ranks climb. -----------
-NXTDAN: INC     DANNO                ; next bout number / dan rank
-        JSR     PC,RANKTK            ; $AF27: advance the rank / background ref $AF34
-{"        JSR     PC,RENDBG            ; redraw the dojo for the new background" if withbg else ""}
+        ; --- TBONUS: one step of $AD5F's clock pay-out: while the clock shows time,
+        ;     $AF52 credits a point ($AA02 + the BCD score) and $9CA0 ticks. ------
+TBONUS: TSTB    {g(0x9CA5)}
+        BEQ     9$
+        MOVB    {g(0xAA02)},R0       ; $AF52 B=1: $AA02 += 1
+        BIC     #177400,R0
+        INC     R0
+        MOVB    R0,{g(0xAA02)}
+        MOV     #1,R1                ; score += 1 (BCD, $AFC2)
+        MOV     #45101.,R5
+        JSR     PC,SCORE
+        CLRB    {g(0xAA08)}
+        JSR     PC,TIMTIK            ; $9CA0
+9$:     RTS     PC
+        ; --- OUTCOM: $ACA6, after $AD18 returns RESULT.  P1 won: pay out the clock,
+        ;     count the round; the 2nd round ($AA3C) won moves to the next opponent
+        ;     - rank / background ($AF27), dan $B05F (BCD; at 10 it stays and the
+        ;     opponent is a random 7..10), $AA80++ - and flags the set-up.  A draw
+        ;     ($81) replays the round.  P2 won: game over - a fresh 1UP game. -----
+OUTCOM: MOV     RESULT,R0
+        CMP     R0,#1
+        BEQ     1$
+        CMP     R0,#201
+        BEQ     SETUP                ; draw: same opponent, new round
+        JSR     PC,GINIT             ; P2 won -> game over -> new game ($AC3E)
+        BR      SETUP
+1$:     JSR     PC,TBONUS            ; flush the clock pay-out ($AD6E loop)
+        TSTB    {g(0x9CA5)}
+        BNE     1$
+        DECB    {g(0xAA3C)}          ; rounds left against this opponent
+        BNE     SETUP                ; (no set-up flagged: the same opponent again)
+        MOVB    #2,{g(0xAA3C)}
+        JSR     PC,RANKTK            ; $AF27: rank / background 1..3
+        MOVB    #1,{g(0xAF35)}       ; flag the opponent set-up
+        MOVB    {g(0xB05F)},R0       ; dan (BCD)
+        BIC     #177400,R0
+        CMP     R0,#20               ; 10th dan stays: a random 7..10 opponent ($ACDB)
+        BNE     2$
+        JSR     PC,ARNG
+        BIC     #177774,R0
+        ADD     #7,R0
+        MOVB    R0,{g(0xAA80)}
+        BR      SETUP
+2$:     MOV     #1,R1                ; dan += 1 (ADD/DAA)
+        CLR     R4
+        JSR     PC,BCDADD
+        MOVB    R0,{g(0xB05F)}
+        INCB    {g(0xAA80)}
+        ; --- SETUP: $AC5F - when flagged ($AF35), present the opponent: the
+        ;     background ($AF34 -> $9200); then $AC9D: a new round ($909E), the
+        ;     clock ($AEF8) and the exchange reset ($AE26 -> $9CA8). ---------------
+SETUP:  TSTB    {g(0xAF35)}
+        BEQ     NEWRND
+        CLRB    {g(0xAF35)}
+{"        JSR     PC,RENDBG            ; $9200: render + present the dojo" if withbg else ""}
+NEWRND: CLRB    {g(0xAA01)}          ; $909E: both tallies and points to 0
+        CLRB    {g(0xAA41)}
+        CLRB    {g(0xAA02)}
+        CLRB    {g(0xAA42)}
+        MOVB    #36,{g(0x9CA5)}      ; $AEF8: 30 seconds on the clock
+        JSR     PC,RSTFRM            ; $9CA8: both fighters to the start stance
+        RTS     PC
+        ; --- GINIT: $AC3E Start_1UP_Game's state batch. --------------------------
+GINIT:  CLRB    {g(0xAA80)}          ; opponent index
+        CLRB    {g(0xB05F)}          ; rank: novice
+        CLRB    {g(0xAA06)}          ; P1 human (keyboard)
+        CLRB    {g(0xAA08)}
+        CLRB    {g(0xAA48)}
+        MOVB    #1,{g(0xAF35)}       ; opponent set-up pending
+        MOVB    #1,{g(0xAA46)}       ; P2 = the computer
+        MOVB    #2,{g(0xAA3C)}       ; two rounds per opponent
+        MOVB    #2,{g(0xAF34)}       ; opens on background 2
+        CLRB    {g(0xB02D)}          ; $AF0B: score 000000 (both BCD buffers)
+        CLRB    {g(0xB02D)}+1.
+        CLRB    {g(0xB02D)}+2.
+        CLRB    {g(0xB02D)}+3.
+        CLRB    {g(0xB02D)}+4.
+        CLRB    {g(0xB02D)}+5.
         RTS     PC
 {rendbg}        ; --- HUD: the yin-yang score in a top status strip (rows 0-15).  Each fighter
         ;     has two yin-yang slots that fill half then full as its score (SC1/SC2,
         ;     stashed from $AA01/$AA41) climbs 0..4.  The real 2x2-UDG symbol
         ;     (YYFULL/YYHALF, from the snapshot) is drawn white over the cleared strip.
 DRAW1U: MOV     #8.,R3               ; one UDG cell: 8 pixel rows of (R1)+ pixels,
-1$:     MOVB    (R1)+,R4             ; drawn TRANSPARENT black over the background
+1$:     {cell_restore}
+        MOVB    (R1)+,R4             ; then the glyph, transparent over the clean cell
         BIC     #177400,R4
-        BEQ     2$                   ; blank UDG row -> leave the background alone
+        BEQ     2$                   ; blank glyph row -> the clean cell stays
         BISB    R4,(R0)              ; OR the symbol pixels onto the background cell
-        BICB    #7,1(R0)             ; black ink, keep the background paper colour
+        {ovl_ink}
 2$:     ADD     #80.,R0
         DEC     R3
         BNE     1$
@@ -4054,14 +4172,15 @@ DRAWYY: MOV     R2,R0                ; draw the 2x2 symbol (R1 = 32-byte block) 
         ADD     #642.,R0
         JSR     PC,DRAW1U            ; bottom-right
         RTS     PC
-DYYSL:  TST     R4                   ; R4 = level (0 none / 1 half / >=2 full), R2 = pos
-        BEQ     9$                   ; empty -> draw nothing (background shows)
+DYYSL:  MOV     #YYNONE,R1           ; R4 = level (0 none / 1 half / >=2 full), R2 = pos
+        TST     R4
+        BEQ     8$                   ; empty -> the blank symbol (restores the dojo)
         MOV     #YYHALF,R1           ; half point
         CMP     R4,#2.
         BLO     8$
         MOV     #YYFULL,R1           ; full point
 8$:     JSR     PC,DRAWYY
-9$:     RTS     PC
+        RTS     PC
         ; No strip clear (that black-flash caused the flicker); each of the four
         ; slots is always drawn, in the top corners INSIDE the dojo (row 6, over the
         ; sky, above the fighters' redraw band), so drawing straight to VRAM is stable.
@@ -4118,7 +4237,7 @@ DRWSTR: MOVB    (R1)+,R4
         ;     the top strip (row 6, centre - clear of the corner yin-yang symbols).
         ;     Own digit font: the original's status text uses the Spectrum ROM font,
         ;     which is not ours to reproduce. ----------------------------------------
-DRWSCR: MOV     #VRAM+514.,R2        ; row 6, byte 34 (top centre)
+DRWSCR: MOV     #VRAM+520.,R2        ; row 6, cells 20-25 (centre)
         MOV     #2.,R5               ; BCD byte index 2..0 (most significant first)
 1$:     MOVB    SCRBCD(R5),R0        ; a packed BCD byte = two digits
         BIC     #177400,R0
@@ -4150,25 +4269,61 @@ DRWTIM: MOVB    STIM,R0
         BIC     #177400,R0
         JSR     PC,BIN2              ; R3 = tens, R0 = ones
         MOV     R0,-(SP)             ; DRWDIG (via DRAW1U) clobbers R0 - save the ones
-        MOV     #VRAM+526.,R2        ; row 6, byte 46 (clear of score + P2 yin-yang)
+        MOV     #VRAM+534.,R2        ; row 6, cells 27-28 (between score and P2 yin-yang)
         MOV     R3,R4
         JSR     PC,DRWDIG            ; tens digit
         ADD     #2,R2
         MOV     (SP)+,R4             ; ones digit
         JSR     PC,DRWDIG
         RTS     PC
-        ; --- DRWDAN: draw the dan / bout number (DANNO) at the left of the strip. ----
-DRWDAN: MOV     DANNO,R0
+        ; --- DRWRNK: the rank text ($AEBF): "NOVICE" at 0, else "<n>ST|ND|RD|TH DAN"
+        ;     from RANKB (the BCD $B05F), built as font codes in RANKS and padded
+        ;     to 9 cells so a shorter rank overwrites a longer one. ----------------
+DRWRNK: MOVB    RANKB,R0
         BIC     #177400,R0
-        JSR     PC,BIN2              ; R3 = tens, R0 = ones
-        MOV     R0,-(SP)
-        MOV     #VRAM+498.,R2        ; row 6, byte 18 (left, clear of the P1 yin-yang)
-        MOV     R3,R4
-        JSR     PC,DRWDIG
-        ADD     #2,R2
-        MOV     (SP)+,R4
-        JSR     PC,DRWDIG
+        BNE     1$
+        MOV     #NOVSTR,R1
+        BR      8$
+1$:     MOV     #RANKS,R1
+        MOV     R0,R2                ; tens digit (BCD high nibble), if any
+        ASR     R2
+        ASR     R2
+        ASR     R2
+        ASR     R2
+        BEQ     2$
+        MOVB    R2,(R1)+
+2$:     MOV     R0,R2                ; units digit
+        BIC     #177760,R2
+        MOVB    R2,(R1)+
+        BIC     #177740,R0           ; $AEC5: rank & $1F picks the suffix
+        MOV     #SFXTH,R2
+        CMP     R0,#1
+        BNE     3$
+        MOV     #SFXST,R2
+3$:     CMP     R0,#2
+        BNE     4$
+        MOV     #SFXND,R2
+4$:     CMP     R0,#3
+        BNE     5$
+        MOV     #SFXRD,R2
+5$:     MOVB    (R2)+,(R1)+          ; the two suffix letters
+        MOVB    (R2)+,(R1)+
+        MOVB    #10.,(R1)+           ; " DAN"
+        MOVB    #{_fc('D')}.,(R1)+
+        MOVB    #{_fc('A')}.,(R1)+
+        MOVB    #{_fc('N')}.,(R1)+
+        MOVB    #10.,(R1)+           ; pad (a 7-cell rank covers an 8-cell one)
+        MOVB    #377,(R1)+
+        MOV     #RANKS,R1
+8$:     MOV     #VRAM+502.,R2        ; row 6, cells 11-19 (right of the P1 yin-yang)
+        JSR     PC,DRWSTR
         RTS     PC
+        .EVEN
+{_strb("NOVSTR", "NOVICE   ")}
+{_strb("SFXST", "ST")}
+{_strb("SFXND", "ND")}
+{_strb("SFXRD", "RD")}
+{_strb("SFXTH", "TH")}
         .EVEN
 DIGFNT:                              ; codes 0-9 digits, 10 space, 11-36 A-Z
 {font_s}
@@ -4177,6 +4332,7 @@ YYFULL:
 {yyfull_s}
 YYHALF:
 {yyhalf_s}
+YYNONE: .BLKB   32.                  ; the blank symbol: restores the dojo cells
         ; --- SNDFX: start a sound effect on timer channel 2 -----------------------
         ; The original ($B15A) bit-bangs the Spectrum beeper; the MS-0515 speaker
         ; instead follows timer ch2 (Reg C bit 6), so each of the 6 effect codes maps
@@ -4327,8 +4483,8 @@ MTAB:   .BYTE   1,5,4,1,3,11,10,1,2,6,7,1,1,1,1,1
               "COL2:   .WORD   0\nTOP2:   .WORD   0\nBWID2:  .WORD   0\nW2:     .WORD   0\n"
               "SRC1:   .WORD   0\nSRC2:   .WORD   0\nROWN:   .WORD   0\nSNDCNT: .WORD   0\n"
               "        .EVEN\nHELDK:  .WORD   0\nKTMR:   .WORD   0\nLASTTP: .WORD   0\n"
-              "        .EVEN\nWINS:   .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
-              "        .EVEN\nWINTMR: .WORD   0\nDANNO:  .WORD   1\n"
+              "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
+              "        .EVEN\nWINTMR: .WORD   0\nRANKB:  .WORD   0\nRANKS:  .BLKB   10.\n"
               "        .EVEN\nSCRBCD: .BLKB   3.\n        .EVEN\nSTIM:   .WORD   0\n"
               "        .EVEN\nSCRATC: .BLKW   40.\n"
               f"        .EVEN\nLBUF1: .BLKW  {lb_words}.    ; per-fighter compose copies (one fighter each)\n"

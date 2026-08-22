@@ -276,11 +276,24 @@ TEST_CASE("fist: keyboard drives P1")
         (void)emu.stepFrame();
     }
 
-    auto settle = [&](int n) { for (int i = 0; i < n; ++i) (void)emu.stepFrame(); };
     // P1 must be human (AA06=0) or MOVSEL's AI overrides the keyboard.
     int human = gst(0xAA06);
     MESSAGE("P1 AA06 (0=human): " << human);
     CHECK(human == 0);
+    // Park P2: with the match initialised faithfully the AI closes in and attacks
+    // within seconds, and a step pressed with the opponent adjacent (or while
+    // knocked down) is not a step.  This test is about the keyboard path, so take
+    // P2 off the AI and hold its move at idle every frame (MOVSEL's human branch
+    // leaves $AA45 alone, so the AI's last move would otherwise stay latched).
+    auto poke = [&](uint16_t spec, uint8_t v) {
+        uint32_t addr = 0x8000u + (spec - 0x9C00u);
+        uint32_t bank = (addr >> 13) + 8;
+        board.mem.ram[bank * 8192 + (addr & 8191)] = v;
+    };
+    poke(0xAA46, 0);
+    auto settle = [&](int n) {
+        for (int i = 0; i < n; ++i) { poke(0xAA45, 1); (void)emu.stepFrame(); }
+    };
 
     int xBase = gst(0xAA19);
     emu.keyPress(ms0515::Key::Right, true);
@@ -549,34 +562,65 @@ TEST_CASE("fist: background follows the rank")
         (void)emu.stepFrame();
     }
     CHECK(gst(0xAF34) == 2);                 // $AC59: the 1UP game opens on bg 2
+    CHECK(gst(0xB05F) == 0);                 // a novice ...
+    CHECK(gst(0xAA3C) == 2);                 // ... two rounds per opponent
+    CHECK(gst(0x9CA5) > 0);                  // $AEF8: 30 s on the clock (ticking)
+    CHECK(gst(0x9CA5) <= 30);
     CHECK(mismatches(2) == 0);
 
-    // Win a bout (P1 lands a clean full point at 2 -> 4 = two yin-yang), wait out
-    // the win-freeze: NXTDAN -> RANKTK advances $AF34 and RENDBG redraws the dojo.
-    int expectRef = 2;
-    for (int bout = 0; bout < 4; ++bout) {
-        int before = gst(0xAF34);
-        bool changed = false;
-        for (int i = 0; i < 1500 && !changed; ++i) {
+    // Win rounds (P1 lands a clean full point at 2 -> 4 = two yin-yang).  The 2nd
+    // round won against an opponent moves on: RANKTK advances $AF34, the dan
+    // $B05F climbs, RENDBG redraws the dojo (after the round-end hold).
+    auto p1Wins = [&](int maxFrames, auto until) {
+        for (int i = 0; i < maxFrames; ++i) {
             if (gst(0xAA01) < 4) {
                 poke(0xAA01, 2); poke(0xAA08, 2);          // P1 at 2, scored a full point
                 poke(0xAA03, 0x10); poke(0xAA43, 0);       // a clean hit (SCDET bit 4)
                 poke(0x9C28, 1);                           // knocked into recovery
             }
             (void)emu.stepFrame();
-            changed = gst(0xAF34) != before;
+            if (until()) return true;
         }
-        REQUIRE(changed);
+        return false;
+    };
+    int expectRef = 2;
+    for (int opp = 0; opp < 4; ++opp) {
+        int before = gst(0xAF34);
+        REQUIRE(p1Wins(3000, [&] { return gst(0xAF34) != before; }));
         expectRef = expectRef % 3 + 1;                     // $AF27: 1..3, 4 -> 1
         CHECK(gst(0xAF34) == expectRef);
+        CHECK(gst(0xB05F) == opp + 1);                     // dan (BCD) per opponent beaten
+        CHECK(gst(0xAA3C) == 2);                           // rounds reset for the next one
         for (int i = 0; i < 120; ++i)                      // let the loop re-present
             (void)emu.stepFrame();
         int bad = mismatches(expectRef);
-        MESSAGE("bout " << bout << ": $AF34=" << (int)gst(0xAF34)
-                << " static-row mismatches vs bg" << expectRef << " = " << bad);
+        MESSAGE("opponent " << opp << ": $AF34=" << (int)gst(0xAF34) << " dan="
+                << (int)gst(0xB05F) << " static-row mismatches vs bg" << expectRef
+                << " = " << bad);
         CHECK(bad == 0);
     }
+    // The clock pays out as points on a win ($AD5F): the score is no longer 0.
+    CHECK((gst(0xB02D) | gst(0xB02E) | gst(0xB02F)) != 0);
     for (int i = 0; i < 1500; ++i)                         // and it stays stable
         (void)emu.stepFrame();
     CHECK(mismatches(expectRef) == 0);
+
+    // P2 wins a round -> game over -> a fresh 1UP game: novice again, score 0,
+    // background 2 re-rendered.
+    bool over = false;
+    for (int i = 0; i < 3000 && !over; ++i) {
+        if (gst(0xAA41) < 4) {
+            poke(0xAA41, 2); poke(0xAA48, 2);
+            poke(0xAA43, 0x10); poke(0xAA03, 0);
+            poke(0x9C28, 1);
+        }
+        (void)emu.stepFrame();
+        over = gst(0xB05F) == 0 && gst(0xAA41) == 0;
+    }
+    REQUIRE(over);
+    CHECK(gst(0xAF34) == 2);
+    CHECK((gst(0xB02D) | gst(0xB02E) | gst(0xB02F)) == 0);
+    for (int i = 0; i < 120; ++i)
+        (void)emu.stepFrame();
+    CHECK(mismatches(2) == 0);
 }
