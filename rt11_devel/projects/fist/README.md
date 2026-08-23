@@ -83,13 +83,26 @@ rt11_devel/projects/fist/
 
 ## Building
 
-The generator needs the original tape and runtime snapshot (not
-committed).  Point it at your WotEF checkout with `WOTEF_DIR` (default
-`C:\Users\voron\wotef`); SkoolKit 10 is used to read the snapshot.
+The generator needs the original - never committed - next to the
+disassembly it follows, pobtastic's
+<https://github.com/pobtastic/wayoftheexplodingfist>: the tape, the
+runtime snapshot and a mid-attract frame of it.  `prepare_wotef.py` makes
+all three in a checkout of that repository (SkoolKit 10: `pip install
+skoolkit`; the tape is fetched from World of Spectrum by the checkout's own
+`tap2sna` script), and the built emulator must be in `package/`
+(`cd src && conan build . --build=missing`):
 
 ```
+git clone https://github.com/pobtastic/wayoftheexplodingfist
+export WOTEF_DIR=$PWD/wayoftheexplodingfist          # the default is C:\Users\voron\wotef
+python rt11_devel/projects/fist/source/prepare_wotef.py
 FIST_MODE=gamelogic FIST_GL=gamebg python rt11_devel/toolset/build.py rt11_devel/projects/fist/build.toml
 ```
+
+The attract frame the state is taken from is whatever the simulator is at
+after 40 M T-states; any such frame makes a valid game (the start-up
+re-initialises everything the match uses), only the bytes of `FIST.DAT`
+differ from one to another.
 
 This runs `gen_fist.py` (emits `FIST.MAC` and `FIST.DAT`), then assembles
 and links with the real RT-11 SJ V5.04 `MACRO`/`LINK` inside the emulator,
