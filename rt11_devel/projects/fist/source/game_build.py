@@ -55,20 +55,31 @@ def _state():
     run on it: (the snapshot, the frame's randoms, the state after)."""
     fm.STAGE_LEVEL = 1
 
+    # The Python reference is the verification builds' oracle; the game only
+    # needs the snapshot (FIST.DAT) and, from the reference, the fighter box
+    # of that frame for the no-background build's buffer size.  A frame the
+    # reference cannot replay (another attract moment than the one the port
+    # was verified on: the recorded randoms run out, or a path it does not
+    # model) must not stop the build - the snapshot's own box serves.
     def safe_frame(m, rs):
         tmp = bytearray(m)
         try:
             ref.frame_9745(tmp, list(rs))
-        except NotImplementedError:
+        except Exception:
             return
         m[:] = tmp
     snap, randoms = gm.capture_ai(0x9745, safe_frame, 0xC440)
     mm = bytearray(snap)
-    ref.frame_9745(mm, list(randoms))
-    sr.c101_block1(mm)
-    sr.c1a2(mm)
-    sr.c101_block2(mm)
-    sr.c1cc(mm)
+    try:
+        ref.frame_9745(mm, list(randoms))
+        sr.c101_block1(mm)
+        sr.c1a2(mm)
+        sr.c101_block2(mm)
+        sr.c1cc(mm)
+    except Exception as e:                        # noqa: BLE001 - see above
+        print(f"game_build: the reference cannot replay this frame ({e!r}); "
+              "the snapshot's fighter box is used")
+        mm = bytearray(snap)
     return snap, randoms, mm
 
 

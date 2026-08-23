@@ -18,7 +18,7 @@ from pathlib import Path
 
 from skoolkit.snapshot import get_snapshot
 
-WOTEF_DIR = Path(os.environ.get("WOTEF_DIR", r"C:\Users\voron\wotef"))
+from wotef_dir import WOTEF_DIR                            # noqa: E402
 SNAP = WOTEF_DIR / "wotef.z80"
 
 BG_DEF = {1: 0x602B, 2: 0x603D, 3: 0x604F}

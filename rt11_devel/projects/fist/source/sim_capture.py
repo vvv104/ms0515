@@ -18,7 +18,7 @@ from skoolkit.trace import main as trace_main
 
 import preview
 
-WOTEF_DIR = Path(os.environ.get("WOTEF_DIR", r"C:\Users\voron\wotef"))
+from wotef_dir import WOTEF_DIR                            # noqa: E402
 SNAP = WOTEF_DIR / "wotef.z80"
 
 

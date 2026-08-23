@@ -20,7 +20,7 @@ from skoolkit.snapshot import get_snapshot
 
 import preview
 
-WOTEF_DIR = Path(os.environ.get("WOTEF_DIR", r"C:\Users\voron\wotef"))
+from wotef_dir import WOTEF_DIR                            # noqa: E402
 SNAP = WOTEF_DIR / "wotef.z80"
 
 # Per-background definition tables (Create_Background copies 0x12 bytes of
