@@ -18,7 +18,7 @@ from skoolkit.simulator import Simulator
 from skoolkit.simutils import FRAME_DURATIONS, INT_ACTIVE
 from skoolkit.snapshot import Snapshot
 
-WOTEF_DIR = Path(os.environ.get("WOTEF_DIR", r"C:\Users\voron\wotef"))
+from wotef_dir import WOTEF_DIR                            # noqa: E402
 STATE = WOTEF_DIR / "wotef_run.z80"            # a captured fighter-animation frame
 
 SCR_LO, SCR_HI = 0x4000, 0x5B00                 # pixels + attributes
