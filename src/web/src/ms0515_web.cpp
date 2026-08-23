@@ -187,6 +187,15 @@ EMSCRIPTEN_KEEPALIVE void ms_key_tick(Handle *h, uint32_t now_ms) { h->emu.keyTi
 /* The highest ms0515::Key value - the page checks its table against it. */
 EMSCRIPTEN_KEEPALIVE int ms_key_max(void) { return static_cast<int>(ms0515::Key::KpMinus); }
 
+/* The keyboard's lamps and held keys, for the page's host-key mapping
+ * (РУС/ЛАТ picks the letter map, CAPS + Shift inverts the case). */
+EMSCRIPTEN_KEEPALIVE int ms_ruslat(Handle *h) { return h->emu.ruslatOn() ? 1 : 0; }
+EMSCRIPTEN_KEEPALIVE int ms_caps(Handle *h) { return h->emu.capsOn() ? 1 : 0; }
+EMSCRIPTEN_KEEPALIVE int ms_key_held(Handle *h, int key)
+{
+    return h->emu.keyHeld(static_cast<ms0515::Key>(key)) ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE int ms_save_state(Handle *h, const char *path)
 {
     return h->emu.saveState(path).has_value() ? 1 : 0;

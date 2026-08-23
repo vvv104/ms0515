@@ -2,8 +2,9 @@
 // the DevTools protocol: load it, let the machine boot, ask the page's
 // window.__ms() for the frame count and the picture's colours, type a
 // Return at RT-11's date prompt, expect the monitor's text on a black
-// screen.  Needs a Chromium-family browser started with
-// --remote-debugging-port (see the CI job) and a server for dist/.
+// screen; then have the page type DIR and expect the listing (more text).
+// Needs a Chromium-family browser started with --remote-debugging-port
+// (see the CI job) and a server for dist/.
 //
 //   node src/web/browser_check.mjs http://localhost:8515/ [ws port]
 const url = process.argv[2] ?? "http://localhost:8515/";
@@ -41,6 +42,8 @@ const evaluate = async (expression) => {
   if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.text + " " + JSON.stringify(r.result.exceptionDetails.exception?.description));
   return r.result?.result?.value;
 };
+const white = (peek) => peek.hist[0xffffffff] ?? 0;
+const black = (peek) => peek.hist[0xff000000] ?? 0;
 
 await send("Page.enable");
 await send("Runtime.enable");
@@ -53,20 +56,30 @@ for (let i = 0; i < 60; ++i) {
 }
 if (!peek) throw new Error("the page never exposed __ms (a script error?)");
 console.log(`after boot: frames ${peek.frames}, running ${peek.running}, colours ${peek.colours}, status "${peek.status}"`);
-// RT-11's date prompt: Return.
+
+// RT-11's date prompt: a Return through the browser's key events.
 await send("Input.dispatchKeyEvent", { type: "keyDown", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
 await sleep(100);
 await send("Input.dispatchKeyEvent", { type: "keyUp", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
 await sleep(3000);
 peek = await evaluate("window.__ms()");
-const black = peek.hist[0xff000000] ?? 0, white = peek.hist[0xffffffff] ?? 0;
-console.log(`later: frames ${peek.frames}, colours ${peek.colours}, black ${black}, white ${white}`);
+const textBefore = white(peek);
+console.log(`at the prompt: frames ${peek.frames}, colours ${peek.colours}, black ${black(peek)}, white ${textBefore}`);
+
+// The page's typing: DIR lists the disk - more text on the screen.
+await evaluate('window.__ms.type("DIR\\r")');
+await sleep(5000);
+peek = await evaluate("window.__ms()");
+console.log(`after DIR: frames ${peek.frames}, white ${white(peek)}`);
+
 const shot = await send("Page.captureScreenshot", { format: "png" });
 if (shot.result?.data) {
   const { writeFileSync } = await import("node:fs");
   writeFileSync("browser_check.png", Buffer.from(shot.result.data, "base64"));
 }
 ws.close();
-if (!(peek.frames > 300 && black > 200000 && white > 500))
+if (!(peek.frames > 300 && black(peek) > 150000 && textBefore > 500))
   throw new Error("expected RT-11's monitor text on a black screen");
+if (!(white(peek) > textBefore * 2))
+  throw new Error("typing DIR did not bring a listing");
 console.log("browser check OK");

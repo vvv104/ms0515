@@ -38,7 +38,7 @@ target_link_options(ms0515_web PRIVATE
 set(WEB_ASSETS_DIR "${CMAKE_SOURCE_DIR}/assets")
 set(WEB_DISKS osa.dsk omega-games.dsk omega-lang.dsk mihin.dsk rodionov.dsk vvv.dsk)
 set(WEB_COPIES)
-foreach(f index.html app.js keys.js)
+foreach(f index.html app.js keys.js audio-worklet.js)
     list(APPEND WEB_COPIES "${WEB_DIST}/${f}")
     add_custom_command(OUTPUT "${WEB_DIST}/${f}"
         COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${WEB_DIST}/${f}"

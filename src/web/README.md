@@ -56,12 +56,26 @@ CI runs both in the `web / emscripten` job.
 | `ms_audio(h, out, max, rate)` | the last frame's speaker as 16-bit PCM |
 | `ms_key(h, key, down)` / `ms_key_tick(h, ms)` | `ms0515::Key` values (`www/keys.js` mirrors the enum, `ms_key_max()` guards the drift); the tick drives auto-repeat |
 | `ms_save_state(h, path)` / `ms_load_state(h, path)` | snapshots in the module's file system |
+| `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
+| `ms_key_release_all(h)` | every key up (the canvas lost the focus) |
 
 ## The page
 
 `?disk=osa.dsk&rom=a` picks the boot disk and ROM; `autostart=0` waits for
-the Boot button.  The keyboard follows the SDL front-end's Latin map
-(`Keymap.cpp`): host letters and digits, arrows, the keypad, F1-F12, Left
-Alt = Compose, Right Alt = РУС/ЛАТ.  Sound starts on a click (browsers
-require a gesture).  "Download disk" saves the live image; "Forget my
-copy" drops the IndexedDB copy so the next boot fetches the original.
+the Boot button; `type=R%20FIST` (with `delay=` ms, 3000) types a command
+for the monitor after the boot - the page's "type" box does the same.
+
+The keyboard is the SDL front-end's (`Keymap.cpp` / `PhysicalKeyboard.cpp`)
+with `KeyboardEvent.code` for the scancode: a host key maps by character to
+an MS7004 key plus the Shift it needs there (a US-layout keyboard makes the
+characters on its caps; in РУС mode - the machine's lamp, read through
+`ms_ruslat` - the letters are positional ЙЦУКЕН), a synthetic Shift makes
+up the difference and is undone at release, CAPS + Shift inverts a letter,
+the numpad / * + and a few РУС-mode symbols are special cases.  The host's
+auto-repeat is ignored: the MS7004 repeats itself (`ms_key_tick`).
+
+Sound: each frame's PCM goes to an AudioWorklet (`audio-worklet.js`) that
+plays the chunks back to back and drops the oldest past ~100 ms of lag; it
+starts on a click (browsers require a gesture).  "Download disk" saves the
+live image; "Forget my copy" drops the IndexedDB copy so the next boot
+fetches the original.
