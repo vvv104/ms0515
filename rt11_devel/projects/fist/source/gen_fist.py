@@ -32,7 +32,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 OUT_MAC = HERE.parent / "FIST.MAC"          # project root; a build artifact
 
-WOTEF_DIR = Path(os.environ.get("WOTEF_DIR", r"C:\Users\voron\wotef"))
+from wotef_dir import WOTEF_DIR                            # noqa: E402
 
 # Spectrum display screen geometry.
 SCR_PIXELS = 6144                            # 256x192 mono pixel area

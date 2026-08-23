@@ -94,7 +94,7 @@ skoolkit`; the tape is fetched from World of Spectrum by the checkout's own
 
 ```
 git clone https://github.com/pobtastic/wayoftheexplodingfist
-export WOTEF_DIR=$PWD/wayoftheexplodingfist          # the default is C:\Users\voron\wotef
+export WOTEF_DIR=$PWD/wayoftheexplodingfist          # (the default: a checkout of that name next to this repository)
 python rt11_devel/projects/fist/source/prepare_wotef.py
 FIST_MODE=gamelogic FIST_GL=gamebg python rt11_devel/toolset/build.py rt11_devel/projects/fist/build.toml
 ```

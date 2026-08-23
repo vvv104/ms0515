@@ -26,7 +26,8 @@ from pathlib import Path
 from skoolkit import tap2sna
 from skoolkit.trace import main as trace_main
 
-WOTEF_DIR = Path(os.environ.get("WOTEF_DIR", r"C:\Users\voron\wotef")).resolve()
+from wotef_dir import WOTEF_DIR                            # noqa: E402
+WOTEF_DIR = WOTEF_DIR.resolve()
 T2S = WOTEF_DIR / "wayoftheexplodingfist.t2s"
 SNAP = WOTEF_DIR / "wotef.z80"
 RUN = WOTEF_DIR / "wotef_run.z80"
