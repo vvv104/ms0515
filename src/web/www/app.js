@@ -354,8 +354,6 @@ async function main() {
     sel.appendChild(o); sel.value = f.name;
     boot().catch((err) => say("error: " + err.message));
   };
-  $("typebtn").onclick = () => { typing.type($("typebox").value + "\r"); $("typebox").value = ""; canvas.focus(); };
-  $("typebox").addEventListener("keydown", (e) => { if (e.key === "Enter") $("typebtn").onclick(); });
   canvas.addEventListener("keydown", (e) => onKey(e, true));
   canvas.addEventListener("keyup", (e) => onKey(e, false));
   canvas.addEventListener("blur", () => { if (h) { api.releaseAll(h); keyboard.reset(); } });

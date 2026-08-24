@@ -63,7 +63,7 @@ CI runs both in the `web / emscripten` job.
 
 `?disk=osa.dsk&rom=a` picks the boot disk and ROM; `autostart=0` waits for
 the Boot button; `type=R%20FIST` (with `delay=` ms, 3000) types a command
-for the monitor after the boot - the page's "type" box does the same.
+for the monitor after the boot (`window.__ms.type()` does the same).
 
 The keyboard is the SDL front-end's (`Keymap.cpp` / `PhysicalKeyboard.cpp`)
 with `KeyboardEvent.code` for the scancode: a host key maps by character to

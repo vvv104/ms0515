@@ -13,7 +13,6 @@
   select, button, input, label, summary { font: inherit; }
   button { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .25em .6em; cursor: pointer; }
   button:hover { background: #383838; }
-  input[type=text] { background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .25em .4em; width: 12em; }
   main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; container-type: size; }
   /* The screen at 8:5 in whatever the header and the footer leave. */
   #screen { display: block; width: min(100cqw, 160cqh); background: #000; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
@@ -40,8 +39,6 @@
   <button id="download">Download disk</button>
   <button id="original">Forget my copy</button>
   <label class="file"><button type="button" onclick="this.parentNode.querySelector('input').click()">Open image…</button><input id="file" type="file" accept=".dsk"></label>
-  <label>type <input id="typebox" type="text" placeholder="R FIST" autocomplete="off"></label>
-  <button id="typebtn">Enter</button>
 </header>
 <main>
   <canvas id="screen" width="640" height="400" tabindex="0"></canvas>
