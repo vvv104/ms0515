@@ -115,9 +115,10 @@ EMSCRIPTEN_KEEPALIVE int ms_load_rom(Handle *h, const char *path)
     return h->emu.loadRomFile(path) ? 1 : 0;
 }
 
-/* Mount the image at `path` on FDC unit 0..3 (= drive * 2 + side).  A
- * double-sided image is mounted on both units of its drive, as the CLI
- * does. */
+/* Mount the image at `path` on FDC unit 0..3 (= side * 2 + drive: FD0 and
+ * FD1 are the drives' side 0, FD2 and FD3 their side 1, as the OS numbers
+ * DZ0..DZ3).  A double-sided image is mounted on both units of its drive,
+ * as the host front-ends do. */
 EMSCRIPTEN_KEEPALIVE int ms_mount(Handle *h, int unit, const char *path)
 {
     return h->emu.mountDisk(unit, path) ? 1 : 0;
@@ -129,6 +130,17 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_active(Handle *h, int unit)
 {
     return h->emu.diskActive(unit) ? 1 : 0;
 }
+
+/* The paravirtual hard disk (HD:): an image of any size that is a multiple
+ * of 512 bytes; mounting presents the controller on the bus. */
+EMSCRIPTEN_KEEPALIVE int ms_mount_hd(Handle *h, const char *path)
+{
+    return h->emu.mountHd(path) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void ms_unmount_hd(Handle *h) { h->emu.unmountHd(); }
+
+EMSCRIPTEN_KEEPALIVE int ms_hd_active(Handle *h) { return h->emu.hdActive() ? 1 : 0; }
 
 /* Run one 50 Hz frame.  Returns the CPU cycles it took (0 = halted). */
 EMSCRIPTEN_KEEPALIVE int ms_frame(Handle *h)

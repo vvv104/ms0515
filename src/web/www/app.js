@@ -1,27 +1,36 @@
 // app.js — the MS-0515 in the browser.
 //
 // The module (ms0515.js / .wasm, built from src/web) runs the machine; this
-// file is the front-end: it fetches the ROM and a disk into the module's
-// in-memory file system, mounts them, runs 50 frames a second, paints
-// each frame on the canvas, hands its sound to an AudioWorklet, turns key
-// events into MS7004 keys the way the SDL front-end does, and keeps the
-// disks the user changes in IndexedDB so the next visit finds them -
-// nothing is ever written back to the host (it is a static site), the
-// originals are one click away.
+// file is the front-end: it fetches the ROM and the disk images into the
+// module's in-memory file system, mounts them the way the desktop
+// front-ends do (two floppy drives of two sides each, a paravirtual hard
+// disk), runs 50 frames a second, paints each frame on the canvas, hands
+// its sound to an AudioWorklet, turns key events into MS7004 keys the way
+// the SDL front-end does, and keeps the images the guest writes to in
+// IndexedDB so the next visit finds them - nothing is ever written back to
+// the host (it is a static site), the originals are one click away.
 import createMs0515 from "./ms0515.js";
 import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey } from "./keys.js";
 
+// The floppy images the site ships (dist/disks/, from assets/disks).
 const DISKS = [
   { name: "osa.dsk",         title: "OSA — RT-11 with SABOT2 and FIST (R FIST)" },
   { name: "omega-games.dsk", title: "Omega — games" },
   { name: "omega-lang.dsk",  title: "Omega — languages" },
   { name: "mihin.dsk",       title: "Mihinsoft OS-16SJ" },
-  { name: "rodionov.dsk",    title: "Rodionov (ROM A)" },
+  { name: "rodionov.dsk",    title: "Rodionov — RT-15SJ, ROSA Commander (ROM A, both sides)" },
   { name: "vvv.dsk",         title: "vvv — RT-11 with HD.SYS" },
 ];
+const SHIPPED = new Map(DISKS.map((d) => [d.name, d.title]));
 const ROMS = { a: "rom/ms0515-roma.rom", b: "rom/ms0515-romb.rom" };
-const SS_SIZE = 409600;
+const SS_SIZE = 409600, DS_SIZE = 2 * SS_SIZE;
 const FRAME_MS = 20;
+
+// FDC units: unit = side * 2 + drive (FD0 = DZ0 = drive A side 0, FD1 =
+// drive B side 0, FD2 / FD3 the drives' side 1) - core/floppy.c's numbering.
+const unitOf = (drive, side) => side * 2 + drive;
+const driveOf = (unit) => unit & 1;
+const sideOf = (unit) => unit >> 1;
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("screen");
@@ -33,10 +42,10 @@ let image, pcmBuf;
 let running = false, lastTick = 0, acc = 0;
 let audio = null, speaker = null;
 let frames = 0;
-const mounted = {};           // unit -> FS path
 const K = (name) => KEY_ID[name];
 
 function say(s) { status.textContent = s; }
+const fail = (e) => say("error: " + (e?.message ?? e));
 
 async function fetchBytes(url) {
   const r = await fetch(url);
@@ -44,7 +53,10 @@ async function fetchBytes(url) {
   return new Uint8Array(await r.arrayBuffer());
 }
 
-// ── persistence: changed disks live in IndexedDB ───────────────────────────
+// ── persistence ────────────────────────────────────────────────────────────
+// IndexedDB holds image bytes by name: the user's own images, and the
+// copies of shipped images the guest has written to.  localStorage holds
+// the small things: the user's image list (name -> size) and the mounts.
 const DB = "ms0515", STORE = "disks";
 function db() {
   return new Promise((ok, no) => {
@@ -63,46 +75,288 @@ function dbRequest(mode, op) {
 const dbGet = (key) => dbRequest("readonly", (s) => s.get(key));
 const dbPut = (key, value) => dbRequest("readwrite", (s) => s.put(value, key));
 const dbDel = (key) => dbRequest("readwrite", (s) => s.delete(key));
+const dbKeys = () => dbRequest("readonly", (s) => s.getAllKeys());
+
+const own = new Map(Object.entries(JSON.parse(localStorage.getItem("ms0515.images") ?? "{}")));
+const copies = new Set();      // shipped images with a written copy in IndexedDB
+const saveOwn = () => localStorage.setItem("ms0515.images", JSON.stringify(Object.fromEntries(own)));
+
+// ── the mounts ─────────────────────────────────────────────────────────────
+const slots = { fd: ["", "", "", ""], hd: "" };   // image names, "" = empty
+const ds = [false, false];                         // the drive holds a double-sided image
+const staged = new Map();                          // FS path -> mtime at the last flush
+const pathOf = (name) => "/disks/" + name;
+
+function saveMounts() {
+  localStorage.setItem("ms0515.mounts", JSON.stringify({ rom: $("rom").value, fd: slots.fd, hd: slots.hd }));
+}
+function loadMounts() {
+  const q = new URLSearchParams(location.search);
+  let m = { rom: "a", fd: ["osa.dsk", "", "", ""], hd: "" };
+  try { m = { ...m, ...JSON.parse(localStorage.getItem("ms0515.mounts") ?? "{}") }; } catch {}
+  if (q.get("rom")) m.rom = q.get("rom");
+  if (q.has("disk")) m.fd[0] = q.get("disk");
+  if (q.has("disk1")) m.fd[1] = q.get("disk1");
+  if (q.has("hd")) m.hd = q.get("hd");
+  return m;
+}
+
+// The image's bytes: the user's copy or own image from IndexedDB, else the
+// shipped original.
+async function imageBytes(name) {
+  const local = await dbGet(name);
+  if (local) return local;
+  if (!SHIPPED.has(name)) throw new Error(`${name}: no such image`);
+  return fetchBytes("disks/" + name);
+}
+
+// Into the module's file system, once (fresh = replace what is there).
+async function stage(name, fresh = false) {
+  const path = pathOf(name);
+  if (fresh || !M.FS.analyzePath(path).exists) {
+    M.FS.mkdirTree("/disks");
+    M.FS.writeFile(path, await imageBytes(name));
+    staged.set(path, M.FS.stat(path).mtime.getTime());
+  }
+  return path;
+}
+
+function unmountFd(unit) {
+  const drive = driveOf(unit);
+  if (ds[drive]) {
+    api.unmount(h, unitOf(drive, 0));
+    api.unmount(h, unitOf(drive, 1));
+    slots.fd[unitOf(drive, 0)] = "";
+    ds[drive] = false;
+  } else if (slots.fd[unit]) {
+    api.unmount(h, unit);
+    slots.fd[unit] = "";
+  }
+}
+
+function mountedWhere(name) {
+  const u = slots.fd.indexOf(name);
+  if (u >= 0) return `drive ${"AB"[driveOf(u)]} side ${sideOf(u)}`;
+  return slots.hd === name ? "HD" : null;
+}
+
+// A 400 KB image is one side; an 800 KB one takes both sides of its drive.
+async function mountFd(unit, name) {
+  unmountFd(unit);
+  if (name) {
+    const where = mountedWhere(name);
+    if (where) throw new Error(`${name} is already in ${where}`);
+    const path = await stage(name);
+    const size = M.FS.stat(path).size;
+    if (size !== SS_SIZE && size !== DS_SIZE) throw new Error(`${name}: not a 400 / 800 KB floppy image`);
+    const drive = driveOf(unit);
+    if (size === DS_SIZE) {
+      if (sideOf(unit) === 1) throw new Error("a double-sided image goes on side 0");
+      unmountFd(unitOf(drive, 1));
+      if (!api.mount(h, unitOf(drive, 0), path) || !api.mount(h, unitOf(drive, 1), path))
+        throw new Error(`${name}: mount failed`);
+      ds[drive] = true;
+    } else if (!api.mount(h, unit, path)) {
+      throw new Error(`${name}: mount failed`);
+    }
+    slots.fd[unit] = name;
+  }
+  saveMounts();
+  renderDevices();
+}
+
+async function mountHd(name) {
+  if (slots.hd) { api.unmountHd(h); slots.hd = ""; }
+  if (name) {
+    const where = mountedWhere(name);
+    if (where) throw new Error(`${name} is already in ${where}`);
+    const path = await stage(name);
+    if (!api.mountHd(h, path)) throw new Error(`${name}: not a HD image (a multiple of 512 bytes)`);
+    slots.hd = name;
+  }
+  saveMounts();
+  renderDevices();
+}
+
+// The module's files are the live images: an image written since the last
+// look goes to IndexedDB (a shipped one becomes "your copy").
+function flushDisks() {
+  for (const [path, seen] of staged) {
+    if (!M.FS.analyzePath(path).exists) continue;
+    const mtime = M.FS.stat(path).mtime.getTime();
+    if (mtime === seen) continue;
+    staged.set(path, mtime);
+    const name = path.slice("/disks/".length);
+    dbPut(name, M.FS.readFile(path)).then(() => {
+      if (SHIPPED.has(name) && !copies.has(name)) { copies.add(name); renderDevices(); }
+    }).catch(() => {});
+  }
+}
+
+// Drop the written copy of a shipped image and mount the original again.
+async function forgetCopy(name) {
+  const unit = slots.fd.indexOf(name);
+  const onHd = slots.hd === name;
+  if (unit >= 0) unmountFd(unit); else if (onHd) await mountHd("");
+  await dbDel(name);
+  copies.delete(name);
+  await stage(name, true);
+  if (unit >= 0) await mountFd(unit, name); else if (onHd) await mountHd(name);
+  say(`${name}: the original again`);
+}
+
+// The user's own image: unmount, drop it everywhere.
+async function deleteOwn(name) {
+  if (!confirm(`Delete ${name} from this browser?`)) return;
+  const unit = slots.fd.indexOf(name);
+  if (unit >= 0) unmountFd(unit); else if (slots.hd === name) await mountHd("");
+  await dbDel(name);
+  own.delete(name); saveOwn();
+  const path = pathOf(name);
+  if (M.FS.analyzePath(path).exists) M.FS.unlink(path);
+  staged.delete(path);
+  saveMounts();
+  renderDevices();
+}
+
+function download(name) {
+  const path = pathOf(name);
+  if (!M.FS.analyzePath(path).exists) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([M.FS.readFile(path)]));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+// A new own image from bytes: stored, listed, in the file system.
+async function addOwn(name, bytes) {
+  if (bytes.length === 0 || bytes.length % 512) throw new Error(`${name}: not a disk image (a multiple of 512 bytes)`);
+  if (SHIPPED.has(name)) throw new Error(`${name}: that is a shipped image's name`);
+  if (mountedWhere(name)) throw new Error(`${name} is mounted; unmount it first`);
+  await dbPut(name, bytes);
+  own.set(name, bytes.length); saveOwn();
+  M.FS.mkdirTree("/disks");
+  M.FS.writeFile(pathOf(name), bytes);
+  staged.set(pathOf(name), M.FS.stat(pathOf(name)).mtime.getTime());
+  return name;
+}
+
+function pickFile(then) {
+  const input = $("file");
+  input.value = "";
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    then(await addOwn(f.name, new Uint8Array(await f.arrayBuffer())));
+  };
+  input.click();
+}
+
+// ── the drives' panels ─────────────────────────────────────────────────────
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+function button(label, onclick, title) {
+  const b = el("button", "small", label);
+  b.onclick = () => Promise.resolve().then(onclick).catch(fail);
+  if (title) b.title = title;
+  return b;
+}
+const fmtSize = (n) => n % 1048576 === 0 ? `${n / 1048576} MB` : `${Math.round(n / 1024)} KB`;
+
+function select(kind, value, onchange) {
+  const s = document.createElement("select");
+  const add = (v, label) => { const o = document.createElement("option"); o.value = v; o.textContent = label; s.appendChild(o); };
+  add("", "— empty —");
+  if (kind === "fd")
+    for (const d of DISKS) add(d.name, d.title + (copies.has(d.name) ? " · your copy" : ""));
+  for (const [name, size] of own)
+    if ((size === SS_SIZE || size === DS_SIZE) === (kind === "fd")) add(name, `${name} (yours, ${fmtSize(size)})`);
+  s.value = value;
+  s.onchange = () => Promise.resolve(onchange(s.value)).catch((e) => { fail(e); renderDevices(); });
+  return s;
+}
+
+function imageButtons(name) {
+  const b = [button("Download", () => download(name), "save the image as it is now")];
+  if (SHIPPED.has(name)) {
+    if (copies.has(name)) b.push(button("Forget my copy", () => forgetCopy(name), "back to the shipped original"));
+  } else {
+    b.push(button("Delete", () => deleteOwn(name), "remove the image from this browser"));
+  }
+  return b;
+}
+
+function fdRow(unit) {
+  const drive = driveOf(unit), side = sideOf(unit);
+  const row = el("div", "row");
+  row.append(el("span", "side", `side ${side}`));
+  if (side === 1 && ds[drive]) {
+    row.append(el("span", "shadow", `side 1 of ${slots.fd[unitOf(drive, 0)]}`));
+    return row;
+  }
+  const name = slots.fd[unit];
+  row.append(select("fd", name, (v) => mountFd(unit, v)));
+  row.append(button("Open…", () => pickFile((n) => mountFd(unit, n).catch(fail)), "a .dsk from your computer"));
+  if (name) row.append(...imageButtons(name));
+  return row;
+}
+
+function hdRows() {
+  const row = el("div", "row");
+  row.append(el("span", "side", "image"));
+  row.append(select("hd", slots.hd, (v) => mountHd(v)));
+  row.append(button("Open…", () => pickFile((n) => mountHd(n).catch(fail)), "an image from your computer"));
+  if (slots.hd) row.append(...imageButtons(slots.hd));
+  const make = el("div", "row");
+  make.append(el("span", "side", "new"));
+  const mb = document.createElement("input");
+  mb.type = "number"; mb.min = 1; mb.max = 64; mb.value = 8;
+  make.append(mb, el("span", null, "MB"));
+  make.append(button("Create blank", async () => {
+    const size = Math.max(1, Math.min(64, +mb.value || 8));
+    let name = `hd${size}m.img`;
+    for (let i = 2; own.has(name); ++i) name = `hd${size}m-${i}.img`;
+    await addOwn(name, new Uint8Array(size * 1048576));
+    await mountHd(name);
+    say(`${name} mounted: Boot, then INIT HD: in the guest`);
+  }, "a zero-filled image; the guest initialises it"));
+  const hint = el("div", "hint", "RT-11 installs HD.SYS at boot: mount, then Boot (vvv.dsk has the handler)");
+  return [row, make, hint];
+}
+
+function renderDevices() {
+  for (const drive of [0, 1]) {
+    const d = $("dev" + drive);
+    const names = [0, 1].map((s) => slots.fd[unitOf(drive, s)]).filter(Boolean);
+    d.querySelector(".devname").innerHTML = `<b>${"AB"[drive]}</b> ` + (names.length ? names.join(" · ") + (ds[drive] ? " (2 sides)" : "") : "—");
+    d.querySelector(".panel").replaceChildren(fdRow(unitOf(drive, 0)), fdRow(unitOf(drive, 1)));
+  }
+  const hd = $("devhd");
+  hd.querySelector(".devname").innerHTML = `<b>HD</b> ` + (slots.hd || "—");
+  hd.querySelector(".panel").replaceChildren(...hdRows());
+}
+
+function lamps() {
+  const on = [
+    api.diskActive(h, 0) || api.diskActive(h, 2),
+    api.diskActive(h, 1) || api.diskActive(h, 3),
+    api.hdActive(h),
+  ];
+  ["dev0", "dev1", "devhd"].forEach((id, i) => $(id).querySelector(".lamp").classList.toggle("on", !!on[i]));
+}
 
 // ── the machine ────────────────────────────────────────────────────────────
 async function boot() {
-  const romSel = $("rom").value;
-  const diskName = $("disk").value;
   say("loading…");
   stop();
-  if (h) { flushDisks(); api.destroy(h); h = null; }
-  for (const k of Object.keys(mounted)) delete mounted[k];
   keyboard.reset();
-
-  const rom = await fetchBytes(ROMS[romSel]);
-  M.FS.writeFile("/rom.bin", rom);
-  const local = await dbGet(diskName);
-  const disk = local || await fetchBytes("disks/" + diskName);
-  M.FS.mkdirTree("/disks");
-  M.FS.writeFile("/disks/" + diskName, disk);
-
-  h = api.create();
+  const rom = $("rom").value;
+  M.FS.writeFile("/rom.bin", await fetchBytes(ROMS[rom]));
   if (!api.loadRom(h, "/rom.bin")) throw new Error("ROM load failed");
-  const units = disk.length > SS_SIZE ? [0, 1] : [0];
-  for (const u of units) {
-    if (!api.mount(h, u, "/disks/" + diskName)) throw new Error("mount failed");
-    mounted[u] = "/disks/" + diskName;
-  }
   api.reset(h);
-  say(`${diskName}${local ? " (your copy)" : ""} · ROM ${romSel.toUpperCase()} · Enter accepts the date prompts`);
+  saveMounts();
+  say(`ROM ${rom.toUpperCase()} · Enter accepts the date prompts`);
   canvas.focus();
   start();
-}
-
-function flushDisks() {
-  // The module's file is the live image: keep the user's copy.
-  const done = new Set();
-  for (const u of Object.keys(mounted)) {
-    const path = mounted[u];
-    if (done.has(path)) continue;
-    done.add(path);
-    dbPut(path.slice("/disks/".length), M.FS.readFile(path)).catch(() => {});
-  }
 }
 
 function start() {
@@ -125,7 +379,7 @@ function loop(now) {
     step(now);
     ++n;
   }
-  if (n) paint();
+  if (n) { paint(); lamps(); }
   requestAnimationFrame(loop);
 }
 
@@ -293,17 +547,18 @@ const typing = {
 };
 
 // ── the page ───────────────────────────────────────────────────────────────
-async function main() {
-  fit();
-  window.addEventListener("resize", fit);
-  M = await createMs0515();
+function bindApi() {
   const c = (name, ret, args) => M.cwrap(name, ret, args);
   api = {
     create:  c("ms_create", "number", []),
-    destroy: c("ms_destroy", null, ["number"]),
     reset:   c("ms_reset", null, ["number"]),
     loadRom: c("ms_load_rom", "number", ["number", "string"]),
     mount:   c("ms_mount", "number", ["number", "number", "string"]),
+    unmount: c("ms_unmount", null, ["number", "number"]),
+    diskActive: c("ms_disk_active", "number", ["number", "number"]),
+    mountHd:   c("ms_mount_hd", "number", ["number", "string"]),
+    unmountHd: c("ms_unmount_hd", null, ["number"]),
+    hdActive:  c("ms_hd_active", "number", ["number"]),
     frame:   c("ms_frame", "number", ["number"]),
     render:  c("ms_render", "number", ["number"]),
     audio:   c("ms_audio", "number", ["number", "number", "number", "number"]),
@@ -319,51 +574,49 @@ async function main() {
   };
   if (api.keyMax() !== KEYS.length - 1)
     throw new Error(`key table drift: module ${api.keyMax()}, page ${KEYS.length - 1}`);
-  image = ctx.createImageData(canvas.width, canvas.height);
+}
 
-  const sel = $("disk");
-  for (const d of DISKS) {
-    const o = document.createElement("option");
-    o.value = d.name; o.textContent = d.title;
-    sel.appendChild(o);
-  }
-  const q = new URLSearchParams(location.search);
-  if (q.get("disk")) sel.value = q.get("disk");
-  if (q.get("rom")) $("rom").value = q.get("rom");
-
-  $("boot").onclick = () => boot().catch((e) => say("error: " + e.message));
-  $("sound").onclick = () => toggleSound().catch((e) => say("error: " + e.message));
+// The drives' panels: one open at a time; the ROM and the buttons.
+function bindControls() {
+  const panels = [...document.querySelectorAll("details.dev")];
+  for (const d of panels)
+    d.addEventListener("toggle", () => { if (d.open) for (const o of panels) if (o !== d) o.open = false; });
+  document.addEventListener("click", (e) => { if (!e.target.closest("details.dev")) for (const o of panels) o.open = false; });
+  $("rom").onchange = saveMounts;
+  $("boot").onclick = () => boot().catch(fail);
+  $("sound").onclick = () => toggleSound().catch(fail);
   $("save").onclick = () => { if (h) say(api.save(h, "/state.bin") ? "state saved" : "save failed"); };
   $("restore").onclick = () => { if (h) say(api.load(h, "/state.bin") ? "state restored" : "no saved state"); };
-  $("download").onclick = () => {
-    const name = sel.value, path = "/disks/" + name;
-    if (!h || !M.FS.analyzePath(path).exists) return;
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([M.FS.readFile(path)]));
-    a.download = name; a.click();
-  };
-  $("original").onclick = async () => { await dbDel(sel.value); say("the original will be used at the next boot"); };
-  $("file").onchange = async (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    const bytes = new Uint8Array(await f.arrayBuffer());
-    if (bytes.length !== SS_SIZE && bytes.length !== 2 * SS_SIZE) { say("not a 400 / 800 KB image"); return; }
-    await dbPut(f.name, bytes);
-    const o = document.createElement("option");
-    o.value = f.name; o.textContent = f.name + " (yours)";
-    sel.appendChild(o); sel.value = f.name;
-    boot().catch((err) => say("error: " + err.message));
-  };
   canvas.addEventListener("keydown", (e) => onKey(e, true));
   canvas.addEventListener("keyup", (e) => onKey(e, false));
   canvas.addEventListener("blur", () => { if (h) { api.releaseAll(h); keyboard.reset(); } });
   window.addEventListener("beforeunload", flushDisks);
+}
+
+async function main() {
+  fit();
+  window.addEventListener("resize", fit);
+  M = await createMs0515();
+  bindApi();
+  image = ctx.createImageData(canvas.width, canvas.height);
+  h = api.create();
+  for (const k of await dbKeys()) if (SHIPPED.has(k)) copies.add(k);
+
+  const m = loadMounts();
+  $("rom").value = m.rom;
+  bindControls();
+  renderDevices();
+  for (let unit = 0; unit < 4; ++unit)
+    if (m.fd[unit]) await mountFd(unit, m.fd[unit]).catch(fail);
+  if (m.hd) await mountHd(m.hd).catch(fail);
+
   say("ready");
+  const q = new URLSearchParams(location.search);
   if (q.get("autostart") !== "0") {
     boot().then(() => {
       // `type=`: a command for the monitor, after the boot (delay= ms, 3000)
       if (q.get("type")) typing.type("\r" + q.get("type") + "\r", +(q.get("delay") ?? 3000));
-    }).catch((e) => say("error: " + e.message));
+    }).catch(fail);
   }
 }
 
@@ -373,10 +626,10 @@ window.__ms = () => {
   const ptr = h ? api.render(h) : 0;
   const hist = {};
   if (ptr) for (const v of M.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + 640 * 400)) hist[v >>> 0] = (hist[v >>> 0] ?? 0) + 1;
-  return { frames, running, status: status.textContent, colours: Object.keys(hist).length, hist };
+  return { frames, running, status: status.textContent, colours: Object.keys(hist).length, hist, mounts: { fd: [...slots.fd], hd: slots.hd } };
 };
 window.__ms.type = (text) => typing.type(text);
 
 window.addEventListener("error", (e) => say("error: " + e.message));
 window.addEventListener("unhandledrejection", (e) => say("error: " + (e.reason?.message ?? e.reason)));
-main().catch((e) => say("error: " + e.message));
+main().catch(fail);
