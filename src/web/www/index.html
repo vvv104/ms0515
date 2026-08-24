@@ -14,8 +14,9 @@
   button { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .25em .6em; cursor: pointer; }
   button:hover { background: #383838; }
   input[type=text] { background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .25em .4em; width: 12em; }
-  main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; }
-  #screen { display: block; background: #000; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
+  main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; container-type: size; }
+  /* The screen at 8:5 in whatever the header and the footer leave. */
+  #screen { display: block; width: min(100cqw, 160cqh); background: #000; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
   #screen:focus { box-shadow: 0 0 0 2px #5a8; }
   footer { display: flex; gap: 1em; align-items: baseline; padding: .25em .75em .5em; color: #999; white-space: nowrap; overflow: hidden; }
   #status { color: #bbb; overflow: hidden; text-overflow: ellipsis; }
