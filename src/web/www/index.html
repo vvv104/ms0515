@@ -6,19 +6,23 @@
 <title>MS-0515</title>
 <style>
   :root { color-scheme: dark; }
-  body { margin: 0; background: #111; color: #ddd; font: 14px system-ui, sans-serif; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; background: #111; color: #ddd; font: 14px system-ui, sans-serif; overflow: hidden; }
   header { display: flex; flex-wrap: wrap; gap: .5em; align-items: center; padding: .5em .75em; background: #1b1b1b; }
   header h1 { font-size: 1em; margin: 0 .5em 0 0; color: #fff; }
-  select, button, input, label { font: inherit; }
+  select, button, input, label, summary { font: inherit; }
   button { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .25em .6em; cursor: pointer; }
   button:hover { background: #383838; }
   input[type=text] { background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .25em .4em; width: 12em; }
-  main { display: flex; justify-content: center; padding: .75em; }
-  #screen { width: min(100vw - 1.5em, calc((100vh - 8em) * 1.6)); aspect-ratio: 8 / 5; background: #000;
-            image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
+  main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; }
+  #screen { display: block; background: #000; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
   #screen:focus { box-shadow: 0 0 0 2px #5a8; }
-  footer { padding: 0 .75em .75em; color: #999; }
-  #status { color: #bbb; }
+  footer { display: flex; gap: 1em; align-items: baseline; padding: .25em .75em .5em; color: #999; white-space: nowrap; overflow: hidden; }
+  #status { color: #bbb; overflow: hidden; text-overflow: ellipsis; }
+  details { position: relative; }
+  details summary { cursor: pointer; color: #8ab; }
+  details div { position: absolute; bottom: 1.6em; right: 0; width: min(40em, 90vw); white-space: normal; background: #222; border: 1px solid #444;
+                border-radius: 4px; padding: .5em .75em; color: #ccc; }
   label.file { display: inline-block; }
   label.file input { display: none; }
 </style>
@@ -43,8 +47,21 @@
 </main>
 <footer>
   <div id="status">loading…</div>
-  <div>Click the screen to type. Disks you write to stay in this browser (IndexedDB); "Download disk" saves a copy, "Forget my copy" returns to the original. The keyboard follows the MS7004: the host's letters, digits and symbols make the characters on their caps (РУС mode: positional ЙЦУКЕН), arrows, the numeric keypad, F1–F13, Home/Ins/Del/End/PgUp/PgDn = the editing keys; Left Alt = Compose, Right Alt = РУС/ЛАТ. A game on <code>osa.dsk</code>: <code>R FIST</code> (or <code>?disk=osa.dsk&amp;type=R%20FIST</code> in the address).</div>
+  <details>
+    <summary>keys &amp; disks</summary>
+    <div>Click the screen to type. The keyboard follows the MS7004: the host's letters, digits and symbols make the characters on their caps (РУС mode: positional ЙЦУКЕН); arrows, the numeric keypad, F1–F13; Home/Ins/Del/End/PgUp/PgDn are the editing keys; Left Alt = Compose, Right Alt = РУС/ЛАТ.
+    Disks you write to stay in this browser (IndexedDB): "Download disk" saves a copy, "Forget my copy" returns to the original.
+    A game on <code>osa.dsk</code>: type <code>R FIST</code> (or open <code>?disk=osa.dsk&amp;type=R%20FIST</code>).</div>
+  </details>
 </footer>
+<script>
+  // A module script does not run from file:// (and its .wasm would not
+  // load); say so instead of "loading…" forever.
+  if (location.protocol === "file:")
+    document.getElementById("status").textContent =
+      "this page needs a web server (python -m http.server in this folder, or the published site): " +
+      "browsers do not run a module from file://";
+</script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

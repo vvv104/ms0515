@@ -72,6 +72,13 @@ await sleep(5000);
 peek = await evaluate("window.__ms()");
 console.log(`after DIR: frames ${peek.frames}, white ${white(peek)}`);
 
+// SHOT_SIZE=1920x1080 takes the screenshot at that viewport (a layout check).
+const size = /^(\d+)x(\d+)$/.exec(process.env.SHOT_SIZE ?? "");
+if (size) {
+  await send("Emulation.setDeviceMetricsOverride",
+             { width: +size[1], height: +size[2], deviceScaleFactor: 1, mobile: false });
+  await sleep(500);
+}
 const shot = await send("Page.captureScreenshot", { format: "png" });
 if (shot.result?.data) {
   const { writeFileSync } = await import("node:fs");

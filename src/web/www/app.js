@@ -145,6 +145,17 @@ function paint() {
   ctx.putImageData(image, 0, 0);
 }
 
+// The screen fills what the header and the footer leave, at 8:5, whole
+// pixels when it can (a multiple of 320 x 200 keeps the picture crisp).
+function fit() {
+  const box = canvas.parentElement;
+  const w = box.clientWidth - 8, hgt = box.clientHeight - 8;
+  let width = Math.min(w, hgt * 1.6);
+  if (width >= 640) width = Math.floor(width / 320) * 320;
+  canvas.style.width = width + "px";
+  canvas.style.height = width / 1.6 + "px";
+}
+
 // ── sound: each frame's PCM to the worklet on the audio thread ─────────────
 function queueAudio() {
   const max = 4096;
@@ -286,6 +297,8 @@ const typing = {
 
 // ── the page ───────────────────────────────────────────────────────────────
 async function main() {
+  fit();
+  window.addEventListener("resize", fit);
   M = await createMs0515();
   const c = (name, ret, args) => M.cwrap(name, ret, args);
   api = {
