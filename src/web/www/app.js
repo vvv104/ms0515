@@ -643,11 +643,13 @@ function bindControls() {
     d.addEventListener("toggle", () => { if (d.open) for (const o of panels) if (o !== d) o.open = false; });
   document.addEventListener("click", (e) => { if (!e.target.closest("details.dev")) for (const o of panels) o.open = false; });
   $("rom").onchange = saveMounts;
+  // A click on a toolbar button must not keep the focus: the keys are the machine's.
+  for (const b of document.querySelectorAll("header > button"))
+    b.addEventListener("click", () => canvas.focus());
   joystick = new Joystick((bits) => { if (h) api.joystick(h, bits); }, $("joy"));
   $("joystick").onclick = () => {
     joystick.enable(!joystick.enabled);
     $("joystick").textContent = joystick.enabled ? "Joystick: on" : "Joystick: off";
-    canvas.focus();
   };
   $("boot").onclick = () => boot().catch(fail);
   $("sound").onclick = () => toggleSound().catch(fail);
