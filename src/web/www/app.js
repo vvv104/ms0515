@@ -12,16 +12,18 @@
 import createMs0515 from "./ms0515.js";
 import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey } from "./keys.js";
 
-// The floppy images the site ships (dist/disks/, from assets/disks).
+// The floppy images the site ships (dist/disks/, from assets/disks) and
+// their sides (a two-sided image takes both sides of its drive).
 const DISKS = [
-  { name: "osa.dsk",         title: "OSA — RT-11 with SABOT2 and FIST (R FIST)" },
-  { name: "omega-games.dsk", title: "Omega — games" },
-  { name: "omega-lang.dsk",  title: "Omega — languages" },
-  { name: "mihin.dsk",       title: "Mihinsoft OS-16SJ" },
-  { name: "rodionov.dsk",    title: "Rodionov — RT-15SJ, ROSA Commander (ROM A, both sides)" },
-  { name: "vvv.dsk",         title: "vvv — RT-11 with HD.SYS" },
+  { name: "osa.dsk",         sides: 1 },
+  { name: "omega-games.dsk", sides: 1 },
+  { name: "omega-lang.dsk",  sides: 1 },
+  { name: "mihin.dsk",       sides: 1 },
+  { name: "rodionov.dsk",    sides: 2 },
+  { name: "vvv.dsk",         sides: 1 },
 ];
-const SHIPPED = new Map(DISKS.map((d) => [d.name, d.title]));
+const SHIPPED = new Map(DISKS.map((d) => [d.name, d.sides]));
+const sidesLabel = (n) => n === 2 ? "two-sided" : "one-sided";
 const ROMS = { a: "rom/ms0515-roma.rom", b: "rom/ms0515-romb.rom" };
 const SS_SIZE = 409600, DS_SIZE = 2 * SS_SIZE;
 const FRAME_MS = 20;
@@ -273,9 +275,11 @@ function select(kind, value, onchange) {
   const add = (v, label) => { const o = document.createElement("option"); o.value = v; o.textContent = label; s.appendChild(o); };
   add("", "— empty —");
   if (kind === "fd")
-    for (const d of DISKS) add(d.name, d.title);
-  for (const [name, size] of own)
-    if ((size === SS_SIZE || size === DS_SIZE) === (kind === "fd")) add(name, `${name} (yours, ${fmtSize(size)})`);
+    for (const d of DISKS) add(d.name, `${d.name} (${sidesLabel(d.sides)})`);
+  for (const [name, size] of own) {
+    const floppy = size === SS_SIZE || size === DS_SIZE;
+    if (floppy === (kind === "fd")) add(name, `${name} (${floppy ? sidesLabel(size / SS_SIZE) : fmtSize(size)}, yours)`);
+  }
   s.value = value;
   s.onchange = () => Promise.resolve(onchange(s.value)).catch((e) => { fail(e); renderDevices(); });
   return s;
@@ -332,7 +336,7 @@ function renderDevices() {
   for (const drive of [0, 1]) {
     const d = $("dev" + drive);
     const names = [0, 1].map((s) => slots.fd[unitOf(drive, s)]).filter(Boolean);
-    d.querySelector(".devname").innerHTML = `<b>${"AB"[drive]}</b> ` + (names.length ? names.join(" · ") + (ds[drive] ? " (2 sides)" : "") : "—");
+    d.querySelector(".devname").innerHTML = `<b>${"AB"[drive]}</b> ` + (names.length ? names.join(" · ") + (ds[drive] ? " (two-sided)" : "") : "—");
     d.querySelector(".panel").replaceChildren(fdRow(unitOf(drive, 0)), fdRow(unitOf(drive, 1)));
   }
   const hd = $("devhd");
