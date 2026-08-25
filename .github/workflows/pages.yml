@@ -2,7 +2,9 @@ name: Pages
 
 # The browser build as a GitHub Pages site: published on every release tag
 # (so the site matches the release) and on demand.  The repository's Pages
-# source must be "GitHub Actions" (Settings -> Pages) for the deploy job.
+# source must be "GitHub Actions" (Settings -> Pages), and the github-pages
+# environment's deployment-branch policy must allow the tags (a "v*" tag
+# rule next to the default "main"; without it the deploy job is refused).
 
 on:
   push:
