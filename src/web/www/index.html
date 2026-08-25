@@ -42,10 +42,10 @@
   #screen:focus { box-shadow: 0 0 0 2px #5a8; }
   footer { display: flex; gap: 1em; align-items: baseline; padding: .25em .75em .5em; color: #999; white-space: nowrap; overflow: hidden; }
   #status { color: #bbb; overflow: hidden; text-overflow: ellipsis; }
-  footer details { position: relative; }
   footer summary { cursor: pointer; color: #8ab; }
-  footer details div { position: absolute; bottom: 1.6em; right: 0; width: min(40em, 90vw); white-space: normal; background: #222; border: 1px solid #444;
-                       border-radius: 4px; padding: .5em .75em; color: #ccc; }
+  /* The help pops up over the screen (fixed: the footer clips its overflow). */
+  footer details div { position: fixed; bottom: 2.2em; left: .75em; width: min(44em, 90vw); white-space: normal; background: #222; border: 1px solid #444;
+                       border-radius: 4px; padding: .5em .75em; color: #ccc; z-index: 5; }
 </style>
 </head>
 <body>
@@ -88,10 +88,10 @@
 <footer>
   <div id="status">loading…</div>
   <details>
-    <summary>keys &amp; disks</summary>
+    <summary>help</summary>
     <div>Click the screen to type. The keyboard follows the MS7004: the host's letters, digits and symbols make the characters on their caps (РУС mode: positional ЙЦУКЕН); arrows, the numeric keypad, F1–F13; Home/Ins/Del/End/PgUp/PgDn are the editing keys; Left Alt = Compose, Right Alt = РУС/ЛАТ.
     The drives A, B and HD mount like the desktop emulator's: a 400 KB image is one side, an 800 KB one takes both sides of its drive, the HD takes an image of any size (your own, or a new blank one - INIT HD: in the guest).
-    Disks you write to stay in this browser (IndexedDB): "Download" saves a copy, "Forget my copy" returns to the original.
+    Disks you write to stay in this browser (IndexedDB): "Download" saves a copy, "Forget" returns a shipped disk to its original, "Delete" removes one of yours.
     A game on <code>osa.dsk</code>: type <code>R FIST</code> (or open <code>?disk=osa.dsk&amp;type=R%20FIST</code>).</div>
   </details>
 </footer>

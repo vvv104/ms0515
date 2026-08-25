@@ -90,5 +90,6 @@ Sound: each frame's PCM goes to an AudioWorklet (`audio-worklet.js`) that
 plays the chunks back to back and drops the oldest past ~100 ms of lag; it
 starts on a click (browsers require a gesture).  An image the guest writes
 to is copied to IndexedDB (checked every 64 frames by its mtime in the
-module's file system); "Download" saves the live image, "Forget my copy"
-drops the copy of a shipped image and mounts the original again.
+module's file system); "Download" saves the live image, "Forget" drops
+what was written to a shipped image and mounts the original again,
+"Delete" removes one of the user's own.

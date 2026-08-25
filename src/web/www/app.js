@@ -55,8 +55,9 @@ async function fetchBytes(url) {
 
 // ── persistence ────────────────────────────────────────────────────────────
 // IndexedDB holds image bytes by name: the user's own images, and the
-// copies of shipped images the guest has written to.  localStorage holds
-// the small things: the user's image list (name -> size) and the mounts.
+// shipped images the guest has written to (a copy; "Forget" drops it).
+// localStorage holds the small things: the user's image list (name ->
+// size) and the mounts.
 const DB = "ms0515", STORE = "disks";
 function db() {
   return new Promise((ok, no) => {
@@ -75,10 +76,8 @@ function dbRequest(mode, op) {
 const dbGet = (key) => dbRequest("readonly", (s) => s.get(key));
 const dbPut = (key, value) => dbRequest("readwrite", (s) => s.put(value, key));
 const dbDel = (key) => dbRequest("readwrite", (s) => s.delete(key));
-const dbKeys = () => dbRequest("readonly", (s) => s.getAllKeys());
 
 const own = new Map(Object.entries(JSON.parse(localStorage.getItem("ms0515.images") ?? "{}")));
-const copies = new Set();      // shipped images with a written copy in IndexedDB
 const saveOwn = () => localStorage.setItem("ms0515.images", JSON.stringify(Object.fromEntries(own)));
 
 // ── the mounts ─────────────────────────────────────────────────────────────
@@ -179,27 +178,23 @@ async function mountHd(name) {
 }
 
 // The module's files are the live images: an image written since the last
-// look goes to IndexedDB (a shipped one becomes "your copy").
+// look goes to IndexedDB.
 function flushDisks() {
   for (const [path, seen] of staged) {
     if (!M.FS.analyzePath(path).exists) continue;
     const mtime = M.FS.stat(path).mtime.getTime();
     if (mtime === seen) continue;
     staged.set(path, mtime);
-    const name = path.slice("/disks/".length);
-    dbPut(name, M.FS.readFile(path)).then(() => {
-      if (SHIPPED.has(name) && !copies.has(name)) { copies.add(name); renderDevices(); }
-    }).catch(() => {});
+    dbPut(path.slice("/disks/".length), M.FS.readFile(path)).catch(() => {});
   }
 }
 
-// Drop the written copy of a shipped image and mount the original again.
+// Drop what was written to a shipped image and mount the original again.
 async function forgetCopy(name) {
   const unit = slots.fd.indexOf(name);
   const onHd = slots.hd === name;
   if (unit >= 0) unmountFd(unit); else if (onHd) await mountHd("");
   await dbDel(name);
-  copies.delete(name);
   await stage(name, true);
   if (unit >= 0) await mountFd(unit, name); else if (onHd) await mountHd(name);
   say(`${name}: the original again`);
@@ -267,7 +262,7 @@ function select(kind, value, onchange) {
   const add = (v, label) => { const o = document.createElement("option"); o.value = v; o.textContent = label; s.appendChild(o); };
   add("", "— empty —");
   if (kind === "fd")
-    for (const d of DISKS) add(d.name, d.title + (copies.has(d.name) ? " · your copy" : ""));
+    for (const d of DISKS) add(d.name, d.title);
   for (const [name, size] of own)
     if ((size === SS_SIZE || size === DS_SIZE) === (kind === "fd")) add(name, `${name} (yours, ${fmtSize(size)})`);
   s.value = value;
@@ -277,11 +272,10 @@ function select(kind, value, onchange) {
 
 function imageButtons(name) {
   const b = [button("Download", () => download(name), "save the image as it is now")];
-  if (SHIPPED.has(name)) {
-    if (copies.has(name)) b.push(button("Forget my copy", () => forgetCopy(name), "back to the shipped original"));
-  } else {
+  if (SHIPPED.has(name))
+    b.push(button("Forget", () => forgetCopy(name), "drop your changes: the shipped original again"));
+  else
     b.push(button("Delete", () => deleteOwn(name), "remove the image from this browser"));
-  }
   return b;
 }
 
@@ -600,7 +594,6 @@ async function main() {
   bindApi();
   image = ctx.createImageData(canvas.width, canvas.height);
   h = api.create();
-  for (const k of await dbKeys()) if (SHIPPED.has(k)) copies.add(k);
 
   const m = loadMounts();
   $("rom").value = m.rom;
