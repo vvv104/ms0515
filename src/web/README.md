@@ -92,6 +92,15 @@ up the difference and is undone at release, CAPS + Shift inverts a letter,
 the numpad / * + and a few РУС-mode symbols are special cases.  The host's
 auto-repeat is ignored: the MS7004 repeats itself (`ms_key_tick`).
 
+Full screen (the button, F11): the picture alone on the display, through
+the Fullscreen API on `<main>` (not on an iPhone, which has none: there
+"Add to Home Screen" is the way).  On a touch device the keyboard button
+focuses a hidden text field so the OS raises its keyboard (`softkeys.js`):
+its characters arrive as input events and go through the typing queue,
+Cyrillic letters as the ЙЦУКЕН positions with the machine switched to РУС
+on the way (and back for Latin); Enter and Backspace by key; the page
+shrinks to the visual viewport while the keyboard is up.
+
 Sound: each frame's PCM goes to an AudioWorklet (`audio-worklet.js`) that
 plays the chunks back to back and drops the oldest past ~100 ms of lag; it
 starts on a click (browsers require a gesture).  An image the guest writes

@@ -14,6 +14,7 @@
 import createMs0515 from "./ms0515.js?v=@STAMP@";
 import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey } from "./keys.js?v=@STAMP@";
 import { Joystick } from "./joystick.js?v=@STAMP@";
+import { SoftKeyboard, isTouchDevice } from "./softkeys.js?v=@STAMP@";
 
 // The floppy images the site ships (dist/disks/, from assets/disks) and
 // their sides (a two-sided image takes both sides of its drive).
@@ -58,6 +59,7 @@ let running = false, lastTick = 0, acc = 0;
 let audio = null, speaker = null, audioStats = null;   // the worklet's counters, for __ms()
 let frames = 0, speakerTransitions = 0;   // the speaker's level changes, summed over the frames
 let joystick = null;                       // the MS7007-port joystick (joystick.js)
+let softkbd = null;                        // the OS's on-screen keyboard (softkeys.js)
 const K = (name) => KEY_ID[name];
 
 function say(s) { status.textContent = s; }
@@ -482,11 +484,22 @@ async function toggleSound() {
     $("sound").textContent = "Sound: off";
     return;
   }
-  audio = new AudioContext();
-  await audio.audioWorklet.addModule("audio-worklet.js?v=@STAMP@");
+  const ctx = new AudioContext();
+  if (!ctx.audioWorklet) {                 // http by an address: not a secure context
+    await ctx.close();
+    throw new Error("sound needs a secure page (https, or localhost): the AudioWorklet is not available here");
+  }
+  try {
+    await ctx.audioWorklet.addModule("audio-worklet.js?v=@STAMP@");
+  } catch (e) {
+    await ctx.close();
+    throw e;
+  }
+  audio = ctx;
   speaker = new AudioWorkletNode(audio, "ms0515-speaker");
   speaker.port.onmessage = (e) => { audioStats = e.data; };
   speaker.connect(audio.destination);
+  if (audio.state !== "running") await audio.resume().catch(() => {});
   $("sound").textContent = "Sound: on";
 }
 
@@ -585,6 +598,10 @@ const typing = {
     for (const ch of text) { const k = charToHostKey(ch); if (k) this.queue.push(k); }
     this.next = performance.now() + delayMs;
   },
+  // Items { code, shift, rus }: `rus` names the mode the machine must be in
+  // for the key (a letter from the on-screen keyboard); the queue switches
+  // РУС/ЛАТ on its way when the lamp says otherwise.
+  push(items) { this.queue.push(...items); },
   tick(now) {
     if (!h || now < this.next) return;
     if (this.pending) {                    // release the key pressed last time
@@ -594,14 +611,30 @@ const typing = {
       this.next = now + 60;
       return;
     }
-    const k = this.queue.shift();
+    let k = this.queue.shift();
     if (!k) return;
+    if (k.rus !== undefined && (api.ruslat(h) === 1) !== k.rus) {
+      this.queue.unshift(k);               // the mode first: РУС/ЛАТ, then the key
+      k = { code: "AltRight", settle: 200 };
+    }
     if (k.shift) keyboard.down("ShiftLeft");
     keyboard.down(k.code, k.shift);
     this.pending = k;
-    this.next = now + 60;
+    this.next = now + (k.settle ?? 60);
   },
 };
+
+// ── full screen: the picture alone, the toolbar and the status gone ────────
+function fullscreenOn() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function toggleFullscreen() {
+  const el = document.querySelector("main");
+  if (fullscreenOn()) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  } else {
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) Promise.resolve(req.call(el)).catch(fail);
+  }
+}
 
 // ── the page ───────────────────────────────────────────────────────────────
 function bindApi() {
@@ -643,9 +676,29 @@ function bindControls() {
     d.addEventListener("toggle", () => { if (d.open) for (const o of panels) if (o !== d) o.open = false; });
   document.addEventListener("click", (e) => { if (!e.target.closest("details.dev")) for (const o of panels) o.open = false; });
   $("rom").onchange = saveMounts;
-  // A click on a toolbar button must not keep the focus: the keys are the machine's.
+  // A click on a toolbar button must not keep the focus: the keys are the
+  // machine's (the keyboard button is the exception: it hands the focus to
+  // the hidden field the OS keyboard types into).
   for (const b of document.querySelectorAll("header > button"))
-    b.addEventListener("click", () => canvas.focus());
+    if (b.id !== "softkbd") b.addEventListener("click", () => canvas.focus());
+  // Full screen: the button, F11; hidden where the API is not there (an iPhone).
+  $("fullscreen").hidden = !(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  $("fullscreen").onclick = toggleFullscreen;
+  document.addEventListener("keydown", (e) => { if (e.key === "F11") { e.preventDefault(); toggleFullscreen(); } });
+  document.addEventListener("fullscreenchange", fit);
+  document.addEventListener("webkitfullscreenchange", fit);
+  // The OS's on-screen keyboard on a touch device; the page shrinks to what
+  // the keyboard leaves (the visual viewport) so the picture stays in view.
+  softkbd = new SoftKeyboard($("softkey"), (items) => typing.push(items), onKey, charToHostKey);
+  $("softkbd").hidden = !isTouchDevice();
+  $("softkbd").onclick = () => softkbd.toggle();
+  if (window.visualViewport) {
+    visualViewport.addEventListener("resize", () => {
+      const shrunk = visualViewport.height < innerHeight - 100;
+      document.body.style.height = shrunk ? visualViewport.height + "px" : "";
+      fit();
+    });
+  }
   joystick = new Joystick((bits) => { if (h) api.joystick(h, bits); }, $("joy"));
   $("joystick").onclick = () => {
     joystick.enable(!joystick.enabled);
@@ -697,7 +750,8 @@ window.__ms = () => {
   return { frames, running, status: status.textContent, colours: Object.keys(hist).length, hist,
            mounts: { fd: [...slots.fd], hd: slots.hd }, audio: audioStats && { ...audioStats, rate: audio?.sampleRate, state: audio?.state },
            speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
-           joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null };
+           joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null,
+           fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null };
 };
 window.__ms.type = (text) => typing.type(text);
 
