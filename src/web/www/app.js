@@ -55,7 +55,7 @@ let M, h, api;
 let image, pcmBuf;
 let running = false, lastTick = 0, acc = 0;
 let audio = null, speaker = null, audioStats = null;   // the worklet's counters, for __ms()
-let frames = 0;
+let frames = 0, speakerTransitions = 0;   // the speaker's level changes, summed over the frames
 const K = (name) => KEY_ID[name];
 
 function say(s) { status.textContent = s; }
@@ -440,6 +440,7 @@ function step(now) {
   api.keyTick(h, now >>> 0);
   const cycles = api.frame(h);
   ++frames;
+  speakerTransitions += api.transitions(h);
   if (cycles === 0) { say("CPU halted"); stop(); return; }
   if (speaker) queueAudio();
   if ((frames & 63) === 0) flushDisks();
@@ -615,6 +616,8 @@ function bindApi() {
     frame:   c("ms_frame", "number", ["number"]),
     render:  c("ms_render", "number", ["number"]),
     audio:   c("ms_audio", "number", ["number", "number", "number", "number"]),
+    transitions: c("ms_transitions", "number", ["number"]),
+    regC:    c("ms_reg_c", "number", ["number"]),
     key:     c("ms_key", null, ["number", "number", "number"]),
     keyTick: c("ms_key_tick", null, ["number", "number"]),
     keyMax:  c("ms_key_max", "number", []),
@@ -680,7 +683,8 @@ window.__ms = () => {
   const hist = {};
   if (ptr) for (const v of M.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + 640 * 400)) hist[v >>> 0] = (hist[v >>> 0] ?? 0) + 1;
   return { frames, running, status: status.textContent, colours: Object.keys(hist).length, hist,
-           mounts: { fd: [...slots.fd], hd: slots.hd }, audio: audioStats && { ...audioStats, rate: audio?.sampleRate, state: audio?.state } };
+           mounts: { fd: [...slots.fd], hd: slots.hd }, audio: audioStats && { ...audioStats, rate: audio?.sampleRate, state: audio?.state },
+           speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null };
 };
 window.__ms.type = (text) => typing.type(text);
 

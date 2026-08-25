@@ -185,6 +185,15 @@ EMSCRIPTEN_KEEPALIVE int ms_audio(Handle *h, int16_t *out, int max, int rate)
     return n;
 }
 
+/* Diagnostics for the page's __ms(): the speaker transitions of the last
+ * frame, and system register C (0177604) as the guest left it. */
+EMSCRIPTEN_KEEPALIVE int ms_transitions(Handle *h)
+{
+    return static_cast<int>(h->transitions.size());
+}
+
+EMSCRIPTEN_KEEPALIVE int ms_reg_c(Handle *h) { return h->emu.readByte(0177604); }
+
 /* Keys: `key` is ms0515::Key's value (the page carries the same table),
  * `down` 1 / 0.  ms_key_tick drives the MS7004 auto-repeat clock. */
 EMSCRIPTEN_KEEPALIVE void ms_key(Handle *h, int key, int down)
