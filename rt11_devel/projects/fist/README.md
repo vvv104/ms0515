@@ -34,7 +34,7 @@ source plus the game-state data file.
   the clock at the top, the yin-yang symbols, "1 PLAYER" and the high
   score, the rank line - printed as the original prints, pixels over the
   dojo at its positions; the cyan border; the intro tune at every opponent
-  presentation and the sound effects, both on reg C bit 5 bit-banged as the
+  presentation and the sound effects, both bit-banged on reg C bit 6 as the
   original's beeper; the high score (kept for the session); the settings
   screen ("0" in the demo: key redefinition, sound on / off); the
   2-player game ("2"); MS7004 keyboard control of both players (8

@@ -1,4 +1,4 @@
-"""$B15A: the six beeper effects, bit-banged on reg C bit 5.
+"""$B15A: the six beeper effects, bit-banged on reg C bit 6.
 
 The original's "noise" effects read ROM bytes from fixed addresses ($000A..
 $0400) masked to $7F / $3F / $FF as half-period lengths, so every effect
@@ -36,8 +36,10 @@ def effects():
     """SNDFX, the effect table, SND1..SND6 and NOISE."""
     r = RANGES
     return f"""        ; --- SNDGO: $B15A's effects (see game_sound.py; SNDFX in banks 0-1 is
-        ;     the entry).  The speaker is reg C bit 5 (direct drive, tech desc
-        ;     4.8) with bit 6 on and the timer gate (7) off.  R0 = code 1..6. -----
+        ;     the entry).  The speaker is reg C bit 6 (sound enable) toggled
+        ;     with the timer gate (7) off - OUT held high - and bit 5 set, the
+        ;     way the machine's Spectrum ports do it (BIRDS: 0x60 / 0x80).
+        ;     R0 = code 1..6. -----
 SNDGO:  CMP     R0,#6.
         BHI     9$
         ASL     R0
@@ -174,17 +176,18 @@ RLFSR:  MOV     R1,-(SP)
         MOV     (SP)+,R2
         MOV     (SP)+,R1
         RTS     PC
-        ; speaker control via the reg C shadow: SNDON = bit 6 on, 5 and 7 off;
-        ; SPKTOG flips bit 5; SNDOFF = bits 5-7 off (silence).
+        ; speaker control via the reg C shadow: SNDON = bits 6 and 5 on, 7
+        ; off (0x60, the speaker high); SPKTOG flips bit 6; SNDOFF = bits
+        ; 5-7 off (silence).
 SNDON:  MOVB    RCSHAD,R4
         BIC     #177640,R4
-        BIS     #100,R4
+        BIS     #140,R4
         MOVB    R4,RCSHAD
         MOVB    R4,@#SYSC
         RTS     PC
 SPKTOG: MOVB    RCSHAD,R4
         BIC     #177400,R4
-        MOV     #40,R5
+        MOV     #100,R5
         XOR     R5,R4
         MOVB    R4,RCSHAD
         MOVB    R4,@#SYSC

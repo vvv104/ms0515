@@ -54,7 +54,7 @@ def title_load(scrblk):
         MOVB    @#SYSC,R0
         BIC     #17,R0
         MOVB    R0,@#SYSC
-        MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 5 in it
+        MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 6 in it
         MOV     #3377,@#DISPAT         ; VRAM on @40000, banks 4-6 primary (SCRBUF)
         MOV     #VRAM,R0
 7$:     CLR     (R0)+
@@ -91,7 +91,7 @@ def after_load(withbg):
         MOVB    @#SYSC,R0
         BIC     #17,R0
         MOVB    R0,@#SYSC
-        MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 5 in it
+        MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 6 in it
         JMP     BOOT2
 """
 

@@ -3,7 +3,7 @@
 A record of the original's note table ($9128) is (half-period, cycles):
 the beeper toggles every half-period x 26 T-states, for `cycles` periods;
 half-period 1 is a rest of $0AF4 x 26 T; 0 ends the tune.  Here the
-speaker is reg C bit 5 (the SNDON / SPKTOG / SNDOFF drivers of the sound
+speaker is reg C bit 6 (the SNDON / SPKTOG / SNDOFF drivers of the sound
 effects), and one Z80 T-state is 7.5 / 3.5 CPU cycles - a SOB turn being
 ~9.3 cycles, one iteration of the original's delay (26 T) is 6 turns.  The
 tune is blocking and silent with the sound off (SNDENA / $B2FA), as in the
