@@ -68,7 +68,7 @@ async function fetchBytes(url) {
 
 // ── persistence ────────────────────────────────────────────────────────────
 // IndexedDB holds image bytes by name: the user's own images, and the
-// shipped images the guest has written to (a copy; "Forget" drops it).
+// shipped images the guest has written to (a copy; "Revert" drops it).
 // localStorage holds the small things: the user's image list (name ->
 // size) and the mounts.
 const DB = "ms0515", STORE = "disks";
@@ -203,7 +203,7 @@ function flushDisks() {
 }
 
 // Drop what was written to a shipped image and mount the original again.
-async function forgetCopy(name) {
+async function revert(name) {
   const unit = slots.fd.indexOf(name);
   const onHd = slots.hd === name;
   if (unit >= 0) unmountFd(unit); else if (onHd) await mountHd("");
@@ -299,7 +299,7 @@ function select(kind, value, onchange) {
 function imageButtons(name) {
   const b = [button("Download", () => download(name), "save the image as it is now")];
   if (SHIPPED.has(name))
-    b.push(button("Forget", () => forgetCopy(name), "drop your changes: the shipped original again"));
+    b.push(button("Revert", () => revert(name), "drop your changes: the shipped original again"));
   else
     b.push(button("Delete", () => deleteOwn(name), "remove the image from this browser"));
   return b;
