@@ -46,6 +46,7 @@ public:
     int  kbdGamePeriodMs      = -1;
     int  kbdAutoGameMode      = -1;
     bool fullscreen           = false;
+    std::string joystick;           /* "" (off) | "keys" | "gamepad" (yaml: "joystick") */
 
     [[nodiscard]] bool isDefault() const;
 

@@ -21,6 +21,9 @@ T-11), produced in the late 1980s.
   files), bootable system folders included (see `docs/folder-device.md`)
 - KR580VI53 (Intel 8253) programmable interval timer
 - MS7004 keyboard with an on-screen virtual keyboard (OSK)
+- The joystick on the MS7007 port (five lines in the Kempston order, as
+  SABOT2 and FIST read it): the arrows and Space or an SDL game controller
+  (Components → Joystick); in the browser, the arrows / a touch stick
 - Video: 320×200 with 8-colour attribute mode, or 640×200 monochrome
 - Audio output (timer-driven beeper)
 - Built-in debugger with disassembler and GDB-RSP server

@@ -30,6 +30,7 @@ bool Config::isDefault() const
         kbdGameDelayMs   >= 0 || kbdGamePeriodMs   >= 0 ||
         kbdAutoGameMode  >= 0) return false;
     if (fullscreen) return false;
+    if (!joystick.empty()) return false;
     return true;
 }
 
@@ -92,6 +93,7 @@ Config Config::load()
         else if (key == "kbd_game_period_ms")   cfg.kbdGamePeriodMs   = Paths::parseNumber(val);
         else if (key == "kbd_auto_game_mode")   cfg.kbdAutoGameMode   = (val == "true") ? 1 : 0;
         else if (key == "fullscreen")           cfg.fullscreen        = (val == "true");
+        else if (key == "joystick")             cfg.joystick          = val;
         /* Unknown keys: silently ignored. */
     }
     return cfg;
@@ -160,6 +162,7 @@ void Config::save() const
         f << "kbd_auto_game_mode: "
           << (kbdAutoGameMode ? "true" : "false") << "\n";
     if (fullscreen) f << "fullscreen: true\n";
+    if (!joystick.empty()) f << "joystick: " << joystick << "\n";
 }
 
 std::string resolveRom(const std::string &cliRomPath,
