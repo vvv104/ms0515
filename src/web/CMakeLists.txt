@@ -38,7 +38,16 @@ target_link_options(ms0515_web PRIVATE
 set(WEB_ASSETS_DIR "${CMAKE_SOURCE_DIR}/assets")
 set(WEB_DISKS osa.dsk omega-games.dsk omega-lang.dsk mihin.dsk rodionov.dsk vvv.dsk)
 set(WEB_COPIES)
-foreach(f index.html app.js keys.js audio-worklet.js)
+# index.html and app.js carry a build stamp in their script URLs (cache
+# busting); the rest is copied as is.
+foreach(f index.html app.js)
+    list(APPEND WEB_COPIES "${WEB_DIST}/${f}")
+    add_custom_command(OUTPUT "${WEB_DIST}/${f}"
+        COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/www/${f} -DOUT=${WEB_DIST}/${f}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/stamp.cmake"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${CMAKE_CURRENT_SOURCE_DIR}/stamp.cmake")
+endforeach()
+foreach(f keys.js audio-worklet.js)
     list(APPEND WEB_COPIES "${WEB_DIST}/${f}")
     add_custom_command(OUTPUT "${WEB_DIST}/${f}"
         COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${WEB_DIST}/${f}"

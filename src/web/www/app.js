@@ -9,8 +9,10 @@
 // the SDL front-end does, and keeps the images the guest writes to in
 // IndexedDB so the next visit finds them - nothing is ever written back to
 // the host (it is a static site), the originals are one click away.
-import createMs0515 from "./ms0515.js";
-import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey } from "./keys.js";
+// "@STAMP@" is the build time (stamp.cmake fills it in dist/): a browser
+// never pairs a cached module with a newer page.
+import createMs0515 from "./ms0515.js?v=@STAMP@";
+import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey } from "./keys.js?v=@STAMP@";
 
 // The floppy images the site ships (dist/disks/, from assets/disks) and
 // their sides (a two-sided image takes both sides of its drive).
@@ -478,7 +480,7 @@ async function toggleSound() {
     return;
   }
   audio = new AudioContext();
-  await audio.audioWorklet.addModule("audio-worklet.js");
+  await audio.audioWorklet.addModule("audio-worklet.js?v=@STAMP@");
   speaker = new AudioWorkletNode(audio, "ms0515-speaker");
   speaker.connect(audio.destination);
   $("sound").textContent = "Sound: on";
@@ -647,7 +649,7 @@ function bindControls() {
 async function main() {
   fit();
   window.addEventListener("resize", fit);
-  M = await createMs0515();
+  M = await createMs0515({ locateFile: (f) => f + "?v=@STAMP@" });
   bindApi();
   image = ctx.createImageData(canvas.width, canvas.height);
   h = api.create();
