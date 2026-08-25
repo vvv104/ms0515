@@ -45,8 +45,10 @@ source plus the game-state data file.
   effects read the very ROM bytes the original reads and the rumble runs
   its `$B2D7` shift register, so each effect sounds as it does there.
 
-Not ported: the settings screen's joystick choices (Sinclair / Kempston)
-have no joystick on the MS-0515 and fall back to the default keys.  What
+The settings screen's "5: KEMPSTON JOYSTICK" is the joystick the MS-0515
+has - five lines on the MS7007 port (0177542, see
+`docs/hardware/keyboard.md`), read next to the keys for the player who
+chose it; the Sinclair choices fall back to the default keys.  What
 stays different by nature: the MS7004 sends no key-release codes, so a
 held key is a timer refreshed by its auto-repeat (a key released less than
 ~0.2 s before the next press still counts as held); the AI's randomness

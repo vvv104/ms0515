@@ -191,7 +191,28 @@ KCTRL:  CLR     R0
         BEQ     9$
         DEC     10(R1)
         BIS     #20,R0
-9$:     RTS     PC
+9$:     CMP     R1,#KTUP             ; the joystick (the controls menu's "5":
+        BNE     8$                   ;   KEMPSTON) OR-ed in for the player
+        TST     JOY1                 ;   whose flag is on
+        BNE     JOYRD
+        RTS     PC
+8$:     TST     JOY2
+        BNE     JOYRD
+        RTS     PC
+        ; --- JOYRD: the joystick on the MS7007 port (0177542: five lines to
+        ;     ground - right, left, down, up, fire, the Kempston order - open
+        ;     lines high, as SABOT2 reads it) -> the control bits, into R0. ---
+JOYRD:  MOV     R1,-(SP)
+        MOV     @#177542,R1
+        COM     R1
+        BIC     #177740,R1
+        MOVB    JOYMAP(R1),R1
+        BIS     R1,R0
+        MOV     (SP)+,R1
+        RTS     PC
+JOYMAP: .BYTE   0,8.,4.,12.,2,10.,6,14.,1,9.,5,13.,3,11.,7,15.
+        .BYTE   16.,24.,20.,28.,18.,26.,22.,30.,17.,25.,21.,29.,19.,27.,23.,31.
+        .EVEN
 """
 
 
