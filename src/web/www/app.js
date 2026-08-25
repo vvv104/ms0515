@@ -23,6 +23,16 @@ const DISKS = [
   { name: "vvv.dsk",         sides: 1, title: "[VVV] Empty OS with HD.SYS" },
 ];
 const SHIPPED = new Map(DISKS.map((d) => [d.name, d.title]));
+
+// What to do first on each shipped disk, for the status line after a boot.
+const HINTS = {
+  "osa.dsk":         ". is the OS prompt: DIR lists the files, R FIST runs the game",
+  "omega-games.dsk": "the date as dd-mm-yy (22-08-92), Enter at the start file; then DIR lists the files, R NAME runs a .SAV",
+  "omega-lang.dsk":  ". is the OS prompt: DIR lists the files; PAS1, MACRO, LINK, FORTRA, BASICO compile, KED edits",
+  "mihin.dsk":       "Enter twice (the silent date and time prompts); then DIR lists the files",
+  "rodionov.dsk":    "Enter at the date prompt, then ROSA Commander: the arrows move, Enter runs a file",
+  "vvv.dsk":         "Enter twice (the silent date and time prompts); DIR lists the files; INIT HD: makes a mounted HD image a volume",
+};
 const sidesLabel = (n) => n === 2 ? "two-sided" : "one-sided";
 const ROMS = { a: "rom/ms0515-roma.rom", b: "rom/ms0515-romb.rom" };
 const SS_SIZE = 409600, DS_SIZE = 2 * SS_SIZE;
@@ -48,6 +58,7 @@ const K = (name) => KEY_ID[name];
 
 function say(s) { status.textContent = s; }
 const fail = (e) => say("error: " + (e?.message ?? e));
+const hint = (s) => say("hint: " + s);
 
 async function fetchBytes(url) {
   const r = await fetch(url);
@@ -324,7 +335,7 @@ async function newFloppy(drive, sides) {
   for (let i = 2; own.has(name); ++i) name = `blank${sides}s-${i}.dsk`;
   await addOwn(name, new Uint8Array(size));
   await mountFd(unit, name);
-  say(`${name} in drive ${"AB"[drive]}: INIT DZ${unit}: in the guest` + (sides === 2 ? ` (side 1 is DZ${unit + 2}:, its own volume)` : ""));
+  hint(`${name} is in drive ${"AB"[drive]}: INIT DZ${unit}: in the guest makes it a volume` + (sides === 2 ? ` (side 1 is DZ${unit + 2}:, its own)` : ""));
 }
 
 function newFloppyRow(drive) {
@@ -354,7 +365,7 @@ function hdRows() {
     for (let i = 2; own.has(name); ++i) name = `hd${size}m-${i}.img`;
     await addOwn(name, new Uint8Array(size * 1048576));
     await mountHd(name);
-    say(`${name} mounted: Boot, then INIT HD: in the guest`);
+    hint(`${name} is the HD now: Boot, then INIT HD: in the guest makes it a volume`);
   }, "a zero-filled image; the guest initialises it"));
   const hint = el("div", "hint", "RT-11 installs HD.SYS at boot: mount, then Boot (vvv.dsk has the handler)");
   return [row, make, hint];
@@ -391,7 +402,9 @@ async function boot() {
   if (!api.loadRom(h, "/rom.bin")) throw new Error("ROM load failed");
   api.reset(h);
   saveMounts();
-  say("");
+  const disk = slots.fd[unitOf(0, 0)];
+  if (!disk) hint("nothing in drive A: open its panel, pick an image, Boot again");
+  else hint(HINTS[disk] ?? "the machine boots from drive A side 0");
   canvas.focus();
   start();
 }
@@ -622,7 +635,7 @@ function bindControls() {
   $("rom").onchange = saveMounts;
   $("boot").onclick = () => boot().catch(fail);
   $("sound").onclick = () => toggleSound().catch(fail);
-  $("save").onclick = () => { if (h) say(api.save(h, "/state.bin") ? "state saved" : "save failed"); };
+  $("save").onclick = () => { if (h) say(api.save(h, "/state.bin") ? "state saved: Restore brings the machine back to it" : "save failed"); };
   $("restore").onclick = () => { if (h) say(api.load(h, "/state.bin") ? "state restored" : "no saved state"); };
   $("wipe").onclick = () => wipe().catch(fail);
   canvas.addEventListener("keydown", (e) => onKey(e, true));
