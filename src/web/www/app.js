@@ -13,6 +13,7 @@
 // never pairs a cached module with a newer page.
 import createMs0515 from "./ms0515.js?v=@STAMP@";
 import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey } from "./keys.js?v=@STAMP@";
+import { Joystick } from "./joystick.js?v=@STAMP@";
 
 // The floppy images the site ships (dist/disks/, from assets/disks) and
 // their sides (a two-sided image takes both sides of its drive).
@@ -56,6 +57,7 @@ let image, pcmBuf;
 let running = false, lastTick = 0, acc = 0;
 let audio = null, speaker = null, audioStats = null;   // the worklet's counters, for __ms()
 let frames = 0, speakerTransitions = 0;   // the speaker's level changes, summed over the frames
+let joystick = null;                       // the MS7007-port joystick (joystick.js)
 const K = (name) => KEY_ID[name];
 
 function say(s) { status.textContent = s; }
@@ -570,6 +572,7 @@ const keyboard = {
 function onKey(e, down) {
   if (!h) return;
   if (e.repeat) { e.preventDefault(); return; }         // the MS7004 repeats itself
+  if (joystick.key(e.code, down)) { e.preventDefault(); return; }   // the arrows and Space are the joystick's while it is on
   if (!mapKey(e.code, false, false).key && !e.code.startsWith("Numpad")) return;
   e.preventDefault();
   if (down) keyboard.down(e.code); else keyboard.up(e.code);
@@ -625,6 +628,7 @@ function bindApi() {
     ruslat:  c("ms_ruslat", "number", ["number"]),
     caps:    c("ms_caps", "number", ["number"]),
     releaseAll: c("ms_key_release_all", null, ["number"]),
+    joystick: c("ms_joystick", null, ["number", "number"]),
     save:    c("ms_save_state", "number", ["number", "string"]),
     load:    c("ms_load_state", "number", ["number", "string"]),
   };
@@ -639,6 +643,13 @@ function bindControls() {
     d.addEventListener("toggle", () => { if (d.open) for (const o of panels) if (o !== d) o.open = false; });
   document.addEventListener("click", (e) => { if (!e.target.closest("details.dev")) for (const o of panels) o.open = false; });
   $("rom").onchange = saveMounts;
+  joystick = new Joystick((bits) => { if (h) api.joystick(h, bits); }, $("joy"));
+  $("joystick").onclick = () => {
+    joystick.enable(!joystick.enabled);
+    $("joystick").textContent = joystick.enabled ? "Joystick: on" : "Joystick: off";
+    if (joystick.enabled) hint("the arrows and Space are the joystick (SABOT2: J KEMPSTON); on a touch screen, drag on the left of the picture, tap on the right");
+    canvas.focus();
+  };
   $("boot").onclick = () => boot().catch(fail);
   $("sound").onclick = () => toggleSound().catch(fail);
   $("save").onclick = () => { if (h) say(api.save(h, "/state.bin") ? "state saved: Restore brings the machine back to it" : "save failed"); };
@@ -684,7 +695,8 @@ window.__ms = () => {
   if (ptr) for (const v of M.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + 640 * 400)) hist[v >>> 0] = (hist[v >>> 0] ?? 0) + 1;
   return { frames, running, status: status.textContent, colours: Object.keys(hist).length, hist,
            mounts: { fd: [...slots.fd], hd: slots.hd }, audio: audioStats && { ...audioStats, rate: audio?.sampleRate, state: audio?.state },
-           speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null };
+           speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
+           joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null };
 };
 window.__ms.type = (text) => typing.type(text);
 

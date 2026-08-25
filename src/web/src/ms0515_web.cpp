@@ -203,6 +203,12 @@ EMSCRIPTEN_KEEPALIVE void ms_key(Handle *h, int key, int down)
 
 EMSCRIPTEN_KEEPALIVE void ms_key_release_all(Handle *h) { h->emu.keyReleaseAll(); }
 
+/* The joystick on the MS7007 port: bits 0-4 = right, left, down, up, fire. */
+EMSCRIPTEN_KEEPALIVE void ms_joystick(Handle *h, int bits)
+{
+    h->emu.setJoystick(static_cast<uint8_t>(bits));
+}
+
 EMSCRIPTEN_KEEPALIVE void ms_key_tick(Handle *h, uint32_t now_ms) { h->emu.keyTick(now_ms); }
 
 /* The highest ms0515::Key value - the page checks its table against it. */

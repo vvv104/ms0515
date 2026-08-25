@@ -20,6 +20,7 @@ add_executable(ms0515_core_tests
     test_trap_thunk.cpp
     test_vram_write_hook.cpp
     test_sound.cpp
+    test_joystick.cpp
 )
 
 target_compile_features(ms0515_core_tests PRIVATE c_std_11 cxx_std_23)

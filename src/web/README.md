@@ -64,6 +64,7 @@ CI runs both in the `web / emscripten` job.
 | `ms_save_state(h, path)` / `ms_load_state(h, path)` | snapshots in the module's file system |
 | `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
 | `ms_key_release_all(h)` | every key up (the canvas lost the focus) |
+| `ms_joystick(h, bits)` | the joystick on the MS7007 port: bits 0-4 right, left, down, up, fire (`joystick.js`: the arrows and Space, or a touch overlay) |
 
 ## The page
 

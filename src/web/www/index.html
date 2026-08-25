@@ -36,7 +36,14 @@
   .row select { max-width: 20em; }
   .panel .hint { color: #888; font-size: .9em; }
 
-  main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; container-type: size; }
+  main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; container-type: size; position: relative; }
+  /* The touch joystick over the screen: a floating stick on the left, fire on the right. */
+  #joy { position: absolute; inset: 0; touch-action: none; user-select: none; }
+  #joy .stick { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); background: rgba(255,255,255,.08); pointer-events: none; }
+  #joy .knob { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.45); }
+  #joy .firehint { position: absolute; right: 8%; bottom: 12%; width: 90px; height: 90px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25);
+                   color: rgba(255,255,255,.35); font: 14px system-ui, sans-serif; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  #joy.fire .firehint { background: rgba(255,120,120,.35); color: #fff; }
   /* The screen at 8:5 in whatever the header and the footer leave. */
   #screen { display: block; width: min(100cqw, 160cqh); background: #000; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
   #screen:focus { box-shadow: 0 0 0 2px #5a8; }
@@ -77,6 +84,7 @@
     </details>
   </div>
   <span class="spacer"></span>
+  <button id="joystick" title="the arrows and Space (or a touch screen) as the joystick on the MS7007 port">Joystick: off</button>
   <button id="sound">Sound: off</button>
   <button id="save">Save state</button>
   <button id="restore">Restore</button>
@@ -84,12 +92,17 @@
 </header>
 <main>
   <canvas id="screen" width="640" height="400" tabindex="0"></canvas>
+  <div id="joy" hidden>
+    <div class="stick" hidden><div class="knob"></div></div>
+    <div class="firehint">fire</div>
+  </div>
 </main>
 <footer>
   <div id="status">loading…</div>
   <details>
     <summary>help</summary>
     <div>Click the screen to type; RT-11 asks the date and the time at boot, Enter skips both. The keyboard follows the MS7004: the host's letters, digits and symbols make the characters on their caps (РУС mode: positional ЙЦУКЕН); arrows, the numeric keypad, F1–F13; Home/Ins/Del/End/PgUp/PgDn are the editing keys; Left Alt = Compose, Right Alt = РУС/ЛАТ.
+    "Joystick: on" makes the arrows and Space the joystick on the MS7007 port (SABOT2 on omega-games: J KEMPSTON), and on a touch screen a stick under a finger on the left of the picture and fire on the right.
     The drives A, B and HD mount like the desktop emulator's: a 400 KB image is one side, an 800 KB one takes both sides of its drive, the HD takes an image of any size (your own, or a new blank one - INIT HD: in the guest).
     Disks you write to stay in this browser (IndexedDB): "Download" saves a copy, "Revert" returns a shipped disk to its original, "Delete" removes one of yours.
     A game on <code>osa.dsk</code>: type <code>R FIST</code> (or open <code>?disk=osa.dsk&amp;type=R%20FIST</code>).

@@ -120,6 +120,17 @@ typedef struct ms0515_board {
     uint8_t  reg_c;             /* System Register C (output)               */
     uint8_t  ppi_control;       /* PPI control word                         */
 
+    /* The second KR580VV55 PPI (0177540-0177546), the MS7007 film keyboard's
+     * matrix port: port A (0177540) an output latch (the rows), port B
+     * (0177542) and port C (0177544) inputs.  No software at hand scans a
+     * matrix through it, but port B is where a joystick goes: five switches
+     * to ground on bits 0-4 (right, left, down, up, fire - the Kempston
+     * order), the open lines reading 1.  SABOT2 (the 1991 build) reads it:
+     * MOV @#177542,R0 / COM R0 / BIC #177740,R0. */
+    uint8_t  ppi2_a;            /* port A latch (readable back)             */
+    uint8_t  ppi2_control;      /* control word as written                  */
+    uint8_t  joystick;          /* MS0515_JOY_* bits held down by the host  */
+
     /* Video state */
     bool     hires_mode;        /* true = 640×200, false = 320×200          */
     uint8_t  border_color;      /* 3-bit border color (GRB)                 */
@@ -229,6 +240,17 @@ void board_step_cpu(ms0515_board_t *board);
  * board_key_event — Notify the board of a key press or release.
  */
 void board_key_event(ms0515_board_t *board, uint8_t scancode);
+
+/* The joystick on the MS7007 port (port B of the PPI at 0177542): `bits`
+ * is the OR of the MS0515_JOY_* lines held down; the port reads them
+ * inverted (a closed switch pulls its line low).  Host state: survives
+ * board_reset(). */
+#define MS0515_JOY_RIGHT 0x01
+#define MS0515_JOY_LEFT  0x02
+#define MS0515_JOY_DOWN  0x04
+#define MS0515_JOY_UP    0x08
+#define MS0515_JOY_FIRE  0x10
+void board_set_joystick(ms0515_board_t *board, uint8_t bits);
 
 /* ── Memory bus interface (called by CPU) ─────────────────────────────────── */
 

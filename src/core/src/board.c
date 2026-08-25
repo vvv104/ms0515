@@ -54,7 +54,10 @@
 #define IO_KBD_CMD          0x32    /* 0177462: Keyboard command (write)     */
 #define IO_TIMER_R_BASE     0x40    /* 0177500: Timer read base              */
 #define IO_TIMER_W_BASE     0x50    /* 0177520: Timer write base             */
-#define IO_PPI2_BASE        0x60    /* 0177540: MS7007 PPI (parallel kbd)    */
+#define IO_PPI2_A           0x60    /* 0177540: MS7007 PPI port A (rows out) */
+#define IO_PPI2_B           0x62    /* 0177542: MS7007 PPI port B (in): the joystick */
+#define IO_PPI2_C           0x64    /* 0177544: MS7007 PPI port C (in)       */
+#define IO_PPI2_CTRL        0x66    /* 0177546: MS7007 PPI control word      */
 #define IO_REG_A            0x80    /* 0177600: System Register A            */
 #define IO_REG_B            0x82    /* 0177602: System Register B            */
 #define IO_REG_C            0x84    /* 0177604: System Register C            */
@@ -235,6 +238,15 @@ static uint8_t io_read_byte(ms0515_board_t *board, uint16_t offset)
         return ramdisk_read(&board->ramdisk, offset);
     }
 
+    /* The MS7007 PPI: port A reads its latch, port B the joystick lines
+     * (closed switches low, open lines high), port C open lines. */
+    if (offset == IO_PPI2_A)
+        return board->ppi2_a;
+    if (offset == IO_PPI2_B)
+        return (uint8_t)(~board->joystick & 0xFF);
+    if (offset == IO_PPI2_C || offset == IO_PPI2_CTRL)
+        return 0xFF;
+
     /* Unhandled — return 0 (no bus error emulation yet) */
     return 0;
 }
@@ -302,6 +314,13 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
         }
         return;
     }
+
+    /* The MS7007 PPI: the port A latch and the control word are kept
+     * (the ROM sets A to 0377 at boot, the monitor writes 0 after a key);
+     * ports B and C are inputs. */
+    if (offset == IO_PPI2_A) { board->ppi2_a = value; return; }
+    if (offset == IO_PPI2_CTRL) { board->ppi2_control = value; return; }
+    if (offset == IO_PPI2_B || offset == IO_PPI2_C) return;
 
     /* FDC registers */
     if (offset >= IO_FDC_BASE && offset <= IO_FDC_BASE + 0x06) {
@@ -557,6 +576,8 @@ void board_reset(ms0515_board_t *board)
     board->reg_b = 0;
     board->reg_c = 0;
     board->ppi_control = 0;
+    board->ppi2_a = 0;
+    board->ppi2_control = 0;
 
     /* PPI reset clears all output latches → dispatcher = 0.
      * The ROM boot code is responsible for setting up bank mapping
@@ -667,6 +688,11 @@ void board_step_cpu(ms0515_board_t *board)
 {
     int c = cpu_step(&board->cpu);
     board->total_cycles += (uint64_t)(c > 0 ? c : 1);
+}
+
+void board_set_joystick(ms0515_board_t *board, uint8_t bits)
+{
+    board->joystick = bits & 0x1F;
 }
 
 void board_key_event(ms0515_board_t *board, uint8_t scancode)

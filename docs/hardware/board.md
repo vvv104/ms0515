@@ -38,7 +38,7 @@ All addresses in octal.  Offsets are relative to 177400 base, in decimal hex.
 | 177462            | 0x32   | Keyboard command (write)        |
 | 177500 – 177506   | 0x40   | Timer read (ch 0–2, control)    |
 | 177520 – 177526   | 0x50   | Timer write (ch 0–2, control)   |
-| 177540 – 177546   | 0x60   | MS7007 PPI (parallel keyboard)  |
+| 177540 – 177546   | 0x60   | MS7007 PPI: A rows latch, B the joystick (in), C in |
 | 177600            | 0x80   | System Register A (write)       |
 | 177602            | 0x82   | System Register B (read)        |
 | 177604            | 0x84   | System Register C (write)       |

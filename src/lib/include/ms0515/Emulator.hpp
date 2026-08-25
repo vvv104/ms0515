@@ -213,6 +213,16 @@ public:
 
     void keyReleaseAll();
 
+    /* ── Joystick ───────────────────────────────────────────────────────── */
+    /* A joystick on the MS7007 port (PPI port B, 0177542): `bits` is the OR
+     * of the Joy lines held down - five switches in the Kempston order.
+     * SABOT2 (1991) reads it; see docs/hardware/keyboard.md. */
+    struct Joy {
+        static constexpr uint8_t Right = 0x01, Left = 0x02, Down = 0x04, Up = 0x08, Fire = 0x10;
+    };
+    void setJoystick(uint8_t bits);
+    [[nodiscard]] uint8_t joystick() const noexcept;
+
     void keyTick(uint32_t now_ms);
 
     [[nodiscard]] bool capsOn()   const noexcept;
