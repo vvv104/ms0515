@@ -67,7 +67,9 @@ is **gated by bit 9** of the Memory Dispatcher register (177400) and
 Channel 2 output drives the speaker through System Register C:
 - Bit 7: GATE input to channel 2
 - Bit 6: Sound enable (master gate)
-- Bit 5: Tone control
+- Bit 5: Tone control - XNOR'ed with the channel 2 output, so with the
+  gate low (OUT held high) the speaker follows the bit; the Spectrum ports
+  bit-bang their sound by alternating 0x60 and 0x80 (see `board.c`)
 
 The boot sequence plays ascending tones (E1, G#1, B1, E2) using channel 2
 in mode 3 with programmed divisors.

@@ -94,13 +94,20 @@ static void update_sound(ms0515_board_t *board)
      *   Reg C bit 5 (УПР ГР): direct speaker drive - "changing this bit
      *     changes the speaker's tone" (tech desc 4.8).  Software toggles
      *     it to bit-bang clicks and noise without the timer (like IBM PC
-     *     port 61 bit 1); modelled as XOR with the channel 2 output, so
-     *     with the gate low (mode 3 OUT held high) the speaker follows
-     *     the bit, and with a tone playing the bit inverts its phase.
+     *     port 61 bit 1); modelled as XNOR with the channel 2 output: with
+     *     a tone playing the bit inverts its phase, with the gate low
+     *     (mode 3 OUT held high) the speaker FOLLOWS the bit.
      *
-     * The POST melody uses timer-driven mode: programs ch2 in mode 3,
-     * sets bits 7+6 to start the tone, clears them for silence.
-     * Bit 5 is not used by POST; games use it for effects.
+     * The polarity is pinned by the programs that use the path (the
+     * schematic is not at hand):
+     *   - the POST melody: ch2 in mode 3, bits 7+6 on for a tone (bit 5
+     *     = 0), all off for silence - any polarity;
+     *   - BIRDS and the other Spectrum ports bit-bang by alternating
+     *     0x60 (sound on, bit 5 on, gate off) and 0x80: the speaker must
+     *     be high at 0x60, so bit 5 = 1 with OUT = 1 gives 1 - XNOR, not
+     *     XOR (XOR left those games silent);
+     *   - the FIST port holds 0x40 / 0x60 and toggles bit 5 with the gate
+     *     off: either polarity clicks.
      */
     int new_value;
 
@@ -108,9 +115,9 @@ static void update_sound(ms0515_board_t *board)
         /* Sound disabled — speaker off */
         new_value = 0;
     } else {
-        /* Sound enabled — speaker follows timer channel 2 output XOR bit 5 */
+        /* Sound enabled — speaker follows timer channel 2 output XNOR bit 5 */
         int out = timer_get_out(&board->timer, 2) ? 1 : 0;
-        new_value = out ^ ((board->reg_c >> 5) & 1);
+        new_value = 1 ^ out ^ ((board->reg_c >> 5) & 1);
     }
 
     if (new_value != board->sound_value) {

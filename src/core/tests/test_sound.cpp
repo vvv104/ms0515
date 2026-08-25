@@ -4,7 +4,8 @@
  * NS4 tech description 4.8, Fig.17: bit 7 gates timer channel 2, bit 6
  * enables the speaker, and bit 5 ("changing this bit changes the speaker's
  * tone") is a direct software drive - games bit-bang it for noise effects.
- * Modelled as: speaker = bit6 ? (timer ch2 OUT xor bit5) : 0.
+ * Modelled as: speaker = bit6 ? !(timer ch2 OUT xor bit5) : 0 - the polarity
+ * the Spectrum ports need (BIRDS alternates 0x60 and 0x80 for its sound).
  */
 #include <doctest/doctest.h>
 
@@ -66,4 +67,14 @@ TEST_CASE("rewriting reg C with the same sound bits is not a transition") {
     f.regc(0x60 | 0x05);               /* border change only */
     f.regc(0x60 | 0x02);
     CHECK(f.levels.size() == base);
+}
+
+TEST_CASE("the Spectrum ports' pattern: 0x60 / 0x80 alternating is a square wave") {
+    Fixture f;
+    f.regc(0x80);                      /* gate on, sound off, bit 5 = 0 */
+    size_t base = f.levels.size();
+    for (int i = 0; i < 4; ++i) { f.regc(0x60); f.regc(0x80); }
+    REQUIRE(f.levels.size() == base + 8);
+    for (int i = 0; i < 8; ++i)
+        CHECK(f.levels[base + i] == (i % 2 == 0 ? 1 : 0));   /* high at 0x60, low at 0x80 */
 }
