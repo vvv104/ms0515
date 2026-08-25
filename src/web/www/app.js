@@ -15,14 +15,14 @@ import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey } from "./keys.js";
 // The floppy images the site ships (dist/disks/, from assets/disks) and
 // their sides (a two-sided image takes both sides of its drive).
 const DISKS = [
-  { name: "osa.dsk",         sides: 1 },
-  { name: "omega-games.dsk", sides: 1 },
-  { name: "omega-lang.dsk",  sides: 1 },
-  { name: "mihin.dsk",       sides: 1 },
-  { name: "rodionov.dsk",    sides: 2 },
-  { name: "vvv.dsk",         sides: 1 },
+  { name: "osa.dsk",         sides: 1, title: "[OSA] Games" },
+  { name: "omega-games.dsk", sides: 1, title: "[OMEGA] Games" },
+  { name: "omega-lang.dsk",  sides: 1, title: "[OMEGA] Development" },
+  { name: "mihin.dsk",       sides: 1, title: "[MIHIN] Tools" },
+  { name: "rodionov.dsk",    sides: 2, title: "[RODIONOV] Programs" },
+  { name: "vvv.dsk",         sides: 1, title: "[VVV] Empty OS with HD.SYS" },
 ];
-const SHIPPED = new Map(DISKS.map((d) => [d.name, d.sides]));
+const SHIPPED = new Map(DISKS.map((d) => [d.name, d.title]));
 const sidesLabel = (n) => n === 2 ? "two-sided" : "one-sided";
 const ROMS = { a: "rom/ms0515-roma.rom", b: "rom/ms0515-romb.rom" };
 const SS_SIZE = 409600, DS_SIZE = 2 * SS_SIZE;
@@ -275,10 +275,10 @@ function select(kind, value, onchange) {
   const add = (v, label) => { const o = document.createElement("option"); o.value = v; o.textContent = label; s.appendChild(o); };
   add("", "— empty —");
   if (kind === "fd")
-    for (const d of DISKS) add(d.name, `${d.name} (${sidesLabel(d.sides)})`);
+    for (const d of DISKS) add(d.name, `${d.title} (${sidesLabel(d.sides)})`);
   for (const [name, size] of own) {
     const floppy = size === SS_SIZE || size === DS_SIZE;
-    if (floppy === (kind === "fd")) add(name, `${name} (${floppy ? sidesLabel(size / SS_SIZE) : fmtSize(size)}, yours)`);
+    if (floppy === (kind === "fd")) add(name, `${name} (${floppy ? sidesLabel(size / SS_SIZE) : fmtSize(size)}, local copy)`);
   }
   s.value = value;
   s.onchange = () => Promise.resolve(onchange(s.value)).catch((e) => { fail(e); renderDevices(); });
@@ -309,6 +309,34 @@ function fdRow(unit) {
   return row;
 }
 
+// A blank floppy for the drive: one-sided into its first empty side,
+// two-sided into an empty drive.
+async function newFloppy(drive, sides) {
+  const size = sides * SS_SIZE;
+  let unit = unitOf(drive, 0);
+  if (sides === 2) {
+    if (slots.fd[unitOf(drive, 0)] || slots.fd[unitOf(drive, 1)]) throw new Error(`empty drive ${"AB"[drive]} first`);
+  } else if (slots.fd[unit]) {
+    unit = unitOf(drive, 1);
+    if (ds[drive] || slots.fd[unit]) throw new Error(`drive ${"AB"[drive]} has no empty side`);
+  }
+  let name = `blank${sides}s.dsk`;
+  for (let i = 2; own.has(name); ++i) name = `blank${sides}s-${i}.dsk`;
+  await addOwn(name, new Uint8Array(size));
+  await mountFd(unit, name);
+  say(`${name} in drive ${"AB"[drive]}: INIT DZ${unit}: in the guest` + (sides === 2 ? ` (side 1 is DZ${unit + 2}:, its own volume)` : ""));
+}
+
+function newFloppyRow(drive) {
+  const make = el("div", "row");
+  make.append(el("span", "side", "new"));
+  const sides = document.createElement("select");
+  for (const n of [1, 2]) { const o = document.createElement("option"); o.value = n; o.textContent = sidesLabel(n); sides.appendChild(o); }
+  make.append(sides);
+  make.append(button("Create blank", () => newFloppy(drive, +sides.value), "a zero-filled image; the guest initialises it (INIT DZn:)"));
+  return make;
+}
+
 function hdRows() {
   const row = el("div", "row");
   row.append(el("span", "side", "image"));
@@ -337,7 +365,7 @@ function renderDevices() {
     const d = $("dev" + drive);
     const names = [0, 1].map((s) => slots.fd[unitOf(drive, s)]).filter(Boolean);
     d.querySelector(".devname").innerHTML = `<b>${"AB"[drive]}</b> ` + (names.length ? names.join(" · ") + (ds[drive] ? " (two-sided)" : "") : "—");
-    d.querySelector(".panel").replaceChildren(fdRow(unitOf(drive, 0)), fdRow(unitOf(drive, 1)));
+    d.querySelector(".panel").replaceChildren(fdRow(unitOf(drive, 0)), fdRow(unitOf(drive, 1)), newFloppyRow(drive));
   }
   const hd = $("devhd");
   hd.querySelector(".devname").innerHTML = `<b>HD</b> ` + (slots.hd || "—");

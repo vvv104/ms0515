@@ -66,7 +66,8 @@ CI runs both in the `web / emscripten` job.
 The drives mount like the desktop front-ends': A and B have a side 0 and
 a side 1 each (a 400 KB image is one side, an 800 KB one takes both sides
 of its drive), the HD takes an image of any size - the shipped images, the
-user's own (opened from a file, or a new blank HD image), all mounted and
+user's own (opened from a file, or a new blank image - a floppy of one or
+two sides, or a HD of a chosen size), all mounted and
 unmounted on the running machine from the drive's panel in the toolbar,
 which also carries the drive's activity lamp.  The mounts and the list of
 own images persist in localStorage, the image bytes in IndexedDB.
