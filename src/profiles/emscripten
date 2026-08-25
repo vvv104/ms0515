@@ -1,0 +1,19 @@
+# Conan host profile for the browser build (ms0515_web):
+#   conan build . -pr:h profiles/emscripten -pr:b default --build=missing
+# The Emscripten SDK comes from Conan Center as a tool requirement; the
+# build lands in build/emscripten-release/ (web/dist/ inside is the site).
+[settings]
+os=Emscripten
+arch=wasm
+compiler=clang
+compiler.version=20
+compiler.libcxx=libc++
+compiler.cppstd=23
+build_type=Release
+
+[tool_requires]
+emsdk/3.1.73
+
+[conf]
+tools.cmake.cmaketoolchain:generator=Ninja
+tools.cmake.cmake_layout:build_folder_vars=["settings.os", "settings.build_type"]

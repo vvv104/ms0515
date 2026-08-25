@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MS-0515</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; background: #111; color: #ddd; font: 14px system-ui, sans-serif; overflow: hidden; }
+  header { display: flex; flex-wrap: wrap; gap: .4em; align-items: center; padding: .4em .75em; background: #1b1b1b; }
+  header h1 { font-size: 1em; margin: 0 .5em 0 0; color: #fff; }
+  select, button, input, label, summary { font: inherit; }
+  button, summary.dev { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .25em .6em; cursor: pointer; }
+  button:hover, summary.dev:hover, details[open] summary.dev { background: #383838; }
+  button.small { padding: .1em .4em; font-size: .9em; }
+  input[type=number] { width: 4em; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .2em .3em; }
+  .spacer { flex: 1; }
+
+  /* The drives: an icon, an activity lamp, the mounted image; a click opens
+     the drive's panel. */
+  .devices { display: flex; gap: .3em; margin-left: .4em; }
+  details.dev { position: relative; }
+  summary.dev { list-style: none; display: flex; align-items: center; gap: .45em; }
+  summary.dev::-webkit-details-marker { display: none; }
+  summary.dev svg { width: 18px; height: 18px; color: #aaa; }
+  .lamp { width: 8px; height: 8px; border-radius: 50%; background: #23301f; border: 1px solid #101; transition: background .08s, box-shadow .08s; }
+  .lamp.on { background: #5f5; box-shadow: 0 0 6px 1px #5f5; }
+  .devname { color: #ccc; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .devname b { color: #fff; margin-right: .15em; }
+  .panel { position: absolute; left: 0; top: calc(100% + .3em); z-index: 5; display: flex; flex-direction: column; gap: .45em;
+           background: #222; border: 1px solid #444; border-radius: 4px; padding: .6em .75em; white-space: nowrap; }
+  .row { display: flex; align-items: center; gap: .4em; }
+  .row .side { color: #999; width: 3.6em; }
+  .row .shadow { color: #888; font-style: italic; }
+  .row select { max-width: 20em; }
+  .panel .hint { color: #888; font-size: .9em; }
+
+  main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; container-type: size; }
+  /* The screen at 8:5 in whatever the header and the footer leave. */
+  #screen { display: block; width: min(100cqw, 160cqh); background: #000; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
+  #screen:focus { box-shadow: 0 0 0 2px #5a8; }
+  footer { display: flex; gap: 1em; align-items: baseline; padding: .25em .75em .5em; color: #999; white-space: nowrap; overflow: hidden; }
+  #status { color: #bbb; overflow: hidden; text-overflow: ellipsis; }
+  footer summary { cursor: pointer; color: #8ab; }
+  /* The help pops up over the screen (fixed: the footer clips its overflow). */
+  footer details div { position: fixed; bottom: 2.2em; left: .75em; width: min(44em, 90vw); white-space: normal; background: #222; border: 1px solid #444;
+                       border-radius: 4px; padding: .5em .75em; color: #ccc; z-index: 5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MS-0515</h1>
+  <label>ROM <select id="rom"><option value="a">A</option><option value="b">B</option></select></label>
+  <button id="boot" title="reset the machine with the disks mounted now">Boot</button>
+  <div class="devices">
+    <details class="dev" id="dev0">
+      <summary class="dev" title="floppy drive A (DZ0: side 0, DZ2: side 1)">
+        <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><rect x="10.5" y="17.5" width="3" height="4" fill="currentColor"/></svg>
+        <span class="lamp"></span><span class="devname"><b>A</b> —</span>
+      </summary>
+      <div class="panel"></div>
+    </details>
+    <details class="dev" id="dev1">
+      <summary class="dev" title="floppy drive B (DZ1: side 0, DZ3: side 1)">
+        <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><rect x="10.5" y="17.5" width="3" height="4" fill="currentColor"/></svg>
+        <span class="lamp"></span><span class="devname"><b>B</b> —</span>
+      </summary>
+      <div class="panel"></div>
+    </details>
+    <details class="dev" id="devhd">
+      <summary class="dev" title="paravirtual hard disk (HD:, needs HD.SYS in the guest)">
+        <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="12" r="1.2" fill="currentColor"/><path d="M10 12 L14 8" stroke="currentColor" stroke-width="1.5"/><rect x="17.5" y="8" width="2" height="8" fill="currentColor"/></svg>
+        <span class="lamp"></span><span class="devname"><b>HD</b> —</span>
+      </summary>
+      <div class="panel"></div>
+    </details>
+  </div>
+  <span class="spacer"></span>
+  <button id="sound">Sound: off</button>
+  <button id="save">Save state</button>
+  <button id="restore">Restore</button>
+  <input id="file" type="file" hidden>
+</header>
+<main>
+  <canvas id="screen" width="640" height="400" tabindex="0"></canvas>
+</main>
+<footer>
+  <div id="status">loading…</div>
+  <details>
+    <summary>help</summary>
+    <div>Click the screen to type; RT-11 asks the date and the time at boot, Enter skips both. The keyboard follows the MS7004: the host's letters, digits and symbols make the characters on their caps (РУС mode: positional ЙЦУКЕН); arrows, the numeric keypad, F1–F13; Home/Ins/Del/End/PgUp/PgDn are the editing keys; Left Alt = Compose, Right Alt = РУС/ЛАТ.
+    The drives A, B and HD mount like the desktop emulator's: a 400 KB image is one side, an 800 KB one takes both sides of its drive, the HD takes an image of any size (your own, or a new blank one - INIT HD: in the guest).
+    Disks you write to stay in this browser (IndexedDB): "Download" saves a copy, "Revert" returns a shipped disk to its original, "Delete" removes one of yours.
+    A game on <code>osa.dsk</code>: type <code>R FIST</code> (or open <code>?disk=osa.dsk&amp;type=R%20FIST</code>).
+    <p><button id="wipe" class="small" title="drop every image and setting this page keeps in the browser">Wipe browser data</button> — a fresh start: your images, changed disks and mounts are gone.</p></div>
+  </details>
+</footer>
+<script>
+  // A module script does not run from file:// (and its .wasm would not
+  // load); say so instead of "loading…" forever.
+  if (location.protocol === "file:")
+    document.getElementById("status").textContent =
+      "this page needs a web server (python -m http.server in this folder, or the published site): " +
+      "browsers do not run a module from file://";
+</script>
+<script type="module" src="app.js?v=@STAMP@"></script>
+</body>
+</html>

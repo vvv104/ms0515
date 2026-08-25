@@ -119,3 +119,59 @@ jobs:
             ./core/tests/ms0515_core_tests
             ./lib/tests/ms0515_lib_tests
           fi
+
+  web:
+    name: web / emscripten
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install Conan
+        run: pip install "conan>=2.0" ninja
+
+      - name: Cache Conan packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.conan2
+          key: conan-web-${{ hashFiles('src/conanfile.py', 'src/profiles/emscripten') }}
+          restore-keys: |
+            conan-web-
+
+      - name: Configure Conan build profile
+        run: conan profile detect --force
+
+      # The browser build: the core and the lib behind a C API, compiled by
+      # the Emscripten SDK Conan fetches as a tool requirement.  emcc runs
+      # setup-node's Node (EM_NODE_JS), not the old one the SDK package
+      # carries, which fails its version check.
+      - name: Build (Emscripten)
+        working-directory: src
+        run: |
+          export EM_NODE_JS="$(which node)"
+          conan build . -pr:h profiles/emscripten -pr:b default --build=missing
+
+      # Boot the OSA disk under Node and expect RT-11's screen.
+      - name: Smoke test (Node)
+        run: node src/web/smoke.mjs src/build/emscripten-release/web/dist
+
+      # The page itself in the runner's Chrome (headless, DevTools protocol):
+      # boot, the date prompt answered, RT-11's text on the canvas.
+      - name: Browser check (Chrome)
+        run: |
+          (cd src/build/emscripten-release/web/dist && python3 -m http.server 8515 > /dev/null 2>&1 &)
+          google-chrome --headless=new --disable-gpu --no-sandbox --remote-debugging-port=9222             --user-data-dir=/tmp/chrome-profile about:blank > /dev/null 2>&1 &
+          sleep 3
+          node src/web/browser_check.mjs http://localhost:8515/ 9222
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ms0515-web
+          path: src/build/emscripten-release/web/dist

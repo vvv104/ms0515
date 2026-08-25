@@ -29,12 +29,15 @@ class Ms0515Recipe(ConanFile):
         "sdl/*:libunwind": False,
     }
 
-    requires = (
-        "sdl/2.30.7",
-        "imgui/1.91.5",
-        "doctest/2.4.11",
-        "stb/cci.20240213",
-    )
+    def requirements(self):
+        # The browser build (os=Emscripten, profiles/emscripten) compiles the
+        # core and the lib only: no SDL / ImGui, no host tests.
+        if self.settings.os == "Emscripten":
+            return
+        self.requires("sdl/2.30.7")
+        self.requires("imgui/1.91.5")
+        self.requires("doctest/2.4.11")
+        self.requires("stb/cci.20240213")
 
     def set_version(self):
         # Single source of truth for the version: src/VERSION (also read by
@@ -48,6 +51,8 @@ class Ms0515Recipe(ConanFile):
 
     def build(self):
         cmake = CMake(self)
-        variables = {"MS0515_BUILD_TESTS": "ON"}
+        web = self.settings.os == "Emscripten"
+        variables = {"MS0515_BUILD_TESTS":    "OFF" if web else "ON",
+                     "MS0515_BUILD_FRONTEND": "OFF" if web else "ON"}
         cmake.configure(variables=variables)
         cmake.build()
