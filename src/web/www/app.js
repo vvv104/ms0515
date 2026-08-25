@@ -214,6 +214,17 @@ async function deleteOwn(name) {
   renderDevices();
 }
 
+// Everything the page keeps in the browser, then the page anew.
+async function wipe() {
+  if (!confirm("Drop every image and setting this page keeps in the browser?")) return;
+  stop();
+  window.removeEventListener("beforeunload", flushDisks);
+  localStorage.removeItem("ms0515.images");
+  localStorage.removeItem("ms0515.mounts");
+  await new Promise((ok, no) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = ok; r.onerror = () => no(r.error); r.onblocked = ok; });
+  location.href = location.pathname;
+}
+
 function download(name) {
   const path = pathOf(name);
   if (!M.FS.analyzePath(path).exists) return;
@@ -581,6 +592,7 @@ function bindControls() {
   $("sound").onclick = () => toggleSound().catch(fail);
   $("save").onclick = () => { if (h) say(api.save(h, "/state.bin") ? "state saved" : "save failed"); };
   $("restore").onclick = () => { if (h) say(api.load(h, "/state.bin") ? "state restored" : "no saved state"); };
+  $("wipe").onclick = () => wipe().catch(fail);
   canvas.addEventListener("keydown", (e) => onKey(e, true));
   canvas.addEventListener("keyup", (e) => onKey(e, false));
   canvas.addEventListener("blur", () => { if (h) { api.releaseAll(h); keyboard.reset(); } });
