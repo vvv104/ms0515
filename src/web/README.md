@@ -32,7 +32,11 @@ disks/                   the demo disks from assets/disks
 ```
 
 Serve the folder as is (`python -m http.server` in it, or GitHub Pages);
-`file://` does not work (a module fetches its `.wasm`).
+`file://` does not work (a module fetches its `.wasm`).  The published
+site, <https://vvv104.github.io/ms0515/>, is deployed by
+`.github/workflows/pages.yml` on every release tag: the repository's Pages
+source is "GitHub Actions", and the `github-pages` environment allows the
+`v*` tags to deploy (its branch policy: `main` and the tag rule `v*`).
 
 ## Check
 
