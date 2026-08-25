@@ -359,7 +359,7 @@ async function boot() {
   if (!api.loadRom(h, "/rom.bin")) throw new Error("ROM load failed");
   api.reset(h);
   saveMounts();
-  say(`ROM ${rom.toUpperCase()} · Enter accepts the date prompts`);
+  say("");
   canvas.focus();
   start();
 }
