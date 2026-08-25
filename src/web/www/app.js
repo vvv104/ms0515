@@ -647,7 +647,6 @@ function bindControls() {
   $("joystick").onclick = () => {
     joystick.enable(!joystick.enabled);
     $("joystick").textContent = joystick.enabled ? "Joystick: on" : "Joystick: off";
-    if (joystick.enabled) hint("the arrows and Space are the joystick (SABOT2: J KEMPSTON); on a touch screen, drag on the left of the picture, tap on the right");
     canvas.focus();
   };
   $("boot").onclick = () => boot().catch(fail);

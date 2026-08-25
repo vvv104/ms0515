@@ -922,17 +922,9 @@ void App::drawJoystickSubmenu()
     };
     pick("Off", JoystickMode::Off);
     pick("Keys: the arrows and Space", JoystickMode::Keys);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Those keys are the joystick then, not the MS7004's.");
     const std::string pad = joystick_.gamepadName();
     const std::string padLabel = pad.empty() ? std::string{"Gamepad (none found)"} : "Gamepad: " + pad;
     pick(padLabel.c_str(), JoystickMode::Gamepad);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("The d-pad or the left stick; any face button, shoulder or trigger is fire.");
-    ImGui::Separator();
-    ImGui::TextDisabled("Five lines on the MS7007 port (0177542).\n"
-                        "SABOT2 (1991, omega-games): J KEMPSTON.\n"
-                        "FIST: the settings screen, 5.");
     ImGui::EndMenu();
 }
 
