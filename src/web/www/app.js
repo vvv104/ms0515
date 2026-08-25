@@ -54,7 +54,7 @@ const status = $("status");
 let M, h, api;
 let image, pcmBuf;
 let running = false, lastTick = 0, acc = 0;
-let audio = null, speaker = null;
+let audio = null, speaker = null, audioStats = null;   // the worklet's counters, for __ms()
 let frames = 0;
 const K = (name) => KEY_ID[name];
 
@@ -482,6 +482,7 @@ async function toggleSound() {
   audio = new AudioContext();
   await audio.audioWorklet.addModule("audio-worklet.js?v=@STAMP@");
   speaker = new AudioWorkletNode(audio, "ms0515-speaker");
+  speaker.port.onmessage = (e) => { audioStats = e.data; };
   speaker.connect(audio.destination);
   $("sound").textContent = "Sound: on";
 }
@@ -678,7 +679,8 @@ window.__ms = () => {
   const ptr = h ? api.render(h) : 0;
   const hist = {};
   if (ptr) for (const v of M.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + 640 * 400)) hist[v >>> 0] = (hist[v >>> 0] ?? 0) + 1;
-  return { frames, running, status: status.textContent, colours: Object.keys(hist).length, hist, mounts: { fd: [...slots.fd], hd: slots.hd } };
+  return { frames, running, status: status.textContent, colours: Object.keys(hist).length, hist,
+           mounts: { fd: [...slots.fd], hd: slots.hd }, audio: audioStats && { ...audioStats, rate: audio?.sampleRate, state: audio?.state } };
 };
 window.__ms.type = (text) => typing.type(text);
 

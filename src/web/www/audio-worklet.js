@@ -10,13 +10,16 @@ class Ms0515Speaker extends AudioWorkletProcessor {
     this.queue = [];
     this.queued = 0;
     this.offset = 0;
+    this.stats = { received: 0, dropped: 0, starved: 0, played: 0 };   // chunks, chunks, quanta, quanta
     this.port.onmessage = (e) => {
       this.queue.push(e.data);
       this.queued += e.data.length;
+      ++this.stats.received;
       while (this.queued > sampleRate / 10 && this.queue.length > 1) {
         this.queued -= this.queue[0].length - this.offset;
         this.queue.shift();
         this.offset = 0;
+        ++this.stats.dropped;
       }
     };
   }
@@ -24,6 +27,8 @@ class Ms0515Speaker extends AudioWorkletProcessor {
   process(inputs, outputs) {
     const out = outputs[0][0];
     let i = 0;
+    if (this.queue.length) ++this.stats.played; else ++this.stats.starved;
+    if ((this.stats.played + this.stats.starved) % 375 === 0) this.port.postMessage(this.stats);   // ~once a second at 48 kHz
     while (i < out.length && this.queue.length) {
       const chunk = this.queue[0];
       const n = Math.min(out.length - i, chunk.length - this.offset);
