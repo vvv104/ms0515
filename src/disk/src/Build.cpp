@@ -423,17 +423,15 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear)
     const int totalSpan = cur - dataStart;        /* blocks under directory control */
 
     /* Move file data blocks LEFT in directory order so they end up contiguous
-     * starting at dataStart.  Walking left-to-right is safe because every
-     * file's new start is no greater than its old start AND the next file's
-     * old start is strictly greater than this file's new end (no overlap). */
+     * starting at dataStart - block by block through the layout: on a floppy
+     * consecutive LBNs are not consecutive bytes of the image (the skew).
+     * Walking ascending is safe: a block's new LBN is never above its old
+     * one, and every block it lands on was already copied out or is free. */
     int newCursor = dataStart;
     for (auto &f : perms) {
-        if (f.oldStart != newCursor) {
-            const std::size_t srcOff = off(f.oldStart);
-            const std::size_t dstOff = off(newCursor);
-            const std::size_t n      = static_cast<std::size_t>(f.length) * kBlock;
-            std::memmove(image.data() + dstOff, image.data() + srcOff, n);
-        }
+        if (f.oldStart != newCursor)
+            for (int i = 0; i < f.length; ++i)
+                std::memmove(image.data() + off(newCursor + i), image.data() + off(f.oldStart + i), kBlock);
         f.oldStart = newCursor;
         newCursor += f.length;
     }

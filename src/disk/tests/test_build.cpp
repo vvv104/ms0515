@@ -661,3 +661,36 @@ TEST_CASE("rename keeps the data and refuses a taken or bad name") {
     CHECK_THROWS(renameFile(img, 0, false, "NOSUCH.TXT", "X.TXT"));
 }
 
+TEST_CASE("squeeze on a floppy keeps every file's bytes (the LBNs are skewed, not linear)") {
+    /* Files spanning many blocks, one removed from the middle, the rest
+     * moved down: each must read back byte-exact - the move goes block by
+     * block through the layout, where consecutive LBNs are not consecutive
+     * bytes of the image. */
+    auto img = blankImage(false);
+    initVolume(img, 0, false);
+    const std::vector<BuildFile> files = {
+        {"A.DAT", pattern(23 * 512, 1)}, {"B.DAT", pattern(7 * 512 + 100, 2)},
+        {"C.DAT", pattern(41 * 512, 3)}, {"D.DAT", pattern(3 * 512, 4)}, {"E.DAT", pattern(60 * 512 + 1, 5)},
+    };
+    for (const auto &f : files) putFile(img, 0, false, f.name, f.data);
+    removeFile(img, 0, false, "B.DAT");
+    removeFile(img, 0, false, "D.DAT");
+    squeeze(img, 0, false);
+    auto opened = openImage(img, 0);
+    REQUIRE(opened);
+    int expectStart = opened->directory.dataStart;
+    for (const auto &f : files) {
+        if (f.name == "B.DAT" || f.name == "D.DAT") { CHECK(opened->directory.find(f.name) == nullptr); continue; }
+        const DirEntry *e = opened->directory.find(f.name);
+        REQUIRE(e != nullptr);
+        CHECK(e->startBlock == expectStart);                     /* packed to the front, in order */
+        expectStart += e->length;
+        auto data = opened->readFile(f.name);
+        REQUIRE(data.size() >= f.data.size());
+        CHECK(std::equal(f.data.begin(), f.data.end(), data.begin()));
+    }
+    int empties = 0;
+    for (const auto &e : opened->directory.entries) if (e.isEmpty() && e.length > 0) ++empties;
+    CHECK(empties == 1);
+}
+
