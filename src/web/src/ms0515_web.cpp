@@ -131,14 +131,15 @@ std::string jsonEscape(const std::string &s)
 
 extern "C" {
 
-/* The directory of the image at `path`, side 0 / 1, as a JSON array of
- * {name, blocks, date ("YYYY-MM-DD" or ""), protected}; "" and an error
- * text (ms_disk_error) when the image has none. */
-EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side)
+/* The RT-11 file system of an image in the module's file system - the
+ * page's commander.  `linear` = an HD / LD container (byte = LBN * 512),
+ * else a floppy image with a `side`. */
+EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side, int linear)
 {
     gDiskText.clear();
-    auto img = ms0515::disk::openImage(readAll(path), side);
-    if (!img || !img->hasDirectory) { gDiskError = "no RT-11 directory on this side"; return ""; }
+    auto bytes = readAll(path);
+    auto img = linear ? ms0515::disk::openLinearImage(bytes) : ms0515::disk::openImage(bytes, side);
+    if (!img || !img->hasDirectory) { gDiskError = "no RT-11 directory here"; return ""; }
     std::string out = "[";
     for (const auto &e : img->directory.permanentFiles()) {
         std::string date;
@@ -159,10 +160,11 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side)
 EMSCRIPTEN_KEEPALIVE const char *ms_disk_error(void) { return gDiskError.c_str(); }
 
 /* Read a file: the size, its bytes at ms_disk_data(); -1 when absent. */
-EMSCRIPTEN_KEEPALIVE int ms_disk_get(const char *path, int side, const char *name)
+EMSCRIPTEN_KEEPALIVE int ms_disk_get(const char *path, int side, int linear, const char *name)
 {
     gDiskBytes.clear();
-    auto img = ms0515::disk::openImage(readAll(path), side);
+    auto bytes = readAll(path);
+    auto img = linear ? ms0515::disk::openLinearImage(bytes) : ms0515::disk::openImage(bytes, side);
     if (!img || !img->hasDirectory || !img->directory.find(name)) { gDiskError = "no such file"; return -1; }
     gDiskBytes = img->readFile(name);
     return static_cast<int>(gDiskBytes.size());
@@ -171,17 +173,19 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_get(const char *path, int side, const char *nam
 EMSCRIPTEN_KEEPALIVE const uint8_t *ms_disk_data(void) { return gDiskBytes.data(); }
 
 /* Write a file (replacing one of the name); year 0 = no date.  1 / 0. */
-EMSCRIPTEN_KEEPALIVE int ms_disk_put(const char *path, int side, const char *name,
-                                     const uint8_t *data, int len, int year, int month, int day)
+EMSCRIPTEN_KEEPALIVE int ms_disk_put(const char *path, int side, int linear, const char *name,
+                                     const uint8_t *data, int len, int year, int month, int day, int prot)
 {
     try {
         auto bytes = readAll(path);
-        const bool ds = bytes.size() == 2 * 409600;
-        if (auto img = ms0515::disk::openImage(bytes, side); img && img->hasDirectory && img->directory.find(name))
-            ms0515::disk::removeFile(bytes, side, ds, name);
+        const bool ds = !linear && bytes.size() == 2 * 409600;
+        auto img = linear ? ms0515::disk::openLinearImage(bytes) : ms0515::disk::openImage(bytes, side);
+        if (img && img->hasDirectory && img->directory.find(name))
+            ms0515::disk::removeFile(bytes, side, ds, name, linear != 0);
         ms0515::disk::PutOptions opts;
         if (year) opts.date = ms0515::disk::encodeDate(year, month, day);
-        ms0515::disk::putFile(bytes, side, ds, name, std::span<const uint8_t>(data, static_cast<size_t>(len)), opts);
+        opts.readOnly = prot != 0;
+        ms0515::disk::putFile(bytes, side, ds, name, std::span<const uint8_t>(data, static_cast<size_t>(len)), opts, linear != 0);
         if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
         return 1;
     } catch (const std::exception &e) {
@@ -190,11 +194,11 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_put(const char *path, int side, const char *nam
     }
 }
 
-EMSCRIPTEN_KEEPALIVE int ms_disk_rm(const char *path, int side, const char *name)
+EMSCRIPTEN_KEEPALIVE int ms_disk_rm(const char *path, int side, int linear, const char *name)
 {
     try {
         auto bytes = readAll(path);
-        ms0515::disk::removeFile(bytes, side, bytes.size() == 2 * 409600, name);
+        ms0515::disk::removeFile(bytes, side, !linear && bytes.size() == 2 * 409600, name, linear != 0);
         if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
         return 1;
     } catch (const std::exception &e) {
@@ -203,6 +207,18 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_rm(const char *path, int side, const char *name
     }
 }
 
+EMSCRIPTEN_KEEPALIVE int ms_disk_rename(const char *path, int side, int linear, const char *name, const char *newName)
+{
+    try {
+        auto bytes = readAll(path);
+        ms0515::disk::renameFile(bytes, side, !linear && bytes.size() == 2 * 409600, name, newName, linear != 0);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
 
 EMSCRIPTEN_KEEPALIVE Handle *ms_create(void)
 {

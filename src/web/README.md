@@ -64,7 +64,7 @@ CI runs both in the `web / emscripten` job.
 | `ms_save_state(h, path)` / `ms_load_state(h, path)` | snapshots in the module's file system |
 | `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
 | `ms_key_release_all(h)` | every key up (the canvas lost the focus) |
-| `ms_disk_dir(path, side)` / `ms_disk_get(path, side, name)` + `ms_disk_data()` / `ms_disk_put(path, side, name, data, len, y, m, d)` / `ms_disk_rm(path, side, name)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library): the page's "Files" panel - list, save, add, delete |
+| `ms_disk_dir(path, side, linear)` / `ms_disk_get(path, side, linear, name)` + `ms_disk_data()` / `ms_disk_put(path, side, linear, name, data, len, y, m, d, prot)` / `ms_disk_rm(...)` / `ms_disk_rename(...)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library; `linear` for the HD): the page's commander |
 | `ms_joystick(h, bits)` | the joystick on the MS7007 port: bits 0-4 right, left, down, up, fire (`joystick.js`: the arrows and Space, or a touch overlay) |
 
 ## The page
@@ -102,12 +102,16 @@ Cyrillic letters as the ЙЦУКЕН positions with the machine switched to РУ
 on the way (and back for Latin); Enter and Backspace by key; the page
 shrinks to the visual viewport while the keyboard is up.
 
-"Files" in a drive's panel lists the image's RT-11 directory through the
-offline disk library compiled into the module: a file can be saved to the
-computer, deleted, or added from a file of the user's (its name made a 6.3
-RT-11 name, no date - the OS cannot hold today's).  A write goes around the
-FDC: the image is unmounted, changed in the module's file system, mounted
-again, so the guest sees a changed disk at its next directory read.
+"Files" replaces the screen with a two-pane commander (`fm.js`) over the
+mounted disks' RT-11 directories, read through the offline disk library
+compiled into the module: a floppy side or the HD image in each pane; View
+(text in KOI-7 / KOI-8R / CP866, or a hex dump), Copy to the other pane (with the
+date and the protection), Rename, Delete, Download to the computer, Upload
+a file of the user's (its name made a 6.3 RT-11 name, no date - the OS
+cannot hold today's); F3 / F5 / F6 / F8, Tab, the arrows, Enter, Esc as in
+the commander it is named after.  A write goes around the FDC: the image
+is unmounted, changed in the module's file system, mounted again, so the
+guest sees a changed disk at its next directory read.
 
 Sound: each frame's PCM goes to an AudioWorklet (`audio-worklet.js`) that
 plays the chunks back to back and drops the oldest past ~100 ms of lag; it

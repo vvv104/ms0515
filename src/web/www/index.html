@@ -36,13 +36,24 @@
   .row .shadow { color: #888; font-style: italic; }
   .row select { max-width: 20em; }
   .panel .hint { color: #888; font-size: .9em; }
-  /* The files of an image, in the drive's panel. */
-  .files { max-height: 60vh; overflow: auto; }
-  .files table { border-collapse: collapse; font: 13px ui-monospace, Consolas, monospace; }
-  .files td { padding: .1em .6em .1em 0; white-space: nowrap; }
-  .files td.n { text-align: right; }
-  .files .lock { color: #888; }
-
+  /* The commander: two panes of RT-11 files in place of the screen. */
+  #fm { width: 100%; height: 100%; display: flex; flex-direction: column; gap: .4em; font: 14px ui-monospace, Consolas, monospace; }
+  .fm-panes { flex: 1; min-height: 0; display: flex; gap: .5em; }
+  .fm-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 1px solid #446; background: #05173a; }
+  .fm-pane.active { border-color: #8ab; }
+  .fm-pane select { margin: .3em; font: inherit; }
+  .fm-list { flex: 1; min-height: 0; overflow: auto; outline: none; padding: .2em 0; }
+  .fm-row { display: grid; grid-template-columns: 1fr 5ch 11ch 2ch; gap: .6em; padding: .05em .6em; color: #9cf; cursor: default; white-space: nowrap; }
+  .fm-row .b { text-align: right; }
+  .fm-row .p { color: #fc8; }
+  .fm-row.selected { background: #2a6a8a; color: #fff; }
+  .fm-pane.active .fm-row.selected { background: #3a8; }
+  .fm-foot { padding: .2em .6em; color: #8ab; border-top: 1px solid #446; }
+  .fm-bar { display: flex; gap: .4em; align-items: center; }
+  .fm-gap { flex: 1; }
+  .fm-viewer { position: absolute; inset: .5em; display: flex; flex-direction: column; gap: .4em; background: #111; }
+  .fm-vname { color: #ccc; }
+  .fm-text { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: .5em; background: #05173a; color: #cde; white-space: pre; }
   main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; container-type: size; position: relative; }
   /* Full screen: the picture alone on black. */
   main:fullscreen, main:-webkit-full-screen { padding: 0; background: #000; }
@@ -94,6 +105,7 @@
       <div class="panel"></div>
     </details>
   </div>
+  <button id="files" title="the files of the mounted disks (F3 view, F5 copy, F6 rename, F8 delete)">Files</button>
   <span class="spacer"></span>
   <button id="softkbd" title="the on-screen keyboard" hidden>&#9000;</button>
   <button id="joystick" title="the arrows and Space (or a touch screen) as the joystick on the MS7007 port">Joystick: off</button>
@@ -105,6 +117,7 @@
 </header>
 <main>
   <canvas id="screen" width="640" height="400" tabindex="0"></canvas>
+  <div id="fm" hidden></div>
   <input id="softkey" type="text" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" aria-label="keyboard input">
   <div id="joy" hidden>
     <div class="stick" hidden><div class="knob"></div></div>
@@ -119,7 +132,7 @@
     &#9974; (or F11) puts the picture alone on the whole screen, Esc brings the page back; on a touch device &#9000; raises the system's keyboard (letters, digits, Enter, Backspace - Cyrillic letters switch the machine to РУС).
     "Joystick: on" makes the arrows and Space the joystick on the MS7007 port (SABOT2 on omega-games: J KEMPSTON), and on a touch screen a stick under a finger on the left of the picture and fire on the right.
     The drives A, B and HD mount like the desktop emulator's: a 400 KB image is one side, an 800 KB one takes both sides of its drive, the HD takes an image of any size (your own, or a new blank one - INIT HD: in the guest).
-    "Files" in a drive's panel lists the image's RT-11 directory: any file can be saved to your computer, deleted, or added from a file of yours (a 6.3 name of A-Z, 0-9 and $; the guest sees the change at its next directory read).
+    "Files" replaces the screen with two panes of the mounted disks' RT-11 directories (a floppy side or the HD each): View (F3, text in KOI-7 / KOI-8R / CP866 or a hex dump), Copy to the other pane (F5), Rename (F6), Delete (F8), Download to your computer, Upload a file of yours (a 6.3 name of A-Z, 0-9 and $); the guest sees a change at its next directory read.
     Disks you write to stay in this browser (IndexedDB): "Download" saves a copy, "Revert" returns a shipped disk to its original, "Delete" removes one of yours.
     A game on <code>osa.dsk</code>: type <code>R FIST</code> (or open <code>?disk=osa.dsk&amp;type=R%20FIST</code>).
     <p><button id="wipe" class="small" title="drop every image and setting this page keeps in the browser">Wipe browser data</button> — a fresh start: your images, changed disks and mounts are gone.</p></div>

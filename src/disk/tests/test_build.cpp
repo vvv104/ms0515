@@ -641,3 +641,23 @@ TEST_CASE("put / rm on a volume whose home block does not point at the directory
     CHECK(opened->directory.find("SECOND.TXT")->date == encodeDate(1992, 8, 22));
 }
 
+TEST_CASE("rename keeps the data and refuses a taken or bad name") {
+    auto img = blankImage(false);
+    initVolume(img, 0, false);
+    putFile(img, 0, false, "OLD.TXT", pattern(700, 3), PutOptions{encodeDate(1992, 8, 22), false});
+    putFile(img, 0, false, "OTHER.DAT", pattern(300, 4));
+    renameFile(img, 0, false, "OLD.TXT", "NEW.TXT");
+    auto opened = openImage(img, 0);
+    REQUIRE(opened);
+    CHECK(opened->directory.find("OLD.TXT") == nullptr);
+    const DirEntry *e = opened->directory.find("NEW.TXT");
+    REQUIRE(e != nullptr);
+    CHECK(e->date == encodeDate(1992, 8, 22));
+    CHECK(e->length == 2);
+    auto data = opened->readFile("NEW.TXT");
+    CHECK(std::equal(data.begin(), data.begin() + 700, pattern(700, 3).begin()));
+    CHECK_THROWS(renameFile(img, 0, false, "NEW.TXT", "OTHER.DAT"));
+    CHECK_THROWS(renameFile(img, 0, false, "NEW.TXT", "TOOLONGNAME.TXT"));
+    CHECK_THROWS(renameFile(img, 0, false, "NOSUCH.TXT", "X.TXT"));
+}
+

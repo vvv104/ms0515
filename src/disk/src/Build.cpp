@@ -342,6 +342,23 @@ void removeFile(std::vector<uint8_t> &image, int side, bool ds,
         }, linear);
 }
 
+void renameFile(std::vector<uint8_t> &image, int side, bool ds,
+                const std::string &name, const std::string &newName,
+                bool linear)
+{
+    char nm[6], ex[3];
+    splitName(newName, nm, ex);        /* validates the new 6.3 name first */
+    if (auto dir = parseDirectory(image, side, ds, linear); dir && dir->find(newName))
+        throw std::runtime_error("a file of that name is already there: " + newName);
+    const uint16_t n1 = encodeRad50(nm), n2 = encodeRad50(nm + 3), e = encodeRad50(ex);
+    mutatePermanentEntry(image, side, ds, name,
+        [n1, n2, e](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
+            putw(&seg[p + 2], n1);
+            putw(&seg[p + 4], n2);
+            putw(&seg[p + 6], e);
+        }, linear);
+}
+
 void setProtected(std::vector<uint8_t> &image, int side, bool ds,
                   const std::string &name, bool on, bool linear)
 {
