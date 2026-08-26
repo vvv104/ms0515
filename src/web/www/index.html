@@ -14,6 +14,7 @@
   button, summary.dev { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .25em .6em; cursor: pointer; }
   button:hover, summary.dev:hover, details[open] summary.dev { background: #383838; }
   button.small { padding: .1em .4em; font-size: .9em; }
+  button.icon { display: inline-flex; align-items: center; padding: .3em .5em; }
   input[type=number] { width: 4em; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .2em .3em; }
   .spacer { flex: 1; }
 
@@ -90,10 +91,10 @@
   <span class="spacer"></span>
   <button id="joystick" title="the arrows and Space (or a touch screen) as the joystick on the MS7007 port">Joystick: off</button>
   <button id="softkbd" title="the on-screen keyboard" hidden>&#9000;</button>
-  <button id="fullscreen" title="full screen (F11); Esc leaves it">&#9974;</button>
   <button id="sound">Sound: off</button>
   <button id="save">Save state</button>
   <button id="restore">Restore</button>
+  <button id="fullscreen" class="icon" title="full screen (F11); Esc leaves it"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></svg></button>
   <input id="file" type="file" hidden>
 </header>
 <main>
