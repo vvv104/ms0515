@@ -614,3 +614,30 @@ TEST_CASE("putFile errors") {
 }
 
 } /* TEST_SUITE */
+
+TEST_CASE("put / rm on a volume whose home block does not point at the directory") {
+    /* The machine's own INIT (OSA, Omega, ...) leaves other things in the
+     * home block's directory word; dir/get find segment 1 by scanning, and
+     * put/rm must follow them rather than refuse the volume. */
+    auto img = blankImage(false);
+    initVolume(img, 0, false);
+    putFile(img, 0, false, "FIRST.TXT", pattern(700, 1));
+    img[512 + 0x1D4] = 0; img[512 + 0x1D5] = 0;           /* LBN 1, word 0x1D4 */
+    putFile(img, 0, false, "SECOND.TXT", pattern(1500, 2));
+    auto opened = openImage(img, 0);
+    REQUIRE(opened);
+    CHECK(opened->directory.find("FIRST.TXT") != nullptr);
+    CHECK(opened->directory.find("SECOND.TXT") != nullptr);
+    CHECK(opened->readFile("SECOND.TXT").size() == 1536);
+    removeFile(img, 0, false, "FIRST.TXT");
+    opened = openImage(img, 0);
+    REQUIRE(opened);
+    CHECK(opened->directory.find("FIRST.TXT") == nullptr);
+    CHECK(opened->directory.find("SECOND.TXT") != nullptr);
+    img[512 + 0x1D4] = 0xFF; img[512 + 0x1D5] = 0x7F;      /* out of the volume */
+    setEntryDate(img, 0, false, "SECOND.TXT", encodeDate(1992, 8, 22));
+    opened = openImage(img, 0);
+    REQUIRE(opened);
+    CHECK(opened->directory.find("SECOND.TXT")->date == encodeDate(1992, 8, 22));
+}
+

@@ -23,6 +23,12 @@
 #include <vector>
 
 #include <ms0515/Emulator.hpp>
+#include <ms0515/disk/Build.hpp>
+#include <ms0515/disk/Image.hpp>
+
+#include <fstream>
+#include <iterator>
+#include <string>
 
 namespace {
 
@@ -91,9 +97,112 @@ void render(Handle &h)
     }
 }
 
+/* The RT-11 file system of an image file (src/disk): the page's file
+ * panel.  Results and errors live in statics the page reads right after
+ * the call. */
+std::string          gDiskText;   /* the directory as JSON */
+std::string          gDiskError;  /* the last failure's reason */
+std::vector<uint8_t> gDiskBytes;  /* the last file read */
+
+std::vector<uint8_t> readAll(const char *path)
+{
+    std::ifstream f(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
+}
+
+bool writeAll(const char *path, const std::vector<uint8_t> &bytes)
+{
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    f.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return static_cast<bool>(f);
+}
+
+std::string jsonEscape(const std::string &s)
+{
+    std::string out;
+    for (char c : s) {
+        if (c == '"' || c == '\\') out += '\\';
+        out += c;
+    }
+    return out;
+}
+
 } /* namespace */
 
 extern "C" {
+
+/* The directory of the image at `path`, side 0 / 1, as a JSON array of
+ * {name, blocks, date ("YYYY-MM-DD" or ""), protected}; "" and an error
+ * text (ms_disk_error) when the image has none. */
+EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side)
+{
+    gDiskText.clear();
+    auto img = ms0515::disk::openImage(readAll(path), side);
+    if (!img || !img->hasDirectory) { gDiskError = "no RT-11 directory on this side"; return ""; }
+    std::string out = "[";
+    for (const auto &e : img->directory.permanentFiles()) {
+        std::string date;
+        if (e.date) {
+            const auto d = ms0515::disk::decodeDate(e.date);
+            char buf[16];
+            std::snprintf(buf, sizeof buf, "%04d-%02d-%02d", d.year, d.month, d.day);
+            date = buf;
+        }
+        if (out.size() > 1) out += ",";
+        out += "{\"name\":\"" + jsonEscape(e.name) + "\",\"blocks\":" + std::to_string(e.length)
+             + ",\"date\":\"" + date + "\",\"protected\":" + ((e.status & ms0515::disk::kStatusProtected) ? "1" : "0") + "}";
+    }
+    gDiskText = out + "]";
+    return gDiskText.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *ms_disk_error(void) { return gDiskError.c_str(); }
+
+/* Read a file: the size, its bytes at ms_disk_data(); -1 when absent. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_get(const char *path, int side, const char *name)
+{
+    gDiskBytes.clear();
+    auto img = ms0515::disk::openImage(readAll(path), side);
+    if (!img || !img->hasDirectory || !img->directory.find(name)) { gDiskError = "no such file"; return -1; }
+    gDiskBytes = img->readFile(name);
+    return static_cast<int>(gDiskBytes.size());
+}
+
+EMSCRIPTEN_KEEPALIVE const uint8_t *ms_disk_data(void) { return gDiskBytes.data(); }
+
+/* Write a file (replacing one of the name); year 0 = no date.  1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_put(const char *path, int side, const char *name,
+                                     const uint8_t *data, int len, int year, int month, int day)
+{
+    try {
+        auto bytes = readAll(path);
+        const bool ds = bytes.size() == 2 * 409600;
+        if (auto img = ms0515::disk::openImage(bytes, side); img && img->hasDirectory && img->directory.find(name))
+            ms0515::disk::removeFile(bytes, side, ds, name);
+        ms0515::disk::PutOptions opts;
+        if (year) opts.date = ms0515::disk::encodeDate(year, month, day);
+        ms0515::disk::putFile(bytes, side, ds, name, std::span<const uint8_t>(data, static_cast<size_t>(len)), opts);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE int ms_disk_rm(const char *path, int side, const char *name)
+{
+    try {
+        auto bytes = readAll(path);
+        ms0515::disk::removeFile(bytes, side, bytes.size() == 2 * 409600, name);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
 
 EMSCRIPTEN_KEEPALIVE Handle *ms_create(void)
 {

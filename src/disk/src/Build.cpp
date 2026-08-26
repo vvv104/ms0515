@@ -149,6 +149,21 @@ uint16_t encodeDate(int year, int month, int day)
                                | ((day & 0x1F) << 5) | (yr & 0x1F));
 }
 
+/* Where the directory starts: the home block's word (LBN 1, 0x1D4) when it
+ * is sane, else where parseDirectory() finds segment 1 - the volumes the
+ * machine's own INIT wrote (OSA, Omega, ...) carry other things in that
+ * word, and dir/get read them through the scan; put/rm must too. */
+static int directoryLbn(const std::vector<uint8_t> &image, int side, bool ds, bool linear)
+{
+    const int volBlocks = static_cast<int>(volumeBlocks(image, linear));
+    const int fromHome = getw(image.data() + lbnToByte(1, side, ds, linear) + 0x1D4);
+    if (fromHome >= 1 && fromHome <= volBlocks)
+        return fromHome;
+    if (auto dir = parseDirectory(image, side, ds, linear); dir && dir->dirStartLbn >= 1)
+        return dir->dirStartLbn;
+    throw std::runtime_error("side is not initialised (run init first)");
+}
+
 void putFile(std::vector<uint8_t> &image, int side, bool ds,
              const std::string &name, std::span<const uint8_t> data,
              const PutOptions &opts, bool linear)
@@ -156,11 +171,7 @@ void putFile(std::vector<uint8_t> &image, int side, bool ds,
     requireValidSize(image, ds, linear);
 
     auto off = [&](int lbn) { return lbnToByte(lbn, side, ds, linear); };
-    const int volBlocks = static_cast<int>(volumeBlocks(image, linear));
-
-    const int dirLbn = getw(image.data() + off(1) + 0x1D4);
-    if (dirLbn < 1 || dirLbn > volBlocks)
-        throw std::runtime_error("side is not initialised (run init first)");
+    const int dirLbn = directoryLbn(image, side, ds, linear);
 
     std::vector<uint8_t> seg(2 * kBlock);
     std::memcpy(seg.data(),          image.data() + off(dirLbn),     kBlock);
@@ -277,11 +288,7 @@ void mutatePermanentEntry(std::vector<uint8_t> &image, int side, bool ds,
 {
     requireValidSize(image, ds, linear);
 
-    const std::size_t homeOff = lbnToByte(1, side, ds, linear);
-    const int volBlocks = static_cast<int>(volumeBlocks(image, linear));
-    const int dirLbn = getw(image.data() + homeOff + 0x1D4);
-    if (dirLbn < 1 || dirLbn > volBlocks)
-        throw std::runtime_error("side is not initialised (run init first)");
+    const int dirLbn = directoryLbn(image, side, ds, linear);
 
     const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, linear);
     const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, linear);
@@ -361,11 +368,7 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear)
     requireValidSize(image, ds, linear);
 
     auto off = [&](int lbn) { return lbnToByte(lbn, side, ds, linear); };
-    const int volBlocks = static_cast<int>(volumeBlocks(image, linear));
-
-    const int dirLbn = getw(image.data() + off(1) + 0x1D4);
-    if (dirLbn < 1 || dirLbn > volBlocks)
-        throw std::runtime_error("side is not initialised (run init first)");
+    const int dirLbn = directoryLbn(image, side, ds, linear);
 
     std::vector<uint8_t> seg(2 * kBlock);
     std::memcpy(seg.data(),          image.data() + off(dirLbn),     kBlock);

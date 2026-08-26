@@ -316,14 +316,104 @@ function fdRow(unit) {
   const row = el("div", "row");
   row.append(el("span", "side", `side ${side}`));
   if (side === 1 && ds[drive]) {
-    row.append(el("span", "shadow", `side 1 of ${slots.fd[unitOf(drive, 0)]}`));
+    const name = slots.fd[unitOf(drive, 0)];
+    row.append(el("span", "shadow", `side 1 of ${name}`));
+    row.append(button("Files", () => showFiles(drive, name, 1), "the RT-11 directory of this side"));
     return row;
   }
   const name = slots.fd[unit];
   row.append(select("fd", name, (v) => mountFd(unit, v)));
   row.append(button("Open…", () => pickFile((n) => mountFd(unit, n).catch(fail)), "a .dsk from your computer"));
-  if (name) row.append(...imageButtons(name));
+  if (name) row.append(...imageButtons(name), button("Files", () => showFiles(drive, name, 0), "the RT-11 directory of the image"));
   return row;
+}
+
+// ── the files of an image: the RT-11 directory in the drive's panel ────────
+// The image is worked on in the module's file system through the disk
+// library (ms_disk_*); a write goes around the FDC - the image is unmounted
+// for it and mounted again, so the guest sees a changed disk.
+function withImageWritable(name, op) {
+  const unit = slots.fd.indexOf(name);
+  if (unit >= 0) unmountFd(unit);
+  const ok = op();
+  const path = pathOf(name);
+  staged.set(path, 0);                                  // written outside the FDC: flush it
+  return (unit >= 0 ? mountFd(unit, name) : Promise.resolve()).then(() => ok);
+}
+
+function rt11Name(fileName) {
+  const base = fileName.toUpperCase().replace(/[^A-Z0-9$.]/g, "");
+  const dot = base.indexOf(".");
+  const stem = (dot < 0 ? base : base.slice(0, dot)).slice(0, 6);
+  const ext = dot < 0 ? "" : base.slice(dot + 1).replace(/\./g, "").slice(0, 3);
+  if (!stem) throw new Error(`${fileName}: no RT-11 name in it (A-Z, 0-9, $)`);
+  return ext ? `${stem}.${ext}` : stem;
+}
+
+function showFiles(drive, name, side) {
+  const panel = $("dev" + drive).querySelector(".panel");
+  const path = pathOf(name);
+  const text = api.diskDir(path, side);
+  if (!text) { fail(api.diskError()); return; }
+  const files = JSON.parse(text);
+  const box = el("div", "files");
+  const table = document.createElement("table");
+  for (const f of files) {
+    const tr = document.createElement("tr");
+    tr.append(el("td", null, f.name), el("td", "n", String(f.blocks)), el("td", null, f.date || ""),
+              el("td", "lock", f.protected ? "P" : ""));
+    const acts = el("td");
+    acts.append(button("Save", () => getFile(path, side, f.name), "save the file to your computer"));
+    if (!f.protected)
+      acts.append(button("Delete", () => removeFile(name, side, f.name, drive), "remove the file from the image"));
+    tr.append(acts);
+    table.appendChild(tr);
+  }
+  box.append(table);
+  const foot = el("div", "row");
+  foot.append(el("span", "hint", `${files.length} file(s)`),
+              button("Add…", () => pickAny((f) => addFile(name, side, f, drive)), "a file from your computer, under its RT-11 name"),
+              button("Back", () => renderDevices()));
+  panel.replaceChildren(el("div", "row", `${name}, side ${side}`), box, foot);
+}
+
+function getFile(path, side, fileName) {
+  const n = api.diskGet(path, side, fileName);
+  if (n < 0) throw new Error(api.diskError());
+  const bytes = M.HEAPU8.slice(api.diskData(), api.diskData() + n);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([bytes]));
+  a.download = fileName; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+async function removeFile(name, side, fileName, drive) {
+  if (!confirm(`Delete ${fileName} from ${name}?`)) return;
+  const ok = await withImageWritable(name, () => api.diskRm(pathOf(name), side, fileName));
+  if (!ok) throw new Error(api.diskError());
+  showFiles(drive, name, side);
+}
+
+async function addFile(name, side, file, drive) {
+  const rtName = rt11Name(file.name);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const ptr = M._malloc(bytes.length || 1);
+  M.HEAPU8.set(bytes, ptr);
+  let ok;
+  try {
+    ok = await withImageWritable(name, () => api.diskPut(pathOf(name), side, rtName, ptr, bytes.length, 0, 0, 0));
+  } finally {
+    M._free(ptr);
+  }
+  if (!ok) throw new Error(api.diskError());
+  showFiles(drive, name, side);
+}
+
+function pickAny(then) {
+  const input = $("file");
+  input.value = "";
+  input.onchange = () => { const f = input.files[0]; if (f) Promise.resolve(then(f)).catch(fail); };
+  input.click();
 }
 
 // A blank floppy for the drive: one-sided into its first empty side,
@@ -662,6 +752,12 @@ function bindApi() {
     caps:    c("ms_caps", "number", ["number"]),
     releaseAll: c("ms_key_release_all", null, ["number"]),
     joystick: c("ms_joystick", null, ["number", "number"]),
+    diskDir:   c("ms_disk_dir", "string", ["string", "number"]),
+    diskError: c("ms_disk_error", "string", []),
+    diskGet:   c("ms_disk_get", "number", ["string", "number", "string"]),
+    diskData:  c("ms_disk_data", "number", []),
+    diskPut:   c("ms_disk_put", "number", ["string", "number", "string", "number", "number", "number", "number", "number"]),
+    diskRm:    c("ms_disk_rm", "number", ["string", "number", "string"]),
     save:    c("ms_save_state", "number", ["number", "string"]),
     load:    c("ms_load_state", "number", ["number", "string"]),
   };
@@ -754,6 +850,8 @@ window.__ms = () => {
            fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null };
 };
 window.__ms.type = (text) => typing.type(text);
+window.__ms.api = () => api;                 // the module's calls, for scripted checks
+window.__ms.module = () => M;
 
 window.addEventListener("error", (e) => say("error: " + e.message));
 window.addEventListener("unhandledrejection", (e) => say("error: " + (e.reason?.message ?? e.reason)));
