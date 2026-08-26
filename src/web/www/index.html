@@ -6,6 +6,7 @@
 <title>MS-0515</title>
 <style>
   :root { color-scheme: dark; }
+  [hidden] { display: none !important; }   /* the attribute wins over any display: of ours */
   html, body { height: 100%; margin: 0; }
   body { display: flex; flex-direction: column; background: #111; color: #ddd; font: 14px system-ui, sans-serif; overflow: hidden; }
   header { display: flex; flex-wrap: wrap; gap: .4em; align-items: center; padding: .4em .75em; background: #1b1b1b; }
