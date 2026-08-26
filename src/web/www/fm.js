@@ -2,14 +2,18 @@
 //
 // A commander over the RT-11 directories the module reads through the
 // disk library (ms_disk_*): each pane shows one source - a floppy side or
-// the HD image, the unused areas listed with the files - and the F-keys
-// act on the selected file: F1 upload a file of the user's into the pane,
-// F2 download to the computer, F3 view, F4 edit, F5 copy to the other
-// pane, F6 rename, F7 init the pane's volume, F8 delete, F9 squeeze, F10
-// quit (Esc too); Tab, the arrows and Enter as in the commander this is
-// named after.  Inside the viewer / editor the keys change their meaning,
-// as they did there: F2 save, F3 text / bytes, F4 - F6 the encoding, F7
-// octal / hex, F8 replace / insert, F10 back.
+// the HD image, the unused areas listed with the files - and the ten keys
+// below, always drawn as in Midnight Commander, act on the selected file:
+// F1 upload a file of the user's into the pane, F2 download to the
+// computer, F3 view, F4 edit, F5 copy to the other pane, F6 rename, F7
+// init the pane's volume, F8 delete, F9 squeeze, F10 quit (Esc too); Tab,
+// the arrows and Enter as in the commander.  The viewer's keys, as mc's:
+// F1 the encoding (KOI-7, KOI-8R, CP866 in turn), F2 wrap / unwrap at the
+// machine's 80 columns, F3 and F10 back, F4 text / hex / octal in turn, F5
+// go to a line, F7 search (a string in the encoding; a byte sequence in
+// hex / octal), the hit scrolled to and marked.  The editor's: F1 the
+// encoding, F2 save, F4 the representation, F5 go to, F7 search, F8
+// replace / insert (bytes), F10 back.
 //
 // `deps`: { sources() -> [{ id, label, path, side, linear, name }],
 //           api, module(), writable(source, op) -> Promise (the image
@@ -93,27 +97,33 @@ export class Commander {
     this.root.append(panes, this.bar, this.viewer);
   }
 
-  fkey(bar, label, title, on, active = false) {
-    const b = el("button", active ? "on" : null, label);
-    b.title = title;
-    b.onclick = () => this.run(on);
-    bar.appendChild(b);
+  // A bar of the ten keys: [label, title, action] per key, an empty label
+  // for a key with nothing to do here.
+  drawBar(bar, keys) {
+    bar.replaceChildren();
+    keys.forEach(([label, title, on], i) => {
+      const b = el("button", label ? null : "none");
+      b.append(el("span", "num", String(i + 1)), el("span", "label", label ?? ""));
+      b.title = title ?? "";
+      b.disabled = !label;
+      if (on) b.onclick = () => this.run(on);
+      bar.appendChild(b);
+    });
   }
 
   drawListBar() {
-    const bar = this.bar;
-    bar.replaceChildren();
-    this.fkey(bar, "F1 Upload", "a file from your computer into this pane", () => this.upload());
-    this.fkey(bar, "F2 Download", "the file to your computer", () => this.download());
-    this.fkey(bar, "F3 View", "the file as text or bytes", () => this.view());
-    this.fkey(bar, "F4 Edit", "the file as text, or its bytes", () => this.edit());
-    this.fkey(bar, "F5 Copy", "to the other pane", () => this.copy());
-    this.fkey(bar, "F6 Rename", "", () => this.rename());
-    this.fkey(bar, "F7 Init", "the pane's volume anew - every file on it lost", () => this.init());
-    this.fkey(bar, "F8 Delete", "", () => this.remove());
-    this.fkey(bar, "F9 Squeeze", "the files packed, one free area", () => this.squeeze());
-    bar.appendChild(el("span", "fm-gap"));
-    this.fkey(bar, "F10 Quit", "back to the screen (Esc too)", () => this.close());
+    this.drawBar(this.bar, [
+      ["Upload", "a file from your computer into this pane", () => this.upload()],
+      ["Download", "the file to your computer", () => this.download()],
+      ["View", "the file as text or bytes", () => this.view()],
+      ["Edit", "the file as text, or its bytes", () => this.edit()],
+      ["Copy", "to the other pane", () => this.copy()],
+      ["Rename", "", () => this.rename()],
+      ["Init", "the pane's volume anew - every file on it lost", () => this.init()],
+      ["Delete", "", () => this.remove()],
+      ["Squeeze", "the files packed, one free area", () => this.squeeze()],
+      ["Quit", "back to the screen (Esc too)", () => this.close()],
+    ]);
   }
 
   // ── open / close / the panes ────────────────────────────────────────────
@@ -325,17 +335,17 @@ export class Commander {
   }
 
   // ── the viewer and the editor ───────────────────────────────────────────
-  // v: { mode: "view" | "edit", repr: "text" | "bytes", enc, radix, insert,
-  //      source, file, bytes (as read), textarea | editor }.
+  // v: { mode: "view" | "edit", repr: "text" | "hex" | "oct", enc, wrap,
+  //      insert, source, file, bytes (as read), textarea | editor,
+  //      query, hit: { at, len } }.
   openViewer(mode) {
     const c = this.current();
     if (!c) return;
     if (mode === "edit" && c.file.protected) throw new Error(`${c.file.name} is protected`);
     const bytes = this.bytesOf(c.source, c.file.name);
     const text = looksLikeText(bytes);
-    this.v = { mode, repr: text ? "text" : "bytes", enc: text ? guessEncoding(bytes) : "koi7", radix: "oct", insert: false,
-               source: c.source, file: c.file, bytes, textarea: null, editor: null };
-    this.vname.textContent = `${c.file.name}  (${bytes.length} bytes)  ${mode === "edit" ? "edit" : "view"}`;
+    this.v = { mode, repr: text ? "text" : "oct", enc: text ? guessEncoding(bytes) : "koi7", wrap: true, insert: false,
+               source: c.source, file: c.file, bytes, textarea: null, editor: null, query: "", hit: null };
     this.viewer.hidden = false;
     this.showRepr();
   }
@@ -357,9 +367,11 @@ export class Commander {
     const bytes = this.currentBytes();
     v.textarea = null; v.editor = null;
     this.vtext.hidden = true; this.vedit.hidden = true;
+    this.vname.textContent = `${v.file.name}  (${bytes.length} bytes)  ${v.mode}, ${v.repr}, ${v.enc}`;
     if (v.mode === "view") {
       this.vtext.hidden = false;
-      this.vtext.textContent = v.repr === "text" ? this.asText(bytes) : this.asDump(bytes);
+      this.vtext.classList.toggle("wrap", v.repr === "text" && v.wrap);
+      this.renderView(bytes);
       this.vtext.scrollTop = 0;
       this.vtext.focus();
     } else if (v.repr === "text") {
@@ -372,7 +384,7 @@ export class Commander {
       ta.focus();
     } else {
       this.vedit.hidden = false;
-      v.editor = new ByteEditor(this.vedit, bytes, { radix: v.radix, enc: v.enc });
+      v.editor = new ByteEditor(this.vedit, bytes, { radix: v.repr, enc: v.enc });
       v.editor.insert = v.insert;
       v.editor.render();
       v.editor.focus();
@@ -386,38 +398,61 @@ export class Commander {
     return decodeBytes(bytes.subarray(0, end), this.v.enc).replace(/\r\n?/g, "\n");
   }
 
-  asDump(bytes) {
-    const v = this.v, width = v.radix === "oct" ? 3 : 2, base = v.radix === "oct" ? 8 : 16;
+  // The view: the text, or the dump, with the search hit marked.
+  renderView(bytes) {
+    const v = this.v;
+    const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    if (v.repr === "text") {
+      const text = this.asText(bytes);
+      if (v.hit) {
+        const { at, len } = v.hit;
+        this.vtext.innerHTML = esc(text.slice(0, at)) + "<mark>" + esc(text.slice(at, at + len)) + "</mark>" + esc(text.slice(at + len));
+      } else {
+        this.vtext.textContent = text;
+      }
+      return;
+    }
+    const width = v.repr === "oct" ? 3 : 2, base = v.repr === "oct" ? 8 : 16;
     const lines = [];
+    const hit = v.hit ? [v.hit.at, v.hit.at + v.hit.len] : null;
     for (let o = 0; o < Math.min(bytes.length, 65536); o += 16) {
       const chunk = bytes.subarray(o, o + 16);
-      const num = [...chunk].map((b) => b.toString(base).padStart(width, "0")).join(" ");
-      const chars = [...chunk].map((b) => b < 32 || b === 127 ? "." : decodeBytes(new Uint8Array([b]), v.enc)).join("");
-      lines.push(o.toString(8).padStart(6, "0") + "  " + num.padEnd(16 * (width + 1) - 1) + "  " + chars);
+      const num = [...chunk].map((b, k) => {
+        const t = b.toString(base).padStart(width, "0");
+        return hit && o + k >= hit[0] && o + k < hit[1] ? `<mark>${t}</mark>` : t;
+      }).join(" ");
+      const pad = " ".repeat((16 - chunk.length) * (width + 1));
+      const chars = [...chunk].map((b) => esc(b < 32 || b === 127 ? "." : decodeBytes(new Uint8Array([b]), v.enc))).join("");
+      lines.push(o.toString(8).padStart(6, "0") + "  " + num + pad + "  " + chars);
     }
-    return lines.join("\n");
+    this.vtext.innerHTML = lines.join("\n");
   }
 
   drawViewerBar() {
-    const v = this.v, bar = this.vbar;
-    bar.replaceChildren();
-    if (v.mode === "edit") this.fkey(bar, "F2 Save", "the file written back", () => this.save());
-    this.fkey(bar, v.repr === "text" ? "F3 Bytes" : "F3 Text", "the other representation", () => this.toggleRepr());
-    for (const [i, [id, label]] of ENCODINGS.entries())
-      this.fkey(bar, `F${4 + i} ${label}`, "the characters' encoding", () => this.setEncoding(id), v.enc === id);
-    if (v.repr === "bytes") {
-      this.fkey(bar, v.radix === "oct" ? "F7 Octal" : "F7 Hex", "the digits", () => this.toggleRadix());
-      if (v.mode === "edit") this.fkey(bar, v.insert ? "F8 Insert" : "F8 Replace", "typing over, or inserting", () => this.toggleInsert());
-    }
-    bar.appendChild(el("span", "fm-gap"));
-    this.fkey(bar, "F10 Back", "to the files (Esc too)", () => this.leaveViewer());
+    const v = this.v, view = v.mode === "view";
+    const encLabel = ENCODINGS.find(([id]) => id === v.enc)[1];
+    const reprLabel = { text: "Text", hex: "Hex", oct: "Octal" }[v.repr];
+    this.drawBar(this.vbar, [
+      [encLabel, "the encoding: KOI-7, KOI-8R, CP866 in turn", () => this.cycleEncoding()],
+      view ? (v.repr === "text" ? [v.wrap ? "Unwrap" : "Wrap", "long lines at the machine's 80 columns", () => this.toggleWrap()] : [null])
+           : ["Save", "the file written back", () => this.save()],
+      view ? ["Quit", "back to the files (Esc too)", () => this.leaveViewer()] : [null],
+      [reprLabel, "text, hex, octal in turn", () => this.cycleRepr()],
+      ["Goto", "a line (text) or an offset (bytes)", () => this.goto()],
+      [null],
+      ["Search", v.repr === "text" ? "a string, in the encoding" : "a byte sequence in the digits shown", () => this.search()],
+      !view && v.repr !== "text" ? [v.insert ? "Insert" : "Replace", "typing over, or inserting", () => this.toggleInsert()] : [null],
+      [null],
+      ["Quit", "back to the files (Esc too)", () => this.leaveViewer()],
+    ]);
   }
 
   viewerKey(e) {
-    const v = this.v;
-    const acts = { F2: () => v.mode === "edit" && this.save(), F3: () => this.toggleRepr(),
-                   F4: () => this.setEncoding("koi7"), F5: () => this.setEncoding("koi8-r"), F6: () => this.setEncoding("ibm866"),
-                   F7: () => v.repr === "bytes" && this.toggleRadix(), F8: () => v.mode === "edit" && v.repr === "bytes" && this.toggleInsert(),
+    const v = this.v, view = v.mode === "view";
+    const acts = { F1: () => this.cycleEncoding(),
+                   F2: () => view ? (v.repr === "text" && this.toggleWrap()) : this.save(),
+                   F3: () => view && this.leaveViewer(), F4: () => this.cycleRepr(), F5: () => this.goto(), F7: () => this.search(),
+                   F8: () => !view && v.repr !== "text" && this.toggleInsert(),
                    F10: () => this.leaveViewer(), Escape: () => this.leaveViewer() };
     const a = acts[e.key];
     if (!a) return;
@@ -425,24 +460,30 @@ export class Commander {
     this.run(a);
   }
 
-  toggleRepr() { this.v.repr = this.v.repr === "text" ? "bytes" : "text"; this.showRepr(); }
-
-  // Another encoding: the text is what the bytes say in it (an edit in
-  // progress is kept, as bytes, first).
-  setEncoding(enc) {
+  // Another encoding or representation: the content is kept as bytes first.
+  rekey(change) {
     const v = this.v;
-    const bytes = this.currentBytes();
-    v.enc = enc;
-    v.textarea = null; v.editor = null;
-    v.bytes = bytes;
+    v.bytes = this.currentBytes();
+    change();
+    v.hit = null;
     this.showRepr();
   }
 
-  toggleRadix() {
-    const v = this.v;
-    v.radix = v.radix === "oct" ? "hex" : "oct";
-    if (v.editor) { v.editor.setRadix(v.radix); this.drawViewerBar(); v.editor.focus(); }
-    else this.showRepr();
+  cycleEncoding() {
+    const ids = ENCODINGS.map(([id]) => id);
+    this.rekey(() => { this.v.enc = ids[(ids.indexOf(this.v.enc) + 1) % ids.length]; });
+  }
+
+  cycleRepr() {
+    const order = ["text", "hex", "oct"];
+    this.rekey(() => { this.v.repr = order[(order.indexOf(this.v.repr) + 1) % order.length]; });
+  }
+
+  toggleWrap() {
+    this.v.wrap = !this.v.wrap;
+    this.vtext.classList.toggle("wrap", this.v.wrap);
+    this.drawViewerBar();
+    this.vtext.focus();
   }
 
   toggleInsert() {
@@ -450,6 +491,75 @@ export class Commander {
     v.insert = !v.insert;
     if (v.editor) { v.editor.insert = v.insert; v.editor.move(0); v.editor.focus(); }
     this.drawViewerBar();
+  }
+
+  // F5: a line of the text, or an offset (octal / hex, as shown) of the bytes.
+  goto() {
+    const v = this.v;
+    if (v.repr === "text") {
+      const n = parseInt(prompt("Go to line:", "1") ?? "", 10);
+      if (!(n >= 1)) return;
+      const text = v.textarea ? v.textarea.value : this.asText(this.currentBytes());
+      let at = 0;
+      for (let line = 1; line < n && at >= 0; ++line) at = text.indexOf("\n", at) + 1 || -1;
+      if (at < 0) throw new Error(`no line ${n}`);
+      const end = text.indexOf("\n", at);
+      this.showAt(at, (end < 0 ? text.length : end) - at, text);
+    } else {
+      const base = v.repr === "oct" ? 8 : 16;
+      const at = parseInt(prompt(`Go to offset (${v.repr === "oct" ? "octal" : "hex"}):`, "0") ?? "", base);
+      const bytes = this.currentBytes();
+      if (!(at >= 0 && at < bytes.length)) return;
+      this.showAt(at, 1);
+    }
+  }
+
+  // F7: a string in the encoding, or - in hex / octal - a byte sequence
+  // ("101 102 077"); the next hit after the last one, marked and shown.
+  search() {
+    const v = this.v;
+    const query = prompt(v.repr === "text" ? "Search:" : `Search bytes (${v.repr === "oct" ? "octal" : "hex"}, spaces between):`, v.query);
+    if (!query) return;
+    const from = v.hit && query === v.query ? v.hit.at + 1 : 0;
+    v.query = query;
+    if (v.repr === "text") {
+      const text = v.textarea ? v.textarea.value : this.asText(this.currentBytes());
+      const at = text.toLowerCase().indexOf(query.toLowerCase(), from);
+      if (at < 0) throw new Error(`"${query}" not found${from ? " below" : ""}`);
+      this.showAt(at, query.length, text);
+    } else {
+      const base = v.repr === "oct" ? 8 : 16;
+      const seq = query.trim().split(/[\s,]+/).map((t) => parseInt(t, base));
+      if (!seq.length || seq.some((b) => !(b >= 0 && b < 256))) throw new Error("not a byte sequence in the digits shown");
+      const bytes = this.currentBytes();
+      let at = -1;
+      for (let i = from; i + seq.length <= bytes.length; ++i) {
+        let k = 0;
+        while (k < seq.length && bytes[i + k] === seq[k]) ++k;
+        if (k === seq.length) { at = i; break; }
+      }
+      if (at < 0) throw new Error(`the bytes not found${from ? " below" : ""}`);
+      this.showAt(at, seq.length);
+    }
+  }
+
+  // Mark and show a place: a text span or a byte span.
+  showAt(at, len, text) {
+    const v = this.v;
+    v.hit = { at, len };
+    if (v.textarea) {
+      const ta = v.textarea;
+      ta.focus();
+      ta.setSelectionRange(at, at + len);
+      const line = (text ?? ta.value).slice(0, at).split("\n").length - 1;
+      ta.scrollTop = Math.max(0, line * (parseFloat(getComputedStyle(ta).lineHeight) || 16) - ta.clientHeight / 2);
+    } else if (v.editor) {
+      v.editor.pos = at; v.editor.digit = 0; v.editor.render(); v.editor.focus();
+    } else {
+      this.renderView(this.currentBytes());
+      this.vtext.querySelector("mark")?.scrollIntoView({ block: "center" });
+      this.vtext.focus();
+    }
   }
 
   async save() {
