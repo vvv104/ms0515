@@ -44,8 +44,9 @@ export class Commander {
       const foot = el("div", "fm-foot", "");
       pane.append(src, list, foot);
       panes.appendChild(pane);
-      const p = { pane, src, list, foot, files: [], selected: -1, source: null };
-      src.onchange = () => { this.active = i; this.load(p); };
+      const p = { pane, src, list, foot, files: [], free: 0, selected: -1, source: null, prev: "" };
+      src.addEventListener("focus", () => { p.prev = src.value; });
+      src.onchange = () => { this.active = i; this.load(p, p.prev); p.prev = src.value; };
       list.addEventListener("pointerdown", () => this.activate(i));
       list.addEventListener("click", (e) => { const row = e.target.closest(".fm-row"); if (row) this.select(p, +row.dataset.i); });
       list.addEventListener("dblclick", (e) => { if (e.target.closest(".fm-row")) this.view(); });
@@ -100,13 +101,32 @@ export class Commander {
 
   sourceOf(p) { return this.deps.sources().find((s) => s.id === p.src.value) ?? null; }
 
-  load(p) {
+  // The pane's source, read; a volume with no directory (a blank image)
+  // is initialised on the user's word, else the pane goes back to what it
+  // showed.  `prev` is the id to fall back to.
+  load(p, prev) {
     p.source = this.sourceOf(p);
     p.files = [];
+    p.free = 0;
     if (p.source) {
-      const text = this.deps.api.diskDir(p.source.path, p.source.side, p.source.linear ? 1 : 0);
-      if (!text) { this.deps.say("error: " + this.deps.api.diskError()); }
-      else p.files = JSON.parse(text);
+      const api = this.deps.api;
+      let text = api.diskDir(p.source.path, p.source.side, p.source.linear ? 1 : 0);
+      if (!text) {
+        const src = p.source;                       // pinned: the panes may be redrawn meanwhile
+        const ok = confirm(`${src.label} has no RT-11 directory.  Initialise it (INIT: a blank volume)?`);
+        if (ok) {
+          this.deps.writable(src, () => api.diskInit(src.path, src.side, src.linear ? 1 : 0))
+            .then((done) => { if (!done) throw new Error(api.diskError()); p.src.value = src.id; this.load(p); })
+            .catch((err) => this.deps.say("error: " + (err?.message ?? err)));
+          return;
+        }
+        if (prev !== undefined && prev !== p.src.value) { p.src.value = prev; this.load(p); return; }
+        this.deps.say("error: " + api.diskError());
+      } else {
+        const dir = JSON.parse(text);
+        p.files = dir.files;
+        p.free = dir.free;
+      }
     }
     p.selected = p.files.length ? Math.min(Math.max(p.selected, 0), p.files.length - 1) : -1;
     this.draw(p);
@@ -124,7 +144,9 @@ export class Commander {
       cell("n", f.name); cell("b", String(f.blocks)); cell("d", f.date || ""); cell("p", f.protected ? "P" : "");
       p.list.appendChild(row);
     }
-    p.foot.textContent = p.source ? `${p.files.length} file(s), ${p.files.reduce((a, f) => a + f.blocks, 0)} blocks` : "nothing mounted";
+    p.foot.textContent = p.source
+      ? `${p.files.length} file(s), ${p.files.reduce((a, f) => a + f.blocks, 0)} blocks, ${p.free} free`
+      : "nothing mounted";
     p.list.querySelector(".selected")?.scrollIntoView({ block: "nearest" });
   }
 

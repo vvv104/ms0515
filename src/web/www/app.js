@@ -345,15 +345,21 @@ function fileSources() {
   return out;
 }
 
+let commanderHold = false;                 // a write in progress: the panes keep still
 async function writableImage(source, op) {
   const name = source.name;
   const unit = slots.fd.indexOf(name);
   const onHd = slots.hd === name;
-  if (unit >= 0) unmountFd(unit); else if (onHd) await mountHd("");
-  const ok = op();
-  staged.set(pathOf(name), 0);                          // written outside the FDC: flush it
-  if (unit >= 0) await mountFd(unit, name); else if (onHd) await mountHd(name);
-  return ok;
+  commanderHold = true;
+  try {
+    if (unit >= 0) unmountFd(unit); else if (onHd) await mountHd("");
+    const ok = op();
+    staged.set(pathOf(name), 0);                        // written outside the FDC: flush it
+    if (unit >= 0) await mountFd(unit, name); else if (onHd) await mountHd(name);
+    return ok;
+  } finally {
+    commanderHold = false;
+  }
 }
 
 function toggleCommander() {
@@ -426,7 +432,7 @@ function renderDevices() {
   const hd = $("devhd");
   hd.querySelector(".devname").innerHTML = `<b>HD</b> ` + (slots.hd || "—");
   hd.querySelector(".panel").replaceChildren(...hdRows());
-  if (commander && !$("fm").hidden) commander.open();   // a mount changed: the panes' sources follow
+  if (commander && !$("fm").hidden && !commanderHold) commander.open();   // a mount changed: the panes' sources follow
 }
 
 function lamps() {
@@ -709,6 +715,7 @@ function bindApi() {
     diskPut:    c("ms_disk_put", "number", ["string", "number", "number", "string", "number", "number", "number", "number", "number", "number"]),
     diskRm:     c("ms_disk_rm", "number", ["string", "number", "number", "string"]),
     diskRename: c("ms_disk_rename", "number", ["string", "number", "number", "string", "string"]),
+    diskInit:   c("ms_disk_init", "number", ["string", "number", "number"]),
     save:    c("ms_save_state", "number", ["number", "string"]),
     load:    c("ms_load_state", "number", ["number", "string"]),
   };
