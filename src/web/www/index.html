@@ -50,11 +50,18 @@
   .fm-row.selected { background: #2a6a8a; color: #fff; }
   .fm-pane.active .fm-row.selected { background: #3a8; }
   .fm-foot { padding: .2em .6em; color: #8ab; border-top: 1px solid #446; }
-  .fm-bar { display: flex; gap: .4em; align-items: center; }
+  .fm-bar { display: flex; gap: .4em; align-items: center; flex-wrap: wrap; }
+  .fm-bar button.on { background: #3a8; color: #000; border-color: #3a8; }
   .fm-gap { flex: 1; }
   .fm-viewer { position: absolute; inset: .5em; display: flex; flex-direction: column; gap: .4em; background: #111; }
   .fm-vname { color: #ccc; }
   .fm-text { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: .5em; background: #05173a; color: #cde; white-space: pre; }
+  .fm-row.unused { color: #778; font-style: italic; }
+  .fm-edit { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .fm-edit textarea { flex: 1; min-height: 0; resize: none; font: inherit; background: #05173a; color: #cde; border: 0; padding: .5em; white-space: pre; }
+  .ed-grid { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: .5em; background: #05173a; color: #cde; white-space: pre; outline: none; }
+  .ed-grid .cur { background: #3a8; color: #000; }
+  .ed-status { color: #8ab; padding: .2em .5em; }
   main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; container-type: size; position: relative; }
   /* Full screen: the picture alone on black. */
   main:fullscreen, main:-webkit-full-screen { padding: 0; background: #000; }
@@ -133,7 +140,7 @@
     &#9974; (or F11) puts the picture alone on the whole screen, Esc brings the page back; on a touch device &#9000; raises the system's keyboard (letters, digits, Enter, Backspace - Cyrillic letters switch the machine to РУС).
     "Joystick: on" makes the arrows and Space the joystick on the MS7007 port (SABOT2 on omega-games: J KEMPSTON), and on a touch screen a stick under a finger on the left of the picture and fire on the right.
     The drives A, B and HD mount like the desktop emulator's: a 400 KB image is one side, an 800 KB one takes both sides of its drive, the HD takes an image of any size (your own, or a new blank one - INIT HD: in the guest).
-    "Files" replaces the screen with two panes of the mounted disks' RT-11 directories (a floppy side or the HD each): View (F3, text in KOI-7 / KOI-8R / CP866 or a hex dump), Copy to the other pane (F5), Rename (F6), Delete (F8), Download to your computer, Upload a file of yours (a 6.3 name of A-Z, 0-9 and $); the guest sees a change at its next directory read.
+    "Files" replaces the screen with two panes of the mounted disks' RT-11 directories (a floppy side or the HD each, the unused areas shown): F3 View (text in KOI-7 / KOI-8R / CP866 or a hex dump), F4 Edit (text in its encoding, or the bytes in octal / hex - replace mode, Insert toggles inserting), F5 Copy to the other pane, F6 Rename, F7 Init the pane's volume, F8 Delete, F9 Squeeze; Download to your computer, Upload a file of yours (a 6.3 name of A-Z, 0-9 and $); the guest sees a change at its next directory read.
     Disks you write to stay in this browser (IndexedDB): "Download" saves a copy, "Revert" returns a shipped disk to its original, "Delete" removes one of yours.
     A game on <code>osa.dsk</code>: type <code>R FIST</code> (or open <code>?disk=osa.dsk&amp;type=R%20FIST</code>).
     <p><button id="wipe" class="small" title="drop every image and setting this page keeps in the browser">Wipe browser data</button> — a fresh start: your images, changed disks and mounts are gone.</p></div>

@@ -133,10 +133,11 @@ extern "C" {
 
 /* The RT-11 file system of an image in the module's file system - the
  * page's commander.  `linear` = an HD / LD container (byte = LBN * 512),
- * else a floppy image with a `side`.  The directory as JSON: {"free": the
- * free blocks (the empty entries' lengths), "files": [{name, blocks, date
- * ("YYYY-MM-DD" or ""), protected}]}; "" with ms_disk_error() when there
- * is no directory (a blank volume: ms_disk_init makes one). */
+ * else a floppy image with a `side`.  The directory as JSON, in the
+ * directory's order: {"free": the free blocks, "files": [{name, blocks,
+ * date ("YYYY-MM-DD" or ""), protected} for a file, {empty: 1, blocks} for
+ * an unused area]}; "" with ms_disk_error() when there is no directory (a
+ * blank volume: ms_disk_init makes one). */
 EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side, int linear)
 {
     gDiskText.clear();
@@ -147,7 +148,13 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side, int lin
     for (const auto &e : img->directory.entries)
         if (e.isEmpty()) free += e.length;
     std::string out = "{\"free\":" + std::to_string(free) + ",\"files\":[";
-    for (const auto &e : img->directory.permanentFiles()) {
+    for (const auto &e : img->directory.entries) {
+        if (e.isEmpty() && e.length > 0) {
+            if (out.back() != '[') out += ",";
+            out += "{\"empty\":1,\"blocks\":" + std::to_string(e.length) + "}";
+            continue;
+        }
+        if (!e.isPermanent()) continue;
         std::string date;
         if (e.date) {
             const auto d = ms0515::disk::decodeDate(e.date);
@@ -161,6 +168,20 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side, int lin
     }
     gDiskText = out + "]}";
     return gDiskText.c_str();
+}
+
+/* Squeeze: the files packed to the front, one free area at the end.  1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_squeeze(const char *path, int side, int linear)
+{
+    try {
+        auto bytes = readAll(path);
+        ms0515::disk::squeeze(bytes, side, !linear && bytes.size() == 2 * 409600, linear != 0);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
 }
 
 /* An RT-11 directory on a blank volume (the disk library's INIT, four

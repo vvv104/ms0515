@@ -716,6 +716,7 @@ function bindApi() {
     diskRm:     c("ms_disk_rm", "number", ["string", "number", "number", "string"]),
     diskRename: c("ms_disk_rename", "number", ["string", "number", "number", "string", "string"]),
     diskInit:   c("ms_disk_init", "number", ["string", "number", "number"]),
+    diskSqueeze: c("ms_disk_squeeze", "number", ["string", "number", "number"]),
     save:    c("ms_save_state", "number", ["number", "string"]),
     load:    c("ms_load_state", "number", ["number", "string"]),
   };
