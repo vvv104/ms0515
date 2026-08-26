@@ -56,7 +56,9 @@ export class Commander {
     this.active = 0;
     this.v = null;                 // the viewer / editor's state while open
     this.build();
-    root.addEventListener("keydown", (e) => this.key(e));
+    // The keys are taken at the document while the commander is open: the
+    // focus may sit on the viewer's text, a textarea or nowhere at all.
+    document.addEventListener("keydown", (e) => { if (!this.root.hidden) this.key(e); });
   }
 
   // ── the DOM ─────────────────────────────────────────────────────────────
@@ -85,6 +87,7 @@ export class Commander {
     this.vbar = el("div", "fm-bar");
     this.vname = el("span", "fm-vname", "");
     this.vtext = el("pre", "fm-text", "");
+    this.vtext.tabIndex = 0;                          // the arrows and PgUp / PgDn scroll it
     this.vedit = el("div", "fm-edit");
     this.viewer.append(this.vname, this.vtext, this.vedit, this.vbar);
     this.root.append(panes, this.bar, this.viewer);
@@ -357,6 +360,8 @@ export class Commander {
     if (v.mode === "view") {
       this.vtext.hidden = false;
       this.vtext.textContent = v.repr === "text" ? this.asText(bytes) : this.asDump(bytes);
+      this.vtext.scrollTop = 0;
+      this.vtext.focus();
     } else if (v.repr === "text") {
       this.vedit.hidden = false;
       const ta = document.createElement("textarea");
