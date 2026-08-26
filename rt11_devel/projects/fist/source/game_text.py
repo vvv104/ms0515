@@ -404,8 +404,9 @@ SETTNG: JSR     PC,CLS
 def settings_controls():
     """SETCTL: the controls menu ($8CDB)."""
     return f"""        ; --- SETCTL: $8CDB - the controls menu.  "1": the default keys; "4":
-        ;     redefine them; "2" / "3" / "5" pick joysticks the MS-0515 has not -
-        ;     they fall back to the default keys. --------------------------------
+        ;     redefine them; "5": the Kempston joystick - the one on the MS7007
+        ;     port (JOY1 / JOY2, read by KCTRL); "2" / "3" (the Sinclair
+        ;     joysticks the MS-0515 has not) fall back to the default keys. ----
 SETCTL: JSR     PC,CLS
         MOV     #VRAM+{at(1, 45)}.,R0
         MOV     #CTXT1,R1
@@ -428,19 +429,24 @@ SETCTL: JSR     PC,CLS
 1$:     JSR     PC,KGET
         CMP     R0,#320              ; "4": redefine the keys
         BEQ     SETKEY
+        CMP     R0,#325              ; "5": the Kempston joystick
+        BEQ     5$
         CMP     R0,#300
         BEQ     2$
         CMP     R0,#305
         BEQ     2$
         CMP     R0,#313
-        BEQ     2$
-        CMP     R0,#325
         BNE     1$
-2$:     TST     SETPLY               ; the default keys (DEF1: the keypad, the
+2$:     CLR     R1                   ; the keys alone
+        BR      4$
+5$:     MOV     #1,R1                ; the keys and the joystick
+4$:     TST     SETPLY               ; the default keys (DEF1: the keypad, the
         BNE     3$                   ;   arrows, Space / VR / SU; DEF2: Q W E /
-        MOV     #DEF1,KMAP1          ;   A S D / Z X C)
+        MOV     #DEF1,KMAP1          ;   A S D / Z X C) and the joystick flag
+        MOV     R1,JOY1
         RTS     PC
 3$:     MOV     #DEF2,KMAP2
+        MOV     R1,JOY2
         RTS     PC
 """
 

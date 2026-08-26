@@ -13,6 +13,9 @@
 // never pairs a cached module with a newer page.
 import createMs0515 from "./ms0515.js?v=@STAMP@";
 import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey } from "./keys.js?v=@STAMP@";
+import { Joystick } from "./joystick.js?v=@STAMP@";
+import { SoftKeyboard, isTouchDevice } from "./softkeys.js?v=@STAMP@";
+import { Commander } from "./fm.js?v=@STAMP@";
 
 // The floppy images the site ships (dist/disks/, from assets/disks) and
 // their sides (a two-sided image takes both sides of its drive).
@@ -56,6 +59,9 @@ let image, pcmBuf;
 let running = false, lastTick = 0, acc = 0;
 let audio = null, speaker = null, audioStats = null;   // the worklet's counters, for __ms()
 let frames = 0, speakerTransitions = 0;   // the speaker's level changes, summed over the frames
+let joystick = null;                       // the MS7007-port joystick (joystick.js)
+let softkbd = null;                        // the OS's on-screen keyboard (softkeys.js)
+let commander = null;                      // the files of the mounted images (fm.js)
 const K = (name) => KEY_ID[name];
 
 function say(s) { status.textContent = s; }
@@ -322,6 +328,49 @@ function fdRow(unit) {
   return row;
 }
 
+// ── the commander: the files of the mounted images, in place of the screen ─
+// Its sources are what the drives hold - each side of a floppy image, the
+// HD image; a write goes around the FDC: the image is unmounted, changed
+// in the module's file system, mounted again (the guest sees a changed
+// disk at its next directory read).
+function fileSources() {
+  const out = [];
+  for (let unit = 0; unit < 4; ++unit) {
+    const drive = driveOf(unit), side = sideOf(unit);
+    const name = side === 1 && ds[drive] ? slots.fd[unitOf(drive, 0)] : slots.fd[unit];
+    if (!name) continue;
+    out.push({ id: `fd${unit}`, label: `${"AB"[drive]}:${side} ${name}`, path: pathOf(name), side, linear: false, name, unit });
+  }
+  if (slots.hd) out.push({ id: "hd", label: `HD ${slots.hd}`, path: pathOf(slots.hd), side: 0, linear: true, name: slots.hd });
+  return out;
+}
+
+let commanderHold = false;                 // a write in progress: the panes keep still
+async function writableImage(source, op) {
+  const name = source.name;
+  const unit = slots.fd.indexOf(name);
+  const onHd = slots.hd === name;
+  commanderHold = true;
+  try {
+    if (unit >= 0) unmountFd(unit); else if (onHd) await mountHd("");
+    const ok = op();
+    staged.set(pathOf(name), 0);                        // written outside the FDC: flush it
+    if (unit >= 0) await mountFd(unit, name); else if (onHd) await mountHd(name);
+    return ok;
+  } finally {
+    commanderHold = false;
+  }
+}
+
+function toggleCommander() {
+  const open = $("fm").hidden;
+  $("fm").hidden = !open;
+  canvas.hidden = open;
+  $("files").textContent = open ? "Files: close" : "Files";
+  if (open) commander.open(); else canvas.focus();
+}
+
+
 // A blank floppy for the drive: one-sided into its first empty side,
 // two-sided into an empty drive.
 async function newFloppy(drive, sides) {
@@ -383,6 +432,7 @@ function renderDevices() {
   const hd = $("devhd");
   hd.querySelector(".devname").innerHTML = `<b>HD</b> ` + (slots.hd || "—");
   hd.querySelector(".panel").replaceChildren(...hdRows());
+  if (commander && !$("fm").hidden && !commanderHold) commander.open();   // a mount changed: the panes' sources follow
 }
 
 function lamps() {
@@ -480,11 +530,22 @@ async function toggleSound() {
     $("sound").textContent = "Sound: off";
     return;
   }
-  audio = new AudioContext();
-  await audio.audioWorklet.addModule("audio-worklet.js?v=@STAMP@");
+  const ctx = new AudioContext();
+  if (!ctx.audioWorklet) {                 // http by an address: not a secure context
+    await ctx.close();
+    throw new Error("sound needs a secure page (https, or localhost): the AudioWorklet is not available here");
+  }
+  try {
+    await ctx.audioWorklet.addModule("audio-worklet.js?v=@STAMP@");
+  } catch (e) {
+    await ctx.close();
+    throw e;
+  }
+  audio = ctx;
   speaker = new AudioWorkletNode(audio, "ms0515-speaker");
   speaker.port.onmessage = (e) => { audioStats = e.data; };
   speaker.connect(audio.destination);
+  if (audio.state !== "running") await audio.resume().catch(() => {});
   $("sound").textContent = "Sound: on";
 }
 
@@ -570,6 +631,7 @@ const keyboard = {
 function onKey(e, down) {
   if (!h) return;
   if (e.repeat) { e.preventDefault(); return; }         // the MS7004 repeats itself
+  if (joystick.key(e.code, down)) { e.preventDefault(); return; }   // the arrows and Space are the joystick's while it is on
   if (!mapKey(e.code, false, false).key && !e.code.startsWith("Numpad")) return;
   e.preventDefault();
   if (down) keyboard.down(e.code); else keyboard.up(e.code);
@@ -582,6 +644,10 @@ const typing = {
     for (const ch of text) { const k = charToHostKey(ch); if (k) this.queue.push(k); }
     this.next = performance.now() + delayMs;
   },
+  // Items { code, shift, rus }: `rus` names the mode the machine must be in
+  // for the key (a letter from the on-screen keyboard); the queue switches
+  // РУС/ЛАТ on its way when the lamp says otherwise.
+  push(items) { this.queue.push(...items); },
   tick(now) {
     if (!h || now < this.next) return;
     if (this.pending) {                    // release the key pressed last time
@@ -591,14 +657,30 @@ const typing = {
       this.next = now + 60;
       return;
     }
-    const k = this.queue.shift();
+    let k = this.queue.shift();
     if (!k) return;
+    if (k.rus !== undefined && (api.ruslat(h) === 1) !== k.rus) {
+      this.queue.unshift(k);               // the mode first: РУС/ЛАТ, then the key
+      k = { code: "AltRight", settle: 200 };
+    }
     if (k.shift) keyboard.down("ShiftLeft");
     keyboard.down(k.code, k.shift);
     this.pending = k;
-    this.next = now + 60;
+    this.next = now + (k.settle ?? 60);
   },
 };
+
+// ── full screen: the picture alone, the toolbar and the status gone ────────
+function fullscreenOn() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function toggleFullscreen() {
+  const el = document.querySelector("main");
+  if (fullscreenOn()) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  } else {
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) Promise.resolve(req.call(el)).catch(fail);
+  }
+}
 
 // ── the page ───────────────────────────────────────────────────────────────
 function bindApi() {
@@ -625,6 +707,16 @@ function bindApi() {
     ruslat:  c("ms_ruslat", "number", ["number"]),
     caps:    c("ms_caps", "number", ["number"]),
     releaseAll: c("ms_key_release_all", null, ["number"]),
+    joystick: c("ms_joystick", null, ["number", "number"]),
+    diskDir:    c("ms_disk_dir", "string", ["string", "number", "number"]),
+    diskError:  c("ms_disk_error", "string", []),
+    diskGet:    c("ms_disk_get", "number", ["string", "number", "number", "string"]),
+    diskData:   c("ms_disk_data", "number", []),
+    diskPut:    c("ms_disk_put", "number", ["string", "number", "number", "string", "number", "number", "number", "number", "number", "number"]),
+    diskRm:     c("ms_disk_rm", "number", ["string", "number", "number", "string"]),
+    diskRename: c("ms_disk_rename", "number", ["string", "number", "number", "string", "string"]),
+    diskInit:   c("ms_disk_init", "number", ["string", "number", "number"]),
+    diskSqueeze: c("ms_disk_squeeze", "number", ["string", "number", "number"]),
     save:    c("ms_save_state", "number", ["number", "string"]),
     load:    c("ms_load_state", "number", ["number", "string"]),
   };
@@ -639,6 +731,37 @@ function bindControls() {
     d.addEventListener("toggle", () => { if (d.open) for (const o of panels) if (o !== d) o.open = false; });
   document.addEventListener("click", (e) => { if (!e.target.closest("details.dev")) for (const o of panels) o.open = false; });
   $("rom").onchange = saveMounts;
+  // A click on a toolbar button must not keep the focus: the keys are the
+  // machine's (the keyboard button is the exception: it hands the focus to
+  // the hidden field the OS keyboard types into).
+  for (const b of document.querySelectorAll("header > button"))
+    if (b.id !== "softkbd" && b.id !== "files") b.addEventListener("click", () => canvas.focus());
+  // Full screen: the button, F11; hidden where the API is not there (an iPhone).
+  $("fullscreen").hidden = !(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  $("fullscreen").onclick = toggleFullscreen;
+  document.addEventListener("keydown", (e) => { if (e.key === "F11") { e.preventDefault(); toggleFullscreen(); } });
+  document.addEventListener("fullscreenchange", fit);
+  document.addEventListener("webkitfullscreenchange", fit);
+  // The OS's on-screen keyboard on a touch device; the page shrinks to what
+  // the keyboard leaves (the visual viewport) so the picture stays in view.
+  softkbd = new SoftKeyboard($("softkey"), (items) => typing.push(items), onKey, charToHostKey);
+  $("softkbd").hidden = !isTouchDevice();
+  $("softkbd").onclick = () => softkbd.toggle();
+  commander = new Commander($("fm"), { sources: fileSources, api, module: () => M, writable: writableImage, say,
+                                       onClose: () => { if (!$("fm").hidden) toggleCommander(); } });
+  $("files").onclick = toggleCommander;
+  if (window.visualViewport) {
+    visualViewport.addEventListener("resize", () => {
+      const shrunk = visualViewport.height < innerHeight - 100;
+      document.body.style.height = shrunk ? visualViewport.height + "px" : "";
+      fit();
+    });
+  }
+  joystick = new Joystick((bits) => { if (h) api.joystick(h, bits); }, $("joy"));
+  $("joystick").onclick = () => {
+    joystick.enable(!joystick.enabled);
+    $("joystick").textContent = joystick.enabled ? "Joystick: on" : "Joystick: off";
+  };
   $("boot").onclick = () => boot().catch(fail);
   $("sound").onclick = () => toggleSound().catch(fail);
   $("save").onclick = () => { if (h) say(api.save(h, "/state.bin") ? "state saved: Restore brings the machine back to it" : "save failed"); };
@@ -684,9 +807,13 @@ window.__ms = () => {
   if (ptr) for (const v of M.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + 640 * 400)) hist[v >>> 0] = (hist[v >>> 0] ?? 0) + 1;
   return { frames, running, status: status.textContent, colours: Object.keys(hist).length, hist,
            mounts: { fd: [...slots.fd], hd: slots.hd }, audio: audioStats && { ...audioStats, rate: audio?.sampleRate, state: audio?.state },
-           speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null };
+           speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
+           joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null,
+           fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null };
 };
 window.__ms.type = (text) => typing.type(text);
+window.__ms.api = () => api;                 // the module's calls, for scripted checks
+window.__ms.module = () => M;
 
 window.addEventListener("error", (e) => say("error: " + e.message));
 window.addEventListener("unhandledrejection", (e) => say("error: " + (e.reason?.message ?? e.reason)));

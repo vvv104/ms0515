@@ -97,8 +97,31 @@ The CPU services this interrupt to read the received scan code.
 
 The MS0515 also supports the MS7007 built-in film keyboard via a second
 KR580VV55 PPI at addresses 177540–177546.  The MS7007 uses an 8x11 scan
-matrix with interrupt on vector 060, priority 4.  This interface is not
-yet implemented in the emulator.
+matrix with interrupt on vector 060, priority 4.  The ROM programs the
+PPI at boot (control 0213: port A output, B and C input; A = 0377) and
+the monitor writes 0 to port A after every key, but no software at hand
+scans a matrix through it: the emulator keeps the port A latch and the
+control word, and reads ports B and C as open lines (all ones).
+
+### The joystick (port B, 177542)
+
+Port B is where a joystick goes - as one was wired on a real machine: five
+switches to ground on bits 0-4, brought out to a DIN socket on the case.
+Bit 0 right, bit 1 left, bit 2 down, bit 3 up, bit 4 fire - the Kempston
+order; a closed switch reads 0, an open line 1.  SABOT2's 1991 build (on
+`omega-games.dsk`) reads it in its "J KEMPSTON" mode:
+
+```
+MOV  @#177542, R0
+COM  R0
+BIC  #177740, R0        ; bits 0-4 = the lines held
+```
+
+and in "K KEYBOARD" mode maps the keypad to the same bits (8/2/4/6, 5 =
+fire, 1/3/7/9 the diagonals).  The 1990 build on `osa.dsk` never reads
+the port.  The core: `board_set_joystick(board, MS0515_JOY_*)`; the lib:
+`Emulator::setJoystick(Joy::Up | Joy::Fire)`.  An unmapped port read 0
+before this was modelled, which the game took as every line held.
 
 ---
 

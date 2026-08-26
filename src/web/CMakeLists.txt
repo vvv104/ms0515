@@ -7,7 +7,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 add_executable(ms0515_web src/ms0515_web.cpp)
-target_link_libraries(ms0515_web PRIVATE ms0515_lib)
+target_link_libraries(ms0515_web PRIVATE ms0515_lib ms0515_disk)
 target_compile_features(ms0515_web PRIVATE cxx_std_23)
 
 set(WEB_DIST "${CMAKE_BINARY_DIR}/web/dist")
@@ -47,7 +47,7 @@ foreach(f index.html app.js)
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/stamp.cmake"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${CMAKE_CURRENT_SOURCE_DIR}/stamp.cmake")
 endforeach()
-foreach(f keys.js audio-worklet.js)
+foreach(f keys.js joystick.js softkeys.js fm.js edit.js audio-worklet.js)
     list(APPEND WEB_COPIES "${WEB_DIST}/${f}")
     add_custom_command(OUTPUT "${WEB_DIST}/${f}"
         COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${WEB_DIST}/${f}"

@@ -26,6 +26,7 @@ add_executable(ms0515_lib_tests
     test_hd_disk.cpp
     test_dir_vs_os.cpp
     test_disk_cli.cpp
+    test_joystick.cpp
 )
 
 # CLI integration tests need the path to the ms0515-disk binary at test time.

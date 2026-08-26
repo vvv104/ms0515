@@ -69,6 +69,7 @@ TEST_CASE("ROM, UI toggles and history settings each take it out of default") {
     {   app::Config c; c.showDebugger = true; CHECK_FALSE(c.isDefault()); }
     {   app::Config c; c.hostMode = true;     CHECK_FALSE(c.isDefault()); }
     {   app::Config c; c.fullscreen = true;   CHECK_FALSE(c.isDefault()); }
+    {   app::Config c; c.joystick = "keys";  CHECK_FALSE(c.isDefault()); }
     {   app::Config c; c.historySize = 16;    CHECK_FALSE(c.isDefault()); }
     {   app::Config c; c.kbdTypingDelayMs = 0; CHECK_FALSE(c.isDefault()); }
 }
@@ -130,6 +131,7 @@ TEST_CASE("non-default values written by save() come back through load()") {
         out.hdPath   = "winchester.hd";
         out.historySize = 256;
         out.fullscreen  = true;
+        out.joystick    = "gamepad";
         out.kbdTypingDelayMs = 50;
         out.save();
 
@@ -140,6 +142,7 @@ TEST_CASE("non-default values written by save() come back through load()") {
         CHECK(in_.hdPath               == out.hdPath);
         CHECK(in_.historySize          == out.historySize);
         CHECK(in_.fullscreen           == out.fullscreen);
+        CHECK(in_.joystick             == out.joystick);
         CHECK(in_.kbdTypingDelayMs     == out.kbdTypingDelayMs);
         CHECK_FALSE(in_.isDefault());
     }

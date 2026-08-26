@@ -382,6 +382,62 @@ TEST_CASE("fist: \"G\"+\"H\" held together quit the game to the demo ($9827)")
     CHECK(g.gst(0xAA06) == 1);
 }
 
+TEST_CASE("fist: the Kempston joystick drives P1 once the controls menu's \"5\" picks it")
+{
+    if (!fist::built()) { MESSAGE("FIST not built - skipping"); return; }
+    using Joy = ms0515::Emulator::Joy;
+    FistGame g("fist_joy_lib");
+    REQUIRE(g.gst(0xAA06) == 1);                    // the attract demo
+    // Without the option the port is ignored: a game, the stick held right.
+    g.startGame();
+    g.parkP2();
+    int xBase = g.gst(0xAA19);
+    g.emu.setJoystick(Joy::Right);
+    g.settle(200);
+    int xIgnored = g.gst(0xAA19);
+    g.emu.setJoystick(0);
+    MESSAGE("P1 x ($AA19) without the option: " << xBase << " -> " << xIgnored);
+    CHECK(xIgnored == xBase);
+    // "G"+"H": back to the demo; "0" the settings, "1" player 1's controls, "5" KEMPSTON.
+    g.emu.keyPress(ms0515::Key::G, true);
+    g.emu.keyPress(ms0515::Key::H, true);
+    g.settle(60);
+    g.emu.keyReleaseAll();
+    g.settle(60);
+    REQUIRE(g.gst(0xAA06) == 1);
+    g.keyTap(ms0515::Key::Digit0);
+    g.settle(30);
+    g.keyTap(ms0515::Key::Digit1);
+    g.settle(30);
+    g.keyTap(ms0515::Key::Digit5);
+    g.settle(60);
+    // A game: the stick walks the fighter, right then left; fire alone is idle.
+    g.startGame();
+    g.parkP2();
+    xBase = g.gst(0xAA19);
+    g.emu.setJoystick(Joy::Right);
+    g.settle(400);
+    int xRight = g.gst(0xAA19);
+    g.emu.setJoystick(0);
+    g.settle(80);
+    g.emu.setJoystick(Joy::Left);
+    g.settle(400);
+    int xLeft = g.gst(0xAA19);
+    g.emu.setJoystick(0);
+    MESSAGE("P1 x ($AA19) with the joystick: baseline=" << xBase << "  after RIGHT=" << xRight
+            << "  after LEFT=" << xLeft);
+    CHECK(xRight > xBase);
+    CHECK(xLeft < xRight);
+    g.settle(80);
+    g.resetFighters();
+    g.settle(10);
+    g.emu.setJoystick(Joy::Fire);
+    int maxAct = 1;
+    for (int i = 0; i < 12; ++i) { g.step(); maxAct = std::max(maxAct, (int)g.gst(0xAA04)); }
+    g.emu.setJoystick(0);
+    CHECK(maxAct == 1);
+}
+
 TEST_CASE("fist: \"0\" in the demo opens the settings screen ($8C54)")
 {
     if (!fist::built()) { MESSAGE("FIST not built - skipping"); return; }

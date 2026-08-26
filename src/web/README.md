@@ -64,6 +64,8 @@ CI runs both in the `web / emscripten` job.
 | `ms_save_state(h, path)` / `ms_load_state(h, path)` | snapshots in the module's file system |
 | `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
 | `ms_key_release_all(h)` | every key up (the canvas lost the focus) |
+| `ms_disk_dir(path, side, linear)` / `ms_disk_get(path, side, linear, name)` + `ms_disk_data()` / `ms_disk_put(path, side, linear, name, data, len, y, m, d, prot)` / `ms_disk_rm(...)` / `ms_disk_rename(...)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library; `linear` for the HD): the page's commander |
+| `ms_joystick(h, bits)` | the joystick on the MS7007 port: bits 0-4 right, left, down, up, fire (`joystick.js`: the arrows and Space, or a touch overlay) |
 
 ## The page
 
@@ -90,6 +92,38 @@ characters on its caps; in РУС mode - the machine's lamp, read through
 up the difference and is undone at release, CAPS + Shift inverts a letter,
 the numpad / * + and a few РУС-mode symbols are special cases.  The host's
 auto-repeat is ignored: the MS7004 repeats itself (`ms_key_tick`).
+
+Full screen (the button, F11): the picture alone on the display, through
+the Fullscreen API on `<main>` (not on an iPhone, which has none: there
+"Add to Home Screen" is the way).  On a touch device the keyboard button
+focuses a hidden text field so the OS raises its keyboard (`softkeys.js`):
+its characters arrive as input events and go through the typing queue,
+Cyrillic letters as the ЙЦУКЕН positions with the machine switched to РУС
+on the way (and back for Latin); Enter and Backspace by key; the page
+shrinks to the visual viewport while the keyboard is up.
+
+"Files" replaces the screen with a two-pane commander (`fm.js`) over the
+mounted disks' RT-11 directories, read through the offline disk library
+compiled into the module: a floppy side or the HD image in each pane, the
+unused areas listed with the files, and the ten keys always drawn below as
+in Midnight Commander - F1 Upload a file of the user's (its name made a
+6.3 RT-11 name, no date: the OS cannot hold today's), F2 Download to the
+computer, F3 View, F4 Edit, F5 Copy to the other pane (with the date and
+the protection), F6 Rename, F7 Init the pane's volume, F8 Delete, F9
+Squeeze, F10 Quit (Esc too); Tab, the arrows, Enter as in the commander.
+The viewer's keys, as mc's: F1 the encoding (KOI-7, KOI-8R, CP866 in turn),
+F2 wrap / unwrap at the machine's 80 columns, F3 and F10 back, F4 text /
+hex / octal in turn, F5 go to a line (an offset in the dump), F7 search - a
+string in the encoding, or a byte sequence in the digits shown - the hit
+marked and scrolled to.  The editor's (`edit.js`): F1 the encoding, F2
+save, F4 the representation (a text in the encoding it was read in, saved
+the same way with CR LF; a binary as its bytes in octal - the machine's
+notation - or hex, the digits or the characters typed over), F5 go to, F7
+search, F8 replace / insert (Delete and Backspace remove bytes), F10 back.
+A write goes around the FDC: the image is unmounted, changed in the
+module's file system, mounted again, so the guest sees a changed disk at
+its next directory read; a file that grows moves to a free area, leaving
+an unused one where it was.
 
 Sound: each frame's PCM goes to an AudioWorklet (`audio-worklet.js`) that
 plays the chunks back to back and drops the oldest past ~100 ms of lag; it

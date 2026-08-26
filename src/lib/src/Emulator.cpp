@@ -392,6 +392,16 @@ void Emulator::keyReleaseAll()
     ms7004_release_all(&impl_->kbd7004);
 }
 
+void Emulator::setJoystick(uint8_t bits)
+{
+    board_set_joystick(&impl_->board, bits);
+}
+
+uint8_t Emulator::joystick() const noexcept
+{
+    return impl_->board.joystick;
+}
+
 void Emulator::keyTick(uint32_t now_ms)
 {
     ms7004_tick(&impl_->kbd7004, now_ms);

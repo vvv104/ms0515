@@ -15,6 +15,7 @@
 #include "Audio.hpp"
 #include "Config.hpp"   /* re-exports CliArgs/Config from libapp */
 #include "OnScreenKeyboard.hpp"
+#include "Joystick.hpp"
 #include "PhysicalKeyboard.hpp"
 #include "Video.hpp"
 
@@ -70,6 +71,7 @@ private:
     void drawComponentsMenu();
     void drawHardDiskSubmenu();
     void drawKeyboardSubmenu();
+    void drawJoystickSubmenu();
     void drawViewMenu();
     void drawMountErrorPopup();
     void resizeHostWindow();
@@ -113,6 +115,7 @@ private:
     Audio                audio_;
     PhysicalKeyboard     physKbd_;
     OnScreenKeyboard     osk_;
+    Joystick             joystick_;
 
     /* ── Mount state ────────────────────────────────────────────────── */
     std::array<std::string, 4> mountedFd_;

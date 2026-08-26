@@ -6,6 +6,7 @@
 <title>MS-0515</title>
 <style>
   :root { color-scheme: dark; }
+  [hidden] { display: none !important; }   /* the attribute wins over any display: of ours */
   html, body { height: 100%; margin: 0; }
   body { display: flex; flex-direction: column; background: #111; color: #ddd; font: 14px system-ui, sans-serif; overflow: hidden; }
   header { display: flex; flex-wrap: wrap; gap: .4em; align-items: center; padding: .4em .75em; background: #1b1b1b; }
@@ -14,6 +15,7 @@
   button, summary.dev { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .25em .6em; cursor: pointer; }
   button:hover, summary.dev:hover, details[open] summary.dev { background: #383838; }
   button.small { padding: .1em .4em; font-size: .9em; }
+  button.icon { display: inline-flex; align-items: center; padding: .3em .5em; }
   input[type=number] { width: 4em; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .2em .3em; }
   .spacer { flex: 1; }
 
@@ -35,8 +37,47 @@
   .row .shadow { color: #888; font-style: italic; }
   .row select { max-width: 20em; }
   .panel .hint { color: #888; font-size: .9em; }
-
-  main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; container-type: size; }
+  /* The commander: two panes of RT-11 files in place of the screen. */
+  #fm { width: 100%; height: 100%; display: flex; flex-direction: column; gap: .4em; font: 14px ui-monospace, Consolas, monospace; }
+  .fm-panes { flex: 1; min-height: 0; display: flex; gap: .5em; }
+  .fm-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 1px solid #446; background: #05173a; }
+  .fm-pane.active { border-color: #8ab; }
+  .fm-pane select { margin: .3em; font: inherit; }
+  .fm-list { flex: 1; min-height: 0; overflow: auto; outline: none; padding: .2em 0; }
+  .fm-row { display: grid; grid-template-columns: 1fr 5ch 11ch 2ch; gap: .6em; padding: .05em .6em; color: #9cf; cursor: default; white-space: nowrap; }
+  .fm-row .b { text-align: right; }
+  .fm-row .p { color: #fc8; }
+  .fm-row.selected { background: #2a6a8a; color: #fff; }
+  .fm-pane.active .fm-row.selected { background: #3a8; }
+  .fm-foot { padding: .2em .6em; color: #8ab; border-top: 1px solid #446; }
+  .fm-bar { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+  .fm-bar button { display: flex; gap: .3em; align-items: baseline; padding: .25em .4em; overflow: hidden; white-space: nowrap; text-align: left; }
+  .fm-bar button .num { color: #fc8; min-width: 1.4em; text-align: right; }
+  .fm-bar button.none { background: #1c1c1c; color: #555; cursor: default; }
+  .fm-text.wrap { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 80ch; }
+  .fm-text mark { background: #fc8; color: #000; }
+  .fm-gap { flex: 1; }
+  .fm-viewer { position: absolute; inset: .5em; display: flex; flex-direction: column; gap: .4em; background: #111; }
+  .fm-vname { color: #ccc; }
+  .fm-text { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: .5em; background: #05173a; color: #cde; white-space: pre; }
+  .fm-row.unused { color: #778; font-style: italic; }
+  .fm-edit { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .fm-edit textarea { flex: 1; min-height: 0; resize: none; font: inherit; background: #05173a; color: #cde; border: 0; padding: .5em; white-space: pre; }
+  .ed-grid { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: .5em; background: #05173a; color: #cde; white-space: pre; outline: none; }
+  .ed-grid .cur { background: #3a8; color: #000; }
+  .ed-status { color: #8ab; padding: .2em .5em; }
+  main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; padding: .5em; container-type: size; position: relative; }
+  /* Full screen: the picture alone on black. */
+  main:fullscreen, main:-webkit-full-screen { padding: 0; background: #000; }
+  /* The field the OS keyboard types into: present, focusable, unseen. */
+  #softkey { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; font-size: 16px; }
+  /* The touch joystick over the screen: a floating stick on the left, fire on the right. */
+  #joy { position: absolute; inset: 0; touch-action: none; user-select: none; }
+  #joy .stick { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); background: rgba(255,255,255,.08); pointer-events: none; }
+  #joy .knob { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.45); }
+  #joy .firehint { position: absolute; right: 8%; bottom: 12%; width: 90px; height: 90px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25);
+                   color: rgba(255,255,255,.35); font: 14px system-ui, sans-serif; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  #joy.fire .firehint { background: rgba(255,120,120,.35); color: #fff; }
   /* The screen at 8:5 in whatever the header and the footer leave. */
   #screen { display: block; width: min(100cqw, 160cqh); background: #000; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
   #screen:focus { box-shadow: 0 0 0 2px #5a8; }
@@ -76,21 +117,34 @@
       <div class="panel"></div>
     </details>
   </div>
+  <button id="files" title="the files of the mounted disks (F3 view, F5 copy, F6 rename, F8 delete)">Files</button>
   <span class="spacer"></span>
+  <button id="softkbd" title="the on-screen keyboard" hidden>&#9000;</button>
+  <button id="joystick" title="the arrows and Space (or a touch screen) as the joystick on the MS7007 port">Joystick: off</button>
   <button id="sound">Sound: off</button>
   <button id="save">Save state</button>
   <button id="restore">Restore</button>
+  <button id="fullscreen" class="icon" title="full screen (F11); Esc leaves it"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></svg></button>
   <input id="file" type="file" hidden>
 </header>
 <main>
   <canvas id="screen" width="640" height="400" tabindex="0"></canvas>
+  <div id="fm" hidden></div>
+  <input id="softkey" type="text" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" aria-label="keyboard input">
+  <div id="joy" hidden>
+    <div class="stick" hidden><div class="knob"></div></div>
+    <div class="firehint">fire</div>
+  </div>
 </main>
 <footer>
   <div id="status">loading…</div>
   <details>
     <summary>help</summary>
     <div>Click the screen to type; RT-11 asks the date and the time at boot, Enter skips both. The keyboard follows the MS7004: the host's letters, digits and symbols make the characters on their caps (РУС mode: positional ЙЦУКЕН); arrows, the numeric keypad, F1–F13; Home/Ins/Del/End/PgUp/PgDn are the editing keys; Left Alt = Compose, Right Alt = РУС/ЛАТ.
+    &#9974; (or F11) puts the picture alone on the whole screen, Esc brings the page back; on a touch device &#9000; raises the system's keyboard (letters, digits, Enter, Backspace - Cyrillic letters switch the machine to РУС).
+    "Joystick: on" makes the arrows and Space the joystick on the MS7007 port (SABOT2 on omega-games: J KEMPSTON), and on a touch screen a stick under a finger on the left of the picture and fire on the right.
     The drives A, B and HD mount like the desktop emulator's: a 400 KB image is one side, an 800 KB one takes both sides of its drive, the HD takes an image of any size (your own, or a new blank one - INIT HD: in the guest).
+    "Files" replaces the screen with two panes of the mounted disks' RT-11 directories (a floppy side or the HD each, the unused areas shown) and the ten keys below, as in Midnight Commander: F1 Upload a file of yours (a 6.3 name of A-Z, 0-9 and $), F2 Download to your computer, F3 View, F4 Edit, F5 Copy to the other pane, F6 Rename, F7 Init the pane's volume, F8 Delete, F9 Squeeze, F10 Quit. In the viewer: F1 the encoding (KOI-7 / KOI-8R / CP866), F2 wrap at 80 columns, F3 quit, F4 text / hex / octal, F5 go to a line, F7 search (a byte sequence in hex / octal); in the editor: F2 save, F8 replace / insert. The guest sees a change at its next directory read.
     Disks you write to stay in this browser (IndexedDB): "Download" saves a copy, "Revert" returns a shipped disk to its original, "Delete" removes one of yours.
     A game on <code>osa.dsk</code>: type <code>R FIST</code> (or open <code>?disk=osa.dsk&amp;type=R%20FIST</code>).
     <p><button id="wipe" class="small" title="drop every image and setting this page keeps in the browser">Wipe browser data</button> — a fresh start: your images, changed disks and mounts are gone.</p></div>

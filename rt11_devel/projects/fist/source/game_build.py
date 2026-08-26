@@ -215,6 +215,7 @@ def _datblk(lb_words, withbg):
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRPHASE: .WORD   0\nRANKB:  .WORD   0\n"
               "        .EVEN\nKOPT:   .WORD   0\nSETPLY: .WORD   0\nSNDENA: .WORD   1\n"
+              "JOY1:   .WORD   0\nJOY2:   .WORD   0\n"
               "HISC:   .BLKB   3.\nHISC2:  .BLKB   3.\nSC2BCD: .BLKB   3.\n"
               + game_keys.tables() +
               "        .EVEN\nKEY1:   .BLKB   12.\nKEY2:   .BLKB   12.\n"

@@ -614,3 +614,83 @@ TEST_CASE("putFile errors") {
 }
 
 } /* TEST_SUITE */
+
+TEST_CASE("put / rm on a volume whose home block does not point at the directory") {
+    /* The machine's own INIT (OSA, Omega, ...) leaves other things in the
+     * home block's directory word; dir/get find segment 1 by scanning, and
+     * put/rm must follow them rather than refuse the volume. */
+    auto img = blankImage(false);
+    initVolume(img, 0, false);
+    putFile(img, 0, false, "FIRST.TXT", pattern(700, 1));
+    img[512 + 0x1D4] = 0; img[512 + 0x1D5] = 0;           /* LBN 1, word 0x1D4 */
+    putFile(img, 0, false, "SECOND.TXT", pattern(1500, 2));
+    auto opened = openImage(img, 0);
+    REQUIRE(opened);
+    CHECK(opened->directory.find("FIRST.TXT") != nullptr);
+    CHECK(opened->directory.find("SECOND.TXT") != nullptr);
+    CHECK(opened->readFile("SECOND.TXT").size() == 1536);
+    removeFile(img, 0, false, "FIRST.TXT");
+    opened = openImage(img, 0);
+    REQUIRE(opened);
+    CHECK(opened->directory.find("FIRST.TXT") == nullptr);
+    CHECK(opened->directory.find("SECOND.TXT") != nullptr);
+    img[512 + 0x1D4] = 0xFF; img[512 + 0x1D5] = 0x7F;      /* out of the volume */
+    setEntryDate(img, 0, false, "SECOND.TXT", encodeDate(1992, 8, 22));
+    opened = openImage(img, 0);
+    REQUIRE(opened);
+    CHECK(opened->directory.find("SECOND.TXT")->date == encodeDate(1992, 8, 22));
+}
+
+TEST_CASE("rename keeps the data and refuses a taken or bad name") {
+    auto img = blankImage(false);
+    initVolume(img, 0, false);
+    putFile(img, 0, false, "OLD.TXT", pattern(700, 3), PutOptions{encodeDate(1992, 8, 22), false});
+    putFile(img, 0, false, "OTHER.DAT", pattern(300, 4));
+    renameFile(img, 0, false, "OLD.TXT", "NEW.TXT");
+    auto opened = openImage(img, 0);
+    REQUIRE(opened);
+    CHECK(opened->directory.find("OLD.TXT") == nullptr);
+    const DirEntry *e = opened->directory.find("NEW.TXT");
+    REQUIRE(e != nullptr);
+    CHECK(e->date == encodeDate(1992, 8, 22));
+    CHECK(e->length == 2);
+    auto data = opened->readFile("NEW.TXT");
+    CHECK(std::equal(data.begin(), data.begin() + 700, pattern(700, 3).begin()));
+    CHECK_THROWS(renameFile(img, 0, false, "NEW.TXT", "OTHER.DAT"));
+    CHECK_THROWS(renameFile(img, 0, false, "NEW.TXT", "TOOLONGNAME.TXT"));
+    CHECK_THROWS(renameFile(img, 0, false, "NOSUCH.TXT", "X.TXT"));
+}
+
+TEST_CASE("squeeze on a floppy keeps every file's bytes (the LBNs are skewed, not linear)") {
+    /* Files spanning many blocks, one removed from the middle, the rest
+     * moved down: each must read back byte-exact - the move goes block by
+     * block through the layout, where consecutive LBNs are not consecutive
+     * bytes of the image. */
+    auto img = blankImage(false);
+    initVolume(img, 0, false);
+    const std::vector<BuildFile> files = {
+        {"A.DAT", pattern(23 * 512, 1)}, {"B.DAT", pattern(7 * 512 + 100, 2)},
+        {"C.DAT", pattern(41 * 512, 3)}, {"D.DAT", pattern(3 * 512, 4)}, {"E.DAT", pattern(60 * 512 + 1, 5)},
+    };
+    for (const auto &f : files) putFile(img, 0, false, f.name, f.data);
+    removeFile(img, 0, false, "B.DAT");
+    removeFile(img, 0, false, "D.DAT");
+    squeeze(img, 0, false);
+    auto opened = openImage(img, 0);
+    REQUIRE(opened);
+    int expectStart = opened->directory.dataStart;
+    for (const auto &f : files) {
+        if (f.name == "B.DAT" || f.name == "D.DAT") { CHECK(opened->directory.find(f.name) == nullptr); continue; }
+        const DirEntry *e = opened->directory.find(f.name);
+        REQUIRE(e != nullptr);
+        CHECK(e->startBlock == expectStart);                     /* packed to the front, in order */
+        expectStart += e->length;
+        auto data = opened->readFile(f.name);
+        REQUIRE(data.size() >= f.data.size());
+        CHECK(std::equal(f.data.begin(), f.data.end(), data.begin()));
+    }
+    int empties = 0;
+    for (const auto &e : opened->directory.entries) if (e.isEmpty() && e.length > 0) ++empties;
+    CHECK(empties == 1);
+}
+

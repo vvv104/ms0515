@@ -13,7 +13,7 @@ const port = process.argv[3] ?? "9222";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function target() {
-  for (let i = 0; i < 50; ++i) {
+  for (let i = 0; i < 300; ++i) {          // up to a minute: a CI runner's browser starts slowly
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
       const page = list.find((t) => t.type === "page");

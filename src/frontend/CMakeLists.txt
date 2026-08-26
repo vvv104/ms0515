@@ -32,6 +32,7 @@ add_executable(ms0515 WIN32
     src/Video.cpp
     src/Keymap.cpp
     src/PhysicalKeyboard.cpp
+    src/Joystick.cpp
     src/OnScreenKeyboard.cpp
     src/Ui.cpp
     ${IMGUI_BACKENDS_DIR}/imgui_impl_sdl2.cpp

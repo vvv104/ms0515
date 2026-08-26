@@ -64,7 +64,7 @@ int App::run()
 bool App::initSdl()
 {
     platformInit();
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
         std::fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return false;
     }
@@ -195,6 +195,7 @@ void App::initEmulator()
 
     emu_.reset();
     applyKeyboardConfig();
+    joystick_.setMode(Joystick::modeFromName(config_.joystick));
 
     osk_.loadLayout();
     physKbd_.setHostMode(config_.hostMode);
@@ -492,8 +493,12 @@ void App::pumpEvents(bool &quit)
         ImGui_ImplSDL2_ProcessEvent(&ev);
         if (ev.type == SDL_QUIT) {
             quit = true;
+        } else if (ev.type == SDL_CONTROLLERDEVICEADDED ||
+                   ev.type == SDL_CONTROLLERDEVICEREMOVED) {
+            joystick_.handleDevice(ev);
         } else if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
-            bool intercepted = !io.WantCaptureKeyboard && handleHotkey(ev);
+            bool intercepted = !io.WantCaptureKeyboard &&
+                               (handleHotkey(ev) || joystick_.handleKey(ev));
             if (!intercepted)
                 physKbd_.handleEvent(ev, emu_, io.WantCaptureKeyboard);
         }
@@ -502,8 +507,9 @@ void App::pumpEvents(bool &quit)
 
 void App::tick()
 {
-    /* Auto-repeat timer always advances. */
+    /* Auto-repeat timer always advances; the joystick's lines follow the host. */
     emu_.keyTick(SDL_GetTicks());
+    joystick_.poll(emu_);
 
     /* Run emulated frames based on real elapsed time × speed factor. */
     if (running_) {
@@ -897,6 +903,28 @@ void App::drawComponentsMenu()
     drawHardDiskSubmenu();
     ImGui::Separator();
     drawKeyboardSubmenu();
+    drawJoystickSubmenu();
+    ImGui::EndMenu();
+}
+
+/* The joystick on the MS7007 port: off, the arrows and Space, or an SDL
+ * game controller.  Persisted as the config's "joystick" word. */
+void App::drawJoystickSubmenu()
+{
+    if (!ImGui::BeginMenu("Joystick")) return;
+    const JoystickMode mode = joystick_.mode();
+    auto pick = [&](const char *label, JoystickMode m) {
+        if (ImGui::MenuItem(label, nullptr, mode == m)) {
+            joystick_.setMode(m);
+            config_.joystick = (m == JoystickMode::Off) ? "" : Joystick::modeName(m);
+            config_.save();
+        }
+    };
+    pick("Off", JoystickMode::Off);
+    pick("Keys: the arrows and Space", JoystickMode::Keys);
+    const std::string pad = joystick_.gamepadName();
+    const std::string padLabel = pad.empty() ? std::string{"Gamepad (none found)"} : "Gamepad: " + pad;
+    pick(padLabel.c_str(), JoystickMode::Gamepad);
     ImGui::EndMenu();
 }
 

@@ -115,6 +115,12 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear = false
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, bool linear = false);
 
+/* Rename a permanent file in place (the entry's RAD50 words); the new name
+ * must be a valid 6.3 name not already on the volume.  Throws on either. */
+void renameFile(std::vector<uint8_t> &image, int side, bool ds,
+                const std::string &name, const std::string &newName,
+                bool linear = false);
+
 } /* namespace ms0515::disk */
 
 #endif /* MS0515_DISK_BUILD_HPP */
