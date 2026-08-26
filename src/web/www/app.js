@@ -426,6 +426,7 @@ function renderDevices() {
   const hd = $("devhd");
   hd.querySelector(".devname").innerHTML = `<b>HD</b> ` + (slots.hd || "—");
   hd.querySelector(".panel").replaceChildren(...hdRows());
+  if (commander && !$("fm").hidden) commander.open();   // a mount changed: the panes' sources follow
 }
 
 function lamps() {

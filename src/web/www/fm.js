@@ -6,7 +6,8 @@
 // (text in KOI-7 / KOI-8R / CP866, or a hex dump), Copy to the other pane, Rename,
 // Delete; Download saves the file to the computer, Upload adds a file of
 // the user's to the active pane.  F3 / F5 / F6 / F8, Tab, the arrows and
-// Enter do what they did in the commander this is named after; Esc closes.
+// Enter do what they did in the commander this is named after; Esc closes
+// (the page's Files button does the same).
 //
 // `deps`: { sources() -> [{ id, label, path, side, linear, name }],
 //           api, module(), writable(source, op) -> Promise (the image
@@ -59,8 +60,6 @@ export class Commander {
     bar.appendChild(el("span", "fm-gap"));
     b("Download", "the file to your computer", () => this.download());
     b("Upload", "a file from your computer into this pane", () => this.upload());
-    bar.appendChild(el("span", "fm-gap"));
-    b("Close", "Esc", () => this.close());
     const viewer = el("div", "fm-viewer");
     viewer.hidden = true;
     const vbar = el("div", "fm-bar");
@@ -92,7 +91,8 @@ export class Commander {
     this.focusList();
   }
 
-  close() { this.viewer.box.hidden = true; this.root.hidden = true; this.deps.onClose(); }
+  // Esc: the page's Files button closes the commander (and shows the screen).
+  close() { this.viewer.box.hidden = true; this.deps.onClose(); }
 
   activate(i) { this.active = i; for (const [k, p] of this.panes.entries()) p.pane.classList.toggle("active", k === i); }
 
