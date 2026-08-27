@@ -25,6 +25,7 @@
 //           api, module(), writable(source, op) -> Promise (the image
 //           unmounted around a write), say, onClose }.
 import { ByteEditor, decodeBytes, encodeText } from "./edit.js?v=@STAMP@";
+import { makeZip } from "./zip.js?v=@STAMP@";
 
 const LATIN_NAME = /^[A-Z0-9$]{1,6}(\.[A-Z0-9$]{1,3})?$/;
 const DEV_NAME = /^(?:([A-Z]+\d*):)?\s*([A-Z0-9$.]+)$/;   // "DZ1:NAME.EXT" or "NAME.EXT"
@@ -407,7 +408,8 @@ export class Commander {
       return;
     }
     const c = list[0];
-    const answer = await this.ask(`Rename or move ${c.file.name} to (DEV:NAME):`, { title: "RenMove", input: `${from.source.dev}${c.file.name}` });
+    const offered = other.source && other.source.id !== from.source.id ? other.source : from.source;
+    const answer = await this.ask(`Rename or move ${c.file.name} to (DEV:NAME):`, { title: "RenMove", input: `${offered.dev}${c.file.name}` });
     if (answer === null || answer === "") return;
     const { source: to, name } = this.parseTarget(answer, from.source);
     if (to.id === from.source.id) {
@@ -457,13 +459,29 @@ export class Commander {
     this.refresh();
   }
 
-  download() {
-    for (const c of this.targets()) {
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([this.bytesOf(c.source, c.file.name)]));
-      a.download = c.file.name; a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  // F2: one file as it is, after a word; the marked files together in a
+  // .zip whose name the dialog asks for.
+  async download() {
+    const list = this.targets();
+    if (!list.length) return;
+    let name, bytes;
+    if (list.length === 1) {
+      const c = list[0];
+      if (!await this.ask(`Download ${c.file.name} (${c.file.blocks} blocks) to your computer?`, { title: "Download" })) return;
+      name = c.file.name;
+      bytes = this.bytesOf(c.source, c.file.name);
+    } else {
+      const src = list[0].source;
+      const zipName = await this.ask(`Download ${list.length} files from ${src.dev} as a .zip named:`, { title: "Download", input: src.name.replace(/\.[^.]*$/, "") + ".zip" });
+      if (!zipName) return;
+      name = /\.zip$/i.test(zipName) ? zipName : zipName + ".zip";
+      bytes = makeZip(list.map((c) => ({ name: c.file.name, bytes: this.bytesOf(c.source, c.file.name) })));
     }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([bytes]));
+    a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    this.deps.say(`${name} downloaded (${bytes.length} bytes)`);
   }
 
   upload() {
