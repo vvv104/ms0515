@@ -341,9 +341,9 @@ function fileSources() {
     if (!name) continue;
     // The image's side: a two-sided image has the unit's, a one-sided image
     // has only side 0 whichever unit it sits on.
-    out.push({ id: `fd${unit}`, label: `${"AB"[drive]}:${side} ${name}`, path: pathOf(name), side: ds[drive] ? side : 0, linear: false, name, unit });
+    out.push({ id: `fd${unit}`, dev: `DZ${unit}:`, label: `DZ${unit}: ${name}`, path: pathOf(name), side: ds[drive] ? side : 0, linear: false, name, unit });
   }
-  if (slots.hd) out.push({ id: "hd", label: `HD ${slots.hd}`, path: pathOf(slots.hd), side: 0, linear: true, name: slots.hd });
+  if (slots.hd) out.push({ id: "hd", dev: "HD0:", label: `HD0: ${slots.hd}`, path: pathOf(slots.hd), side: 0, linear: true, name: slots.hd });
   return out;
 }
 

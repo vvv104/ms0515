@@ -8,8 +8,12 @@
 // computer, F3 view, F4 edit, F5 copy to the other pane, F6 rename, F7
 // init the pane's volume, F8 delete, F9 squeeze, F10 quit (Esc too); Tab,
 // the arrows and Enter as in the commander; Insert and Shift with the
-// arrows mark files (yellow, as there), and F2 / F5 / F8 then take the
-// marked ones.  The viewer's keys, as mc's:
+// arrows mark files (yellow, as there), and F2 / F5 / F6 / F8 then take
+// the marked ones.  Every change to a disk is confirmed in a dialog of the
+// commander's own (centred, Enter / Esc); F5 on one file and F6 (RenMove)
+// take a "DEV:NAME" - the disks by their system names, DZ0: .. DZ3:, HD0:
+// - so a copy may land on the same disk under another name, and a rename
+// to another disk is a move.  The viewer's keys, as mc's:
 // F1 the encoding (KOI-7, KOI-8R, CP866 in turn), F2 wrap / unwrap at the
 // machine's 80 columns, F3 and F10 back, F4 text / hex / octal in turn, F5
 // go to a line, F7 search (a string in the encoding; a byte sequence in
@@ -23,6 +27,7 @@
 import { ByteEditor, decodeBytes, encodeText } from "./edit.js?v=@STAMP@";
 
 const LATIN_NAME = /^[A-Z0-9$]{1,6}(\.[A-Z0-9$]{1,3})?$/;
+const DEV_NAME = /^(?:([A-Z]+\d*):)?\s*([A-Z0-9$.]+)$/;   // "DZ1:NAME.EXT" or "NAME.EXT"
 const ENCODINGS = [["koi7", "KOI-7"], ["koi8-r", "KOI-8R"], ["ibm866", "CP866"]];
 
 const el = (tag, cls, text) => {
@@ -96,7 +101,69 @@ export class Commander {
     this.vtext.tabIndex = 0;                          // the arrows and PgUp / PgDn scroll it
     this.vedit = el("div", "fm-edit");
     this.viewer.append(this.vname, this.vtext, this.vedit, this.vbar);
-    this.root.append(panes, this.bar, this.viewer);
+    this.dlg = el("div", "fm-dialog");
+    this.dlg.hidden = true;
+    this.root.append(panes, this.bar, this.viewer, this.dlg);
+    this.dialog = null;            // { resolve, input } while a dialog is up
+  }
+
+  // ── the dialogs: centred in the commander, Enter / Esc ─────────────────
+  // ask(text, { title, input, ok, cancel }): resolves to the input's text
+  // (when there is one) or true on OK, null on Cancel.
+  ask(text, { title = "", input = null, ok = "OK", cancel = "Cancel" } = {}) {
+    return new Promise((resolve) => {
+      const box = el("div", "fm-dialog-box");
+      if (title) box.append(el("div", "fm-dialog-title", title));
+      box.append(el("div", "fm-dialog-text", text));
+      let field = null;
+      if (input !== null) {
+        field = document.createElement("input");
+        field.type = "text"; field.value = input; field.spellcheck = false;
+        box.append(field);
+      }
+      const buttons = el("div", "fm-dialog-buttons");
+      const bOk = el("button", null, ok), bCancel = el("button", null, cancel);
+      buttons.append(bOk, bCancel);
+      box.append(buttons);
+      this.dlg.replaceChildren(box);
+      this.dlg.hidden = false;
+      const done = (value) => { this.dlg.hidden = true; this.dialog = null; resolve(value); if (this.v) this.focusViewer(); else this.focusList(); };
+      this.dialog = { done, field };
+      bOk.onclick = () => done(field ? field.value.trim() : true);
+      bCancel.onclick = () => done(null);
+      (field ?? bOk).focus();
+      if (field) field.select();
+    });
+  }
+
+  dialogKey(e) {
+    if (e.key === "Enter") { e.preventDefault(); this.dialog.done(this.dialog.field ? this.dialog.field.value.trim() : true); }
+    else if (e.key === "Escape") { e.preventDefault(); this.dialog.done(null); }
+  }
+
+  focusViewer() { if (this.v?.textarea) this.v.textarea.focus(); else if (this.v?.editor) this.v.editor.focus(); else this.vtext.focus(); }
+
+  // "DEV:NAME" -> { source (the pane's when no device is given), name }.
+  parseTarget(text, here) {
+    const m = DEV_NAME.exec(text.trim().toUpperCase());
+    if (!m) throw new Error(`${text}: not "DZn:NAME.EXT"`);
+    const [, dev, name] = m;
+    if (!LATIN_NAME.test(name)) throw new Error(`${name}: not an RT-11 name (6.3, A-Z 0-9 $)`);
+    let source = here;
+    if (dev) {
+      source = this.deps.sources().find((s) => s.dev === dev + ":") ?? null;
+      if (!source) throw new Error(`${dev}: is not mounted`);
+    }
+    return { source, name };
+  }
+
+  paneOf(source) { return this.panes.find((p) => p.source?.id === source.id) ?? null; }
+
+  namesOn(source) {
+    const p = this.paneOf(source);
+    if (p) return p.files.filter((f) => !f.empty).map((f) => f.name);
+    const text = this.deps.api.diskDir(source.path, source.side, source.linear ? 1 : 0);
+    return text ? JSON.parse(text).files.filter((f) => !f.empty).map((f) => f.name) : [];
   }
 
   // A bar of the ten keys: [label, title, action] per key, an empty label
@@ -120,7 +187,7 @@ export class Commander {
       ["View", "the file as text or bytes", () => this.view()],
       ["Edit", "the file as text, or its bytes", () => this.edit()],
       ["Copy", "to the other pane", () => this.copy()],
-      ["Rename", "", () => this.rename()],
+      ["RenMove", "a new name, or another disk (DZn:NAME)", () => this.renmove()],
       ["Init", "the pane's volume anew - every file on it lost", () => this.init()],
       ["Delete", "", () => this.remove()],
       ["Squeeze", "the files packed, one free area", () => this.squeeze()],
@@ -166,14 +233,20 @@ export class Commander {
       const text = api.diskDir(p.source.path, p.source.side, p.source.linear ? 1 : 0);
       if (!text) {
         const src = p.source;                       // pinned: the panes may be redrawn meanwhile
-        if (confirm(`${src.label} has no RT-11 directory.  Initialise it (INIT: a blank volume)?`)) {
-          this.deps.writable(src, () => api.diskInit(src.path, src.side, src.linear ? 1 : 0))
-            .then((done) => { if (!done) throw new Error(api.diskError()); p.src.value = src.id; this.load(p); })
-            .catch((err) => this.deps.say("error: " + (err?.message ?? err)));
-          return;
-        }
-        if (prev !== undefined && prev !== p.src.value) { p.src.value = prev; this.load(p); return; }
-        this.deps.say("error: " + api.diskError());
+        this.draw(p);
+        this.ask(`${src.label} has no RT-11 directory.  Initialise it (INIT: a blank volume)?`, { title: "Initialise" })
+          .then(async (yes) => {
+            if (yes) {
+              const done = await this.deps.writable(src, () => api.diskInit(src.path, src.side, src.linear ? 1 : 0));
+              if (!done) throw new Error(api.diskError());
+              p.src.value = src.id;
+            } else if (prev !== undefined && prev !== p.src.value) {
+              p.src.value = prev;
+            }
+            this.load(p);
+          })
+          .catch((err) => this.deps.say("error: " + (err?.message ?? err)));
+        return;
       } else {
         const dir = JSON.parse(text);
         p.files = dir.files;
@@ -236,10 +309,11 @@ export class Commander {
 
   // ── the keys ─────────────────────────────────────────────────────────────
   key(e) {
+    if (this.dialog) { this.dialogKey(e); return; }
     if (this.v) { this.viewerKey(e); return; }
     const p = this.panes[this.active];
     const acts = { F1: () => this.upload(), F2: () => this.download(), F3: () => this.view(), F4: () => this.edit(),
-                   F5: () => this.copy(), F6: () => this.rename(), F7: () => this.init(), F8: () => this.remove(),
+                   F5: () => this.copy(), F6: () => this.renmove(), F7: () => this.init(), F8: () => this.remove(),
                    F9: () => this.squeeze(), F10: () => this.close(), Enter: () => this.view(), Escape: () => this.close(),
                    Tab: () => { this.active ^= 1; this.focusList(); },
                    Insert: () => this.mark(p, 1),
@@ -274,43 +348,85 @@ export class Commander {
     }
   }
 
-  async copy() {
-    const list = this.targets();
-    if (!list.length) return;
-    const from = list[0].pane, to = this.panes[this.active ^ 1];
-    if (!to.source) throw new Error("the other pane has no disk");
-    if (to.source.id === from.source.id) throw new Error("the other pane shows the same disk");
-    const taken = list.filter((c) => to.files.some((f) => f.name === c.file.name)).map((c) => c.file.name);
-    if (taken.length && !confirm(`Replace on ${to.source.label}: ${taken.join(", ")}?`)) return;
+  // The marked files (or the current one) to a disk, as copies or moved;
+  // one file may get another name.  Confirms, and asks about the names it
+  // would replace.
+  async transfer(list, to, newName, move) {
+    const from = list[0].pane;
+    const verb = move ? "Move" : "Copy";
+    const nameOn = (c) => newName ?? c.file.name;
+    const there = this.namesOn(to);
+    const taken = list.filter((c) => there.includes(nameOn(c))).map(nameOn);
+    const what = list.length === 1 ? `${list[0].file.name}${newName && newName !== list[0].file.name ? " as " + newName : ""}` : `${list.length} files`;
+    const question = `${verb} ${what} to ${to.dev} ${to.name}?` + (taken.length ? `  ${taken.join(", ")} there will be replaced.` : "");
+    if (!await this.ask(question, { title: verb })) return;
     let n = 0;
     for (const c of list) {
       const bytes = this.bytesOf(c.source, c.file.name);
-      if (!await this.putBytes(to.source, c.file.name, bytes, c.file)) throw new Error(`${c.file.name}: ${this.deps.api.diskError()}`);
+      if (!await this.putBytes(to, nameOn(c), bytes, c.file)) throw new Error(`${c.file.name}: ${this.deps.api.diskError()}`);
+      if (move && !await this.deps.writable(c.source, () => this.deps.api.diskRm(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name)))
+        throw new Error(`${c.file.name}: ${this.deps.api.diskError()}`);
       from.marks.delete(c.file.name);
       ++n;
     }
-    this.load(to);
-    this.draw(from);
-    this.deps.say(n === 1 ? `${list[0].file.name} copied to ${to.source.label}` : `${n} files copied to ${to.source.label}`);
+    this.refresh();
+    this.deps.say(`${n === 1 ? what : n + " files"} ${move ? "moved" : "copied"} to ${to.dev}`);
   }
 
-  async rename() {
-    const c = this.current();
-    if (!c) return;
-    const name = prompt(`Rename ${c.file.name} to (6.3, A-Z 0-9 $):`, c.file.name);
-    if (!name || name === c.file.name) return;
-    const upper = name.toUpperCase();
-    if (!LATIN_NAME.test(upper)) throw new Error(`${name}: not an RT-11 name`);
-    const ok = await this.deps.writable(c.source, () => this.deps.api.diskRename(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name, upper));
-    if (!ok) throw new Error(this.deps.api.diskError());
-    this.refresh();
+  // F5: the marked files to the other pane's disk; one file - a "DEV:NAME"
+  // (the other pane's disk offered), the same disk under another name too.
+  async copy() {
+    const list = this.targets();
+    if (!list.length) return;
+    const from = list[0].pane, other = this.panes[this.active ^ 1];
+    if (list.length > 1) {
+      if (!other.source) throw new Error("the other pane has no disk");
+      if (other.source.id === from.source.id) throw new Error("the other pane shows the same disk");
+      await this.transfer(list, other.source, null, false);
+      return;
+    }
+    const c = list[0];
+    const offered = other.source && other.source.id !== from.source.id ? other.source : from.source;
+    const answer = await this.ask(`Copy ${c.file.name} to (DEV:NAME):`, { title: "Copy", input: `${offered.dev}${c.file.name}` });
+    if (answer === null || answer === "") return;
+    const { source: to, name } = this.parseTarget(answer, from.source);
+    if (to.id === from.source.id && name === c.file.name) throw new Error("a file cannot be copied onto itself");
+    await this.transfer(list, to, name, false);
+  }
+
+  // F6 RenMove: one file - a "DEV:NAME": the same (or no) disk is a rename,
+  // another disk a move; the marked files - moved to the other pane's disk.
+  async renmove() {
+    const list = this.targets();
+    if (!list.length) return;
+    const from = list[0].pane, other = this.panes[this.active ^ 1];
+    if (list.length > 1) {
+      if (!other.source) throw new Error("the other pane has no disk");
+      if (other.source.id === from.source.id) throw new Error("the other pane shows the same disk");
+      await this.transfer(list, other.source, null, true);
+      return;
+    }
+    const c = list[0];
+    const answer = await this.ask(`Rename or move ${c.file.name} to (DEV:NAME):`, { title: "RenMove", input: `${from.source.dev}${c.file.name}` });
+    if (answer === null || answer === "") return;
+    const { source: to, name } = this.parseTarget(answer, from.source);
+    if (to.id === from.source.id) {
+      if (name === c.file.name) return;
+      if (!await this.ask(`Rename ${c.file.name} to ${name} on ${to.dev}?`, { title: "Rename" })) return;
+      const ok = await this.deps.writable(c.source, () => this.deps.api.diskRename(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name, name));
+      if (!ok) throw new Error(this.deps.api.diskError());
+      this.refresh();
+      return;
+    }
+    if (c.file.protected) throw new Error(`${c.file.name} is protected: a copy, not a move`);
+    await this.transfer(list, to, name, true);
   }
 
   async remove() {
     const list = this.targets().filter((c) => !c.file.protected);
     if (!list.length) { const c = this.current(); if (c?.file.protected) throw new Error(`${c.file.name} is protected`); return; }
     const names = list.map((c) => c.file.name);
-    if (!confirm(`Delete from ${list[0].source.label}: ${names.length === 1 ? names[0] : names.length + " files (" + names.join(", ") + ")"}?`)) return;
+    if (!await this.ask(`Delete from ${list[0].source.dev} ${names.length === 1 ? names[0] : names.length + " files (" + names.join(", ") + ")"}?`, { title: "Delete" })) return;
     const src = list[0].source;
     const ok = await this.deps.writable(src, () => names.every((name) => this.deps.api.diskRm(src.path, src.side, src.linear ? 1 : 0, name)));
     if (!ok) throw new Error(this.deps.api.diskError());
@@ -323,7 +439,7 @@ export class Commander {
     const p = this.panes[this.active];
     if (!p.source) throw new Error("this pane has no disk");
     const files = p.files.filter((f) => !f.empty).length;
-    if (!confirm(`INIT ${p.source.label}${files ? ` - its ${files} file(s) will be lost` : ""}.  Continue?`)) return;
+    if (!await this.ask(`INIT ${p.source.label}${files ? ` - its ${files} file(s) will be lost` : ""}.  Continue?`, { title: "Init" })) return;
     const src = p.source;
     const ok = await this.deps.writable(src, () => this.deps.api.diskInit(src.path, src.side, src.linear ? 1 : 0));
     if (!ok) throw new Error(this.deps.api.diskError());
@@ -334,7 +450,7 @@ export class Commander {
   async squeeze() {
     const p = this.panes[this.active];
     if (!p.source) throw new Error("this pane has no disk");
-    if (!confirm(`Squeeze ${p.source.label}?`)) return;
+    if (!await this.ask(`Squeeze ${p.source.label}?`, { title: "Squeeze" })) return;
     const src = p.source;
     const ok = await this.deps.writable(src, () => this.deps.api.diskSqueeze(src.path, src.side, src.linear ? 1 : 0));
     if (!ok) throw new Error(this.deps.api.diskError());
@@ -359,7 +475,7 @@ export class Commander {
       const f = input.files[0];
       if (!f) return;
       const name = rt11Name(f.name);
-      if (p.files.some((x) => x.name === name) && !confirm(`Replace ${name} on ${p.source.label}?`)) return;
+      if (!await this.ask(`Upload ${f.name} as ${name} to ${p.source.label}?` + (p.files.some((x) => x.name === name) ? `  ${name} there will be replaced.` : ""), { title: "Upload" })) return;
       const bytes = new Uint8Array(await f.arrayBuffer());
       if (!await this.putBytes(p.source, name, bytes, null)) throw new Error(this.deps.api.diskError());
       this.load(p);
@@ -528,10 +644,11 @@ export class Commander {
   }
 
   // F5: a line of the text, or an offset (octal / hex, as shown) of the bytes.
-  goto() {
+  async goto() {
     const v = this.v;
     if (v.repr === "text") {
-      const n = parseInt(prompt("Go to line:", "1") ?? "", 10);
+      const answer = await this.ask("Go to line:", { title: "Go to", input: "1" });
+      const n = parseInt(answer ?? "", 10);
       if (!(n >= 1)) return;
       const text = v.textarea ? v.textarea.value : this.asText(this.currentBytes());
       let at = 0;
@@ -541,7 +658,8 @@ export class Commander {
       this.showAt(at, (end < 0 ? text.length : end) - at, text);
     } else {
       const base = v.repr === "oct" ? 8 : 16;
-      const at = parseInt(prompt(`Go to offset (${v.repr === "oct" ? "octal" : "hex"}):`, "0") ?? "", base);
+      const answer = await this.ask(`Go to offset (${v.repr === "oct" ? "octal" : "hex"}):`, { title: "Go to", input: "0" });
+      const at = parseInt(answer ?? "", base);
       const bytes = this.currentBytes();
       if (!(at >= 0 && at < bytes.length)) return;
       this.showAt(at, 1);
@@ -550,9 +668,9 @@ export class Commander {
 
   // F7: a string in the encoding, or - in hex / octal - a byte sequence
   // ("101 102 077"); the next hit after the last one, marked and shown.
-  search() {
+  async search() {
     const v = this.v;
-    const query = prompt(v.repr === "text" ? "Search:" : `Search bytes (${v.repr === "oct" ? "octal" : "hex"}, spaces between):`, v.query);
+    const query = await this.ask(v.repr === "text" ? "Search:" : `Search bytes (${v.repr === "oct" ? "octal" : "hex"}, spaces between):`, { title: "Search", input: v.query });
     if (!query) return;
     const from = v.hit && query === v.query ? v.hit.at + 1 : 0;
     v.query = query;
@@ -614,8 +732,8 @@ export class Commander {
     return v.textarea ? v.textarea.value !== this.asText(v.bytes) : false;
   }
 
-  leaveViewer() {
-    if (this.v && this.changed() && !confirm("Leave without saving?")) return;
+  async leaveViewer() {
+    if (this.v && this.changed() && !await this.ask("Leave without saving?", { title: "Edit" })) return;
     this.v = null;
     this.viewer.hidden = true;
     this.focusList();
