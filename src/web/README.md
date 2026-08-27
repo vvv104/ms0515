@@ -65,6 +65,7 @@ CI runs both in the `web / emscripten` job.
 | `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
 | `ms_key_release_all(h)` | every key up (the canvas lost the focus) |
 | `ms_disk_dir(path, side, linear)` / `ms_disk_get(path, side, linear, name)` + `ms_disk_data()` / `ms_disk_put(path, side, linear, name, data, len, y, m, d, prot)` / `ms_disk_rm(...)` / `ms_disk_rename(...)` / `ms_disk_protect(..., on)` / `ms_disk_init(...)` / `ms_disk_squeeze(...)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library; `linear` for the HD): the page's commander |
+| `ms_disk_blank(ds)` + `ms_disk_data()` | a blank floppy as the machine's formatting leaves it - the 0xB6 0x6D pattern, no RT-11 structure - for the page's "Create blank" (an HD image stays zeros: no such machine had one) |
 | `ms_disk_grow(path, blocks)` | a linear image enlarged: the commander grows a logical disk a file does not fit into |
 | `ms_ld_create(blocks, segments, volumeId)` / `ms_ld_put(name, data, len, y, m, d, prot)` / `ms_ld_data()` + `ms_ld_size()` | a logical disk built in memory - the linear file the system's LD handler mounts as a volume (`MOUNT LD0: DZn:NAME.DSK`) |
 | `ms_joystick(h, bits)` | the joystick on the MS7007 port: bits 0-4 right, left, down, up, fire (`joystick.js`: the arrows and Space, or a touch overlay) |

@@ -386,7 +386,9 @@ async function newFloppy(drive, sides) {
   }
   let name = `blank${sides}s.dsk`;
   for (let i = 2; own.has(name); ++i) name = `blank${sides}s-${i}.dsk`;
-  await addOwn(name, new Uint8Array(size));
+  const n = api.diskBlank(sides === 2 ? 1 : 0);          // the formatting pattern, not zeros
+  if (n !== size) throw new Error(`a blank of ${n} bytes for ${size}`);
+  await addOwn(name, M.HEAPU8.slice(api.diskData(), api.diskData() + n));
   await mountFd(unit, name);
   hint(`${name} is in drive ${"AB"[drive]}: INIT DZ${unit}: in the guest makes it a volume` + (sides === 2 ? ` (side 1 is DZ${unit + 2}:, its own)` : ""));
 }
@@ -397,7 +399,7 @@ function newFloppyRow(drive) {
   const sides = document.createElement("select");
   for (const n of [1, 2]) { const o = document.createElement("option"); o.value = n; o.textContent = sidesLabel(n); sides.appendChild(o); }
   make.append(sides);
-  make.append(button("Create blank", () => newFloppy(drive, +sides.value), "a zero-filled image; the guest initialises it (INIT DZn:)"));
+  make.append(button("Create blank", () => newFloppy(drive, +sides.value), "an image as the machine's formatting leaves it (the 0xB6 0x6D pattern); the guest initialises it (INIT DZn:)"));
   return make;
 }
 
@@ -715,6 +717,7 @@ function bindApi() {
     diskGet:    c("ms_disk_get", "number", ["string", "number", "number", "string"]),
     diskData:   c("ms_disk_data", "number", []),
     diskArea:   c("ms_disk_area", "number", ["string", "number", "number", "number"]),
+    diskBlank:  c("ms_disk_blank", "number", ["number"]),
     diskPut:    c("ms_disk_put", "number", ["string", "number", "number", "string", "number", "number", "number", "number", "number", "number"]),
     diskRm:     c("ms_disk_rm", "number", ["string", "number", "number", "string"]),
     diskRename: c("ms_disk_rename", "number", ["string", "number", "number", "string", "string"]),

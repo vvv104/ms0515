@@ -220,6 +220,16 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_get(const char *path, int side, int linear, con
 
 EMSCRIPTEN_KEEPALIVE const uint8_t *ms_disk_data(void) { return gDiskBytes.data(); }
 
+/* A blank floppy as the machine's formatting leaves it - the 0xB6 0x6D
+ * pattern on every byte, no RT-11 structure (a block still so was never
+ * written: what tells data from nothing on a badly read disk).  ds for
+ * two-sided.  The size, the bytes at ms_disk_data(). */
+EMSCRIPTEN_KEEPALIVE int ms_disk_blank(int ds)
+{
+    gDiskBytes = ms0515::disk::blankImage(ds != 0);
+    return static_cast<int>(gDiskBytes.size());
+}
+
 /* The blocks of the directory entry at `ordinal` (the "i" of ms_disk_dir) -
  * an unused area's, say - the size, the bytes at ms_disk_data(); -1 when
  * there is no such entry. */
