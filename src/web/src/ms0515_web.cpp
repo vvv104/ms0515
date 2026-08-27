@@ -269,12 +269,13 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_rename(const char *path, int side, int linear, 
 }
 
 /* An unused area's deleted file brought back: `ordinal` is the entry's
- * place in the directory, the "i" of ms_disk_dir.  1 / 0. */
-EMSCRIPTEN_KEEPALIVE int ms_disk_undelete(const char *path, int side, int linear, int ordinal)
+ * place in the directory, the "i" of ms_disk_dir; `newName` the name to
+ * come back under ("" - the one it had).  1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_undelete(const char *path, int side, int linear, int ordinal, const char *newName)
 {
     try {
         auto bytes = readAll(path);
-        ms0515::disk::undeleteEntry(bytes, side, !linear && bytes.size() == 2 * 409600, ordinal, linear != 0);
+        ms0515::disk::undeleteEntry(bytes, side, !linear && bytes.size() == 2 * 409600, ordinal, newName, linear != 0);
         if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
         return 1;
     } catch (const std::exception &e) {

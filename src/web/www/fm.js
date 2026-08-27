@@ -761,13 +761,29 @@ export class Commander {
     if (!p.source || !f) return;
     if (!f.empty || f.up) throw new Error("stand on an unused area to undelete the file it was");
     if (!f.was) throw new Error("this area holds no deleted file");
-    if (!await this.ask(`Undelete ${f.was} (${f.blocks} blocks) on ${p.source.dev}?`, { title: "Undelete" })) return;
+    const answer = await this.ask(`Undelete ${f.was} (${f.blocks} blocks) on ${p.source.dev} as:`, { title: "Undelete", input: this.freeName(p, f.was) });
+    if (answer === null || answer === "") return;
+    const name = answer.trim().toUpperCase();
+    if (!LATIN_NAME.test(name)) throw new Error(`${name}: not an RT-11 name (6.3, A-Z 0-9 $)`);
     const src = p.source;
-    const ok = await this.writable(src, () => this.deps.api.diskUndelete(src.path, src.side, src.linear ? 1 : 0, f.i));
+    const ok = await this.writable(src, () => this.deps.api.diskUndelete(src.path, src.side, src.linear ? 1 : 0, f.i, name === f.was ? "" : name));
     if (!ok) throw new Error(this.deps.api.diskError());
     this.refresh();
-    this.select(p, Math.max(0, p.files.findIndex((x) => x.name === f.was)));
-    this.deps.say(`${f.was} undeleted on ${src.dev}`);
+    this.select(p, Math.max(0, p.files.findIndex((x) => x.name === name)));
+    this.deps.say(`${f.was} undeleted on ${src.dev}${name === f.was ? "" : " as " + name}`);
+  }
+
+  // The name itself when no file of it is on the pane, else NAME1, NAME2 ...
+  // (the stem cut to leave room for the digits).
+  freeName(p, name) {
+    const taken = new Set(p.files.filter((x) => !x.empty).map((x) => x.name));
+    if (!taken.has(name)) return name;
+    const dot = name.indexOf("."), stem = dot < 0 ? name : name.slice(0, dot), ext = dot < 0 ? "" : name.slice(dot);
+    for (let n = 1; n < 100; ++n) {
+      const c = stem.slice(0, 6 - String(n).length) + n + ext;
+      if (!taken.has(c)) return c;
+    }
+    return name;
   }
 
   // F7: the pane's volume initialised - every file on it lost.

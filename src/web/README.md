@@ -125,7 +125,9 @@ Alt+F7 finds files by pattern on every mounted disk and goes to the pick;
 Alt+F8 on an unused area undeletes the file it was (the OS's DELETE only
 flips the entry's status - the name, shown after `< UNUSED >`, the length
 and the date stay, and so does the data until a put covers the area;
-`ms_disk_undelete` by the entry's ordinal, the `i` of `ms_disk_dir`).
+`ms_disk_undelete` by the entry's ordinal, the `i` of `ms_disk_dir`, under
+the old name or another one the dialog asks for - a free NAME1 offered
+when the old name is taken now).
 Enter on a logical disk enters it as if a directory (".." or Backspace
 back out): its file is taken into the module's file system, read there
 linearly and put back into its disk after every change; a file that does

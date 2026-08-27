@@ -137,10 +137,12 @@ void growLinear(std::vector<uint8_t> &image, int blocks);
  * permanent again with the name, length and date it kept.  The data is
  * whole unless something was put over the area since - which leaves the
  * sentinel name on what remains of it, so such an entry is refused.
- * Throws std::runtime_error when the entry is not an empty one with a
- * proper 6.3 name, or a file of that name is on the volume already. */
+ * `newName`, when given, is the name the file comes back under (the old
+ * one taken meanwhile, say).  Throws std::runtime_error when the entry is
+ * not an empty one with a proper 6.3 name, or a file of the name is on
+ * the volume already. */
 void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal,
-                   bool linear = false);
+                   const std::string &newName = "", bool linear = false);
 
 } /* namespace ms0515::disk */
 

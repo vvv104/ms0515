@@ -717,11 +717,11 @@ TEST_CASE("removeFile keeps the name and the date in the entry as the OS does; u
     CHECK(gone.date == dated.date);
     CHECK(im->directory.find("B.DAT") == nullptr);
 
-    CHECK_THROWS(undeleteEntry(img, 0, false, 0, /*linear=*/true));    /* a permanent file */
-    CHECK_THROWS(undeleteEntry(img, 0, false, 3, /*linear=*/true));    /* the tail: the sentinel name */
-    CHECK_THROWS(undeleteEntry(img, 0, false, 9, /*linear=*/true));    /* no such entry */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "", /*linear=*/true));    /* a permanent file */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 3, "", /*linear=*/true));    /* the tail: the sentinel name */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 9, "", /*linear=*/true));    /* no such entry */
 
-    undeleteEntry(img, 0, false, 1, /*linear=*/true);
+    undeleteEntry(img, 0, false, 1, "", /*linear=*/true);
     im = openLinearImage(img);
     CHECK(im->directory.permanentFiles().size() == 3);
     CHECK(im->readFile("B.DAT") == b);
@@ -734,12 +734,20 @@ TEST_CASE("removeFile keeps the name and the date in the entry as the OS does; u
     CHECK(im->directory.entries[1].name == "D.DAT");
     CHECK(im->directory.entries[2].isEmpty());
     CHECK(im->directory.entries[2].name != "B.DAT");
-    CHECK_THROWS(undeleteEntry(img, 0, false, 2, /*linear=*/true));
+    CHECK_THROWS(undeleteEntry(img, 0, false, 2, "", /*linear=*/true));
 
-    /* A name taken meanwhile is refused. */
+    /* A name taken meanwhile is refused - and another name given brings
+     * the file back under it. */
     removeFile(img, 0, false, "A.DAT", /*linear=*/true);
     putFile(img, 0, false, "A.DAT", b, {}, /*linear=*/true);            /* 3 blocks: not the 2-block slot */
-    CHECK_THROWS(undeleteEntry(img, 0, false, 0, /*linear=*/true));
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "", /*linear=*/true));
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "A.DAT", /*linear=*/true));
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "TOOLONGNAME.DAT", /*linear=*/true));
+    undeleteEntry(img, 0, false, 0, "A1.DAT", /*linear=*/true);
+    im = openLinearImage(img);
+    CHECK(im->readFile("A1.DAT") == a);
+    CHECK(im->readFile("A.DAT") == b);
+    CHECK(im->directory.entries[0].date == dated.date);
 }
 
 TEST_CASE("squeeze on a floppy keeps every file's bytes (the LBNs are skewed, not linear)") {

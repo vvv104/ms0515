@@ -498,7 +498,8 @@ void growLinear(std::vector<uint8_t> &image, int blocks)
     std::memcpy(image.data() + off(segLbn), seg.data(), 2 * kBlock);
 }
 
-void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal, bool linear)
+void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal,
+                   const std::string &newName, bool linear)
 {
     requireValidSize(image, ds, linear);
     const int dirLbn = directoryLbn(image, side, ds, linear);
@@ -527,17 +528,21 @@ void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal, 
     const std::string name = decodeRad50Name(getw(&seg[at + 2]), getw(&seg[at + 4]), getw(&seg[at + 6]));
     if (name.empty() || name[0] == ' ')
         throw std::runtime_error("the area holds no deleted file");
+    const std::string under = newName.empty() ? name : newName;
     char nm[6], ex[3];
-    splitName(name, nm, ex);                       /* a proper 6.3 name, else it throws */
+    splitName(under, nm, ex);                      /* a proper 6.3 name, else it throws */
+    const uint16_t n1 = encodeRad50(nm), n2 = encodeRad50(nm + 3), e = encodeRad50(ex);
     for (std::size_t p = 10; p + entrySize <= seg.size(); p += entrySize) {
         const uint16_t status = getw(&seg[p]);
         if (status == 0 || (status & kStatusEndOfSeg)) break;
-        if ((status & kStatusPermanent) && getw(&seg[p + 2]) == getw(&seg[at + 2])
-            && getw(&seg[p + 4]) == getw(&seg[at + 4]) && getw(&seg[p + 6]) == getw(&seg[at + 6]))
+        if ((status & kStatusPermanent) && getw(&seg[p + 2]) == n1 && getw(&seg[p + 4]) == n2 && getw(&seg[p + 6]) == e)
             taken = true;
     }
-    if (taken) throw std::runtime_error("a file named " + name + " is there already");
+    if (taken) throw std::runtime_error("a file named " + under + " is there already");
     putw(&seg[at], kStatusPermanent);
+    putw(&seg[at + 2], n1);
+    putw(&seg[at + 4], n2);
+    putw(&seg[at + 6], e);
     std::memcpy(image.data() + segOff0, seg.data(),          kBlock);
     std::memcpy(image.data() + segOff1, seg.data() + kBlock, kBlock);
 }
