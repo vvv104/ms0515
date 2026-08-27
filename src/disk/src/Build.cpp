@@ -6,10 +6,12 @@
 
 #include "ms0515/disk/Build.hpp"
 #include "ms0515/disk/Directory.hpp"
+#include "ms0515/disk/Image.hpp"
 
 #include "Internal.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -513,6 +515,96 @@ void setVolumeId(std::vector<uint8_t> &image, int side, bool ds,
     std::memcpy(home + 0x1D8, volumeId.data(), volumeId.size());
     std::memset(home + 0x1E4, ' ', 12);
     std::memcpy(home + 0x1E4, owner.data(), owner.size());
+}
+
+namespace {
+
+/* The monitor's name as the 6 + 3 of "NAME.SYS", ".SYS" added when left out. */
+std::string monitorFile(const std::string &monitor)
+{
+    std::string name = monitor;
+    for (auto &c : name) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    if (name.size() < 4 || name.compare(name.size() - 4, 4, ".SYS") != 0) name += ".SYS";
+    return name;
+}
+
+constexpr std::size_t kBootWords[] = {0716, 0724, 0726, 0730};   /* what DUP fills in the monitor's block 4 */
+
+}  /* namespace */
+
+std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds)
+{
+    if (image.size() != (ds ? kDoubleSize : kSideSize)) return "";
+    auto img = openImage(image, side);
+    if (!img || !img->hasDirectory) return "";
+    const auto b2 = img->block(2), b3 = img->block(3), b4 = img->block(4);
+    if (b2.size() != kBlock || b3.size() != kBlock || b4.size() != kBlock) return "";
+    for (const auto &e : img->directory.permanentFiles()) {
+        if (e.length < 5 || e.name.size() < 5 || e.name.compare(e.name.size() - 4, 4, ".SYS") != 0) continue;
+        const auto f = img->readFile(e.name);
+        if (f.size() < 5 * kBlock) continue;
+        if (std::equal(b2.begin(), b2.end(), f.begin() + kBlock) &&
+            std::equal(b3.begin(), b3.end(), f.begin() + 2 * kBlock) &&
+            std::equal(b4.begin(), b4.end(), f.begin() + 3 * kBlock))
+            return e.name.substr(0, e.name.size() - 4);
+    }
+    return "";
+}
+
+std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds)
+{
+    std::vector<std::string> out;
+    if (image.size() != (ds ? kDoubleSize : kSideSize)) return out;
+    auto img = openImage(image, side);
+    if (!img || !img->hasDirectory) return out;
+    static const char *const kUtilities[] = {"PIP.SAV", "DUP.SAV", "DIR.SAV", "RESORC.SAV"};
+    for (const auto &e : img->directory.permanentFiles()) {
+        const bool sys = e.name.size() > 4 && e.name.compare(e.name.size() - 4, 4, ".SYS") == 0;
+        const bool util = std::find(std::begin(kUtilities), std::end(kUtilities), e.name) != std::end(kUtilities);
+        if (sys || util) out.push_back(e.name);
+    }
+    return out;
+}
+
+void writeBoot(std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor)
+{
+    requireValidSize(image, ds, false);
+    auto img = openImage(image, side);
+    if (!img || !img->hasDirectory) throw std::runtime_error("the side holds no RT-11 directory");
+
+    const auto dz = img->readFile("DZ.SYS");
+    if (dz.empty()) throw std::runtime_error("no DZ.SYS on the volume: the system device handler carries the bootstrap");
+    if (dz.size() < 070) throw std::runtime_error("DZ.SYS is too short to be a handler");
+    const std::size_t driver = getw(&dz[062]);
+    const uint16_t readOff = getw(&dz[066]);
+    if (driver == 0 || driver + kBlock > dz.size())
+        throw std::runtime_error("DZ.SYS has no primary driver (.DRBOT): it cannot make a volume bootable");
+
+    const std::string file = monitorFile(monitor);
+    const auto mon = img->readFile(file);
+    if (mon.empty()) throw std::runtime_error("no " + file + " on the volume");
+    if (mon.size() < 5 * kBlock) throw std::runtime_error(file + " is too short to hold a bootstrap");
+
+    std::vector<uint8_t> last(mon.begin() + 4 * kBlock, mon.begin() + 5 * kBlock);
+    for (const auto off : kBootWords)
+        if (getw(&last[off]) != 0)
+            throw std::runtime_error(file + ": its boot block is of another layout (the words DUP fills are in use): left alone");
+    char nm[6], ex[3];
+    splitName(file, nm, ex);
+    const char dev[3] = {'D', 'Z', ' '};
+    putw(&last[0716], encodeRad50(dev));
+    putw(&last[0724], encodeRad50(nm));
+    putw(&last[0726], encodeRad50(nm + 3));
+    putw(&last[0730], readOff);
+
+    auto writeBlock = [&](int lbn, const uint8_t *src) {
+        std::memcpy(image.data() + lbnToByte(lbn, side, ds, false), src, kBlock);
+    };
+    writeBlock(0, dz.data() + driver);
+    writeBlock(2, mon.data() + 1 * kBlock);
+    writeBlock(3, mon.data() + 2 * kBlock);
+    writeBlock(4, mon.data() + 3 * kBlock);
+    writeBlock(5, last.data());
 }
 
 void growLinear(std::vector<uint8_t> &image, int blocks)

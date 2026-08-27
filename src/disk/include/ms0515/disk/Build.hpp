@@ -134,6 +134,34 @@ void renameFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, const std::string &newName,
                 bool linear = false);
 
+/* The monitor a floppy side boots: the .SYS file whose blocks 1..3 are the
+ * side's LBN 2..4 (the secondary bootstrap COPY/BOOT put there), named
+ * without the extension ("RT11SJ", "MON8SJ", "RT15SJ").  "" when none -
+ * the side does not boot, or holds no directory. */
+[[nodiscard]] std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds);
+
+/* The files a system volume is made of, of those the side holds, in
+ * directory order: every .SYS (the monitor, SWAP, the handlers) and PIP,
+ * DUP, DIR, RESORC - the manual's minimal system, and what lets the copy
+ * do the same again. */
+[[nodiscard]] std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds);
+
+/* The bootstrap of a floppy side - what COPY/BOOT (DUP) writes, verified
+ * byte for byte against every DUP and monitor in the collection:
+ *   LBN 0    = 512 bytes of the side's own DZ.SYS from the offset in word
+ *              0o62 of the handler's block 0 (the .DRBOT macro's primary
+ *              driver; word 0o66 the offset of its read routine);
+ *   LBN 2..5 = blocks 1..4 of the monitor file, the last one with word
+ *              0o716 = RAD50 "DZ ", words 0o724 and 0o726 = RAD50 of the
+ *              monitor's name, word 0o730 = the handler's word 0o66.
+ * No block numbers: the secondary bootstrap finds the monitor by name.
+ * `monitor` is the file's name with or without ".SYS".  Throws
+ * std::runtime_error when the side holds no directory, DZ.SYS or the
+ * monitor is missing, DZ.SYS has no primary driver (word 0o62 zero), or
+ * the monitor's block 4 is not zero where the words go (a boot block of
+ * another layout: left alone). */
+void writeBoot(std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor);
+
 /* Enlarge a linear (HD / logical-disk) volume by `blocks`: zero blocks
  * appended and the directory told - the last entry of the last segment
  * lengthened when it is an empty one, else a new empty entry added before

@@ -349,6 +349,53 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_undelete(const char *path, int side, int linear
     }
 }
 
+/* The monitor a floppy side boots ("RT11SJ", "MON8SJ", ...), "" when the
+ * side has no bootstrap. */
+EMSCRIPTEN_KEEPALIVE const char *ms_disk_booted(const char *path, int side)
+{
+    auto bytes = readAll(path);
+    gDiskText = ms0515::disk::bootedMonitor(bytes, side, bytes.size() == 2 * 409600);
+    return gDiskText.c_str();
+}
+
+/* The target side made a system volume of the source side's: the kit
+ * (every .SYS, PIP, DUP, DIR, RESORC) copied over, files of the same
+ * names replaced, then the bootstrap written as COPY/BOOT would.  The
+ * names copied, comma-separated, at ms_disk_text(); 1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_system(const char *path, int side, const char *fromPath, int fromSide)
+{
+    try {
+        auto bytes = readAll(path);
+        auto from = readAll(fromPath);
+        const bool ds = bytes.size() == 2 * 409600, fromDs = from.size() == 2 * 409600;
+        const std::string monitor = ms0515::disk::bootedMonitor(from, fromSide, fromDs);
+        if (monitor.empty()) throw std::runtime_error("the source is not a system volume: no bootstrap on it");
+        auto src = ms0515::disk::openImage(from, fromSide);
+        if (!src || !src->hasDirectory) throw std::runtime_error("the source holds no RT-11 directory");
+        std::string names;
+        for (const auto &name : ms0515::disk::systemKit(from, fromSide, fromDs)) {
+            const auto *e = src->directory.find(name);
+            if (!e) continue;
+            auto there = ms0515::disk::openImage(bytes, side);
+            if (there && there->hasDirectory && there->directory.find(name)) ms0515::disk::removeFile(bytes, side, ds, name);
+            ms0515::disk::PutOptions opts;
+            opts.date = e->date;
+            opts.readOnly = (e->status & ms0515::disk::kStatusProtected) != 0;
+            ms0515::disk::putFile(bytes, side, ds, name, src->readFile(name), opts);
+            names += (names.empty() ? "" : ", ") + name;
+        }
+        ms0515::disk::writeBoot(bytes, side, ds, monitor);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        gDiskText = monitor + ": " + names;
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char *ms_disk_text(void) { return gDiskText.c_str(); }
+
 /* /PROTECT (on = 1) or /NOPROTECT (0) on a file.  1 / 0. */
 EMSCRIPTEN_KEEPALIVE int ms_disk_protect(const char *path, int side, int linear, const char *name, int on)
 {

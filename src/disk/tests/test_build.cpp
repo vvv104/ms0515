@@ -743,6 +743,101 @@ TEST_CASE("setVolumeId writes the home block's id and owner and leaves the files
     CHECK(field(0x1D8) == "            ");
 }
 
+namespace {
+/* What a call throws, "" when nothing. */
+template <class F> std::string thrown(F f)
+{
+    try { f(); } catch (const std::exception &e) { return e.what(); }
+    return "";
+}
+
+/* A make-believe kit on a fresh floppy: DZ.SYS with a primary driver at
+ * block 1 (word 062 = 01000, 066 = 0140) and a 6-block monitor whose block
+ * 4 is zero where DUP writes. */
+std::vector<uint8_t> kitFloppy()
+{
+    auto img = blankImage(false);
+    initVolume(img, 0, false);
+    std::vector<uint8_t> dz(3 * kBlock, 0);
+    dz[062] = 0x00; dz[063] = 0x02;                       /* 01000: the driver starts at block 1 */
+    dz[064] = 0x00; dz[065] = 0x02;                       /* its length: one block */
+    dz[066] = 0x60; dz[067] = 0x00;                       /* the read routine at 0140 */
+    for (std::size_t i = 0; i < kBlock; ++i) dz[kBlock + i] = static_cast<uint8_t>(0xA0 + i % 64);
+    putFile(img, 0, false, "DZ.SYS", dz);
+    std::vector<uint8_t> mon(6 * kBlock);
+    for (std::size_t i = 0; i < mon.size(); ++i) mon[i] = static_cast<uint8_t>(i / kBlock * 16 + i % 16 + 1);
+    for (std::size_t i = 4 * kBlock; i < 5 * kBlock; ++i) mon[i] = 0;
+    putFile(img, 0, false, "RT11SJ.SYS", mon);
+    putFile(img, 0, false, "SWAP.SYS", std::vector<uint8_t>(kBlock, 3));
+    putFile(img, 0, false, "PIP.SAV", std::vector<uint8_t>(kBlock, 4));
+    putFile(img, 0, false, "GAME.SAV", std::vector<uint8_t>(kBlock, 5));
+    return img;
+}
+}  /* namespace */
+
+TEST_CASE("writeBoot: the handler's primary driver to LBN 0, the monitor's blocks 1..4 to LBN 2..5, four words named") {
+    auto img = kitFloppy();
+    CHECK(bootedMonitor(img, 0, false) == "");
+    CHECK(systemKit(img, 0, false) == std::vector<std::string>{"DZ.SYS", "RT11SJ.SYS", "SWAP.SYS", "PIP.SAV"});
+    const auto before = img;
+
+    writeBoot(img, 0, false, "RT11SJ");
+    auto lbn = [&](int n) { return std::vector<uint8_t>(img.begin() + static_cast<std::ptrdiff_t>(lbnToByte(n, 0, false)),
+                                                        img.begin() + static_cast<std::ptrdiff_t>(lbnToByte(n, 0, false)) + static_cast<std::ptrdiff_t>(kBlock)); };
+    auto im = openImage(img, 0);
+    const auto dz = im->readFile("DZ.SYS"), mon = im->readFile("RT11SJ.SYS");
+    CHECK(std::equal(dz.begin() + kBlock, dz.begin() + 2 * kBlock, lbn(0).begin()));
+    CHECK(std::equal(mon.begin() + kBlock, mon.begin() + 2 * kBlock, lbn(2).begin()));
+    CHECK(std::equal(mon.begin() + 2 * kBlock, mon.begin() + 3 * kBlock, lbn(3).begin()));
+    CHECK(std::equal(mon.begin() + 3 * kBlock, mon.begin() + 4 * kBlock, lbn(4).begin()));
+    const auto b5 = lbn(5);
+    auto w = [&](std::size_t off) { return b5[off] | (b5[off + 1] << 8); };
+    CHECK(w(0716) == 016420);            /* RAD50 "DZ " */
+    CHECK(w(0724) == 071677);            /* "RT1" */
+    CHECK(w(0726) == 0142302);           /* "1SJ" */
+    CHECK(w(0730) == 0140);              /* the handler's word 066 */
+    int others = 0;
+    for (std::size_t i = 0; i < kBlock; i += 2) if (i != 0716 && i != 0724 && i != 0726 && i != 0730 && w(i) != 0) ++others;
+    CHECK(others == 0);
+    /* Only those five blocks changed: the home block and the files as they were. */
+    for (int n = 1; n < 14; ++n) if (n != 2 && n != 3 && n != 4 && n != 5) {
+        const auto at = lbnToByte(n, 0, false);
+        CHECK(std::equal(img.begin() + static_cast<std::ptrdiff_t>(at), img.begin() + static_cast<std::ptrdiff_t>(at + kBlock), before.begin() + static_cast<std::ptrdiff_t>(at)));
+    }
+    CHECK(bootedMonitor(img, 0, false) == "RT11SJ");
+    CHECK(openImage(img, 0)->readFile("GAME.SAV") == std::vector<uint8_t>(kBlock, 5));
+
+    /* ".SYS" given or not, the same; doing it again changes nothing. */
+    const auto once = img;
+    writeBoot(img, 0, false, "RT11SJ.SYS");
+    CHECK(img == once);
+}
+
+TEST_CASE("writeBoot refuses what it cannot make bootable") {
+    auto img = kitFloppy();
+    CHECK(thrown([&] { writeBoot(img, 0, false, "MON8SJ"); }).find("no MON8SJ.SYS") != std::string::npos);
+    auto noDriver = img;
+    {   /* a DZ.SYS with no .DRBOT words: a data-device handler */
+        std::vector<uint8_t> dz(3 * kBlock, 0);
+        removeFile(noDriver, 0, false, "DZ.SYS");
+        putFile(noDriver, 0, false, "DZ.SYS", dz);
+        CHECK(thrown([&] { writeBoot(noDriver, 0, false, "RT11SJ"); }).find("no primary driver") != std::string::npos);
+    }
+    auto busy = img;
+    {   /* a monitor whose block 4 has something where DUP writes */
+        auto mon = openImage(busy, 0)->readFile("RT11SJ.SYS");
+        mon[4 * kBlock + 0724] = 1;
+        removeFile(busy, 0, false, "RT11SJ.SYS");
+        putFile(busy, 0, false, "RT11SJ.SYS", mon);
+        CHECK(thrown([&] { writeBoot(busy, 0, false, "RT11SJ"); }).find("another layout") != std::string::npos);
+    }
+    auto blank = blankImage(false);
+    CHECK_THROWS(writeBoot(blank, 0, false, "RT11SJ"));
+    auto linear = blankLinear(100);
+    CHECK_THROWS(writeBoot(linear, 0, false, "RT11SJ"));
+    CHECK(bootedMonitor(blank, 0, false) == "");
+}
+
 TEST_CASE("growLinear: a full volume gets a new empty entry, a free one a longer last area") {
     auto img = blankLinear(20);
     InitOptions one;

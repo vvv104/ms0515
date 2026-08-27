@@ -14,7 +14,7 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Frontend** (`src/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
 - **Disk** (`src/disk/`) — Offline RT-11 / MS-0515 disk-image library (lib `ms0515_disk`): LBN→byte geometry mirroring the emulator FDC, directory parse, file read, and volume create/init/put/rm/squeeze + per-entry protect/date metadata. No emulator dependency.
 - **Web** (`src/web/`) — The browser build: the core + lib compiled with Emscripten behind a flat C API (`ms0515_web.cpp`), a static page (`www/`) that runs the machine in the tab, a Node smoke test. Configured only under the Emscripten toolchain (`src/profiles/emscripten`); no host layers.
-- **Tools** (`src/tools/`) — Standalone offline binaries over the libs. `tools/disk/` builds `ms0515-disk` (`create/init/put/rm/squeeze/protect/unprotect/get/dir/split/merge`). Heuristic recovery (consensus/donor) stays out — see `disk_recovery/`.
+- **Tools** (`src/tools/`) — Standalone offline binaries over the libs. `tools/disk/` builds `ms0515-disk` (`create/init/put/rm/squeeze/protect/unprotect/setdate/get/dir/boot/system/split/merge`). Heuristic recovery (consensus/donor) stays out — see `disk_recovery/`.
 
 ## Key rules
 - All code, comments, and documentation must be in **English only**.

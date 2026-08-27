@@ -310,7 +310,8 @@ export class Commander {
       ["(Un)Protect", "the files /PROTECT - or /NOPROTECT when every one of them is", () => this.protect()],
       ["Find", "a pattern looked for on every mounted disk", () => this.find()],
       this.recoverKey(),
-      [], [],
+      [],
+      ["System", "this pane's floppy made a system volume of the other pane's (its kit copied, the bootstrap written)", () => this.makeSystem()],
     ]);
   }
 
@@ -593,7 +594,8 @@ export class Commander {
   // The keys with Alt held.
   altKey(e) {
     const acts = { F1: () => this.changeDisk(0), F2: () => this.changeDisk(1),
-                   F5: () => this.makeVolume(), F6: () => this.protect(), F7: () => this.find(), F8: () => this.recover() };
+                   F5: () => this.makeVolume(), F6: () => this.protect(), F7: () => this.find(), F8: () => this.recover(),
+                   F10: () => this.makeSystem() };
     const a = acts[e.key];
     if (!a) return;
     e.preventDefault(); e.stopPropagation();
@@ -765,6 +767,35 @@ export class Commander {
     from.marks.clear();
     this.refresh();
     this.deps.say(`${name} written to ${to.dev} - a volume of ${files}; MOUNT LD0: ${to.dev}${name} in the system`);
+  }
+
+  // Alt+F10: this pane's floppy made a system volume of the other pane's:
+  // the kit (every .SYS, PIP, DUP, DIR, RESORC) copied over, then the
+  // bootstrap written the way COPY/BOOT does it (the library's writeBoot,
+  // byte for byte the OS's) - no running system needed.  The other pane's
+  // disk must boot itself; the target a floppy with a directory.
+  async makeSystem() {
+    const p = this.panes[this.active], other = this.panes[this.active ^ 1];
+    const to = p.source, from = other.source;
+    if (!to) throw new Error("this pane has no disk");
+    if (!from || from.id === to.id) throw new Error("show the system disk on the other pane");
+    if (to.linear || to.parent) throw new Error("only a floppy boots the machine: the target must be a floppy");
+    if (from.linear || from.parent) throw new Error("the source must be a floppy that boots");
+    if (!p.volume) throw new Error(`${to.dev} holds no RT-11 directory: INIT it first (F7)`);
+    const api = this.deps.api;
+    const monitor = api.diskBooted(from.path, from.side);
+    if (!monitor) throw new Error(`${from.dev} ${from.name} is not a system volume: no bootstrap on it`);
+    const kit = this.dirOf(from).filter((f) => /\.SYS$/.test(f.name) || ["PIP.SAV", "DUP.SAV", "DIR.SAV", "RESORC.SAV"].includes(f.name));
+    const blocks = kit.reduce((a, f) => a + f.blocks, 0);
+    const replaced = this.namesOn(to).filter((n) => kit.some((f) => f.name === n));
+    const question = `Make ${to.dev} ${to.name} a system volume of ${from.dev} ${from.name} - ${monitor}, ${kit.length} files, ${blocks} blocks?`
+                   + (replaced.length ? `  ${replaced.join(", ")} there will be replaced.` : "");
+    if (!await this.ask(question, { title: "System" })) return;
+    const ok = await this.writable(to, () => api.diskSystem(to.path, to.side, from.path, from.side));
+    if (!ok) throw new Error(api.diskError());
+    const copied = api.diskText();                  // read before the panes reload (the module's text is one)
+    this.refresh();
+    this.deps.say(`${to.dev} boots ${monitor} now (${copied}) - mount it in A: and Boot`);
   }
 
   // Alt+F6: the marked files (or the current one) protected - or, when

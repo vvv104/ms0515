@@ -125,10 +125,16 @@ tool that read and write images directly, without running the machine.
   block + segment chain + RAD50), `Image` (load a capture, read files,
   split/merge sides), `Build` (create blank media, init a volume byte-identical
   to the OS's `INIT`, put / remove a file like PIP, set the entry's
-  protect/date metadata).
+  protect/date metadata, undelete, grow a linear volume, write the
+  bootstrap the way the OS's `COPY/BOOT` does - `writeBoot`, verified byte
+  for byte against RT-11 on every kit shipped: LBN 0 from the volume's
+  DZ.SYS at the offset its `.DRBOT` header names, LBN 2..5 the monitor's
+  blocks 1..4 with the device and monitor names in RAD50).
 - Binary `ms0515-disk` (`src/tools/disk/`) — `create / init / put / rm /
-  squeeze / protect / unprotect / get / dir / split / merge`.  Geometry
-  follows the image size; there is no layout flag.
+  squeeze / protect / unprotect / setdate / get / dir / boot / system /
+  split / merge` (`system <target> --from <image>`: the kit - every .SYS,
+  PIP, DUP, DIR, RESORC - copied from a bootable image, then the
+  bootstrap).  Geometry follows the image size; there is no layout flag.
 
 The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
 is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified
