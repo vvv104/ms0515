@@ -735,6 +735,14 @@ TEST_CASE("removeFile keeps the name and the date in the entry as the OS does; u
     CHECK(im->directory.entries[2].isEmpty());
     CHECK(im->directory.entries[2].name != "B.DAT");
     CHECK_THROWS(undeleteEntry(img, 0, false, 2, "", /*linear=*/true));
+    {   /* ... but given a name, the area is recovered as a file, whatever lies in it */
+        auto copy = img;
+        undeleteEntry(copy, 0, false, 2, "AREA.DAT", /*linear=*/true);
+        auto im2 = openLinearImage(copy);
+        REQUIRE(im2->directory.find("AREA.DAT") != nullptr);
+        CHECK(im2->directory.find("AREA.DAT")->length == 2);
+        CHECK(im2->readFile("AREA.DAT").size() == 2 * kBlock);
+    }
 
     /* A name taken meanwhile is refused - and another name given brings
      * the file back under it. */

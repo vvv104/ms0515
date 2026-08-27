@@ -275,9 +275,19 @@ export class Commander {
       ["Volume", "the files gathered into a logical disk (a file the system mounts: MOUNT LD0: DZn:NAME)", () => this.makeVolume()],
       ["(Un)Protect", "the files /PROTECT - or /NOPROTECT when every one of them is", () => this.protect()],
       ["Find", "a pattern looked for on every mounted disk", () => this.find()],
-      ["Undelete", "the file an unused area was, back (its name shown after < UNUSED >)", () => this.undelete()],
+      this.recoverKey(),
       [], [],
     ]);
+  }
+
+  // Alt+F8 by the row under the cursor: nothing on a file; Undelete on an
+  // unused area that was a file (its name after < UNUSED >); Recover on
+  // any other unused area - made a file, whatever lies in it.
+  recoverKey() {
+    const p = this.panes[this.active], f = p.files[p.selected];
+    if (!f || !f.empty || f.up) return [];
+    return f.was ? ["Undelete", `${f.was} back, or under another name`, () => this.recover()]
+                 : ["Recover", "the unused area made a file of a name given", () => this.recover()];
   }
 
   // Alt+F1 / F2: the pane's disk list opened to pick from.
@@ -548,7 +558,7 @@ export class Commander {
   // The keys with Alt held.
   altKey(e) {
     const acts = { F1: () => this.changeDisk(0), F2: () => this.changeDisk(1),
-                   F5: () => this.makeVolume(), F6: () => this.protect(), F7: () => this.find(), F8: () => this.undelete() };
+                   F5: () => this.makeVolume(), F6: () => this.protect(), F7: () => this.find(), F8: () => this.recover() };
     const a = acts[e.key];
     if (!a) return;
     e.preventDefault(); e.stopPropagation();
@@ -561,6 +571,14 @@ export class Commander {
   bytesOf(source, name) {
     const api = this.deps.api, M = this.deps.module();
     const n = api.diskGet(source.path, source.side, source.linear ? 1 : 0, name);
+    if (n < 0) throw new Error(api.diskError());
+    return M.HEAPU8.slice(api.diskData(), api.diskData() + n);
+  }
+
+  // The blocks of a directory entry - an unused area's.
+  areaBytes(source, ordinal) {
+    const api = this.deps.api, M = this.deps.module();
+    const n = api.diskArea(source.path, source.side, source.linear ? 1 : 0, ordinal);
     if (n < 0) throw new Error(api.diskError());
     return M.HEAPU8.slice(api.diskData(), api.diskData() + n);
   }
@@ -755,13 +773,15 @@ export class Commander {
 
   // Alt+F8 on an unused area: the file it was brought back - the OS's
   // DELETE leaves the name, the length and the date in the entry, and the
-  // data lies untouched until something is put over the area.
-  async undelete() {
+  // data lies untouched until something is put over the area - or, on an
+  // area that was no file, the area made a file of a name given.
+  async recover() {
     const p = this.panes[this.active], f = p.files[p.selected];
     if (!p.source || !f) return;
-    if (!f.empty || f.up) throw new Error("stand on an unused area to undelete the file it was");
-    if (!f.was) throw new Error("this area holds no deleted file");
-    const answer = await this.ask(`Undelete ${f.was} (${f.blocks} blocks) on ${p.source.dev} as:`, { title: "Undelete", input: this.freeName(p, f.was) });
+    if (!f.empty || f.up) throw new Error("stand on an unused area to undelete or recover it");
+    const question = f.was ? `Undelete ${f.was} (${f.blocks} blocks) on ${p.source.dev} as:`
+                           : `Recover the unused area (${f.blocks} blocks) on ${p.source.dev} as a file named:`;
+    const answer = await this.ask(question, { title: f.was ? "Undelete" : "Recover", input: this.freeName(p, f.was ?? "AREA.DAT") });
     if (answer === null || answer === "") return;
     const name = answer.trim().toUpperCase();
     if (!LATIN_NAME.test(name)) throw new Error(`${name}: not an RT-11 name (6.3, A-Z 0-9 $)`);
@@ -770,7 +790,7 @@ export class Commander {
     if (!ok) throw new Error(this.deps.api.diskError());
     this.refresh();
     this.select(p, Math.max(0, p.files.findIndex((x) => x.name === name)));
-    this.deps.say(`${f.was} undeleted on ${src.dev}${name === f.was ? "" : " as " + name}`);
+    this.deps.say(f.was ? `${f.was} undeleted on ${src.dev}${name === f.was ? "" : " as " + name}` : `${f.blocks} blocks recovered on ${src.dev} as ${name}`);
   }
 
   // The name itself when no file of it is on the pane, else NAME1, NAME2 ...
@@ -857,6 +877,16 @@ export class Commander {
   //      insert, source, file, bytes (as read), textarea | editor,
   //      query, hit: { at, len } }.
   openViewer(mode) {
+    const p = this.panes[this.active], f = p.files[p.selected];
+    if (f?.empty && !f.up) {              // an unused area: its bytes viewed, not edited
+      if (mode === "edit") throw new Error("an unused area is viewed (F3), not edited");
+      const bytes = this.areaBytes(p.source, f.i);
+      this.v = { mode, repr: "oct", enc: "koi7", wrap: true, insert: false, source: p.source,
+                 file: { name: `< UNUSED >${f.was ? "  " + f.was : ""}`, blocks: f.blocks }, bytes, textarea: null, editor: null, query: "", hit: null };
+      this.viewer.hidden = false;
+      this.showRepr();
+      return;
+    }
     const c = this.current();
     if (!c) return;
     if (mode === "edit" && c.file.protected) throw new Error(`${c.file.name} is protected`);

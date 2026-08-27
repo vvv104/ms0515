@@ -220,6 +220,27 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_get(const char *path, int side, int linear, con
 
 EMSCRIPTEN_KEEPALIVE const uint8_t *ms_disk_data(void) { return gDiskBytes.data(); }
 
+/* The blocks of the directory entry at `ordinal` (the "i" of ms_disk_dir) -
+ * an unused area's, say - the size, the bytes at ms_disk_data(); -1 when
+ * there is no such entry. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_area(const char *path, int side, int linear, int ordinal)
+{
+    gDiskBytes.clear();
+    auto bytes = readAll(path);
+    auto img = linear ? ms0515::disk::openLinearImage(bytes) : ms0515::disk::openImage(bytes, side);
+    if (!img || !img->hasDirectory || ordinal < 0 || static_cast<size_t>(ordinal) >= img->directory.entries.size()) {
+        gDiskError = "no such directory entry";
+        return -1;
+    }
+    const auto &e = img->directory.entries[static_cast<size_t>(ordinal)];
+    for (int i = 0; i < e.length; ++i) {
+        auto b = img->block(e.startBlock + i);
+        if (b.size() == 512) gDiskBytes.insert(gDiskBytes.end(), b.begin(), b.end());
+        else                 gDiskBytes.insert(gDiskBytes.end(), 512, 0);
+    }
+    return static_cast<int>(gDiskBytes.size());
+}
+
 /* Write a file (replacing one of the name); year 0 = no date.  1 / 0. */
 EMSCRIPTEN_KEEPALIVE int ms_disk_put(const char *path, int side, int linear, const char *name,
                                      const uint8_t *data, int len, int year, int month, int day, int prot)

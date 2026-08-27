@@ -127,7 +127,9 @@ flips the entry's status - the name, shown after `< UNUSED >`, the length
 and the date stay, and so does the data until a put covers the area;
 `ms_disk_undelete` by the entry's ordinal, the `i` of `ms_disk_dir`, under
 the old name or another one the dialog asks for - a free NAME1 offered
-when the old name is taken now).
+when the old name is taken now; on an unused area that was no file the key
+reads Recover: the area made a file of a name given, whatever lies in it).
+F3 on an unused area views its bytes (`ms_disk_area` by the ordinal).
 Enter on a logical disk enters it as if a directory (".." or Backspace
 back out): its file is taken into the module's file system, read there
 linearly and put back into its disk after every change; a file that does

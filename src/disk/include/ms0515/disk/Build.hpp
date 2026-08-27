@@ -138,9 +138,11 @@ void growLinear(std::vector<uint8_t> &image, int blocks);
  * whole unless something was put over the area since - which leaves the
  * sentinel name on what remains of it, so such an entry is refused.
  * `newName`, when given, is the name the file comes back under (the old
- * one taken meanwhile, say).  Throws std::runtime_error when the entry is
- * not an empty one with a proper 6.3 name, or a file of the name is on
- * the volume already. */
+ * one taken meanwhile, say) - and with it any unused area, even one that
+ * holds no deleted file's name, is made a file of that name and length:
+ * a recovery of whatever lies in it.  Throws std::runtime_error when the
+ * entry is not an unused area, no proper 6.3 name is there or given, or a
+ * file of the name is on the volume already. */
 void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal,
                    const std::string &newName = "", bool linear = false);
 

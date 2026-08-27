@@ -526,8 +526,8 @@ void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal,
     if (!(getw(&seg[at]) & kStatusEmpty) || getw(&seg[at + 8]) == 0)
         throw std::runtime_error("entry " + std::to_string(ordinal) + " is not an unused area");
     const std::string name = decodeRad50Name(getw(&seg[at + 2]), getw(&seg[at + 4]), getw(&seg[at + 6]));
-    if (name.empty() || name[0] == ' ')
-        throw std::runtime_error("the area holds no deleted file");
+    if (newName.empty() && (name.empty() || name[0] == ' '))
+        throw std::runtime_error("the area holds no deleted file: give a name to recover it under");
     const std::string under = newName.empty() ? name : newName;
     char nm[6], ex[3];
     splitName(under, nm, ex);                      /* a proper 6.3 name, else it throws */

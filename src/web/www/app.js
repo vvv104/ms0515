@@ -714,6 +714,7 @@ function bindApi() {
     diskError:  c("ms_disk_error", "string", []),
     diskGet:    c("ms_disk_get", "number", ["string", "number", "number", "string"]),
     diskData:   c("ms_disk_data", "number", []),
+    diskArea:   c("ms_disk_area", "number", ["string", "number", "number", "number"]),
     diskPut:    c("ms_disk_put", "number", ["string", "number", "number", "string", "number", "number", "number", "number", "number", "number"]),
     diskRm:     c("ms_disk_rm", "number", ["string", "number", "number", "string"]),
     diskRename: c("ms_disk_rename", "number", ["string", "number", "number", "string", "string"]),
