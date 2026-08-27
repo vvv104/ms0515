@@ -152,6 +152,8 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side, int lin
         auto home = img->block(1);
         std::string s = home.size() == 512 ? std::string(reinterpret_cast<const char *>(home.data()) + off, 12) : "";
         while (!s.empty() && (s.back() == ' ' || s.back() == '\0')) s.pop_back();
+        for (unsigned char ch : s)
+            if (ch < 0x20 || ch >= 0x7F) return std::string();   /* the blank pattern: an INIT that wrote no id */
         return s;
     };
     std::string out = "{\"free\":" + std::to_string(free) + ",\"volumeId\":\"" + jsonEscape(field(0x1D8))
