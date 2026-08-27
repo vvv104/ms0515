@@ -587,7 +587,9 @@ export class Commander {
   // The marked files (or the current one) to a disk, as copies or moved;
   // one file may get another name.  Confirms, and asks about the names it
   // would replace.
-  async transfer(list, to, newName, move) {
+  // `named`: the target came from a DEV:NAME dialog, which is the word
+  // already - the question is asked then only when a file gets replaced.
+  async transfer(list, to, newName, move, named = false) {
     const from = list[0].pane;
     const verb = move ? "Move" : "Copy";
     const nameOn = (c) => newName ?? c.file.name;
@@ -595,7 +597,7 @@ export class Commander {
     const taken = list.filter((c) => there.includes(nameOn(c))).map(nameOn);
     const what = list.length === 1 ? `${list[0].file.name}${newName && newName !== list[0].file.name ? " as " + newName : ""}` : `${list.length} files`;
     const question = `${verb} ${what} to ${to.dev} ${to.name}?` + (taken.length ? `  ${taken.join(", ")} there will be replaced.` : "");
-    if (!await this.ask(question, { title: verb })) return;
+    if ((taken.length || !named) && !await this.ask(question, { title: verb })) return;
     const todo = move ? await this.guarded(list, verb) : list;
     if (!todo) return;
     let n = 0;
@@ -629,7 +631,7 @@ export class Commander {
     if (answer === null || answer === "") return;
     const { source: to, name } = this.parseTarget(answer, from.source);
     if (to.id === from.source.id && name === c.file.name) throw new Error("a file cannot be copied onto itself");
-    await this.transfer(list, to, name, false);
+    await this.transfer(list, to, name, false, true);
   }
 
   // F6 RenMove: one file - a "DEV:NAME": the same (or no) disk is a rename,
@@ -651,13 +653,12 @@ export class Commander {
     const { source: to, name } = this.parseTarget(answer, from.source);
     if (to.id === from.source.id) {
       if (name === c.file.name) return;
-      if (!await this.ask(`Rename ${c.file.name} to ${name} on ${to.dev}?`, { title: "Rename" })) return;
       const ok = await this.writable(c.source, () => this.deps.api.diskRename(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name, name));
       if (!ok) throw new Error(this.deps.api.diskError());
       this.refresh();
       return;
     }
-    await this.transfer(list, to, name, true);
+    await this.transfer(list, to, name, true, true);
   }
 
   // F8: the marked files (or the current one) deleted after a word; each
@@ -693,7 +694,7 @@ export class Commander {
     const { source: to, name } = this.parseTarget(answer, from.source);
     if (to.id === from.source.id && list.some((c) => c.file.name === name)) throw new Error(`${name} is one of the files going in`);
     const replaced = this.namesOn(to).includes(name) ? `  ${name} there will be replaced.` : "";
-    if (!await this.ask(`Write ${name} (${blocks} blocks) to ${to.dev} ${to.name}?${replaced}`, { title: "Volume" })) return;
+    if (replaced && !await this.ask(`Write ${name} (${blocks} blocks) to ${to.dev} ${to.name}?${replaced}`, { title: "Volume" })) return;
     const api = this.deps.api, M = this.deps.module();
     if (!api.ldCreate(blocks, segments, name.split(".")[0])) throw new Error(api.diskError());
     for (const c of list) {
