@@ -14,7 +14,7 @@
 // take a "DEV:NAME" - the disks by their system names, DZ0: .. DZ3:, HD0:
 // - so a copy may land on the same disk under another name, and a rename
 // to another disk is a move.  The viewer's keys, as mc's:
-// F1 text / hex / octal in turn, F2 wrap / unwrap at the machine's 80
+// F1 text / octal / hex in turn, F2 wrap / unwrap at the machine's 80
 // columns, F3 and F10 back, F4 the encoding (ASCII, KOI-8R, KOI-7, KOI-7
 // with the РУС / ЛАТ shifts ^N / ^O, CP866 in turn), F5 go to a line, F7 search (a string in the encoding; a byte
 // sequence in hex / octal), the hit scrolled to and marked.  The editor's:
@@ -1003,7 +1003,7 @@ export class Commander {
     const encLabel = ENCODINGS.find(([id]) => id === v.enc)[1];
     const reprLabel = { text: "Text", hex: "Hex", oct: "Octal" }[v.repr];
     this.drawBar(this.vbar, [
-      [reprLabel, "text, hex, octal in turn", () => this.cycleRepr()],
+      [reprLabel, "text, octal, hex in turn", () => this.cycleRepr()],
       view ? (v.repr === "text" ? [v.wrap ? "Unwrap" : "Wrap", "long lines at the machine's 80 columns", () => this.toggleWrap()] : [null])
            : ["Save", "the file written back", () => this.save()],
       view ? ["Quit", "back to the files (Esc too)", () => this.leaveViewer()] : [null],
@@ -1032,17 +1032,43 @@ export class Commander {
 
   // Another encoding or representation: the content is kept as bytes first.
   // The content shown anew after a change of the encoding or the
-  // representation - at the same place: the scroll kept as a fraction of
-  // the way down (exact when the lines stay the same, near enough between
-  // a text and its dump).
+  // representation - at the same place: the viewer's scroll kept as a
+  // fraction of the way down (exact when the lines stay the same, near
+  // enough between a text and its dump); the editor's cursor kept as the
+  // byte it stands on - a text's caret counted through the encoding.
   rekey(change) {
     const v = this.v;
     v.bytes = this.currentBytes();
-    const frac = this.scrolled();
+    const was = this.place();
     change();
     v.hit = null;
     this.showRepr();
-    this.scrollTo(frac);
+    this.placeAt(was);
+  }
+
+  place() {
+    const v = this.v;
+    if (v.textarea) {
+      const ta = v.textarea;
+      return { at: encodeText(ta.value.slice(0, ta.selectionStart).replace(/\n/g, "\r\n"), v.enc).length, column: "num", frac: this.scrolled() };
+    }
+    if (v.editor) return { at: v.editor.pos, column: v.editor.column, frac: 0 };
+    return { at: -1, column: "num", frac: this.scrolled() };
+  }
+
+  placeAt({ at, column, frac }) {
+    const v = this.v;
+    if (v.editor) {
+      v.editor.pos = Math.max(0, Math.min(v.editor.bytes.length - (v.editor.insert ? 0 : 1), at));
+      v.editor.column = column;
+      v.editor.render();
+    } else if (v.textarea && at >= 0) {
+      const caret = decodeBytes(v.bytes.subarray(0, Math.min(at, v.bytes.length)), v.enc).replace(/\r\n?/g, "\n").length;
+      v.textarea.setSelectionRange(caret, caret);
+      this.scrollTo(frac);
+    } else {
+      this.scrollTo(frac);
+    }
   }
 
   scrolled() {
@@ -1061,8 +1087,9 @@ export class Commander {
     this.rekey(() => { this.v.enc = ids[(ids.indexOf(this.v.enc) + 1) % ids.length]; });
   }
 
+  // Text, octal, hex in turn - a binary starts at octal, so octal, hex, text.
   cycleRepr() {
-    const order = ["text", "hex", "oct"];
+    const order = ["text", "oct", "hex"];
     this.rekey(() => { this.v.repr = order[(order.indexOf(this.v.repr) + 1) % order.length]; });
   }
 

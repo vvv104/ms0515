@@ -136,7 +136,8 @@ linearly and put back into its disk after every change; a file that does
 not fit makes the volume grow by what it needs (`ms_disk_grow`: blocks
 appended, the last empty entry lengthened or one added); in the dialogs
 such a place is `DZn:NAME.DSK/FILE`.
-The viewer's keys, as mc's: F1 text / hex / octal in turn, F2 wrap /
+The viewer's keys, as mc's: F1 text / octal / hex in turn (a binary
+starts at octal), F2 wrap /
 unwrap at the machine's 80 columns, F3 and F10 back, F4 the encoding
 (ASCII, KOI-8R, KOI-7, KOI-7 with the terminal's РУС / ЛАТ shifts ^N / ^O
 - 0x40..0x5F lowercase and 0x60..0x7F uppercase Cyrillic while shifted -
