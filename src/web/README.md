@@ -116,7 +116,9 @@ the protection), F6 Rename, F7 Init the pane's volume (a dialog as the
 OS's INITIALIZE: the volume id and the owner, 12 characters each, the
 directory segments 1..31 - 4 offered for a floppy, by the size for a
 linear image - or "the volume id only", INITIALIZE/VOLUMEID:ONLY, the files
-kept; the volume id shows in the pane's foot), F8 Delete, F9
+kept; the volume id, the owner and the segment count show in a line
+under the pane's disk list, decoded as the OS's terminal wrote them -
+KOI-8R above 0x7F), F8 Delete, F9
 Squeeze, F10 Quit (Esc too); Tab, the arrows, Enter as in the commander.
 Insert or Shift with the arrows marks files, gray + / - / * mark by the
 OS's patterns (`*`, `%`, an omitted part `*`, several with commas) or

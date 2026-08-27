@@ -147,17 +147,16 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side, int lin
     long free = 0;
     for (const auto &e : img->directory.entries)
         if (e.isEmpty()) free += e.length;
-    /* The home block's volume id and owner (12 characters each, blank-padded). */
+    /* The home block's volume id and owner: 12 bytes each as they are (the
+     * page decodes them - the OS writes them in its terminal's encoding). */
     auto field = [&](int off) {
         auto home = img->block(1);
-        std::string s = home.size() == 512 ? std::string(reinterpret_cast<const char *>(home.data()) + off, 12) : "";
-        while (!s.empty() && (s.back() == ' ' || s.back() == '\0')) s.pop_back();
-        for (unsigned char ch : s)
-            if (ch < 0x20 || ch >= 0x7F) return std::string();   /* the blank pattern: an INIT that wrote no id */
-        return s;
+        std::string s = "[";
+        for (int i = 0; i < 12 && home.size() == 512; ++i) s += (i ? "," : "") + std::to_string(home[static_cast<size_t>(off + i)]);
+        return s + "]";
     };
-    std::string out = "{\"free\":" + std::to_string(free) + ",\"volumeId\":\"" + jsonEscape(field(0x1D8))
-                    + "\",\"owner\":\"" + jsonEscape(field(0x1E4)) + "\",\"segments\":" + std::to_string(img->directory.segsTotal)
+    std::string out = "{\"free\":" + std::to_string(free) + ",\"volumeId\":" + field(0x1D8)
+                    + ",\"owner\":" + field(0x1E4) + ",\"segments\":" + std::to_string(img->directory.segsTotal)
                     + ",\"files\":[";
     int ordinal = -1;
     for (const auto &e : img->directory.entries) {
@@ -202,15 +201,17 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_squeeze(const char *path, int side, int linear)
 }
 
 /* An RT-11 directory on a blank volume (the disk library's INIT): a floppy
- * side, or the whole linear image; the volume id and the owner (12
- * characters each at most), `segments` directory segments (1..31).  1 / 0. */
-EMSCRIPTEN_KEEPALIVE int ms_disk_init(const char *path, int side, int linear, const char *volumeId, const char *owner, int segments)
+ * side, or the whole linear image; the volume id and the owner as bytes
+ * (12 at most each - the page encodes them as the OS's terminal would,
+ * KOI-8R for Cyrillic), `segments` directory segments (1..31).  1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_init(const char *path, int side, int linear, const char *volumeId, int idLen,
+                                      const char *owner, int ownerLen, int segments)
 {
     try {
         auto bytes = readAll(path);
         ms0515::disk::InitOptions opts;
-        opts.volumeId = volumeId;
-        opts.owner = owner;
+        opts.volumeId.assign(volumeId, static_cast<size_t>(idLen));
+        opts.owner.assign(owner, static_cast<size_t>(ownerLen));
         opts.segments = segments;
         ms0515::disk::initVolume(bytes, side, !linear && bytes.size() == 2 * 409600, opts, linear != 0);
         if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
@@ -225,11 +226,13 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_error(void) { return gDiskError.c_str()
 
 /* INITIALIZE/VOLUMEID:ONLY - the volume id and the owner written, the
  * directory and the files kept.  1 / 0. */
-EMSCRIPTEN_KEEPALIVE int ms_disk_volume_id(const char *path, int side, int linear, const char *volumeId, const char *owner)
+EMSCRIPTEN_KEEPALIVE int ms_disk_volume_id(const char *path, int side, int linear, const char *volumeId, int idLen,
+                                           const char *owner, int ownerLen)
 {
     try {
         auto bytes = readAll(path);
-        ms0515::disk::setVolumeId(bytes, side, !linear && bytes.size() == 2 * 409600, volumeId, owner, linear != 0);
+        ms0515::disk::setVolumeId(bytes, side, !linear && bytes.size() == 2 * 409600,
+                                  std::string(volumeId, static_cast<size_t>(idLen)), std::string(owner, static_cast<size_t>(ownerLen)), linear != 0);
         if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
         return 1;
     } catch (const std::exception &e) {

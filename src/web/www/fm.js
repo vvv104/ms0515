@@ -108,12 +108,13 @@ export class Commander {
     for (let i = 0; i < 2; ++i) {
       const pane = el("div", "fm-pane");
       const src = document.createElement("select");
+      const head = el("div", "fm-head", "");
       const list = el("div", "fm-list");
       list.tabIndex = 0;
       const foot = el("div", "fm-foot", "");
-      pane.append(src, list, foot);
+      pane.append(src, head, list, foot);
       panes.appendChild(pane);
-      const p = { pane, src, list, foot, files: [], free: 0, volume: null, selected: -1, source: null, prev: "", marks: new Set(), nested: null };
+      const p = { pane, src, head, list, foot, files: [], free: 0, volume: null, selected: -1, source: null, prev: "", marks: new Set(), nested: null };
       src.addEventListener("focus", () => { p.prev = src.value; });
       src.onchange = () => { this.active = i; this.load(p, p.prev); p.prev = src.value; };
       list.addEventListener("pointerdown", () => this.activate(i));
@@ -451,6 +452,7 @@ export class Commander {
     if (!was || !p.source || was.id !== p.source.id) p.marks.clear();
     p.files = [];
     p.free = 0;
+    p.volume = null;
     if (p.nested && !p.source?.parent) {          // another disk picked above the pane: the volumes left
       for (let s = p.nested; s; s = s.parent.parent ? s.parent : null) [...p.src.options].find((o) => o.value === s.id)?.remove();
       p.nested = null;
@@ -477,7 +479,7 @@ export class Commander {
         const dir = JSON.parse(text);
         p.files = dir.files;
         p.free = dir.free;
-        p.volume = { volumeId: dir.volumeId, owner: dir.owner, segments: dir.segments };
+        p.volume = { volumeId: homeField(dir.volumeId), owner: homeField(dir.owner), segments: dir.segments };
         if (p.source.parent) p.files.unshift({ up: true, empty: true, name: "..", blocks: "" });
       }
     }
@@ -499,10 +501,10 @@ export class Commander {
     const files = p.files.filter((f) => !f.empty);
     for (const name of [...p.marks]) if (!files.some((f) => f.name === name)) p.marks.delete(name);
     const marked = files.filter((f) => p.marks.has(f.name));
-    const volume = p.volume?.volumeId ? `  ·  ${p.volume.volumeId}${p.volume.owner ? " / " + p.volume.owner : ""}` : "";
+    p.head.textContent = !p.volume ? "" : `${p.volume.volumeId || "(no volume id)"}${p.volume.owner ? "  ·  " + p.volume.owner : ""}  ·  ${p.volume.segments} directory segment${p.volume.segments === 1 ? "" : "s"}`;
     p.foot.textContent = !p.source ? "nothing mounted"
-      : marked.length ? `${marked.length} marked, ${marked.reduce((a, f) => a + f.blocks, 0)} blocks of ${files.length} file(s), ${p.free} free${volume}`
-      : `${files.length} file(s), ${files.reduce((a, f) => a + f.blocks, 0)} blocks, ${p.free} free${volume}`;
+      : marked.length ? `${marked.length} marked, ${marked.reduce((a, f) => a + f.blocks, 0)} blocks of ${files.length} file(s), ${p.free} free`
+      : `${files.length} file(s), ${files.reduce((a, f) => a + f.blocks, 0)} blocks, ${p.free} free`;
     p.list.querySelector(".selected")?.scrollIntoView({ block: "nearest" });
   }
 
@@ -863,9 +865,18 @@ export class Commander {
     const [volumeId, owner, segs] = r.values.map((s) => s.trim());
     const segments = Number(segs);
     if (!(Number.isInteger(segments) && segments >= 1 && segments <= 31)) throw new Error(`${segs}: the segments are 1..31`);
-    const api = this.deps.api;
-    const ok = await this.writable(src, () => r.checked ? api.diskVolumeId(src.path, src.side, src.linear ? 1 : 0, volumeId, owner)
-                                                       : api.diskInit(src.path, src.side, src.linear ? 1 : 0, volumeId, owner, segments));
+    const id = homeBytes(volumeId), own = homeBytes(owner);
+    if (id.length > 12 || own.length > 12) throw new Error("the volume id and the owner are 12 characters at most");
+    const api = this.deps.api, M = this.deps.module();
+    const buf = M._malloc(id.length + own.length + 2);
+    M.HEAPU8.set(id, buf); M.HEAPU8.set(own, buf + id.length + 1);
+    let ok;
+    try {
+      ok = await this.writable(src, () => r.checked ? api.diskVolumeId(src.path, src.side, src.linear ? 1 : 0, buf, id.length, buf + id.length + 1, own.length)
+                                                   : api.diskInit(src.path, src.side, src.linear ? 1 : 0, buf, id.length, buf + id.length + 1, own.length, segments));
+    } finally {
+      M._free(buf);
+    }
     if (!ok) throw new Error(api.diskError());
     this.deps.say(r.checked ? `${src.dev} volume id: ${volumeId || "(blank)"}${owner ? " / " + owner : ""}`
                             : `${src.dev} initialised: ${volumeId || "(blank)"}, ${segments} directory segment(s)`);
@@ -1255,6 +1266,28 @@ export class Commander {
 }
 
 const CANCEL = Symbol("cancel");     // a guard's "stop the whole operation"
+
+// A home block field (12 bytes: the volume id, the owner) as text: the
+// blanks and NULs at the end dropped, the terminal's encoding guessed as
+// for a text - KOI-8R above 0x7F, KOI-7 with the shifts on a ^N, else the
+// letters as they are; the blank pattern (an INIT that wrote no id) or
+// other unreadable bytes give nothing.
+// The way back: a field typed in the dialog as the OS's terminal would
+// store it - KOI-8R when it has anything beyond ASCII.
+function homeBytes(text) {
+  return encodeText(text, /[^\x00-\x7F]/.test(text) ? "koi8-r" : "ascii");
+}
+
+function homeField(bytes) {
+  let end = bytes.length;
+  while (end > 0 && (bytes[end - 1] === 0x20 || bytes[end - 1] === 0)) --end;
+  const b = Uint8Array.from(bytes.slice(0, end));
+  if (!b.length) return "";
+  if (b.every((v) => v === 0xB6 || v === 0x6D)) return "";                 // the blank pattern
+  if (b.some((v) => v < 0x20 && v !== 0x0E && v !== 0x0F)) return "";      // not a text
+  const enc = b.some((v) => v >= 0x80) ? "koi8-r" : b.some((v) => v === 0x0E || v === 0x0F) ? "koi7s" : "ascii";
+  return decodeBytes(b, enc).replace(/[\x00-\x1F]/g, "");
+}
 
 // The directory segments INIT proposes: 4 for a floppy, as the OS's; for a
 // linear image by its size, as the OS does for its disks - 16 from 4096
