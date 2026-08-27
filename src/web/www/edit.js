@@ -14,7 +14,45 @@
 const KOI7 = "ЮАБЦДЕФГХИЙКЛМНОПЯРСТУЖВЬЫЗШЭЩЧЪ";
 
 // ── the encodings both ways ─────────────────────────────────────────────────
+// KOI-7 with the terminal's РУС / ЛАТ shifts: ^N (0x0E) makes 0x40..0x7F
+// Cyrillic - lowercase at 0x40..0x5F, uppercase at 0x60..0x7F - until ^O
+// (0x0F) brings Latin back; a text starts in Latin.  The shifts themselves
+// are not shown.
+function decodeKoi7Shifted(bytes) {
+  let out = "", rus = false;
+  for (const b of bytes) {
+    if (b === 0x0E) rus = true;
+    else if (b === 0x0F) rus = false;
+    else if (rus && b >= 0x60 && b <= 0x7F) out += KOI7[b - 0x60];
+    else if (rus && b >= 0x40 && b <= 0x5F) out += KOI7[b - 0x40].toLowerCase();
+    else out += String.fromCharCode(b);
+  }
+  return out;
+}
+
+// The way back: a Cyrillic letter puts ^N before it when Latin was on, a
+// Latin letter (or anything else of 0x40..0x7F) puts ^O when Cyrillic was.
+function encodeKoi7Shifted(text) {
+  const out = [];
+  let rus = false;
+  for (const ch of text) {
+    const upper = KOI7.indexOf(ch), lower = ch === ch.toUpperCase() ? -1 : KOI7.indexOf(ch.toUpperCase());
+    const c = ch.codePointAt(0);
+    if (upper >= 0 || lower >= 0) {
+      if (!rus) { out.push(0x0E); rus = true; }
+      out.push(upper >= 0 ? 0x60 + upper : 0x40 + lower);
+    } else if (c >= 0x40 && c <= 0x7F) {
+      if (rus) { out.push(0x0F); rus = false; }
+      out.push(c);
+    } else {
+      out.push(c < 128 ? c : 0x3F);
+    }
+  }
+  return Uint8Array.from(out);
+}
+
 export function decodeBytes(bytes, enc) {
+  if (enc === "koi7s") return decodeKoi7Shifted(bytes);
   if (enc === "ascii") {                 // 7-bit: a byte above 127 is a "."
     let out = "";
     for (const b of bytes) out += b < 128 ? String.fromCharCode(b) : ".";
@@ -44,6 +82,7 @@ function encoderFor(enc) {
 }
 
 export function encodeText(text, enc) {
+  if (enc === "koi7s") return encodeKoi7Shifted(text);
   const map = encoderFor(enc);
   const out = [];
   for (const ch of text) {

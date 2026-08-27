@@ -15,8 +15,8 @@
 // - so a copy may land on the same disk under another name, and a rename
 // to another disk is a move.  The viewer's keys, as mc's:
 // F1 text / hex / octal in turn, F2 wrap / unwrap at the machine's 80
-// columns, F3 and F10 back, F4 the encoding (ASCII, KOI-8R, KOI-7, CP866 in
-// turn), F5 go to a line, F7 search (a string in the encoding; a byte
+// columns, F3 and F10 back, F4 the encoding (ASCII, KOI-8R, KOI-7, KOI-7
+// with the РУС / ЛАТ shifts ^N / ^O, CP866 in turn), F5 go to a line, F7 search (a string in the encoding; a byte
 // sequence in hex / octal), the hit scrolled to and marked.  The editor's:
 // F1 the representation, F2 save, F4 the encoding, F5 go to, F7 search, F8
 // replace / insert (bytes), F10 back.
@@ -32,7 +32,7 @@ import { makeZip } from "./zip.js?v=@STAMP@";
 
 const LATIN_NAME = /^[A-Z0-9$]{1,6}(\.[A-Z0-9$]{1,3})?$/;
 const DEV_NAME = /^(?:([A-Z]+\d*):(?:([A-Z0-9$.]+)\/)?)?\s*([A-Z0-9$.]+)$/;   // "DZ1:NAME.EXT", "DZ1:VOL.DSK/NAME.EXT" or "NAME.EXT"
-const ENCODINGS = [["ascii", "ASCII"], ["koi8-r", "KOI-8R"], ["koi7", "KOI-7"], ["ibm866", "CP866"]];
+const ENCODINGS = [["ascii", "ASCII"], ["koi8-r", "KOI-8R"], ["koi7", "KOI-7"], ["koi7s", "KOI-7 РУС/ЛАТ"], ["ibm866", "CP866"]];
 
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
@@ -51,7 +51,7 @@ function looksLikeText(bytes) {
   if (!sample.length) return true;
   let text = 0;
   for (const v of sample)
-    if ((v >= 0x20 && v < 0x7F) || v === 9 || v === 10 || v === 13 || v === 26 || v >= 0xC0) ++text;
+    if ((v >= 0x20 && v < 0x7F) || v === 9 || v === 10 || v === 13 || v === 14 || v === 15 || v === 26 || v >= 0xC0) ++text;
   return text >= sample.length * 0.97 && !sample.includes(0);
 }
 
@@ -64,7 +64,8 @@ const EN_FREQ = [0, 8.2, 1.5, 2.8, 4.3, 12.7, 2.2, 2.0, 6.1, 7.0, 0.15, 0.77, 4.
 const RU_FREQ = [0.64, 8.0, 1.6, 0.48, 3.0, 8.5, 0.26, 1.7, 0.97, 7.4, 1.2, 3.5, 4.4, 3.2, 6.7, 10.9, 2.8, 2.0, 4.7, 5.5, 6.3, 2.6, 0.94, 4.5, 1.7, 1.9, 1.6, 0.73, 0.32, 0.36, 1.4, 0.04];
 
 // The encoding a text is most likely in.  A byte above 0x7F makes it
-// KOI-8R.  Else the bytes 0x60..0x7F are either English lowercase or
+// KOI-8R; a ^N or ^O KOI-7 with the РУС / ЛАТ shifts (10L01.DOC on the
+// Mihin disk).  Else the bytes 0x60..0x7F are either English lowercase or
 // Russian in KOI-7: the one whose letter frequencies fit them better wins,
 // KOI-7 only by a clear margin (0.2 nats a letter, 20 letters at least) -
 // Russian transliterated in Latin letters, and program text, read as
@@ -72,6 +73,7 @@ const RU_FREQ = [0.64, 8.0, 1.6, 0.48, 3.0, 8.5, 0.26, 1.7, 0.97, 7.4, 1.2, 3.5,
 export function guessEncoding(bytes) {
   const b = bytes.subarray(0, 8192);
   if (b.some((v) => v >= 0x80)) return "koi8-r";
+  if (b.some((v) => v === 0x0E || v === 0x0F)) return "koi7s";      // the terminal's РУС / ЛАТ shifts
   let en = 0, ru = 0, n = 0;
   for (const v of b) {
     if (v < 0x60 || v > 0x7F) continue;
@@ -1004,7 +1006,7 @@ export class Commander {
       view ? (v.repr === "text" ? [v.wrap ? "Unwrap" : "Wrap", "long lines at the machine's 80 columns", () => this.toggleWrap()] : [null])
            : ["Save", "the file written back", () => this.save()],
       view ? ["Quit", "back to the files (Esc too)", () => this.leaveViewer()] : [null],
-      [encLabel, "the encoding: ASCII, KOI-8R, KOI-7, CP866 in turn", () => this.cycleEncoding()],
+      [encLabel, "the encoding: ASCII, KOI-8R, KOI-7, KOI-7 with the РУС / ЛАТ shifts, CP866 in turn", () => this.cycleEncoding()],
       ["Goto", "a line (text) or an offset (bytes)", () => this.goto()],
       [null],
       ["Search", v.repr === "text" ? "a string, in the encoding" : "a byte sequence in the digits shown", () => this.search()],

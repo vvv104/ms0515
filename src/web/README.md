@@ -138,7 +138,9 @@ appended, the last empty entry lengthened or one added); in the dialogs
 such a place is `DZn:NAME.DSK/FILE`.
 The viewer's keys, as mc's: F1 text / hex / octal in turn, F2 wrap /
 unwrap at the machine's 80 columns, F3 and F10 back, F4 the encoding
-(ASCII, KOI-8R, KOI-7, CP866 in turn), F5 go to a line (an offset in the
+(ASCII, KOI-8R, KOI-7, KOI-7 with the terminal's РУС / ЛАТ shifts ^N / ^O
+- 0x40..0x5F lowercase and 0x60..0x7F uppercase Cyrillic while shifted -
+CP866 in turn; guessed from the bytes), F5 go to a line (an offset in the
 dump), F7 search - a string in the encoding, or a byte sequence in the
 digits shown - the hit marked and scrolled to.  The editor's (`edit.js`):
 F1 the representation, F2 save, F4 the encoding (a text in the encoding it was read in, saved
