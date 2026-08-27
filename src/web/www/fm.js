@@ -1180,15 +1180,23 @@ export class Commander {
     }
   }
 
+  // F2: the file written back after a word; the editing goes on.
   async save() {
+    const v = this.v, bytes = this.currentBytes();
+    if (!await this.ask(`Save ${v.file.name} (${bytes.length} bytes) to ${v.source.dev}?`, { title: "Save" })) return false;
+    return this.write(bytes);
+  }
+
+  // The bytes written to the disk; what is shown counts as unchanged from
+  // here on.
+  async write(bytes) {
     const v = this.v;
-    const bytes = this.currentBytes();
     if (!await this.putBytes(v.source, v.file.name, bytes, v.file)) throw new Error(this.deps.api.diskError());
+    v.bytes = bytes;
+    if (v.editor) v.editor.changed = false;
     this.deps.say(`${v.file.name} saved (${bytes.length} bytes)`);
-    this.v = null;
-    this.viewer.hidden = true;
     this.refresh();
-    this.focusList();
+    return true;
   }
 
   changed() {
@@ -1199,7 +1207,11 @@ export class Commander {
   }
 
   async leaveViewer() {
-    if (this.v && this.changed() && !await this.ask("Leave without saving?", { title: "Edit" })) return;
+    if (this.v && this.changed()) {                 // Yes saves and leaves, No leaves, Cancel stays
+      const r = await this.showDialog(`Save the changes to ${this.v.file.name}?`, { title: "Edit", buttons: [["Yes", true], ["No", false], ["Cancel", null]] });
+      if (r.value === null) return;
+      if (r.value === true && !await this.write(this.currentBytes())) return;
+    }
     this.v = null;
     this.viewer.hidden = true;
     this.focusList();

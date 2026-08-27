@@ -144,7 +144,8 @@ unwrap at the machine's 80 columns, F3 and F10 back, F4 the encoding
 CP866 in turn; guessed from the bytes), F5 go to a line (an offset in the
 dump), F7 search - a string in the encoding, or a byte sequence in the
 digits shown - the hit marked and scrolled to.  The editor's (`edit.js`):
-F1 the representation, F2 save, F4 the encoding (a text in the encoding it was read in, saved
+F1 the representation, F2 save (after a word; the editing goes on - and
+leaving with changes asks Yes / No / Cancel), F4 the encoding (a text in the encoding it was read in, saved
 the same way with CR LF; a binary as its bytes in octal - the machine's
 notation - or hex, the digits or the characters typed over), F5 go to, F7
 search, F8 replace / insert (Delete and Backspace remove bytes), F10 back.
