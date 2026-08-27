@@ -7,7 +7,9 @@
 // F1 upload a file of the user's into the pane, F2 download to the
 // computer, F3 view, F4 edit, F5 copy to the other pane, F6 rename, F7
 // init the pane's volume, F8 delete, F9 squeeze, F10 quit (Esc too); Tab,
-// the arrows and Enter as in the commander.  The viewer's keys, as mc's:
+// the arrows and Enter as in the commander; Insert and Shift with the
+// arrows mark files (yellow, as there), and F2 / F5 / F8 then take the
+// marked ones.  The viewer's keys, as mc's:
 // F1 the encoding (KOI-7, KOI-8R, CP866 in turn), F2 wrap / unwrap at the
 // machine's 80 columns, F3 and F10 back, F4 text / hex / octal in turn, F5
 // go to a line, F7 search (a string in the encoding; a byte sequence in
@@ -76,7 +78,7 @@ export class Commander {
       const foot = el("div", "fm-foot", "");
       pane.append(src, list, foot);
       panes.appendChild(pane);
-      const p = { pane, src, list, foot, files: [], free: 0, selected: -1, source: null, prev: "" };
+      const p = { pane, src, list, foot, files: [], free: 0, selected: -1, source: null, prev: "", marks: new Set() };
       src.addEventListener("focus", () => { p.prev = src.value; });
       src.onchange = () => { this.active = i; this.load(p, p.prev); p.prev = src.value; };
       list.addEventListener("pointerdown", () => this.activate(i));
@@ -154,7 +156,9 @@ export class Commander {
   // is initialised on the user's word, else the pane goes back to what it
   // showed (`prev`, the id to fall back to).
   load(p, prev) {
+    const was = p.source;
     p.source = this.sourceOf(p);
+    if (!was || !p.source || was.id !== p.source.id) p.marks.clear();
     p.files = [];
     p.free = 0;
     if (p.source) {
@@ -185,20 +189,40 @@ export class Commander {
   draw(p) {
     p.list.replaceChildren();
     for (const [i, f] of p.files.entries()) {
-      const row = el("div", "fm-row" + (i === p.selected ? " selected" : "") + (f.empty ? " unused" : ""));
+      const row = el("div", "fm-row" + (i === p.selected ? " selected" : "") + (f.empty ? " unused" : "") + (p.marks.has(f.name) ? " marked" : ""));
       row.dataset.i = i;
       row.append(el("span", "n", f.empty ? "< UNUSED >" : f.name), el("span", "b", String(f.blocks)),
                  el("span", "d", f.date || ""), el("span", "p", f.protected ? "P" : ""));
       p.list.appendChild(row);
     }
     const files = p.files.filter((f) => !f.empty);
-    p.foot.textContent = p.source
-      ? `${files.length} file(s), ${files.reduce((a, f) => a + f.blocks, 0)} blocks, ${p.free} free`
-      : "nothing mounted";
+    for (const name of [...p.marks]) if (!files.some((f) => f.name === name)) p.marks.delete(name);
+    const marked = files.filter((f) => p.marks.has(f.name));
+    p.foot.textContent = !p.source ? "nothing mounted"
+      : marked.length ? `${marked.length} marked, ${marked.reduce((a, f) => a + f.blocks, 0)} blocks of ${files.length} file(s), ${p.free} free`
+      : `${files.length} file(s), ${files.reduce((a, f) => a + f.blocks, 0)} blocks, ${p.free} free`;
     p.list.querySelector(".selected")?.scrollIntoView({ block: "nearest" });
   }
 
   select(p, i) { p.selected = i; this.draw(p); }
+
+  // Insert, Shift+arrow: the current file's mark toggled, then the move.
+  mark(p, move) {
+    const f = p.files[p.selected];
+    if (f && !f.empty) { if (p.marks.has(f.name)) p.marks.delete(f.name); else p.marks.add(f.name); }
+    this.select(p, Math.max(0, Math.min(p.files.length - 1, p.selected + move)));
+  }
+
+  // What an action works on: the marked files of the active pane, else the
+  // current one (an unused area is not a file).
+  targets() {
+    const p = this.panes[this.active];
+    if (!p.source) return [];
+    const marked = p.files.filter((f) => !f.empty && p.marks.has(f.name));
+    if (marked.length) return marked.map((file) => ({ pane: p, source: p.source, file }));
+    const c = this.current();
+    return c ? [c] : [];
+  }
 
   // The selected file of the active pane; null on nothing; an unused area
   // is not a file (throws).
@@ -218,8 +242,9 @@ export class Commander {
                    F5: () => this.copy(), F6: () => this.rename(), F7: () => this.init(), F8: () => this.remove(),
                    F9: () => this.squeeze(), F10: () => this.close(), Enter: () => this.view(), Escape: () => this.close(),
                    Tab: () => { this.active ^= 1; this.focusList(); },
-                   ArrowUp: () => this.select(p, Math.max(0, p.selected - 1)),
-                   ArrowDown: () => this.select(p, Math.min(p.files.length - 1, p.selected + 1)),
+                   Insert: () => this.mark(p, 1),
+                   ArrowUp: () => e.shiftKey ? this.mark(p, -1) : this.select(p, Math.max(0, p.selected - 1)),
+                   ArrowDown: () => e.shiftKey ? this.mark(p, 1) : this.select(p, Math.min(p.files.length - 1, p.selected + 1)),
                    Home: () => this.select(p, 0), End: () => this.select(p, p.files.length - 1) };
     const a = acts[e.key];
     if (!a) return;
@@ -250,16 +275,23 @@ export class Commander {
   }
 
   async copy() {
-    const c = this.current();
-    if (!c) return;
-    const to = this.panes[this.active ^ 1];
+    const list = this.targets();
+    if (!list.length) return;
+    const from = list[0].pane, to = this.panes[this.active ^ 1];
     if (!to.source) throw new Error("the other pane has no disk");
-    if (to.source.id === c.source.id) throw new Error("the other pane shows the same disk");
-    if (to.files.some((f) => f.name === c.file.name) && !confirm(`Replace ${c.file.name} on ${to.source.label}?`)) return;
-    const bytes = this.bytesOf(c.source, c.file.name);
-    if (!await this.putBytes(to.source, c.file.name, bytes, c.file)) throw new Error(this.deps.api.diskError());
+    if (to.source.id === from.source.id) throw new Error("the other pane shows the same disk");
+    const taken = list.filter((c) => to.files.some((f) => f.name === c.file.name)).map((c) => c.file.name);
+    if (taken.length && !confirm(`Replace on ${to.source.label}: ${taken.join(", ")}?`)) return;
+    let n = 0;
+    for (const c of list) {
+      const bytes = this.bytesOf(c.source, c.file.name);
+      if (!await this.putBytes(to.source, c.file.name, bytes, c.file)) throw new Error(`${c.file.name}: ${this.deps.api.diskError()}`);
+      from.marks.delete(c.file.name);
+      ++n;
+    }
     this.load(to);
-    this.deps.say(`${c.file.name} copied to ${to.source.label}`);
+    this.draw(from);
+    this.deps.say(n === 1 ? `${list[0].file.name} copied to ${to.source.label}` : `${n} files copied to ${to.source.label}`);
   }
 
   async rename() {
@@ -275,12 +307,14 @@ export class Commander {
   }
 
   async remove() {
-    const c = this.current();
-    if (!c) return;
-    if (c.file.protected) throw new Error(`${c.file.name} is protected`);
-    if (!confirm(`Delete ${c.file.name} from ${c.source.label}?`)) return;
-    const ok = await this.deps.writable(c.source, () => this.deps.api.diskRm(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name));
+    const list = this.targets().filter((c) => !c.file.protected);
+    if (!list.length) { const c = this.current(); if (c?.file.protected) throw new Error(`${c.file.name} is protected`); return; }
+    const names = list.map((c) => c.file.name);
+    if (!confirm(`Delete from ${list[0].source.label}: ${names.length === 1 ? names[0] : names.length + " files (" + names.join(", ") + ")"}?`)) return;
+    const src = list[0].source;
+    const ok = await this.deps.writable(src, () => names.every((name) => this.deps.api.diskRm(src.path, src.side, src.linear ? 1 : 0, name)));
     if (!ok) throw new Error(this.deps.api.diskError());
+    list[0].pane.marks.clear();
     this.refresh();
   }
 
@@ -308,12 +342,12 @@ export class Commander {
   }
 
   download() {
-    const c = this.current();
-    if (!c) return;
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([this.bytesOf(c.source, c.file.name)]));
-    a.download = c.file.name; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    for (const c of this.targets()) {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([this.bytesOf(c.source, c.file.name)]));
+      a.download = c.file.name; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    }
   }
 
   upload() {

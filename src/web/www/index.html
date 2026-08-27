@@ -47,8 +47,11 @@
   .fm-row { display: grid; grid-template-columns: 1fr 5ch 11ch 2ch; gap: .6em; padding: .05em .6em; color: #9cf; cursor: default; white-space: nowrap; }
   .fm-row .b { text-align: right; }
   .fm-row .p { color: #fc8; }
+  .fm-row.marked { color: #ff5; }
   .fm-row.selected { background: #2a6a8a; color: #fff; }
+  .fm-row.selected.marked { color: #ff5; }
   .fm-pane.active .fm-row.selected { background: #3a8; }
+  .fm-pane.active .fm-row.selected.marked { background: #2a6a8a; }
   .fm-foot { padding: .2em .6em; color: #8ab; border-top: 1px solid #446; }
   .fm-bar { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
   .fm-bar button { display: flex; gap: .3em; align-items: baseline; padding: .25em .4em; overflow: hidden; white-space: nowrap; text-align: left; }
@@ -144,7 +147,7 @@
     &#9974; (or F11) puts the picture alone on the whole screen, Esc brings the page back; on a touch device &#9000; raises the system's keyboard (letters, digits, Enter, Backspace - Cyrillic letters switch the machine to РУС).
     "Joystick: on" makes the arrows and Space the joystick on the MS7007 port (SABOT2 on omega-games: J KEMPSTON), and on a touch screen a stick under a finger on the left of the picture and fire on the right.
     The drives A, B and HD mount like the desktop emulator's: a 400 KB image is one side, an 800 KB one takes both sides of its drive, the HD takes an image of any size (your own, or a new blank one - INIT HD: in the guest).
-    "Files" replaces the screen with two panes of the mounted disks' RT-11 directories (a floppy side or the HD each, the unused areas shown) and the ten keys below, as in Midnight Commander: F1 Upload a file of yours (a 6.3 name of A-Z, 0-9 and $), F2 Download to your computer, F3 View, F4 Edit, F5 Copy to the other pane, F6 Rename, F7 Init the pane's volume, F8 Delete, F9 Squeeze, F10 Quit. In the viewer: F1 the encoding (KOI-7 / KOI-8R / CP866), F2 wrap at 80 columns, F3 quit, F4 text / hex / octal, F5 go to a line, F7 search (a byte sequence in hex / octal); in the editor: F2 save, F8 replace / insert. The guest sees a change at its next directory read.
+    "Files" replaces the screen with two panes of the mounted disks' RT-11 directories (a floppy side or the HD each, the unused areas shown) and the ten keys below, as in Midnight Commander (Insert or Shift with the arrows marks files - yellow - and F2 / F5 / F8 take the marked ones): F1 Upload a file of yours (a 6.3 name of A-Z, 0-9 and $), F2 Download to your computer, F3 View, F4 Edit, F5 Copy to the other pane, F6 Rename, F7 Init the pane's volume, F8 Delete, F9 Squeeze, F10 Quit. In the viewer: F1 the encoding (KOI-7 / KOI-8R / CP866), F2 wrap at 80 columns, F3 quit, F4 text / hex / octal, F5 go to a line, F7 search (a byte sequence in hex / octal); in the editor: F2 save, F8 replace / insert. The guest sees a change at its next directory read.
     Disks you write to stay in this browser (IndexedDB): "Download" saves a copy, "Revert" returns a shipped disk to its original, "Delete" removes one of yours.
     A game on <code>osa.dsk</code>: type <code>R FIST</code> (or open <code>?disk=osa.dsk&amp;type=R%20FIST</code>).
     <p><button id="wipe" class="small" title="drop every image and setting this page keeps in the browser">Wipe browser data</button> — a fresh start: your images, changed disks and mounts are gone.</p></div>
