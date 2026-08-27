@@ -71,6 +71,11 @@ export class Commander {
     // The keys are taken at the document while the commander is open: the
     // focus may sit on the viewer's text, a textarea or nowhere at all.
     document.addEventListener("keydown", (e) => { if (!this.root.hidden) this.key(e); });
+    // Alt held shows the other meanings of the keys; let go, or the window
+    // left (Alt+Tab), brings the usual ones back.
+    document.addEventListener("keyup", (e) => { if (e.key === "Alt") { e.preventDefault(); this.altBar(false); } });
+    window.addEventListener("blur", () => this.altBar(false));
+    this.alt = false;
   }
 
   // ── the DOM ─────────────────────────────────────────────────────────────
@@ -237,6 +242,31 @@ export class Commander {
     });
   }
 
+  // The bar under the lists: the keys as they are, or with Alt held.
+  altBar(on) {
+    if (this.alt === on) return;
+    this.alt = on;
+    if (this.root.hidden || this.v) return;
+    if (on) this.drawAltBar(); else this.drawListBar();
+  }
+
+  drawAltBar() {
+    this.drawBar(this.bar, [
+      ["Left", "another disk on the left pane", () => this.changeDisk(0)],
+      ["Right", "another disk on the right pane", () => this.changeDisk(1)],
+      [], [], [], [], [], [], [], [],
+    ]);
+  }
+
+  // Alt+F1 / F2: the pane's disk list opened to pick from.
+  changeDisk(i) {
+    this.altBar(false);
+    this.activate(i);
+    const src = this.panes[i].src;
+    src.focus();
+    try { src.showPicker(); } catch { /* not every browser opens a list on request: the arrows work on it */ }
+  }
+
   drawListBar() {
     this.drawBar(this.bar, [
       ["Upload", "a file from your computer into this pane", () => this.upload()],
@@ -395,7 +425,9 @@ export class Commander {
   // ── the keys ─────────────────────────────────────────────────────────────
   key(e) {
     if (this.dialog) { this.dialogKey(e); return; }
+    if (e.key === "Alt") { e.preventDefault(); this.altBar(true); return; }
     if (this.v) { this.viewerKey(e); return; }
+    if (e.altKey) { this.altKey(e); return; }
     const p = this.panes[this.active];
     const acts = { F1: () => this.upload(), F2: () => this.download(), F3: () => this.view(), F4: () => this.edit(),
                    F5: () => this.copy(), F6: () => this.renmove(), F7: () => this.init(), F8: () => this.remove(),
@@ -406,6 +438,15 @@ export class Commander {
                    ArrowUp: () => e.shiftKey ? this.mark(p, -1) : this.select(p, Math.max(0, p.selected - 1)),
                    ArrowDown: () => e.shiftKey ? this.mark(p, 1) : this.select(p, Math.min(p.files.length - 1, p.selected + 1)),
                    Home: () => this.select(p, 0), End: () => this.select(p, p.files.length - 1) };
+    const a = acts[e.key];
+    if (!a) return;
+    e.preventDefault(); e.stopPropagation();
+    this.run(a);
+  }
+
+  // The keys with Alt held.
+  altKey(e) {
+    const acts = { F1: () => this.changeDisk(0), F2: () => this.changeDisk(1) };
     const a = acts[e.key];
     if (!a) return;
     e.preventDefault(); e.stopPropagation();
