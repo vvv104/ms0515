@@ -918,7 +918,6 @@ export class Commander {
     this.vname.textContent = `${v.file.name}  (${bytes.length} bytes)  ${v.mode}, ${v.repr}, ${v.enc}`;
     if (v.mode === "view") {
       this.vtext.hidden = false;
-      this.vtext.classList.toggle("wrap", v.repr === "text" && v.wrap);
       this.renderView(bytes);
       this.vtext.scrollTop = 0;
       this.vtext.focus();
@@ -951,10 +950,11 @@ export class Commander {
     const v = this.v;
     const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
     if (v.repr === "text") {
-      const text = this.asText(bytes);
+      const { text, breaks } = v.wrap ? wrapColumns(this.asText(bytes), 80) : { text: this.asText(bytes), breaks: [] };
       if (v.hit) {
-        const { at, len } = v.hit;
-        this.vtext.innerHTML = esc(text.slice(0, at)) + "<mark>" + esc(text.slice(at, at + len)) + "</mark>" + esc(text.slice(at + len));
+        const at = v.hit.at + breaks.filter((b) => b <= v.hit.at).length;           // the hit, moved past the breaks put before it
+        const end = v.hit.at + v.hit.len + breaks.filter((b) => b < v.hit.at + v.hit.len).length;
+        this.vtext.innerHTML = esc(text.slice(0, at)) + "<mark>" + esc(text.slice(at, end)) + "</mark>" + esc(text.slice(end));
       } else {
         this.vtext.textContent = text;
       }
@@ -1029,7 +1029,7 @@ export class Commander {
 
   toggleWrap() {
     this.v.wrap = !this.v.wrap;
-    this.vtext.classList.toggle("wrap", this.v.wrap);
+    this.renderView(this.currentBytes());
     this.drawViewerBar();
     this.vtext.focus();
   }
@@ -1139,6 +1139,23 @@ export class Commander {
 }
 
 const CANCEL = Symbol("cancel");     // a guard's "stop the whole operation"
+
+// The text with every line longer than `cols` broken into pieces of that
+// many characters, as the machine's terminal would show it; `breaks` are
+// the offsets in the original text where a line break was put in (for
+// moving a mark along).
+export function wrapColumns(text, cols) {
+  const breaks = [], out = [];
+  let pos = 0;
+  for (const line of text.split("\n")) {
+    for (let i = 0; i < line.length || i === 0; i += cols) {
+      if (i) breaks.push(pos + i);
+      out.push(line.slice(i, i + cols));
+    }
+    pos += line.length + 1;
+  }
+  return { text: out.join("\n"), breaks };
+}
 
 // A file pattern as the OS reads one (section 2.5 of its manual): the name
 // and the type matched apart, * for any string of either, % for one
