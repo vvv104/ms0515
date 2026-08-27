@@ -148,13 +148,9 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side, int lin
     for (const auto &e : img->directory.entries)
         if (e.isEmpty()) free += e.length;
     std::string out = "{\"free\":" + std::to_string(free) + ",\"files\":[";
+    int ordinal = -1;
     for (const auto &e : img->directory.entries) {
-        if (e.isEmpty() && e.length > 0) {
-            if (out.back() != '[') out += ",";
-            out += "{\"empty\":1,\"blocks\":" + std::to_string(e.length) + "}";
-            continue;
-        }
-        if (!e.isPermanent()) continue;
+        ++ordinal;
         std::string date;
         if (e.date) {
             const auto d = ms0515::disk::decodeDate(e.date);
@@ -162,6 +158,16 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side, int lin
             std::snprintf(buf, sizeof buf, "%04d-%02d-%02d", d.year, d.month, d.day);
             date = buf;
         }
+        if (e.isEmpty() && e.length > 0) {
+            /* An unused area; the file it was, when the OS's DELETE left
+             * the name (a put over the area leaves the sentinel instead). */
+            const bool was = !e.name.empty() && e.name[0] != ' ' && e.name != "EMPTY.FIL";
+            if (out.back() != '[') out += ",";
+            out += "{\"empty\":1,\"blocks\":" + std::to_string(e.length) + ",\"i\":" + std::to_string(ordinal)
+                 + (was ? ",\"was\":\"" + jsonEscape(e.name) + "\",\"date\":\"" + date + "\"" : "") + "}";
+            continue;
+        }
+        if (!e.isPermanent()) continue;
         if (out.back() != '[') out += ",";
         out += "{\"name\":\"" + jsonEscape(e.name) + "\",\"blocks\":" + std::to_string(e.length)
              + ",\"date\":\"" + date + "\",\"protected\":" + ((e.status & ms0515::disk::kStatusProtected) ? "1" : "0") + "}";
@@ -254,6 +260,21 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_rename(const char *path, int side, int linear, 
     try {
         auto bytes = readAll(path);
         ms0515::disk::renameFile(bytes, side, !linear && bytes.size() == 2 * 409600, name, newName, linear != 0);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+/* An unused area's deleted file brought back: `ordinal` is the entry's
+ * place in the directory, the "i" of ms_disk_dir.  1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_undelete(const char *path, int side, int linear, int ordinal)
+{
+    try {
+        auto bytes = readAll(path);
+        ms0515::disk::undeleteEntry(bytes, side, !linear && bytes.size() == 2 * 409600, ordinal, linear != 0);
         if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
         return 1;
     } catch (const std::exception &e) {

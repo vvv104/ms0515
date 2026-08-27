@@ -694,6 +694,54 @@ TEST_CASE("growLinear: a full volume gets a new empty entry, a free one a longer
     CHECK_THROWS(growLinear(img, 0));
 }
 
+TEST_CASE("removeFile keeps the name and the date in the entry as the OS does; undeleteEntry brings the file back") {
+    auto img = blankLinear(40);
+    InitOptions one;
+    one.segments = 1;
+    initVolume(img, 0, false, one, /*linear=*/true);
+    const std::vector<uint8_t> a(2 * kBlock, 1), b(3 * kBlock, 2), c(kBlock, 3);
+    PutOptions dated;
+    dated.date = encodeDate(1992, 8, 22);
+    putFile(img, 0, false, "A.DAT", a, dated, /*linear=*/true);
+    putFile(img, 0, false, "B.DAT", b, dated, /*linear=*/true);
+    putFile(img, 0, false, "C.DAT", c, {}, /*linear=*/true);
+
+    removeFile(img, 0, false, "B.DAT", /*linear=*/true);
+    auto im = openLinearImage(img);
+    REQUIRE(im.has_value());
+    REQUIRE(im->directory.entries.size() >= 4);
+    const auto &gone = im->directory.entries[1];
+    CHECK(gone.isEmpty());
+    CHECK(gone.name == "B.DAT");
+    CHECK(gone.length == 3);
+    CHECK(gone.date == dated.date);
+    CHECK(im->directory.find("B.DAT") == nullptr);
+
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, /*linear=*/true));    /* a permanent file */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 3, /*linear=*/true));    /* the tail: the sentinel name */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 9, /*linear=*/true));    /* no such entry */
+
+    undeleteEntry(img, 0, false, 1, /*linear=*/true);
+    im = openLinearImage(img);
+    CHECK(im->directory.permanentFiles().size() == 3);
+    CHECK(im->readFile("B.DAT") == b);
+    CHECK(im->directory.entries[1].date == dated.date);
+
+    /* A file put over the freed area renames what remains of it: no undelete. */
+    removeFile(img, 0, false, "B.DAT", /*linear=*/true);
+    putFile(img, 0, false, "D.DAT", c, {}, /*linear=*/true);            /* lands in the 3-block slot */
+    im = openLinearImage(img);
+    CHECK(im->directory.entries[1].name == "D.DAT");
+    CHECK(im->directory.entries[2].isEmpty());
+    CHECK(im->directory.entries[2].name != "B.DAT");
+    CHECK_THROWS(undeleteEntry(img, 0, false, 2, /*linear=*/true));
+
+    /* A name taken meanwhile is refused. */
+    removeFile(img, 0, false, "A.DAT", /*linear=*/true);
+    putFile(img, 0, false, "A.DAT", b, {}, /*linear=*/true);            /* 3 blocks: not the 2-block slot */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, /*linear=*/true));
+}
+
 TEST_CASE("squeeze on a floppy keeps every file's bytes (the LBNs are skewed, not linear)") {
     /* Files spanning many blocks, one removed from the middle, the rest
      * moved down: each must read back byte-exact - the move goes block by

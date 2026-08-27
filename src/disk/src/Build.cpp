@@ -333,12 +333,11 @@ void removeFile(std::vector<uint8_t> &image, int side, bool ds,
 {
     mutatePermanentEntry(image, side, ds, name,
         [](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
-            /* Flip to an empty slot, preserving the length so the freed
-             * blocks remain accounted for.  Match the sentinel name PIP
-             * leaves on empty entries so dir tools that scan for them
-             * still see a consistent shape. */
-            const uint16_t len = getw(&seg[p + 8]);
-            putEntry(seg, p, kStatusEmpty, 0x00D5, 0x6739, 0x26F4, len);
+            /* Only the status flips: the name, the length and the date
+             * stay, as the OS's DELETE leaves them (seen in the entry
+             * after a DELETE/NOQUERY in RT-11 itself) - the freed blocks
+             * stay accounted for, and the file can be undeleted. */
+            putw(&seg[p], kStatusEmpty);
         }, linear);
 }
 
@@ -497,6 +496,50 @@ void growLinear(std::vector<uint8_t> &image, int blocks)
     }
     image.resize(image.size() + static_cast<std::size_t>(blocks) * kBlock, 0);
     std::memcpy(image.data() + off(segLbn), seg.data(), 2 * kBlock);
+}
+
+void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal, bool linear)
+{
+    requireValidSize(image, ds, linear);
+    const int dirLbn = directoryLbn(image, side, ds, linear);
+    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, linear);
+    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, linear);
+    std::vector<uint8_t> seg(2 * kBlock);
+    std::memcpy(seg.data(),          image.data() + segOff0, kBlock);
+    std::memcpy(seg.data() + kBlock, image.data() + segOff1, kBlock);
+
+    const uint16_t extra = getw(&seg[6]);
+    if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
+    const std::size_t entrySize = 14 + extra;
+
+    /* The entry at `ordinal`, and whether its name is on a permanent one. */
+    std::size_t at = 0;
+    bool taken = false;
+    int n = 0;
+    for (std::size_t p = 10; p + entrySize <= seg.size(); p += entrySize, ++n) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        if (n == ordinal) at = p;
+    }
+    if (!at) throw std::runtime_error("no directory entry " + std::to_string(ordinal));
+    if (!(getw(&seg[at]) & kStatusEmpty) || getw(&seg[at + 8]) == 0)
+        throw std::runtime_error("entry " + std::to_string(ordinal) + " is not an unused area");
+    const std::string name = decodeRad50Name(getw(&seg[at + 2]), getw(&seg[at + 4]), getw(&seg[at + 6]));
+    if (name.empty() || name[0] == ' ')
+        throw std::runtime_error("the area holds no deleted file");
+    char nm[6], ex[3];
+    splitName(name, nm, ex);                       /* a proper 6.3 name, else it throws */
+    for (std::size_t p = 10; p + entrySize <= seg.size(); p += entrySize) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        if ((status & kStatusPermanent) && getw(&seg[p + 2]) == getw(&seg[at + 2])
+            && getw(&seg[p + 4]) == getw(&seg[at + 4]) && getw(&seg[p + 6]) == getw(&seg[at + 6]))
+            taken = true;
+    }
+    if (taken) throw std::runtime_error("a file named " + name + " is there already");
+    putw(&seg[at], kStatusPermanent);
+    std::memcpy(image.data() + segOff0, seg.data(),          kBlock);
+    std::memcpy(image.data() + segOff1, seg.data() + kBlock, kBlock);
 }
 
 } /* namespace ms0515::disk */

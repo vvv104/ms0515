@@ -108,10 +108,12 @@ void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
 void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear = false);
 
 /* Delete one file from `side` (the equivalent of PIP /DELETE): looks up the
- * directory entry by name and flips it to an empty slot of the same length,
- * so a subsequent putFile() that fits can reuse the blocks.  Throws
- * std::runtime_error if the side is not initialised, the name is not
- * RAD50-encodable, or no permanent file with that name exists. */
+ * directory entry by name and flips its status to empty, the length kept
+ * so a subsequent putFile() that fits can reuse the blocks - and the name
+ * and the date kept too, as the OS's DELETE leaves them (OS-verified), so
+ * undeleteEntry() can bring the file back.  Throws std::runtime_error if
+ * the side is not initialised, the name is not RAD50-encodable, or no
+ * permanent file with that name exists. */
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, bool linear = false);
 
@@ -129,6 +131,16 @@ void renameFile(std::vector<uint8_t> &image, int side, bool ds,
  * Throws std::runtime_error on a non-positive count, an uninitialised
  * image, or a directory segment with no room for the new entry. */
 void growLinear(std::vector<uint8_t> &image, int blocks);
+
+/* Bring a deleted file back: the empty entry at `ordinal` (its place in
+ * the first directory segment, counting every entry from the first) made
+ * permanent again with the name, length and date it kept.  The data is
+ * whole unless something was put over the area since - which leaves the
+ * sentinel name on what remains of it, so such an entry is refused.
+ * Throws std::runtime_error when the entry is not an empty one with a
+ * proper 6.3 name, or a file of that name is on the volume already. */
+void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal,
+                   bool linear = false);
 
 } /* namespace ms0515::disk */
 

@@ -275,7 +275,8 @@ export class Commander {
       ["Volume", "the files gathered into a logical disk (a file the system mounts: MOUNT LD0: DZn:NAME)", () => this.makeVolume()],
       ["(Un)Protect", "the files /PROTECT - or /NOPROTECT when every one of them is", () => this.protect()],
       ["Find", "a pattern looked for on every mounted disk", () => this.find()],
-      [], [], [],
+      ["Undelete", "the file an unused area was, back (its name shown after < UNUSED >)", () => this.undelete()],
+      [], [],
     ]);
   }
 
@@ -449,7 +450,7 @@ export class Commander {
     for (const [i, f] of p.files.entries()) {
       const row = el("div", "fm-row" + (i === p.selected ? " selected" : "") + (f.up ? " up" : f.empty ? " unused" : "") + (p.marks.has(f.name) ? " marked" : ""));
       row.dataset.i = i;
-      row.append(el("span", "n", f.up ? ".." : f.empty ? "< UNUSED >" : f.name), el("span", "b", String(f.blocks)),
+      row.append(el("span", "n", f.up ? ".." : f.empty ? "< UNUSED >" + (f.was ? "  " + f.was : "") : f.name), el("span", "b", String(f.blocks)),
                  el("span", "d", f.date || ""), el("span", "p", f.protected ? "P" : ""));
       p.list.appendChild(row);
     }
@@ -547,7 +548,7 @@ export class Commander {
   // The keys with Alt held.
   altKey(e) {
     const acts = { F1: () => this.changeDisk(0), F2: () => this.changeDisk(1),
-                   F5: () => this.makeVolume(), F6: () => this.protect(), F7: () => this.find() };
+                   F5: () => this.makeVolume(), F6: () => this.protect(), F7: () => this.find(), F8: () => this.undelete() };
     const a = acts[e.key];
     if (!a) return;
     e.preventDefault(); e.stopPropagation();
@@ -750,6 +751,23 @@ export class Commander {
     this.load(p);
     this.select(p, Math.max(0, p.files.findIndex((f) => f.name === h.file.name)));
     this.focusList();
+  }
+
+  // Alt+F8 on an unused area: the file it was brought back - the OS's
+  // DELETE leaves the name, the length and the date in the entry, and the
+  // data lies untouched until something is put over the area.
+  async undelete() {
+    const p = this.panes[this.active], f = p.files[p.selected];
+    if (!p.source || !f) return;
+    if (!f.empty || f.up) throw new Error("stand on an unused area to undelete the file it was");
+    if (!f.was) throw new Error("this area holds no deleted file");
+    if (!await this.ask(`Undelete ${f.was} (${f.blocks} blocks) on ${p.source.dev}?`, { title: "Undelete" })) return;
+    const src = p.source;
+    const ok = await this.writable(src, () => this.deps.api.diskUndelete(src.path, src.side, src.linear ? 1 : 0, f.i));
+    if (!ok) throw new Error(this.deps.api.diskError());
+    this.refresh();
+    this.select(p, Math.max(0, p.files.findIndex((x) => x.name === f.was)));
+    this.deps.say(`${f.was} undeleted on ${src.dev}`);
   }
 
   // F7: the pane's volume initialised - every file on it lost.
