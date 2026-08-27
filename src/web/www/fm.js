@@ -57,11 +57,29 @@ function looksLikeText(bytes) {
 
 // The encoding a text is likely in: 7-bit with the KOI-7 Cyrillic range in
 // use -> KOI-7, else KOI-8R (CP866 is an F-key away).
-function guessEncoding(bytes) {
-  const b = bytes.subarray(0, 4096);
-  const high = b.some((v) => v >= 0x80);
-  if (high) return "koi8-r";
-  return b.some((v) => v >= 0x60 && v <= 0x7F) ? "koi7" : "ascii";
+// Letter frequencies, per cent, of English a-z and of Russian in the KOI-7
+// order (ЮАБЦДЕФГХИЙКЛМНОПЯРСТУЖВЬЫЗШЭЩЧЪ), both over the bytes 0x60..0x7F;
+// 0 for the English punctuation there (` { | } ~ DEL).
+const EN_FREQ = [0, 8.2, 1.5, 2.8, 4.3, 12.7, 2.2, 2.0, 6.1, 7.0, 0.15, 0.77, 4.0, 2.4, 6.7, 7.5, 1.9, 0.095, 6.0, 6.3, 9.1, 2.8, 0.98, 2.4, 0.15, 2.0, 0.074, 0, 0, 0, 0, 0];
+const RU_FREQ = [0.64, 8.0, 1.6, 0.48, 3.0, 8.5, 0.26, 1.7, 0.97, 7.4, 1.2, 3.5, 4.4, 3.2, 6.7, 10.9, 2.8, 2.0, 4.7, 5.5, 6.3, 2.6, 0.94, 4.5, 1.7, 1.9, 1.6, 0.73, 0.32, 0.36, 1.4, 0.04];
+
+// The encoding a text is most likely in.  A byte above 0x7F makes it
+// KOI-8R.  Else the bytes 0x60..0x7F are either English lowercase or
+// Russian in KOI-7: the one whose letter frequencies fit them better wins,
+// KOI-7 only by a clear margin (0.2 nats a letter, 20 letters at least) -
+// Russian transliterated in Latin letters, and program text, read as
+// English.  Nothing there at all: ASCII.
+export function guessEncoding(bytes) {
+  const b = bytes.subarray(0, 8192);
+  if (b.some((v) => v >= 0x80)) return "koi8-r";
+  let en = 0, ru = 0, n = 0;
+  for (const v of b) {
+    if (v < 0x60 || v > 0x7F) continue;
+    en += Math.log((EN_FREQ[v - 0x60] + 0.02) / 100);
+    ru += Math.log((RU_FREQ[v - 0x60] + 0.02) / 100);
+    ++n;
+  }
+  return n >= 20 && (ru - en) / n >= 0.2 ? "koi7" : "ascii";
 }
 
 export class Commander {
