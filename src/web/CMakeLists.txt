@@ -47,7 +47,7 @@ foreach(f index.html app.js)
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/stamp.cmake"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${CMAKE_CURRENT_SOURCE_DIR}/stamp.cmake")
 endforeach()
-foreach(f keys.js joystick.js softkeys.js fm.js edit.js audio-worklet.js)
+foreach(f keys.js joystick.js softkeys.js fm.js edit.js zip.js audio-worklet.js)
     list(APPEND WEB_COPIES "${WEB_DIST}/${f}")
     add_custom_command(OUTPUT "${WEB_DIST}/${f}"
         COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${WEB_DIST}/${f}"

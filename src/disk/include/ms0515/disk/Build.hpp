@@ -108,8 +108,13 @@ void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
 void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear = false);
 
 /* Delete one file from `side` (the equivalent of PIP /DELETE): looks up the
- * directory entry by name and flips it to an empty slot of the same length,
- * so a subsequent putFile() that fits can reuse the blocks.  Throws
+ * directory entry by name and flips its status to empty, the length kept
+ * so a subsequent putFile() that fits can reuse the blocks - and the name
+ * and the date kept too, as the OS's DELETE leaves them (OS-verified), so
+ * undeleteEntry() can bring the file back.  Empty entries next to it are
+ * merged into one, as the OS does (seen: two, then three neighbours
+ * became one entry with the earliest one's name, length summed) - so a
+ * file put back larger, with room behind it, lands where it was.  Throws
  * std::runtime_error if the side is not initialised, the name is not
  * RAD50-encodable, or no permanent file with that name exists. */
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
@@ -120,6 +125,29 @@ void removeFile(std::vector<uint8_t> &image, int side, bool ds,
 void renameFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, const std::string &newName,
                 bool linear = false);
+
+/* Enlarge a linear (HD / logical-disk) volume by `blocks`: zero blocks
+ * appended and the directory told - the last entry of the last segment
+ * lengthened when it is an empty one, else a new empty entry added before
+ * the end marker.  A logical disk is a file, and the LD handler takes the
+ * volume's size from the file's length, so a grown one mounts as is.
+ * Throws std::runtime_error on a non-positive count, an uninitialised
+ * image, or a directory segment with no room for the new entry. */
+void growLinear(std::vector<uint8_t> &image, int blocks);
+
+/* Bring a deleted file back: the empty entry at `ordinal` (its place in
+ * the first directory segment, counting every entry from the first) made
+ * permanent again with the name, length and date it kept.  The data is
+ * whole unless something was put over the area since - which leaves the
+ * sentinel name on what remains of it, so such an entry is refused.
+ * `newName`, when given, is the name the file comes back under (the old
+ * one taken meanwhile, say) - and with it any unused area, even one that
+ * holds no deleted file's name, is made a file of that name and length:
+ * a recovery of whatever lies in it.  Throws std::runtime_error when the
+ * entry is not an unused area, no proper 6.3 name is there or given, or a
+ * file of the name is on the volume already. */
+void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal,
+                   const std::string &newName = "", bool linear = false);
 
 } /* namespace ms0515::disk */
 

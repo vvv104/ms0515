@@ -14,7 +14,50 @@
 const KOI7 = "ЮАБЦДЕФГХИЙКЛМНОПЯРСТУЖВЬЫЗШЭЩЧЪ";
 
 // ── the encodings both ways ─────────────────────────────────────────────────
+// KOI-7 with the terminal's РУС / ЛАТ shifts: ^N (0x0E) makes 0x40..0x7F
+// Cyrillic - lowercase at 0x40..0x5F, uppercase at 0x60..0x7F - until ^O
+// (0x0F) brings Latin back; a text starts in Latin.  The shifts themselves
+// are not shown.
+function decodeKoi7Shifted(bytes) {
+  let out = "", rus = false;
+  for (const b of bytes) {
+    if (b === 0x0E) rus = true;
+    else if (b === 0x0F) rus = false;
+    else if (rus && b >= 0x60 && b <= 0x7F) out += KOI7[b - 0x60];
+    else if (rus && b >= 0x40 && b <= 0x5F) out += KOI7[b - 0x40].toLowerCase();
+    else out += String.fromCharCode(b);
+  }
+  return out;
+}
+
+// The way back: a Cyrillic letter puts ^N before it when Latin was on, a
+// Latin letter (or anything else of 0x40..0x7F) puts ^O when Cyrillic was.
+function encodeKoi7Shifted(text) {
+  const out = [];
+  let rus = false;
+  for (const ch of text) {
+    const upper = KOI7.indexOf(ch), lower = ch === ch.toUpperCase() ? -1 : KOI7.indexOf(ch.toUpperCase());
+    const c = ch.codePointAt(0);
+    if (upper >= 0 || lower >= 0) {
+      if (!rus) { out.push(0x0E); rus = true; }
+      out.push(upper >= 0 ? 0x60 + upper : 0x40 + lower);
+    } else if (c >= 0x40 && c <= 0x7F) {
+      if (rus) { out.push(0x0F); rus = false; }
+      out.push(c);
+    } else {
+      out.push(c < 128 ? c : 0x3F);
+    }
+  }
+  return Uint8Array.from(out);
+}
+
 export function decodeBytes(bytes, enc) {
+  if (enc === "koi7s") return decodeKoi7Shifted(bytes);
+  if (enc === "ascii") {                 // 7-bit: a byte above 127 is a "."
+    let out = "";
+    for (const b of bytes) out += b < 128 ? String.fromCharCode(b) : ".";
+    return out;
+  }
   if (enc === "koi7") {
     let out = "";
     for (const b of bytes) out += b >= 0x60 && b <= 0x7F ? KOI7[b - 0x60] : String.fromCharCode(b);
@@ -30,7 +73,7 @@ function encoderFor(enc) {
   if (enc === "koi7") {
     for (let i = 0; i < KOI7.length; ++i) map.set(KOI7[i], 0x60 + i);
     for (let i = 0; i < KOI7.length; ++i) map.set(KOI7[i].toLowerCase(), 0x60 + i);
-  } else {
+  } else if (enc !== "ascii") {          // ascii: nothing above 127 - a "?" for what has no byte
     const dec = new TextDecoder(enc);
     for (let b = 128; b < 256; ++b) map.set(dec.decode(new Uint8Array([b])), b);
   }
@@ -39,6 +82,7 @@ function encoderFor(enc) {
 }
 
 export function encodeText(text, enc) {
+  if (enc === "koi7s") return encodeKoi7Shifted(text);
   const map = encoderFor(enc);
   const out = [];
   for (const ch of text) {
@@ -69,6 +113,8 @@ export class ByteEditor {
     this.insert = false;
     this.changed = false;
     this.perLine = 16;
+    this.shape = "";             // what the grid was drawn for; "" - not yet
+    this.shown = 0;              // the cursor's byte as drawn
     this.grid = document.createElement("pre");
     this.grid.className = "ed-grid";
     this.grid.tabIndex = 0;
@@ -88,38 +134,56 @@ export class ByteEditor {
   focus() { this.grid.focus(); }
   result() { return Uint8Array.from(this.bytes); }
 
+  // The grid: a div a line.  Drawn whole when its shape changes (the size,
+  // the mode, the radix, the encoding); else only the line the cursor left
+  // and the one it is on - a byte changes under the cursor alone.
   render() {
-    const lines = [];
-    const n = this.bytes.length;
-    const last = Math.max(n, 1);
-    for (let o = 0; o < last; o += this.perLine) {
-      const parts = [o.toString(8).padStart(6, "0") + "  "];
-      let chars = "";
-      for (let i = o; i < o + this.perLine; ++i) {
-        if (i < n) {
-          const cell = this.fmt(this.bytes[i]);
-          parts.push(i === this.pos && this.column === "num" ? `<span class="cur">${cell}</span>` : cell);
-          const g = glyph(this.bytes[i], this.enc).replace("<", "&lt;").replace("&", "&amp;");
-          chars += i === this.pos && this.column === "chr" ? `<span class="cur">${g}</span>` : g;
-        } else if (i === n && this.insert) {
-          parts.push(i === this.pos ? `<span class="cur">${"·".repeat(this.width)}</span>` : " ".repeat(this.width));
-          chars += i === this.pos && this.column === "chr" ? `<span class="cur"> </span>` : " ";
-        } else {
-          parts.push(" ".repeat(this.width));
-          chars += " ";
-        }
+    const shape = `${this.bytes.length} ${this.insert} ${this.radix} ${this.enc} ${this.perLine}`;
+    if (shape === this.shape && this.grid.childElementCount) {
+      for (const o of new Set([this.lineOf(this.shown), this.lineOf(this.pos)])) this.drawLine(o);
+    } else {
+      this.grid.replaceChildren();
+      const last = Math.max(this.bytes.length + (this.insert ? 1 : 0), 1);
+      for (let o = 0; o < last; o += this.perLine) {
+        this.grid.appendChild(document.createElement("div"));
+        this.drawLine(o);
       }
-      lines.push(parts.join(" ") + "  " + chars);
+      this.shape = shape;
     }
-    this.grid.innerHTML = lines.join("\n");
+    this.shown = this.pos;
     this.grid.querySelector(".cur")?.scrollIntoView({ block: "nearest" });
     this.status.textContent = `${this.bytes.length} bytes · offset ${this.pos.toString(8)} (oct) · `
       + `${this.insert ? "INSERT" : "replace"} · ${this.radix} · Tab: digits / characters, Insert: the mode`;
   }
 
+  lineOf(i) { return Math.floor(i / this.perLine) * this.perLine; }
+
+  drawLine(o) {
+    const el = this.grid.children[o / this.perLine];
+    if (!el) return;
+    const n = this.bytes.length;
+    const parts = [o.toString(8).padStart(6, "0") + "  "];
+    let chars = "";
+    for (let i = o; i < o + this.perLine; ++i) {
+      if (i < n) {
+        const cell = this.fmt(this.bytes[i]);
+        parts.push(i === this.pos && this.column === "num" ? `<span class="cur">${cell}</span>` : cell);
+        const g = glyph(this.bytes[i], this.enc).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+        chars += i === this.pos && this.column === "chr" ? `<span class="cur">${g}</span>` : g;
+      } else if (i === n && this.insert) {
+        parts.push(i === this.pos ? `<span class="cur">${"·".repeat(this.width)}</span>` : " ".repeat(this.width));
+        chars += i === this.pos && this.column === "chr" ? `<span class="cur"> </span>` : " ";
+      } else {
+        parts.push(" ".repeat(this.width));
+        chars += " ";
+      }
+    }
+    el.innerHTML = parts.join(" ") + "  " + chars;
+  }
+
   click(e) {
     const rect = this.grid.getBoundingClientRect();
-    const ch = this.grid.scrollWidth / Math.max(1, this.grid.textContent.split("\n")[0].length);
+    const ch = this.grid.scrollWidth / Math.max(1, this.grid.firstChild?.textContent.length ?? 1);
     const lh = parseFloat(getComputedStyle(this.grid).lineHeight) || 16;
     const row = Math.floor((e.clientY - rect.top + this.grid.scrollTop) / lh);
     const col = Math.floor((e.clientX - rect.left + this.grid.scrollLeft) / ch);

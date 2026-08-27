@@ -331,15 +331,59 @@ void mutatePermanentEntry(std::vector<uint8_t> &image, int side, bool ds,
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, bool linear)
 {
-    mutatePermanentEntry(image, side, ds, name,
-        [](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
-            /* Flip to an empty slot, preserving the length so the freed
-             * blocks remain accounted for.  Match the sentinel name PIP
-             * leaves on empty entries so dir tools that scan for them
-             * still see a consistent shape. */
-            const uint16_t len = getw(&seg[p + 8]);
-            putEntry(seg, p, kStatusEmpty, 0x00D5, 0x6739, 0x26F4, len);
-        }, linear);
+    requireValidSize(image, ds, linear);
+    const int dirLbn = directoryLbn(image, side, ds, linear);
+    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, linear);
+    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, linear);
+    std::vector<uint8_t> seg(2 * kBlock);
+    std::memcpy(seg.data(),          image.data() + segOff0, kBlock);
+    std::memcpy(seg.data() + kBlock, image.data() + segOff1, kBlock);
+
+    const uint16_t extra = getw(&seg[6]);
+    if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
+    const std::size_t es = 14 + extra;
+
+    char nm[6], ex[3];
+    splitName(name, nm, ex);
+    const uint16_t w1 = encodeRad50(nm), w2 = encodeRad50(nm + 3), we = encodeRad50(ex);
+
+    /* Every entry before the end marker, and the one named. */
+    std::vector<std::size_t> at;
+    for (std::size_t p = 10; p + es <= seg.size(); p += es) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        at.push_back(p);
+    }
+    std::size_t k = at.size();
+    for (std::size_t i = 0; i < at.size(); ++i)
+        if ((getw(&seg[at[i]]) & kStatusPermanent) && getw(&seg[at[i] + 2]) == w1
+            && getw(&seg[at[i] + 4]) == w2 && getw(&seg[at[i] + 6]) == we) { k = i; break; }
+    if (k == at.size()) throw std::runtime_error("no permanent file named " + name + " on this side");
+
+    /* Only the status flips: the name, the length and the date stay, as
+     * the OS's DELETE leaves them (seen in the entry after a DELETE/NOQUERY
+     * in RT-11 itself) - the freed blocks stay accounted for, and the file
+     * can be undeleted. */
+    putw(&seg[at[k]], kStatusEmpty);
+
+    /* The run of empty entries around it becomes one - the earliest kept,
+     * the lengths summed, the rest of the segment moved down over the
+     * absorbed ones - as the OS does. */
+    std::size_t first = k, last = k;
+    while (first > 0 && (getw(&seg[at[first - 1]]) & kStatusEmpty)) --first;
+    while (last + 1 < at.size() && (getw(&seg[at[last + 1]]) & kStatusEmpty)) ++last;
+    if (last > first) {
+        int len = 0;
+        for (std::size_t i = first; i <= last; ++i) len += getw(&seg[at[i] + 8]);
+        if (len > 0xFFFF) throw std::runtime_error("the free area would exceed 65535 blocks");
+        putw(&seg[at[first] + 8], static_cast<uint16_t>(len));
+        const std::size_t to = at[first] + es, from = at[last] + es;
+        std::memmove(&seg[to], &seg[from], seg.size() - from);
+        std::fill(seg.end() - static_cast<std::ptrdiff_t>(from - to), seg.end(), uint8_t{0});
+    }
+
+    std::memcpy(image.data() + segOff0, seg.data(),          kBlock);
+    std::memcpy(image.data() + segOff1, seg.data() + kBlock, kBlock);
 }
 
 void renameFile(std::vector<uint8_t> &image, int side, bool ds,
@@ -455,6 +499,97 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear)
 
     std::memcpy(image.data() + off(dirLbn),     seg.data(),          kBlock);
     std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
+}
+
+void growLinear(std::vector<uint8_t> &image, int blocks)
+{
+    requireValidSize(image, false, true);
+    if (blocks <= 0) throw std::runtime_error("grow: the block count must be positive");
+    auto off = [&](int lbn) { return lbnToByte(lbn, 0, false, true); };
+    const int dirLbn = directoryLbn(image, 0, false, true);
+
+    /* The last segment of the chain (linear: a segment's two blocks are
+     * contiguous bytes). */
+    int segLbn = dirLbn;
+    std::vector<uint8_t> seg(2 * kBlock);
+    for (;;) {
+        std::memcpy(seg.data(), image.data() + off(segLbn), 2 * kBlock);
+        const uint16_t next = getw(&seg[2]);
+        if (next == 0) break;
+        segLbn = dirLbn + 2 * (next - 1);
+    }
+    const uint16_t extra = getw(&seg[6]);
+    if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
+    const std::size_t entrySize = 14 + extra;
+
+    std::size_t p = 10, last = 0;               /* last: the entry before the end marker */
+    while (p + entrySize <= seg.size()) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        last = p;
+        p += entrySize;
+    }
+    if (last && (getw(&seg[last]) & kStatusEmpty)) {
+        const int len = getw(&seg[last + 8]) + blocks;
+        if (len > 0xFFFF) throw std::runtime_error("grow: the free area would exceed 65535 blocks");
+        putw(&seg[last + 8], static_cast<uint16_t>(len));
+    } else {
+        if (p + entrySize + 2 > seg.size())
+            throw std::runtime_error("grow: the directory segment has no room for another entry");
+        putEntry(seg.data(), p, kStatusEmpty, 0x00D5, 0x6739, 0x26F4, static_cast<uint16_t>(blocks));
+        putw(&seg[p + entrySize], kStatusEndOfSeg);
+    }
+    image.resize(image.size() + static_cast<std::size_t>(blocks) * kBlock, 0);
+    std::memcpy(image.data() + off(segLbn), seg.data(), 2 * kBlock);
+}
+
+void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal,
+                   const std::string &newName, bool linear)
+{
+    requireValidSize(image, ds, linear);
+    const int dirLbn = directoryLbn(image, side, ds, linear);
+    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, linear);
+    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, linear);
+    std::vector<uint8_t> seg(2 * kBlock);
+    std::memcpy(seg.data(),          image.data() + segOff0, kBlock);
+    std::memcpy(seg.data() + kBlock, image.data() + segOff1, kBlock);
+
+    const uint16_t extra = getw(&seg[6]);
+    if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
+    const std::size_t entrySize = 14 + extra;
+
+    /* The entry at `ordinal`, and whether its name is on a permanent one. */
+    std::size_t at = 0;
+    bool taken = false;
+    int n = 0;
+    for (std::size_t p = 10; p + entrySize <= seg.size(); p += entrySize, ++n) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        if (n == ordinal) at = p;
+    }
+    if (!at) throw std::runtime_error("no directory entry " + std::to_string(ordinal));
+    if (!(getw(&seg[at]) & kStatusEmpty) || getw(&seg[at + 8]) == 0)
+        throw std::runtime_error("entry " + std::to_string(ordinal) + " is not an unused area");
+    const std::string name = decodeRad50Name(getw(&seg[at + 2]), getw(&seg[at + 4]), getw(&seg[at + 6]));
+    if (newName.empty() && (name.empty() || name[0] == ' '))
+        throw std::runtime_error("the area holds no deleted file: give a name to recover it under");
+    const std::string under = newName.empty() ? name : newName;
+    char nm[6], ex[3];
+    splitName(under, nm, ex);                      /* a proper 6.3 name, else it throws */
+    const uint16_t n1 = encodeRad50(nm), n2 = encodeRad50(nm + 3), e = encodeRad50(ex);
+    for (std::size_t p = 10; p + entrySize <= seg.size(); p += entrySize) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        if ((status & kStatusPermanent) && getw(&seg[p + 2]) == n1 && getw(&seg[p + 4]) == n2 && getw(&seg[p + 6]) == e)
+            taken = true;
+    }
+    if (taken) throw std::runtime_error("a file named " + under + " is there already");
+    putw(&seg[at], kStatusPermanent);
+    putw(&seg[at + 2], n1);
+    putw(&seg[at + 4], n2);
+    putw(&seg[at + 6], e);
+    std::memcpy(image.data() + segOff0, seg.data(),          kBlock);
+    std::memcpy(image.data() + segOff1, seg.data() + kBlock, kBlock);
 }
 
 } /* namespace ms0515::disk */

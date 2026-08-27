@@ -339,9 +339,11 @@ function fileSources() {
     const drive = driveOf(unit), side = sideOf(unit);
     const name = side === 1 && ds[drive] ? slots.fd[unitOf(drive, 0)] : slots.fd[unit];
     if (!name) continue;
-    out.push({ id: `fd${unit}`, label: `${"AB"[drive]}:${side} ${name}`, path: pathOf(name), side, linear: false, name, unit });
+    // The image's side: a two-sided image has the unit's, a one-sided image
+    // has only side 0 whichever unit it sits on.
+    out.push({ id: `fd${unit}`, dev: `DZ${unit}:`, label: `DZ${unit}: ${name}`, path: pathOf(name), side: ds[drive] ? side : 0, linear: false, name, unit });
   }
-  if (slots.hd) out.push({ id: "hd", label: `HD ${slots.hd}`, path: pathOf(slots.hd), side: 0, linear: true, name: slots.hd });
+  if (slots.hd) out.push({ id: "hd", dev: "HD0:", label: `HD0: ${slots.hd}`, path: pathOf(slots.hd), side: 0, linear: true, name: slots.hd });
   return out;
 }
 
@@ -712,11 +714,19 @@ function bindApi() {
     diskError:  c("ms_disk_error", "string", []),
     diskGet:    c("ms_disk_get", "number", ["string", "number", "number", "string"]),
     diskData:   c("ms_disk_data", "number", []),
+    diskArea:   c("ms_disk_area", "number", ["string", "number", "number", "number"]),
     diskPut:    c("ms_disk_put", "number", ["string", "number", "number", "string", "number", "number", "number", "number", "number", "number"]),
     diskRm:     c("ms_disk_rm", "number", ["string", "number", "number", "string"]),
     diskRename: c("ms_disk_rename", "number", ["string", "number", "number", "string", "string"]),
     diskInit:   c("ms_disk_init", "number", ["string", "number", "number"]),
     diskSqueeze: c("ms_disk_squeeze", "number", ["string", "number", "number"]),
+    diskProtect: c("ms_disk_protect", "number", ["string", "number", "number", "string", "number"]),
+    diskGrow:    c("ms_disk_grow", "number", ["string", "number"]),
+    diskUndelete: c("ms_disk_undelete", "number", ["string", "number", "number", "number", "string"]),
+    ldCreate: c("ms_ld_create", "number", ["number", "number", "string"]),
+    ldPut:    c("ms_ld_put", "number", ["string", "number", "number", "number", "number", "number", "number"]),
+    ldData:   c("ms_ld_data", "number", []),
+    ldSize:   c("ms_ld_size", "number", []),
     save:    c("ms_save_state", "number", ["number", "string"]),
     load:    c("ms_load_state", "number", ["number", "string"]),
   };
@@ -813,6 +823,7 @@ window.__ms = () => {
 };
 window.__ms.type = (text) => typing.type(text);
 window.__ms.api = () => api;                 // the module's calls, for scripted checks
+window.__ms.sources = fileSources;           // the commander's disks, for scripted checks
 window.__ms.module = () => M;
 
 window.addEventListener("error", (e) => say("error: " + e.message));

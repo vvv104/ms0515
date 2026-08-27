@@ -16,6 +16,16 @@
 #include <string>
 #include <vector>
 
+namespace {
+/* The free blocks of a linear image: the empty entries' lengths summed. */
+int im_free_blocks(const std::vector<uint8_t> &img) {
+    const auto im = ms0515::disk::openLinearImage(img);   /* named: GCC 13 sees a temporary's member as maybe-uninitialized */
+    int n = 0;
+    if (im) for (const auto &e : im->directory.entries) if (e.isEmpty()) n += e.length;
+    return n;
+}
+}
+
 using namespace ms0515::disk;
 
 namespace {
@@ -659,6 +669,152 @@ TEST_CASE("rename keeps the data and refuses a taken or bad name") {
     CHECK_THROWS(renameFile(img, 0, false, "NEW.TXT", "OTHER.DAT"));
     CHECK_THROWS(renameFile(img, 0, false, "NEW.TXT", "TOOLONGNAME.TXT"));
     CHECK_THROWS(renameFile(img, 0, false, "NOSUCH.TXT", "X.TXT"));
+}
+
+TEST_CASE("removeFile merges the empty entries around the one freed, as the OS does; a file put back larger stays put") {
+    auto img = blankLinear(40);
+    InitOptions one;
+    one.segments = 1;
+    initVolume(img, 0, false, one, /*linear=*/true);            /* 32 data blocks from 8 */
+    const std::vector<uint8_t> a(kBlock, 1), b(3 * kBlock, 2), c(2 * kBlock, 3), d(kBlock, 4);
+    PutOptions dated;
+    dated.date = encodeDate(1989, 1, 5);
+    putFile(img, 0, false, "A.DAT", a, dated, /*linear=*/true);
+    putFile(img, 0, false, "B.DAT", b, {}, /*linear=*/true);
+    putFile(img, 0, false, "C.DAT", c, {}, /*linear=*/true);
+    putFile(img, 0, false, "D.DAT", d, {}, /*linear=*/true);   /* then 25 free */
+    auto entries = [&] { const auto im = openLinearImage(img); return im ? im->directory.entries : std::vector<DirEntry>{}; };   /* the end marker counted */
+    REQUIRE(entries().size() == 6);
+
+    /* B between two files: its entry stays; A before it: A absorbs it. */
+    removeFile(img, 0, false, "B.DAT", /*linear=*/true);
+    CHECK(entries().size() == 6);
+    removeFile(img, 0, false, "A.DAT", /*linear=*/true);
+    auto e = entries();
+    REQUIRE(e.size() == 5);
+    CHECK(e[0].isEmpty()); CHECK(e[0].name == "A.DAT"); CHECK(e[0].length == 4); CHECK(e[0].date == dated.date);
+    CHECK(e[1].name == "C.DAT"); CHECK(e[1].isPermanent());
+    CHECK(im_free_blocks(img) == 29);
+
+    /* D, the last file, is followed by the free tail: one area of 26. */
+    removeFile(img, 0, false, "D.DAT", /*linear=*/true);
+    e = entries();
+    REQUIRE(e.size() == 4);
+    CHECK(e[2].isEmpty()); CHECK(e[2].name == "D.DAT"); CHECK(e[2].length == 26);
+
+    /* C, empty on both sides now: everything one area, the earliest name. */
+    removeFile(img, 0, false, "C.DAT", /*linear=*/true);
+    e = entries();
+    REQUIRE(e.size() == 2);
+    CHECK(e[0].isEmpty()); CHECK(e[0].name == "A.DAT"); CHECK(e[0].length == 32);
+    CHECK(openLinearImage(img)->readFile("A.DAT").empty());
+
+    /* A file put back larger, with room behind it, lands where it was. */
+    putFile(img, 0, false, "X.DAT", c, {}, /*linear=*/true);
+    putFile(img, 0, false, "Y.DAT", d, {}, /*linear=*/true);
+    const int xAt = openLinearImage(img)->directory.find("X.DAT")->startBlock;
+    removeFile(img, 0, false, "Y.DAT", /*linear=*/true);          /* Y and the tail: one area behind X */
+    removeFile(img, 0, false, "X.DAT", /*linear=*/true);          /* X joins it: one area from X's start */
+    putFile(img, 0, false, "X.DAT", std::vector<uint8_t>(5 * kBlock, 9), {}, /*linear=*/true);
+    CHECK(openLinearImage(img)->directory.find("X.DAT")->startBlock == xAt);
+    CHECK(openLinearImage(img)->directory.find("X.DAT")->length == 5);
+}
+
+TEST_CASE("growLinear: a full volume gets a new empty entry, a free one a longer last area") {
+    auto img = blankLinear(20);
+    InitOptions one;
+    one.segments = 1;
+    initVolume(img, 0, false, one, /*linear=*/true);      /* data from block 8: 12 free */
+    const std::vector<uint8_t> big(12 * kBlock, 0x5A);
+    putFile(img, 0, false, "FULL.DAT", big, {}, /*linear=*/true);
+    CHECK_THROWS(putFile(img, 0, false, "MORE.DAT", std::vector<uint8_t>(kBlock, 1), {}, /*linear=*/true));
+
+    growLinear(img, 10);
+    CHECK(img.size() == 30u * kBlock);
+    putFile(img, 0, false, "MORE.DAT", std::vector<uint8_t>(10 * kBlock, 1), {}, /*linear=*/true);
+    auto im = openLinearImage(img);
+    REQUIRE(im.has_value());
+    REQUIRE(im->hasDirectory);
+    CHECK(im->directory.permanentFiles().size() == 2);
+    CHECK(im->readFile("FULL.DAT") == big);
+
+    auto freeArea = [&] {
+        im = openLinearImage(img);
+        int blocks = 0, empties = 0;
+        for (const auto &e : im->directory.entries)
+            if (e.isEmpty()) { blocks += e.length; ++empties; }
+        return std::pair{blocks, empties};
+    };
+    growLinear(img, 5);
+    CHECK(freeArea() == std::pair{5, 1});
+    growLinear(img, 3);                                    /* the same empty entry, longer */
+    CHECK(freeArea() == std::pair{8, 1});
+    CHECK(img.size() == 38u * kBlock);
+    CHECK_THROWS(growLinear(img, 0));
+}
+
+TEST_CASE("removeFile keeps the name and the date in the entry as the OS does; undeleteEntry brings the file back") {
+    auto img = blankLinear(40);
+    InitOptions one;
+    one.segments = 1;
+    initVolume(img, 0, false, one, /*linear=*/true);
+    const std::vector<uint8_t> a(2 * kBlock, 1), b(3 * kBlock, 2), c(kBlock, 3);
+    PutOptions dated;
+    dated.date = encodeDate(1992, 8, 22);
+    putFile(img, 0, false, "A.DAT", a, dated, /*linear=*/true);
+    putFile(img, 0, false, "B.DAT", b, dated, /*linear=*/true);
+    putFile(img, 0, false, "C.DAT", c, {}, /*linear=*/true);
+
+    removeFile(img, 0, false, "B.DAT", /*linear=*/true);
+    auto im = openLinearImage(img);
+    REQUIRE(im.has_value());
+    REQUIRE(im->directory.entries.size() >= 4);
+    const auto &gone = im->directory.entries[1];
+    CHECK(gone.isEmpty());
+    CHECK(gone.name == "B.DAT");
+    CHECK(gone.length == 3);
+    CHECK(gone.date == dated.date);
+    CHECK(im->directory.find("B.DAT") == nullptr);
+
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "", /*linear=*/true));    /* a permanent file */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 3, "", /*linear=*/true));    /* the tail: the sentinel name */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 9, "", /*linear=*/true));    /* no such entry */
+
+    undeleteEntry(img, 0, false, 1, "", /*linear=*/true);
+    im = openLinearImage(img);
+    CHECK(im->directory.permanentFiles().size() == 3);
+    CHECK(im->readFile("B.DAT") == b);
+    CHECK(im->directory.entries[1].date == dated.date);
+
+    /* A file put over the freed area renames what remains of it: no undelete. */
+    removeFile(img, 0, false, "B.DAT", /*linear=*/true);
+    putFile(img, 0, false, "D.DAT", c, {}, /*linear=*/true);            /* lands in the 3-block slot */
+    im = openLinearImage(img);
+    CHECK(im->directory.entries[1].name == "D.DAT");
+    CHECK(im->directory.entries[2].isEmpty());
+    CHECK(im->directory.entries[2].name != "B.DAT");
+    CHECK_THROWS(undeleteEntry(img, 0, false, 2, "", /*linear=*/true));
+    {   /* ... but given a name, the area is recovered as a file, whatever lies in it */
+        auto copy = img;
+        undeleteEntry(copy, 0, false, 2, "AREA.DAT", /*linear=*/true);
+        auto im2 = openLinearImage(copy);
+        REQUIRE(im2->directory.find("AREA.DAT") != nullptr);
+        CHECK(im2->directory.find("AREA.DAT")->length == 2);
+        CHECK(im2->readFile("AREA.DAT").size() == 2 * kBlock);
+    }
+
+    /* A name taken meanwhile is refused - and another name given brings
+     * the file back under it. */
+    removeFile(img, 0, false, "A.DAT", /*linear=*/true);
+    putFile(img, 0, false, "A.DAT", b, {}, /*linear=*/true);            /* 3 blocks: not the 2-block slot */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "", /*linear=*/true));
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "A.DAT", /*linear=*/true));
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "TOOLONGNAME.DAT", /*linear=*/true));
+    undeleteEntry(img, 0, false, 0, "A1.DAT", /*linear=*/true);
+    im = openLinearImage(img);
+    CHECK(im->readFile("A1.DAT") == a);
+    CHECK(im->readFile("A.DAT") == b);
+    CHECK(im->directory.entries[0].date == dated.date);
 }
 
 TEST_CASE("squeeze on a floppy keeps every file's bytes (the LBNs are skewed, not linear)") {

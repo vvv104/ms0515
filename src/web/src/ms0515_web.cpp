@@ -148,13 +148,9 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side, int lin
     for (const auto &e : img->directory.entries)
         if (e.isEmpty()) free += e.length;
     std::string out = "{\"free\":" + std::to_string(free) + ",\"files\":[";
+    int ordinal = -1;
     for (const auto &e : img->directory.entries) {
-        if (e.isEmpty() && e.length > 0) {
-            if (out.back() != '[') out += ",";
-            out += "{\"empty\":1,\"blocks\":" + std::to_string(e.length) + "}";
-            continue;
-        }
-        if (!e.isPermanent()) continue;
+        ++ordinal;
         std::string date;
         if (e.date) {
             const auto d = ms0515::disk::decodeDate(e.date);
@@ -162,6 +158,16 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_dir(const char *path, int side, int lin
             std::snprintf(buf, sizeof buf, "%04d-%02d-%02d", d.year, d.month, d.day);
             date = buf;
         }
+        if (e.isEmpty() && e.length > 0) {
+            /* An unused area; the file it was, when the OS's DELETE left
+             * the name (a put over the area leaves the sentinel instead). */
+            const bool was = !e.name.empty() && e.name[0] != ' ' && e.name != "EMPTY.FIL";
+            if (out.back() != '[') out += ",";
+            out += "{\"empty\":1,\"blocks\":" + std::to_string(e.length) + ",\"i\":" + std::to_string(ordinal)
+                 + (was ? ",\"was\":\"" + jsonEscape(e.name) + "\",\"date\":\"" + date + "\"" : "") + "}";
+            continue;
+        }
+        if (!e.isPermanent()) continue;
         if (out.back() != '[') out += ",";
         out += "{\"name\":\"" + jsonEscape(e.name) + "\",\"blocks\":" + std::to_string(e.length)
              + ",\"date\":\"" + date + "\",\"protected\":" + ((e.status & ms0515::disk::kStatusProtected) ? "1" : "0") + "}";
@@ -214,6 +220,27 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_get(const char *path, int side, int linear, con
 
 EMSCRIPTEN_KEEPALIVE const uint8_t *ms_disk_data(void) { return gDiskBytes.data(); }
 
+/* The blocks of the directory entry at `ordinal` (the "i" of ms_disk_dir) -
+ * an unused area's, say - the size, the bytes at ms_disk_data(); -1 when
+ * there is no such entry. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_area(const char *path, int side, int linear, int ordinal)
+{
+    gDiskBytes.clear();
+    auto bytes = readAll(path);
+    auto img = linear ? ms0515::disk::openLinearImage(bytes) : ms0515::disk::openImage(bytes, side);
+    if (!img || !img->hasDirectory || ordinal < 0 || static_cast<size_t>(ordinal) >= img->directory.entries.size()) {
+        gDiskError = "no such directory entry";
+        return -1;
+    }
+    const auto &e = img->directory.entries[static_cast<size_t>(ordinal)];
+    for (int i = 0; i < e.length; ++i) {
+        auto b = img->block(e.startBlock + i);
+        if (b.size() == 512) gDiskBytes.insert(gDiskBytes.end(), b.begin(), b.end());
+        else                 gDiskBytes.insert(gDiskBytes.end(), 512, 0);
+    }
+    return static_cast<int>(gDiskBytes.size());
+}
+
 /* Write a file (replacing one of the name); year 0 = no date.  1 / 0. */
 EMSCRIPTEN_KEEPALIVE int ms_disk_put(const char *path, int side, int linear, const char *name,
                                      const uint8_t *data, int len, int year, int month, int day, int prot)
@@ -261,6 +288,89 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_rename(const char *path, int side, int linear, 
         return 0;
     }
 }
+
+/* An unused area's deleted file brought back: `ordinal` is the entry's
+ * place in the directory, the "i" of ms_disk_dir; `newName` the name to
+ * come back under ("" - the one it had).  1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_undelete(const char *path, int side, int linear, int ordinal, const char *newName)
+{
+    try {
+        auto bytes = readAll(path);
+        ms0515::disk::undeleteEntry(bytes, side, !linear && bytes.size() == 2 * 409600, ordinal, newName, linear != 0);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+/* /PROTECT (on = 1) or /NOPROTECT (0) on a file.  1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_protect(const char *path, int side, int linear, const char *name, int on)
+{
+    try {
+        auto bytes = readAll(path);
+        ms0515::disk::setProtected(bytes, side, !linear && bytes.size() == 2 * 409600, name, on != 0, linear != 0);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+/* A linear image (a logical disk) enlarged by `blocks` - a file, it can
+ * grow - so that a file the commander puts in fits.  1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_grow(const char *path, int blocks)
+{
+    try {
+        auto bytes = readAll(path);
+        ms0515::disk::growLinear(bytes, blocks);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+/* A logical disk built in memory - the file the OS's LD handler mounts as a
+ * volume (linear, no interleave, any size).  ms_ld_create sizes it in
+ * blocks and initialises it (`segments` directory segments, the volume id);
+ * ms_ld_put adds a file; ms_ld_data / ms_ld_size hand the bytes over. */
+static std::vector<uint8_t> gLd;
+
+EMSCRIPTEN_KEEPALIVE int ms_ld_create(int blocks, int segments, const char *volumeId)
+{
+    try {
+        gLd = ms0515::disk::blankLinear(blocks);
+        ms0515::disk::InitOptions opts;
+        opts.volumeId = volumeId;
+        opts.segments = segments;
+        ms0515::disk::initVolume(gLd, 0, false, opts, true);
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE int ms_ld_put(const char *name, const uint8_t *data, int len, int year, int month, int day, int prot)
+{
+    try {
+        ms0515::disk::PutOptions opts;
+        if (year) opts.date = ms0515::disk::encodeDate(year, month, day);
+        opts.readOnly = prot != 0;
+        ms0515::disk::putFile(gLd, 0, false, name, std::span<const uint8_t>(data, static_cast<size_t>(len)), opts, true);
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const uint8_t *ms_ld_data(void) { return gLd.data(); }
+EMSCRIPTEN_KEEPALIVE int ms_ld_size(void) { return static_cast<int>(gLd.size()); }
 
 EMSCRIPTEN_KEEPALIVE Handle *ms_create(void)
 {
