@@ -111,35 +111,91 @@ export class Commander {
   // ── the dialogs: centred in the commander, Enter / Esc ─────────────────
   // ask(text, { title, input, ok, cancel }): resolves to the input's text
   // (when there is one) or true on OK, null on Cancel.
-  ask(text, { title = "", input = null, ok = "OK", cancel = "Cancel" } = {}) {
+  async ask(text, { title = "", input = null, ok = "OK", cancel = "Cancel" } = {}) {
+    return (await this.showDialog(text, { title, input, buttons: [[ok, true], [cancel, null]] })).value;
+  }
+
+  // The dialog itself: a text, a field (input, its initial text), buttons
+  // [[label, value], ...] - the first is the default, a value of true with a
+  // field returns the field's text - and a check box (check, its label).
+  // Resolves to { value, checked }; Esc gives null.
+  showDialog(text, { title = "", input = null, buttons, check = null }) {
     return new Promise((resolve) => {
       const box = el("div", "fm-dialog-box");
       if (title) box.append(el("div", "fm-dialog-title", title));
       box.append(el("div", "fm-dialog-text", text));
-      let field = null;
+      let field = null, tick = null;
       if (input !== null) {
         field = document.createElement("input");
         field.type = "text"; field.value = input; field.spellcheck = false;
         box.append(field);
       }
-      const buttons = el("div", "fm-dialog-buttons");
-      const bOk = el("button", null, ok), bCancel = el("button", null, cancel);
-      buttons.append(bOk, bCancel);
-      box.append(buttons);
+      if (check) {
+        tick = document.createElement("input"); tick.type = "checkbox";
+        const label = el("label");
+        label.append(tick, " " + check);
+        box.append(label);
+      }
+      const row = el("div", "fm-dialog-buttons");
+      const bs = buttons.map(([label, value]) => ({ label, value, el: el("button", null, label) }));
+      row.append(...bs.map((b) => b.el));
+      box.append(row);
       this.dlg.replaceChildren(box);
       this.dlg.hidden = false;
-      const done = (value) => { this.dlg.hidden = true; this.dialog = null; resolve(value); if (this.v) this.focusViewer(); else this.focusList(); };
-      this.dialog = { done, field };
-      bOk.onclick = () => done(field ? field.value.trim() : true);
-      bCancel.onclick = () => done(null);
-      (field ?? bOk).focus();
+      const pick = (value) => {
+        this.dlg.hidden = true; this.dialog = null;
+        resolve({ value: value === true && field ? field.value.trim() : value, checked: !!tick?.checked });
+        if (this.v) this.focusViewer(); else this.focusList();
+      };
+      this.dialog = { pick, field, buttons: bs };
+      for (const b of bs) b.el.onclick = () => pick(b.value);
+      (field ?? bs[0].el).focus();
       if (field) field.select();
     });
   }
 
+  // Enter the focused button (else the first), Esc null, the arrows between
+  // the buttons, a button's first letter presses it (when no field is up).
   dialogKey(e) {
-    if (e.key === "Enter") { e.preventDefault(); this.dialog.done(this.dialog.field ? this.dialog.field.value.trim() : true); }
-    else if (e.key === "Escape") { e.preventDefault(); this.dialog.done(null); }
+    const d = this.dialog, bs = d.buttons;
+    const focused = bs.find((b) => b.el === document.activeElement);
+    if (e.key === "Enter") { e.preventDefault(); d.pick((focused ?? bs[0]).value); }
+    else if (e.key === "Escape") { e.preventDefault(); d.pick(null); }
+    else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && focused) {
+      e.preventDefault();
+      bs[(bs.indexOf(focused) + (e.key === "ArrowRight" ? 1 : bs.length - 1)) % bs.length].el.focus();
+    } else if (!d.field && e.key.length === 1) {
+      const b = bs.find((x) => x.label[0].toLowerCase() === e.key.toLowerCase());
+      if (b) { e.preventDefault(); d.pick(b.value); }
+    }
+  }
+
+  // Before a protected file is deleted or moved: Yes / No - and, with several
+  // files at hand, Cancel and a box answering for the other protected ones
+  // alike.  The guard returns true, false, or CANCEL for the whole operation.
+  protectedGuard(verb, several) {
+    let rest = null;
+    return async (c) => {
+      if (!c.file.protected) return true;
+      if (rest !== null) return rest;
+      const buttons = several ? [["Yes", true], ["No", false], ["Cancel", CANCEL]] : [["Yes", true], ["No", false]];
+      const r = await this.showDialog(`${c.file.name} is protected.  ${verb} it anyway?`,
+                                      { title: "Protected", buttons, check: several ? "the same for the other protected files" : null });
+      if (r.value === null) return several ? CANCEL : false;
+      if (r.checked && r.value !== CANCEL) rest = r.value;
+      return r.value;
+    };
+  }
+
+  // The files of a list the guard lets through; null when it cancelled.
+  async guarded(list, verb) {
+    const guard = this.protectedGuard(verb, list.length > 1), out = [];
+    for (const c of list) {
+      const go = await guard(c);
+      if (go === CANCEL) { this.deps.say(`${verb.toLowerCase()} cancelled - nothing done`); return null; }
+      if (go) out.push(c);
+    }
+    return out;
   }
 
   focusViewer() { if (this.v?.textarea) this.v.textarea.focus(); else if (this.v?.editor) this.v.editor.focus(); else this.vtext.focus(); }
@@ -390,8 +446,10 @@ export class Commander {
     const what = list.length === 1 ? `${list[0].file.name}${newName && newName !== list[0].file.name ? " as " + newName : ""}` : `${list.length} files`;
     const question = `${verb} ${what} to ${to.dev} ${to.name}?` + (taken.length ? `  ${taken.join(", ")} there will be replaced.` : "");
     if (!await this.ask(question, { title: verb })) return;
+    const todo = move ? await this.guarded(list, verb) : list;
+    if (!todo) return;
     let n = 0;
-    for (const c of list) {
+    for (const c of todo) {
       const bytes = this.bytesOf(c.source, c.file.name);
       if (!await this.putBytes(to, nameOn(c), bytes, c.file)) throw new Error(`${c.file.name}: ${this.deps.api.diskError()}`);
       if (move && !await this.deps.writable(c.source, () => this.deps.api.diskRm(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name)))
@@ -449,20 +507,23 @@ export class Commander {
       this.refresh();
       return;
     }
-    if (c.file.protected) throw new Error(`${c.file.name} is protected: a copy, not a move`);
     await this.transfer(list, to, name, true);
   }
 
+  // F8: the marked files (or the current one) deleted after a word; each
+  // protected one asked about, the answers taken before anything goes.
   async remove() {
-    const list = this.targets().filter((c) => !c.file.protected);
-    if (!list.length) { const c = this.current(); if (c?.file.protected) throw new Error(`${c.file.name} is protected`); return; }
-    const names = list.map((c) => c.file.name);
-    if (!await this.ask(`Delete from ${list[0].source.dev} ${names.length === 1 ? names[0] : names.length + " files (" + names.join(", ") + ")"}?`, { title: "Delete" })) return;
-    const src = list[0].source;
-    const ok = await this.deps.writable(src, () => names.every((name) => this.deps.api.diskRm(src.path, src.side, src.linear ? 1 : 0, name)));
+    const all = this.targets();
+    if (!all.length) return;
+    const src = all[0].source, names = all.map((c) => c.file.name);
+    if (!await this.ask(`Delete from ${src.dev} ${names.length === 1 ? names[0] : names.length + " files (" + names.join(", ") + ")"}?`, { title: "Delete" })) return;
+    const list = await this.guarded(all, "Delete");
+    if (!list?.length) return;
+    const ok = await this.deps.writable(src, () => list.every((c) => this.deps.api.diskRm(src.path, src.side, src.linear ? 1 : 0, c.file.name)));
     if (!ok) throw new Error(this.deps.api.diskError());
-    list[0].pane.marks.clear();
+    all[0].pane.marks.clear();
     this.refresh();
+    this.deps.say(`${list.length === 1 ? list[0].file.name : list.length + " files"} deleted from ${src.dev}`);
   }
 
   // F7: the pane's volume initialised - every file on it lost.
@@ -786,6 +847,8 @@ export class Commander {
     this.focusList();
   }
 }
+
+const CANCEL = Symbol("cancel");     // a guard's "stop the whole operation"
 
 // A file pattern as the OS reads one (section 2.5 of its manual): the name
 // and the type matched apart, * for any string of either, % for one
