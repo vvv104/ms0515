@@ -19,8 +19,9 @@
 namespace {
 /* The free blocks of a linear image: the empty entries' lengths summed. */
 int im_free_blocks(const std::vector<uint8_t> &img) {
+    const auto im = ms0515::disk::openLinearImage(img);   /* named: GCC 13 sees a temporary's member as maybe-uninitialized */
     int n = 0;
-    for (const auto &e : ms0515::disk::openLinearImage(img)->directory.entries) if (e.isEmpty()) n += e.length;
+    if (im) for (const auto &e : im->directory.entries) if (e.isEmpty()) n += e.length;
     return n;
 }
 }
@@ -682,7 +683,7 @@ TEST_CASE("removeFile merges the empty entries around the one freed, as the OS d
     putFile(img, 0, false, "B.DAT", b, {}, /*linear=*/true);
     putFile(img, 0, false, "C.DAT", c, {}, /*linear=*/true);
     putFile(img, 0, false, "D.DAT", d, {}, /*linear=*/true);   /* then 25 free */
-    auto entries = [&] { return openLinearImage(img)->directory.entries; };   /* the end marker counted */
+    auto entries = [&] { const auto im = openLinearImage(img); return im ? im->directory.entries : std::vector<DirEntry>{}; };   /* the end marker counted */
     REQUIRE(entries().size() == 6);
 
     /* B between two files: its entry stays; A before it: A absorbs it. */
