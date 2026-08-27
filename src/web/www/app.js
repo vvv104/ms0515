@@ -339,7 +339,9 @@ function fileSources() {
     const drive = driveOf(unit), side = sideOf(unit);
     const name = side === 1 && ds[drive] ? slots.fd[unitOf(drive, 0)] : slots.fd[unit];
     if (!name) continue;
-    out.push({ id: `fd${unit}`, label: `${"AB"[drive]}:${side} ${name}`, path: pathOf(name), side, linear: false, name, unit });
+    // The image's side: a two-sided image has the unit's, a one-sided image
+    // has only side 0 whichever unit it sits on.
+    out.push({ id: `fd${unit}`, label: `${"AB"[drive]}:${side} ${name}`, path: pathOf(name), side: ds[drive] ? side : 0, linear: false, name, unit });
   }
   if (slots.hd) out.push({ id: "hd", label: `HD ${slots.hd}`, path: pathOf(slots.hd), side: 0, linear: true, name: slots.hd });
   return out;

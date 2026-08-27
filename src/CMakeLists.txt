@@ -44,6 +44,15 @@ endif()
 # on, so each yields a separate test binary.  The top-level tests/ folder
 # is gone — keeping the test split aligned with the layering enforces (and
 # documents) the dependency direction at link time.
+# The disk library reports through exceptions and the web module catches
+# them; Emscripten leaves C++ exceptions off by default (a throw would then
+# abort, a bare pointer number reaching the page), so the whole build has
+# them on there.
+if(EMSCRIPTEN)
+    add_compile_options(-fexceptions)
+    add_link_options(-fexceptions)
+endif()
+
 add_subdirectory(core)
 add_subdirectory(lib)
 add_subdirectory(disk)
