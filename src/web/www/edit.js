@@ -15,6 +15,11 @@ const KOI7 = "ЮАБЦДЕФГХИЙКЛМНОПЯРСТУЖВЬЫЗШЭЩЧЪ";
 
 // ── the encodings both ways ─────────────────────────────────────────────────
 export function decodeBytes(bytes, enc) {
+  if (enc === "ascii") {                 // 7-bit: a byte above 127 is a "."
+    let out = "";
+    for (const b of bytes) out += b < 128 ? String.fromCharCode(b) : ".";
+    return out;
+  }
   if (enc === "koi7") {
     let out = "";
     for (const b of bytes) out += b >= 0x60 && b <= 0x7F ? KOI7[b - 0x60] : String.fromCharCode(b);
@@ -30,7 +35,7 @@ function encoderFor(enc) {
   if (enc === "koi7") {
     for (let i = 0; i < KOI7.length; ++i) map.set(KOI7[i], 0x60 + i);
     for (let i = 0; i < KOI7.length; ++i) map.set(KOI7[i].toLowerCase(), 0x60 + i);
-  } else {
+  } else if (enc !== "ascii") {          // ascii: nothing above 127 - a "?" for what has no byte
     const dec = new TextDecoder(enc);
     for (let b = 128; b < 256; ++b) map.set(dec.decode(new Uint8Array([b])), b);
   }

@@ -136,12 +136,12 @@ linearly and put back into its disk after every change; a file that does
 not fit makes the volume grow by what it needs (`ms_disk_grow`: blocks
 appended, the last empty entry lengthened or one added); in the dialogs
 such a place is `DZn:NAME.DSK/FILE`.
-The viewer's keys, as mc's: F1 the encoding (KOI-7, KOI-8R, CP866 in turn),
-F2 wrap / unwrap at the machine's 80 columns, F3 and F10 back, F4 text /
-hex / octal in turn, F5 go to a line (an offset in the dump), F7 search - a
-string in the encoding, or a byte sequence in the digits shown - the hit
-marked and scrolled to.  The editor's (`edit.js`): F1 the encoding, F2
-save, F4 the representation (a text in the encoding it was read in, saved
+The viewer's keys, as mc's: F1 text / hex / octal in turn, F2 wrap /
+unwrap at the machine's 80 columns, F3 and F10 back, F4 the encoding
+(ASCII, KOI-8R, KOI-7, CP866 in turn), F5 go to a line (an offset in the
+dump), F7 search - a string in the encoding, or a byte sequence in the
+digits shown - the hit marked and scrolled to.  The editor's (`edit.js`):
+F1 the representation, F2 save, F4 the encoding (a text in the encoding it was read in, saved
 the same way with CR LF; a binary as its bytes in octal - the machine's
 notation - or hex, the digits or the characters typed over), F5 go to, F7
 search, F8 replace / insert (Delete and Backspace remove bytes), F10 back.

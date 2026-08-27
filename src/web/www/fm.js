@@ -14,11 +14,11 @@
 // take a "DEV:NAME" - the disks by their system names, DZ0: .. DZ3:, HD0:
 // - so a copy may land on the same disk under another name, and a rename
 // to another disk is a move.  The viewer's keys, as mc's:
-// F1 the encoding (KOI-7, KOI-8R, CP866 in turn), F2 wrap / unwrap at the
-// machine's 80 columns, F3 and F10 back, F4 text / hex / octal in turn, F5
-// go to a line, F7 search (a string in the encoding; a byte sequence in
-// hex / octal), the hit scrolled to and marked.  The editor's: F1 the
-// encoding, F2 save, F4 the representation, F5 go to, F7 search, F8
+// F1 text / hex / octal in turn, F2 wrap / unwrap at the machine's 80
+// columns, F3 and F10 back, F4 the encoding (ASCII, KOI-8R, KOI-7, CP866 in
+// turn), F5 go to a line, F7 search (a string in the encoding; a byte
+// sequence in hex / octal), the hit scrolled to and marked.  The editor's:
+// F1 the representation, F2 save, F4 the encoding, F5 go to, F7 search, F8
 // replace / insert (bytes), F10 back.
 //
 // A file that holds an RT-11 directory when read linearly - a logical disk
@@ -32,7 +32,7 @@ import { makeZip } from "./zip.js?v=@STAMP@";
 
 const LATIN_NAME = /^[A-Z0-9$]{1,6}(\.[A-Z0-9$]{1,3})?$/;
 const DEV_NAME = /^(?:([A-Z]+\d*):(?:([A-Z0-9$.]+)\/)?)?\s*([A-Z0-9$.]+)$/;   // "DZ1:NAME.EXT", "DZ1:VOL.DSK/NAME.EXT" or "NAME.EXT"
-const ENCODINGS = [["koi7", "KOI-7"], ["koi8-r", "KOI-8R"], ["ibm866", "CP866"]];
+const ENCODINGS = [["ascii", "ASCII"], ["koi8-r", "KOI-8R"], ["koi7", "KOI-7"], ["ibm866", "CP866"]];
 
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
@@ -60,7 +60,8 @@ function looksLikeText(bytes) {
 function guessEncoding(bytes) {
   const b = bytes.subarray(0, 4096);
   const high = b.some((v) => v >= 0x80);
-  return !high && b.some((v) => v >= 0x60 && v <= 0x7F) ? "koi7" : "koi8-r";
+  if (high) return "koi8-r";
+  return b.some((v) => v >= 0x60 && v <= 0x7F) ? "koi7" : "ascii";
 }
 
 export class Commander {
@@ -881,7 +882,7 @@ export class Commander {
     if (f?.empty && !f.up) {              // an unused area: its bytes viewed, not edited
       if (mode === "edit") throw new Error("an unused area is viewed (F3), not edited");
       const bytes = this.areaBytes(p.source, f.i);
-      this.v = { mode, repr: "oct", enc: "koi7", wrap: true, insert: false, source: p.source,
+      this.v = { mode, repr: "oct", enc: "ascii", wrap: true, insert: false, source: p.source,
                  file: { name: `< UNUSED >${f.was ? "  " + f.was : ""}`, blocks: f.blocks }, bytes, textarea: null, editor: null, query: "", hit: null };
       this.viewer.hidden = false;
       this.showRepr();
@@ -892,7 +893,7 @@ export class Commander {
     if (mode === "edit" && c.file.protected) throw new Error(`${c.file.name} is protected`);
     const bytes = this.bytesOf(c.source, c.file.name);
     const text = looksLikeText(bytes);
-    this.v = { mode, repr: text ? "text" : "oct", enc: text ? guessEncoding(bytes) : "koi7", wrap: true, insert: false,
+    this.v = { mode, repr: text ? "text" : "oct", enc: text ? guessEncoding(bytes) : "ascii", wrap: true, insert: false,
                source: c.source, file: c.file, bytes, textarea: null, editor: null, query: "", hit: null };
     this.viewer.hidden = false;
     this.showRepr();
@@ -981,11 +982,11 @@ export class Commander {
     const encLabel = ENCODINGS.find(([id]) => id === v.enc)[1];
     const reprLabel = { text: "Text", hex: "Hex", oct: "Octal" }[v.repr];
     this.drawBar(this.vbar, [
-      [encLabel, "the encoding: KOI-7, KOI-8R, CP866 in turn", () => this.cycleEncoding()],
+      [reprLabel, "text, hex, octal in turn", () => this.cycleRepr()],
       view ? (v.repr === "text" ? [v.wrap ? "Unwrap" : "Wrap", "long lines at the machine's 80 columns", () => this.toggleWrap()] : [null])
            : ["Save", "the file written back", () => this.save()],
       view ? ["Quit", "back to the files (Esc too)", () => this.leaveViewer()] : [null],
-      [reprLabel, "text, hex, octal in turn", () => this.cycleRepr()],
+      [encLabel, "the encoding: ASCII, KOI-8R, KOI-7, CP866 in turn", () => this.cycleEncoding()],
       ["Goto", "a line (text) or an offset (bytes)", () => this.goto()],
       [null],
       ["Search", v.repr === "text" ? "a string, in the encoding" : "a byte sequence in the digits shown", () => this.search()],
@@ -997,9 +998,9 @@ export class Commander {
 
   viewerKey(e) {
     const v = this.v, view = v.mode === "view";
-    const acts = { F1: () => this.cycleEncoding(),
+    const acts = { F1: () => this.cycleRepr(),
                    F2: () => view ? (v.repr === "text" && this.toggleWrap()) : this.save(),
-                   F3: () => view && this.leaveViewer(), F4: () => this.cycleRepr(), F5: () => this.goto(), F7: () => this.search(),
+                   F3: () => view && this.leaveViewer(), F4: () => this.cycleEncoding(), F5: () => this.goto(), F7: () => this.search(),
                    F8: () => !view && v.repr !== "text" && this.toggleInsert(),
                    F10: () => this.leaveViewer(), Escape: () => this.leaveViewer() };
     const a = acts[e.key];
