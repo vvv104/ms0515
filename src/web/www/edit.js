@@ -113,6 +113,8 @@ export class ByteEditor {
     this.insert = false;
     this.changed = false;
     this.perLine = 16;
+    this.shape = "";             // what the grid was drawn for; "" - not yet
+    this.shown = 0;              // the cursor's byte as drawn
     this.grid = document.createElement("pre");
     this.grid.className = "ed-grid";
     this.grid.tabIndex = 0;
@@ -132,38 +134,56 @@ export class ByteEditor {
   focus() { this.grid.focus(); }
   result() { return Uint8Array.from(this.bytes); }
 
+  // The grid: a div a line.  Drawn whole when its shape changes (the size,
+  // the mode, the radix, the encoding); else only the line the cursor left
+  // and the one it is on - a byte changes under the cursor alone.
   render() {
-    const lines = [];
-    const n = this.bytes.length;
-    const last = Math.max(n, 1);
-    for (let o = 0; o < last; o += this.perLine) {
-      const parts = [o.toString(8).padStart(6, "0") + "  "];
-      let chars = "";
-      for (let i = o; i < o + this.perLine; ++i) {
-        if (i < n) {
-          const cell = this.fmt(this.bytes[i]);
-          parts.push(i === this.pos && this.column === "num" ? `<span class="cur">${cell}</span>` : cell);
-          const g = glyph(this.bytes[i], this.enc).replace("<", "&lt;").replace("&", "&amp;");
-          chars += i === this.pos && this.column === "chr" ? `<span class="cur">${g}</span>` : g;
-        } else if (i === n && this.insert) {
-          parts.push(i === this.pos ? `<span class="cur">${"·".repeat(this.width)}</span>` : " ".repeat(this.width));
-          chars += i === this.pos && this.column === "chr" ? `<span class="cur"> </span>` : " ";
-        } else {
-          parts.push(" ".repeat(this.width));
-          chars += " ";
-        }
+    const shape = `${this.bytes.length} ${this.insert} ${this.radix} ${this.enc} ${this.perLine}`;
+    if (shape === this.shape && this.grid.childElementCount) {
+      for (const o of new Set([this.lineOf(this.shown), this.lineOf(this.pos)])) this.drawLine(o);
+    } else {
+      this.grid.replaceChildren();
+      const last = Math.max(this.bytes.length + (this.insert ? 1 : 0), 1);
+      for (let o = 0; o < last; o += this.perLine) {
+        this.grid.appendChild(document.createElement("div"));
+        this.drawLine(o);
       }
-      lines.push(parts.join(" ") + "  " + chars);
+      this.shape = shape;
     }
-    this.grid.innerHTML = lines.join("\n");
+    this.shown = this.pos;
     this.grid.querySelector(".cur")?.scrollIntoView({ block: "nearest" });
     this.status.textContent = `${this.bytes.length} bytes · offset ${this.pos.toString(8)} (oct) · `
       + `${this.insert ? "INSERT" : "replace"} · ${this.radix} · Tab: digits / characters, Insert: the mode`;
   }
 
+  lineOf(i) { return Math.floor(i / this.perLine) * this.perLine; }
+
+  drawLine(o) {
+    const el = this.grid.children[o / this.perLine];
+    if (!el) return;
+    const n = this.bytes.length;
+    const parts = [o.toString(8).padStart(6, "0") + "  "];
+    let chars = "";
+    for (let i = o; i < o + this.perLine; ++i) {
+      if (i < n) {
+        const cell = this.fmt(this.bytes[i]);
+        parts.push(i === this.pos && this.column === "num" ? `<span class="cur">${cell}</span>` : cell);
+        const g = glyph(this.bytes[i], this.enc).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+        chars += i === this.pos && this.column === "chr" ? `<span class="cur">${g}</span>` : g;
+      } else if (i === n && this.insert) {
+        parts.push(i === this.pos ? `<span class="cur">${"·".repeat(this.width)}</span>` : " ".repeat(this.width));
+        chars += i === this.pos && this.column === "chr" ? `<span class="cur"> </span>` : " ";
+      } else {
+        parts.push(" ".repeat(this.width));
+        chars += " ";
+      }
+    }
+    el.innerHTML = parts.join(" ") + "  " + chars;
+  }
+
   click(e) {
     const rect = this.grid.getBoundingClientRect();
-    const ch = this.grid.scrollWidth / Math.max(1, this.grid.textContent.split("\n")[0].length);
+    const ch = this.grid.scrollWidth / Math.max(1, this.grid.firstChild?.textContent.length ?? 1);
     const lh = parseFloat(getComputedStyle(this.grid).lineHeight) || 16;
     const row = Math.floor((e.clientY - rect.top + this.grid.scrollTop) / lh);
     const col = Math.floor((e.clientX - rect.left + this.grid.scrollLeft) / ch);
