@@ -64,7 +64,7 @@ CI runs both in the `web / emscripten` job.
 | `ms_save_state(h, path)` / `ms_load_state(h, path)` | snapshots in the module's file system |
 | `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
 | `ms_key_release_all(h)` | every key up (the canvas lost the focus) |
-| `ms_disk_dir(path, side, linear)` / `ms_disk_get(path, side, linear, name)` + `ms_disk_data()` / `ms_disk_put(path, side, linear, name, data, len, y, m, d, prot)` / `ms_disk_rm(...)` / `ms_disk_rename(...)` / `ms_disk_protect(..., on)` / `ms_disk_init(...)` / `ms_disk_squeeze(...)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library; `linear` for the HD): the page's commander |
+| `ms_disk_dir(path, side, linear)` (the volume id, the owner and the segment count with the files) / `ms_disk_get(path, side, linear, name)` + `ms_disk_data()` / `ms_disk_put(path, side, linear, name, data, len, y, m, d, prot)` / `ms_disk_rm(...)` / `ms_disk_rename(...)` / `ms_disk_protect(..., on)` / `ms_disk_init(..., volumeId, owner, segments)` / `ms_disk_volume_id(..., volumeId, owner)` / `ms_disk_squeeze(...)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library; `linear` for the HD): the page's commander |
 | `ms_disk_blank(ds)` + `ms_disk_data()` | a blank floppy as the machine's formatting leaves it - the 0xB6 0x6D pattern, no RT-11 structure - for the page's "Create blank" (an HD image stays zeros: no such machine had one) |
 | `ms_disk_grow(path, blocks)` | a linear image enlarged: the commander grows a logical disk a file does not fit into |
 | `ms_ld_create(blocks, segments, volumeId)` / `ms_ld_put(name, data, len, y, m, d, prot)` / `ms_ld_data()` + `ms_ld_size()` | a logical disk built in memory - the linear file the system's LD handler mounts as a volume (`MOUNT LD0: DZn:NAME.DSK`) |
@@ -112,7 +112,11 @@ unused areas listed with the files, and the ten keys always drawn below as
 in Midnight Commander - F1 Upload a file of the user's (its name made a
 6.3 RT-11 name, no date: the OS cannot hold today's), F2 Download to the
 computer, F3 View, F4 Edit, F5 Copy to the other pane (with the date and
-the protection), F6 Rename, F7 Init the pane's volume, F8 Delete, F9
+the protection), F6 Rename, F7 Init the pane's volume (a dialog as the
+OS's INITIALIZE: the volume id and the owner, 12 characters each, the
+directory segments 1..31 - 4 offered for a floppy, by the size for a
+linear image - or "the volume id only", INITIALIZE/VOLUMEID:ONLY, the files
+kept; the volume id shows in the pane's foot), F8 Delete, F9
 Squeeze, F10 Quit (Esc too); Tab, the arrows, Enter as in the commander.
 Insert or Shift with the arrows marks files, gray + / - / * mark by the
 OS's patterns (`*`, `%`, an omitted part `*`, several with commas) or

@@ -720,6 +720,29 @@ TEST_CASE("removeFile merges the empty entries around the one freed, as the OS d
     CHECK(openLinearImage(img)->directory.find("X.DAT")->length == 5);
 }
 
+TEST_CASE("setVolumeId writes the home block's id and owner and leaves the files") {
+    auto img = blankLinear(40);
+    CHECK_THROWS(setVolumeId(img, 0, false, "X", "Y", /*linear=*/true));     /* not initialised */
+    InitOptions o;
+    o.volumeId = "RT11A";
+    o.segments = 2;
+    initVolume(img, 0, false, o, /*linear=*/true);
+    const std::vector<uint8_t> a(kBlock, 7);
+    putFile(img, 0, false, "A.DAT", a, {}, /*linear=*/true);
+    auto field = [&](int off) { std::string s(reinterpret_cast<const char *>(img.data()) + kBlock + off, 12); return s; };
+    CHECK(field(0x1D8) == "RT11A       ");
+    setVolumeId(img, 0, false, "PROGRAMS", "VVV", /*linear=*/true);
+    CHECK(field(0x1D8) == "PROGRAMS    ");
+    CHECK(field(0x1E4) == "VVV         ");
+    auto im = openLinearImage(img);
+    REQUIRE(im->hasDirectory);
+    CHECK(im->directory.segsTotal == 2);
+    CHECK(im->readFile("A.DAT") == a);
+    CHECK_THROWS(setVolumeId(img, 0, false, "THIRTEEN-CHAR", "", /*linear=*/true));
+    setVolumeId(img, 0, false, "", "", /*linear=*/true);
+    CHECK(field(0x1D8) == "            ");
+}
+
 TEST_CASE("growLinear: a full volume gets a new empty entry, a free one a longer last area") {
     auto img = blankLinear(20);
     InitOptions one;

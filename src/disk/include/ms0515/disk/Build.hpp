@@ -74,6 +74,14 @@ struct DateParts { int year, month, day; };
 void initVolume(std::vector<uint8_t> &image, int side, bool ds,
                 const InitOptions &opts = {}, bool linear = false);
 
+/* Write the volume id and the owner (12 characters each at most) into the
+ * home block of an initialised side, the directory and the files left as
+ * they are - INITIALIZE/VOLUMEID:ONLY.  Throws std::runtime_error when
+ * the side holds no directory or a name is too long. */
+void setVolumeId(std::vector<uint8_t> &image, int side, bool ds,
+                 const std::string &volumeId, const std::string &owner,
+                 bool linear = false);
+
 /* Add one file to the initialised volume on `side` (the equivalent of PIP).
  * Throws std::runtime_error if the side is not initialised, the name is not
  * RAD50-encodable, the data does not fit, or the directory segment is full.

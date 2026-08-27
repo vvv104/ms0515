@@ -113,7 +113,7 @@ export class Commander {
       const foot = el("div", "fm-foot", "");
       pane.append(src, list, foot);
       panes.appendChild(pane);
-      const p = { pane, src, list, foot, files: [], free: 0, selected: -1, source: null, prev: "", marks: new Set(), nested: null };
+      const p = { pane, src, list, foot, files: [], free: 0, volume: null, selected: -1, source: null, prev: "", marks: new Set(), nested: null };
       src.addEventListener("focus", () => { p.prev = src.value; });
       src.onchange = () => { this.active = i; this.load(p, p.prev); p.prev = src.value; };
       list.addEventListener("pointerdown", () => this.activate(i));
@@ -148,7 +148,7 @@ export class Commander {
   // [[label, value], ...] - the first is the default, a value of true with a
   // field returns the field's text - and a check box (check, its label).
   // Resolves to { value, checked }; Esc gives null.
-  showDialog(text, { title = "", input = null, buttons, check = null, list = null }) {
+  showDialog(text, { title = "", input = null, buttons, check = null, list = null, fields = null }) {
     return new Promise((resolve) => {
       const box = el("div", "fm-dialog-box");
       if (title) box.append(el("div", "fm-dialog-title", title));
@@ -158,6 +158,17 @@ export class Commander {
         field = document.createElement("input");
         field.type = "text"; field.value = input; field.spellcheck = false;
         box.append(field);
+      }
+      const inputs = [];
+      if (fields) {                          // [[label, value, size], ...]: a small form
+        const form = el("div", "fm-dialog-fields");
+        for (const [label, value, size] of fields) {
+          const i = document.createElement("input");
+          i.type = "text"; i.value = value; i.spellcheck = false; i.size = size ?? 12; i.maxLength = size ?? 12;
+          inputs.push(i);
+          form.append(el("label", null, label), i);
+        }
+        box.append(form);
       }
       let box2 = null;
       if (list) {
@@ -182,13 +193,14 @@ export class Commander {
       this.dlg.hidden = false;
       const pick = (value) => {
         this.dlg.hidden = true; this.dialog = null;
-        resolve({ value: value === true && field ? field.value.trim() : value, checked: !!tick?.checked, index: box2 ? box2.selectedIndex : -1 });
+        resolve({ value: value === true && field ? field.value.trim() : value, checked: !!tick?.checked, index: box2 ? box2.selectedIndex : -1,
+                  values: inputs.map((i) => i.value) });
         if (this.v) this.focusViewer(); else this.focusList();
       };
-      this.dialog = { pick, field: field ?? box2, buttons: bs };
+      this.dialog = { pick, field: field ?? inputs[0] ?? box2, buttons: bs };
       for (const b of bs) b.el.onclick = () => pick(b.value);
       if (box2) box2.ondblclick = () => pick(bs[0].value);
-      (field ?? box2 ?? bs[0].el).focus();
+      (field ?? inputs[0] ?? box2 ?? bs[0].el).focus();
       if (field) field.select();
     });
   }
@@ -450,11 +462,9 @@ export class Commander {
       if (!text) {
         const src = p.source;                       // pinned: the panes may be redrawn meanwhile
         this.draw(p);
-        this.ask(`${src.label} has no RT-11 directory.  Initialise it (INIT: a blank volume)?`, { title: "Initialise" })
-          .then(async (yes) => {
-            if (yes) {
-              const done = await this.writable(src, () => api.diskInit(src.path, src.side, src.linear ? 1 : 0));
-              if (!done) throw new Error(api.diskError());
+        this.initDialog(src, null)
+          .then(async (done) => {
+            if (done) {
               p.src.value = src.id;
             } else if (prev !== undefined && prev !== p.src.value) {
               p.src.value = prev;
@@ -467,6 +477,7 @@ export class Commander {
         const dir = JSON.parse(text);
         p.files = dir.files;
         p.free = dir.free;
+        p.volume = { volumeId: dir.volumeId, owner: dir.owner, segments: dir.segments };
         if (p.source.parent) p.files.unshift({ up: true, empty: true, name: "..", blocks: "" });
       }
     }
@@ -488,9 +499,10 @@ export class Commander {
     const files = p.files.filter((f) => !f.empty);
     for (const name of [...p.marks]) if (!files.some((f) => f.name === name)) p.marks.delete(name);
     const marked = files.filter((f) => p.marks.has(f.name));
+    const volume = p.volume?.volumeId ? `  ·  ${p.volume.volumeId}${p.volume.owner ? " / " + p.volume.owner : ""}` : "";
     p.foot.textContent = !p.source ? "nothing mounted"
-      : marked.length ? `${marked.length} marked, ${marked.reduce((a, f) => a + f.blocks, 0)} blocks of ${files.length} file(s), ${p.free} free`
-      : `${files.length} file(s), ${files.reduce((a, f) => a + f.blocks, 0)} blocks, ${p.free} free`;
+      : marked.length ? `${marked.length} marked, ${marked.reduce((a, f) => a + f.blocks, 0)} blocks of ${files.length} file(s), ${p.free} free${volume}`
+      : `${files.length} file(s), ${files.reduce((a, f) => a + f.blocks, 0)} blocks, ${p.free} free${volume}`;
     p.list.querySelector(".selected")?.scrollIntoView({ block: "nearest" });
   }
 
@@ -832,11 +844,32 @@ export class Commander {
     const p = this.panes[this.active];
     if (!p.source) throw new Error("this pane has no disk");
     const files = p.files.filter((f) => !f.empty).length;
-    if (!await this.ask(`INIT ${p.source.label}${files ? ` - its ${files} file(s) will be lost` : ""}.  Continue?`, { title: "Init" })) return;
-    const src = p.source;
-    const ok = await this.writable(src, () => this.deps.api.diskInit(src.path, src.side, src.linear ? 1 : 0));
-    if (!ok) throw new Error(this.deps.api.diskError());
-    this.refresh();
+    if (await this.initDialog(p.source, p.volume ? { ...p.volume, files } : null)) this.refresh();
+  }
+
+  // The INIT dialog, the OS's INITIALIZE: the volume id and the owner (12
+  // characters each), the directory segments (1..31, 72 files a segment)
+  // and, on a volume that has a directory, "the volume id only" - the home
+  // block rewritten, the files kept (INITIALIZE/VOLUMEID:ONLY).  `has`:
+  // what the volume is now, null for a blank.  True when done.
+  async initDialog(src, has) {
+    const blocks = src.linear ? Math.floor(this.deps.module().FS.stat(src.path).size / 512) : 0;
+    const text = has ? `INIT ${src.label}${has.files ? ` - its ${has.files} file(s) will be lost` : ""}:` : `${src.label} has no RT-11 directory.  INIT it:`;
+    const r = await this.showDialog(text, {
+      title: "Init", buttons: [["OK", true], ["Cancel", null]],
+      fields: [["Volume ID", has ? has.volumeId : "RT11A", 12], ["Owner", has ? has.owner : "", 12], ["Segments (1..31)", String(has ? has.segments : defaultSegments(src.linear, blocks)), 2]],
+      check: has ? "the volume id only - the directory and the files kept" : null });
+    if (r.value === null) return false;
+    const [volumeId, owner, segs] = r.values.map((s) => s.trim());
+    const segments = Number(segs);
+    if (!(Number.isInteger(segments) && segments >= 1 && segments <= 31)) throw new Error(`${segs}: the segments are 1..31`);
+    const api = this.deps.api;
+    const ok = await this.writable(src, () => r.checked ? api.diskVolumeId(src.path, src.side, src.linear ? 1 : 0, volumeId, owner)
+                                                       : api.diskInit(src.path, src.side, src.linear ? 1 : 0, volumeId, owner, segments));
+    if (!ok) throw new Error(api.diskError());
+    this.deps.say(r.checked ? `${src.dev} volume id: ${volumeId || "(blank)"}${owner ? " / " + owner : ""}`
+                            : `${src.dev} initialised: ${volumeId || "(blank)"}, ${segments} directory segment(s)`);
+    return true;
   }
 
   // F9: the files packed to the front, the free blocks in one area at the end.
@@ -1222,6 +1255,14 @@ export class Commander {
 }
 
 const CANCEL = Symbol("cancel");     // a guard's "stop the whole operation"
+
+// The directory segments INIT proposes: 4 for a floppy, as the OS's; for a
+// linear image by its size, as the OS does for its disks - 16 from 4096
+// blocks, 31 from 16384.
+function defaultSegments(linear, blocks) {
+  if (!linear) return 4;
+  return blocks >= 16384 ? 31 : blocks >= 4096 ? 16 : 4;
+}
 
 // The text with every line longer than `cols` broken into pieces of that
 // many characters, as the machine's terminal would show it; `breaks` are

@@ -501,6 +501,20 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear)
     std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
 }
 
+void setVolumeId(std::vector<uint8_t> &image, int side, bool ds,
+                 const std::string &volumeId, const std::string &owner, bool linear)
+{
+    requireValidSize(image, ds, linear);
+    if (volumeId.size() > 12) throw std::runtime_error("volume id exceeds 12 characters");
+    if (owner.size()    > 12) throw std::runtime_error("owner name exceeds 12 characters");
+    (void)directoryLbn(image, side, ds, linear);        /* throws when the side is not initialised */
+    uint8_t *home = image.data() + lbnToByte(1, side, ds, linear);
+    std::memset(home + 0x1D8, ' ', 12);
+    std::memcpy(home + 0x1D8, volumeId.data(), volumeId.size());
+    std::memset(home + 0x1E4, ' ', 12);
+    std::memcpy(home + 0x1E4, owner.data(), owner.size());
+}
+
 void growLinear(std::vector<uint8_t> &image, int blocks)
 {
     requireValidSize(image, false, true);
