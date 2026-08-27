@@ -121,6 +121,10 @@ PROGS.DSK format: linear, one directory segment per 72 files, the name's
 stem as the volume id) written to the other pane's disk for `MOUNT LD0:`,
 Alt+F6 protects the marked files (or unprotects them when every one is),
 Alt+F7 finds files by pattern on every mounted disk and goes to the pick.
+Enter on a logical disk enters it as if a directory (".." or Backspace
+back out): its file is taken into the module's file system, read there
+linearly and put back into its disk after every change; in the dialogs
+such a place is `DZn:NAME.DSK/FILE`.
 The viewer's keys, as mc's: F1 the encoding (KOI-7, KOI-8R, CP866 in turn),
 F2 wrap / unwrap at the machine's 80 columns, F3 and F10 back, F4 text /
 hex / octal in turn, F5 go to a line (an offset in the dump), F7 search - a

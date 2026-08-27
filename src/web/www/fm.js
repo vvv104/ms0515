@@ -21,6 +21,9 @@
 // encoding, F2 save, F4 the representation, F5 go to, F7 search, F8
 // replace / insert (bytes), F10 back.
 //
+// A file that holds an RT-11 directory when read linearly - a logical disk
+// - is entered with Enter as if a directory: ".." (or Backspace) leads out.
+//
 // `deps`: { sources() -> [{ id, label, path, side, linear, name }],
 //           api, module(), writable(source, op) -> Promise (the image
 //           unmounted around a write), say, onClose }.
@@ -28,7 +31,7 @@ import { ByteEditor, decodeBytes, encodeText } from "./edit.js?v=@STAMP@";
 import { makeZip } from "./zip.js?v=@STAMP@";
 
 const LATIN_NAME = /^[A-Z0-9$]{1,6}(\.[A-Z0-9$]{1,3})?$/;
-const DEV_NAME = /^(?:([A-Z]+\d*):)?\s*([A-Z0-9$.]+)$/;   // "DZ1:NAME.EXT" or "NAME.EXT"
+const DEV_NAME = /^(?:([A-Z]+\d*):(?:([A-Z0-9$.]+)\/)?)?\s*([A-Z0-9$.]+)$/;   // "DZ1:NAME.EXT", "DZ1:VOL.DSK/NAME.EXT" or "NAME.EXT"
 const ENCODINGS = [["koi7", "KOI-7"], ["koi8-r", "KOI-8R"], ["ibm866", "CP866"]];
 
 const el = (tag, cls, text) => {
@@ -89,12 +92,12 @@ export class Commander {
       const foot = el("div", "fm-foot", "");
       pane.append(src, list, foot);
       panes.appendChild(pane);
-      const p = { pane, src, list, foot, files: [], free: 0, selected: -1, source: null, prev: "", marks: new Set() };
+      const p = { pane, src, list, foot, files: [], free: 0, selected: -1, source: null, prev: "", marks: new Set(), nested: null };
       src.addEventListener("focus", () => { p.prev = src.value; });
       src.onchange = () => { this.active = i; this.load(p, p.prev); p.prev = src.value; };
       list.addEventListener("pointerdown", () => this.activate(i));
       list.addEventListener("click", (e) => { const row = e.target.closest(".fm-row"); if (row) this.select(p, +row.dataset.i); });
-      list.addEventListener("dblclick", (e) => { if (e.target.closest(".fm-row")) this.run(() => this.view()); });
+      list.addEventListener("dblclick", (e) => { if (e.target.closest(".fm-row")) this.run(() => this.enter()); });
       this.panes.push(p);
     }
     this.bar = el("div", "fm-bar");
@@ -218,13 +221,17 @@ export class Commander {
   // "DEV:NAME" -> { source (the pane's when no device is given), name }.
   parseTarget(text, here) {
     const m = DEV_NAME.exec(text.trim().toUpperCase());
-    if (!m) throw new Error(`${text}: not "DZn:NAME.EXT"`);
-    const [, dev, name] = m;
+    if (!m) throw new Error(`${text}: not "DZn:NAME.EXT" (or "DZn:VOL.DSK/NAME.EXT")`);
+    const [, dev, vol, name] = m;
     if (!LATIN_NAME.test(name)) throw new Error(`${name}: not an RT-11 name (6.3, A-Z 0-9 $)`);
     let source = here;
     if (dev) {
       source = this.deps.sources().find((s) => s.dev === dev + ":") ?? null;
       if (!source) throw new Error(`${dev}: is not mounted`);
+      if (vol) {
+        source = this.volumeSource(source, vol);
+        if (!this.syncVolume(source)) throw new Error(`${dev}:${vol} is not a volume`);
+      }
     }
     return { source, name };
   }
@@ -266,7 +273,7 @@ export class Commander {
       ["Right", "another disk on the right pane", () => this.changeDisk(1)],
       [], [],
       ["Volume", "the files gathered into a logical disk (a file the system mounts: MOUNT LD0: DZn:NAME)", () => this.makeVolume()],
-      ["Protect", "the files /PROTECT - or /NOPROTECT when every one of them is", () => this.protect()],
+      ["(Un)Protect", "the files /PROTECT - or /NOPROTECT when every one of them is", () => this.protect()],
       ["Find", "a pattern looked for on every mounted disk", () => this.find()],
       [], [], [],
     ]);
@@ -303,8 +310,12 @@ export class Commander {
       const keep = p.src.value;
       p.src.replaceChildren();
       for (const s of sources) { const o = document.createElement("option"); o.value = s.id; o.textContent = s.label; p.src.appendChild(o); }
-      if (!sources.length) { p.files = []; p.source = null; this.draw(p); continue; }
-      p.src.value = sources.some((s) => s.id === keep) ? keep : sources[Math.min(i, sources.length - 1)].id;
+      if (!sources.length) { p.files = []; p.source = null; p.nested = null; this.draw(p); continue; }
+      const chain = [];
+      for (let s = p.nested; s; s = s.parent.parent ? s.parent : null) chain.unshift(s);
+      if (chain.length && !sources.some((s) => s.id === chain[0].parent.id)) { chain.length = 0; p.nested = null; }
+      for (const s of chain) { const o = document.createElement("option"); o.value = s.id; o.textContent = s.label; p.src.appendChild(o); }
+      p.src.value = [...p.src.options].some((o) => o.value === keep) ? keep : sources[Math.min(i, sources.length - 1)].id;
       this.load(p);
     }
     this.root.hidden = false;
@@ -318,7 +329,74 @@ export class Commander {
 
   focusList() { this.activate(this.active); this.panes[this.active].list.focus(); }
 
-  sourceOf(p) { return this.deps.sources().find((s) => s.id === p.src.value) ?? null; }
+  sourceOf(p) {
+    for (let s = p.nested; s; s = s.parent.parent ? s.parent : null) if (s.id === p.src.value) return s;
+    return this.deps.sources().find((s) => s.id === p.src.value) ?? null;
+  }
+
+  // ── a logical disk entered as if a directory ───────────────────────────
+  // The file's bytes taken out into the module's file system and read there
+  // (linear, as the LD handler reads them); every change written back into
+  // the file on its disk.  Its id "<disk id>/<NAME>", its device
+  // "DZn:NAME/" in the dialogs, the option "DZn: disk: NAME" above the pane.
+  volumeSource(parent, name) {
+    return { id: `${parent.id}/${name}`, dev: `${parent.dev}${name}/`, label: `${parent.label}: ${name}`,
+             name: parent.name, path: `/volumes/${parent.id.replace(/\//g, "_")}-${name}`,
+             side: 0, linear: true, parent, file: name };
+  }
+
+  // The volume's file brought up to date from its disk; false when it
+  // holds no RT-11 directory (then it is no volume).
+  syncVolume(s) {
+    const M = this.deps.module();
+    M.FS.mkdirTree("/volumes");
+    M.FS.writeFile(s.path, this.bytesOf(s.parent, s.file));
+    return !!this.deps.api.diskDir(s.path, 0, 1);
+  }
+
+  // A write: on a disk, through the page (the image unmounted around it);
+  // in a volume, on its file, which then goes back into its disk with the
+  // entry's date and protection kept.
+  async writable(source, op) {
+    if (!source.parent) return this.deps.writable(source, op);
+    if (!op()) return false;
+    const bytes = this.deps.module().FS.readFile(source.path);
+    const entry = this.dirOf(source.parent).find((f) => f.name === source.file);
+    return this.putBytes(source.parent, source.file, bytes, entry);
+  }
+
+  dirOf(source) {
+    const text = this.deps.api.diskDir(source.path, source.side, source.linear ? 1 : 0);
+    return text ? JSON.parse(text).files.filter((f) => !f.empty) : [];
+  }
+
+  // Enter: a logical disk entered, ".." back out of it, any other file viewed.
+  async enter() {
+    const p = this.panes[this.active], f = p.files[p.selected];
+    if (!f) return;
+    if (f.up) { this.leaveVolume(p); return; }
+    const c = this.current();
+    const nested = this.volumeSource(c.source, c.file.name);
+    if (!this.syncVolume(nested)) { await this.view(); return; }
+    p.nested = nested;
+    const o = document.createElement("option"); o.value = nested.id; o.textContent = nested.label;
+    p.src.appendChild(o);
+    p.src.value = nested.id; p.prev = nested.id;
+    p.selected = 0;
+    this.load(p);
+  }
+
+  // Backspace, Enter on "..": the pane back on the volume's disk, the
+  // volume's file selected.
+  leaveVolume(p) {
+    const s = p.nested;
+    if (!s) return;
+    p.nested = s.parent.parent ? s.parent : null;
+    [...p.src.options].find((o) => o.value === s.id)?.remove();
+    p.src.value = s.parent.id; p.prev = s.parent.id;
+    this.load(p);
+    this.select(p, Math.max(0, p.files.findIndex((f) => f.name === s.file)));
+  }
 
   // The pane's source, read; a volume with no directory (a blank image)
   // is initialised on the user's word, else the pane goes back to what it
@@ -329,6 +407,11 @@ export class Commander {
     if (!was || !p.source || was.id !== p.source.id) p.marks.clear();
     p.files = [];
     p.free = 0;
+    if (p.nested && !p.source?.parent) {          // another disk picked above the pane: the volumes left
+      for (let s = p.nested; s; s = s.parent.parent ? s.parent : null) [...p.src.options].find((o) => o.value === s.id)?.remove();
+      p.nested = null;
+    }
+    if (p.source?.parent && !this.syncVolume(p.source)) { this.leaveVolume(p); return; }
     if (p.source) {
       const api = this.deps.api;
       const text = api.diskDir(p.source.path, p.source.side, p.source.linear ? 1 : 0);
@@ -338,7 +421,7 @@ export class Commander {
         this.ask(`${src.label} has no RT-11 directory.  Initialise it (INIT: a blank volume)?`, { title: "Initialise" })
           .then(async (yes) => {
             if (yes) {
-              const done = await this.deps.writable(src, () => api.diskInit(src.path, src.side, src.linear ? 1 : 0));
+              const done = await this.writable(src, () => api.diskInit(src.path, src.side, src.linear ? 1 : 0));
               if (!done) throw new Error(api.diskError());
               p.src.value = src.id;
             } else if (prev !== undefined && prev !== p.src.value) {
@@ -352,6 +435,7 @@ export class Commander {
         const dir = JSON.parse(text);
         p.files = dir.files;
         p.free = dir.free;
+        if (p.source.parent) p.files.unshift({ up: true, empty: true, name: "..", blocks: "" });
       }
     }
     p.selected = p.files.length ? Math.min(Math.max(p.selected, 0), p.files.length - 1) : -1;
@@ -363,9 +447,9 @@ export class Commander {
   draw(p) {
     p.list.replaceChildren();
     for (const [i, f] of p.files.entries()) {
-      const row = el("div", "fm-row" + (i === p.selected ? " selected" : "") + (f.empty ? " unused" : "") + (p.marks.has(f.name) ? " marked" : ""));
+      const row = el("div", "fm-row" + (i === p.selected ? " selected" : "") + (f.up ? " up" : f.empty ? " unused" : "") + (p.marks.has(f.name) ? " marked" : ""));
       row.dataset.i = i;
-      row.append(el("span", "n", f.empty ? "< UNUSED >" : f.name), el("span", "b", String(f.blocks)),
+      row.append(el("span", "n", f.up ? ".." : f.empty ? "< UNUSED >" : f.name), el("span", "b", String(f.blocks)),
                  el("span", "d", f.date || ""), el("span", "p", f.protected ? "P" : ""));
       p.list.appendChild(row);
     }
@@ -432,6 +516,7 @@ export class Commander {
     const p = this.panes[this.active];
     if (!(p.selected >= 0 && p.source)) return null;
     const file = p.files[p.selected];
+    if (file.up) throw new Error("that is the way out of the volume, not a file");
     if (file.empty) throw new Error("that is an unused area, not a file");
     return { pane: p, source: p.source, file };
   }
@@ -445,7 +530,8 @@ export class Commander {
     const p = this.panes[this.active];
     const acts = { F1: () => this.upload(), F2: () => this.download(), F3: () => this.view(), F4: () => this.edit(),
                    F5: () => this.copy(), F6: () => this.renmove(), F7: () => this.init(), F8: () => this.remove(),
-                   F9: () => this.squeeze(), F10: () => this.close(), Enter: () => this.view(), Escape: () => this.close(),
+                   F9: () => this.squeeze(), F10: () => this.close(), Enter: () => this.enter(), Escape: () => this.close(),
+                   Backspace: () => this.leaveVolume(p),
                    Tab: () => { this.active ^= 1; this.focusList(); },
                    Insert: () => this.mark(p, 1),
                    "+": () => this.markPattern(p, true), "-": () => this.markPattern(p, false), "*": () => this.invertMarks(p),
@@ -484,7 +570,7 @@ export class Commander {
     M.HEAPU8.set(bytes, ptr);
     const [y, m, d] = file?.date ? file.date.split("-").map(Number) : [0, 0, 0];
     try {
-      return this.deps.writable(source, () => api.diskPut(source.path, source.side, source.linear ? 1 : 0, name, ptr, bytes.length, y, m, d, file?.protected ? 1 : 0));
+      return this.writable(source, () => api.diskPut(source.path, source.side, source.linear ? 1 : 0, name, ptr, bytes.length, y, m, d, file?.protected ? 1 : 0));
     } finally {
       M._free(ptr);
     }
@@ -508,7 +594,7 @@ export class Commander {
     for (const c of todo) {
       const bytes = this.bytesOf(c.source, c.file.name);
       if (!await this.putBytes(to, nameOn(c), bytes, c.file)) throw new Error(`${c.file.name}: ${this.deps.api.diskError()}`);
-      if (move && !await this.deps.writable(c.source, () => this.deps.api.diskRm(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name)))
+      if (move && !await this.writable(c.source, () => this.deps.api.diskRm(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name)))
         throw new Error(`${c.file.name}: ${this.deps.api.diskError()}`);
       from.marks.delete(c.file.name);
       ++n;
@@ -558,7 +644,7 @@ export class Commander {
     if (to.id === from.source.id) {
       if (name === c.file.name) return;
       if (!await this.ask(`Rename ${c.file.name} to ${name} on ${to.dev}?`, { title: "Rename" })) return;
-      const ok = await this.deps.writable(c.source, () => this.deps.api.diskRename(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name, name));
+      const ok = await this.writable(c.source, () => this.deps.api.diskRename(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name, name));
       if (!ok) throw new Error(this.deps.api.diskError());
       this.refresh();
       return;
@@ -575,7 +661,7 @@ export class Commander {
     if (!await this.ask(`Delete from ${src.dev} ${names.length === 1 ? names[0] : names.length + " files (" + names.join(", ") + ")"}?`, { title: "Delete" })) return;
     const list = await this.guarded(all, "Delete");
     if (!list?.length) return;
-    const ok = await this.deps.writable(src, () => list.every((c) => this.deps.api.diskRm(src.path, src.side, src.linear ? 1 : 0, c.file.name)));
+    const ok = await this.writable(src, () => list.every((c) => this.deps.api.diskRm(src.path, src.side, src.linear ? 1 : 0, c.file.name)));
     if (!ok) throw new Error(this.deps.api.diskError());
     all[0].pane.marks.clear();
     this.refresh();
@@ -627,7 +713,7 @@ export class Commander {
     const src = list[0].source, what = list.length === 1 ? list[0].file.name : `${list.length} files`;
     const verb = on ? "Protect" : "Unprotect";
     if (!await this.ask(`${verb} ${what} on ${src.dev}?`, { title: verb })) return;
-    const ok = await this.deps.writable(src, () => list.every((c) => this.deps.api.diskProtect(src.path, src.side, src.linear ? 1 : 0, c.file.name, on ? 1 : 0)));
+    const ok = await this.writable(src, () => list.every((c) => this.deps.api.diskProtect(src.path, src.side, src.linear ? 1 : 0, c.file.name, on ? 1 : 0)));
     if (!ok) throw new Error(this.deps.api.diskError());
     this.refresh();
     this.deps.say(`${what} ${on ? "protected" : "unprotected"} on ${src.dev}`);
@@ -664,7 +750,7 @@ export class Commander {
     const files = p.files.filter((f) => !f.empty).length;
     if (!await this.ask(`INIT ${p.source.label}${files ? ` - its ${files} file(s) will be lost` : ""}.  Continue?`, { title: "Init" })) return;
     const src = p.source;
-    const ok = await this.deps.writable(src, () => this.deps.api.diskInit(src.path, src.side, src.linear ? 1 : 0));
+    const ok = await this.writable(src, () => this.deps.api.diskInit(src.path, src.side, src.linear ? 1 : 0));
     if (!ok) throw new Error(this.deps.api.diskError());
     this.refresh();
   }
@@ -675,7 +761,7 @@ export class Commander {
     if (!p.source) throw new Error("this pane has no disk");
     if (!await this.ask(`Squeeze ${p.source.label}?`, { title: "Squeeze" })) return;
     const src = p.source;
-    const ok = await this.deps.writable(src, () => this.deps.api.diskSqueeze(src.path, src.side, src.linear ? 1 : 0));
+    const ok = await this.writable(src, () => this.deps.api.diskSqueeze(src.path, src.side, src.linear ? 1 : 0));
     if (!ok) throw new Error(this.deps.api.diskError());
     this.refresh();
   }
