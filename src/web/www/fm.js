@@ -124,7 +124,7 @@ export class Commander {
   // [[label, value], ...] - the first is the default, a value of true with a
   // field returns the field's text - and a check box (check, its label).
   // Resolves to { value, checked }; Esc gives null.
-  showDialog(text, { title = "", input = null, buttons, check = null }) {
+  showDialog(text, { title = "", input = null, buttons, check = null, list = null }) {
     return new Promise((resolve) => {
       const box = el("div", "fm-dialog-box");
       if (title) box.append(el("div", "fm-dialog-title", title));
@@ -134,6 +134,15 @@ export class Commander {
         field = document.createElement("input");
         field.type = "text"; field.value = input; field.spellcheck = false;
         box.append(field);
+      }
+      let box2 = null;
+      if (list) {
+        box2 = document.createElement("select");
+        box2.size = Math.min(12, Math.max(3, list.length));
+        box2.className = "fm-dialog-list";
+        for (const item of list) box2.append(el("option", null, item));
+        box2.selectedIndex = 0;
+        box.append(box2);
       }
       if (check) {
         tick = document.createElement("input"); tick.type = "checkbox";
@@ -149,12 +158,13 @@ export class Commander {
       this.dlg.hidden = false;
       const pick = (value) => {
         this.dlg.hidden = true; this.dialog = null;
-        resolve({ value: value === true && field ? field.value.trim() : value, checked: !!tick?.checked });
+        resolve({ value: value === true && field ? field.value.trim() : value, checked: !!tick?.checked, index: box2 ? box2.selectedIndex : -1 });
         if (this.v) this.focusViewer(); else this.focusList();
       };
-      this.dialog = { pick, field, buttons: bs };
+      this.dialog = { pick, field: field ?? box2, buttons: bs };
       for (const b of bs) b.el.onclick = () => pick(b.value);
-      (field ?? bs[0].el).focus();
+      if (box2) box2.ondblclick = () => pick(bs[0].value);
+      (field ?? box2 ?? bs[0].el).focus();
       if (field) field.select();
     });
   }
@@ -254,7 +264,11 @@ export class Commander {
     this.drawBar(this.bar, [
       ["Left", "another disk on the left pane", () => this.changeDisk(0)],
       ["Right", "another disk on the right pane", () => this.changeDisk(1)],
-      [], [], [], [], [], [], [], [],
+      [], [],
+      ["Volume", "the files gathered into a logical disk (a file the system mounts: MOUNT LD0: DZn:NAME)", () => this.makeVolume()],
+      ["Protect", "the files /PROTECT - or /NOPROTECT when every one of them is", () => this.protect()],
+      ["Find", "a pattern looked for on every mounted disk", () => this.find()],
+      [], [], [],
     ]);
   }
 
@@ -446,7 +460,8 @@ export class Commander {
 
   // The keys with Alt held.
   altKey(e) {
-    const acts = { F1: () => this.changeDisk(0), F2: () => this.changeDisk(1) };
+    const acts = { F1: () => this.changeDisk(0), F2: () => this.changeDisk(1),
+                   F5: () => this.makeVolume(), F6: () => this.protect(), F7: () => this.find() };
     const a = acts[e.key];
     if (!a) return;
     e.preventDefault(); e.stopPropagation();
@@ -565,6 +580,81 @@ export class Commander {
     all[0].pane.marks.clear();
     this.refresh();
     this.deps.say(`${list.length === 1 ? list[0].file.name : list.length + " files"} deleted from ${src.dev}`);
+  }
+
+  // Alt+F5: the marked files (or the current one) gathered into a logical
+  // disk - a file the system's LD handler mounts as a volume (MOUNT LD0:
+  // DZn:NAME) - written to a disk, the other pane's offered.  Linear, one
+  // directory segment per 72 files, the name's stem for the volume id.
+  async makeVolume() {
+    const list = this.targets();
+    if (!list.length) return;
+    const from = list[0].pane, other = this.panes[this.active ^ 1];
+    const offered = other.source && other.source.id !== from.source.id ? other.source : from.source;
+    const segments = Math.max(1, Math.ceil(list.length / 72));
+    const blocks = 6 + 2 * segments + list.reduce((a, c) => a + c.file.blocks, 0);
+    const files = list.length === 1 ? list[0].file.name : `${list.length} files`;
+    const answer = await this.ask(`A logical disk of ${files} (${blocks} blocks) written as (DEV:NAME):`, { title: "Volume", input: `${offered.dev}VOLUME.DSK` });
+    if (answer === null || answer === "") return;
+    const { source: to, name } = this.parseTarget(answer, from.source);
+    if (to.id === from.source.id && list.some((c) => c.file.name === name)) throw new Error(`${name} is one of the files going in`);
+    const replaced = this.namesOn(to).includes(name) ? `  ${name} there will be replaced.` : "";
+    if (!await this.ask(`Write ${name} (${blocks} blocks) to ${to.dev} ${to.name}?${replaced}`, { title: "Volume" })) return;
+    const api = this.deps.api, M = this.deps.module();
+    if (!api.ldCreate(blocks, segments, name.split(".")[0])) throw new Error(api.diskError());
+    for (const c of list) {
+      const bytes = this.bytesOf(c.source, c.file.name);
+      const ptr = M._malloc(bytes.length || 1);
+      M.HEAPU8.set(bytes, ptr);
+      const [y, m, d] = c.file.date ? c.file.date.split("-").map(Number) : [0, 0, 0];
+      const ok = api.ldPut(c.file.name, ptr, bytes.length, y, m, d, c.file.protected ? 1 : 0);
+      M._free(ptr);
+      if (!ok) throw new Error(`${c.file.name}: ${api.diskError()}`);
+    }
+    const image = M.HEAPU8.slice(api.ldData(), api.ldData() + api.ldSize());
+    if (!await this.putBytes(to, name, image)) throw new Error(`${name}: ${api.diskError()}`);
+    from.marks.clear();
+    this.refresh();
+    this.deps.say(`${name} written to ${to.dev} - a volume of ${files}; MOUNT LD0: ${to.dev}${name} in the system`);
+  }
+
+  // Alt+F6: the marked files (or the current one) protected - or, when
+  // every one of them is, unprotected - after a word.
+  async protect() {
+    const list = this.targets();
+    if (!list.length) return;
+    const on = !list.every((c) => c.file.protected);
+    const src = list[0].source, what = list.length === 1 ? list[0].file.name : `${list.length} files`;
+    const verb = on ? "Protect" : "Unprotect";
+    if (!await this.ask(`${verb} ${what} on ${src.dev}?`, { title: verb })) return;
+    const ok = await this.deps.writable(src, () => list.every((c) => this.deps.api.diskProtect(src.path, src.side, src.linear ? 1 : 0, c.file.name, on ? 1 : 0)));
+    if (!ok) throw new Error(this.deps.api.diskError());
+    this.refresh();
+    this.deps.say(`${what} ${on ? "protected" : "unprotected"} on ${src.dev}`);
+  }
+
+  // Alt+F7: a pattern looked for on every mounted disk; the hit picked
+  // from the list is shown in the active pane.
+  async find() {
+    const pattern = await this.ask("Find the files matching (on every mounted disk; * any string, % one character):", { title: "Find", input: "*.*" });
+    if (!pattern) return;
+    const test = patternsMatcher(pattern), hits = [];
+    for (const s of this.deps.sources()) {
+      const text = this.deps.api.diskDir(s.path, s.side, s.linear ? 1 : 0);
+      if (!text) continue;
+      for (const f of JSON.parse(text).files) if (!f.empty && test(f.name)) hits.push({ source: s, file: f });
+    }
+    const shown = pattern.trim().toUpperCase();
+    if (!hits.length) { this.deps.say(`nothing matches ${shown}`); return; }
+    const r = await this.showDialog(`${hits.length} file${hits.length === 1 ? "" : "s"} match ${shown}:`, {
+      title: "Find", buttons: [["Go to", true], ["Cancel", null]],
+      list: hits.map((h) => `${h.source.dev}${h.file.name.padEnd(11)}${String(h.file.blocks).padStart(4)}  ${h.file.date || ""}`) });
+    if (r.value === null) return;
+    const h = hits[r.index], p = this.panes[this.active];
+    p.src.value = h.source.id; p.prev = h.source.id;
+    this.load(p);
+    this.select(p, Math.max(0, p.files.findIndex((f) => f.name === h.file.name)));
+    this.focusList();
   }
 
   // F7: the pane's volume initialised - every file on it lost.

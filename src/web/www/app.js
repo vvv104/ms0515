@@ -719,6 +719,11 @@ function bindApi() {
     diskRename: c("ms_disk_rename", "number", ["string", "number", "number", "string", "string"]),
     diskInit:   c("ms_disk_init", "number", ["string", "number", "number"]),
     diskSqueeze: c("ms_disk_squeeze", "number", ["string", "number", "number"]),
+    diskProtect: c("ms_disk_protect", "number", ["string", "number", "number", "string", "number"]),
+    ldCreate: c("ms_ld_create", "number", ["number", "number", "string"]),
+    ldPut:    c("ms_ld_put", "number", ["string", "number", "number", "number", "number", "number", "number"]),
+    ldData:   c("ms_ld_data", "number", []),
+    ldSize:   c("ms_ld_size", "number", []),
     save:    c("ms_save_state", "number", ["number", "string"]),
     load:    c("ms_load_state", "number", ["number", "string"]),
   };
@@ -815,6 +820,7 @@ window.__ms = () => {
 };
 window.__ms.type = (text) => typing.type(text);
 window.__ms.api = () => api;                 // the module's calls, for scripted checks
+window.__ms.sources = fileSources;           // the commander's disks, for scripted checks
 window.__ms.module = () => M;
 
 window.addEventListener("error", (e) => say("error: " + e.message));

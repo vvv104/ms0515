@@ -262,6 +262,58 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_rename(const char *path, int side, int linear, 
     }
 }
 
+/* /PROTECT (on = 1) or /NOPROTECT (0) on a file.  1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_protect(const char *path, int side, int linear, const char *name, int on)
+{
+    try {
+        auto bytes = readAll(path);
+        ms0515::disk::setProtected(bytes, side, !linear && bytes.size() == 2 * 409600, name, on != 0, linear != 0);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+/* A logical disk built in memory - the file the OS's LD handler mounts as a
+ * volume (linear, no interleave, any size).  ms_ld_create sizes it in
+ * blocks and initialises it (`segments` directory segments, the volume id);
+ * ms_ld_put adds a file; ms_ld_data / ms_ld_size hand the bytes over. */
+static std::vector<uint8_t> gLd;
+
+EMSCRIPTEN_KEEPALIVE int ms_ld_create(int blocks, int segments, const char *volumeId)
+{
+    try {
+        gLd = ms0515::disk::blankLinear(blocks);
+        ms0515::disk::InitOptions opts;
+        opts.volumeId = volumeId;
+        opts.segments = segments;
+        ms0515::disk::initVolume(gLd, 0, false, opts, true);
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE int ms_ld_put(const char *name, const uint8_t *data, int len, int year, int month, int day, int prot)
+{
+    try {
+        ms0515::disk::PutOptions opts;
+        if (year) opts.date = ms0515::disk::encodeDate(year, month, day);
+        opts.readOnly = prot != 0;
+        ms0515::disk::putFile(gLd, 0, false, name, std::span<const uint8_t>(data, static_cast<size_t>(len)), opts, true);
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const uint8_t *ms_ld_data(void) { return gLd.data(); }
+EMSCRIPTEN_KEEPALIVE int ms_ld_size(void) { return static_cast<int>(gLd.size()); }
+
 EMSCRIPTEN_KEEPALIVE Handle *ms_create(void)
 {
     auto *h = new Handle;
