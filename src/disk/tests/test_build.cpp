@@ -16,6 +16,15 @@
 #include <string>
 #include <vector>
 
+namespace {
+/* The free blocks of a linear image: the empty entries' lengths summed. */
+int im_free_blocks(const std::vector<uint8_t> &img) {
+    int n = 0;
+    for (const auto &e : ms0515::disk::openLinearImage(img)->directory.entries) if (e.isEmpty()) n += e.length;
+    return n;
+}
+}
+
 using namespace ms0515::disk;
 
 namespace {
@@ -659,6 +668,55 @@ TEST_CASE("rename keeps the data and refuses a taken or bad name") {
     CHECK_THROWS(renameFile(img, 0, false, "NEW.TXT", "OTHER.DAT"));
     CHECK_THROWS(renameFile(img, 0, false, "NEW.TXT", "TOOLONGNAME.TXT"));
     CHECK_THROWS(renameFile(img, 0, false, "NOSUCH.TXT", "X.TXT"));
+}
+
+TEST_CASE("removeFile merges the empty entries around the one freed, as the OS does; a file put back larger stays put") {
+    auto img = blankLinear(40);
+    InitOptions one;
+    one.segments = 1;
+    initVolume(img, 0, false, one, /*linear=*/true);            /* 32 data blocks from 8 */
+    const std::vector<uint8_t> a(kBlock, 1), b(3 * kBlock, 2), c(2 * kBlock, 3), d(kBlock, 4);
+    PutOptions dated;
+    dated.date = encodeDate(1989, 1, 5);
+    putFile(img, 0, false, "A.DAT", a, dated, /*linear=*/true);
+    putFile(img, 0, false, "B.DAT", b, {}, /*linear=*/true);
+    putFile(img, 0, false, "C.DAT", c, {}, /*linear=*/true);
+    putFile(img, 0, false, "D.DAT", d, {}, /*linear=*/true);   /* then 25 free */
+    auto entries = [&] { return openLinearImage(img)->directory.entries; };   /* the end marker counted */
+    REQUIRE(entries().size() == 6);
+
+    /* B between two files: its entry stays; A before it: A absorbs it. */
+    removeFile(img, 0, false, "B.DAT", /*linear=*/true);
+    CHECK(entries().size() == 6);
+    removeFile(img, 0, false, "A.DAT", /*linear=*/true);
+    auto e = entries();
+    REQUIRE(e.size() == 5);
+    CHECK(e[0].isEmpty()); CHECK(e[0].name == "A.DAT"); CHECK(e[0].length == 4); CHECK(e[0].date == dated.date);
+    CHECK(e[1].name == "C.DAT"); CHECK(e[1].isPermanent());
+    CHECK(im_free_blocks(img) == 29);
+
+    /* D, the last file, is followed by the free tail: one area of 26. */
+    removeFile(img, 0, false, "D.DAT", /*linear=*/true);
+    e = entries();
+    REQUIRE(e.size() == 4);
+    CHECK(e[2].isEmpty()); CHECK(e[2].name == "D.DAT"); CHECK(e[2].length == 26);
+
+    /* C, empty on both sides now: everything one area, the earliest name. */
+    removeFile(img, 0, false, "C.DAT", /*linear=*/true);
+    e = entries();
+    REQUIRE(e.size() == 2);
+    CHECK(e[0].isEmpty()); CHECK(e[0].name == "A.DAT"); CHECK(e[0].length == 32);
+    CHECK(openLinearImage(img)->readFile("A.DAT").empty());
+
+    /* A file put back larger, with room behind it, lands where it was. */
+    putFile(img, 0, false, "X.DAT", c, {}, /*linear=*/true);
+    putFile(img, 0, false, "Y.DAT", d, {}, /*linear=*/true);
+    const int xAt = openLinearImage(img)->directory.find("X.DAT")->startBlock;
+    removeFile(img, 0, false, "Y.DAT", /*linear=*/true);          /* Y and the tail: one area behind X */
+    removeFile(img, 0, false, "X.DAT", /*linear=*/true);          /* X joins it: one area from X's start */
+    putFile(img, 0, false, "X.DAT", std::vector<uint8_t>(5 * kBlock, 9), {}, /*linear=*/true);
+    CHECK(openLinearImage(img)->directory.find("X.DAT")->startBlock == xAt);
+    CHECK(openLinearImage(img)->directory.find("X.DAT")->length == 5);
 }
 
 TEST_CASE("growLinear: a full volume gets a new empty entry, a free one a longer last area") {

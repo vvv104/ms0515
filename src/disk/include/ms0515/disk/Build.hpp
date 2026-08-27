@@ -111,9 +111,12 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear = false
  * directory entry by name and flips its status to empty, the length kept
  * so a subsequent putFile() that fits can reuse the blocks - and the name
  * and the date kept too, as the OS's DELETE leaves them (OS-verified), so
- * undeleteEntry() can bring the file back.  Throws std::runtime_error if
- * the side is not initialised, the name is not RAD50-encodable, or no
- * permanent file with that name exists. */
+ * undeleteEntry() can bring the file back.  Empty entries next to it are
+ * merged into one, as the OS does (seen: two, then three neighbours
+ * became one entry with the earliest one's name, length summed) - so a
+ * file put back larger, with room behind it, lands where it was.  Throws
+ * std::runtime_error if the side is not initialised, the name is not
+ * RAD50-encodable, or no permanent file with that name exists. */
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, bool linear = false);
 

@@ -331,14 +331,59 @@ void mutatePermanentEntry(std::vector<uint8_t> &image, int side, bool ds,
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, bool linear)
 {
-    mutatePermanentEntry(image, side, ds, name,
-        [](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
-            /* Only the status flips: the name, the length and the date
-             * stay, as the OS's DELETE leaves them (seen in the entry
-             * after a DELETE/NOQUERY in RT-11 itself) - the freed blocks
-             * stay accounted for, and the file can be undeleted. */
-            putw(&seg[p], kStatusEmpty);
-        }, linear);
+    requireValidSize(image, ds, linear);
+    const int dirLbn = directoryLbn(image, side, ds, linear);
+    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, linear);
+    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, linear);
+    std::vector<uint8_t> seg(2 * kBlock);
+    std::memcpy(seg.data(),          image.data() + segOff0, kBlock);
+    std::memcpy(seg.data() + kBlock, image.data() + segOff1, kBlock);
+
+    const uint16_t extra = getw(&seg[6]);
+    if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
+    const std::size_t es = 14 + extra;
+
+    char nm[6], ex[3];
+    splitName(name, nm, ex);
+    const uint16_t w1 = encodeRad50(nm), w2 = encodeRad50(nm + 3), we = encodeRad50(ex);
+
+    /* Every entry before the end marker, and the one named. */
+    std::vector<std::size_t> at;
+    for (std::size_t p = 10; p + es <= seg.size(); p += es) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        at.push_back(p);
+    }
+    std::size_t k = at.size();
+    for (std::size_t i = 0; i < at.size(); ++i)
+        if ((getw(&seg[at[i]]) & kStatusPermanent) && getw(&seg[at[i] + 2]) == w1
+            && getw(&seg[at[i] + 4]) == w2 && getw(&seg[at[i] + 6]) == we) { k = i; break; }
+    if (k == at.size()) throw std::runtime_error("no permanent file named " + name + " on this side");
+
+    /* Only the status flips: the name, the length and the date stay, as
+     * the OS's DELETE leaves them (seen in the entry after a DELETE/NOQUERY
+     * in RT-11 itself) - the freed blocks stay accounted for, and the file
+     * can be undeleted. */
+    putw(&seg[at[k]], kStatusEmpty);
+
+    /* The run of empty entries around it becomes one - the earliest kept,
+     * the lengths summed, the rest of the segment moved down over the
+     * absorbed ones - as the OS does. */
+    std::size_t first = k, last = k;
+    while (first > 0 && (getw(&seg[at[first - 1]]) & kStatusEmpty)) --first;
+    while (last + 1 < at.size() && (getw(&seg[at[last + 1]]) & kStatusEmpty)) ++last;
+    if (last > first) {
+        int len = 0;
+        for (std::size_t i = first; i <= last; ++i) len += getw(&seg[at[i] + 8]);
+        if (len > 0xFFFF) throw std::runtime_error("the free area would exceed 65535 blocks");
+        putw(&seg[at[first] + 8], static_cast<uint16_t>(len));
+        const std::size_t to = at[first] + es, from = at[last] + es;
+        std::memmove(&seg[to], &seg[from], seg.size() - from);
+        std::fill(seg.end() - static_cast<std::ptrdiff_t>(from - to), seg.end(), uint8_t{0});
+    }
+
+    std::memcpy(image.data() + segOff0, seg.data(),          kBlock);
+    std::memcpy(image.data() + segOff1, seg.data() + kBlock, kBlock);
 }
 
 void renameFile(std::vector<uint8_t> &image, int side, bool ds,

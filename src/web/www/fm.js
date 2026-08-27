@@ -1191,7 +1191,10 @@ export class Commander {
   // here on.
   async write(bytes) {
     const v = this.v;
-    if (!await this.putBytes(v.source, v.file.name, bytes, v.file)) throw new Error(this.deps.api.diskError());
+    if (!await this.putBytes(v.source, v.file.name, bytes, v.file)) {
+      await this.showDialog(`${v.file.name} cannot be saved on ${v.source.dev}: ${this.deps.api.diskError()}.`, { title: "Save", buttons: [["OK", true]] });
+      return false;
+    }
     v.bytes = bytes;
     if (v.editor) v.editor.changed = false;
     this.deps.say(`${v.file.name} saved (${bytes.length} bytes)`);
