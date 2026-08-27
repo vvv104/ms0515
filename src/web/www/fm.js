@@ -287,6 +287,34 @@ export class Commander {
     this.select(p, Math.max(0, Math.min(p.files.length - 1, p.selected + move)));
   }
 
+  // Gray + / -: the files matching a pattern of the OS (* any string, % one
+  // character, an omitted part = *) marked on top of the marks there, or
+  // unmarked.
+  async markPattern(p, on) {
+    if (!p.source) return;
+    const pattern = await this.ask(`${on ? "Select" : "Unselect"} the files matching (* any string, % one character; several patterns with commas):`,
+                                   { title: on ? "Select" : "Unselect", input: "*.*" });
+    if (!pattern) return;
+    const test = patternsMatcher(pattern);
+    let n = 0;
+    for (const f of p.files) {
+      if (f.empty || !test(f.name)) continue;
+      ++n;
+      if (on) p.marks.add(f.name); else p.marks.delete(f.name);
+    }
+    this.draw(p);
+    this.deps.say(`${n} file${n === 1 ? "" : "s"} match ${pattern.trim().toUpperCase()}`);
+  }
+
+  // Gray *: every file's mark flipped.
+  invertMarks(p) {
+    for (const f of p.files) {
+      if (f.empty) continue;
+      if (p.marks.has(f.name)) p.marks.delete(f.name); else p.marks.add(f.name);
+    }
+    this.draw(p);
+  }
+
   // What an action works on: the marked files of the active pane, else the
   // current one (an unused area is not a file).
   targets() {
@@ -318,6 +346,7 @@ export class Commander {
                    F9: () => this.squeeze(), F10: () => this.close(), Enter: () => this.view(), Escape: () => this.close(),
                    Tab: () => { this.active ^= 1; this.focusList(); },
                    Insert: () => this.mark(p, 1),
+                   "+": () => this.markPattern(p, true), "-": () => this.markPattern(p, false), "*": () => this.invertMarks(p),
                    ArrowUp: () => e.shiftKey ? this.mark(p, -1) : this.select(p, Math.max(0, p.selected - 1)),
                    ArrowDown: () => e.shiftKey ? this.mark(p, 1) : this.select(p, Math.min(p.files.length - 1, p.selected + 1)),
                    Home: () => this.select(p, 0), End: () => this.select(p, p.files.length - 1) };
@@ -756,6 +785,28 @@ export class Commander {
     this.viewer.hidden = true;
     this.focusList();
   }
+}
+
+// A file pattern as the OS reads one (section 2.5 of its manual): the name
+// and the type matched apart, * for any string of either, % for one
+// character, a part left out is *; a DEV: in front ignored.  Returns the
+// test of a NAME.EXT.
+export function patternMatcher(pattern) {
+  const spec = pattern.trim().toUpperCase().replace(/^[A-Z]+\d*:/, "");
+  const dot = spec.indexOf(".");
+  const parts = dot < 0 ? [spec || "*", "*"] : [spec.slice(0, dot) || "*", spec.slice(dot + 1) || "*"];
+  const rx = (part) => new RegExp("^" + part.replace(/[$]/g, "[$]").replace(/[*]/g, ".*").replace(/%/g, ".") + "$");
+  const [stem, ext] = parts.map(rx);
+  return (name) => {
+    const d = name.indexOf(".");
+    return stem.test(d < 0 ? name : name.slice(0, d)) && ext.test(d < 0 ? "" : name.slice(d + 1));
+  };
+}
+
+// Several patterns, commas or blanks between: a name matching any of them.
+export function patternsMatcher(patterns) {
+  const tests = patterns.split(/[\s,]+/).filter(Boolean).map(patternMatcher);
+  return (name) => tests.some((t) => t(name));
 }
 
 // A host file name as an RT-11 6.3 name: A-Z, 0-9 and $ of it, 6 + 3.
