@@ -276,6 +276,21 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_protect(const char *path, int side, int linear,
     }
 }
 
+/* A linear image (a logical disk) enlarged by `blocks` - a file, it can
+ * grow - so that a file the commander puts in fits.  1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_grow(const char *path, int blocks)
+{
+    try {
+        auto bytes = readAll(path);
+        ms0515::disk::growLinear(bytes, blocks);
+        if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
+        return 1;
+    } catch (const std::exception &e) {
+        gDiskError = e.what();
+        return 0;
+    }
+}
+
 /* A logical disk built in memory - the file the OS's LD handler mounts as a
  * volume (linear, no interleave, any size).  ms_ld_create sizes it in
  * blocks and initialises it (`segments` directory segments, the volume id);

@@ -121,6 +121,15 @@ void renameFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, const std::string &newName,
                 bool linear = false);
 
+/* Enlarge a linear (HD / logical-disk) volume by `blocks`: zero blocks
+ * appended and the directory told - the last entry of the last segment
+ * lengthened when it is an empty one, else a new empty entry added before
+ * the end marker.  A logical disk is a file, and the LD handler takes the
+ * volume's size from the file's length, so a grown one mounts as is.
+ * Throws std::runtime_error on a non-positive count, an uninitialised
+ * image, or a directory segment with no room for the new entry. */
+void growLinear(std::vector<uint8_t> &image, int blocks);
+
 } /* namespace ms0515::disk */
 
 #endif /* MS0515_DISK_BUILD_HPP */

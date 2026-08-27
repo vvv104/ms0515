@@ -720,6 +720,7 @@ function bindApi() {
     diskInit:   c("ms_disk_init", "number", ["string", "number", "number"]),
     diskSqueeze: c("ms_disk_squeeze", "number", ["string", "number", "number"]),
     diskProtect: c("ms_disk_protect", "number", ["string", "number", "number", "string", "number"]),
+    diskGrow:    c("ms_disk_grow", "number", ["string", "number"]),
     ldCreate: c("ms_ld_create", "number", ["number", "number", "string"]),
     ldPut:    c("ms_ld_put", "number", ["string", "number", "number", "number", "number", "number", "number"]),
     ldData:   c("ms_ld_data", "number", []),

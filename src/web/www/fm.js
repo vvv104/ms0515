@@ -564,13 +564,21 @@ export class Commander {
     return M.HEAPU8.slice(api.diskData(), api.diskData() + n);
   }
 
-  putBytes(source, name, bytes, file) {
+  // A file written (the buffer freed only after the write, which may wait
+  // on a mount).  A volume is a file: when the file does not fit, the
+  // volume grows by what the file needs and the put is tried again.
+  async putBytes(source, name, bytes, file) {
     const api = this.deps.api, M = this.deps.module();
     const ptr = M._malloc(bytes.length || 1);
     M.HEAPU8.set(bytes, ptr);
     const [y, m, d] = file?.date ? file.date.split("-").map(Number) : [0, 0, 0];
     try {
-      return this.writable(source, () => api.diskPut(source.path, source.side, source.linear ? 1 : 0, name, ptr, bytes.length, y, m, d, file?.protected ? 1 : 0));
+      return await this.writable(source, () => {
+        const put = () => api.diskPut(source.path, source.side, source.linear ? 1 : 0, name, ptr, bytes.length, y, m, d, file?.protected ? 1 : 0);
+        if (put()) return 1;
+        if (!source.parent || !api.diskGrow(source.path, Math.ceil(bytes.length / 512) || 1)) return 0;
+        return put();
+      });
     } finally {
       M._free(ptr);
     }

@@ -65,6 +65,7 @@ CI runs both in the `web / emscripten` job.
 | `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
 | `ms_key_release_all(h)` | every key up (the canvas lost the focus) |
 | `ms_disk_dir(path, side, linear)` / `ms_disk_get(path, side, linear, name)` + `ms_disk_data()` / `ms_disk_put(path, side, linear, name, data, len, y, m, d, prot)` / `ms_disk_rm(...)` / `ms_disk_rename(...)` / `ms_disk_protect(..., on)` / `ms_disk_init(...)` / `ms_disk_squeeze(...)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library; `linear` for the HD): the page's commander |
+| `ms_disk_grow(path, blocks)` | a linear image enlarged: the commander grows a logical disk a file does not fit into |
 | `ms_ld_create(blocks, segments, volumeId)` / `ms_ld_put(name, data, len, y, m, d, prot)` / `ms_ld_data()` + `ms_ld_size()` | a logical disk built in memory - the linear file the system's LD handler mounts as a volume (`MOUNT LD0: DZn:NAME.DSK`) |
 | `ms_joystick(h, bits)` | the joystick on the MS7007 port: bits 0-4 right, left, down, up, fire (`joystick.js`: the arrows and Space, or a touch overlay) |
 
@@ -123,7 +124,9 @@ Alt+F6 protects the marked files (or unprotects them when every one is),
 Alt+F7 finds files by pattern on every mounted disk and goes to the pick.
 Enter on a logical disk enters it as if a directory (".." or Backspace
 back out): its file is taken into the module's file system, read there
-linearly and put back into its disk after every change; in the dialogs
+linearly and put back into its disk after every change; a file that does
+not fit makes the volume grow by what it needs (`ms_disk_grow`: blocks
+appended, the last empty entry lengthened or one added); in the dialogs
 such a place is `DZn:NAME.DSK/FILE`.
 The viewer's keys, as mc's: F1 the encoding (KOI-7, KOI-8R, CP866 in turn),
 F2 wrap / unwrap at the machine's 80 columns, F3 and F10 back, F4 text /

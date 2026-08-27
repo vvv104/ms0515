@@ -457,4 +457,46 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear)
     std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
 }
 
+void growLinear(std::vector<uint8_t> &image, int blocks)
+{
+    requireValidSize(image, false, true);
+    if (blocks <= 0) throw std::runtime_error("grow: the block count must be positive");
+    auto off = [&](int lbn) { return lbnToByte(lbn, 0, false, true); };
+    const int dirLbn = directoryLbn(image, 0, false, true);
+
+    /* The last segment of the chain (linear: a segment's two blocks are
+     * contiguous bytes). */
+    int segLbn = dirLbn;
+    std::vector<uint8_t> seg(2 * kBlock);
+    for (;;) {
+        std::memcpy(seg.data(), image.data() + off(segLbn), 2 * kBlock);
+        const uint16_t next = getw(&seg[2]);
+        if (next == 0) break;
+        segLbn = dirLbn + 2 * (next - 1);
+    }
+    const uint16_t extra = getw(&seg[6]);
+    if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
+    const std::size_t entrySize = 14 + extra;
+
+    std::size_t p = 10, last = 0;               /* last: the entry before the end marker */
+    while (p + entrySize <= seg.size()) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        last = p;
+        p += entrySize;
+    }
+    if (last && (getw(&seg[last]) & kStatusEmpty)) {
+        const int len = getw(&seg[last + 8]) + blocks;
+        if (len > 0xFFFF) throw std::runtime_error("grow: the free area would exceed 65535 blocks");
+        putw(&seg[last + 8], static_cast<uint16_t>(len));
+    } else {
+        if (p + entrySize + 2 > seg.size())
+            throw std::runtime_error("grow: the directory segment has no room for another entry");
+        putEntry(seg.data(), p, kStatusEmpty, 0x00D5, 0x6739, 0x26F4, static_cast<uint16_t>(blocks));
+        putw(&seg[p + entrySize], kStatusEndOfSeg);
+    }
+    image.resize(image.size() + static_cast<std::size_t>(blocks) * kBlock, 0);
+    std::memcpy(image.data() + off(segLbn), seg.data(), 2 * kBlock);
+}
+
 } /* namespace ms0515::disk */

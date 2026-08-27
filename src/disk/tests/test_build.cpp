@@ -661,6 +661,39 @@ TEST_CASE("rename keeps the data and refuses a taken or bad name") {
     CHECK_THROWS(renameFile(img, 0, false, "NOSUCH.TXT", "X.TXT"));
 }
 
+TEST_CASE("growLinear: a full volume gets a new empty entry, a free one a longer last area") {
+    auto img = blankLinear(20);
+    InitOptions one;
+    one.segments = 1;
+    initVolume(img, 0, false, one, /*linear=*/true);      /* data from block 8: 12 free */
+    const std::vector<uint8_t> big(12 * kBlock, 0x5A);
+    putFile(img, 0, false, "FULL.DAT", big, {}, /*linear=*/true);
+    CHECK_THROWS(putFile(img, 0, false, "MORE.DAT", std::vector<uint8_t>(kBlock, 1), {}, /*linear=*/true));
+
+    growLinear(img, 10);
+    CHECK(img.size() == 30u * kBlock);
+    putFile(img, 0, false, "MORE.DAT", std::vector<uint8_t>(10 * kBlock, 1), {}, /*linear=*/true);
+    auto im = openLinearImage(img);
+    REQUIRE(im.has_value());
+    REQUIRE(im->hasDirectory);
+    CHECK(im->directory.permanentFiles().size() == 2);
+    CHECK(im->readFile("FULL.DAT") == big);
+
+    auto freeArea = [&] {
+        im = openLinearImage(img);
+        int blocks = 0, empties = 0;
+        for (const auto &e : im->directory.entries)
+            if (e.isEmpty()) { blocks += e.length; ++empties; }
+        return std::pair{blocks, empties};
+    };
+    growLinear(img, 5);
+    CHECK(freeArea() == std::pair{5, 1});
+    growLinear(img, 3);                                    /* the same empty entry, longer */
+    CHECK(freeArea() == std::pair{8, 1});
+    CHECK(img.size() == 38u * kBlock);
+    CHECK_THROWS(growLinear(img, 0));
+}
+
 TEST_CASE("squeeze on a floppy keeps every file's bytes (the LBNs are skewed, not linear)") {
     /* Files spanning many blocks, one removed from the middle, the rest
      * moved down: each must read back byte-exact - the move goes block by
