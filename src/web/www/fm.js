@@ -906,6 +906,7 @@ export class Commander {
                  file: { name: `< UNUSED >${f.was ? "  " + f.was : ""}`, blocks: f.blocks }, bytes, textarea: null, editor: null, query: "", hit: null };
       this.viewer.hidden = false;
       this.showRepr();
+      this.vtext.scrollTop = 0;
       return;
     }
     const c = this.current();
@@ -917,6 +918,7 @@ export class Commander {
                source: c.source, file: c.file, bytes, textarea: null, editor: null, query: "", hit: null };
     this.viewer.hidden = false;
     this.showRepr();
+    this.vtext.scrollTop = 0;
   }
 
   view() { this.openViewer("view"); }
@@ -940,7 +942,6 @@ export class Commander {
     if (v.mode === "view") {
       this.vtext.hidden = false;
       this.renderView(bytes);
-      this.vtext.scrollTop = 0;
       this.vtext.focus();
     } else if (v.repr === "text") {
       this.vedit.hidden = false;
@@ -1030,12 +1031,29 @@ export class Commander {
   }
 
   // Another encoding or representation: the content is kept as bytes first.
+  // The content shown anew after a change of the encoding or the
+  // representation - at the same place: the scroll kept as a fraction of
+  // the way down (exact when the lines stay the same, near enough between
+  // a text and its dump).
   rekey(change) {
     const v = this.v;
     v.bytes = this.currentBytes();
+    const frac = this.scrolled();
     change();
     v.hit = null;
     this.showRepr();
+    this.scrollTo(frac);
+  }
+
+  scrolled() {
+    const box = this.v.textarea ?? this.vtext;
+    const range = box.scrollHeight - box.clientHeight;
+    return range > 0 ? box.scrollTop / range : 0;
+  }
+
+  scrollTo(frac) {
+    const box = this.v.textarea ?? this.vtext;
+    box.scrollTop = frac * (box.scrollHeight - box.clientHeight);
   }
 
   cycleEncoding() {
@@ -1049,8 +1067,10 @@ export class Commander {
   }
 
   toggleWrap() {
+    const frac = this.scrolled();
     this.v.wrap = !this.v.wrap;
     this.renderView(this.currentBytes());
+    this.scrollTo(frac);
     this.drawViewerBar();
     this.vtext.focus();
   }
