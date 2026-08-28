@@ -426,6 +426,9 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_system(const char *path, int side, int vol, con
     }
 }
 
+/* The emulator's version, as built (src/VERSION). */
+EMSCRIPTEN_KEEPALIVE const char *ms_version(void) { return MS0515_VERSION_STRING; }
+
 EMSCRIPTEN_KEEPALIVE const char *ms_disk_text(void) { return gDiskText.c_str(); }
 
 /* /PROTECT (on = 1) or /NOPROTECT (0) on a file.  1 / 0. */

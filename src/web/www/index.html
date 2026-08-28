@@ -102,11 +102,12 @@
   /* The help pops up over the screen (fixed: the footer clips its overflow). */
   footer details div { position: fixed; bottom: 2.2em; left: .75em; width: min(44em, 90vw); white-space: normal; background: #222; border: 1px solid #444;
                        border-radius: 4px; padding: .5em .75em; color: #ccc; z-index: 5; }
+#ver { align-self: center; color: #7d93a8; font-size: 12px; margin-right: 4px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>MS-0515</h1>
+  <h1>MS-0515</h1><span id="ver" title="the emulator version, as built"></span>
   <label>ROM <select id="rom"><option value="a">A</option><option value="b">B</option></select></label>
   <button id="boot" title="reset the machine with the disks mounted now">Boot</button>
   <div class="devices">

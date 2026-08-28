@@ -743,6 +743,7 @@ function bindApi() {
     joystick: c("ms_joystick", null, ["number", "number"]),
     diskDir:    c("ms_disk_dir", "string", ["string", "number", "number"]),
     diskDetect: c("ms_disk_detect", "string", ["string"]),
+    version:    c("ms_version", "string", []),
     diskError:  c("ms_disk_error", "string", []),
     diskGet:    c("ms_disk_get", "number", ["string", "number", "number", "string"]),
     diskData:   c("ms_disk_data", "number", []),
@@ -826,6 +827,7 @@ async function main() {
   window.addEventListener("resize", fit);
   M = await createMs0515({ locateFile: (f) => f + "?v=@STAMP@" });
   bindApi();
+  $("ver").textContent = "v" + api.version();
   image = ctx.createImageData(canvas.width, canvas.height);
   h = api.create();
 
