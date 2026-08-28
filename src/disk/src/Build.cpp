@@ -93,6 +93,26 @@ void initVolume(std::vector<uint8_t> &image, int side, bool ds,
     if (opts.segments < 1 || opts.segments > 31)
         throw std::runtime_error("directory segments must be 1..31");
 
+    /* A double-sided image can hold volumes of several kinds (a DZ side,
+     * DV:, MZ:), and their system blocks do not overlap - so a volume the
+     * image held BEFORE this INIT would still detect afterwards.  The new
+     * volume owns the whole area, and the foreign lenses' home blocks are
+     * its blank data - erase them, and the stale directories become
+     * unreachable.  A side-1 DZ INIT touches nothing: every foreign home
+     * block lies physically on side 0, where its own volume may live. */
+    if (image.size() == kDoubleSize && vol != Vol::linear
+        && !(vol == Vol::floppy && side == 1)) {
+        const std::size_t own = lbnToByte(1, side, true, vol);
+        for (const std::size_t off : {lbnToByte(1, 0, true, Vol::floppy),
+                                      lbnToByte(1, 0, true, Vol::dv),
+                                      lbnToByte(1, 0, true, Vol::mz),
+                                      vol == Vol::floppy ? own
+                                          : lbnToByte(1, 1, true, Vol::floppy)})
+            if (off != own)
+                for (int i = 0; i < kBlock; ++i)
+                    image[off + i] = (i & 1) ? uint8_t{0x6D} : uint8_t{0xB6};
+    }
+
     const int volBlocks = static_cast<int>(volumeBlocks(image, vol));
 
     auto writeBlock = [&](int lbn, const uint8_t *src) {

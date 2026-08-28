@@ -338,7 +338,8 @@ function fileSources() {
   // An 800 KB image can be one whole-disk DV:/MZ: volume instead of two DZ
   // sides - the content decides (the DV/MZ handlers' formats, told by the
   // home block + directory).
-  const whole = {};
+  const whole = {};   // drive -> 2 (DV) / 3 (MZ): one whole-disk volume
+  const uninit = {};  // drive -> true: no volume of any kind on the image yet
   for (let drive = 0; drive < 2; ++drive) {
     const name = ds[drive] && slots.fd[unitOf(drive, 0)];
     if (!name) continue;
@@ -346,6 +347,7 @@ function fileSources() {
       const det = JSON.parse(api.diskDetect(pathOf(name)) || "[]");
       const w = det.find((s) => s.vol >= 2);
       if (w && !det.some((s) => s.vol === 0)) whole[drive] = w.vol;
+      else if (!det.length) uninit[drive] = true;
     } catch { /* an unreadable image stays a pair of DZ sides */ }
   }
   for (let unit = 0; unit < 4; ++unit) {
@@ -356,6 +358,14 @@ function fileSources() {
       if (side === 1) continue;                 // one volume, not two sides
       const dev = `${whole[drive] === 2 ? "DV" : "MZ"}${drive}:`;
       out.push({ id: `fd${unit}`, dev, label: `${dev} ${name}`, path: pathOf(name), side: 0, vol: whole[drive], ds: true, linear: false, name, unit });
+      continue;
+    }
+    if (uninit[drive]) {
+      // Not a volume of any kind yet: one entity, not a pair of DZ sides -
+      // the INIT dialog names what it becomes (DZ a side, DV or MZ).
+      if (side === 1) continue;
+      const dev = `${"AB"[drive]}:`;
+      out.push({ id: `fd${unit}`, dev, label: `${dev} ${name} - uninitialised`, path: pathOf(name), side: 0, vol: 0, ds: true, uninit: true, linear: false, name, unit });
       continue;
     }
     // The image's side: a two-sided image has the unit's, a one-sided image

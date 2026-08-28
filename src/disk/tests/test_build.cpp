@@ -1088,3 +1088,32 @@ TEST_CASE("detectVolumes tells DZ sides, DV, MZ and linear apart by content") {
     REQUIRE(specs.size() == 1);
     CHECK(specs[0].vol == Vol::linear);
 }
+
+TEST_CASE("re-INIT of a two-sided image erases the previous kind's traces") {
+    auto img = blankImage(true);
+    initVolume(img, 0, true);                    /* a DZ volume on side 0 */
+    initVolume(img, 1, true);                    /* and one on side 1 */
+    REQUIRE(detectVolumes(img).size() == 2);
+
+    initVolume(img, 0, true);                    /* side 0 anew: side 1 lives on */
+    REQUIRE(detectVolumes(img).size() == 2);
+
+    initVolume(img, 0, true, {}, Vol::dv);       /* reformatted as DV */
+    auto specs = detectVolumes(img);
+    REQUIRE(specs.size() == 1);
+    CHECK(specs[0].vol == Vol::dv);
+
+    initVolume(img, 0, true, {}, Vol::mz);       /* and as MZ */
+    specs = detectVolumes(img);
+    REQUIRE(specs.size() == 1);
+    CHECK(specs[0].vol == Vol::mz);
+
+    initVolume(img, 0, true);                    /* back to a DZ side */
+    specs = detectVolumes(img);
+    REQUIRE(specs.size() == 1);
+    CHECK(specs[0].vol == Vol::floppy);
+    CHECK(specs[0].side == 0);
+
+    initVolume(img, 1, true);                    /* side 1 made anew again */
+    REQUIRE(detectVolumes(img).size() == 2);
+}
