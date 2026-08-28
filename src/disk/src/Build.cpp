@@ -551,19 +551,68 @@ std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds)
     return "";
 }
 
-std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds)
+std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor)
 {
     std::vector<std::string> out;
     if (image.size() != (ds ? kDoubleSize : kSideSize)) return out;
     auto img = openImage(image, side);
     if (!img || !img->hasDirectory) return out;
-    static const char *const kUtilities[] = {"PIP.SAV", "DUP.SAV", "DIR.SAV", "RESORC.SAV"};
-    for (const auto &e : img->directory.permanentFiles()) {
-        const bool sys = e.name.size() > 4 && e.name.compare(e.name.size() - 4, 4, ".SYS") == 0;
-        const bool util = std::find(std::begin(kUtilities), std::end(kUtilities), e.name) != std::end(kUtilities);
-        if (sys || util) out.push_back(e.name);
-    }
+    const std::string mon = monitorFile(monitor);
+    static const char *const kNeeded[] = {"SWAP.SYS", "DZ.SYS", "TT.SYS", "PIP.SAV", "DUP.SAV", "DIR.SAV", "RESORC.SAV"};
+    for (const auto &e : img->directory.permanentFiles())
+        if (e.name == mon || std::find(std::begin(kNeeded), std::end(kNeeded), e.name) != std::end(kNeeded))
+            out.push_back(e.name);
     return out;
+}
+
+std::string startupFile(const std::vector<uint8_t> &monitorFile)
+{
+    /* "\0@" then six of A-Z 0-9 $ and blanks, then "\0"; a name of one
+     * character is something else ("@$"). */
+    for (std::size_t i = 0; i + 9 <= monitorFile.size(); ++i) {
+        if (monitorFile[i] != 0 || monitorFile[i + 1] != '@' || monitorFile[i + 8] != 0) continue;
+        std::string name;
+        bool ok = true;
+        for (std::size_t k = 2; k < 8 && ok; ++k) {
+            const char c = static_cast<char>(monitorFile[i + k]);
+            if (c == ' ') continue;
+            if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '$') name += c; else ok = false;
+        }
+        if (ok && name.size() >= 2) return name + ".COM";
+    }
+    return "";
+}
+
+std::string makeSystemVolume(std::vector<uint8_t> &target, int side, bool ds,
+                             const std::vector<uint8_t> &source, int sourceSide, bool sourceDs,
+                             const std::vector<std::string> &extras)
+{
+    const std::string monitor = bootedMonitor(source, sourceSide, sourceDs);
+    if (monitor.empty()) throw std::runtime_error("the source is not a system volume: no bootstrap on it");
+    auto src = openImage(source, sourceSide);
+    if (!src || !src->hasDirectory) throw std::runtime_error("the source holds no RT-11 directory");
+    auto there = openImage(target, side);
+    if (!there || !there->hasDirectory) throw std::runtime_error("the target holds no RT-11 directory");
+
+    auto copy = [&](const std::string &name, bool protect) {
+        const auto *e = src->directory.find(name);
+        if (!e) throw std::runtime_error("no " + name + " on the source");
+        if (openImage(target, side)->directory.find(name)) removeFile(target, side, ds, name);
+        PutOptions opts;
+        opts.date = e->date;
+        opts.readOnly = protect || (e->status & kStatusProtected) != 0;
+        putFile(target, side, ds, name, src->readFile(name), opts);
+    };
+    for (const auto &name : systemKit(source, sourceSide, sourceDs, monitor)) copy(name, true);
+    for (const auto &name : extras) copy(name, false);
+
+    const std::string startup = startupFile(src->readFile(monitorFile(monitor)));
+    if (!startup.empty() && !openImage(target, side)->directory.find(startup)) {
+        static const char kLine[] = "SET TT QUIET\r\n";
+        putFile(target, side, ds, startup, std::span<const uint8_t>(reinterpret_cast<const uint8_t *>(kLine), sizeof kLine - 1));
+    }
+    writeBoot(target, side, ds, monitor);
+    return monitor;
 }
 
 void writeBoot(std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor)

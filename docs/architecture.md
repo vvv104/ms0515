@@ -132,9 +132,11 @@ tool that read and write images directly, without running the machine.
   blocks 1..4 with the device and monitor names in RAD50).
 - Binary `ms0515-disk` (`src/tools/disk/`) — `create / init / put / rm /
   squeeze / protect / unprotect / setdate / get / dir / boot / system /
-  split / merge` (`system <target> --from <image>`: the kit - every .SYS,
-  PIP, DUP, DIR, RESORC - copied from a bootable image, then the
-  bootstrap).  Geometry follows the image size; there is no layout flag.
+  split / merge` (`system <target> --from <image> [extra]...`: the kit -
+  the monitor, SWAP, DZ, TT, PIP, DUP, DIR, RESORC - copied from a
+  bootable image and protected, the extras with it, the startup .COM the
+  monitor names made anew, then the bootstrap).  Geometry follows the
+  image size; there is no layout flag.
 
 The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
 is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified

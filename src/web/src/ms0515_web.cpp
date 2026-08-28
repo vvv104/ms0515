@@ -358,35 +358,37 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_booted(const char *path, int side)
     return gDiskText.c_str();
 }
 
-/* The target side made a system volume of the source side's: the kit
- * (every .SYS, PIP, DUP, DIR, RESORC) copied over, files of the same
- * names replaced, then the bootstrap written as COPY/BOOT would.  The
- * names copied, comma-separated, at ms_disk_text(); 1 / 0. */
-EMSCRIPTEN_KEEPALIVE int ms_disk_system(const char *path, int side, const char *fromPath, int fromSide)
+/* The kit a system volume of the side would be made of, comma-separated:
+ * the monitor, SWAP, DZ, TT, PIP, DUP, DIR, RESORC of those there; "" when
+ * the side does not boot. */
+EMSCRIPTEN_KEEPALIVE const char *ms_disk_kit(const char *path, int side)
+{
+    auto bytes = readAll(path);
+    const bool ds = bytes.size() == 2 * 409600;
+    gDiskText.clear();
+    const std::string monitor = ms0515::disk::bootedMonitor(bytes, side, ds);
+    if (!monitor.empty())
+        for (const auto &name : ms0515::disk::systemKit(bytes, side, ds, monitor)) gDiskText += (gDiskText.empty() ? "" : ",") + name;
+    return gDiskText.c_str();
+}
+
+/* The target side made a system volume of the source side's (the disk
+ * library's makeSystemVolume: the kit protected, the extras - comma-
+ * separated names - as they are, the startup .COM made anew, the
+ * bootstrap).  The monitor's name at ms_disk_text(); 1 / 0. */
+EMSCRIPTEN_KEEPALIVE int ms_disk_system(const char *path, int side, const char *fromPath, int fromSide, const char *extras)
 {
     try {
         auto bytes = readAll(path);
         auto from = readAll(fromPath);
-        const bool ds = bytes.size() == 2 * 409600, fromDs = from.size() == 2 * 409600;
-        const std::string monitor = ms0515::disk::bootedMonitor(from, fromSide, fromDs);
-        if (monitor.empty()) throw std::runtime_error("the source is not a system volume: no bootstrap on it");
-        auto src = ms0515::disk::openImage(from, fromSide);
-        if (!src || !src->hasDirectory) throw std::runtime_error("the source holds no RT-11 directory");
-        std::string names;
-        for (const auto &name : ms0515::disk::systemKit(from, fromSide, fromDs)) {
-            const auto *e = src->directory.find(name);
-            if (!e) continue;
-            auto there = ms0515::disk::openImage(bytes, side);
-            if (there && there->hasDirectory && there->directory.find(name)) ms0515::disk::removeFile(bytes, side, ds, name);
-            ms0515::disk::PutOptions opts;
-            opts.date = e->date;
-            opts.readOnly = (e->status & ms0515::disk::kStatusProtected) != 0;
-            ms0515::disk::putFile(bytes, side, ds, name, src->readFile(name), opts);
-            names += (names.empty() ? "" : ", ") + name;
+        std::vector<std::string> names;
+        for (std::string s = extras; !s.empty();) {
+            const auto comma = s.find(',');
+            names.push_back(s.substr(0, comma));
+            s = comma == std::string::npos ? "" : s.substr(comma + 1);
         }
-        ms0515::disk::writeBoot(bytes, side, ds, monitor);
+        gDiskText = ms0515::disk::makeSystemVolume(bytes, side, bytes.size() == 2 * 409600, from, fromSide, from.size() == 2 * 409600, names);
         if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
-        gDiskText = monitor + ": " + names;
         return 1;
     } catch (const std::exception &e) {
         gDiskError = e.what();

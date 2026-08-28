@@ -58,23 +58,13 @@ std::vector<uint8_t> bootBlocks(const std::vector<uint8_t> &image, int side, boo
     return out;
 }
 
-/* A fresh single-sided volume holding the kit of `system` (side 0), made
- * bootable by the library. */
+/* A fresh single-sided volume made a system volume of `system` (side 0)
+ * by the library. */
 std::vector<uint8_t> systemCopy(const std::vector<uint8_t> &system, bool systemDs)
 {
     auto target = blankImage(false);
     initVolume(target, 0, false);
-    auto src = openImage(system, 0);
-    REQUIRE(src.has_value());
-    for (const auto &name : systemKit(system, 0, systemDs)) {
-        const auto *e = src->directory.find(name);
-        REQUIRE(e != nullptr);
-        PutOptions opts;
-        opts.date = e->date;
-        opts.readOnly = (e->status & kStatusProtected) != 0;
-        putFile(target, 0, false, name, src->readFile(name), opts);
-    }
-    writeBoot(target, 0, false, bootedMonitor(system, 0, systemDs));
+    makeSystemVolume(target, 0, false, system, 0, systemDs);
     return target;
 }
 
@@ -132,18 +122,28 @@ TEST_CASE("writeBoot reproduces the boot blocks RT-11's COPY/BOOT wrote on the s
 }
 
 TEST_CASE("a system volume the library makes boots, and makes another that boots") {
-    struct System { const char *file; const char *rom; const char *monitor; };
-    const System systems[] = {{"vvv.dsk", "a", "RT11SJ"}, {"osa.dsk", "a", "MON8SJ"}, {"mihin.dsk", "b", "RT11SJ"}};
+    struct System { const char *file; const char *rom; const char *monitor; const char *startup; };
+    const System systems[] = {{"vvv.dsk", "a", "RT11SJ", "STARTS.COM"}, {"osa.dsk", "a", "MON8SJ", "ST.COM"}, {"mihin.dsk", "b", "RT11SJ", "STARTS.COM"}};
     for (const auto &s : systems) {
         SUBCASE(s.file) {
             const auto system = readAll(kDisks + "/" + s.file);
-            const auto kit = systemKit(system, 0, false);
+            const auto kit = systemKit(system, 0, false, s.monitor);
             CHECK(std::find(kit.begin(), kit.end(), std::string(s.monitor) + ".SYS") != kit.end());
             CHECK(std::find(kit.begin(), kit.end(), "SWAP.SYS") != kit.end());
             CHECK(std::find(kit.begin(), kit.end(), "DZ.SYS") != kit.end());
+            CHECK(std::find(kit.begin(), kit.end(), "TT.SYS") != kit.end());
+            CHECK(std::find(kit.begin(), kit.end(), "VM.SYS") == kit.end());      /* an extra, not the kit */
+            CHECK(startupFile(openImage(system, 0)->readFile(std::string(s.monitor) + ".SYS")) == s.startup);
 
             const auto first = systemCopy(system, false);
             CHECK(bootedMonitor(first, 0, false) == s.monitor);
+            {
+                auto im = openImage(first, 0);
+                REQUIRE(im->directory.find(s.startup) != nullptr);
+                CHECK(im->readFile(s.startup).size() == kBlock);
+                for (const auto &e : im->directory.permanentFiles())
+                    CHECK_MESSAGE(((e.status & kStatusProtected) != 0) == (e.name != s.startup), e.name);
+            }
             CHECK(bootsToPrompt(s.rom[0] == 'a' ? kRomA : kRomB, first, 600));
 
             const auto second = systemCopy(first, false);   /* the copy can do the same again */

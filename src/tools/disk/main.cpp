@@ -62,10 +62,12 @@ int usage()
         "                                        monitor named - the volume's own DZ.SYS and\n"
         "                                        monitor file; MONITOR defaults to the one .SYS\n"
         "                                        that is a monitor\n"
-        "  system <target> --from <system image> [--side 0|1] [--from-side 0|1]\n"
-        "                                        a system volume: the kit (every .SYS, PIP, DUP,\n"
-        "                                        DIR, RESORC) copied from a bootable image,\n"
-        "                                        then the bootstrap; the target must be initialised\n"
+        "  system <target> --from <system image> [--side 0|1] [--from-side 0|1] [extra]...\n"
+        "                                        a system volume: the kit (the monitor, SWAP, DZ,\n"
+        "                                        TT, PIP, DUP, DIR, RESORC - protected) copied from\n"
+        "                                        a bootable image with the extras named, the\n"
+        "                                        startup .COM made anew, then the bootstrap; the\n"
+        "                                        target must be initialised\n"
         "  split  <ds.dsk> <side0.dsk> <side1.dsk>   split an 800 KB DS into two 400 KB SS\n"
         "  merge  <side0.dsk> <side1.dsk> <ds.dsk>   merge two 400 KB SS into an 800 KB DS\n"
         "\n"
@@ -460,32 +462,20 @@ int cmdBoot(const std::string &path, int side, std::string monitor)
 
 /* The kit of `fromPath` (side `fromSide`) put on `path` (side `side`),
  * files of the same names replaced, then the bootstrap. */
-int cmdSystem(const std::string &path, int side, const std::string &fromPath, int fromSide)
+int cmdSystem(const std::string &path, int side, const std::string &fromPath, int fromSide,
+              const std::vector<std::string> &extras)
 {
     bool ds = false, fromDs = false;
     auto image = readImage(path, ds, false);
     if (!image) return 1;
     auto from = readImage(fromPath, fromDs, false);
     if (!from) return 1;
-    const std::string monitor = bootedMonitor(*from, fromSide, fromDs);
-    if (monitor.empty()) { std::fprintf(stderr, "error: %s (side %d) is not a system volume: no bootstrap on it\n", fromPath.c_str(), fromSide); return 1; }
-    auto src = openImage(*from, fromSide);
-    if (!src || !src->hasDirectory) { std::fprintf(stderr, "error: %s: no RT-11 directory\n", fromPath.c_str()); return 1; }
     try {
-        int blocks = 0;
-        for (const auto &name : systemKit(*from, fromSide, fromDs)) {
-            const auto *e = src->directory.find(name);
-            if (!e) continue;
-            if (openImage(*image, side)->directory.find(name)) removeFile(*image, side, ds, name);
-            PutOptions opts;
-            opts.date = e->date;
-            opts.readOnly = (e->status & kStatusProtected) != 0;
-            putFile(*image, side, ds, name, src->readFile(name), opts);
-            blocks += e->length;
-            std::printf("  %-12s %4d blocks\n", name.c_str(), e->length);
-        }
-        writeBoot(*image, side, ds, monitor);
-        std::printf("  %s (side %d): a system volume of %s, %d blocks\n", path.c_str(), side, monitor.c_str(), blocks);
+        const std::string monitor = makeSystemVolume(*image, side, ds, *from, fromSide, fromDs, extras);
+        auto im = openImage(*image, side);
+        for (const auto &e : im->directory.permanentFiles())
+            std::printf("  %-12s %4d blocks%s\n", e.name.c_str(), e.length, (e.status & kStatusProtected) ? "  P" : "");
+        std::printf("  %s (side %d): a system volume of %s\n", path.c_str(), side, monitor.c_str());
     } catch (const std::exception &e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 1;
@@ -666,16 +656,17 @@ int main(int argc, char **argv)
 
     if (cmd == "system") {
         std::string image, from; int side = 0, fromSide = 0;
+        std::vector<std::string> extras;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
             if (a == "--from-side" && i + 1 < argc) { fromSide = std::atoi(argv[++i]); continue; }
             if (a == "--from" && i + 1 < argc) { from = argv[++i]; continue; }
             if (image.empty()) { image = std::string(a); continue; }
-            return usage();
+            extras.emplace_back(a);
         }
         if (image.empty() || from.empty()) return usage();
-        return cmdSystem(image, side, from, fromSide);
+        return cmdSystem(image, side, from, fromSide, extras);
     }
 
     if (cmd == "setdate") {

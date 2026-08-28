@@ -778,7 +778,8 @@ std::vector<uint8_t> kitFloppy()
 TEST_CASE("writeBoot: the handler's primary driver to LBN 0, the monitor's blocks 1..4 to LBN 2..5, four words named") {
     auto img = kitFloppy();
     CHECK(bootedMonitor(img, 0, false) == "");
-    CHECK(systemKit(img, 0, false) == std::vector<std::string>{"DZ.SYS", "RT11SJ.SYS", "SWAP.SYS", "PIP.SAV"});
+    CHECK(systemKit(img, 0, false, "RT11SJ") == std::vector<std::string>{"DZ.SYS", "RT11SJ.SYS", "SWAP.SYS", "PIP.SAV"});
+    CHECK(systemKit(img, 0, false, "MON8SJ") == std::vector<std::string>{"DZ.SYS", "SWAP.SYS", "PIP.SAV"});
     const auto before = img;
 
     writeBoot(img, 0, false, "RT11SJ");
@@ -811,6 +812,67 @@ TEST_CASE("writeBoot: the handler's primary driver to LBN 0, the monitor's block
     const auto once = img;
     writeBoot(img, 0, false, "RT11SJ.SYS");
     CHECK(img == once);
+}
+
+TEST_CASE("startupFile: the KMON line the monitor holds") {
+    std::vector<uint8_t> m(3000, 0x55);
+    CHECK(startupFile(m) == "");
+    const char a[] = "\0@STARTS\0";
+    std::copy(a, a + 9, m.begin() + 1000);
+    CHECK(startupFile(m) == "STARTS.COM");
+    const char b[] = "\0@ST    \0";
+    std::copy(b, b + 9, m.begin() + 1000);
+    CHECK(startupFile(m) == "ST.COM");
+    const char c[] = "\0@START \0";
+    std::copy(c, c + 9, m.begin() + 1000);
+    CHECK(startupFile(m) == "START.COM");
+    const char d[] = "\0@$     \0";                        /* one character: not a file */
+    std::copy(d, d + 9, m.begin() + 1000);
+    CHECK(startupFile(m) == "");
+}
+
+TEST_CASE("makeSystemVolume: the kit protected, the extras as they are, the startup file made anew, the bootstrap") {
+    auto system = kitFloppy();
+    {   /* the monitor names ST as its startup file; a VM.SYS and a game lie about */
+        auto mon = openImage(system, 0)->readFile("RT11SJ.SYS");
+        const char line[] = "\0@ST    \0";
+        std::copy(line, line + 9, mon.begin() + 5 * kBlock + 100);
+        removeFile(system, 0, false, "RT11SJ.SYS");
+        putFile(system, 0, false, "RT11SJ.SYS", mon);
+        putFile(system, 0, false, "VM.SYS", std::vector<uint8_t>(kBlock, 6));
+        putFile(system, 0, false, "TT.SYS", std::vector<uint8_t>(kBlock, 7));
+        putFile(system, 0, false, "ST.COM", std::vector<uint8_t>{'R', ' ', 'G', 'A', 'M', 'E', '\r', '\n'});
+        writeBoot(system, 0, false, "RT11SJ");
+    }
+    auto target = blankImage(false);
+    initVolume(target, 0, false);
+    CHECK(makeSystemVolume(target, 0, false, system, 0, false, {"GAME.SAV"}) == "RT11SJ");
+    auto im = openImage(target, 0);
+    std::vector<std::string> names;
+    for (const auto &e : im->directory.permanentFiles()) names.push_back(e.name);
+    CHECK(names == std::vector<std::string>{"DZ.SYS", "RT11SJ.SYS", "SWAP.SYS", "PIP.SAV", "TT.SYS", "GAME.SAV", "ST.COM"});
+    for (const auto &e : im->directory.permanentFiles()) {
+        const bool protectedNow = (e.status & kStatusProtected) != 0;
+        CHECK_MESSAGE(protectedNow == (e.name != "GAME.SAV" && e.name != "ST.COM"), e.name);
+    }
+    const auto st = im->readFile("ST.COM");
+    CHECK(st.size() == kBlock);
+    CHECK(std::string(st.begin(), st.begin() + 14) == "SET TT QUIET\r\n");
+    CHECK(bootedMonitor(target, 0, false) == "RT11SJ");
+    CHECK(openImage(target, 0)->readFile("GAME.SAV") == std::vector<uint8_t>(kBlock, 5));
+
+    /* Done again: the files replaced, the startup file there kept. */
+    auto st = openImage(target, 0)->readFile("ST.COM"); st[0] = '!';
+    removeFile(target, 0, false, "ST.COM"); putFile(target, 0, false, "ST.COM", st);
+    makeSystemVolume(target, 0, false, system, 0, false);
+    CHECK(openImage(target, 0)->readFile("ST.COM")[0] == '!');
+    CHECK(openImage(target, 0)->directory.permanentFiles().size() == 7);
+
+    auto blank = blankImage(false);
+    CHECK_THROWS(makeSystemVolume(blank, 0, false, system, 0, false));          /* no directory on the target */
+    auto unbootable = kitFloppy();
+    initVolume(target, 0, false);
+    CHECK_THROWS(makeSystemVolume(target, 0, false, unbootable, 0, false));     /* the source does not boot */
 }
 
 TEST_CASE("writeBoot refuses what it cannot make bootable") {

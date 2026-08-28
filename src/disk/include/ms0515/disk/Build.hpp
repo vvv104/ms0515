@@ -140,11 +140,30 @@ void renameFile(std::vector<uint8_t> &image, int side, bool ds,
  * the side does not boot, or holds no directory. */
 [[nodiscard]] std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds);
 
-/* The files a system volume is made of, of those the side holds, in
- * directory order: every .SYS (the monitor, SWAP, the handlers) and PIP,
- * DUP, DIR, RESORC - the manual's minimal system, and what lets the copy
- * do the same again. */
-[[nodiscard]] std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds);
+/* The files a system volume needs, of those the side holds, in directory
+ * order: the monitor, SWAP.SYS, DZ.SYS and TT.SYS - the boot refuses to go
+ * on without any of them (seen: "?BOOT-U-No SWAP.SYS", "?BOOT-W-TT.SYS
+ * missing") - and PIP, DUP, DIR, RESORC, the utilities that let the copy
+ * do the same again.  Other handlers (VM, LD, HD...) are extras. */
+[[nodiscard]] std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds,
+                                                 const std::string &monitor);
+
+/* The command file a monitor runs at boot ("STARTS.COM" for the Omega
+ * kits, "ST.COM" for OSA, "START.COM" for RT15SJ): the monitor file holds
+ * it as the KMON line "@NAME" - a NUL, "@", the name in six characters,
+ * a NUL.  "" when the file holds none. */
+[[nodiscard]] std::string startupFile(const std::vector<uint8_t> &monitorFile);
+
+/* A system volume: the kit of `source`'s side put on `target`'s side (the
+ * files there of the same names replaced), every one protected as the
+ * system's own volumes have them; the extras named copied as they are;
+ * the monitor's startup command file made anew, unprotected, holding
+ * "SET TT QUIET" alone, unless the target holds one; then the bootstrap.
+ * Returns the monitor's name.  Throws when the source does not boot, the
+ * target holds no directory, or a file does not fit. */
+std::string makeSystemVolume(std::vector<uint8_t> &target, int side, bool ds,
+                             const std::vector<uint8_t> &source, int sourceSide, bool sourceDs,
+                             const std::vector<std::string> &extras = {});
 
 /* The bootstrap of a floppy side - what COPY/BOOT (DUP) writes, verified
  * byte for byte against every DUP and monitor in the collection:

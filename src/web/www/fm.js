@@ -311,7 +311,7 @@ export class Commander {
       ["Find", "a pattern looked for on every mounted disk", () => this.find()],
       this.recoverKey(),
       [],
-      ["System", "this pane's floppy made a system volume of the other pane's (its kit copied, the bootstrap written)", () => this.makeSystem()],
+      ["System", "this pane's floppy made a system volume of the other pane's (its kit and marked files copied, the bootstrap written)", () => this.makeSystem()],
     ]);
   }
 
@@ -770,7 +770,9 @@ export class Commander {
   }
 
   // Alt+F10: this pane's floppy made a system volume of the other pane's:
-  // the kit (every .SYS, PIP, DUP, DIR, RESORC) copied over, then the
+  // the kit (the monitor, SWAP, DZ, TT, PIP, DUP, DIR, RESORC) copied over
+  // and protected, the other pane's marked files with it as they are, the
+  // monitor's startup .COM made anew (SET TT QUIET alone), then the
   // bootstrap written the way COPY/BOOT does it (the library's writeBoot,
   // byte for byte the OS's) - no running system needed.  The other pane's
   // disk must boot itself; the target a floppy with a directory.
@@ -785,17 +787,20 @@ export class Commander {
     const api = this.deps.api;
     const monitor = api.diskBooted(from.path, from.side);
     if (!monitor) throw new Error(`${from.dev} ${from.name} is not a system volume: no bootstrap on it`);
-    const kit = this.dirOf(from).filter((f) => /\.SYS$/.test(f.name) || ["PIP.SAV", "DUP.SAV", "DIR.SAV", "RESORC.SAV"].includes(f.name));
-    const blocks = kit.reduce((a, f) => a + f.blocks, 0);
-    const replaced = this.namesOn(to).filter((n) => kit.some((f) => f.name === n));
-    const question = `Make ${to.dev} ${to.name} a system volume of ${from.dev} ${from.name} - ${monitor}, ${kit.length} files, ${blocks} blocks?`
+    const kitNames = api.diskKit(from.path, from.side).split(",");
+    const extras = [...other.marks].filter((n) => !kitNames.includes(n));
+    const files = this.dirOf(from).filter((f) => kitNames.includes(f.name) || extras.includes(f.name));
+    const blocks = files.reduce((a, f) => a + f.blocks, 0);
+    const replaced = this.namesOn(to).filter((n) => files.some((f) => f.name === n));
+    const question = `Make ${to.dev} ${to.name} a system volume of ${from.dev} ${from.name} - ${monitor}: ${kitNames.join(", ")}`
+                   + (extras.length ? ` and the marked ${extras.join(", ")}` : "") + ` - ${blocks} blocks?`
                    + (replaced.length ? `  ${replaced.join(", ")} there will be replaced.` : "");
     if (!await this.ask(question, { title: "System" })) return;
-    const ok = await this.writable(to, () => api.diskSystem(to.path, to.side, from.path, from.side));
+    const ok = await this.writable(to, () => api.diskSystem(to.path, to.side, from.path, from.side, extras.join(",")));
     if (!ok) throw new Error(api.diskError());
-    const copied = api.diskText();                  // read before the panes reload (the module's text is one)
+    other.marks.clear();
     this.refresh();
-    this.deps.say(`${to.dev} boots ${monitor} now (${copied}) - mount it in A: and Boot`);
+    this.deps.say(`${to.dev} boots ${monitor} now - mount it in A: and Boot`);
   }
 
   // Alt+F6: the marked files (or the current one) protected - or, when
