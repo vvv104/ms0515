@@ -355,7 +355,11 @@ export class Commander {
   }
 
   // ── open / close / the panes ────────────────────────────────────────────
-  open() {
+  // The pane selects rebuilt from the current sources.  A disk's kind
+  // can change under the commander - an Init that makes a whole-disk
+  // DV:/MZ: volume replaces the DZn: side entries with one DVn:/MZn: -
+  // so a refresh rebuilds them too, not only open().
+  syncSources() {
     const sources = this.deps.sources();
     for (const [i, p] of this.panes.entries()) {
       const keep = p.src.value;
@@ -367,8 +371,12 @@ export class Commander {
       if (chain.length && !sources.some((s) => s.id === chain[0].parent.id)) { chain.length = 0; p.nested = null; }
       for (const s of chain) { const o = document.createElement("option"); o.value = s.id; o.textContent = s.label; p.src.appendChild(o); }
       p.src.value = [...p.src.options].some((o) => o.value === keep) ? keep : sources[Math.min(i, sources.length - 1)].id;
-      this.load(p);
     }
+    return sources.length > 0;
+  }
+
+  open() {
+    if (this.syncSources()) for (const p of this.panes) this.load(p);
     this.root.hidden = false;
     this.focusList();
   }
@@ -493,7 +501,7 @@ export class Commander {
     this.draw(p);
   }
 
-  refresh() { for (const p of this.panes) this.load(p); }
+  refresh() { if (this.syncSources()) for (const p of this.panes) this.load(p); }
 
   draw(p) {
     p.list.replaceChildren();
