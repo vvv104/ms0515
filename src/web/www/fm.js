@@ -794,13 +794,14 @@ export class Commander {
     const to = p.source, from = other.source;
     if (!to) throw new Error("this pane has no disk");
     if (!from || from.id === to.id) throw new Error("show the system disk on the other pane");
-    if (volOf(to) || to.parent) throw new Error("only a floppy boots the machine: the target must be a floppy");
-    if (volOf(from) || from.parent) throw new Error("the source must be a floppy that boots");
+    const boots = (s) => volOf(s) === 0 || volOf(s) === 2;   // DZ and DV boot; MZ keeps LBN 0 on cylinder 0, where the ROM does not look
+    if (to.parent || !boots(to)) throw new Error("only a DZ floppy or a DV whole-disk volume boots the machine");
+    if (from.parent || !boots(from)) throw new Error("the source must be a DZ floppy or a DV volume that boots");
     if (!p.volume) throw new Error(`${to.dev} holds no RT-11 directory: INIT it first (F9)`);
     const api = this.deps.api;
-    const monitor = api.diskBooted(from.path, from.side);
+    const monitor = api.diskBooted(from.path, from.side, volOf(from));
     if (!monitor) throw new Error(`${from.dev} ${from.name} is not a system volume: no bootstrap on it`);
-    const kitNames = api.diskKit(from.path, from.side).split(",");
+    const kitNames = api.diskKit(from.path, from.side, volOf(from), volOf(to)).split(",");
     const extras = [...other.marks].filter((n) => !kitNames.includes(n));
     const files = this.dirOf(from).filter((f) => kitNames.includes(f.name) || extras.includes(f.name));
     const blocks = files.reduce((a, f) => a + f.blocks, 0);
@@ -809,7 +810,7 @@ export class Commander {
                    + (extras.length ? ` and the marked ${extras.join(", ")}` : "") + ` - ${blocks} blocks?`
                    + (replaced.length ? `  ${replaced.join(", ")} there will be replaced.` : "");
     if (!await this.ask(question, { title: "System" })) return;
-    const ok = await this.writable(to, () => api.diskSystem(to.path, to.side, from.path, from.side, extras.join(",")));
+    const ok = await this.writable(to, () => api.diskSystem(to.path, to.side, volOf(to), from.path, from.side, volOf(from), extras.join(",")));
     if (!ok) throw new Error(api.diskError());
     other.marks.clear();
     this.refresh();

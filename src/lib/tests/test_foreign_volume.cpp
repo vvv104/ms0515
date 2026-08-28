@@ -199,3 +199,49 @@ TEST_CASE("the OS reads a DV/MZ volume the library made, through its own handler
         }
     }
 }
+
+TEST_CASE("a DV system volume the library makes boots the machine")
+{
+    namespace fs = std::filesystem;
+
+    /* The source: vvv's system floppy with the omega kit's DV.SYS put on
+     * it - systemKit adds the target's own handler to the kit. */
+    const auto omega = openImage(readAll(kDisks + "/omega-lang.dsk"));
+    REQUIRE(omega);
+    auto system = readAll(kDisks + "/vvv.dsk");
+    putFile(system, 0, false, "DV.SYS", omega->readFile("DV.SYS"));
+
+    auto target = blankImage(true);
+    initVolume(target, 0, true, {}, Vol::dv);
+    const std::string monitor =
+        makeSystemVolume(target, 0, true, system, 0, false, {}, Vol::dv, Vol::floppy);
+    CHECK(monitor == "RT11SJ");
+    CHECK(bootedMonitor(target, 0, true, Vol::dv) == "RT11SJ");
+    {
+        auto im = openVolume(target, Vol::dv);
+        REQUIRE(im);
+        CHECK(im->directory.find("DV.SYS") != nullptr);   /* the boot's own driver */
+        CHECK(im->directory.find("STARTS.COM") != nullptr);
+    }
+
+    /* And the ROM boots it: the whole-disk image in drive 0, both side
+     * units, to the "." prompt - boot diskettes of this kind never
+     * existed on the real machine. */
+    std::error_code ec;
+    fs::create_directories(TESTS_BUILD_DIR "/temp", ec);
+    const fs::path path = fs::path{TESTS_BUILD_DIR "/temp"} / "dv_system.dsk";
+    writeAll(path, target);
+    {
+        ms0515::Emulator emu;
+        REQUIRE(emu.loadRomFile(kRomA));
+        REQUIRE(emu.mountDisk(0, path.string()));
+        REQUIRE(emu.mountDisk(2, path.string()));
+        emu.reset();
+        stepFrames(emu, 700);
+        const auto rows = screenRows(emu);
+        const bool prompt = std::any_of(rows.begin(), rows.end(),
+            [](const std::string &r) { return !r.empty() && r[0] == '.'; });
+        CHECK(prompt);
+    }
+    fs::remove(path, ec);
+}

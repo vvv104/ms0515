@@ -138,7 +138,8 @@ void renameFile(std::vector<uint8_t> &image, int side, bool ds,
  * side's LBN 2..4 (the secondary bootstrap COPY/BOOT put there), named
  * without the extension ("RT11SJ", "MON8SJ", "RT15SJ").  "" when none -
  * the side does not boot, or holds no directory. */
-[[nodiscard]] std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds);
+[[nodiscard]] std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds,
+                                        Vol vol = Vol::floppy);
 
 /* The files a system volume needs, of those the side holds, in directory
  * order: the monitor, SWAP.SYS, DZ.SYS and TT.SYS - the boot refuses to go
@@ -146,7 +147,8 @@ void renameFile(std::vector<uint8_t> &image, int side, bool ds,
  * missing") - and PIP, DUP, DIR, RESORC, the utilities that let the copy
  * do the same again.  Other handlers (VM, LD, HD...) are extras. */
 [[nodiscard]] std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds,
-                                                 const std::string &monitor);
+                                                 const std::string &monitor,
+                                                 Vol vol = Vol::floppy, Vol target = Vol::floppy);
 
 /* The command file a monitor runs at boot ("STARTS.COM" for the Omega
  * kits, "ST.COM" for OSA, "START.COM" for RT15SJ): the monitor file holds
@@ -163,7 +165,8 @@ void renameFile(std::vector<uint8_t> &image, int side, bool ds,
  * target holds no directory, or a file does not fit. */
 std::string makeSystemVolume(std::vector<uint8_t> &target, int side, bool ds,
                              const std::vector<uint8_t> &source, int sourceSide, bool sourceDs,
-                             const std::vector<std::string> &extras = {});
+                             const std::vector<std::string> &extras = {},
+                             Vol vol = Vol::floppy, Vol sourceVol = Vol::floppy);
 
 /* The bootstrap of a floppy side - what COPY/BOOT (DUP) writes, verified
  * byte for byte against every DUP and monitor in the collection:
@@ -174,12 +177,18 @@ std::string makeSystemVolume(std::vector<uint8_t> &target, int side, bool ds,
  *              0o716 = RAD50 "DZ ", words 0o724 and 0o726 = RAD50 of the
  *              monitor's name, word 0o730 = the handler's word 0o66.
  * No block numbers: the secondary bootstrap finds the monitor by name.
- * `monitor` is the file's name with or without ".SYS".  Throws
+ * `monitor` is the file's name with or without ".SYS".  `vol` picks the
+ * boot device: a DZ floppy side or a DV whole-disk volume (verified byte
+ * for byte against the OS's COPY/BOOT DV1: - the recipe is the same, from
+ * DV.SYS with RAD50 "DV"); MZ and linear volumes cannot boot - the ROM
+ * reads the boot block from cylinder 1 sector 1, where DZ and DV keep
+ * LBN 0 and MZ keeps LBN 20.  Throws
  * std::runtime_error when the side holds no directory, DZ.SYS or the
  * monitor is missing, DZ.SYS has no primary driver (word 0o62 zero), or
  * the monitor's block 4 is not zero where the words go (a boot block of
  * another layout: left alone). */
-void writeBoot(std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor);
+void writeBoot(std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor,
+               Vol vol = Vol::floppy);
 
 /* Enlarge a linear (HD / logical-disk) volume by `blocks`: zero blocks
  * appended and the directory told - the last entry of the last segment

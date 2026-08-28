@@ -560,12 +560,30 @@ std::string monitorFile(const std::string &monitor)
 
 constexpr std::size_t kBootWords[] = {0716, 0724, 0726, 0730};   /* what DUP fills in the monitor's block 4 */
 
+/* The boot device of a volume kind: its handler file and RAD50 device
+ * name.  Only DZ (a floppy side) and DV boot - the ROM reads the boot
+ * block from cylinder 1 sector 1, where their LBN 0 lies; MZ's LBN 0 is
+ * on cylinder 0 (OS-verified: COPY/BOOT MZ1: succeeds, the machine never
+ * finds it). */
+struct BootDevice { const char *handler; char dev[3]; };
+
+BootDevice bootDevice(Vol vol)
+{
+    switch (vol) {
+    case Vol::floppy: return {"DZ.SYS", {'D', 'Z', ' '}};
+    case Vol::dv:     return {"DV.SYS", {'D', 'V', ' '}};
+    default:
+        throw std::runtime_error("only a DZ floppy side or a DV whole-disk volume "
+                                 "can boot (the ROM reads cylinder 1, MZ keeps LBN 0 on cylinder 0)");
+    }
+}
+
 }  /* namespace */
 
-std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds)
+std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds, Vol vol)
 {
-    if (image.size() != (ds ? kDoubleSize : kSideSize)) return "";
-    auto img = openImage(image, side);
+    if (vol == Vol::floppy && image.size() != (ds ? kDoubleSize : kSideSize)) return "";
+    auto img = openVolume(image, vol, side);
     if (!img || !img->hasDirectory) return "";
     const auto b2 = img->block(2), b3 = img->block(3), b4 = img->block(4);
     if (b2.size() != kBlock || b3.size() != kBlock || b4.size() != kBlock) return "";
@@ -581,16 +599,19 @@ std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds)
     return "";
 }
 
-std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor)
+std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor,
+                                   Vol vol, Vol target)
 {
     std::vector<std::string> out;
-    if (image.size() != (ds ? kDoubleSize : kSideSize)) return out;
-    auto img = openImage(image, side);
+    if (vol == Vol::floppy && image.size() != (ds ? kDoubleSize : kSideSize)) return out;
+    auto img = openVolume(image, vol, side);
     if (!img || !img->hasDirectory) return out;
     const std::string mon = monitorFile(monitor);
     static const char *const kNeeded[] = {"SWAP.SYS", "DZ.SYS", "TT.SYS", "PIP.SAV", "DUP.SAV", "DIR.SAV", "RESORC.SAV"};
+    const std::string targetHandler = target == Vol::dv ? "DV.SYS" : "";
     for (const auto &e : img->directory.permanentFiles())
-        if (e.name == mon || std::find(std::begin(kNeeded), std::end(kNeeded), e.name) != std::end(kNeeded))
+        if (e.name == mon || (!targetHandler.empty() && e.name == targetHandler)
+            || std::find(std::begin(kNeeded), std::end(kNeeded), e.name) != std::end(kNeeded))
             out.push_back(e.name);
     return out;
 }
@@ -615,49 +636,51 @@ std::string startupFile(const std::vector<uint8_t> &monitorFile)
 
 std::string makeSystemVolume(std::vector<uint8_t> &target, int side, bool ds,
                              const std::vector<uint8_t> &source, int sourceSide, bool sourceDs,
-                             const std::vector<std::string> &extras)
+                             const std::vector<std::string> &extras, Vol vol, Vol sourceVol)
 {
-    const std::string monitor = bootedMonitor(source, sourceSide, sourceDs);
+    const std::string monitor = bootedMonitor(source, sourceSide, sourceDs, sourceVol);
     if (monitor.empty()) throw std::runtime_error("the source is not a system volume: no bootstrap on it");
-    auto src = openImage(source, sourceSide);
+    auto src = openVolume(source, sourceVol, sourceSide);
     if (!src || !src->hasDirectory) throw std::runtime_error("the source holds no RT-11 directory");
-    auto there = openImage(target, side);
+    auto there = openVolume(target, vol, side);
     if (!there || !there->hasDirectory) throw std::runtime_error("the target holds no RT-11 directory");
 
     auto copy = [&](const std::string &name, bool protect) {
         const auto *e = src->directory.find(name);
         if (!e) throw std::runtime_error("no " + name + " on the source");
-        if (openImage(target, side)->directory.find(name)) removeFile(target, side, ds, name);
+        if (openVolume(target, vol, side)->directory.find(name)) removeFile(target, side, ds, name, vol);
         PutOptions opts;
         opts.date = e->date;
         opts.readOnly = protect || (e->status & kStatusProtected) != 0;
-        putFile(target, side, ds, name, src->readFile(name), opts);
+        putFile(target, side, ds, name, src->readFile(name), opts, vol);
     };
-    for (const auto &name : systemKit(source, sourceSide, sourceDs, monitor)) copy(name, true);
+    for (const auto &name : systemKit(source, sourceSide, sourceDs, monitor, sourceVol, vol)) copy(name, true);
     for (const auto &name : extras) copy(name, false);
 
     const std::string startup = startupFile(src->readFile(monitorFile(monitor)));
-    if (!startup.empty() && !openImage(target, side)->directory.find(startup)) {
+    if (!startup.empty() && !openVolume(target, vol, side)->directory.find(startup)) {
         static const char kLine[] = "SET TT QUIET\r\n";
-        putFile(target, side, ds, startup, std::span<const uint8_t>(reinterpret_cast<const uint8_t *>(kLine), sizeof kLine - 1));
+        putFile(target, side, ds, startup, std::span<const uint8_t>(reinterpret_cast<const uint8_t *>(kLine), sizeof kLine - 1), {}, vol);
     }
-    writeBoot(target, side, ds, monitor);
+    writeBoot(target, side, ds, monitor, vol);
     return monitor;
 }
 
-void writeBoot(std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor)
+void writeBoot(std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor,
+               Vol vol)
 {
-    requireValidSize(image, ds, Vol::floppy);
-    auto img = openImage(image, side);
+    const BootDevice bd = bootDevice(vol);
+    requireValidSize(image, ds, vol);
+    auto img = openVolume(image, vol, side);
     if (!img || !img->hasDirectory) throw std::runtime_error("the side holds no RT-11 directory");
 
-    const auto dz = img->readFile("DZ.SYS");
-    if (dz.empty()) throw std::runtime_error("no DZ.SYS on the volume: the system device handler carries the bootstrap");
-    if (dz.size() < 070) throw std::runtime_error("DZ.SYS is too short to be a handler");
+    const auto dz = img->readFile(bd.handler);
+    if (dz.empty()) throw std::runtime_error(std::string("no ") + bd.handler + " on the volume: the system device handler carries the bootstrap");
+    if (dz.size() < 070) throw std::runtime_error(std::string(bd.handler) + " is too short to be a handler");
     const std::size_t driver = getw(&dz[062]);
     const uint16_t readOff = getw(&dz[066]);
     if (driver == 0 || driver + kBlock > dz.size())
-        throw std::runtime_error("DZ.SYS has no primary driver (.DRBOT): it cannot make a volume bootable");
+        throw std::runtime_error(std::string(bd.handler) + " has no primary driver (.DRBOT): it cannot make a volume bootable");
 
     const std::string file = monitorFile(monitor);
     const auto mon = img->readFile(file);
@@ -670,14 +693,13 @@ void writeBoot(std::vector<uint8_t> &image, int side, bool ds, const std::string
             throw std::runtime_error(file + ": its boot block is of another layout (the words DUP fills are in use): left alone");
     char nm[6], ex[3];
     splitName(file, nm, ex);
-    const char dev[3] = {'D', 'Z', ' '};
-    putw(&last[0716], encodeRad50(dev));
+    putw(&last[0716], encodeRad50(bd.dev));
     putw(&last[0724], encodeRad50(nm));
     putw(&last[0726], encodeRad50(nm + 3));
     putw(&last[0730], readOff);
 
     auto writeBlock = [&](int lbn, const uint8_t *src) {
-        std::memcpy(image.data() + lbnToByte(lbn, side, ds, Vol::floppy), src, kBlock);
+        std::memcpy(image.data() + lbnToByte(lbn, side, ds, vol), src, kBlock);
     };
     writeBlock(0, dz.data() + driver);
     writeBlock(2, mon.data() + 1 * kBlock);

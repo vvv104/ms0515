@@ -381,24 +381,24 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_undelete(const char *path, int side, int vol, i
 
 /* The monitor a floppy side boots ("RT11SJ", "MON8SJ", ...), "" when the
  * side has no bootstrap. */
-EMSCRIPTEN_KEEPALIVE const char *ms_disk_booted(const char *path, int side)
+EMSCRIPTEN_KEEPALIVE const char *ms_disk_booted(const char *path, int side, int vol)
 {
     auto bytes = readAll(path);
-    gDiskText = ms0515::disk::bootedMonitor(bytes, side, bytes.size() == 2 * 409600);
+    gDiskText = ms0515::disk::bootedMonitor(bytes, side, bytes.size() == 2 * 409600, volOf(vol));
     return gDiskText.c_str();
 }
 
 /* The kit a system volume of the side would be made of, comma-separated:
  * the monitor, SWAP, DZ, TT, PIP, DUP, DIR, RESORC of those there; "" when
  * the side does not boot. */
-EMSCRIPTEN_KEEPALIVE const char *ms_disk_kit(const char *path, int side)
+EMSCRIPTEN_KEEPALIVE const char *ms_disk_kit(const char *path, int side, int vol, int target)
 {
     auto bytes = readAll(path);
     const bool ds = bytes.size() == 2 * 409600;
     gDiskText.clear();
-    const std::string monitor = ms0515::disk::bootedMonitor(bytes, side, ds);
+    const std::string monitor = ms0515::disk::bootedMonitor(bytes, side, ds, volOf(vol));
     if (!monitor.empty())
-        for (const auto &name : ms0515::disk::systemKit(bytes, side, ds, monitor)) gDiskText += (gDiskText.empty() ? "" : ",") + name;
+        for (const auto &name : ms0515::disk::systemKit(bytes, side, ds, monitor, volOf(vol), volOf(target))) gDiskText += (gDiskText.empty() ? "" : ",") + name;
     return gDiskText.c_str();
 }
 
@@ -406,7 +406,7 @@ EMSCRIPTEN_KEEPALIVE const char *ms_disk_kit(const char *path, int side)
  * library's makeSystemVolume: the kit protected, the extras - comma-
  * separated names - as they are, the startup .COM made anew, the
  * bootstrap).  The monitor's name at ms_disk_text(); 1 / 0. */
-EMSCRIPTEN_KEEPALIVE int ms_disk_system(const char *path, int side, const char *fromPath, int fromSide, const char *extras)
+EMSCRIPTEN_KEEPALIVE int ms_disk_system(const char *path, int side, int vol, const char *fromPath, int fromSide, int fromVol, const char *extras)
 {
     try {
         auto bytes = readAll(path);
@@ -417,7 +417,7 @@ EMSCRIPTEN_KEEPALIVE int ms_disk_system(const char *path, int side, const char *
             names.push_back(s.substr(0, comma));
             s = comma == std::string::npos ? "" : s.substr(comma + 1);
         }
-        gDiskText = ms0515::disk::makeSystemVolume(bytes, side, bytes.size() == 2 * 409600, from, fromSide, from.size() == 2 * 409600, names);
+        gDiskText = ms0515::disk::makeSystemVolume(bytes, side, bytes.size() == 2 * 409600, from, fromSide, from.size() == 2 * 409600, names, volOf(vol), volOf(fromVol));
         if (!writeAll(path, bytes)) { gDiskError = "cannot write the image"; return 0; }
         return 1;
     } catch (const std::exception &e) {
