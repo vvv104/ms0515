@@ -12,7 +12,7 @@ namespace ms0515::disk {
 
 std::span<const uint8_t> Image::block(int lbn) const
 {
-    const std::size_t off = lbnToByte(lbn, side, ds, linear);
+    const std::size_t off = lbnToByte(lbn, side, ds, vol);
     if (off + kBlock > data.size()) return {};
     return std::span<const uint8_t>(data.data() + off, kBlock);
 }
@@ -57,8 +57,8 @@ std::optional<Image> openLinearImage(std::vector<uint8_t> bytes)
     img.data   = std::move(bytes);
     img.side   = 0;
     img.ds     = false;
-    img.linear = true;
-    if (auto dir = parseDirectory(img.data, 0, false, /*linear=*/true)) {
+    img.vol    = Vol::linear;
+    if (auto dir = parseDirectory(img.data, 0, false, Vol::linear)) {
         img.directory = *dir;
         img.hasDirectory = true;
     }
@@ -90,6 +90,66 @@ std::optional<Image> loadLinearImage(const std::string &path)
     auto raw = readWholeFile(path);
     if (!raw) return std::nullopt;
     return openLinearImage(std::move(*raw));
+}
+
+std::optional<Image> openVolume(std::vector<uint8_t> bytes, Vol vol, int side)
+{
+    switch (vol) {
+    case Vol::floppy: return openImage(std::move(bytes), side);
+    case Vol::linear: return openLinearImage(std::move(bytes));
+    case Vol::dv:
+    case Vol::mz:     break;
+    }
+    if (bytes.size() != kDoubleSize || side != 0) return std::nullopt;
+
+    Image img;
+    img.data = std::move(bytes);
+    img.side = 0;
+    img.ds   = true;
+    img.vol  = vol;
+    if (auto dir = parseDirectory(img.data, 0, true, vol)) {
+        img.directory = *dir;
+        img.hasDirectory = true;
+    }
+    return img;
+}
+
+std::optional<Image> loadVolume(const std::string &path, Vol vol, int side)
+{
+    auto raw = readWholeFile(path);
+    if (!raw) return std::nullopt;
+    return openVolume(std::move(*raw), vol, side);
+}
+
+std::vector<VolumeSpec> detectVolumes(std::span<const uint8_t> bytes)
+{
+    std::vector<VolumeSpec> found;
+    auto tryOne = [&](Vol vol, int side, bool ds) {
+        /* Strict probe: the home block (LBN 1 through this lens) must hold
+         * a plausible directory pointer, and the directory must be there.
+         * parseDirectory alone is too lax for detection — its candidate
+         * scan can land on a *second* directory segment of a DZ volume
+         * seen through the DV/MZ lens (block aliasing). */
+        const std::size_t homeOff = lbnToByte(1, side, ds, vol);
+        if (homeOff + kBlock > bytes.size()) return;
+        const int dirLbn = bytes[homeOff + 0x1D4]
+                         | (bytes[homeOff + 0x1D5] << 8);
+        if (dirLbn < 2 || dirLbn > 64) return;
+        if (auto dir = parseDirectory(bytes, side, ds, vol);
+            dir && dir->dirStartLbn == dirLbn)
+            found.push_back({vol, side});
+    };
+    if (bytes.size() == kSideSize) {
+        tryOne(Vol::floppy, 0, false);
+    } else if (bytes.size() == kDoubleSize) {
+        tryOne(Vol::floppy, 0, true);
+        tryOne(Vol::floppy, 1, true);
+        tryOne(Vol::dv, 0, true);
+        tryOne(Vol::mz, 0, true);
+    } else if (!bytes.empty() && bytes.size() % kBlock == 0) {
+        tryOne(Vol::linear, 0, false);
+    }
+    return found;
 }
 
 std::optional<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>

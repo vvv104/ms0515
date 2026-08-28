@@ -32,7 +32,7 @@ struct Image {
     std::vector<uint8_t> data;          /* full raw image (409600 or 819200) */
     int                  side = 0;      /* 0 lower/boot, 1 upper (DS only)    */
     bool                 ds   = false;  /* true for an 819200 double-sided    */
-    bool                 linear = false;/* true: LD/HD container (byte=LBN*512)*/
+    Vol                  vol = Vol::floppy; /* addressing (Layout.hpp Vol)   */
     bool                 hasDirectory = false;
     Directory            directory;
 
@@ -46,7 +46,8 @@ struct Image {
 
 /* Wrap a full raw image and parse the directory of `side`.  `bytes` is the
  * whole file; double-sided is inferred from its size.  hasDirectory==false
- * means the side holds no RT-11 directory (e.g. a copy-protection side). */
+ * means the side holds no RT-11 directory (e.g. a copy-protection side).
+ * DZ-floppy addressing only — use openVolume for a DV/MZ/linear volume. */
 [[nodiscard]] std::optional<Image> openImage(std::vector<uint8_t> bytes,
                                              int side = 0);
 
@@ -62,6 +63,30 @@ struct Image {
 
 /* loadImage for a linear LD/HD container (see openLinearImage). */
 [[nodiscard]] std::optional<Image> loadLinearImage(const std::string &path);
+
+/* Wrap a raw image as a volume of an explicit kind: a floppy side (side
+ * 0/1 of an SS/DS dump), a DV: or MZ: whole-diskette volume (819200 bytes,
+ * side must be 0), or a linear container.  nullopt when the bytes do not
+ * fit the kind. */
+[[nodiscard]] std::optional<Image> openVolume(std::vector<uint8_t> bytes,
+                                              Vol vol, int side = 0);
+
+/* loadImage for an explicit volume kind (see openVolume). */
+[[nodiscard]] std::optional<Image> loadVolume(const std::string &path,
+                                              Vol vol, int side = 0);
+
+/* One detected volume: its addressing and, for a floppy side, which side. */
+struct VolumeSpec {
+    Vol vol  = Vol::floppy;
+    int side = 0;
+};
+
+/* Content-based format detection: every (vol, side) combination whose
+ * RT-11 directory validates in `bytes`, tried by what the byte count
+ * allows — 409600: the single side; 819200: DZ side 0, DZ side 1, DV, MZ;
+ * any other multiple of 512: a linear container.  Empty when nothing
+ * parses (a blank or damaged image). */
+[[nodiscard]] std::vector<VolumeSpec> detectVolumes(std::span<const uint8_t> bytes);
 
 /* Split an 819200-byte track-interleaved double-sided image into its two
  * 409600-byte single-sided images (lower side 0 first, upper side 1).  Pure

@@ -338,7 +338,7 @@ static bool write_fdc(snap_io_t *f, const ms0515_floppy_t *fdc)
     if (!write_i32(f, fdc->buf_pos)) return false;
     if (!write_i32(f, fdc->buf_len)) return false;
     for (int i = 0; i < FDC_LOGICAL_UNITS; i++) {
-        if (!write_i32(f, fdc->drives[i].track)) return false;
+        if (!write_i32(f, fdc->head_track[i & 1])) return false;
         if (!write_bool(f, fdc->drives[i].read_only)) return false;
         if (!write_bool(f, fdc->drives[i].motor_on)) return false;
     }
@@ -409,7 +409,7 @@ static bool read_fdc(snap_io_t *f, ms0515_floppy_t *fdc, uint32_t chunk_size)
         if (!read_bool(f, &pending_finish)) return false;
         if (!read_i32(f, &busy_delay)) return false;
         for (int i = 0; i < FDC_LOGICAL_UNITS; i++) {
-            if (!read_i32(f, &fdc->drives[i].track)) return false;
+            if (!read_i32(f, &fdc->head_track[i & 1])) return false;
             if (!read_bool(f, &fdc->drives[i].read_only)) return false;
             if (!read_bool(f, &fdc->drives[i].motor_on)) return false;
         }
@@ -433,7 +433,7 @@ static bool read_fdc(snap_io_t *f, ms0515_floppy_t *fdc, uint32_t chunk_size)
     }
 
     for (int i = 0; i < FDC_LOGICAL_UNITS; i++) {
-        if (!read_i32(f, &fdc->drives[i].track)) return false;
+        if (!read_i32(f, &fdc->head_track[i & 1])) return false;
         if (!read_bool(f, &fdc->drives[i].read_only)) return false;
         if (!read_bool(f, &fdc->drives[i].motor_on)) return false;
     }

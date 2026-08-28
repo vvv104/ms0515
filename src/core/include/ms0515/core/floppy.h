@@ -101,7 +101,6 @@ typedef struct {
     ms0515_fdc_write_sector_fn backend_write;
     void                      *backend_ud;
     bool     motor_on;          /* Motor is spinning                        */
-    int      track;             /* Current track position (0–79)            */
     long     image_offset;      /* Byte offset of this side's track 0 sec 1 */
     long     track_stride;      /* Bytes between sector 1 of consecutive tracks
                                  * (FDC_TRACK_SIZE for SS, 2×FDC_TRACK_SIZE
@@ -140,6 +139,10 @@ typedef enum {
 typedef struct ms0515_floppy {
     fdc_drive_t drives[FDC_LOGICAL_UNITS];  /* FD0..FD3, one per side       */
     int         selected;       /* Currently selected logical unit (0..3)   */
+    int         head_track[2];  /* Head position per physical drive (0..79).
+                                 * One positioner moves both sides' heads,
+                                 * so the side units FD0/FD2 (drive 0) and
+                                 * FD1/FD3 (drive 1) share a cylinder.      */
 
     /* WD1793 registers */
     uint8_t  status;            /* Status register (read-only)              */

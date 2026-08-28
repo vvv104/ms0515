@@ -67,7 +67,7 @@ parseSegment(std::span<const uint8_t> segment);
  * Returns nullopt if none parse. */
 [[nodiscard]] std::optional<Directory>
 parseDirectory(std::span<const uint8_t> data, int side, bool ds,
-               bool linear = false);
+               Vol vol = Vol::floppy);
 
 /* Decode a 3-word RAD50 filename triple to "NAME.EXT". */
 [[nodiscard]] std::string decodeRad50Name(uint16_t n1, uint16_t n2, uint16_t ext);

@@ -121,14 +121,28 @@ Separate from the emulator: an offline RT-11 / MS-0515 disk-image library and
 tool that read and write images directly, without running the machine.
 
 - Lib `ms0515_disk` (`src/disk/`) — `Layout` (LBN→byte geometry mirroring the
-  FDC; the image size selects single- vs double-sided), `Directory` (home
-  block + segment chain + RAD50), `Image` (load a capture, read files,
-  split/merge sides), `Build` (create blank media, init a volume byte-identical
+  FDC; the `Vol` kind names the addressing — a DZ floppy side, a linear
+  HD/LD container, or a DV:/MZ: whole-disk volume of 1600 blocks whose
+  formulas come from the handlers' own translate code: track = LBN/10,
+  +2 for DV with wrap at 160, natural sides, no interleave), `Directory`
+  (home block + segment chain + RAD50), `Image` (load a capture, read
+  files, split/merge sides; `openVolume` opens an explicit kind and
+  `detectVolumes` names, by content, every kind whose home block points
+  at a directory that parses), `Build` (create blank media, init a volume byte-identical
   to the OS's `INIT`, put / remove a file like PIP, set the entry's
-  protect/date metadata).
+  protect/date metadata, undelete, grow a linear volume, write the
+  bootstrap the way the OS's `COPY/BOOT` does - `writeBoot`, verified byte
+  for byte against RT-11 on every kit shipped: LBN 0 from the volume's
+  DZ.SYS at the offset its `.DRBOT` header names, LBN 2..5 the monitor's
+  blocks 1..4 with the device and monitor names in RAD50).
 - Binary `ms0515-disk` (`src/tools/disk/`) — `create / init / put / rm /
-  squeeze / protect / unprotect / get / dir / split / merge`.  Geometry
-  follows the image size; there is no layout flag.
+  squeeze / protect / unprotect / setdate / get / dir / boot / system /
+  split / merge` (`system <target> --from <image> [extra]...`: the kit -
+  the monitor, SWAP, DZ, TT, PIP, DUP, DIR, RESORC - copied from a
+  bootable image and protected, the extras with it, the startup .COM the
+  monitor names made anew, then the bootstrap).  The floppy geometry
+  follows the image size; `--hd`, `--dv` and `--mz` pick the other volume
+  kinds, and `dir` says when the content rather parses as another one.
 
 The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
 is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified

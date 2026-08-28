@@ -76,11 +76,21 @@ static fdc_drive_t *current_drive(ms0515_floppy_t *fdc)
  * DS images: each track occupies 2*FDC_TRACK_SIZE (side 0 then side 1
  * back-to-back); per-drive image_offset / track_stride select the
  * right slice for this unit. */
-static long disk_offset(const fdc_drive_t *drv, int sector)
+static long disk_offset(const fdc_drive_t *drv, int track, int sector)
 {
     return drv->image_offset
-         + (long)drv->track * drv->track_stride
+         + (long)track * drv->track_stride
          + (long)(sector - 1) * FDC_SECTOR_SIZE;
+}
+
+/* One head positioner per physical drive: the two side units of a drive
+ * (FD0/FD2 = drive 0, FD1/FD3 = drive 1; units are side*2 + drive) share
+ * one cylinder position.  The RT-11 DV:/MZ: handlers depend on this —
+ * they flip the side-select bit without re-seeking whenever the track
+ * register already matches the target cylinder. */
+static int current_track(const ms0515_floppy_t *fdc)
+{
+    return fdc->head_track[fdc->selected & 1];
 }
 
 static bool drive_ready(const ms0515_floppy_t *fdc)
@@ -97,7 +107,7 @@ static uint8_t type1_status(const ms0515_floppy_t *fdc, bool busy)
     const fdc_drive_t *drv = &fdc->drives[fdc->selected];
     uint8_t s = 0;
     if (busy)             s |= FDC_ST_BUSY;
-    if (drv->track == 0)  s |= FDC_ST_TRACK0;
+    if (current_track(fdc) == 0) s |= FDC_ST_TRACK0;
     if (!drive_ready(fdc)) s |= FDC_ST_NOT_READY;
     if (drv->read_only)   s |= FDC_ST_WRITE_PROT;
     if (drv->motor_on)    s |= FDC_ST_HEAD_LOADED;
@@ -112,7 +122,7 @@ static bool read_sector(ms0515_floppy_t *fdc)
         return false;
 
     if (drv->backend_read) {
-        if (!drv->backend_read(drv->backend_ud, drv->track,
+        if (!drv->backend_read(drv->backend_ud, current_track(fdc),
                                fdc->sector_reg, fdc->buffer))
             return false;
         fdc->buf_pos = 0;
@@ -122,7 +132,7 @@ static bool read_sector(ms0515_floppy_t *fdc)
     if (!drv->image)
         return false;
 
-    long offset = disk_offset(drv, fdc->sector_reg);
+    long offset = disk_offset(drv, current_track(fdc), fdc->sector_reg);
     if (fseek(drv->image, offset, SEEK_SET) != 0)
         return false;
 
@@ -145,12 +155,12 @@ static bool write_sector(ms0515_floppy_t *fdc)
         return false;
 
     if (drv->backend_write)
-        return drv->backend_write(drv->backend_ud, drv->track,
+        return drv->backend_write(drv->backend_ud, current_track(fdc),
                                   fdc->sector_reg, fdc->buffer);
     if (!drv->image)
         return false;
 
-    long offset = disk_offset(drv, fdc->sector_reg);
+    long offset = disk_offset(drv, current_track(fdc), fdc->sector_reg);
     if (fseek(drv->image, offset, SEEK_SET) != 0)
         return false;
 
@@ -181,11 +191,10 @@ static void schedule_finish(ms0515_floppy_t *fdc, uint8_t final_status,
  * is performed pulse-by-pulse inside fdc_tick. */
 static void start_type1(ms0515_floppy_t *fdc, int target_track)
 {
-    fdc_drive_t *drv = current_drive(fdc);
     if (target_track < 0)              target_track = 0;
     if (target_track >= FDC_TRACKS)    target_track = FDC_TRACKS - 1;
 
-    int delta  = target_track - drv->track;
+    int delta  = target_track - current_track(fdc);
     int pulses = delta < 0 ? -delta : delta;
 
     if (delta != 0)
@@ -254,10 +263,10 @@ void fdc_init(ms0515_floppy_t *fdc)
 void fdc_reset(ms0515_floppy_t *fdc)
 {
     /* Preserve attached disk images. */
-    for (int i = 0; i < FDC_LOGICAL_UNITS; i++) {
-        fdc->drives[i].track    = 0;
+    for (int i = 0; i < FDC_LOGICAL_UNITS; i++)
         fdc->drives[i].motor_on = false;
-    }
+    fdc->head_track[0] = 0;
+    fdc->head_track[1] = 0;
 
     fdc->status     = 0;
     fdc->command    = 0;
@@ -317,7 +326,6 @@ bool fdc_attach(ms0515_floppy_t *fdc, int unit, const char *path,
 
     fdc->drives[unit].image        = f;
     fdc->drives[unit].read_only    = read_only;
-    fdc->drives[unit].track        = 0;
     fdc->drives[unit].image_offset = image_offset;
     fdc->drives[unit].track_stride = track_stride;
     return true;
@@ -335,7 +343,6 @@ void fdc_attach_backend(ms0515_floppy_t *fdc, int unit,
     fdc->drives[unit].backend_write = write_fn;
     fdc->drives[unit].backend_ud    = userdata;
     fdc->drives[unit].read_only     = read_only;
-    fdc->drives[unit].track         = 0;
 }
 
 void fdc_detach(ms0515_floppy_t *fdc, int unit)
@@ -415,27 +422,21 @@ void fdc_write(ms0515_floppy_t *fdc, int reg, uint8_t value)
             break;
 
         case CMD_STEP:
-        case 0x30: {
-            fdc_drive_t *drv = current_drive(fdc);
-            start_type1(fdc, drv->track + fdc->step_direction);
+        case 0x30:
+            start_type1(fdc, current_track(fdc) + fdc->step_direction);
             break;
-        }
 
         case CMD_STEP_IN:
-        case 0x50: {
-            fdc_drive_t *drv = current_drive(fdc);
+        case 0x50:
             fdc->step_direction = 1;
-            start_type1(fdc, drv->track + 1);
+            start_type1(fdc, current_track(fdc) + 1);
             break;
-        }
 
         case CMD_STEP_OUT:
-        case 0x70: {
-            fdc_drive_t *drv = current_drive(fdc);
+        case 0x70:
             fdc->step_direction = -1;
-            start_type1(fdc, drv->track - 1);
+            start_type1(fdc, current_track(fdc) - 1);
             break;
-        }
 
         case CMD_READ_SECTOR:
         case 0x90:
@@ -457,8 +458,7 @@ void fdc_write(ms0515_floppy_t *fdc, int reg, uint8_t value)
              * that side effect; the rest of the ID bytes go unread.
              */
             if (drive_ready(fdc)) {
-                fdc_drive_t *drv = current_drive(fdc);
-                fdc->sector_reg = (uint8_t)drv->track;
+                fdc->sector_reg = (uint8_t)current_track(fdc);
                 schedule_finish(fdc, 0, MIN_CMD_CYCLES);
             } else {
                 schedule_finish(fdc, FDC_ST_SEEK_ERROR | FDC_ST_NOT_READY,
@@ -582,13 +582,13 @@ void fdc_tick(ms0515_floppy_t *fdc, int cycles)
         switch (fdc->state) {
 
         case FDC_STATE_TYPE1_STEP: {
-            fdc_drive_t *drv      = current_drive(fdc);
-            uint8_t      cmd_grp  = fdc->command & 0xF0;
+            int    *track   = &fdc->head_track[fdc->selected & 1];
+            uint8_t cmd_grp = fdc->command & 0xF0;
 
-            /* Issue one step pulse. */
-            drv->track += fdc->step_direction;
-            if (drv->track < 0)              drv->track = 0;
-            if (drv->track >= FDC_TRACKS)    drv->track = FDC_TRACKS - 1;
+            /* Issue one step pulse — the positioner moves both sides. */
+            *track += fdc->step_direction;
+            if (*track < 0)              *track = 0;
+            if (*track >= FDC_TRACKS)    *track = FDC_TRACKS - 1;
             fdc->step_pulses_left--;
 
             /*
@@ -600,9 +600,9 @@ void fdc_tick(ms0515_floppy_t *fdc, int cycles)
             if (cmd_grp == CMD_RESTORE)
                 fdc->track_reg = 0;
             else if (cmd_grp == CMD_SEEK)
-                fdc->track_reg = (uint8_t)drv->track;
+                fdc->track_reg = (uint8_t)*track;
             else if (fdc->command & 0x10)
-                fdc->track_reg = (uint8_t)drv->track;
+                fdc->track_reg = (uint8_t)*track;
 
             if (fdc->step_pulses_left > 0) {
                 fdc->cycles_remaining += fdc->step_rate_cycles;

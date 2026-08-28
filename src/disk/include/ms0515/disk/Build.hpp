@@ -72,7 +72,15 @@ struct DateParts { int year, month, day; };
  * Throws std::runtime_error on a size/side mismatch, a too-long id/owner, or
  * a bad segment count. */
 void initVolume(std::vector<uint8_t> &image, int side, bool ds,
-                const InitOptions &opts = {}, bool linear = false);
+                const InitOptions &opts = {}, Vol vol = Vol::floppy);
+
+/* Write the volume id and the owner (12 characters each at most) into the
+ * home block of an initialised side, the directory and the files left as
+ * they are - INITIALIZE/VOLUMEID:ONLY.  Throws std::runtime_error when
+ * the side holds no directory or a name is too long. */
+void setVolumeId(std::vector<uint8_t> &image, int side, bool ds,
+                 const std::string &volumeId, const std::string &owner,
+                 Vol vol = Vol::floppy);
 
 /* Add one file to the initialised volume on `side` (the equivalent of PIP).
  * Throws std::runtime_error if the side is not initialised, the name is not
@@ -82,21 +90,21 @@ void initVolume(std::vector<uint8_t> &image, int side, bool ds,
  * wants the original write date preserved. */
 void putFile(std::vector<uint8_t> &image, int side, bool ds,
              const std::string &name, std::span<const uint8_t> data,
-             const PutOptions &opts = {}, bool linear = false);
+             const PutOptions &opts = {}, Vol vol = Vol::floppy);
 
 /* Flip the kStatusProtected bit on the directory entry of `name` on `side`.
  * `on=true` sets it (equivalent to PIP /PROTECT), `on=false` clears it
  * (PIP /NOPROTECT).  Throws std::runtime_error if the file is not found or
  * the side is not initialised. */
 void setProtected(std::vector<uint8_t> &image, int side, bool ds,
-                  const std::string &name, bool on, bool linear = false);
+                  const std::string &name, bool on, Vol vol = Vol::floppy);
 
 /* Overwrite the date word on the directory entry of `name`.  Pass an already-
  * encoded value from encodeDate(); zero means "no date" (clears the field).
  * Throws std::runtime_error if the file is not found or the side is not
  * initialised. */
 void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
-                  const std::string &name, uint16_t date, bool linear = false);
+                  const std::string &name, uint16_t date, Vol vol = Vol::floppy);
 
 /* Defragment a side (the equivalent of RT-11 SQUEEZE): walk every
  * permanent entry in directory order, move its data blocks left to be
@@ -105,7 +113,7 @@ void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
  * remaining free space.  Throws if the side isn't initialised or the
  * directory has multiple segments (multi-segment squeeze isn't supported
  * yet — INIT defaults still produce a single segment under our usage). */
-void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear = false);
+void squeeze(std::vector<uint8_t> &image, int side, bool ds, Vol vol = Vol::floppy);
 
 /* Delete one file from `side` (the equivalent of PIP /DELETE): looks up the
  * directory entry by name and flips its status to empty, the length kept
@@ -118,13 +126,69 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear = false
  * std::runtime_error if the side is not initialised, the name is not
  * RAD50-encodable, or no permanent file with that name exists. */
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
-                const std::string &name, bool linear = false);
+                const std::string &name, Vol vol = Vol::floppy);
 
 /* Rename a permanent file in place (the entry's RAD50 words); the new name
  * must be a valid 6.3 name not already on the volume.  Throws on either. */
 void renameFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, const std::string &newName,
-                bool linear = false);
+                Vol vol = Vol::floppy);
+
+/* The monitor a floppy side boots: the .SYS file whose blocks 1..3 are the
+ * side's LBN 2..4 (the secondary bootstrap COPY/BOOT put there), named
+ * without the extension ("RT11SJ", "MON8SJ", "RT15SJ").  "" when none -
+ * the side does not boot, or holds no directory. */
+[[nodiscard]] std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds,
+                                        Vol vol = Vol::floppy);
+
+/* The files a system volume needs, of those the side holds, in directory
+ * order: the monitor, SWAP.SYS, DZ.SYS and TT.SYS - the boot refuses to go
+ * on without any of them (seen: "?BOOT-U-No SWAP.SYS", "?BOOT-W-TT.SYS
+ * missing") - and PIP, DUP, DIR, RESORC, the utilities that let the copy
+ * do the same again.  Other handlers (VM, LD, HD...) are extras. */
+[[nodiscard]] std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds,
+                                                 const std::string &monitor,
+                                                 Vol vol = Vol::floppy, Vol target = Vol::floppy);
+
+/* The command file a monitor runs at boot ("STARTS.COM" for the Omega
+ * kits, "ST.COM" for OSA, "START.COM" for RT15SJ): the monitor file holds
+ * it as the KMON line "@NAME" - a NUL, "@", the name in six characters,
+ * a NUL.  "" when the file holds none. */
+[[nodiscard]] std::string startupFile(const std::vector<uint8_t> &monitorFile);
+
+/* A system volume: the kit of `source`'s side put on `target`'s side (the
+ * files there of the same names replaced), every one protected as the
+ * system's own volumes have them; the extras named copied as they are;
+ * the monitor's startup command file made anew, unprotected, holding
+ * "SET TT QUIET" alone, unless the target holds one; then the bootstrap.
+ * Returns the monitor's name.  Throws when the source does not boot, the
+ * target holds no directory, or a file does not fit. */
+std::string makeSystemVolume(std::vector<uint8_t> &target, int side, bool ds,
+                             const std::vector<uint8_t> &source, int sourceSide, bool sourceDs,
+                             const std::vector<std::string> &extras = {},
+                             Vol vol = Vol::floppy, Vol sourceVol = Vol::floppy);
+
+/* The bootstrap of a floppy side - what COPY/BOOT (DUP) writes, verified
+ * byte for byte against every DUP and monitor in the collection:
+ *   LBN 0    = 512 bytes of the side's own DZ.SYS from the offset in word
+ *              0o62 of the handler's block 0 (the .DRBOT macro's primary
+ *              driver; word 0o66 the offset of its read routine);
+ *   LBN 2..5 = blocks 1..4 of the monitor file, the last one with word
+ *              0o716 = RAD50 "DZ ", words 0o724 and 0o726 = RAD50 of the
+ *              monitor's name, word 0o730 = the handler's word 0o66.
+ * No block numbers: the secondary bootstrap finds the monitor by name.
+ * `monitor` is the file's name with or without ".SYS".  `vol` picks the
+ * boot device: a DZ floppy side or a DV whole-disk volume (verified byte
+ * for byte against the OS's COPY/BOOT DV1: - the recipe is the same, from
+ * DV.SYS with RAD50 "DV"); MZ and linear volumes cannot boot - the ROM
+ * reads the boot block from cylinder 1 sector 1, where DZ and DV keep
+ * LBN 0 and MZ keeps LBN 20.  Throws
+ * std::runtime_error when the side holds no directory, DZ.SYS or the
+ * monitor is missing, DZ.SYS has no primary driver (word 0o62 zero), or
+ * the monitor's block 4 is not zero where the words go (a boot block of
+ * another layout: left alone). */
+void writeBoot(std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor,
+               Vol vol = Vol::floppy);
 
 /* Enlarge a linear (HD / logical-disk) volume by `blocks`: zero blocks
  * appended and the directory told - the last entry of the last segment
@@ -147,7 +211,7 @@ void growLinear(std::vector<uint8_t> &image, int blocks);
  * entry is not an unused area, no proper 6.3 name is there or given, or a
  * file of the name is on the volume already. */
 void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal,
-                   const std::string &newName = "", bool linear = false);
+                   const std::string &newName = "", Vol vol = Vol::floppy);
 
 } /* namespace ms0515::disk */
 

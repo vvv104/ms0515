@@ -64,7 +64,9 @@ CI runs both in the `web / emscripten` job.
 | `ms_save_state(h, path)` / `ms_load_state(h, path)` | snapshots in the module's file system |
 | `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
 | `ms_key_release_all(h)` | every key up (the canvas lost the focus) |
-| `ms_disk_dir(path, side, linear)` / `ms_disk_get(path, side, linear, name)` + `ms_disk_data()` / `ms_disk_put(path, side, linear, name, data, len, y, m, d, prot)` / `ms_disk_rm(...)` / `ms_disk_rename(...)` / `ms_disk_protect(..., on)` / `ms_disk_init(...)` / `ms_disk_squeeze(...)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library; `linear` for the HD): the page's commander |
+| `ms_disk_dir(path, side, linear)` (the volume id, the owner and the segment count with the files) / `ms_disk_get(path, side, linear, name)` + `ms_disk_data()` / `ms_disk_put(path, side, linear, name, data, len, y, m, d, prot)` / `ms_disk_rm(...)` / `ms_disk_rename(...)` / `ms_disk_protect(..., on)` / `ms_disk_init(..., volumeId, owner, segments)` / `ms_disk_volume_id(..., volumeId, owner)` / `ms_disk_squeeze(...)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library; `linear` for the HD): the page's commander |
+| `ms_disk_blank(ds)` + `ms_disk_data()` | a blank floppy as the machine's formatting leaves it - the 0xB6 0x6D pattern, no RT-11 structure - for the page's "Create blank" (an HD image stays zeros: no such machine had one) |
+| `ms_disk_booted(path, side)` / `ms_disk_kit(path, side)` / `ms_disk_system(path, side, fromPath, fromSide, extras)` + `ms_disk_text()` | the monitor a floppy side boots, its kit; a side made a system volume of another's - the kit protected, the extras named, the startup .COM anew, the bootstrap as COPY/BOOT does |
 | `ms_disk_grow(path, blocks)` | a linear image enlarged: the commander grows a logical disk a file does not fit into |
 | `ms_ld_create(blocks, segments, volumeId)` / `ms_ld_put(name, data, len, y, m, d, prot)` / `ms_ld_data()` + `ms_ld_size()` | a logical disk built in memory - the linear file the system's LD handler mounts as a volume (`MOUNT LD0: DZn:NAME.DSK`) |
 | `ms_joystick(h, bits)` | the joystick on the MS7007 port: bits 0-4 right, left, down, up, fire (`joystick.js`: the arrows and Space, or a touch overlay) |
@@ -111,7 +113,13 @@ unused areas listed with the files, and the ten keys always drawn below as
 in Midnight Commander - F1 Upload a file of the user's (its name made a
 6.3 RT-11 name, no date: the OS cannot hold today's), F2 Download to the
 computer, F3 View, F4 Edit, F5 Copy to the other pane (with the date and
-the protection), F6 Rename, F7 Init the pane's volume, F8 Delete, F9
+the protection), F6 Rename, F9 Init the pane's volume (a dialog as the
+OS's INITIALIZE: the volume id and the owner, 12 characters each, the
+directory segments 1..31 - 4 offered for a floppy, by the size for a
+linear image - or "the volume id only", INITIALIZE/VOLUMEID:ONLY, the files
+kept; the volume id, the owner and the segment count show in a line
+under the pane's disk list, decoded as the OS's terminal wrote them -
+KOI-8R above 0x7F), F8 Delete, F7
 Squeeze, F10 Quit (Esc too); Tab, the arrows, Enter as in the commander.
 Insert or Shift with the arrows marks files, gray + / - / * mark by the
 OS's patterns (`*`, `%`, an omitted part `*`, several with commas) or
@@ -130,6 +138,18 @@ the old name or another one the dialog asks for - a free NAME1 offered
 when the old name is taken now; on an unused area that was no file the key
 reads Recover: the area made a file of a name given, whatever lies in it).
 F3 on an unused area views its bytes (`ms_disk_area` by the ordinal).
+Alt+F9 makes the pane's floppy a system volume of the other pane's
+disk (`ms_disk_system`, the library's `makeSystemVolume`): the kit - the
+monitor, SWAP, DZ, TT (the boot stops without any of them), PIP, DUP, DIR,
+RESORC (`ms_disk_kit`) - copied over and protected, the other pane's
+marked files with it, the startup .COM the monitor names (`startupFile`:
+the "@NAME" line in the monitor file) made anew with SET TT QUIET alone,
+and the bootstrap written as RT-11's COPY/BOOT writes it
+(the library's `writeBoot`: LBN 0 from the volume's DZ.SYS at the offset
+its `.DRBOT` header names, LBN 2..5 the monitor's blocks 1..4 with the
+device and monitor names in RAD50 - verified byte for byte against the
+OS on every kit shipped); the source must boot itself (`ms_disk_booted`
+names its monitor).
 Enter on a logical disk enters it as if a directory (".." or Backspace
 back out): its file is taken into the module's file system, read there
 linearly and put back into its disk after every change; a file that does

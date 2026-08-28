@@ -6,10 +6,12 @@
 
 #include "ms0515/disk/Build.hpp"
 #include "ms0515/disk/Directory.hpp"
+#include "ms0515/disk/Image.hpp"
 
 #include "Internal.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -36,20 +38,30 @@ constexpr uint8_t kBootStub[] = {
 
 namespace {
 
-/* Total logical block count of the volume: the actual file size for a linear
- * HD/LD container, or the fixed 800-block side for a floppy. */
-std::size_t volumeBlocks(const std::vector<uint8_t> &image, bool linear)
+/* Total logical block count of the volume: the actual file size for a
+ * linear HD/LD container, the whole 1600-block diskette for DV/MZ, or the
+ * fixed 800-block side for a floppy. */
+std::size_t volumeBlocks(const std::vector<uint8_t> &image, Vol vol)
 {
-    return linear ? image.size() / kBlock : static_cast<std::size_t>(kSsBlocks);
+    switch (vol) {
+    case Vol::linear: return image.size() / kBlock;
+    case Vol::dv:
+    case Vol::mz:     return static_cast<std::size_t>(kDsBlocks);
+    default:          return static_cast<std::size_t>(kSsBlocks);
+    }
 }
 
 /* Validate that `image` has an acceptable size for the chosen geometry. */
-void requireValidSize(const std::vector<uint8_t> &image, bool ds, bool linear)
+void requireValidSize(const std::vector<uint8_t> &image, bool ds, Vol vol)
 {
-    if (linear) {
+    if (vol == Vol::linear) {
         if (image.empty() || (image.size() % kBlock) != 0)
             throw std::runtime_error(
                 "linear HD image size must be a positive multiple of 512");
+    } else if (vol == Vol::dv || vol == Vol::mz) {
+        if (image.size() != kDoubleSize)
+            throw std::runtime_error(
+                "a DV/MZ volume is a whole double-sided (819200-byte) image");
     } else if (image.size() != (ds ? kDoubleSize : kSideSize)) {
         throw std::runtime_error("image size does not match the requested ss/ds");
     }
@@ -73,18 +85,38 @@ std::vector<uint8_t> blankLinear(int blocks)
 }
 
 void initVolume(std::vector<uint8_t> &image, int side, bool ds,
-                const InitOptions &opts, bool linear)
+                const InitOptions &opts, Vol vol)
 {
-    requireValidSize(image, ds, linear);
-    if (linear ? (side != 0) : (ds ? (side != 0 && side != 1) : (side != 0)))
+    requireValidSize(image, ds, vol);
+    if (vol != Vol::floppy ? (side != 0) : (ds ? (side != 0 && side != 1) : (side != 0)))
         throw std::runtime_error("invalid side for this image");
     if (opts.segments < 1 || opts.segments > 31)
         throw std::runtime_error("directory segments must be 1..31");
 
-    const int volBlocks = static_cast<int>(volumeBlocks(image, linear));
+    /* A double-sided image can hold volumes of several kinds (a DZ side,
+     * DV:, MZ:), and their system blocks do not overlap - so a volume the
+     * image held BEFORE this INIT would still detect afterwards.  The new
+     * volume owns the whole area, and the foreign lenses' home blocks are
+     * its blank data - erase them, and the stale directories become
+     * unreachable.  A side-1 DZ INIT touches nothing: every foreign home
+     * block lies physically on side 0, where its own volume may live. */
+    if (image.size() == kDoubleSize && vol != Vol::linear
+        && !(vol == Vol::floppy && side == 1)) {
+        const std::size_t own = lbnToByte(1, side, true, vol);
+        for (const std::size_t off : {lbnToByte(1, 0, true, Vol::floppy),
+                                      lbnToByte(1, 0, true, Vol::dv),
+                                      lbnToByte(1, 0, true, Vol::mz),
+                                      vol == Vol::floppy ? own
+                                          : lbnToByte(1, 1, true, Vol::floppy)})
+            if (off != own)
+                for (int i = 0; i < kBlock; ++i)
+                    image[off + i] = (i & 1) ? uint8_t{0x6D} : uint8_t{0xB6};
+    }
+
+    const int volBlocks = static_cast<int>(volumeBlocks(image, vol));
 
     auto writeBlock = [&](int lbn, const uint8_t *src) {
-        std::memcpy(image.data() + lbnToByte(lbn, side, ds, linear), src, kBlock);
+        std::memcpy(image.data() + lbnToByte(lbn, side, ds, vol), src, kBlock);
     };
 
     {   /* boot block (LBN 0): "no boot" stub + zeros */
@@ -153,25 +185,25 @@ uint16_t encodeDate(int year, int month, int day)
  * is sane, else where parseDirectory() finds segment 1 - the volumes the
  * machine's own INIT wrote (OSA, Omega, ...) carry other things in that
  * word, and dir/get read them through the scan; put/rm must too. */
-static int directoryLbn(const std::vector<uint8_t> &image, int side, bool ds, bool linear)
+static int directoryLbn(const std::vector<uint8_t> &image, int side, bool ds, Vol vol)
 {
-    const int volBlocks = static_cast<int>(volumeBlocks(image, linear));
-    const int fromHome = getw(image.data() + lbnToByte(1, side, ds, linear) + 0x1D4);
+    const int volBlocks = static_cast<int>(volumeBlocks(image, vol));
+    const int fromHome = getw(image.data() + lbnToByte(1, side, ds, vol) + 0x1D4);
     if (fromHome >= 1 && fromHome <= volBlocks)
         return fromHome;
-    if (auto dir = parseDirectory(image, side, ds, linear); dir && dir->dirStartLbn >= 1)
+    if (auto dir = parseDirectory(image, side, ds, vol); dir && dir->dirStartLbn >= 1)
         return dir->dirStartLbn;
     throw std::runtime_error("side is not initialised (run init first)");
 }
 
 void putFile(std::vector<uint8_t> &image, int side, bool ds,
              const std::string &name, std::span<const uint8_t> data,
-             const PutOptions &opts, bool linear)
+             const PutOptions &opts, Vol vol)
 {
-    requireValidSize(image, ds, linear);
+    requireValidSize(image, ds, vol);
 
-    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds, linear); };
-    const int dirLbn = directoryLbn(image, side, ds, linear);
+    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds, vol); };
+    const int dirLbn = directoryLbn(image, side, ds, vol);
 
     std::vector<uint8_t> seg(2 * kBlock);
     std::memcpy(seg.data(),          image.data() + off(dirLbn),     kBlock);
@@ -284,14 +316,14 @@ namespace {
  * the side isn't initialised or the file doesn't exist. */
 template <typename Mutator>
 void mutatePermanentEntry(std::vector<uint8_t> &image, int side, bool ds,
-                          const std::string &name, Mutator mutator, bool linear)
+                          const std::string &name, Mutator mutator, Vol vol)
 {
-    requireValidSize(image, ds, linear);
+    requireValidSize(image, ds, vol);
 
-    const int dirLbn = directoryLbn(image, side, ds, linear);
+    const int dirLbn = directoryLbn(image, side, ds, vol);
 
-    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, linear);
-    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, linear);
+    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, vol);
+    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, vol);
 
     std::vector<uint8_t> seg(2 * kBlock);
     std::memcpy(seg.data(),          image.data() + segOff0, kBlock);
@@ -329,12 +361,12 @@ void mutatePermanentEntry(std::vector<uint8_t> &image, int side, bool ds,
 }  /* anonymous namespace */
 
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
-                const std::string &name, bool linear)
+                const std::string &name, Vol vol)
 {
-    requireValidSize(image, ds, linear);
-    const int dirLbn = directoryLbn(image, side, ds, linear);
-    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, linear);
-    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, linear);
+    requireValidSize(image, ds, vol);
+    const int dirLbn = directoryLbn(image, side, ds, vol);
+    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, vol);
+    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, vol);
     std::vector<uint8_t> seg(2 * kBlock);
     std::memcpy(seg.data(),          image.data() + segOff0, kBlock);
     std::memcpy(seg.data() + kBlock, image.data() + segOff1, kBlock);
@@ -388,11 +420,11 @@ void removeFile(std::vector<uint8_t> &image, int side, bool ds,
 
 void renameFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, const std::string &newName,
-                bool linear)
+                Vol vol)
 {
     char nm[6], ex[3];
     splitName(newName, nm, ex);        /* validates the new 6.3 name first */
-    if (auto dir = parseDirectory(image, side, ds, linear); dir && dir->find(newName))
+    if (auto dir = parseDirectory(image, side, ds, vol); dir && dir->find(newName))
         throw std::runtime_error("a file of that name is already there: " + newName);
     const uint16_t n1 = encodeRad50(nm), n2 = encodeRad50(nm + 3), e = encodeRad50(ex);
     mutatePermanentEntry(image, side, ds, name,
@@ -400,11 +432,11 @@ void renameFile(std::vector<uint8_t> &image, int side, bool ds,
             putw(&seg[p + 2], n1);
             putw(&seg[p + 4], n2);
             putw(&seg[p + 6], e);
-        }, linear);
+        }, vol);
 }
 
 void setProtected(std::vector<uint8_t> &image, int side, bool ds,
-                  const std::string &name, bool on, bool linear)
+                  const std::string &name, bool on, Vol vol)
 {
     mutatePermanentEntry(image, side, ds, name,
         [on](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
@@ -412,24 +444,24 @@ void setProtected(std::vector<uint8_t> &image, int side, bool ds,
             if (on) status |=  kStatusProtected;
             else    status &= ~kStatusProtected;
             putw(&seg[p], status);
-        }, linear);
+        }, vol);
 }
 
 void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
-                  const std::string &name, uint16_t date, bool linear)
+                  const std::string &name, uint16_t date, Vol vol)
 {
     mutatePermanentEntry(image, side, ds, name,
         [date](uint8_t *seg, std::size_t p, std::size_t /*entrySize*/) {
             putw(&seg[p + 12], date);
-        }, linear);
+        }, vol);
 }
 
-void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear)
+void squeeze(std::vector<uint8_t> &image, int side, bool ds, Vol vol)
 {
-    requireValidSize(image, ds, linear);
+    requireValidSize(image, ds, vol);
 
-    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds, linear); };
-    const int dirLbn = directoryLbn(image, side, ds, linear);
+    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds, vol); };
+    const int dirLbn = directoryLbn(image, side, ds, vol);
 
     std::vector<uint8_t> seg(2 * kBlock);
     std::memcpy(seg.data(),          image.data() + off(dirLbn),     kBlock);
@@ -501,12 +533,187 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear)
     std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
 }
 
+void setVolumeId(std::vector<uint8_t> &image, int side, bool ds,
+                 const std::string &volumeId, const std::string &owner, Vol vol)
+{
+    requireValidSize(image, ds, vol);
+    if (volumeId.size() > 12) throw std::runtime_error("volume id exceeds 12 characters");
+    if (owner.size()    > 12) throw std::runtime_error("owner name exceeds 12 characters");
+    (void)directoryLbn(image, side, ds, vol);        /* throws when the side is not initialised */
+    uint8_t *home = image.data() + lbnToByte(1, side, ds, vol);
+    std::memset(home + 0x1D8, ' ', 12);
+    std::memcpy(home + 0x1D8, volumeId.data(), volumeId.size());
+    std::memset(home + 0x1E4, ' ', 12);
+    std::memcpy(home + 0x1E4, owner.data(), owner.size());
+}
+
+namespace {
+
+/* The monitor's name as the 6 + 3 of "NAME.SYS", ".SYS" added when left out. */
+std::string monitorFile(const std::string &monitor)
+{
+    std::string name = monitor;
+    for (auto &c : name) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    if (name.size() < 4 || name.compare(name.size() - 4, 4, ".SYS") != 0) name += ".SYS";
+    return name;
+}
+
+constexpr std::size_t kBootWords[] = {0716, 0724, 0726, 0730};   /* what DUP fills in the monitor's block 4 */
+
+/* The boot device of a volume kind: its handler file and RAD50 device
+ * name.  Only DZ (a floppy side) and DV boot - the ROM reads the boot
+ * block from cylinder 1 sector 1, where their LBN 0 lies; MZ's LBN 0 is
+ * on cylinder 0 (OS-verified: COPY/BOOT MZ1: succeeds, the machine never
+ * finds it). */
+struct BootDevice { const char *handler; char dev[3]; };
+
+BootDevice bootDevice(Vol vol)
+{
+    switch (vol) {
+    case Vol::floppy: return {"DZ.SYS", {'D', 'Z', ' '}};
+    case Vol::dv:     return {"DV.SYS", {'D', 'V', ' '}};
+    default:
+        throw std::runtime_error("only a DZ floppy side or a DV whole-disk volume "
+                                 "can boot (the ROM reads cylinder 1, MZ keeps LBN 0 on cylinder 0)");
+    }
+}
+
+}  /* namespace */
+
+std::string bootedMonitor(const std::vector<uint8_t> &image, int side, bool ds, Vol vol)
+{
+    if (vol == Vol::floppy && image.size() != (ds ? kDoubleSize : kSideSize)) return "";
+    auto img = openVolume(image, vol, side);
+    if (!img || !img->hasDirectory) return "";
+    const auto b2 = img->block(2), b3 = img->block(3), b4 = img->block(4);
+    if (b2.size() != kBlock || b3.size() != kBlock || b4.size() != kBlock) return "";
+    for (const auto &e : img->directory.permanentFiles()) {
+        if (e.length < 5 || e.name.size() < 5 || e.name.compare(e.name.size() - 4, 4, ".SYS") != 0) continue;
+        const auto f = img->readFile(e.name);
+        if (f.size() < 5 * kBlock) continue;
+        if (std::equal(b2.begin(), b2.end(), f.begin() + kBlock) &&
+            std::equal(b3.begin(), b3.end(), f.begin() + 2 * kBlock) &&
+            std::equal(b4.begin(), b4.end(), f.begin() + 3 * kBlock))
+            return e.name.substr(0, e.name.size() - 4);
+    }
+    return "";
+}
+
+std::vector<std::string> systemKit(const std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor,
+                                   Vol vol, Vol target)
+{
+    std::vector<std::string> out;
+    if (vol == Vol::floppy && image.size() != (ds ? kDoubleSize : kSideSize)) return out;
+    auto img = openVolume(image, vol, side);
+    if (!img || !img->hasDirectory) return out;
+    const std::string mon = monitorFile(monitor);
+    static const char *const kNeeded[] = {"SWAP.SYS", "DZ.SYS", "TT.SYS", "PIP.SAV", "DUP.SAV", "DIR.SAV", "RESORC.SAV"};
+    const std::string targetHandler = target == Vol::dv ? "DV.SYS" : "";
+    for (const auto &e : img->directory.permanentFiles())
+        if (e.name == mon || (!targetHandler.empty() && e.name == targetHandler)
+            || std::find(std::begin(kNeeded), std::end(kNeeded), e.name) != std::end(kNeeded))
+            out.push_back(e.name);
+    return out;
+}
+
+std::string startupFile(const std::vector<uint8_t> &monitorFile)
+{
+    /* "\0@" then six of A-Z 0-9 $ and blanks, then "\0"; a name of one
+     * character is something else ("@$"). */
+    for (std::size_t i = 0; i + 9 <= monitorFile.size(); ++i) {
+        if (monitorFile[i] != 0 || monitorFile[i + 1] != '@' || monitorFile[i + 8] != 0) continue;
+        std::string name;
+        bool ok = true;
+        for (std::size_t k = 2; k < 8 && ok; ++k) {
+            const char c = static_cast<char>(monitorFile[i + k]);
+            if (c == ' ') continue;
+            if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '$') name += c; else ok = false;
+        }
+        if (ok && name.size() >= 2) return name + ".COM";
+    }
+    return "";
+}
+
+std::string makeSystemVolume(std::vector<uint8_t> &target, int side, bool ds,
+                             const std::vector<uint8_t> &source, int sourceSide, bool sourceDs,
+                             const std::vector<std::string> &extras, Vol vol, Vol sourceVol)
+{
+    const std::string monitor = bootedMonitor(source, sourceSide, sourceDs, sourceVol);
+    if (monitor.empty()) throw std::runtime_error("the source is not a system volume: no bootstrap on it");
+    auto src = openVolume(source, sourceVol, sourceSide);
+    if (!src || !src->hasDirectory) throw std::runtime_error("the source holds no RT-11 directory");
+    auto there = openVolume(target, vol, side);
+    if (!there || !there->hasDirectory) throw std::runtime_error("the target holds no RT-11 directory");
+
+    auto copy = [&](const std::string &name, bool protect) {
+        const auto *e = src->directory.find(name);
+        if (!e) throw std::runtime_error("no " + name + " on the source");
+        if (openVolume(target, vol, side)->directory.find(name)) removeFile(target, side, ds, name, vol);
+        PutOptions opts;
+        opts.date = e->date;
+        opts.readOnly = protect || (e->status & kStatusProtected) != 0;
+        putFile(target, side, ds, name, src->readFile(name), opts, vol);
+    };
+    for (const auto &name : systemKit(source, sourceSide, sourceDs, monitor, sourceVol, vol)) copy(name, true);
+    for (const auto &name : extras) copy(name, false);
+
+    const std::string startup = startupFile(src->readFile(monitorFile(monitor)));
+    if (!startup.empty() && !openVolume(target, vol, side)->directory.find(startup)) {
+        static const char kLine[] = "SET TT QUIET\r\n";
+        putFile(target, side, ds, startup, std::span<const uint8_t>(reinterpret_cast<const uint8_t *>(kLine), sizeof kLine - 1), {}, vol);
+    }
+    writeBoot(target, side, ds, monitor, vol);
+    return monitor;
+}
+
+void writeBoot(std::vector<uint8_t> &image, int side, bool ds, const std::string &monitor,
+               Vol vol)
+{
+    const BootDevice bd = bootDevice(vol);
+    requireValidSize(image, ds, vol);
+    auto img = openVolume(image, vol, side);
+    if (!img || !img->hasDirectory) throw std::runtime_error("the side holds no RT-11 directory");
+
+    const auto dz = img->readFile(bd.handler);
+    if (dz.empty()) throw std::runtime_error(std::string("no ") + bd.handler + " on the volume: the system device handler carries the bootstrap");
+    if (dz.size() < 070) throw std::runtime_error(std::string(bd.handler) + " is too short to be a handler");
+    const std::size_t driver = getw(&dz[062]);
+    const uint16_t readOff = getw(&dz[066]);
+    if (driver == 0 || driver + kBlock > dz.size())
+        throw std::runtime_error(std::string(bd.handler) + " has no primary driver (.DRBOT): it cannot make a volume bootable");
+
+    const std::string file = monitorFile(monitor);
+    const auto mon = img->readFile(file);
+    if (mon.empty()) throw std::runtime_error("no " + file + " on the volume");
+    if (mon.size() < 5 * kBlock) throw std::runtime_error(file + " is too short to hold a bootstrap");
+
+    std::vector<uint8_t> last(mon.begin() + 4 * kBlock, mon.begin() + 5 * kBlock);
+    for (const auto off : kBootWords)
+        if (getw(&last[off]) != 0)
+            throw std::runtime_error(file + ": its boot block is of another layout (the words DUP fills are in use): left alone");
+    char nm[6], ex[3];
+    splitName(file, nm, ex);
+    putw(&last[0716], encodeRad50(bd.dev));
+    putw(&last[0724], encodeRad50(nm));
+    putw(&last[0726], encodeRad50(nm + 3));
+    putw(&last[0730], readOff);
+
+    auto writeBlock = [&](int lbn, const uint8_t *src) {
+        std::memcpy(image.data() + lbnToByte(lbn, side, ds, vol), src, kBlock);
+    };
+    writeBlock(0, dz.data() + driver);
+    writeBlock(2, mon.data() + 1 * kBlock);
+    writeBlock(3, mon.data() + 2 * kBlock);
+    writeBlock(4, mon.data() + 3 * kBlock);
+    writeBlock(5, last.data());
+}
+
 void growLinear(std::vector<uint8_t> &image, int blocks)
 {
-    requireValidSize(image, false, true);
+    requireValidSize(image, false, Vol::linear);
     if (blocks <= 0) throw std::runtime_error("grow: the block count must be positive");
-    auto off = [&](int lbn) { return lbnToByte(lbn, 0, false, true); };
-    const int dirLbn = directoryLbn(image, 0, false, true);
+    auto off = [&](int lbn) { return lbnToByte(lbn, 0, false, Vol::linear); };
+    const int dirLbn = directoryLbn(image, 0, false, Vol::linear);
 
     /* The last segment of the chain (linear: a segment's two blocks are
      * contiguous bytes). */
@@ -544,12 +751,12 @@ void growLinear(std::vector<uint8_t> &image, int blocks)
 }
 
 void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal,
-                   const std::string &newName, bool linear)
+                   const std::string &newName, Vol vol)
 {
-    requireValidSize(image, ds, linear);
-    const int dirLbn = directoryLbn(image, side, ds, linear);
-    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, linear);
-    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, linear);
+    requireValidSize(image, ds, vol);
+    const int dirLbn = directoryLbn(image, side, ds, vol);
+    const std::size_t segOff0 = lbnToByte(dirLbn,     side, ds, vol);
+    const std::size_t segOff1 = lbnToByte(dirLbn + 1, side, ds, vol);
     std::vector<uint8_t> seg(2 * kBlock);
     std::memcpy(seg.data(),          image.data() + segOff0, kBlock);
     std::memcpy(seg.data() + kBlock, image.data() + segOff1, kBlock);

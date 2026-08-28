@@ -24,6 +24,7 @@
 #include <ms0515/disk/Build.hpp>
 #include <ms0515/disk/Image.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstdio>
@@ -58,12 +59,23 @@ int usage()
         "                                        write the directory date in place\n"
         "  get    <image> [--side 0|1] [--hd] [--out DIR] [pattern]...  extract files\n"
         "  dir    <image> [--side 0|1] [--hd]    list the directory\n"
+        "  boot   <image> [--side 0|1 | --dv] [MONITOR]  write the bootstrap (RT-11 COPY/BOOT) for the\n"
+        "                                        monitor named - the volume's own DZ.SYS and\n"
+        "                                        monitor file; MONITOR defaults to the one .SYS\n"
+        "                                        that is a monitor\n"
+        "  system <target> --from <system image> [--side 0|1 | --dv] [--from-side 0|1 | --from-dv] [extra]...\n"
+        "                                        a system volume: the kit (the monitor, SWAP, DZ,\n"
+        "                                        TT, PIP, DUP, DIR, RESORC - protected) copied from\n"
+        "                                        a bootable image with the extras named, the\n"
+        "                                        startup .COM made anew, then the bootstrap; the\n"
+        "                                        target must be initialised\n"
         "  split  <ds.dsk> <side0.dsk> <side1.dsk>   split an 800 KB DS into two 400 KB SS\n"
         "  merge  <side0.dsk> <side1.dsk> <ds.dsk>   merge two 400 KB SS into an 800 KB DS\n"
         "\n"
         "  Image kind follows the size: 409600 B single-sided, 819200 B double-\n"
         "  sided (--side picks a side, default 0 = lower/boot).  Wildcards: '*'.\n"
         "  --hd (alias --linear): treat <image> as a linear HD/LD container\n"
+        "  --dv | --mz: treat <image> as a whole-disk DV:/MZ: volume (1600 blocks)\n"
         "  (block N at byte N*512, any 512-byte multiple); --side does not apply.\n",
         stderr);
     return 2;
@@ -108,11 +120,11 @@ constexpr std::size_t kHdMaxBlocks = 65535;
  * HD/LD container any positive 512-byte multiple up to the 65535-block limit
  * is accepted; otherwise the floppy SS/DS sizes. */
 std::optional<std::vector<uint8_t>> readImage(const std::string &path, bool &ds,
-                                              bool linear)
+                                              Vol vol)
 {
     auto raw = readHostFile(path);
     if (!raw) { std::fprintf(stderr, "error: cannot read %s\n", path.c_str()); return std::nullopt; }
-    if (linear) {
+    if (vol == Vol::linear) {
         if (raw->empty() || (raw->size() % kBlock) != 0) {
             std::fprintf(stderr, "error: %s is %zu B, not a 512-byte multiple\n",
                          path.c_str(), raw->size());
@@ -125,6 +137,15 @@ std::optional<std::vector<uint8_t>> readImage(const std::string &path, bool &ds,
             return std::nullopt;
         }
         ds = false;
+        return raw;
+    }
+    if (vol == Vol::dv || vol == Vol::mz) {
+        if (raw->size() != kDoubleSize) {
+            std::fprintf(stderr, "error: %s is %zu B; a DV/MZ volume is a whole "
+                         "800 KB double-sided image\n", path.c_str(), raw->size());
+            return std::nullopt;
+        }
+        ds = true;
         return raw;
     }
     if (raw->size() != kSideSize && raw->size() != kDoubleSize) {
@@ -192,19 +213,55 @@ void applyDateToFile(const fs::path &p, uint16_t encoded)
     fs::last_write_time(p, ft, ec);  /* best effort — ignore failures */
 }
 
-int cmdDir(const std::string &path, int side, bool linear)
+int cmdDir(const std::string &path, int side, Vol vol)
 {
-    auto img = linear ? loadLinearImage(path) : loadImage(path, side);
-    if (!img) { std::fprintf(stderr, "error: cannot read %s (bad --side/--hd?)\n",
+    auto img = loadVolume(path, vol, side);
+    if (!img) { std::fprintf(stderr, "error: cannot read %s (bad --side/--hd/--dv/--mz?)\n",
                              path.c_str()); return 1; }
-    if (img->linear)
+    switch (img->vol) {
+    case Vol::linear:
         std::printf("%s\n  size %zu B  (linear HD/LD, %zu blocks)\n",
                     path.c_str(), img->data.size(), img->data.size() / kBlock);
-    else
+        break;
+    case Vol::dv:
+    case Vol::mz:
+        std::printf("%s\n  size %zu B  (%s whole-disk volume, 1600 blocks)\n",
+                    path.c_str(), img->data.size(),
+                    img->vol == Vol::dv ? "DV" : "MZ");
+        break;
+    default:
         std::printf("%s\n  size %zu B  (%s, side %d)\n", path.c_str(),
                     img->data.size(),
                     img->ds ? "double-sided" : "single-sided", img->side);
-    if (!img->hasDirectory) { std::printf("  no RT-11 directory on this side\n"); return 1; }
+        break;
+    }
+    /* Content-based detection: name the formats whose home block and
+     * directory validate, as flags the user can pass. */
+    const auto specs = detectVolumes(img->data);
+    auto specFlags = [&specs] {
+        std::string flags;
+        for (const auto &s : specs)
+            switch (s.vol) {
+            case Vol::floppy: flags += " --side " + std::to_string(s.side); break;
+            case Vol::linear: flags += " --hd"; break;
+            case Vol::dv:     flags += " --dv"; break;
+            case Vol::mz:     flags += " --mz"; break;
+            }
+        return flags;
+    };
+    if (!img->hasDirectory) {
+        std::printf("  no RT-11 directory here");
+        if (!specs.empty())
+            std::printf(" - but the content parses as:%s", specFlags().c_str());
+        std::printf("\n");
+        return 1;
+    }
+    const bool matches = std::any_of(specs.begin(), specs.end(),
+        [&](const VolumeSpec &s) {
+            return s.vol == img->vol && (s.vol != Vol::floppy || s.side == img->side);
+        });
+    if (!matches && !specs.empty())
+        std::printf("  note: by content this image rather is:%s\n", specFlags().c_str());
     const auto &d = img->directory;
     std::printf("  dir@LBN %d  segs=%d  data_start=%d\n",
                 d.dirStartLbn, d.segsTotal, d.dataStart);
@@ -227,9 +284,9 @@ int cmdDir(const std::string &path, int side, bool linear)
 }
 
 int cmdGet(const std::string &path, int side, const std::string &outdir,
-           const std::vector<std::string> &patterns, bool linear)
+           const std::vector<std::string> &patterns, Vol vol)
 {
-    auto img = linear ? loadLinearImage(path) : loadImage(path, side);
+    auto img = loadVolume(path, vol, side);
     if (!img) { std::fprintf(stderr, "error: cannot read %s (bad --side/--hd?)\n",
                              path.c_str()); return 1; }
     if (!img->hasDirectory) {
@@ -268,13 +325,13 @@ int cmdGet(const std::string &path, int side, const std::string &outdir,
 }
 
 int cmdInit(const std::string &path, int side, const InitOptions &opts,
-            bool linear)
+            Vol vol)
 {
     bool ds = false;
-    auto image = readImage(path, ds, linear);
+    auto image = readImage(path, ds, vol);
     if (!image) return 1;
     try {
-        initVolume(*image, side, ds, opts, linear);
+        initVolume(*image, side, ds, opts, vol);
     } catch (const std::exception &e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 1;
@@ -283,9 +340,12 @@ int cmdInit(const std::string &path, int side, const InitOptions &opts,
         std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
         return 1;
     }
-    if (linear)
+    if (vol == Vol::linear)
         std::printf("initialised %s (linear HD, %zu blocks)\n", path.c_str(),
                     image->size() / kBlock);
+    else if (vol == Vol::dv || vol == Vol::mz)
+        std::printf("initialised %s (%s whole-disk volume, 1600 blocks)\n",
+                    path.c_str(), vol == Vol::dv ? "DV" : "MZ");
     else
         std::printf("initialised %s (side %d, %s)\n", path.c_str(), side,
                     ds ? "double-sided" : "single-sided");
@@ -315,10 +375,10 @@ std::optional<uint16_t> parseDate(const std::string &s)
 
 
 int cmdPut(const std::string &path, int side, const std::vector<std::string> &args,
-           const PutOptions &opts, bool linear)
+           const PutOptions &opts, Vol vol)
 {
     bool ds = false;
-    auto image = readImage(path, ds, linear);
+    auto image = readImage(path, ds, vol);
     if (!image) return 1;
 
     /* Expand '*' globs against the host filesystem; plain paths pass through. */
@@ -352,7 +412,7 @@ int cmdPut(const std::string &path, int side, const std::vector<std::string> &ar
         PutOptions eff = opts;
         if (eff.date == 0) eff.date = mtimeAsDate(hf);
         try {
-            putFile(*image, side, ds, name, *bytes, eff, linear);
+            putFile(*image, side, ds, name, *bytes, eff, vol);
             std::printf("  %s -> %s (%zu B)\n", hf.string().c_str(), name.c_str(),
                         bytes->size());
             ++added;
@@ -369,16 +429,16 @@ int cmdPut(const std::string &path, int side, const std::vector<std::string> &ar
 }
 
 int cmdRm(const std::string &path, int side, const std::vector<std::string> &names,
-          bool linear)
+          Vol vol)
 {
     bool ds = false;
-    auto image = readImage(path, ds, linear);
+    auto image = readImage(path, ds, vol);
     if (!image) return 1;
 
     int removed = 0, fails = 0;
     for (const auto &name : names) {
         try {
-            removeFile(*image, side, ds, name, linear);
+            removeFile(*image, side, ds, name, vol);
             std::printf("  removed %s\n", name.c_str());
             ++removed;
         } catch (const std::exception &e) {
@@ -393,12 +453,12 @@ int cmdRm(const std::string &path, int side, const std::vector<std::string> &nam
     return fails ? 1 : 0;
 }
 
-int cmdSqueeze(const std::string &path, int side, bool linear)
+int cmdSqueeze(const std::string &path, int side, Vol vol)
 {
     bool ds = false;
-    auto image = readImage(path, ds, linear);
+    auto image = readImage(path, ds, vol);
     if (!image) return 1;
-    try { squeeze(*image, side, ds, linear); }
+    try { squeeze(*image, side, ds, vol); }
     catch (const std::exception &e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 1;
@@ -411,17 +471,83 @@ int cmdSqueeze(const std::string &path, int side, bool linear)
     return 0;
 }
 
-int cmdSetdate(const std::string &path, int side, uint16_t date,
-               const std::vector<std::string> &names, bool linear)
+/* The monitor file of a side when the name is not given: the one .SYS
+ * that is a monitor (its name ends in "SJ", "FB" or "XM" - the RT-11
+ * monitors' way), or the one the side boots already. */
+std::string guessMonitor(const std::vector<uint8_t> &image, int side, bool ds, Vol vol)
+{
+    const std::string booted = bootedMonitor(image, side, ds, vol);
+    if (!booted.empty()) return booted;
+    std::vector<std::string> found;
+    auto img = openVolume(image, vol, side);
+    if (!img || !img->hasDirectory) return "";
+    for (const auto &e : img->directory.permanentFiles()) {
+        if (e.name.size() < 7 || e.name.compare(e.name.size() - 4, 4, ".SYS") != 0) continue;
+        const std::string stem = e.name.substr(0, e.name.size() - 4);
+        const std::string tail = stem.substr(stem.size() - 2);
+        if (tail == "SJ" || tail == "FB" || tail == "XM") found.push_back(stem);
+    }
+    return found.size() == 1 ? found[0] : "";
+}
+
+int cmdBoot(const std::string &path, int side, std::string monitor, Vol vol)
 {
     bool ds = false;
-    auto image = readImage(path, ds, linear);
+    auto image = readImage(path, ds, vol);
+    if (!image) return 1;
+    if (monitor.empty()) monitor = guessMonitor(*image, side, ds, vol);
+    if (monitor.empty()) { std::fprintf(stderr, "error: which monitor?  name it (RT11SJ, MON8SJ, ...)\n"); return 1; }
+    try { writeBoot(*image, side, ds, monitor, vol); }
+    catch (const std::exception &e) {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return 1;
+    }
+    if (!writeWholeFile(path, *image)) {
+        std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
+        return 1;
+    }
+    std::printf("  %s (side %d) boots %s\n", path.c_str(), side, monitor.c_str());
+    return 0;
+}
+
+/* The kit of `fromPath` (side `fromSide`) put on `path` (side `side`),
+ * files of the same names replaced, then the bootstrap. */
+int cmdSystem(const std::string &path, int side, const std::string &fromPath, int fromSide,
+              const std::vector<std::string> &extras, Vol vol, Vol fromVol)
+{
+    bool ds = false, fromDs = false;
+    auto image = readImage(path, ds, vol);
+    if (!image) return 1;
+    auto from = readImage(fromPath, fromDs, fromVol);
+    if (!from) return 1;
+    try {
+        const std::string monitor = makeSystemVolume(*image, side, ds, *from, fromSide, fromDs, extras, vol, fromVol);
+        auto im = openVolume(*image, vol, side);
+        for (const auto &e : im->directory.permanentFiles())
+            std::printf("  %-12s %4d blocks%s\n", e.name.c_str(), e.length, (e.status & kStatusProtected) ? "  P" : "");
+        std::printf("  %s (side %d): a system volume of %s\n", path.c_str(), side, monitor.c_str());
+    } catch (const std::exception &e) {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return 1;
+    }
+    if (!writeWholeFile(path, *image)) {
+        std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
+        return 1;
+    }
+    return 0;
+}
+
+int cmdSetdate(const std::string &path, int side, uint16_t date,
+               const std::vector<std::string> &names, Vol vol)
+{
+    bool ds = false;
+    auto image = readImage(path, ds, vol);
     if (!image) return 1;
 
     int changed = 0, fails = 0;
     for (const auto &name : names) {
         try {
-            setEntryDate(*image, side, ds, name, date, linear);
+            setEntryDate(*image, side, ds, name, date, vol);
             std::printf("  dated %s\n", name.c_str());
             ++changed;
         } catch (const std::exception &e) {
@@ -437,16 +563,16 @@ int cmdSetdate(const std::string &path, int side, uint16_t date,
 }
 
 int cmdProtect(const std::string &path, int side,
-               const std::vector<std::string> &names, bool on, bool linear)
+               const std::vector<std::string> &names, bool on, Vol vol)
 {
     bool ds = false;
-    auto image = readImage(path, ds, linear);
+    auto image = readImage(path, ds, vol);
     if (!image) return 1;
 
     int changed = 0, fails = 0;
     for (const auto &name : names) {
         try {
-            setProtected(*image, side, ds, name, on, linear);
+            setProtected(*image, side, ds, name, on, vol);
             std::printf("  %sprotected %s\n", on ? "" : "un", name.c_str());
             ++changed;
         } catch (const std::exception &e) {
@@ -469,18 +595,21 @@ int main(int argc, char **argv)
     const std::string cmd = argv[1];
 
     if (cmd == "create") {
-        std::string out; bool ds = false, linear = false; long blocks = 0;
+        std::string out; bool ds = false; Vol vol = Vol::floppy; long blocks = 0;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--ds") { ds = true; continue; }
-            if (a == "--hd" || a == "--linear") { linear = true; continue; }
+            if (a == "--hd" || a == "--linear") { vol = Vol::linear; continue; }
+            if (a == "--dv") { vol = Vol::dv; continue; }
+            if (a == "--mz") { vol = Vol::mz; continue; }
             if ((a == "--blocks" || a == "--size") && i + 1 < argc) {
                 blocks = std::atol(argv[++i]); continue; }
             if (out.empty()) { out = std::string(a); continue; }
             return usage();
         }
         if (out.empty()) return usage();
-        if (linear) {
+        if (vol == Vol::dv || vol == Vol::mz) ds = true;  /* whole-disk = DS diskette */
+        if (vol == Vol::linear) {
             if (blocks <= 0) {
                 std::fputs("error: create --hd needs --blocks N (size in 512-byte blocks)\n",
                            stderr); return 2; }
@@ -503,29 +632,33 @@ int main(int argc, char **argv)
     }
 
     if (cmd == "init") {
-        std::string image; int side = 0; InitOptions opts; bool linear = false;
+        std::string image; int side = 0; InitOptions opts; Vol vol = Vol::floppy;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if      (a == "--side"      && i + 1 < argc) side = std::atoi(argv[++i]);
             else if (a == "--volume-id" && i + 1 < argc) opts.volumeId = argv[++i];
             else if (a == "--owner"     && i + 1 < argc) opts.owner = argv[++i];
             else if (a == "--segments"  && i + 1 < argc) opts.segments = std::atoi(argv[++i]);
-            else if (a == "--hd" || a == "--linear") linear = true;
+            else if (a == "--hd" || a == "--linear") vol = Vol::linear;
+            else if (a == "--dv") vol = Vol::dv;
+            else if (a == "--mz") vol = Vol::mz;
             else if (image.empty()) image = std::string(a);
             else return usage();
         }
         if (image.empty()) return usage();
-        return cmdInit(image, side, opts, linear);
+        return cmdInit(image, side, opts, vol);
     }
 
     if (cmd == "put") {
         std::string image; int side = 0; std::vector<std::string> files;
-        PutOptions opts; bool linear = false;
+        PutOptions opts; Vol vol = Vol::floppy;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
             if (a == "--protected") { opts.readOnly = true; continue; }
-            if (a == "--hd" || a == "--linear") { linear = true; continue; }
+            if (a == "--hd" || a == "--linear") { vol = Vol::linear; continue; }
+            if (a == "--dv") { vol = Vol::dv; continue; }
+            if (a == "--mz") { vol = Vol::mz; continue; }
             if (a == "--date" && i + 1 < argc) {
                 auto d = parseDate(argv[++i]);
                 if (!d) { std::fprintf(stderr, "error: --date wants YYYY-MM-DD\n"); return 2; }
@@ -535,93 +668,137 @@ int main(int argc, char **argv)
             files.emplace_back(a);
         }
         if (image.empty() || files.empty()) return usage();
-        return cmdPut(image, side, files, opts, linear);
+        return cmdPut(image, side, files, opts, vol);
     }
 
     if (cmd == "rm") {
-        std::string image; int side = 0; bool linear = false;
+        std::string image; int side = 0; Vol vol = Vol::floppy;
         std::vector<std::string> names;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
-            if (a == "--hd" || a == "--linear") { linear = true; continue; }
+            if (a == "--hd" || a == "--linear") { vol = Vol::linear; continue; }
+            if (a == "--dv") { vol = Vol::dv; continue; }
+            if (a == "--mz") { vol = Vol::mz; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             names.emplace_back(a);
         }
         if (image.empty() || names.empty()) return usage();
-        return cmdRm(image, side, names, linear);
+        return cmdRm(image, side, names, vol);
     }
 
     if (cmd == "squeeze") {
-        std::string image; int side = 0; bool linear = false;
+        std::string image; int side = 0; Vol vol = Vol::floppy;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
-            if (a == "--hd" || a == "--linear") { linear = true; continue; }
+            if (a == "--hd" || a == "--linear") { vol = Vol::linear; continue; }
+            if (a == "--dv") { vol = Vol::dv; continue; }
+            if (a == "--mz") { vol = Vol::mz; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             return usage();
         }
         if (image.empty()) return usage();
-        return cmdSqueeze(image, side, linear);
+        return cmdSqueeze(image, side, vol);
+    }
+
+    if (cmd == "boot") {
+        std::string image, monitor; int side = 0; Vol vol = Vol::floppy;
+        for (int i = 2; i < argc; ++i) {
+            std::string_view a = argv[i];
+            if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (a == "--dv") { vol = Vol::dv; continue; }
+            if (image.empty()) { image = std::string(a); continue; }
+            if (monitor.empty()) { monitor = std::string(a); continue; }
+            return usage();
+        }
+        if (image.empty()) return usage();
+        return cmdBoot(image, side, monitor, vol);
+    }
+
+    if (cmd == "system") {
+        std::string image, from; int side = 0, fromSide = 0;
+        Vol vol = Vol::floppy, fromVol = Vol::floppy;
+        std::vector<std::string> extras;
+        for (int i = 2; i < argc; ++i) {
+            std::string_view a = argv[i];
+            if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
+            if (a == "--from-side" && i + 1 < argc) { fromSide = std::atoi(argv[++i]); continue; }
+            if (a == "--from" && i + 1 < argc) { from = argv[++i]; continue; }
+            if (a == "--dv") { vol = Vol::dv; continue; }
+            if (a == "--from-dv") { fromVol = Vol::dv; continue; }
+            if (image.empty()) { image = std::string(a); continue; }
+            extras.emplace_back(a);
+        }
+        if (image.empty() || from.empty()) return usage();
+        return cmdSystem(image, side, from, fromSide, extras, vol, fromVol);
     }
 
     if (cmd == "setdate") {
-        std::string image, dateStr; int side = 0; bool linear = false;
+        std::string image, dateStr; int side = 0; Vol vol = Vol::floppy;
         std::vector<std::string> names;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
             if (a == "--date" && i + 1 < argc) { dateStr = argv[++i]; continue; }
-            if (a == "--hd" || a == "--linear") { linear = true; continue; }
+            if (a == "--hd" || a == "--linear") { vol = Vol::linear; continue; }
+            if (a == "--dv") { vol = Vol::dv; continue; }
+            if (a == "--mz") { vol = Vol::mz; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             names.emplace_back(a);
         }
         if (image.empty() || names.empty() || dateStr.empty()) return usage();
         auto d = parseDate(dateStr);
         if (!d) { std::fprintf(stderr, "error: --date wants YYYY-MM-DD\n"); return 2; }
-        return cmdSetdate(image, side, *d, names, linear);
+        return cmdSetdate(image, side, *d, names, vol);
     }
 
     if (cmd == "protect" || cmd == "unprotect") {
-        std::string image; int side = 0; bool linear = false;
+        std::string image; int side = 0; Vol vol = Vol::floppy;
         std::vector<std::string> names;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
-            if (a == "--hd" || a == "--linear") { linear = true; continue; }
+            if (a == "--hd" || a == "--linear") { vol = Vol::linear; continue; }
+            if (a == "--dv") { vol = Vol::dv; continue; }
+            if (a == "--mz") { vol = Vol::mz; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             names.emplace_back(a);
         }
         if (image.empty() || names.empty()) return usage();
-        return cmdProtect(image, side, names, cmd == "protect", linear);
+        return cmdProtect(image, side, names, cmd == "protect", vol);
     }
 
     if (cmd == "get") {
-        std::string image, outdir = "."; int side = 0; bool linear = false;
+        std::string image, outdir = "."; int side = 0; Vol vol = Vol::floppy;
         std::vector<std::string> pats;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
             if (a == "--out"  && i + 1 < argc) { outdir = argv[++i]; continue; }
-            if (a == "--hd" || a == "--linear") { linear = true; continue; }
+            if (a == "--hd" || a == "--linear") { vol = Vol::linear; continue; }
+            if (a == "--dv") { vol = Vol::dv; continue; }
+            if (a == "--mz") { vol = Vol::mz; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             pats.emplace_back(a);
         }
         if (image.empty()) return usage();
-        return cmdGet(image, side, outdir, pats, linear);
+        return cmdGet(image, side, outdir, pats, vol);
     }
 
     if (cmd == "dir") {
-        std::string image; int side = 0; bool linear = false;
+        std::string image; int side = 0; Vol vol = Vol::floppy;
         for (int i = 2; i < argc; ++i) {
             std::string_view a = argv[i];
             if (a == "--side" && i + 1 < argc) { side = std::atoi(argv[++i]); continue; }
-            if (a == "--hd" || a == "--linear") { linear = true; continue; }
+            if (a == "--hd" || a == "--linear") { vol = Vol::linear; continue; }
+            if (a == "--dv") { vol = Vol::dv; continue; }
+            if (a == "--mz") { vol = Vol::mz; continue; }
             if (image.empty()) { image = std::string(a); continue; }
             return usage();
         }
         if (image.empty()) return usage();
-        return cmdDir(image, side, linear);
+        return cmdDir(image, side, vol);
     }
 
     if (cmd == "split") {

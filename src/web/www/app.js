@@ -335,15 +335,44 @@ function fdRow(unit) {
 // disk at its next directory read).
 function fileSources() {
   const out = [];
+  // An 800 KB image can be one whole-disk DV:/MZ: volume instead of two DZ
+  // sides - the content decides (the DV/MZ handlers' formats, told by the
+  // home block + directory).
+  const whole = {};   // drive -> 2 (DV) / 3 (MZ): one whole-disk volume
+  const uninit = {};  // drive -> true: no volume of any kind on the image yet
+  for (let drive = 0; drive < 2; ++drive) {
+    const name = ds[drive] && slots.fd[unitOf(drive, 0)];
+    if (!name) continue;
+    try {
+      const det = JSON.parse(api.diskDetect(pathOf(name)) || "[]");
+      const w = det.find((s) => s.vol >= 2);
+      if (w && !det.some((s) => s.vol === 0)) whole[drive] = w.vol;
+      else if (!det.length) uninit[drive] = true;
+    } catch { /* an unreadable image stays a pair of DZ sides */ }
+  }
   for (let unit = 0; unit < 4; ++unit) {
     const drive = driveOf(unit), side = sideOf(unit);
     const name = side === 1 && ds[drive] ? slots.fd[unitOf(drive, 0)] : slots.fd[unit];
     if (!name) continue;
+    if (whole[drive] !== undefined) {
+      if (side === 1) continue;                 // one volume, not two sides
+      const dev = `${whole[drive] === 2 ? "DV" : "MZ"}${drive}:`;
+      out.push({ id: `fd${unit}`, dev, label: `${dev} ${name}`, path: pathOf(name), side: 0, vol: whole[drive], ds: true, linear: false, name, unit });
+      continue;
+    }
+    if (uninit[drive]) {
+      // Not a volume of any kind yet: one entity, not a pair of DZ sides -
+      // the INIT dialog names what it becomes (DZ a side, DV or MZ).
+      if (side === 1) continue;
+      const dev = `${"AB"[drive]}:`;
+      out.push({ id: `fd${unit}`, dev, label: `${dev} ${name} - uninitialised`, path: pathOf(name), side: 0, vol: 0, ds: true, uninit: true, linear: false, name, unit });
+      continue;
+    }
     // The image's side: a two-sided image has the unit's, a one-sided image
     // has only side 0 whichever unit it sits on.
-    out.push({ id: `fd${unit}`, dev: `DZ${unit}:`, label: `DZ${unit}: ${name}`, path: pathOf(name), side: ds[drive] ? side : 0, linear: false, name, unit });
+    out.push({ id: `fd${unit}`, dev: `DZ${unit}:`, label: `DZ${unit}: ${name}`, path: pathOf(name), side: ds[drive] ? side : 0, vol: 0, ds: !!ds[drive], linear: false, name, unit });
   }
-  if (slots.hd) out.push({ id: "hd", dev: "HD0:", label: `HD0: ${slots.hd}`, path: pathOf(slots.hd), side: 0, linear: true, name: slots.hd });
+  if (slots.hd) out.push({ id: "hd", dev: "HD0:", label: `HD0: ${slots.hd}`, path: pathOf(slots.hd), side: 0, vol: 1, linear: true, name: slots.hd });
   return out;
 }
 
@@ -386,7 +415,9 @@ async function newFloppy(drive, sides) {
   }
   let name = `blank${sides}s.dsk`;
   for (let i = 2; own.has(name); ++i) name = `blank${sides}s-${i}.dsk`;
-  await addOwn(name, new Uint8Array(size));
+  const n = api.diskBlank(sides === 2 ? 1 : 0);          // the formatting pattern, not zeros
+  if (n !== size) throw new Error(`a blank of ${n} bytes for ${size}`);
+  await addOwn(name, M.HEAPU8.slice(api.diskData(), api.diskData() + n));
   await mountFd(unit, name);
   hint(`${name} is in drive ${"AB"[drive]}: INIT DZ${unit}: in the guest makes it a volume` + (sides === 2 ? ` (side 1 is DZ${unit + 2}:, its own)` : ""));
 }
@@ -397,7 +428,7 @@ function newFloppyRow(drive) {
   const sides = document.createElement("select");
   for (const n of [1, 2]) { const o = document.createElement("option"); o.value = n; o.textContent = sidesLabel(n); sides.appendChild(o); }
   make.append(sides);
-  make.append(button("Create blank", () => newFloppy(drive, +sides.value), "a zero-filled image; the guest initialises it (INIT DZn:)"));
+  make.append(button("Create blank", () => newFloppy(drive, +sides.value), "an image as the machine's formatting leaves it (the 0xB6 0x6D pattern); the guest initialises it (INIT DZn:)"));
   return make;
 }
 
@@ -711,17 +742,25 @@ function bindApi() {
     releaseAll: c("ms_key_release_all", null, ["number"]),
     joystick: c("ms_joystick", null, ["number", "number"]),
     diskDir:    c("ms_disk_dir", "string", ["string", "number", "number"]),
+    diskDetect: c("ms_disk_detect", "string", ["string"]),
+    version:    c("ms_version", "string", []),
     diskError:  c("ms_disk_error", "string", []),
     diskGet:    c("ms_disk_get", "number", ["string", "number", "number", "string"]),
     diskData:   c("ms_disk_data", "number", []),
     diskArea:   c("ms_disk_area", "number", ["string", "number", "number", "number"]),
+    diskBlank:  c("ms_disk_blank", "number", ["number"]),
     diskPut:    c("ms_disk_put", "number", ["string", "number", "number", "string", "number", "number", "number", "number", "number", "number"]),
     diskRm:     c("ms_disk_rm", "number", ["string", "number", "number", "string"]),
     diskRename: c("ms_disk_rename", "number", ["string", "number", "number", "string", "string"]),
-    diskInit:   c("ms_disk_init", "number", ["string", "number", "number"]),
+    diskInit:   c("ms_disk_init", "number", ["string", "number", "number", "number", "number", "number", "number", "number"]),
+    diskVolumeId: c("ms_disk_volume_id", "number", ["string", "number", "number", "number", "number", "number", "number"]),
     diskSqueeze: c("ms_disk_squeeze", "number", ["string", "number", "number"]),
     diskProtect: c("ms_disk_protect", "number", ["string", "number", "number", "string", "number"]),
     diskGrow:    c("ms_disk_grow", "number", ["string", "number"]),
+    diskBooted:  c("ms_disk_booted", "string", ["string", "number", "number"]),
+    diskKit:     c("ms_disk_kit", "string", ["string", "number", "number", "number"]),
+    diskSystem:  c("ms_disk_system", "number", ["string", "number", "number", "string", "number", "number", "string"]),
+    diskText:    c("ms_disk_text", "string", []),
     diskUndelete: c("ms_disk_undelete", "number", ["string", "number", "number", "number", "string"]),
     ldCreate: c("ms_ld_create", "number", ["number", "number", "string"]),
     ldPut:    c("ms_ld_put", "number", ["string", "number", "number", "number", "number", "number", "number"]),
@@ -788,6 +827,7 @@ async function main() {
   window.addEventListener("resize", fit);
   M = await createMs0515({ locateFile: (f) => f + "?v=@STAMP@" });
   bindApi();
+  $("ver").textContent = "v" + api.version();
   image = ctx.createImageData(canvas.width, canvas.height);
   h = api.create();
 
