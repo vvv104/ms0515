@@ -76,6 +76,28 @@ std::array<uint8_t, 3> sniffAt(const fs::path &path, long offset)
     return sig;
 }
 
+
+/* Helper: pump the state machine until the FDC goes idle. */
+void runUntilIdle(ms0515_floppy_t *fdc)
+{
+    for (int i = 0; i < 200000 && fdc->state != FDC_STATE_IDLE; ++i)
+        fdc_tick(fdc, 1000);
+    REQUIRE(fdc->state == FDC_STATE_IDLE);
+}
+
+/* Helper: feed one 512-byte sector through a WRITE SECTOR command that
+ * has already been issued (waits for each DRQ like the BIOS does). */
+void pumpWrite(ms0515_floppy_t *fdc, uint8_t fill)
+{
+    for (int i = 0; i < FDC_SECTOR_SIZE; ++i) {
+        for (int guard = 0; guard < 100000 && !fdc->drq; ++guard)
+            fdc_tick(fdc, 100);
+        REQUIRE(fdc->drq);
+        fdc_write(fdc, 3, fill);
+    }
+    runUntilIdle(fdc);
+}
+
 } /* namespace */
 
 TEST_SUITE("Floppy") {
@@ -161,6 +183,58 @@ TEST_CASE("Detach restores image_offset / track_stride defaults") {
     CHECK(fdc.drives[2].image_offset == 0);
     CHECK(fdc.drives[2].track_stride == FDC_TRACK_SIZE);
 
+    std::error_code ec;
+    fs::remove(path, ec);
+}
+
+
+TEST_CASE("Both sides of a drive share one head position (DV/MZ handler pattern)") {
+    /* The DV: and MZ: RT-11 handlers treat a whole double-sided floppy
+     * as one volume.  After seeking on one side they switch the side
+     * bit and, if the FDC track register already matches, start the
+     * transfer WITHOUT another seek — on real hardware both heads sit
+     * on the same cylinder because there is a single positioner per
+     * drive.  A per-side head position sends those transfers to a
+     * stale cylinder (observed as data landing two cylinders short). */
+    auto path = makeImage(2 * FDC_DISK_SIZE);
+
+    ms0515_floppy_t fdc;
+    fdc_init(&fdc);
+    REQUIRE(fdc_attach(&fdc, 1, path.string().c_str(), false));
+    REQUIRE(fdc_attach(&fdc, 3, path.string().c_str(), false));
+
+    fdc_select(&fdc, 1, 0, true);           /* drive 1, side 0 */
+    fdc_write(&fdc, 3, 6);                  /* target track -> data reg */
+    fdc_write(&fdc, 0, 0x10);               /* SEEK */
+    runUntilIdle(&fdc);
+    CHECK(fdc.track_reg == 6);
+
+    /* Side switch, no seek: READ ADDRESS must report the cylinder the
+     * drive's one head assembly is really on. */
+    fdc_select(&fdc, 1, 1, true);           /* drive 1, side 1 */
+    fdc_write(&fdc, 0, 0xC0);               /* READ ADDRESS */
+    runUntilIdle(&fdc);
+    CHECK(fdc.sector_reg == 6);
+
+    /* And a write lands on cylinder 6 of side 1. */
+    fdc_write(&fdc, 2, 5);                  /* sector 5 */
+    fdc_write(&fdc, 0, 0xA0);               /* WRITE SECTOR */
+    pumpWrite(&fdc, 0x5A);
+    long offset = (6 * 2 + 1) * (long)FDC_TRACK_SIZE + 4 * FDC_SECTOR_SIZE;
+    auto sig = sniffAt(path, offset);
+    CHECK(sig[0] == 0x5A);
+
+    /* The way back: a seek issued on side 1 moves side 0 as well. */
+    fdc_write(&fdc, 3, 2);
+    fdc_write(&fdc, 0, 0x10);               /* SEEK to 2 */
+    runUntilIdle(&fdc);
+    fdc_select(&fdc, 1, 0, true);
+    fdc_write(&fdc, 0, 0xC0);               /* READ ADDRESS */
+    runUntilIdle(&fdc);
+    CHECK(fdc.sector_reg == 2);
+
+    fdc_detach(&fdc, 1);
+    fdc_detach(&fdc, 3);
     std::error_code ec;
     fs::remove(path, ec);
 }
