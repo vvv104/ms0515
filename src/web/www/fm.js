@@ -6,7 +6,7 @@
 // below, always drawn as in Midnight Commander, act on the selected file:
 // F1 upload a file of the user's into the pane, F2 download to the
 // computer, F3 view, F4 edit, F5 copy to the other pane, F6 rename, F7
-// init the pane's volume, F8 delete, F9 squeeze, F10 quit (Esc too); Tab,
+// squeeze, F8 delete, F9 init the pane's volume, F10 quit (Esc too); Tab,
 // the arrows and Enter as in the commander; Insert and Shift with the
 // arrows mark files (yellow, as there), and F2 / F5 / F6 / F8 then take
 // the marked ones.  Every change to a disk is confirmed in a dialog of the
@@ -315,8 +315,8 @@ export class Commander {
       ["(Un)Protect", "the files /PROTECT - or /NOPROTECT when every one of them is", () => this.protect()],
       ["Find", "a pattern looked for on every mounted disk", () => this.find()],
       this.recoverKey(),
-      [],
       ["System", "this pane's floppy made a system volume of the other pane's (its kit and marked files copied, the bootstrap written)", () => this.makeSystem()],
+      [],
     ]);
   }
 
@@ -347,9 +347,9 @@ export class Commander {
       ["Edit", "the file as text, or its bytes", () => this.edit()],
       ["Copy", "to the other pane", () => this.copy()],
       ["RenMove", "a new name, or another disk (DZn:NAME)", () => this.renmove()],
-      ["Init", "the pane's volume anew - every file on it lost", () => this.init()],
-      ["Delete", "", () => this.remove()],
       ["Squeeze", "the files packed, one free area", () => this.squeeze()],
+      ["Delete", "", () => this.remove()],
+      ["Init", "the pane's volume anew - every file on it lost", () => this.init()],
       ["Quit", "back to the screen (Esc too)", () => this.close()],
     ]);
   }
@@ -589,8 +589,8 @@ export class Commander {
     if (e.altKey) { this.altKey(e); return; }
     const p = this.panes[this.active];
     const acts = { F1: () => this.upload(), F2: () => this.download(), F3: () => this.view(), F4: () => this.edit(),
-                   F5: () => this.copy(), F6: () => this.renmove(), F7: () => this.init(), F8: () => this.remove(),
-                   F9: () => this.squeeze(), F10: () => this.close(), Enter: () => this.enter(), Escape: () => this.close(),
+                   F5: () => this.copy(), F6: () => this.renmove(), F7: () => this.squeeze(), F8: () => this.remove(),
+                   F9: () => this.init(), F10: () => this.close(), Enter: () => this.enter(), Escape: () => this.close(),
                    Backspace: () => this.leaveVolume(p),
                    Tab: () => { this.active ^= 1; this.focusList(); },
                    Insert: () => this.mark(p, 1),
@@ -608,7 +608,7 @@ export class Commander {
   altKey(e) {
     const acts = { F1: () => this.changeDisk(0), F2: () => this.changeDisk(1),
                    F5: () => this.makeVolume(), F6: () => this.protect(), F7: () => this.find(), F8: () => this.recover(),
-                   F10: () => this.makeSystem() };
+                   F9: () => this.makeSystem() };
     const a = acts[e.key];
     if (!a) return;
     e.preventDefault(); e.stopPropagation();
@@ -782,7 +782,7 @@ export class Commander {
     this.deps.say(`${name} written to ${to.dev} - a volume of ${files}; MOUNT LD0: ${to.dev}${name} in the system`);
   }
 
-  // Alt+F10: this pane's floppy made a system volume of the other pane's:
+  // Alt+F9: this pane's floppy made a system volume of the other pane's:
   // the kit (the monitor, SWAP, DZ, TT, PIP, DUP, DIR, RESORC) copied over
   // and protected, the other pane's marked files with it as they are, the
   // monitor's startup .COM made anew (SET TT QUIET alone), then the
@@ -796,7 +796,7 @@ export class Commander {
     if (!from || from.id === to.id) throw new Error("show the system disk on the other pane");
     if (volOf(to) || to.parent) throw new Error("only a floppy boots the machine: the target must be a floppy");
     if (volOf(from) || from.parent) throw new Error("the source must be a floppy that boots");
-    if (!p.volume) throw new Error(`${to.dev} holds no RT-11 directory: INIT it first (F7)`);
+    if (!p.volume) throw new Error(`${to.dev} holds no RT-11 directory: INIT it first (F9)`);
     const api = this.deps.api;
     const monitor = api.diskBooted(from.path, from.side);
     if (!monitor) throw new Error(`${from.dev} ${from.name} is not a system volume: no bootstrap on it`);
@@ -890,7 +890,7 @@ export class Commander {
     return name;
   }
 
-  // F7: the pane's volume initialised - every file on it lost.
+  // F9: the pane's volume initialised - every file on it lost.
   async init() {
     const p = this.panes[this.active];
     if (!p.source) throw new Error("this pane has no disk");
@@ -942,7 +942,7 @@ export class Commander {
     return true;
   }
 
-  // F9: the files packed to the front, the free blocks in one area at the end.
+  // F7: the files packed to the front, the free blocks in one area at the end.
   async squeeze() {
     const p = this.panes[this.active];
     if (!p.source) throw new Error("this pane has no disk");

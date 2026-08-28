@@ -113,13 +113,13 @@ unused areas listed with the files, and the ten keys always drawn below as
 in Midnight Commander - F1 Upload a file of the user's (its name made a
 6.3 RT-11 name, no date: the OS cannot hold today's), F2 Download to the
 computer, F3 View, F4 Edit, F5 Copy to the other pane (with the date and
-the protection), F6 Rename, F7 Init the pane's volume (a dialog as the
+the protection), F6 Rename, F9 Init the pane's volume (a dialog as the
 OS's INITIALIZE: the volume id and the owner, 12 characters each, the
 directory segments 1..31 - 4 offered for a floppy, by the size for a
 linear image - or "the volume id only", INITIALIZE/VOLUMEID:ONLY, the files
 kept; the volume id, the owner and the segment count show in a line
 under the pane's disk list, decoded as the OS's terminal wrote them -
-KOI-8R above 0x7F), F8 Delete, F9
+KOI-8R above 0x7F), F8 Delete, F7
 Squeeze, F10 Quit (Esc too); Tab, the arrows, Enter as in the commander.
 Insert or Shift with the arrows marks files, gray + / - / * mark by the
 OS's patterns (`*`, `%`, an omitted part `*`, several with commas) or
@@ -138,7 +138,7 @@ the old name or another one the dialog asks for - a free NAME1 offered
 when the old name is taken now; on an unused area that was no file the key
 reads Recover: the area made a file of a name given, whatever lies in it).
 F3 on an unused area views its bytes (`ms_disk_area` by the ordinal).
-Alt+F10 makes the pane's floppy a system volume of the other pane's
+Alt+F9 makes the pane's floppy a system volume of the other pane's
 disk (`ms_disk_system`, the library's `makeSystemVolume`): the kit - the
 monitor, SWAP, DZ, TT (the boot stops without any of them), PIP, DUP, DIR,
 RESORC (`ms_disk_kit`) - copied over and protected, the other pane's
