@@ -855,9 +855,9 @@ TEST_CASE("makeSystemVolume: the kit protected, the extras as they are, the star
         const bool protectedNow = (e.status & kStatusProtected) != 0;
         CHECK_MESSAGE(protectedNow == (e.name != "GAME.SAV" && e.name != "ST.COM"), e.name);
     }
-    const auto st = im->readFile("ST.COM");
-    CHECK(st.size() == kBlock);
-    CHECK(std::string(st.begin(), st.begin() + 14) == "SET TT QUIET\r\n");
+    const auto startup = im->readFile("ST.COM");
+    CHECK(startup.size() == kBlock);
+    CHECK(std::string(startup.begin(), startup.begin() + 14) == "SET TT QUIET\r\n");
     CHECK(bootedMonitor(target, 0, false) == "RT11SJ");
     CHECK(openImage(target, 0)->readFile("GAME.SAV") == std::vector<uint8_t>(kBlock, 5));
 
