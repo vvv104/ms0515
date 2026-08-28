@@ -700,7 +700,6 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
     case 0xE1:  /* 0o341 */
     case 0xD9:  /* 0o331 */
         kbd->repeat_enabled = false;
-        /* fprintf(stderr, "[KBD] auto-repeat DISABLED\n"); */
         return;
 
     /* ── LED mode / Latin indicator (2-byte prefix) ────────────────
@@ -755,7 +754,6 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
         return;
 
     default:
-        /* fprintf(stderr, "[KBD] unknown host command: 0x%02X\n", byte); */
         return;
     }
 }
