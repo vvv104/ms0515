@@ -24,11 +24,16 @@
 // A file that holds an RT-11 directory when read linearly - a logical disk
 // - is entered with Enter as if a directory: ".." (or Backspace) leads out.
 //
-// `deps`: { sources() -> [{ id, label, path, side, linear, name }],
+// `deps`: { sources() -> [{ id, label, path, side, vol, name }],
 //           api, module(), writable(source, op) -> Promise (the image
 //           unmounted around a write), say, onClose }.
 import { ByteEditor, decodeBytes, encodeText } from "./edit.js?v=@STAMP@";
 import { makeZip } from "./zip.js?v=@STAMP@";
+
+// A source's volume kind for the disk API: 0 a DZ floppy side, 1 a
+// linear HD/LD container or logical disk, 2 a DV: whole-disk volume,
+// 3 an MZ: one.
+const volOf = (s) => s.vol ?? (s.linear ? 1 : 0);
 
 const LATIN_NAME = /^[A-Z0-9$]{1,6}(\.[A-Z0-9$]{1,3})?$/;
 const DEV_NAME = /^(?:([A-Z]+\d*):(?:([A-Z0-9$.]+)\/)?)?\s*([A-Z0-9$.]+)$/;   // "DZ1:NAME.EXT", "DZ1:VOL.DSK/NAME.EXT" or "NAME.EXT"
@@ -275,7 +280,7 @@ export class Commander {
   namesOn(source) {
     const p = this.paneOf(source);
     if (p) return p.files.filter((f) => !f.empty).map((f) => f.name);
-    const text = this.deps.api.diskDir(source.path, source.side, source.linear ? 1 : 0);
+    const text = this.deps.api.diskDir(source.path, source.side, volOf(source));
     return text ? JSON.parse(text).files.filter((f) => !f.empty).map((f) => f.name) : [];
   }
 
@@ -388,7 +393,7 @@ export class Commander {
   volumeSource(parent, name) {
     return { id: `${parent.id}/${name}`, dev: `${parent.dev}${name}/`, label: `${parent.label}: ${name}`,
              name: parent.name, path: `/volumes/${parent.id.replace(/\//g, "_")}-${name}`,
-             side: 0, linear: true, parent, file: name };
+             side: 0, vol: 1, linear: true, parent, file: name };
   }
 
   // The volume's file brought up to date from its disk; false when it
@@ -412,7 +417,7 @@ export class Commander {
   }
 
   dirOf(source) {
-    const text = this.deps.api.diskDir(source.path, source.side, source.linear ? 1 : 0);
+    const text = this.deps.api.diskDir(source.path, source.side, volOf(source));
     return text ? JSON.parse(text).files.filter((f) => !f.empty) : [];
   }
 
@@ -461,7 +466,7 @@ export class Commander {
     if (p.source?.parent && !this.syncVolume(p.source)) { this.leaveVolume(p); return; }
     if (p.source) {
       const api = this.deps.api;
-      const text = api.diskDir(p.source.path, p.source.side, p.source.linear ? 1 : 0);
+      const text = api.diskDir(p.source.path, p.source.side, volOf(p.source));
       if (!text) {
         const src = p.source;                       // pinned: the panes may be redrawn meanwhile
         this.draw(p);
@@ -607,7 +612,7 @@ export class Commander {
   // ── the file actions ────────────────────────────────────────────────────
   bytesOf(source, name) {
     const api = this.deps.api, M = this.deps.module();
-    const n = api.diskGet(source.path, source.side, source.linear ? 1 : 0, name);
+    const n = api.diskGet(source.path, source.side, volOf(source), name);
     if (n < 0) throw new Error(api.diskError());
     return M.HEAPU8.slice(api.diskData(), api.diskData() + n);
   }
@@ -615,7 +620,7 @@ export class Commander {
   // The blocks of a directory entry - an unused area's.
   areaBytes(source, ordinal) {
     const api = this.deps.api, M = this.deps.module();
-    const n = api.diskArea(source.path, source.side, source.linear ? 1 : 0, ordinal);
+    const n = api.diskArea(source.path, source.side, volOf(source), ordinal);
     if (n < 0) throw new Error(api.diskError());
     return M.HEAPU8.slice(api.diskData(), api.diskData() + n);
   }
@@ -630,7 +635,7 @@ export class Commander {
     const [y, m, d] = file?.date ? file.date.split("-").map(Number) : [0, 0, 0];
     try {
       return await this.writable(source, () => {
-        const put = () => api.diskPut(source.path, source.side, source.linear ? 1 : 0, name, ptr, bytes.length, y, m, d, file?.protected ? 1 : 0);
+        const put = () => api.diskPut(source.path, source.side, volOf(source), name, ptr, bytes.length, y, m, d, file?.protected ? 1 : 0);
         if (put()) return 1;
         if (!source.parent || !api.diskGrow(source.path, Math.ceil(bytes.length / 512) || 1)) return 0;
         return put();
@@ -660,7 +665,7 @@ export class Commander {
     for (const c of todo) {
       const bytes = this.bytesOf(c.source, c.file.name);
       if (!await this.putBytes(to, nameOn(c), bytes, c.file)) throw new Error(`${c.file.name}: ${this.deps.api.diskError()}`);
-      if (move && !await this.writable(c.source, () => this.deps.api.diskRm(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name)))
+      if (move && !await this.writable(c.source, () => this.deps.api.diskRm(c.source.path, c.source.side, volOf(c.source), c.file.name)))
         throw new Error(`${c.file.name}: ${this.deps.api.diskError()}`);
       from.marks.delete(c.file.name);
       ++n;
@@ -709,7 +714,7 @@ export class Commander {
     const { source: to, name } = this.parseTarget(answer, from.source);
     if (to.id === from.source.id) {
       if (name === c.file.name) return;
-      const ok = await this.writable(c.source, () => this.deps.api.diskRename(c.source.path, c.source.side, c.source.linear ? 1 : 0, c.file.name, name));
+      const ok = await this.writable(c.source, () => this.deps.api.diskRename(c.source.path, c.source.side, volOf(c.source), c.file.name, name));
       if (!ok) throw new Error(this.deps.api.diskError());
       this.refresh();
       return;
@@ -726,7 +731,7 @@ export class Commander {
     if (!await this.ask(`Delete from ${src.dev} ${names.length === 1 ? names[0] : names.length + " files (" + names.join(", ") + ")"}?`, { title: "Delete" })) return;
     const list = await this.guarded(all, "Delete");
     if (!list?.length) return;
-    const ok = await this.writable(src, () => list.every((c) => this.deps.api.diskRm(src.path, src.side, src.linear ? 1 : 0, c.file.name)));
+    const ok = await this.writable(src, () => list.every((c) => this.deps.api.diskRm(src.path, src.side, volOf(src), c.file.name)));
     if (!ok) throw new Error(this.deps.api.diskError());
     all[0].pane.marks.clear();
     this.refresh();
@@ -781,8 +786,8 @@ export class Commander {
     const to = p.source, from = other.source;
     if (!to) throw new Error("this pane has no disk");
     if (!from || from.id === to.id) throw new Error("show the system disk on the other pane");
-    if (to.linear || to.parent) throw new Error("only a floppy boots the machine: the target must be a floppy");
-    if (from.linear || from.parent) throw new Error("the source must be a floppy that boots");
+    if (volOf(to) || to.parent) throw new Error("only a floppy boots the machine: the target must be a floppy");
+    if (volOf(from) || from.parent) throw new Error("the source must be a floppy that boots");
     if (!p.volume) throw new Error(`${to.dev} holds no RT-11 directory: INIT it first (F7)`);
     const api = this.deps.api;
     const monitor = api.diskBooted(from.path, from.side);
@@ -812,7 +817,7 @@ export class Commander {
     const src = list[0].source, what = list.length === 1 ? list[0].file.name : `${list.length} files`;
     const verb = on ? "Protect" : "Unprotect";
     if (!await this.ask(`${verb} ${what} on ${src.dev}?`, { title: verb })) return;
-    const ok = await this.writable(src, () => list.every((c) => this.deps.api.diskProtect(src.path, src.side, src.linear ? 1 : 0, c.file.name, on ? 1 : 0)));
+    const ok = await this.writable(src, () => list.every((c) => this.deps.api.diskProtect(src.path, src.side, volOf(src), c.file.name, on ? 1 : 0)));
     if (!ok) throw new Error(this.deps.api.diskError());
     this.refresh();
     this.deps.say(`${what} ${on ? "protected" : "unprotected"} on ${src.dev}`);
@@ -825,7 +830,7 @@ export class Commander {
     if (!pattern) return;
     const test = patternsMatcher(pattern), hits = [];
     for (const s of this.deps.sources()) {
-      const text = this.deps.api.diskDir(s.path, s.side, s.linear ? 1 : 0);
+      const text = this.deps.api.diskDir(s.path, s.side, volOf(s));
       if (!text) continue;
       for (const f of JSON.parse(text).files) if (!f.empty && test(f.name)) hits.push({ source: s, file: f });
     }
@@ -857,7 +862,7 @@ export class Commander {
     const name = answer.trim().toUpperCase();
     if (!LATIN_NAME.test(name)) throw new Error(`${name}: not an RT-11 name (6.3, A-Z 0-9 $)`);
     const src = p.source;
-    const ok = await this.writable(src, () => this.deps.api.diskUndelete(src.path, src.side, src.linear ? 1 : 0, f.i, name === f.was ? "" : name));
+    const ok = await this.writable(src, () => this.deps.api.diskUndelete(src.path, src.side, volOf(src), f.i, name === f.was ? "" : name));
     if (!ok) throw new Error(this.deps.api.diskError());
     this.refresh();
     this.select(p, Math.max(0, p.files.findIndex((x) => x.name === name)));
@@ -891,11 +896,18 @@ export class Commander {
   // block rewritten, the files kept (INITIALIZE/VOLUMEID:ONLY).  `has`:
   // what the volume is now, null for a blank.  True when done.
   async initDialog(src, has) {
-    const blocks = src.linear ? Math.floor(this.deps.module().FS.stat(src.path).size / 512) : 0;
+    const blocks = volOf(src) === 1 ? Math.floor(this.deps.module().FS.stat(src.path).size / 512) : 0;
     const text = has ? `INIT ${src.label}${has.files ? ` - its ${has.files} file(s) will be lost` : ""}:` : `${src.label} has no RT-11 directory.  INIT it:`;
+    // A two-sided image holds a DZ volume a side - or is one whole-disk
+    // DV:/MZ: volume of 1600 blocks.  The current way is offered first.
+    const kinds = src.ds && !src.parent
+      ? [[0, "DZ: - a volume on this side"], [2, "DV: - whole disk, cylinder 0 last"], [3, "MZ: - whole disk, linear"]]
+          .sort((a, b) => (b[0] === volOf(src) ? 1 : 0) - (a[0] === volOf(src) ? 1 : 0))
+      : null;
     const r = await this.showDialog(text, {
       title: "Init", buttons: [["OK", true], ["Cancel", null]],
-      fields: [["Volume ID", has ? has.volumeId : "RT11A", 12], ["Owner", has ? has.owner : "", 12], ["Segments (1..31)", String(has ? has.segments : defaultSegments(src.linear, blocks)), 2]],
+      fields: [["Volume ID", has ? has.volumeId : "RT11A", 12], ["Owner", has ? has.owner : "", 12], ["Segments (1..31)", String(has ? has.segments : defaultSegments(volOf(src) === 1, blocks)), 2]],
+      list: kinds ? kinds.map((k) => k[1]) : null,
       check: has ? "the volume id only - the directory and the files kept" : null });
     if (r.value === null) return false;
     const [volumeId, owner, segs] = r.values.map((s) => s.trim());
@@ -903,19 +915,22 @@ export class Commander {
     if (!(Number.isInteger(segments) && segments >= 1 && segments <= 31)) throw new Error(`${segs}: the segments are 1..31`);
     const id = homeBytes(volumeId), own = homeBytes(owner);
     if (id.length > 12 || own.length > 12) throw new Error("the volume id and the owner are 12 characters at most");
+    const vol = r.checked || !kinds ? volOf(src) : kinds[r.index][0];
+    const side = vol === 0 ? src.side : 0;
     const api = this.deps.api, M = this.deps.module();
     const buf = M._malloc(id.length + own.length + 2);
     M.HEAPU8.set(id, buf); M.HEAPU8.set(own, buf + id.length + 1);
     let ok;
     try {
-      ok = await this.writable(src, () => r.checked ? api.diskVolumeId(src.path, src.side, src.linear ? 1 : 0, buf, id.length, buf + id.length + 1, own.length)
-                                                   : api.diskInit(src.path, src.side, src.linear ? 1 : 0, buf, id.length, buf + id.length + 1, own.length, segments));
+      ok = await this.writable(src, () => r.checked ? api.diskVolumeId(src.path, side, vol, buf, id.length, buf + id.length + 1, own.length)
+                                                   : api.diskInit(src.path, side, vol, buf, id.length, buf + id.length + 1, own.length, segments));
     } finally {
       M._free(buf);
     }
     if (!ok) throw new Error(api.diskError());
+    const asWhat = vol >= 2 ? `one ${vol === 2 ? "DV" : "MZ"}: whole-disk volume` : src.dev;
     this.deps.say(r.checked ? `${src.dev} volume id: ${volumeId || "(blank)"}${owner ? " / " + owner : ""}`
-                            : `${src.dev} initialised: ${volumeId || "(blank)"}, ${segments} directory segment(s)`);
+                            : `${asWhat} initialised: ${volumeId || "(blank)"}, ${segments} directory segment(s)`);
     return true;
   }
 
@@ -925,7 +940,7 @@ export class Commander {
     if (!p.source) throw new Error("this pane has no disk");
     if (!await this.ask(`Squeeze ${p.source.label}?`, { title: "Squeeze" })) return;
     const src = p.source;
-    const ok = await this.writable(src, () => this.deps.api.diskSqueeze(src.path, src.side, src.linear ? 1 : 0));
+    const ok = await this.writable(src, () => this.deps.api.diskSqueeze(src.path, src.side, volOf(src)));
     if (!ok) throw new Error(this.deps.api.diskError());
     this.refresh();
   }

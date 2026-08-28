@@ -335,15 +335,34 @@ function fdRow(unit) {
 // disk at its next directory read).
 function fileSources() {
   const out = [];
+  // An 800 KB image can be one whole-disk DV:/MZ: volume instead of two DZ
+  // sides - the content decides (the DV/MZ handlers' formats, told by the
+  // home block + directory).
+  const whole = {};
+  for (let drive = 0; drive < 2; ++drive) {
+    const name = ds[drive] && slots.fd[unitOf(drive, 0)];
+    if (!name) continue;
+    try {
+      const det = JSON.parse(api.diskDetect(pathOf(name)) || "[]");
+      const w = det.find((s) => s.vol >= 2);
+      if (w && !det.some((s) => s.vol === 0)) whole[drive] = w.vol;
+    } catch { /* an unreadable image stays a pair of DZ sides */ }
+  }
   for (let unit = 0; unit < 4; ++unit) {
     const drive = driveOf(unit), side = sideOf(unit);
     const name = side === 1 && ds[drive] ? slots.fd[unitOf(drive, 0)] : slots.fd[unit];
     if (!name) continue;
+    if (whole[drive] !== undefined) {
+      if (side === 1) continue;                 // one volume, not two sides
+      const dev = `${whole[drive] === 2 ? "DV" : "MZ"}${drive}:`;
+      out.push({ id: `fd${unit}`, dev, label: `${dev} ${name}`, path: pathOf(name), side: 0, vol: whole[drive], ds: true, linear: false, name, unit });
+      continue;
+    }
     // The image's side: a two-sided image has the unit's, a one-sided image
     // has only side 0 whichever unit it sits on.
-    out.push({ id: `fd${unit}`, dev: `DZ${unit}:`, label: `DZ${unit}: ${name}`, path: pathOf(name), side: ds[drive] ? side : 0, linear: false, name, unit });
+    out.push({ id: `fd${unit}`, dev: `DZ${unit}:`, label: `DZ${unit}: ${name}`, path: pathOf(name), side: ds[drive] ? side : 0, vol: 0, ds: !!ds[drive], linear: false, name, unit });
   }
-  if (slots.hd) out.push({ id: "hd", dev: "HD0:", label: `HD0: ${slots.hd}`, path: pathOf(slots.hd), side: 0, linear: true, name: slots.hd });
+  if (slots.hd) out.push({ id: "hd", dev: "HD0:", label: `HD0: ${slots.hd}`, path: pathOf(slots.hd), side: 0, vol: 1, linear: true, name: slots.hd });
   return out;
 }
 
@@ -713,6 +732,7 @@ function bindApi() {
     releaseAll: c("ms_key_release_all", null, ["number"]),
     joystick: c("ms_joystick", null, ["number", "number"]),
     diskDir:    c("ms_disk_dir", "string", ["string", "number", "number"]),
+    diskDetect: c("ms_disk_detect", "string", ["string"]),
     diskError:  c("ms_disk_error", "string", []),
     diskGet:    c("ms_disk_get", "number", ["string", "number", "number", "string"]),
     diskData:   c("ms_disk_data", "number", []),
