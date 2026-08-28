@@ -11,14 +11,18 @@
  *     track  = (LBN/10 + 1) % 80        (cyl-0-last)
  *     sector = (IL[LBN%10] + 2*track-2) % 10   (2:1 interleave + per-track skew)
  *
- * So a disk is fully described by its size (single- vs double-sided) and,
- * for a double-sided image, which side — there is no per-OS "layout" choice.
+ * So a DZ: disk is fully described by its size (single- vs double-sided)
+ * and, for a double-sided image, which side.  The DV: and MZ: handlers
+ * instead treat the whole double-sided diskette as one 1600-block volume
+ * (their own translate code: track = LBN/10, +2 for DV with wrap at 160,
+ * natural sides, no interleave) — see the Vol enum below.
  */
 
 #ifndef MS0515_DISK_LAYOUT_HPP
 #define MS0515_DISK_LAYOUT_HPP
 
 #include <cstddef>
+#include <cstdint>
 
 namespace ms0515::disk {
 
@@ -30,6 +34,8 @@ inline constexpr int         kTrackSize       = kSectorsPerTrack * kBlock;  /* 5
 inline constexpr std::size_t kSideSize        = static_cast<std::size_t>(kTracks) * kTrackSize; /* 409600 */
 inline constexpr std::size_t kDoubleSize      = 2 * kSideSize;             /* 819200 */
 inline constexpr int         kSsBlocks        = kTracks * kSectorsPerTrack;/* 800    */
+inline constexpr int         kDsBlocks        = 2 * kSsBlocks;             /* 1600   */
+inline constexpr int         kDvRotate        = 2 * kSectorsPerTrack;      /* 20     */
 
 /* Map a logical block number to its byte offset within a raw image, exactly
  * as the emulator (FDC + OS driver) would address it.  `side` selects a side
@@ -48,11 +54,36 @@ inline constexpr int         kSsBlocks        = kTracks * kSectorsPerTrack;/* 80
     return static_cast<std::size_t>(lbn) * kBlock;
 }
 
-/* Geometry-aware offset: linear when `linear` is set, else the floppy skew. */
+/* Which addressing a volume uses — the OS handler that made it:
+ *   floppy — one side of a diskette through the DZ: driver's 2:1
+ *            interleave + per-track skew (`side`/`ds` pick the slice);
+ *   linear — LD/HD container: byte = LBN*512, any multiple of 512 blocks;
+ *   mz     — the whole double-sided diskette as one 1600-block volume,
+ *            the MZ: way (track = LBN/10, natural sides, no interleave),
+ *            which over a track-interleaved dump is byte-linear;
+ *   dv     — the same through the DV: driver (track = LBN/10 + 2, wrap
+ *            at 160): cylinder 0 holds LBN 1580..1599, i.e. linear
+ *            rotated 20 blocks — the OSA-canonical rotation.
+ * Truth for dv/mz: the handlers' own translate code (DV.SYS / MZ.SYS
+ * disassembled), verified against the OS in the emulator and against
+ * raw hardware dumps (vvv104 disk4/disk5). */
+enum class Vol : uint8_t { floppy, linear, dv, mz };
+
+/* Geometry-aware offset for any volume kind.  `side`/`ds` matter only for
+ * Vol::floppy; dv/mz wrap `lbn` modulo the 1600-block diskette. */
 [[nodiscard]] inline std::size_t lbnToByte(int lbn, int side, bool ds,
-                                           bool linear) noexcept
+                                           Vol vol) noexcept
 {
-    return linear ? lbnToByteLinear(lbn) : lbnToByte(lbn, side, ds);
+    switch (vol) {
+    case Vol::linear: return lbnToByteLinear(lbn);
+    case Vol::mz:
+    case Vol::dv: {
+        int n = (lbn + (vol == Vol::dv ? kDvRotate : 0)) % kDsBlocks;
+        if (n < 0) n += kDsBlocks;
+        return lbnToByteLinear(n);
+    }
+    default:          return lbnToByte(lbn, side, ds);
+    }
 }
 
 /* Inverse of the OS-driver mapping for a single-sided diskette: which LBN

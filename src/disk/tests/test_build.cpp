@@ -125,19 +125,19 @@ TEST_CASE("init leaves free sectors as the B6 6D blank pattern") {
 TEST_CASE("linear HD round-trip: blankLinear + init + put + read back") {
     auto img = blankLinear(4000);
     REQUIRE(img.size() == 4000u * kBlock);
-    initVolume(img, 0, false, {}, /*linear=*/true);
+    initVolume(img, 0, false, {}, Vol::linear);
 
     std::vector<uint8_t> data(1000);
     for (std::size_t i = 0; i < data.size(); ++i)
         data[i] = static_cast<uint8_t>(i * 7 + 1);
-    putFile(img, 0, false, "BIG.DAT", data, {}, /*linear=*/true);
+    putFile(img, 0, false, "BIG.DAT", data, {}, Vol::linear);
     putFile(img, 0, false, "HI.TXT",
-            std::vector<uint8_t>{'h', 'i'}, {}, /*linear=*/true);
+            std::vector<uint8_t>{'h', 'i'}, {}, Vol::linear);
 
     auto im = openLinearImage(img);
     REQUIRE(im.has_value());
     REQUIRE(im->hasDirectory);
-    CHECK(im->linear);
+    CHECK(im->vol == Vol::linear);
     REQUIRE(im->directory.permanentFiles().size() == 2);
     auto rd = im->readFile("BIG.DAT");
     REQUIRE(rd.size() >= data.size());
@@ -675,21 +675,21 @@ TEST_CASE("removeFile merges the empty entries around the one freed, as the OS d
     auto img = blankLinear(40);
     InitOptions one;
     one.segments = 1;
-    initVolume(img, 0, false, one, /*linear=*/true);            /* 32 data blocks from 8 */
+    initVolume(img, 0, false, one, Vol::linear);            /* 32 data blocks from 8 */
     const std::vector<uint8_t> a(kBlock, 1), b(3 * kBlock, 2), c(2 * kBlock, 3), d(kBlock, 4);
     PutOptions dated;
     dated.date = encodeDate(1989, 1, 5);
-    putFile(img, 0, false, "A.DAT", a, dated, /*linear=*/true);
-    putFile(img, 0, false, "B.DAT", b, {}, /*linear=*/true);
-    putFile(img, 0, false, "C.DAT", c, {}, /*linear=*/true);
-    putFile(img, 0, false, "D.DAT", d, {}, /*linear=*/true);   /* then 25 free */
+    putFile(img, 0, false, "A.DAT", a, dated, Vol::linear);
+    putFile(img, 0, false, "B.DAT", b, {}, Vol::linear);
+    putFile(img, 0, false, "C.DAT", c, {}, Vol::linear);
+    putFile(img, 0, false, "D.DAT", d, {}, Vol::linear);   /* then 25 free */
     auto entries = [&] { const auto im = openLinearImage(img); return im ? im->directory.entries : std::vector<DirEntry>{}; };   /* the end marker counted */
     REQUIRE(entries().size() == 6);
 
     /* B between two files: its entry stays; A before it: A absorbs it. */
-    removeFile(img, 0, false, "B.DAT", /*linear=*/true);
+    removeFile(img, 0, false, "B.DAT", Vol::linear);
     CHECK(entries().size() == 6);
-    removeFile(img, 0, false, "A.DAT", /*linear=*/true);
+    removeFile(img, 0, false, "A.DAT", Vol::linear);
     auto e = entries();
     REQUIRE(e.size() == 5);
     CHECK(e[0].isEmpty()); CHECK(e[0].name == "A.DAT"); CHECK(e[0].length == 4); CHECK(e[0].date == dated.date);
@@ -697,49 +697,49 @@ TEST_CASE("removeFile merges the empty entries around the one freed, as the OS d
     CHECK(im_free_blocks(img) == 29);
 
     /* D, the last file, is followed by the free tail: one area of 26. */
-    removeFile(img, 0, false, "D.DAT", /*linear=*/true);
+    removeFile(img, 0, false, "D.DAT", Vol::linear);
     e = entries();
     REQUIRE(e.size() == 4);
     CHECK(e[2].isEmpty()); CHECK(e[2].name == "D.DAT"); CHECK(e[2].length == 26);
 
     /* C, empty on both sides now: everything one area, the earliest name. */
-    removeFile(img, 0, false, "C.DAT", /*linear=*/true);
+    removeFile(img, 0, false, "C.DAT", Vol::linear);
     e = entries();
     REQUIRE(e.size() == 2);
     CHECK(e[0].isEmpty()); CHECK(e[0].name == "A.DAT"); CHECK(e[0].length == 32);
     CHECK(openLinearImage(img)->readFile("A.DAT").empty());
 
     /* A file put back larger, with room behind it, lands where it was. */
-    putFile(img, 0, false, "X.DAT", c, {}, /*linear=*/true);
-    putFile(img, 0, false, "Y.DAT", d, {}, /*linear=*/true);
+    putFile(img, 0, false, "X.DAT", c, {}, Vol::linear);
+    putFile(img, 0, false, "Y.DAT", d, {}, Vol::linear);
     const int xAt = openLinearImage(img)->directory.find("X.DAT")->startBlock;
-    removeFile(img, 0, false, "Y.DAT", /*linear=*/true);          /* Y and the tail: one area behind X */
-    removeFile(img, 0, false, "X.DAT", /*linear=*/true);          /* X joins it: one area from X's start */
-    putFile(img, 0, false, "X.DAT", std::vector<uint8_t>(5 * kBlock, 9), {}, /*linear=*/true);
+    removeFile(img, 0, false, "Y.DAT", Vol::linear);          /* Y and the tail: one area behind X */
+    removeFile(img, 0, false, "X.DAT", Vol::linear);          /* X joins it: one area from X's start */
+    putFile(img, 0, false, "X.DAT", std::vector<uint8_t>(5 * kBlock, 9), {}, Vol::linear);
     CHECK(openLinearImage(img)->directory.find("X.DAT")->startBlock == xAt);
     CHECK(openLinearImage(img)->directory.find("X.DAT")->length == 5);
 }
 
 TEST_CASE("setVolumeId writes the home block's id and owner and leaves the files") {
     auto img = blankLinear(40);
-    CHECK_THROWS(setVolumeId(img, 0, false, "X", "Y", /*linear=*/true));     /* not initialised */
+    CHECK_THROWS(setVolumeId(img, 0, false, "X", "Y", Vol::linear));     /* not initialised */
     InitOptions o;
     o.volumeId = "RT11A";
     o.segments = 2;
-    initVolume(img, 0, false, o, /*linear=*/true);
+    initVolume(img, 0, false, o, Vol::linear);
     const std::vector<uint8_t> a(kBlock, 7);
-    putFile(img, 0, false, "A.DAT", a, {}, /*linear=*/true);
+    putFile(img, 0, false, "A.DAT", a, {}, Vol::linear);
     auto field = [&](int off) { std::string s(reinterpret_cast<const char *>(img.data()) + kBlock + off, 12); return s; };
     CHECK(field(0x1D8) == "RT11A       ");
-    setVolumeId(img, 0, false, "PROGRAMS", "VVV", /*linear=*/true);
+    setVolumeId(img, 0, false, "PROGRAMS", "VVV", Vol::linear);
     CHECK(field(0x1D8) == "PROGRAMS    ");
     CHECK(field(0x1E4) == "VVV         ");
     auto im = openLinearImage(img);
     REQUIRE(im->hasDirectory);
     CHECK(im->directory.segsTotal == 2);
     CHECK(im->readFile("A.DAT") == a);
-    CHECK_THROWS(setVolumeId(img, 0, false, "THIRTEEN-CHAR", "", /*linear=*/true));
-    setVolumeId(img, 0, false, "", "", /*linear=*/true);
+    CHECK_THROWS(setVolumeId(img, 0, false, "THIRTEEN-CHAR", "", Vol::linear));
+    setVolumeId(img, 0, false, "", "", Vol::linear);
     CHECK(field(0x1D8) == "            ");
 }
 
@@ -904,14 +904,14 @@ TEST_CASE("growLinear: a full volume gets a new empty entry, a free one a longer
     auto img = blankLinear(20);
     InitOptions one;
     one.segments = 1;
-    initVolume(img, 0, false, one, /*linear=*/true);      /* data from block 8: 12 free */
+    initVolume(img, 0, false, one, Vol::linear);      /* data from block 8: 12 free */
     const std::vector<uint8_t> big(12 * kBlock, 0x5A);
-    putFile(img, 0, false, "FULL.DAT", big, {}, /*linear=*/true);
-    CHECK_THROWS(putFile(img, 0, false, "MORE.DAT", std::vector<uint8_t>(kBlock, 1), {}, /*linear=*/true));
+    putFile(img, 0, false, "FULL.DAT", big, {}, Vol::linear);
+    CHECK_THROWS(putFile(img, 0, false, "MORE.DAT", std::vector<uint8_t>(kBlock, 1), {}, Vol::linear));
 
     growLinear(img, 10);
     CHECK(img.size() == 30u * kBlock);
-    putFile(img, 0, false, "MORE.DAT", std::vector<uint8_t>(10 * kBlock, 1), {}, /*linear=*/true);
+    putFile(img, 0, false, "MORE.DAT", std::vector<uint8_t>(10 * kBlock, 1), {}, Vol::linear);
     auto im = openLinearImage(img);
     REQUIRE(im.has_value());
     REQUIRE(im->hasDirectory);
@@ -937,15 +937,15 @@ TEST_CASE("removeFile keeps the name and the date in the entry as the OS does; u
     auto img = blankLinear(40);
     InitOptions one;
     one.segments = 1;
-    initVolume(img, 0, false, one, /*linear=*/true);
+    initVolume(img, 0, false, one, Vol::linear);
     const std::vector<uint8_t> a(2 * kBlock, 1), b(3 * kBlock, 2), c(kBlock, 3);
     PutOptions dated;
     dated.date = encodeDate(1992, 8, 22);
-    putFile(img, 0, false, "A.DAT", a, dated, /*linear=*/true);
-    putFile(img, 0, false, "B.DAT", b, dated, /*linear=*/true);
-    putFile(img, 0, false, "C.DAT", c, {}, /*linear=*/true);
+    putFile(img, 0, false, "A.DAT", a, dated, Vol::linear);
+    putFile(img, 0, false, "B.DAT", b, dated, Vol::linear);
+    putFile(img, 0, false, "C.DAT", c, {}, Vol::linear);
 
-    removeFile(img, 0, false, "B.DAT", /*linear=*/true);
+    removeFile(img, 0, false, "B.DAT", Vol::linear);
     auto im = openLinearImage(img);
     REQUIRE(im.has_value());
     REQUIRE(im->directory.entries.size() >= 4);
@@ -956,27 +956,27 @@ TEST_CASE("removeFile keeps the name and the date in the entry as the OS does; u
     CHECK(gone.date == dated.date);
     CHECK(im->directory.find("B.DAT") == nullptr);
 
-    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "", /*linear=*/true));    /* a permanent file */
-    CHECK_THROWS(undeleteEntry(img, 0, false, 3, "", /*linear=*/true));    /* the tail: the sentinel name */
-    CHECK_THROWS(undeleteEntry(img, 0, false, 9, "", /*linear=*/true));    /* no such entry */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "", Vol::linear));    /* a permanent file */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 3, "", Vol::linear));    /* the tail: the sentinel name */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 9, "", Vol::linear));    /* no such entry */
 
-    undeleteEntry(img, 0, false, 1, "", /*linear=*/true);
+    undeleteEntry(img, 0, false, 1, "", Vol::linear);
     im = openLinearImage(img);
     CHECK(im->directory.permanentFiles().size() == 3);
     CHECK(im->readFile("B.DAT") == b);
     CHECK(im->directory.entries[1].date == dated.date);
 
     /* A file put over the freed area renames what remains of it: no undelete. */
-    removeFile(img, 0, false, "B.DAT", /*linear=*/true);
-    putFile(img, 0, false, "D.DAT", c, {}, /*linear=*/true);            /* lands in the 3-block slot */
+    removeFile(img, 0, false, "B.DAT", Vol::linear);
+    putFile(img, 0, false, "D.DAT", c, {}, Vol::linear);            /* lands in the 3-block slot */
     im = openLinearImage(img);
     CHECK(im->directory.entries[1].name == "D.DAT");
     CHECK(im->directory.entries[2].isEmpty());
     CHECK(im->directory.entries[2].name != "B.DAT");
-    CHECK_THROWS(undeleteEntry(img, 0, false, 2, "", /*linear=*/true));
+    CHECK_THROWS(undeleteEntry(img, 0, false, 2, "", Vol::linear));
     {   /* ... but given a name, the area is recovered as a file, whatever lies in it */
         auto copy = img;
-        undeleteEntry(copy, 0, false, 2, "AREA.DAT", /*linear=*/true);
+        undeleteEntry(copy, 0, false, 2, "AREA.DAT", Vol::linear);
         auto im2 = openLinearImage(copy);
         REQUIRE(im2->directory.find("AREA.DAT") != nullptr);
         CHECK(im2->directory.find("AREA.DAT")->length == 2);
@@ -985,12 +985,12 @@ TEST_CASE("removeFile keeps the name and the date in the entry as the OS does; u
 
     /* A name taken meanwhile is refused - and another name given brings
      * the file back under it. */
-    removeFile(img, 0, false, "A.DAT", /*linear=*/true);
-    putFile(img, 0, false, "A.DAT", b, {}, /*linear=*/true);            /* 3 blocks: not the 2-block slot */
-    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "", /*linear=*/true));
-    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "A.DAT", /*linear=*/true));
-    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "TOOLONGNAME.DAT", /*linear=*/true));
-    undeleteEntry(img, 0, false, 0, "A1.DAT", /*linear=*/true);
+    removeFile(img, 0, false, "A.DAT", Vol::linear);
+    putFile(img, 0, false, "A.DAT", b, {}, Vol::linear);            /* 3 blocks: not the 2-block slot */
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "", Vol::linear));
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "A.DAT", Vol::linear));
+    CHECK_THROWS(undeleteEntry(img, 0, false, 0, "TOOLONGNAME.DAT", Vol::linear));
+    undeleteEntry(img, 0, false, 0, "A1.DAT", Vol::linear);
     im = openLinearImage(img);
     CHECK(im->readFile("A1.DAT") == a);
     CHECK(im->readFile("A.DAT") == b);
@@ -1030,3 +1030,61 @@ TEST_CASE("squeeze on a floppy keeps every file's bytes (the LBNs are skewed, no
     CHECK(empties == 1);
 }
 
+
+TEST_CASE("dv/mz whole-disk volumes: init + put + read back per the handler formulas") {
+    for (const Vol vol : {Vol::dv, Vol::mz}) {
+        CAPTURE(static_cast<int>(vol));
+        auto img = blankImage(true);
+        initVolume(img, 0, true, {}, vol);
+
+        /* the home block sits where the handler's translate puts LBN 1 */
+        const std::size_t home = lbnToByte(1, 0, true, vol);
+        CHECK(std::string(reinterpret_cast<const char *>(&img[home + 0x1F0]), 8)
+              == "DECRT11A");
+
+        const std::vector<uint8_t> one(3 * kBlock, 0x42);
+        putFile(img, 0, true, "A.DAT", one, {}, vol);
+        auto im = openVolume(img, vol);
+        REQUIRE(im);
+        REQUIRE(im->hasDirectory);
+        CHECK(im->vol == vol);
+        CHECK(im->readFile("A.DAT") == one);
+
+        /* content-based detection names the format - uniquely */
+        const auto specs = detectVolumes(img);
+        REQUIRE(specs.size() == 1);
+        CHECK(specs[0].vol == vol);
+
+        /* first data block (LBN 14): byte-linear, DV rotated 20 blocks -
+         * the offsets the OS oracle measured on the emulator */
+        const std::size_t off = lbnToByte(14, 0, true, vol);
+        CHECK(off == static_cast<std::size_t>(14 + (vol == Vol::dv ? 20 : 0)) * kBlock);
+        CHECK(img[off] == 0x42);
+    }
+}
+
+TEST_CASE("detectVolumes tells DZ sides, DV, MZ and linear apart by content") {
+    auto dz = blankImage(true);              /* DZ on both sides of a DS floppy */
+    initVolume(dz, 0, true);
+    initVolume(dz, 1, true);
+    auto specs = detectVolumes(dz);
+    REQUIRE(specs.size() == 2);
+    CHECK(specs[0].vol == Vol::floppy); CHECK(specs[0].side == 0);
+    CHECK(specs[1].vol == Vol::floppy); CHECK(specs[1].side == 1);
+
+    CHECK(detectVolumes(blankImage(true)).empty());   /* blanks carry nothing */
+    CHECK(detectVolumes(blankImage(false)).empty());
+
+    auto ss = blankImage(false);                          /* an SS floppy */
+    initVolume(ss, 0, false);
+    specs = detectVolumes(ss);
+    REQUIRE(specs.size() == 1);
+    CHECK(specs[0].vol == Vol::floppy);
+    CHECK(specs[0].side == 0);
+
+    auto hd = blankLinear(1000);              /* a linear container, odd size */
+    initVolume(hd, 0, false, {}, Vol::linear);
+    specs = detectVolumes(hd);
+    REQUIRE(specs.size() == 1);
+    CHECK(specs[0].vol == Vol::linear);
+}

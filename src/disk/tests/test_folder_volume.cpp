@@ -217,12 +217,12 @@ std::vector<uint8_t> dirBlocksFor(
     const std::vector<std::pair<std::string, int>> &filesAndBlocks)
 {
     auto img = blankLinear(100);
-    initVolume(img, 0, false, {}, /*linear=*/true);
+    initVolume(img, 0, false, {}, Vol::linear);
     for (const auto &[name, nblk] : filesAndBlocks)
         putFile(img, 0, false, name,
                 std::vector<uint8_t>(static_cast<std::size_t>(nblk) * kBlock,
                                      0x11),
-                {}, /*linear=*/true);
+                {}, Vol::linear);
     return {img.begin() + 6 * kBlock, img.begin() + 14 * kBlock};
 }
 

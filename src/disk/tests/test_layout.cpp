@@ -40,6 +40,27 @@ TEST_CASE("lbn wraps modulo the 800-block side") {
     CHECK(lbnToByte(790, 0, false) < kSideSize);
 }
 
+TEST_CASE("dv/mz: whole-DS 1600-block volumes per the handlers' translate code") {
+    /* MZ: byte-linear over the track-interleaved dump. */
+    CHECK(lbnToByte(0, 0, true, Vol::mz) == 0);
+    CHECK(lbnToByte(20, 0, true, Vol::mz) == 10240);        /* cyl 1 side 0 */
+    CHECK(lbnToByte(110, 0, true, Vol::mz) == 110 * 512);   /* cyl 5 side 1 */
+    CHECK(lbnToByte(1599, 0, true, Vol::mz) == 1599 * 512); /* cyl 79 side 1 sec 10 */
+    /* DV: the same rotated 20 blocks — cylinder 0 last. */
+    CHECK(lbnToByte(0, 0, true, Vol::dv) == 20 * 512);      /* cyl 1 side 0 */
+    CHECK(lbnToByte(20, 0, true, Vol::dv) == 20480);        /* cyl 2 side 0 — OS oracle */
+    CHECK(lbnToByte(110, 0, true, Vol::dv) == 66560);       /* cyl 6 side 1 — OS oracle */
+    CHECK(lbnToByte(1580, 0, true, Vol::dv) == 0);          /* cyl 0 sector 1 */
+    CHECK(lbnToByte(1599, 0, true, Vol::dv) == 19 * 512);   /* cyl 0 side 1 sec 10 */
+    /* Wrap modulo the diskette, like the floppy mapping wraps its side. */
+    CHECK(lbnToByte(5, 0, true, Vol::mz) == lbnToByte(5 + kDsBlocks, 0, true, Vol::mz));
+    CHECK(lbnToByte(5, 0, true, Vol::dv) == lbnToByte(5 + kDsBlocks, 0, true, Vol::dv));
+    /* floppy/linear dispatch to the existing mappings. */
+    CHECK(lbnToByte(6, 0, false, Vol::floppy) == lbnToByte(6, 0, false));
+    CHECK(lbnToByte(6, 1, true, Vol::floppy) == lbnToByte(6, 1, true));
+    CHECK(lbnToByte(7, 0, false, Vol::linear) == 7 * 512);
+}
+
 TEST_CASE("size classifies single- vs double-sided") {
     CHECK(isDoubleSidedSize(kSideSize)   == false);  /* 409600 */
     CHECK(isDoubleSidedSize(kDoubleSize) == true);   /* 819200 */

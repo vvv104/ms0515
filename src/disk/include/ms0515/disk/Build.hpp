@@ -72,7 +72,7 @@ struct DateParts { int year, month, day; };
  * Throws std::runtime_error on a size/side mismatch, a too-long id/owner, or
  * a bad segment count. */
 void initVolume(std::vector<uint8_t> &image, int side, bool ds,
-                const InitOptions &opts = {}, bool linear = false);
+                const InitOptions &opts = {}, Vol vol = Vol::floppy);
 
 /* Write the volume id and the owner (12 characters each at most) into the
  * home block of an initialised side, the directory and the files left as
@@ -80,7 +80,7 @@ void initVolume(std::vector<uint8_t> &image, int side, bool ds,
  * the side holds no directory or a name is too long. */
 void setVolumeId(std::vector<uint8_t> &image, int side, bool ds,
                  const std::string &volumeId, const std::string &owner,
-                 bool linear = false);
+                 Vol vol = Vol::floppy);
 
 /* Add one file to the initialised volume on `side` (the equivalent of PIP).
  * Throws std::runtime_error if the side is not initialised, the name is not
@@ -90,21 +90,21 @@ void setVolumeId(std::vector<uint8_t> &image, int side, bool ds,
  * wants the original write date preserved. */
 void putFile(std::vector<uint8_t> &image, int side, bool ds,
              const std::string &name, std::span<const uint8_t> data,
-             const PutOptions &opts = {}, bool linear = false);
+             const PutOptions &opts = {}, Vol vol = Vol::floppy);
 
 /* Flip the kStatusProtected bit on the directory entry of `name` on `side`.
  * `on=true` sets it (equivalent to PIP /PROTECT), `on=false` clears it
  * (PIP /NOPROTECT).  Throws std::runtime_error if the file is not found or
  * the side is not initialised. */
 void setProtected(std::vector<uint8_t> &image, int side, bool ds,
-                  const std::string &name, bool on, bool linear = false);
+                  const std::string &name, bool on, Vol vol = Vol::floppy);
 
 /* Overwrite the date word on the directory entry of `name`.  Pass an already-
  * encoded value from encodeDate(); zero means "no date" (clears the field).
  * Throws std::runtime_error if the file is not found or the side is not
  * initialised. */
 void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
-                  const std::string &name, uint16_t date, bool linear = false);
+                  const std::string &name, uint16_t date, Vol vol = Vol::floppy);
 
 /* Defragment a side (the equivalent of RT-11 SQUEEZE): walk every
  * permanent entry in directory order, move its data blocks left to be
@@ -113,7 +113,7 @@ void setEntryDate(std::vector<uint8_t> &image, int side, bool ds,
  * remaining free space.  Throws if the side isn't initialised or the
  * directory has multiple segments (multi-segment squeeze isn't supported
  * yet — INIT defaults still produce a single segment under our usage). */
-void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear = false);
+void squeeze(std::vector<uint8_t> &image, int side, bool ds, Vol vol = Vol::floppy);
 
 /* Delete one file from `side` (the equivalent of PIP /DELETE): looks up the
  * directory entry by name and flips its status to empty, the length kept
@@ -126,13 +126,13 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, bool linear = false
  * std::runtime_error if the side is not initialised, the name is not
  * RAD50-encodable, or no permanent file with that name exists. */
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
-                const std::string &name, bool linear = false);
+                const std::string &name, Vol vol = Vol::floppy);
 
 /* Rename a permanent file in place (the entry's RAD50 words); the new name
  * must be a valid 6.3 name not already on the volume.  Throws on either. */
 void renameFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, const std::string &newName,
-                bool linear = false);
+                Vol vol = Vol::floppy);
 
 /* The monitor a floppy side boots: the .SYS file whose blocks 1..3 are the
  * side's LBN 2..4 (the secondary bootstrap COPY/BOOT put there), named
@@ -202,7 +202,7 @@ void growLinear(std::vector<uint8_t> &image, int blocks);
  * entry is not an unused area, no proper 6.3 name is there or given, or a
  * file of the name is on the volume already. */
 void undeleteEntry(std::vector<uint8_t> &image, int side, bool ds, int ordinal,
-                   const std::string &newName = "", bool linear = false);
+                   const std::string &newName = "", Vol vol = Vol::floppy);
 
 } /* namespace ms0515::disk */
 

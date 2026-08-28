@@ -129,7 +129,7 @@ TEST_CASE("parseDirectory reads a linear (HD/LD) container") {
          "   ", "   ", "   ", 50},
     });
     std::copy(seg.begin(), seg.end(), img.begin() + lbnToByteLinear(6));
-    auto d = parseDirectory(img, 0, false, /*linear=*/true);
+    auto d = parseDirectory(img, 0, false, Vol::linear);
     REQUIRE(d.has_value());
     CHECK(d->dirStartLbn == 6);
     REQUIRE(d->permanentFiles().size() == 1);
