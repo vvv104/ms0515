@@ -6,6 +6,9 @@ T-11), produced in the late 1980s.
 
 ## Features
 
+![The browser build: the two-pane file manager over the mounted RT-11 disks](docs/images/web-files.png)
+
+
 - KR1807VM1 CPU emulation (PDP-11 instruction set, 66 instructions)
 - Full memory subsystem with bank switching and 512 KB RAM-disk expansion
 - WD1793 / KR1818VG93 floppy controller (2 physical drives × 2 sides,
@@ -137,4 +140,12 @@ Disks can also be mounted at runtime via the File menu.
 
 ## License
 
-This project is currently unlicensed (all rights reserved).
+The emulator's sources, tools and documentation are released under the
+[MIT License](LICENSE) — use them freely, keep the copyright notice with
+its link to this repository.
+
+The files under `src/assets/` (the machine's ROMs, the original operating
+system and program disk images) are historical artifacts of the
+Elektronika MS 0515 and its software, preserved here for the emulator to
+run them; they are not covered by the license above and remain the
+property of their respective authors.
