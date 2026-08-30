@@ -6,6 +6,15 @@ T-11), produced in the late 1980s.
 
 ## Features
 
+<p align="center">
+  <img src="docs/images/rom-test.png" width="320" alt="ROM self-test">
+  <img src="docs/images/osa-dir.png" width="320" alt="OSA (RT-11): DIR">
+  <img src="docs/images/fist.png" width="320" alt="The Way of the Exploding Fist, ported to the MS-0515">
+</p>
+
+![The browser build: the two-pane file manager over the mounted RT-11 disks](docs/images/web-files.png)
+
+
 - KR1807VM1 CPU emulation (PDP-11 instruction set, 66 instructions)
 - Full memory subsystem with bank switching and 512 KB RAM-disk expansion
 - WD1793 / KR1818VG93 floppy controller (2 physical drives × 2 sides,
@@ -100,9 +109,9 @@ Command-line options:
 | `--disk1-side1 <path>` | `-d1s1` | Drive 1, upper side |
 
 `--diskN` and `--diskN-sideM` for the same N are mutually exclusive.
-Diagnostic flags for headless / debugging runs (`--frames`,
-`--screenshot`, `--screenshot-frame`, `--history-*`) are documented in
-the source comment at the top of `src/frontend/src/main.cpp`.
+Diagnostic flags for headless / debugging runs (`--frames`, `--history-*`)
+are documented in the source comment at the top of
+`src/frontend/src/main.cpp` and in `ms0515-cli --help`.
 
 Disks can also be mounted at runtime via the File menu.
 
@@ -137,4 +146,12 @@ Disks can also be mounted at runtime via the File menu.
 
 ## License
 
-This project is currently unlicensed (all rights reserved).
+The emulator's sources, tools and documentation are released under the
+[MIT License](LICENSE) — use them freely, keep the copyright notice with
+its link to this repository.
+
+The files under `src/assets/` (the machine's ROMs, the original operating
+system and program disk images) are historical artifacts of the
+Elektronika MS 0515 and its software, preserved here for the emulator to
+run them; they are not covered by the license above and remain the
+property of their respective authors.
