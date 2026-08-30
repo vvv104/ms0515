@@ -2,7 +2,7 @@
 
 `mc1702.kicad_sch` is a KiCad 8 schematic of the «Электроника МС 1702» IBM PC
 coprocessor board, **generated** from the reverse-engineered netlist
-[`docs/kb/mc1702-netlist.csv`](../../docs/kb/mc1702-netlist.csv) by
+[`docs/kb/mc1702/netlist.csv`](../../docs/kb/mc1702/netlist.csv) by
 [`tools/mc1702_kicad.py`](../../tools/mc1702_kicad.py):
 
 ```

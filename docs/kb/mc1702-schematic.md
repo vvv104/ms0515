@@ -24,7 +24,7 @@ inputs + the D45 output; `8/3` on AD01 = D10 + D11 + D19; `22/6` on data D0 =
 transceiver + PROM + video RAM + DRAM + СОКОО + buffer. (The `/2` on nets 23–27
 is the one anomaly — noted.) Net numbers are **local to a bus group** (the
 local CPU bus, the memory data bus and the СОКОО check bits all reuse 18–27),
-so the machine-readable netlist [`mc1702-netlist.csv`](mc1702-netlist.csv)
+so the machine-readable netlist [`mc1702/netlist.csv`](mc1702/netlist.csv)
 prefixes them: `LB.`, `LA.`, `MD.`, `MA.`, `CK.`, `SEL.`.
 
 ### The local bus (nets 1–27) — shared by D10 (CPU) and D11 (FPU)
@@ -516,7 +516,7 @@ numbering beyond the 27 CPU-bus nets and are not yet identified.
 Reading unlabelled point-to-point wires across the whole lower half of л.1 by
 eye gave ±1-pin results, so the rest of that cluster was read mechanically:
 `tools/mc1702_trace.py` (boxes and pin rows for this strip in
-`mc1702-trace-boxes-l1-lower.json`) binarises the scan, keeps the thin
+`mc1702/trace/l1-lower.json`) binarises the scan, keeps the thin
 orthogonal ink runs as wire segments, and joins them by rules that were tuned
 until every net it produced that *could* be checked against a drawn label
 matched the label (test-ROM address bus 10/10, D8→D15 3/3, Y1→D36.EØ,
@@ -570,9 +570,9 @@ a readable label.
 
 ## Cross-reference pass — decode / ready glue, read by the wire tracer
 
-Second tracer run: the top of л.1 (`mc1702-trace-boxes-l1-upper.json`) and,
+Second tracer run: the top of л.1 (`mc1702/trace/l1-upper.json`) and,
 because seven wires leave strip 1 at its right edge, the same cluster on
-strip 2 (`mc1702-trace-boxes-l2-upper.json`, where D47 and the D25.3/D55/
+strip 2 (`mc1702/trace/l2-upper.json`, where D47 and the D25.3/D55/
 D16.4/D80.4 group sit).
 
 **D18 command outputs.** MRDC (7) → D32.2.5 (and net 40 at the memories);
@@ -603,9 +603,9 @@ to the left (both not closed).
 
 ## Cross-reference pass — DRAM sequencer (strips 2 and 3)
 
-Third tracer region: `mc1702-trace-boxes-l2-mid.json` on strip 2 (binarisation
+Third tracer region: `mc1702/trace/l2-mid.json` on strip 2 (binarisation
 offset lowered to 5 for the fainter middle strip) and, because the same group
-is drawn more clearly on strip 3, `mc1702-trace-boxes-l3-seq.json` as an
+is drawn more clearly on strip 3, `mc1702/trace/l3-seq.json` as an
 independent second read. Where the two disagreed the strip-3 labels won:
 the trigger with pins S 4 / C 3 / D 2 / R 1 / Q 5 is **D48.1**, the one with
 R 1 / D 2 / C 3 / S 4 / Q̄ 6 is **D43.1**, the lower one (R 13, D 12, C 11,
@@ -657,7 +657,7 @@ line) and D17.4 (13 ← net 49 = D41.2 out, 12 ← a second line; A18 expected)
 the natural pair 48/49. D25.2 = MWTC · MRDC (39, 40), D32.4 ← 45.
 
 **Microcode.** ТО Таблица 1 (page 15) is the full 512-byte dump of D44 —
-transcribed to `mc1702-d44-prom.txt`. Its structure matches the wiring: the
+transcribed to `mc1702/d44-prom.txt`. Its structure matches the wiring: the
 16-entry rows step with the D2.2 counter (A0–A2), the 0x80 and 0x100 address
 bits change only output bits 1 and 2 (80 → 82 → 84 …) — exactly the CAS A /
 CAS B outputs of D54 — so PROM inputs A7 and A8 (state-bus labels 8 and 7) are
@@ -687,10 +687,10 @@ and C5…C30 (26 pcs, marked 2б) + C31…C66 (36 pcs, 3б) between +5В and 0В
 
 ## Cross-reference pass — the long top runs (strips 1 and 2)
 
-Tracer runs over the whole upper band of strip 1 (`…-l1-top.json`: D4, D10,
-D18 and the decode cluster) and strip 2 (`…-l2-top.json`: the ready group and
+Tracer runs over the whole upper band of strip 1 (`mc1702/trace/l1-top.json`: D4, D10,
+D18 and the decode cluster) and strip 2 (`mc1702/trace/l2-top.json`: the ready group and
 the sequencer tops), matched across the strip edge by wire height (the middle
-strip sits 10–25 px lower than the left one), plus `…-l1-osc.json` for the D4
+strip sits 10–25 px lower than the left one), plus `mc1702/trace/l1-osc.json` for the D4
 wires that leave downwards.
 
 - **Sequencer clock = D4 OSC.** The OSC output (pin 12) runs down and right
@@ -717,7 +717,7 @@ wires that leave downwards.
 - [x] Sheet 2 strip — D47 pins, D45/D46 mux (flag resolved), D44/D54 controller, sequencer/refresh, bank bit map, WAIT/HALT triggers, S4/S5 found; scans identified as overlapping strips of one drawing
 - [x] Sheet 3 strip — full DRAM grid (26 chips, bit map), СОКОО D78/D79 pin map, power table
 - [x] All 81 ICs located and assigned to a function block
-- [x] `/N` semantics settled (pin count); bus-local net numbering handled by prefixes in `mc1702-netlist.csv` (started: CPU core, latches, memories, DRAM, СОКОО, decoder, interface, XS1)
+- [x] `/N` semantics settled (pin count); bus-local net numbering handled by prefixes in `mc1702/netlist.csv` (started: CPU core, latches, memories, DRAM, СОКОО, decoder, interface, XS1)
 - [~] Cross-reference pass, decode/ready cluster: gate pin maps + partial net endpoints in the CSV (D81 bridged inputs = net 53, D32.3←45/46 → D80.2 → D41 pair → nets 48/49, D24.4 as buffer, D3.2 = DEN inverter for the D26/D27 enables); remaining '?' wires + the sequencer cluster still to trace
 - [ ] Cross-reference pass: the exact
       gate-input nets of the decode/sequencer glue (D3, D16, D17, D24, D25,
@@ -750,7 +750,7 @@ wires that leave downwards.
       D2.2 -> SQ.1-3
 - [x] Long top runs traced on strips 1–2 (sequencer clock = D4 OSC, ready
       chain D25/D55/D81 → D4 AEN2/RDY2, D43.1 D, D39.1 D = D2.2 clock)
-- [x] ТО Таблица 1 (D44 microcode, 512 bytes) transcribed to `mc1702-d44-prom.txt`;
+- [x] ТО Таблица 1 (D44 microcode, 512 bytes) transcribed to `mc1702/d44-prom.txt`;
       structure cross-checked against the CAS/byte-select wiring
 - [x] Passives (R1–R32, C1–C66, BQ1) and jumpers S1–S5 in the netlist with ПЭ3
       values; S1–S5 = slot-address switches per ПЭ3

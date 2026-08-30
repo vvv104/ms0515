@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate a KiCad 8 schematic of the MC 1702 coprocessor board from the
-reverse-engineered netlist docs/kb/mc1702-netlist.csv.
+reverse-engineered netlist docs/kb/mc1702/netlist.csv.
 
 The netlist is the single source of truth (see docs/kb/mc1702-schematic.md);
 this script turns it into hw/mc1702/mc1702.kicad_sch: every component is a
@@ -19,7 +19,7 @@ from collections import OrderedDict, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NETLIST = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "docs" / "kb" / "mc1702-netlist.csv"
+NETLIST = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "docs" / "kb" / "mc1702" / "netlist.csv"
 OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "hw" / "mc1702" / "mc1702.kicad_sch"
 
 # Component types from the element list (docs/refs/MC1702-TO.md, ПЭ3), the
@@ -358,7 +358,7 @@ def main():
     doc = [f'(kicad_sch (version 20231120) (generator "ms0515_mc1702") (generator_version "8.0")',
            f'  (uuid "{ROOT_UUID}")',
            f'  (paper "User" {pw} {ph})',
-           f'  (title_block (title "Электроника МС 1702 - reconstruction from 3.098.002 Э3") (company "ms0515 project") (comment 1 "generated from docs/kb/mc1702-netlist.csv - do not edit by hand"))',
+           f'  (title_block (title "Электроника МС 1702 - reconstruction from 3.098.002 Э3") (company "ms0515 project") (comment 1 "generated from docs/kb/mc1702/netlist.csv - do not edit by hand"))',
            '  (lib_symbols', sym_defs, POWER_SYMBOLS, '  )',
            "\n".join(inst), "\n".join(wires),
            f'  (sheet_instances (path "/" (page "1")))', ')']
