@@ -59,3 +59,8 @@ rt11_devel/projects/fist/*.bin
 rt11_devel/projects/fist/*.json
 rt11_devel/projects/banktest/*.SAV
 rt11_devel/projects/banktest/*.MAP
+
+# KiCad per-user/local state (hw/)
+*.kicad_prl
+*-backups/
+fp-info-cache

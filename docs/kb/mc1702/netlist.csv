@@ -1,0 +1,1050 @@
+net,ref,pin,pin_name,note
+# MC 1702 (3.098.002 Э3) - machine-readable netlist, built from docs/kb/mc1702-schematic.md
+# Net numbers on the drawing are LOCAL to a bus group, so they are prefixed here:
+#   LB.n  local CPU bus (S0..QS1 = 1-6, AD00..BHE = 7-27)
+#   LA.n  latched address: LA.k = A(k), k = 1..19 (D19 1-8, D20 9-16, D21 17-19); LA.20 = BHE latched, LA.21 = A0 latched (D21)
+#   IB.n  interface (ПВК-side) data bus AD00..AD15 = 1..16 behind D6/D7; 17-19 = its control nets (17 = D3.1 out, 18 = D24.2 out = SEL.51, 19 = D41.3 out)
+#   MD.n  memory data bus D0..D15 = 22..37 (transceivers, PROM, video RAM, DRAM DO, СОКОО DI)
+#   MA.n  multiplexed DRAM address/controls (A0..A8 = 1-9, WE/RAS/CAS = 10/11/12)
+#   CK.n  check bits (СОКОО DCO -> check-bank DRAM DI), 18-27
+#   SEL.n chip-select / strobe nets (39 MWTC, 40 MRDC, 41, 45, 46, 47)
+# A '/N' suffix on the drawing = the number of pins on that net (1/27 = 26 DRAM + D45).
+# Confidence: rows without note = read directly and datasheet-checked; note '?' = to confirm
+# --- clock / control (D4 synchronizer) ---
+CLK,D4,8,CLK,
+CLK,D10,19,CLK,via S1 jumper
+CLK,D11,19,CLK,
+CLK,D18,2,CLK,
+READY,D4,5,READY,
+READY,D10,22,RDY,via S2 jumper
+READY,D11,22,RDY,
+RESET,D4,10,RESET,
+RESET,D10,21,RES,via S3 jumper
+RESET,D11,21,RES,
+OSC,D4,12,OSC,-> down and right along y~2129 to the sequencer clock D39.1.3
+X1,D4,16,X1,BQ1/R1
+X2,D4,17,X2,BQ1/R1/R2
+GND,D4,1,CSYNC,0В loop
+RDY2,D4,6,RDY2,<- D81.8 (traced on both strips)
+AEN2,D4,7,AEN2,long top run to strip 2 = D55.2 out (ready chain); matched across the strip edge by height (dy 12 px)
+RDY1,D4,4,RDY1,wire runs down and right along y~2210 into strip 2 ?
+AEN1,D4,3,AEN1,top run ending at (2304,364) on strip 1 - not closed ?
+RES3,D4,11,RES,wire runs down and right along y~2235 into strip 2 ?
+GND,D4,13,F/C,0В loop (crystal mode)
+# --- local bus (nets 1-27) ---
+LB.1,D10,26,S0,
+LB.1,D11,26,S0,
+LB.1,D18,19,S0,
+LB.2,D10,27,S1,
+LB.2,D11,27,S1,
+LB.2,D18,3,S1,
+LB.3,D10,28,S2,
+LB.3,D11,28,S2,
+LB.3,D18,18,S2,
+LB.4,D10,29,LOCK,
+LB.4,D11,29,LOCK,
+LB.5,D10,25,QS0,
+LB.5,D11,25,QS0,
+LB.6,D10,24,QS1,
+LB.6,D11,24,QS1,
+LB.7,D10,16,AD0,
+LB.7,D11,16,AD0,
+LB.7,D21,5,DI4,? high latch input per tile
+LB.8,D10,15,AD1,
+LB.8,D11,15,AD1,
+LB.8,D19,1,DI0,
+LB.9,D10,14,AD2,
+LB.9,D11,14,AD2,
+LB.9,D19,2,DI1,
+LB.10,D10,13,AD3,
+LB.10,D11,13,AD3,
+LB.10,D19,3,DI2,
+LB.11,D10,12,AD4,
+LB.11,D11,12,AD4,
+LB.11,D19,4,DI3,
+LB.12,D10,11,AD5,
+LB.12,D11,11,AD5,
+LB.12,D19,5,DI4,
+LB.13,D10,10,AD6,
+LB.13,D11,10,AD6,
+LB.13,D19,6,DI5,
+LB.14,D10,9,AD7,
+LB.14,D11,9,AD7,
+LB.14,D19,7,DI6,
+LB.15,D10,8,AD8,
+LB.15,D11,8,AD8,
+LB.15,D19,8,DI7,
+LB.16,D10,7,AD9,
+LB.16,D11,7,AD9,
+LB.16,D20,1,DI0,
+LB.17,D10,6,AD10,
+LB.17,D11,6,AD10,
+LB.17,D20,2,DI1,
+LB.18,D10,5,AD11,
+LB.18,D11,5,AD11,
+LB.18,D20,3,DI2,
+LB.19,D10,4,AD12,
+LB.19,D11,4,AD12,
+LB.19,D20,4,DI3,
+LB.20,D10,3,AD13,
+LB.20,D11,3,AD13,
+LB.20,D20,5,DI4,
+LB.21,D10,2,AD14,
+LB.21,D11,2,AD14,
+LB.21,D20,6,DI5,
+LB.22,D10,39,AD15,
+LB.22,D11,39,AD15,
+LB.22,D20,7,DI6,
+LB.23,D10,38,A16/S3,
+LB.23,D11,38,A16/S3,
+LB.23,D20,8,DI7,
+LB.24,D10,37,A17/S4,
+LB.24,D11,37,A17/S4,
+LB.24,D21,1,DI0,
+LB.25,D10,36,A18/S5,
+LB.25,D11,36,A18/S5,
+LB.25,D21,2,DI1,
+LB.26,D10,35,A19/S6,
+LB.26,D11,35,A19/S6,
+LB.26,D21,3,DI2,
+LB.27,D10,34,BHE/S7,
+LB.27,D11,34,BHE/S7,
+LB.27,D21,4,DI3,
+GND,D10,33,MN/MX,max mode
++5V,D10,1,VDD,
+TEST,D10,23,TEST,wire goes down (D11 BUSY expected) ?
+TEST,D11,23,BUSY,
+RQGT0,D10,31,RQ/GT0,
+RQGT0,D11,31,RQ/GT0,
+NMI,D10,17,NMI,wire goes down (D3.3 out expected)
+INTR,D10,18,INTR,wire goes down ?
+# --- bus controller D18 ---
+GND,D18,1,IOB,
+GND,D18,6,AEN,
+CEN,D18,15,CEN,<- R6 pull-up to +5V
+SEL.40,D18,7,MRDC,MRDC = net 40 (PROM/video RAM OE)
+SEL.39,D18,9,MWTC,MWTC = net 39 (video RAM WE)
+NC,D18,8,AMWC,unconnected (tracer: short stub only)
+IORC,D18,13,IORC,
+IOWC,D18,11,IOWC,
+NC,D18,12,AIOWC,unconnected (tracer: short stub only)
+INTA,D18,14,INTA,wire runs down to the bus-box border (label not read)
+DEN,D18,16,DEN,to D26/D27 enable
+DTR,D18,4,DT/R,to D26/D27 direction
+NC,D18,17,MCE,unconnected (tracer: short stub only)
+ALE,D18,5,ALE,to D19-D21 strobe (gated?)
+# --- address latches D19-D21 (КР580ИР82 as drawn: DI 1-8, DO 19-12, OE 9, STB 11); DO -> LA bus ---
+LA.1,D19,19,DO0,A1
+LA.2,D19,18,DO1,A2
+LA.3,D19,17,DO2,A3
+LA.4,D19,16,DO3,A4
+LA.5,D19,15,DO4,A5
+LA.6,D19,14,DO5,A6
+LA.7,D19,13,DO6,A7
+LA.8,D19,12,DO7,A8
+LA.9,D20,19,DO0,A9
+LA.10,D20,18,DO1,A10
+LA.11,D20,17,DO2,A11
+LA.12,D20,16,DO3,A12
+LA.13,D20,15,DO4,A13
+LA.14,D20,14,DO5,A14
+LA.15,D20,13,DO6,A15
+LA.16,D20,12,DO7,A16
+LA.17,D21,19,DO0,A17
+LA.18,D21,18,DO1,A18
+LA.19,D21,17,DO2,A19
+LA.20,D21,16,DO3,BHE latched (/3)
+LA.21,D21,15,DO4,A0 latched (/3)
+LA.20,D3,11,IN,D3.5 <- BHE latched
+G_D3_10,D3,10,OUT,D3.5 -> ? (D34 CS2 per Block 3)
+LA.21,D3,13,IN,D3.6 <- A0 latched
+G_D3_12,D3,12,OUT,D3.6 -> ? (D33 CS2 per Block 3)
+GND,D19,9,OE,
+ALE,D19,11,STB,? gating via D3.2/D25 to confirm
+GND,D20,9,OE,
+ALE,D20,11,STB,?
+GND,D21,9,OE,
+ALE,D21,11,STB,?
+# --- program EPROM D37/D38 (К573РФ4А, 2764 pinout) and video RAM D33/D34 (6264 pinout) ---
+SEL.47,D37,20,CE,decode Q0 (R28)
+SEL.40,D37,22,OE,MRDC
++5V,D37,27,PGM,
++5V,D37,1,VPP,
+SEL.47,D38,20,CE,
+SEL.40,D38,22,OE,
++5V,D38,27,PGM,
++5V,D38,1,VPP/CS2,via R11
+SEL.46,D33,20,CS1,decode Q2 (R30)
+SEL.40,D33,22,OE,
+SEL.39,D33,27,WE,
+SEL.46,D34,20,CS1,
+SEL.40,D34,22,OE,
+SEL.39,D34,27,WE,
+BYTESEL,D34,26,CS2,from D3.5/D3.6 (nets 20/21 = A0/BHE)
+# --- address decoder D47 (КР556РТ4А) ---
+LA.12,D47,5,A0,A12
+LA.13,D47,6,A1,A13
+LA.14,D47,7,A2,A14
+LA.15,D47,4,A3,A15
+LA.16,D47,3,A4,A16
+LA.17,D47,2,A5,A17
+LA.18,D47,1,A6,A18
+LA.19,D47,15,A7,A19
+SEL.41,D47,13,E1,tied to E2 (junction dot)
+SEL.41,D47,14,E2,
+D47_Q0,D47,12,Q0,R28 pull-up; -> D81.1 / D55.3.10 (traced at 2x); no bus number
+SEL.46,D47,11,Q1,R29 pull-up; -> label 46 + D80.4.11 (traced at 2x)
+SEL.45,D47,10,Q2,R30 pull-up; -> label 45 (traced at 2x)
+SEL.47,D47,9,Q3,R31 pull-up; -> label 47 (PROM select; traced at 2x)
+# --- DRAM array КР565РУ7 (per chip: A0-A8 = 5 7 6 12 11 10 13 9 1; DI 2; DO 14; WE 3; RAS 4; CAS 15) ---
+# rows: data low byte, data high byte, check bank A, check bank B
+# every chip: A0-A8 <- MA.1..MA.9, WE <- MA.10, RAS <- MA.11, CAS <- MA.12 (row 1 + check A) or MA.13 (row 2 + check B) - added by the generator, not repeated per chip
+MD.22,D49,14,DO,D0
+MD.23,D51,14,DO,D1
+MD.24,D56,14,DO,D2
+MD.25,D58,14,DO,D3
+MD.26,D62,14,DO,D4
+MD.27,D66,14,DO,D5
+MD.28,D70,14,DO,D6
+MD.29,D74,14,DO,D7
+MD.30,D50,14,DO,D8
+MD.31,D52,14,DO,D9
+MD.32,D57,14,DO,D10
+MD.33,D59,14,DO,D11
+MD.34,D63,14,DO,D12
+MD.35,D67,14,DO,D13
+MD.36,D71,14,DO,D14
+MD.37,D75,14,DO,D15
+CK.18,D60,2,DI,check A0 (D78.DCO0)
+CK.19,D64,2,DI,check A1 (D78.DCO1)
+CK.20,D68,2,DI,check A2 (D78.DCO2)
+CK.21,D72,2,DI,check A3 (D78.DCO3)
+CK.22,D76,2,DI,check A4 (D78.DCO4)
+CK.23,D61,2,DI,check B0 (D79.DCO0)
+CK.24,D65,2,DI,check B1 (D79.DCO1)
+CK.25,D69,2,DI,check B2 (D79.DCO2)
+CK.26,D73,2,DI,check B3 (D79.DCO3)
+CK.27,D77,2,DI,check B4 (D79.DCO4)
+# --- СОКОО D78/D79 (К555ВЖ1) ---
+MD.22,D78,2,DI0,
+MD.23,D78,3,DI1,
+MD.24,D78,4,DI2,
+MD.25,D78,5,DI3,
+MD.26,D78,6,DI4,
+MD.27,D78,7,DI5,
+MD.28,D78,8,DI6,
+MD.29,D78,9,DI7,
+GND,D78,10,DI8,
+GND,D78,11,DI9,
+GND,D78,12,DI10,
+GND,D78,13,DI11,
+GND,D78,15,DI12,
+GND,D78,16,DI13,
+GND,D78,17,DI14,
+GND,D78,18,DI15,
+CK.18,D78,24,DCO0,
+CK.19,D78,23,DCO1,
+CK.20,D78,22,DCO2,
+CK.21,D78,21,DCO3,
+CK.22,D78,20,DCO4,
+MD.30,D79,2,DI0,
+MD.31,D79,3,DI1,
+MD.32,D79,4,DI2,
+MD.33,D79,5,DI3,
+MD.34,D79,6,DI4,
+MD.35,D79,7,DI5,
+MD.36,D79,8,DI6,
+MD.37,D79,9,DI7,
+GND,D79,10,DI8,
+GND,D79,11,DI9,
+GND,D79,12,DI10,
+GND,D79,13,DI11,
+GND,D79,15,DI12,
+GND,D79,16,DI13,
+GND,D79,17,DI14,
+GND,D79,18,DI15,
+CK.23,D79,24,DCO0,
+CK.24,D79,23,DCO1,
+CK.25,D79,22,DCO2,
+CK.26,D79,21,DCO3,
+CK.27,D79,20,DCO4,
+ERR1,D78,1,ERR,to net 15
+ERR2,D78,27,MERR,to net 14
+ERR1,D79,1,ERR,
+ERR2,D79,27,MERR,
+# --- interface: command register D8, decoder D15, vector register D14 ---
+D9_Y6,D8,3,C1,wire-traced: <- D9.5 (= МОБМ re-buffered)
+D9_Y6,D8,12,C2,joined with pin 3
+IB.2,D8,1,D1,AD01 - command code bit 0
+IB.3,D8,2,D2,AD02 - command code bit 1
+VAD_N,D8,5,D3,wire-traced: <- D9.9 (~ВАД)
+NC,D8,6,D4,unconnected
+Y_A,D8,14,Q1,to D15.A
+Y_B,D8,13,Q2,to D15.B
+Y_C,D8,9,Q3,to D15.C
+Y_A,D15,1,A,
+Y_B,D15,2,B,
+Y_C,D15,3,C,
+PMV,D15,4,G0,wire-traced: G0+G1 tied <- the XS1.22 (ПМВ) wire (junction dot verified at 3x)
+PMV,D15,5,G1,tied with G0
+MD_N,D15,6,G2,wire-traced: <- D9.16 (~МD)
+Y0,D15,15,Y0,test-ROM select -> D5.20 (traced)
+Y1,D15,14,Y1,status word -> D36.9 (traced)
+Y2,D15,13,Y2,address to ПВК: D22/D23 EØ expected; wire ends near them, not closed
+Y3,D15,12,Y3,-> D24.2.5 (data-in enable, traced)
+Y4,D15,11,Y4,-> D3.3.5 (NMI inverter, traced)
+Y5,D15,10,Y5,counter reset (label) + D16.3.9 (traced)
+Y6,D15,9,Y6,-> D30.1.3 / D30.2.11 clocks + D80.1.1 (traced)
+Y7,D15,7,Y7,-> D41.3.10 (data-out enable, traced)
+# --- status register D36 (К555ИР23): DI 1-8, DO 19..12 -> IB.8..1 (= ADL07..ADL00 read by the ПВК) ---
+IB.8,D36,19,DO0,ADL07 (status bit 7)
+IB.7,D36,18,DO1,ADL06 (status bit 6)
+IB.6,D36,17,DO2,ADL05 (status bit 5)
+IB.5,D36,16,DO3,ADL04 (status bit 4)
+IB.4,D36,15,DO4,ADL03 (status bit 3)
+IB.3,D36,14,DO5,ADL02 (status bit 2)
+IB.2,D36,13,DO6,ADL01 (status bit 1)
+IB.1,D36,12,DO7,ADL00 (status bit 0)
+Y1,D36,9,OE,traced
+MD_N,D36,11,C,wire-traced: <- D9.16 (~МD)
+D30_2_Q,D36,4,DI3,wire-traced: <- D30.2.9
+D30_1_Q,D36,7,DI6,wire-traced: <- D30.1.6
+G_D36_2,D36,2,DI1,? wire runs to the bottom bus line (no label read at its end)
+G_D36_3,D36,3,DI2,? wire goes up (D35 region)
+G_D36_5,D36,5,DI4,? wire goes up
+G_D36_6,D36,6,DI5,? wire goes up to y~2266 (D35 region)
+G_D36_8,D36,8,DI7,? short wire to the bus-box bottom edge
+IRQ30A,D36,1,DI0,wire to the bottom bus line, label 24 (XS1.24 30А) read at 3x
+# --- test ROM D5 (К573РФ5, 2716) + counters D1.1/D1.2/D2.1 (К555ИЕ19) ---
++5V,D5,21,VPP,
+Y0,D5,20,CS,wire-traced: <- D15.15
+D16_1_OUT,D5,18,OE,wire-traced: <- D16.1 out (pin 3)
+IB.1,D5,9,DO0,
+IB.2,D5,10,DO1,
+IB.3,D5,11,DO2,
+IB.4,D5,13,DO3,
+IB.5,D5,14,DO4,
+IB.6,D5,15,DO5,
+IB.7,D5,16,DO6,
+IB.8,D5,17,DO7,
+TA0,D5,8,A0,
+TA1,D5,7,A1,
+TA2,D5,6,A2,
+TA3,D5,5,A3,
+TA4,D5,4,A4,
+TA5,D5,3,A5,
+TA6,D5,2,A6,
+TA7,D5,1,A7,
+TA8,D5,23,A8,
+TA9,D5,22,A9,
+TA10,D5,19,A10,
+Y5,D1,2,R,counter reset (D1.1)
+Y5,D1,12,R,(D1.2)
+Y5,D2,2,R,(D2.1)
+IB.17,D1,1,C,wire-traced: D1.1 clock <- D3.1 out (net 17)
+TA0,D1,3,Q0,D1.1
+TA1,D1,4,Q1,D1.1
+TA2,D1,5,Q2,D1.1
+TA3,D1,6,Q3,D1.1 -> also D1.2 clock
+TA3,D1,13,C,D1.2 clock <- D1.1 Q3
+TA4,D1,11,Q0,D1.2
+TA5,D1,10,Q1,D1.2
+TA6,D1,9,Q2,D1.2
+TA7,D1,8,Q3,D1.2 -> also D2.1 clock
+TA7,D2,1,C,D2.1 clock <- D1.2 Q3
+TA8,D2,3,Q0,D2.1
+TA9,D2,4,Q1,D2.1
+TA10,D2,5,Q2,D2.1
+Y0,D3,1,IN,? D3.1 input: joins the D5.20 (Y0) wire at a junction by eye; the tracer left it single-ended
+IB.17,D3,2,OUT,D3.1 output = net 17 -> D1.1 clock
+# --- ready / select glue on strip 2 (wire-traced): D25.3, D55 (AND gates), D16.4, D80.4 ---
+G25_4o,D25,10,IN,D25.3 <- D25.4 out (the strip-2 wire end sits at D25.4 pin 11)
+INTA,D25,9,IN,D25.3 <- INTA (strip-2 wire end at D18.14 by height) ?
+D25_3_OUT,D25,8,OUT,D25.3 -> D55.3.9
+D47_Q0,D55,10,IN,D55.3 <- D47 Q0
+D25_3_OUT,D55,9,IN,D55.3 <- D25.3 out
+D55_3_OUT,D55,8,OUT,D55.3 -> D55.2.5
+D55_3_OUT,D55,5,IN,D55.2
+D55_1_OUT,D55,4,IN,D55.2 <- D55.1 out
+AEN2,D55,6,OUT,D55.2 -> long top run to strip 1 = D4.7 AEN2 (matched by height)
+D16_4_OUT,D55,12,IN,D55.1 <- D16.4 out
+SEL.43,D55,13,IN,D55.1 <- label 43
+D55_1_OUT,D55,11,OUT,D55.1 -> D55.2.4
+SEL46_N,D16,13,IN,D16.4 <- D80.4 out
+SEL.43,D16,12,IN,D16.4 <- label 43
+D16_4_OUT,D16,11,OUT,D16.4 -> D32.2.4 / D55.1.12
+SEL.46,D80,11,IN,D80.4 <- D47 Q1 (net 46)
+SEL46_N,D80,10,OUT,D80.4 -> D16.4.13
+# --- DRAM sequencer (wire-traced on strips 2 and 3 + local wires at 2x): D39.1, D43.1/D43.2, D48.1/D48.2, D29.2 (К155АГ3), gates; refs settled on strip 3 where the labels are clear ---
+# 'SQ.n' = the DRAM-controller STATE bus (thick vertical right of the sequencer): SQ.1-9 address the microcode PROM D44 (A0..A8 <- 1,2,3,4,5,9,6,8,7), SQ.10 -> D48.2 R, SQ.16 = MA.16 (D54 DO6, drawn 16/2), SQ.17 = MA.17 (D80.3 -> D41.4.12, drawn 17/2)
+GND,D29,9,A1,0В
+D29_B,D29,10,A2,long line from the left (D35.2 Q candidate) ?
+D29_R,D29,11,R,<- R12 pull-up (+5V) ?
+D29_C,D29,6,C,<- C2
+D29_RC,D29,7,RC,<- R13 -> +5V
+D29_2_Q,D29,5,Q,-> D43.2.10 (S) traced
+G_D35_4,D35,4,S,D35.1 S <- wire from the left ?
+G_D35_13,D35,13,R,D35.2 R <- wire from the left with a junction going up ?
+GND,D35,12,D,0В
+G_D35_11,D35,11,C,D35.2 C <- long wire from the left ?
+G_D35_10,D35,10,S,D35.2 S <- wire from the left ?
+G_D35_9,D35,9,Q,D35.2 Q -> right then down to (1264,2976) on strip 2; D29.2.B candidate ?
+D39_RS,D39,1,R,D39.1 R tied to S (traced) - +5V expected
+D39_RS,D39,4,S,D39.1 S
+OSC,D39,3,C,D39.1 C = D4 OSC: the OSC wire reaches the strip-1 edge at y=2129 and the D39.1 C wire the strip-2 edge at y=2150 (dy 21, within the strip offset)
+D39_D_CLK,D39,2,D,D39.1 D = D2.2 clock net (traced on strip 2); source ?
+G_D39_6,D39,6,Q,D39.1 Q -> short wire ?
+D39_1_QN,D39,5,QN,D39.1 Q-bar -> clocks D48.1 / D43.1? / D43.2 (traced)
+D43_R,D43,1,R,D43.1 R = D43.2 R (traced); source ?
+D32_4_OUT,D43,2,D,D43.1 D <- D32.4 out (traced on strip 2)
+D39_1_QN,D43,3,C,D43.1 C <- D39.1 Q-bar
+G_D43_4,D43,4,S,D43.1 S short wire (+5V?) ?
+D43_1_QN,D43,6,QN,D43.1 Q-bar -> D40.4.12 + D48.2.10 (strips 2+3)
+SQ.10,D48,13,R,D48.2 R <- right-bus label 10 (strip 3 tracer end at the label)
+SQ_A,D48,12,D,D48.2 D = D80.3.5 net (strips 2+3)
+D42_4_OUT,D48,11,C,D48.2 C <- D42.4 out (strips 2+3)
+D48_2_Q,D48,9,Q,D48.2 Q -> D40.4.13 (strips 2+3)
+SQ.6,D48,8,QN,D48.2 Q-bar = label 6 = D42.1.2 = D41 gate input (strip 3)
+D43_1_QN,D48,10,S,D48.2 S <- D43.1 Q-bar (strip 3)
+D39_1_QN,D48,3,C,D48.1 C <- D39.1 Q-bar
+D48_1_D,D48,2,D,D48.1 D = D42.3.9 net (two inputs; source ?)
+G_D48_1,D48,1,R,D48.1 R short wire (R17-R19 pull-ups nearby) ?
+G_D48_5,D48,5,Q,D48.1 Q -> up ?
+SEL.43,D48,4,S,D48.1 S <- label 43 (wire followed at 1x on strip 2)
+D43_R,D43,13,R,D43.2 R
+D43_2_D,D43,12,D,D43.2 D = D40.3.10 net (two inputs; source ?)
+D39_1_QN,D43,11,C,D43.2 C
+D29_2_Q,D43,10,S,D43.2 S <- D29.2 Q
+G_D43_9,D43,9,Q,D43.2 Q -> up ?
+SQ.5,D43,8,QN,D43.2 Q-bar -> right-bus label 5 = D42.1.1 (strip 3)
+D43_1_QN,D40,12,IN,D40.4 <- D43.1 Q-bar
+D48_2_Q,D40,13,IN,D40.4 <- T_D Q
+D40_4_OUT,D40,11,OUT,D40.4 -> D80.5.13
+D40_4_OUT,D80,13,IN,D80.5
+G_D80_12,D80,12,OUT,D80.5 -> toward the D48/D43 group ?
+SQ.5,D42,1,IN,D42.1 <- label 5 (D43.2 Q-bar)
+SQ.6,D42,2,IN,D42.1 <- label 6 (D48.2 Q-bar); strip 3
+G_D42_3,D42,3,OUT,D42.1 -> ?
+D48_1_D,D42,9,IN,D42.3 = D48.1.D net
+G_D42_10,D42,10,IN,D42.3 <- wire from the right bus area ?
+D42_3_OUT,D42,8,OUT,D42.3 -> D42.4 (12+13 tied) (2x)
+D42_3_OUT,D42,12,IN,D42.4
+D42_3_OUT,D42,13,IN,D42.4
+D42_4_OUT,D42,11,OUT,D42.4 -> T_D C
+G_D40_9,D40,9,IN,D40.3 <- wire going up ?
+D43_2_D,D40,10,IN,D40.3 <- D43.2.D net
+G_D40_8,D40,8,OUT,D40.3 -> ?
+G_D40_5,D40,5,IN,D40.2 (AND, drawn '&' with pins 5/4->6; its label reads D41.2 but all four D41 gates are placed elsewhere) <- top run ?
+SQ.6,D40,4,IN,D40.2 <- label 6 (D48.2 Q-bar)
+G_D40_6,D40,6,OUT,D40.2 -> up ?
+SQ_A,D80,5,IN,D80.3 <- T_D D line
+MA.17,D80,6,OUT,D80.3 -> bus label 17/2 -> D41.4.12 (strip 3)
+# --- DRAM controller (strip 3 left / strip 2 right, read at 1.6x): D44 КР556РТ5 outputs -> R20-R27 pull-ups -> D54 К555ИР23 register -> MA controls ---
+# D54 (as drawn): DI 3,4,7,8,13,14,17,18; DO 2,5,6,9,12,15,16,19; pin 1 (OE) -> 0В; pin 11 = C
+# CAS is split by byte (л.3 grid: D58 CS <- 12, D59 CS <- 13): MA.12 -> row 1 (D0-D7) + check bank A, MA.13 -> row 2 (D8-D15) + check bank B; the generator assigns them per chip (DRAM_CAS_B)
+# D44 inputs (strip 2, 1.6x): A0..A8 = pins 8,7,6,5,4,3,2,1,23 <- state-bus labels; S1/S2 (18/19) tied <- R14; S3/S4 (20/21) tied -> 0В; pin 22 'V' <- line from the left
+SQ.1,D44,8,A0,
+SQ.2,D44,7,A1,
+SQ.3,D44,6,A2,
+SQ.4,D44,5,A3,
+SQ.5,D44,4,A4,= D43.2 Q-bar
+SQ.9,D44,3,A5,
+SQ.6,D44,2,A6,= D48.2 Q-bar
+SQ.8,D44,1,A7,
+SQ.7,D44,23,A8,
+D44_S12,D44,18,S1,<- R14 (pull-up) ; tied to S2
+D44_S12,D44,19,S2,
+GND,D44,20,S3,0В (tied to S4)
+GND,D44,21,S4,
+G_D44_22,D44,22,V,<- line from the left ?
+D44_Q0,D44,9,Q0,R20 pull-up -> D54.3
+D44_Q1,D44,10,Q1,R21 -> D54.4
+D44_Q2,D44,11,Q2,R22 -> D54.7
+D44_Q3,D44,13,Q3,R23 -> D54.8
+D44_Q4,D44,14,Q4,R24 -> D54.13
+D44_Q5,D44,15,Q5,R25 -> D54.14
+D44_Q6,D44,16,Q6,R26 -> D54.17
+D44_Q7,D44,17,Q7,R27 -> D54.18
+D44_Q0,D54,3,DI0,
+D44_Q1,D54,4,DI1,
+D44_Q2,D54,7,DI2,
+D44_Q3,D54,8,DI3,
+D44_Q4,D54,13,DI4,
+D44_Q5,D54,14,DI5,
+D44_Q6,D54,17,DI6,
+D44_Q7,D54,18,DI7,
+MA.11,D54,2,DO0,RAS (drawn 11/26)
+MA.12,D54,5,DO1,CAS half A (drawn 12/13)
+MA.13,D54,6,DO2,CAS half B (drawn 13/13)
+MA.10,D54,9,DO3,WE (drawn 10/26)
+MA.14,D54,12,DO4,drawn 14/2
+MA.15,D54,15,DO5,drawn 15/2
+MA.16,D54,16,DO6,drawn 16/2 = the sequencer-bus label 16
+G_D54_19,D54,19,DO7,-> wire up along the bus ?
+GND,D54,1,OE,0В
+G_D54_11,D54,11,C,<- long line from the left (sequencer clock) ?
+MA.17,D41,12,IN,D41.4 <- bus label 17
+G_D41_13,D41,13,IN,D41.4 <- long line from the left ?
+G_D41_11,D41,11,OUT,D41.4 -> right then down and left (long line) ?
+# --- DRAM address multiplexer D45/D46 (К555ИР22, л.3 at 1x): DO 2,5,6,9,12,15,16,19 -> MA.1..8 (D45 drawn 1/27..8/27, D46 drawn 1..8 = same nets); DI and E/C on strip 2 ---
+# D45/D46 inputs (strip 2 at 1x): DI 3,4,7,8,13,14,17,18; D45 <- LA.1-8 (row address A1-A8), D46 <- LA.10-17 (column address); C (11) of both <- R15 -> +5V (transparent); E (1) = output enable from the left
+LA.1,D45,3,DI0,A1
+LA.2,D45,4,DI1,A2
+LA.3,D45,7,DI2,A3
+LA.4,D45,8,DI3,A4
+LA.5,D45,13,DI4,A5
+LA.6,D45,14,DI5,A6
+LA.7,D45,17,DI6,A7
+LA.8,D45,18,DI7,A8
+LA.10,D46,3,DI0,A10
+LA.11,D46,4,DI1,A11
+LA.12,D46,7,DI2,A12
+LA.13,D46,8,DI3,A13
+LA.14,D46,13,DI4,A14
+LA.15,D46,14,DI5,A15
+LA.16,D46,17,DI6,A16
+LA.17,D46,18,DI7,A17
+R15_C,D45,11,C,<- R15 -> +5V (transparent latch)
+R15_C,D46,11,C,
+G_D45_1,D45,1,OE,row/column select from the left ?
+G_D46_1,D46,1,OE,?
+MA.1,D45,2,DO0,
+MA.2,D45,5,DO1,
+MA.3,D45,6,DO2,
+MA.4,D45,9,DO3,
+MA.5,D45,12,DO4,
+MA.6,D45,15,DO5,
+MA.7,D45,16,DO6,
+MA.8,D45,19,DO7,
+MA.1,D46,2,DO0,
+MA.2,D46,5,DO1,
+MA.3,D46,6,DO2,
+MA.4,D46,9,DO3,
+MA.5,D46,12,DO4,
+MA.6,D46,15,DO5,
+MA.7,D46,16,DO6,
+MA.8,D46,19,DO7,
+# --- step/refresh counter and A8 multiplexer left of the sequencer (strip 2, traced + labels at 3x) ---
+# D2.2 = К555ИЕ19 second counter: C 13, R 12, outputs 11 (1), 10 (2), 9 (4) -> state-bus bits 1-3 with pull-ups R17-R19
+D39_D_CLK,D2,13,C,D2.2 clock = D39.1 D net (traced); source ?
+D48_1_Q,D2,12,R,D2.2 reset <- D48.1 Q (traced)
+SQ.1,D2,11,Q0,-> state-bus label 1 (R17)
+SQ.2,D2,10,Q1,-> label 2 (R18)
+SQ.3,D2,9,Q2,-> label 3 (R19)
+D48_1_Q,D48,5,Q,D48.1 Q -> D2.2 R (traced)
+SEL.39,D25,4,IN,D25.2 <- label 39 (MWTC)
+SEL.40,D25,5,IN,D25.2 <- label 40 (MRDC)
+G_D25_6,D25,6,OUT,D25.2 -> ?
+G_D32_9,D32,9,IN,D32.4 <- wire from above ?
+SEL.45,D32,10,IN,D32.4 <- label 45
+D32_4_OUT,D32,8,OUT,D32.4 -> D43.1 D
+LA.9,D17,2,IN,D17.1 <- bus label 9 (A9 = row-address bit 8)
+G_D17_1,D17,1,IN,D17.1 <- vertical with a junction (row select; SEL.48 expected as the pair of 49) ?
+MA.9,D17,3,OUT,D17.1 (open collector) wired-AND with D17.4.11 -> MA.9 (drawn 9/26)
+SEL.49,D17,13,IN,D17.4 <- label 49 (column select)
+G_D17_12,D17,12,IN,D17.4 <- vertical with a junction (LA.18 expected) ?
+MA.9,D17,11,OUT,D17.4 (open collector) -> MA.9
+# --- interface data bus IB (bottom-left group): XS1 <-> D6/D7 (КР559ИП13 as drawn: A 19-12, B 1-8, E1 9, E2 11) <-> IB.1-16 ---
+XS1_AD00,D6,19,A0,
+XS1_AD01,D6,18,A1,
+XS1_AD02,D6,17,A2,
+XS1_AD03,D6,16,A3,
+XS1_AD04,D6,15,A4,
+XS1_AD05,D6,14,A5,
+XS1_AD06,D6,13,A6,
+XS1_AD07,D6,12,A7,
+IB.1,D6,1,B0,drawn /4
+IB.2,D6,2,B1,drawn /5
+IB.3,D6,3,B2,drawn /5
+IB.4,D6,4,B3,drawn /5
+IB.5,D6,5,B4,drawn /4
+IB.6,D6,6,B5,drawn /4
+IB.7,D6,7,B6,drawn /4
+IB.8,D6,8,B7,drawn /4
+XS1_AD08,D7,19,A0,
+XS1_AD09,D7,18,A1,
+XS1_AD10,D7,17,A2,
+XS1_AD11,D7,16,A3,
+XS1_AD12,D7,15,A4,
+XS1_AD13,D7,14,A5,
+XS1_AD14,D7,13,A6,
+XS1_AD15,D7,12,A7,
+IB.9,D7,1,B0,drawn /3 (but D7+D13+D23+D14 = 4 pins)
+IB.10,D7,2,B1,drawn /3 (but D7+D13+D23+D14 = 4 pins)
+IB.11,D7,3,B2,drawn /3 (but D7+D13+D23+D14 = 4 pins)
+IB.12,D7,4,B3,drawn /3 (but D7+D13+D23+D14 = 4 pins)
+IB.13,D7,5,B4,drawn /3 (but D7+D13+D23+D14 = 4 pins)
+IB.14,D7,6,B5,drawn /3 (but D7+D13+D23+D14 = 4 pins)
+IB.15,D7,7,B6,drawn /3 (but D7+D13+D23+D14 = 4 pins)
+IB.16,D7,8,B7,drawn /3 (but D7+D13+D23+D14 = 4 pins)
+D16_2_OUT,D6,9,E1,by eye: junction with the D7.9 wire
+D9_Y7,D6,11,E2,by eye: junction with the D7.11 wire
+D16_2_OUT,D7,9,E1,wire-traced: <- D16.2 out (pin 6)
+D9_Y7,D7,11,E2,wire-traced: <- D9.3 (= МАЦВ re-buffered)
+# D12/D13 (КР559ИП13): IB <-> memory data bus MD; E1 (9) <- IB.19 = D41.3 out, E2 (11) <- IB.18 = SEL.51 = D24.2 out
+IB.1,D12,1,A0,
+IB.2,D12,2,A1,
+IB.3,D12,3,A2,
+IB.4,D12,4,A3,
+IB.5,D12,5,A4,
+IB.6,D12,6,A5,
+IB.7,D12,7,A6,
+IB.8,D12,8,A7,
+MD.22,D12,19,B0,
+MD.23,D12,18,B1,
+MD.24,D12,17,B2,
+MD.25,D12,16,B3,
+MD.26,D12,15,B4,
+MD.27,D12,14,B5,
+MD.28,D12,13,B6,
+MD.29,D12,12,B7,
+IB.9,D13,1,A0,
+IB.10,D13,2,A1,
+IB.11,D13,3,A2,
+IB.12,D13,4,A3,
+IB.13,D13,5,A4,
+IB.14,D13,6,A5,
+IB.15,D13,7,A6,
+IB.16,D13,8,A7,
+MD.30,D13,19,B0,
+MD.31,D13,18,B1,
+MD.32,D13,17,B2,
+MD.33,D13,16,B3,
+MD.34,D13,15,B4,
+MD.35,D13,14,B5,
+MD.36,D13,13,B6,
+MD.37,D13,12,B7,
+IB.19,D12,9,E1,
+IB.18,D12,11,E2,
+IB.19,D13,9,E1,
+IB.18,D13,11,E2,
+SEL.44,D24,4,IN,D24.2 (OR) <- net 44
+Y3,D24,5,IN,wire-traced: D24.2 <- Y3 (D15.12), wire crosses the bus-box border
+IB.18,D24,6,OUT,D24.2 -> net 18 = SEL.51 (D12/D13 E2)
+SEL.42,D41,9,IN,D41.3 (OR) <- net 42
+Y7,D41,10,IN,wire-traced: D41.3 <- Y7 (D15.7), wire crosses the bus-box border
+IB.19,D41,8,OUT,D41.3 -> net 19 (D12/D13 E1)
+# D22/D23 (КР580ИР82): latched address -> IB for the ПВК (Y2); C (11) pulled to +5V via R1 = transparent, EØ (9) common strobe
+LA.21,D22,1,DI0,A0 latched
+LA.1,D22,2,DI1,A1
+LA.2,D22,3,DI2,A2
+LA.3,D22,4,DI3,A3
+LA.4,D22,5,DI4,A4
+LA.5,D22,6,DI5,A5
+LA.6,D22,7,DI6,A6
+LA.7,D22,8,DI7,A7
+IB.1,D22,19,DO0,
+IB.2,D22,18,DO1,
+IB.3,D22,17,DO2,
+IB.4,D22,16,DO3,
+IB.5,D22,15,DO4,
+IB.6,D22,14,DO5,
+IB.7,D22,13,DO6,
+IB.8,D22,12,DO7,
+LA.8,D23,1,DI0,A8
+LA.9,D23,2,DI1,A9
+LA.10,D23,3,DI2,A10
+LA.11,D23,4,DI3,A11
+LA.12,D23,5,DI4,A12
+LA.13,D23,6,DI5,A13
+LA.14,D23,7,DI6,A14
+LA.15,D23,8,DI7,A15
+IB.9,D23,19,DO0,
+IB.10,D23,18,DO1,
+IB.11,D23,17,DO2,
+IB.12,D23,16,DO3,
+IB.13,D23,15,DO4,
+IB.14,D23,14,DO5,
+IB.15,D23,13,DO6,
+IB.16,D23,12,DO7,
+R1_C,D22,11,STB,+5V via R1 (transparent)
+R1_C,D23,11,STB,
+G_D22_OE,D22,9,OE,? common with D23.9; expected Y2-derived
+G_D22_OE,D23,9,OE,?
+# D14 (КР580ИР82) interrupt vector: DI <- IB.9-16 (AD08-15 from the ПВК), DO -> MD.22-29 (read by the 8086 on INTA)
+IB.9,D14,1,DI0,
+IB.10,D14,2,DI1,
+IB.11,D14,3,DI2,
+IB.12,D14,4,DI3,
+IB.13,D14,5,DI4,
+IB.14,D14,6,DI5,
+IB.15,D14,7,DI6,
+IB.16,D14,8,DI7,
+MD.22,D14,19,DO0,
+MD.23,D14,18,DO1,
+MD.24,D14,17,DO2,
+MD.25,D14,16,DO3,
+MD.26,D14,15,DO4,
+MD.27,D14,14,DO5,
+MD.28,D14,13,DO6,
+MD.29,D14,12,DO7,
+D14_OE,D14,9,OE,wire-traced: same net as D31.4.13 (both inputs; driver not yet found)
+D31_1_OUT,D14,11,STB,wire-traced: <- D31.1 out (pin 3)
+# D9 (К555АП3 = 74LS240 inverting octal buffer): A 2,4,6,8,11,13,15,17; Y 18,16,14,12,9,7,5,3; enables 1,19 -> 0В
+MOBM,D9,2,A0,XS1.17 МОБМ
+MD,D9,4,A1,XS1.18 МD
+MACV,D9,6,A2,XS1.19 МАЦВ
+MDCHT,D9,8,A3,XS1.20 МDЧТ
+VAD,D9,11,A4,XS1.21 ВАД
+PMV,D9,13,A5,XS1.22 ПМВ
+MOBM_N,D9,15,A6,wire-traced: <- D9.18 (outer loop)
+MACV_N,D9,17,A7,wire-traced: <- D9.14 (inner loop)
+MOBM_N,D9,18,Y0,-> D16.1.1 + D9.15 (traced)
+MD_N,D9,16,Y1,-> D15.6 / D17.3.4 / D36.11 (traced)
+MACV_N,D9,14,Y2,-> D9.17 (traced)
+MDCHT_N,D9,12,Y3,-> D16.2.5 (traced)
+VAD_N,D9,9,Y4,-> D8.5 (traced)
+PMV_N,D9,7,Y5,-> D16.1.2 / D16.2.4 / D17.3.5 (traced)
+D9_Y6,D9,5,Y6,= МОБМ re-buffered -> D8 C1/C2 (traced)
+D9_Y7,D9,3,Y7,= МАЦВ re-buffered -> D7.11/D6.11 E2 (traced)
+GND,D9,1,E1,
+GND,D9,19,E2,
+# D28 (К155ЛА4 3-in NAND) next to D21: inputs from the local-bus group's nets 28/29/30 (unidentified labels)
+G28,D28,5,IN,D28.1 <- label 28
+G29,D28,4,IN,D28.1 <- label 29
+G30,D28,3,IN,D28.1 <- label 30
+G_D28_6,D28,6,OUT,D28.1 -> ?
+G_D28_1,D28,1,IN,D28.2 ?
+G_D28_2,D28,2,IN,D28.2 ?
+G30,D28,13,IN,D28.2 <- label 30 (junction)
+G_D28_12,D28,12,OUT,D28.2 -> ?
+G_D28_11,D28,11,IN,D28.3 ?
+G28,D28,9,IN,D28.3 <- label 28
+G29,D28,10,IN,D28.3 <- label 29
+G_D28_8,D28,8,OUT,D28.3 -> ?
+# --- interface glue gates and status triggers (wire-traced on л.1 lower half; 'frame' = wire crosses the bus-box border) ---
+# D16 К155ЛА3, D17 К155ЛА13 (open-collector NAND), D31 К155ЛА3, D30 К155ТМ2 (two D triggers: R S D C Q; labels read at 4x), D80.1 = ЛН1 inverter (label smudged; unit assumed)
+MOBM_N,D16,1,IN,D16.1 <- D9.18
+PMV_N,D16,2,IN,D16.1 <- D9.7
+D16_1_OUT,D16,3,OUT,D16.1 -> D5.18 (test ROM OE)
+MDCHT_N,D16,5,IN,D16.2 <- D9.12
+PMV_N,D16,4,IN,D16.2 <- D9.7
+D16_2_OUT,D16,6,OUT,D16.2 -> D7.9/D6.9 (E1)
+Y5,D16,9,IN,D16.3 <- Y5
+G_D16_10,D16,10,IN,D16.3 ? wire not followed
+G_D16_8,D16,8,OUT,D16.3 -> ? (output bubble; stub not detected)
+MD_N,D17,4,IN,D17.3 <- D9.16
+PMV_N,D17,5,IN,D17.3 <- D9.7
+OPV,D17,6,OUT,D17.3 (open-collector) -> bottom bus line label 26 (XS1.26 ОПВ) read at 3x
+Y4,D3,5,IN,D3.3 <- Y4
+G_D3_6,D3,6,OUT,D3.3 -> ? (NMI to D10.17 expected)
+D30_R,D30,1,R,D30.1 R: same net as D30.2.10 (S) and D35.2.12 (D); frame
+IB.4,D30,2,D,D30.1 D <- bus label 4 (wire ends at the bus-box border next to label 4) ?
+Y6,D30,3,C,D30.1 clock <- Y6
+D30_S,D30,4,S,D30.1 S: same net as D31.4.12; frame
+D30_1_Q,D30,6,Q,D30.1 Q -> D36.7
+D30_R,D30,10,S,D30.2 S
+G_D30_12,D30,12,D,D30.2 D <- bus-box bottom label (6?) ?
+Y6,D30,11,C,D30.2 clock <- Y6
+D31_4_OUT,D30,13,R,D30.2 R <- D31.4 out
+D30_2_Q,D30,9,Q,D30.2 Q -> D36.4
+Y6,D80,1,IN,D80.1 <- Y6
+Y6_N,D80,2,OUT,D80.1 -> D31.1.2 by eye (bubble; stub not detected)
+Y6_N,D31,2,IN,D31.1 <- D80.1 out (by eye)
+G_D31_1,D31,1,IN,D31.1 ? wire to the bus-box bottom (label 17/6?)
+D31_1_OUT,D31,3,OUT,D31.1 -> D14.11 (C)
+D14_OE,D31,13,IN,D31.4 <- same net as D14.9
+D30_S,D31,12,IN,D31.4 <- same net as D30.1.4
+D31_4_OUT,D31,11,OUT,D31.4 -> D30.2.13
+G_D31_9,D31,9,IN,D31.3 ? wire from above
+MUST,D31,10,IN,D31.3 <- bottom bus line label 23 (XS1.23 МУСТ)
+G_D31_8,D31,8,OUT,D31.3 -> ? (up, right of the gate)
+D30_R,D35,12,D,D35.2 D
+G_D35_11,D35,11,C,D35.2 C ?
+G_D35_10,D35,10,S,D35.2 S ? wire goes up
+G_D35_13,D35,13,R,D35.2 R ? wire goes up
+G_D35_9,D35,9,Q,D35.2 Q -> toward S4/S5 ?
+# --- passive parts, jumpers and the crystal (values from ПЭ3, connections from the drawing; '?' = other end not followed) ---
+# ПЭ3: R1,R2 510; R3-R8,R10-R12,R14-R16,R32 1k; R9,R13 20k; R17-R31 330 (С2-23 0.125 W); C2 1000p; C3,C4 470u (К50-24); C1,C5-C66 0.047u (К10-17); BQ1 РК169МА-6АН-15М7 15 MHz; S1-S5 slot-address switches (ТО)
++5V,R1,1,1,
+R1_C,R1,2,2,D22/D23 C pull-up (drawn R1 at D23.11; ПЭ3 lists R1 in the synchronizer - label to re-check)
++5V,R6,1,1,
+CEN,R6,2,2,D18 CEN pull-up
++5V,R11,1,1,
+G_R11,R11,2,2,near D38 - other end not followed ?
++5V,R12,1,1,
+D29_R,R12,2,2,D29.2 R pull-up
++5V,R13,1,1,
+D29_RC,R13,2,2,D29.2 RC (10 us refresh period with C2)
+D29_C,C2,1,1,D29.2 C (pin 6)
+D29_RC,C2,2,2,D29.2 RC (pin 7)
+D44_S12,R14,1,1,D44 S1/S2
+G_D44_22,R14,2,2,the line that also reaches D44 pin 22 ?
++5V,R15,1,1,
+R15_C,R15,2,2,D45/D46 C pull-up
++5V,R17,1,1,
+SQ.1,R17,2,2,
++5V,R18,1,1,
+SQ.2,R18,2,2,
++5V,R19,1,1,
+SQ.3,R19,2,2,
++5V,R20,1,1,
+D44_Q0,R20,2,2,
++5V,R21,1,1,
+D44_Q1,R21,2,2,
++5V,R22,1,1,
+D44_Q2,R22,2,2,
++5V,R23,1,1,
+D44_Q3,R23,2,2,
++5V,R24,1,1,
+D44_Q4,R24,2,2,
++5V,R25,1,1,
+D44_Q5,R25,2,2,
++5V,R26,1,1,
+D44_Q6,R26,2,2,
++5V,R27,1,1,
+D44_Q7,R27,2,2,
++5V,R28,1,1,
+D47_Q0,R28,2,2,
++5V,R29,1,1,
+SEL.46,R29,2,2,
++5V,R30,1,1,
+SEL.45,R30,2,2,
++5V,R31,1,1,
+SEL.47,R31,2,2,
++5V,R32,1,1,
+G_D48_1,R32,2,2,near D48.1 - D48.1 R pull-up expected ?
+X1,BQ1,1,1,D4 X1
+X2,BQ1,2,2,D4 X2
+CLK,S1,1,1,jumper D4.8 -> D10.19 (closed)
+CLK,S1,2,2,
+READY,S2,1,1,jumper D4.5 -> D10.22
+READY,S2,2,2,
+RESET,S3,1,1,jumper D4.10 -> D10.21
+RESET,S3,2,2,
+G_S4_1,S4,1,1,slot-address switch (ТО); wires in the D35.2 area not followed ?
+G_S4_2,S4,2,2,?
+G_S5_1,S5,1,1,slot-address switch ?
+G_S5_2,S5,2,2,?
++5V,C3,1,1,decoupling
+GND,C3,2,2,
++5V,C4,1,1,decoupling
+GND,C4,2,2,
++5V,C5,1,1,decoupling
+GND,C5,2,2,
++5V,C6,1,1,decoupling
+GND,C6,2,2,
++5V,C7,1,1,decoupling
+GND,C7,2,2,
++5V,C8,1,1,decoupling
+GND,C8,2,2,
++5V,C9,1,1,decoupling
+GND,C9,2,2,
++5V,C10,1,1,decoupling
+GND,C10,2,2,
++5V,C11,1,1,decoupling
+GND,C11,2,2,
++5V,C12,1,1,decoupling
+GND,C12,2,2,
++5V,C13,1,1,decoupling
+GND,C13,2,2,
++5V,C14,1,1,decoupling
+GND,C14,2,2,
++5V,C15,1,1,decoupling
+GND,C15,2,2,
++5V,C16,1,1,decoupling
+GND,C16,2,2,
++5V,C17,1,1,decoupling
+GND,C17,2,2,
++5V,C18,1,1,decoupling
+GND,C18,2,2,
++5V,C19,1,1,decoupling
+GND,C19,2,2,
++5V,C20,1,1,decoupling
+GND,C20,2,2,
++5V,C21,1,1,decoupling
+GND,C21,2,2,
++5V,C22,1,1,decoupling
+GND,C22,2,2,
++5V,C23,1,1,decoupling
+GND,C23,2,2,
++5V,C24,1,1,decoupling
+GND,C24,2,2,
++5V,C25,1,1,decoupling
+GND,C25,2,2,
++5V,C26,1,1,decoupling
+GND,C26,2,2,
++5V,C27,1,1,decoupling
+GND,C27,2,2,
++5V,C28,1,1,decoupling
+GND,C28,2,2,
++5V,C29,1,1,decoupling
+GND,C29,2,2,
++5V,C30,1,1,decoupling
+GND,C30,2,2,
++5V,C31,1,1,decoupling
+GND,C31,2,2,
++5V,C32,1,1,decoupling
+GND,C32,2,2,
++5V,C33,1,1,decoupling
+GND,C33,2,2,
++5V,C34,1,1,decoupling
+GND,C34,2,2,
++5V,C35,1,1,decoupling
+GND,C35,2,2,
++5V,C36,1,1,decoupling
+GND,C36,2,2,
++5V,C37,1,1,decoupling
+GND,C37,2,2,
++5V,C38,1,1,decoupling
+GND,C38,2,2,
++5V,C39,1,1,decoupling
+GND,C39,2,2,
++5V,C40,1,1,decoupling
+GND,C40,2,2,
++5V,C41,1,1,decoupling
+GND,C41,2,2,
++5V,C42,1,1,decoupling
+GND,C42,2,2,
++5V,C43,1,1,decoupling
+GND,C43,2,2,
++5V,C44,1,1,decoupling
+GND,C44,2,2,
++5V,C45,1,1,decoupling
+GND,C45,2,2,
++5V,C46,1,1,decoupling
+GND,C46,2,2,
++5V,C47,1,1,decoupling
+GND,C47,2,2,
++5V,C48,1,1,decoupling
+GND,C48,2,2,
++5V,C49,1,1,decoupling
+GND,C49,2,2,
++5V,C50,1,1,decoupling
+GND,C50,2,2,
++5V,C51,1,1,decoupling
+GND,C51,2,2,
++5V,C52,1,1,decoupling
+GND,C52,2,2,
++5V,C53,1,1,decoupling
+GND,C53,2,2,
++5V,C54,1,1,decoupling
+GND,C54,2,2,
++5V,C55,1,1,decoupling
+GND,C55,2,2,
++5V,C56,1,1,decoupling
+GND,C56,2,2,
++5V,C57,1,1,decoupling
+GND,C57,2,2,
++5V,C58,1,1,decoupling
+GND,C58,2,2,
++5V,C59,1,1,decoupling
+GND,C59,2,2,
++5V,C60,1,1,decoupling
+GND,C60,2,2,
++5V,C61,1,1,decoupling
+GND,C61,2,2,
++5V,C62,1,1,decoupling
+GND,C62,2,2,
++5V,C63,1,1,decoupling
+GND,C63,2,2,
++5V,C64,1,1,decoupling
+GND,C64,2,2,
++5V,C65,1,1,decoupling
+GND,C65,2,2,
++5V,C66,1,1,decoupling
+GND,C66,2,2,
+G_C1,C1,1,1,reset RC (D4 RES) ?
+GND,C1,2,2,?
+# --- XS1 system-bus connector ---
+XS1_AD00,XS1,1,AD00,
+XS1_AD01,XS1,2,AD01,
+XS1_AD02,XS1,3,AD02,
+XS1_AD03,XS1,4,AD03,
+XS1_AD04,XS1,5,AD04,
+XS1_AD05,XS1,6,AD05,
+XS1_AD06,XS1,7,AD06,
+XS1_AD07,XS1,8,AD07,
+XS1_AD08,XS1,9,AD08,
+XS1_AD09,XS1,10,AD09,
+XS1_AD10,XS1,11,AD10,
+XS1_AD11,XS1,12,AD11,
+XS1_AD12,XS1,13,AD12,
+XS1_AD13,XS1,14,AD13,
+XS1_AD14,XS1,15,AD14,
+XS1_AD15,XS1,16,AD15,
+MOBM,XS1,17,МОБМ,
+MD,XS1,18,МD,
+MACV,XS1,19,МАЦВ,
+MDCHT,XS1,20,МDЧТ,
+VAD,XS1,21,ВАД,
+PMV,XS1,22,ПМВ,
+MUST,XS1,23,МУСТ,reset
+IRQ30A,XS1,24,30А,
+IRQ30B,XS1,25,30Б,
+OPV,XS1,26,ОПВ,
+# --- decode / ready glue (л.1 top, read at 2x zoom); '?' = wire not followed to its label ---
+# D3 = К155ЛН1 hex inverter (per symbol), D25 = К155ЛИ1 (AND), D32 = К155ЛЛ1 (OR), D80 = К155ЛН1, D81 = К155ЛА2 (8-in NAND), D24 = OR-type (ЛЛ1?), D41 = OR-type (?)
+DEN,D3,3,IN,D3.2 input <- D18.DEN
+DEN_N,D3,4,OUT,D3.2 -> D26/D27 EØ (pin 9) - transceiver enable
+LB.7,D26,1,A0,AD00
+LB.8,D26,2,A1,AD01
+LB.9,D26,3,A2,AD02
+LB.10,D26,4,A3,AD03
+LB.11,D26,5,A4,AD04
+LB.12,D26,6,A5,AD05
+LB.13,D26,7,A6,AD06
+LB.14,D26,8,A7,AD07
+MD.22,D26,19,B0,D0
+MD.23,D26,18,B1,D1
+MD.24,D26,17,B2,D2
+MD.25,D26,16,B3,D3
+MD.26,D26,15,B4,D4
+MD.27,D26,14,B5,D5
+MD.28,D26,13,B6,D6
+MD.29,D26,12,B7,D7
+LB.15,D27,1,A0,AD08
+LB.16,D27,2,A1,AD09
+LB.17,D27,3,A2,AD10
+LB.18,D27,4,A3,AD11
+LB.19,D27,5,A4,AD12
+LB.20,D27,6,A5,AD13
+LB.21,D27,7,A6,AD14
+LB.22,D27,8,A7,AD15
+MD.30,D27,19,B0,D8
+MD.31,D27,18,B1,D9
+MD.32,D27,17,B2,D10
+MD.33,D27,16,B3,D11
+MD.34,D27,15,B4,D12
+MD.35,D27,14,B5,D13
+MD.36,D27,13,B6,D14
+MD.37,D27,12,B7,D15
+DEN_N,D26,9,OE,? per function
+DEN_N,D27,9,OE,?
+DTR,D26,11,T,direction <- D18.DT/R ?
+DTR,D27,11,T,?
+G53,D81,3,IN,nets 53 (four inputs bridged)
+G53,D81,4,IN,
+G53,D81,5,IN,
+G53,D81,12,IN,
+SEL.50,D81,11,IN,<- label 50 (tracer end at the label)
+G81_2,D81,2,IN,? from the left (tracer: reaches the D18 box bottom edge)
+D47_Q0,D81,1,IN,wire-traced on strip 2: <- D47 Q0
+SEL.43,D81,6,IN,wire-traced: <- D32.2 out (net 43)
+RDY2,D81,8,OUT,-> D4.RDY2 (pin 6)
+SEL.45,D32,12,IN,D32.3
+SEL.46,D32,13,IN,D32.3
+G32_3,D32,11,OUT,D32.3 -> D80.2
+G32_3,D80,3,IN,D80.2
+G32_3N,D80,4,OUT,D80.2 -> D41.1.5 / D41.2.2
+G32_3N,D41,5,IN,D41.1
+G32_3N,D41,2,IN,D41.2
+G41_4,D41,4,IN,D41.1 ? wire leaves strip 1 to the right
+SEL.48,D41,6,OUT,D41.1 -> net 48
+IB.18,D41,1,IN,D41.2 <- label 18 (= SEL.51, D24.2 out)
+SEL.49,D41,3,OUT,D41.2 -> net 49
+GND,D24,12,IN,D24.4 second input grounded (used as buffer)
+G24_13,D24,13,IN,D24.4 ? from top run
+G24_11,D24,11,OUT,D24.4 -> leaves strip 1 to the right ?
+IOWC,D25,13,IN,wire-traced: D25.4 <- IOWC
+IORC,D25,12,IN,wire-traced: D25.4 <- IORC
+G25_4o,D25,11,OUT,D25.4 -> D25.3.10 (strip 2)
+IOWC,D25,1,IN,wire-traced: D25.1 <- IOWC
+G32_1o,D25,2,IN,wire-traced: D25.1 <- D32.1 out
+SEL.44,D25,3,OUT,D25.1 -> bottom label 44/2 ?
+SEL.39,D32,1,IN,wire-traced: D32.1 <- MWTC
+G32_1b,D32,2,IN,D32.1 ?
+G32_1o,D32,3,OUT,D32.1 ?
+D16_4_OUT,D32,4,IN,wire-traced on strip 2: D32.2 <- D16.4 out
+SEL.40,D32,5,IN,wire-traced: D32.2 <- MRDC
+SEL.43,D32,6,OUT,D32.2 -> bottom label 43/3 ?
