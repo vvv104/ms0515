@@ -6,11 +6,11 @@ T-11), produced in the late 1980s.
 
 ## Features
 
-<p align="center">
-  <img src="docs/images/rom-test.png" width="320" alt="ROM self-test">
-  <img src="docs/images/osa-dir.png" width="320" alt="OSA (RT-11): DIR">
-  <img src="docs/images/fist.png" width="320" alt="The Way of the Exploding Fist, ported to the MS-0515">
-</p>
+| ROM self-test | OSA (RT-11): `DIR` |
+|:---:|:---:|
+| ![ROM self-test](docs/images/rom-test.png) | ![OSA: DIR](docs/images/osa-dir.png) |
+| **The Way of the Exploding Fist**, ported to the MS-0515 | **Saboteur 2** (1990) |
+| ![FIST](docs/images/fist.png) | ![SABOT2](docs/images/sabot2.png) |
 
 ![The browser build: the two-pane file manager over the mounted RT-11 disks](docs/images/web-files.png)
 
