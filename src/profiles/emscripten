@@ -13,6 +13,11 @@ build_type=Release
 
 [tool_requires]
 emsdk/3.1.73
+# The dependencies of the browser build (fmt) are compiled with this same
+# profile, so the build tools have to come from Conan too: a machine that
+# has no cmake/ninja on PATH would otherwise fail inside the fmt build.
+cmake/[>=3.25 <5]
+ninja/[>=1.11]
 
 [conf]
 tools.cmake.cmaketoolchain:generator=Ninja
