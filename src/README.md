@@ -5,7 +5,8 @@
 - **C/C++ compiler** with C11 and C++20 support
   - Windows: Visual Studio 2022+ Build Tools (MSVC 19.5+)
   - Linux: GCC 13+ or Clang 17+
-  - macOS: Xcode 15+ / Apple Clang
+  - macOS: Apple Clang 13+ (macOS 11 Big Sur and newer, Intel or Apple
+    silicon — the Command Line Tools alone are enough, full Xcode is not)
 - **[Conan 2](https://conan.io/)** package manager (`pip install conan`)
 - **CMake** 3.16+ and **Ninja** (installed automatically by Conan if missing)
 
