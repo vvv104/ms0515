@@ -7,8 +7,6 @@ add_executable(ms0515-disk
     main.cpp
 )
 
-target_compile_features(ms0515-disk PRIVATE cxx_std_20)
-
 target_link_libraries(ms0515-disk
     PRIVATE ms0515_disk
     PRIVATE ms0515_win7compat

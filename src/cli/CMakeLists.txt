@@ -11,8 +11,6 @@ add_executable(ms0515-cli
     src/StdioBridge.cpp
 )
 
-target_compile_features(ms0515-cli PRIVATE cxx_std_20)
-
 target_include_directories(ms0515-cli PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )

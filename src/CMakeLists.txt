@@ -4,6 +4,17 @@ cmake_minimum_required(VERSION 3.16)
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" MS0515_VERSION)
 project(ms0515 VERSION ${MS0515_VERSION} LANGUAGES C CXX)
 
+# ── Language standard ───────────────────────────────────────────────────────
+# Declared once for the whole project: every target created below inherits
+# it, including the ones in rt11_devel/ and any added later.  A target that
+# genuinely needs something else says so itself with target_compile_features;
+# nothing else should repeat these.
+set(CMAKE_C_STANDARD              11)
+set(CMAKE_C_STANDARD_REQUIRED     ON)
+set(CMAKE_CXX_STANDARD            20)
+set(CMAKE_CXX_STANDARD_REQUIRED   ON)
+set(CMAKE_CXX_EXTENSIONS          OFF)
+
 # ── Version macro for --version flag ─────────────────────────────────────────
 # Push the CMake project version through to C++ so both binaries can echo it
 # without anyone having to bump a stand-alone string literal.

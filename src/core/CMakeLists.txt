@@ -19,8 +19,6 @@ add_library(ms0515_core STATIC
     src/cassette.c
 )
 
-target_compile_features(ms0515_core PUBLIC c_std_11)
-
 target_include_directories(ms0515_core
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src

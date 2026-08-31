@@ -36,8 +36,6 @@ add_executable(ms0515_lib_tests
 # current build's output.
 add_dependencies(ms0515_lib_tests ms0515-disk)
 
-target_compile_features(ms0515_lib_tests PRIVATE cxx_std_20)
-
 # Lib tests live inside the lib layer, so they are allowed to reach
 # into `lib/src/EmulatorInternal.hpp` for the typed `internal::cpu()` /
 # `internal::board()` accessors.  Frontend code never gets this

@@ -8,7 +8,6 @@
 
 if(MSVC)
     add_library(ms0515_win7compat STATIC win7_shims.cpp)
-    target_compile_features(ms0515_win7compat PUBLIC cxx_std_20)
 else()
     add_library(ms0515_win7compat INTERFACE)
 endif()

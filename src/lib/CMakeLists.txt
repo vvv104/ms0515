@@ -16,8 +16,6 @@ if(WIN32)
     target_link_libraries(ms0515_lib PUBLIC ws2_32)
 endif()
 
-target_compile_features(ms0515_lib PUBLIC cxx_std_20)
-
 target_include_directories(ms0515_lib
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
