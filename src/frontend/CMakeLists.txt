@@ -53,6 +53,7 @@ target_link_libraries(ms0515
     PRIVATE SDL2::SDL2 SDL2::SDL2main
     PRIVATE imgui::imgui
     PRIVATE stb::stb
+    PRIVATE fmt::fmt
 )
 
 # ── Package output ──────────────────────────────────────────────────────────

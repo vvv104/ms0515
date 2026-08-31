@@ -15,7 +15,7 @@ endif()
 
 add_library(ms0515_platform_gui STATIC ${PLATFORM_GUI_SRC})
 
-target_compile_features(ms0515_platform_gui PUBLIC cxx_std_23)
+target_compile_features(ms0515_platform_gui PUBLIC cxx_std_20)
 
 target_include_directories(ms0515_platform_gui PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

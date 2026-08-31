@@ -70,7 +70,7 @@ tools/          Utility scripts (PDP-11 disassembler, disk tools)
 
 ### Prerequisites
 
-- C/C++ compiler with C11 and C++23 support
+- C/C++ compiler with C11 and C++20 support
   - Windows: Visual Studio 2022+ Build Tools (MSVC 19.5+)
   - Linux: GCC 13+ or Clang 17+
   - macOS: Xcode 15+ / Apple Clang

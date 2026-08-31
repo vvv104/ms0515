@@ -15,7 +15,7 @@ add_executable(ms0515_disk_tests
     test_build.cpp
 )
 
-target_compile_features(ms0515_disk_tests PRIVATE cxx_std_23)
+target_compile_features(ms0515_disk_tests PRIVATE cxx_std_20)
 
 # FolderVolume tests create scratch folders under the build tree.
 target_compile_definitions(ms0515_disk_tests PRIVATE

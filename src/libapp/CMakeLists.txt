@@ -15,7 +15,7 @@ add_library(ms0515_libapp STATIC
     src/Disks.cpp
 )
 
-target_compile_features(ms0515_libapp PUBLIC cxx_std_23)
+target_compile_features(ms0515_libapp PUBLIC cxx_std_20)
 
 target_include_directories(ms0515_libapp
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -25,6 +25,7 @@ target_include_directories(ms0515_libapp
 # depends on lib (which transitively brings core).
 target_link_libraries(ms0515_libapp
     PUBLIC ms0515_lib
+    PRIVATE fmt::fmt
 )
 
 if(MS0515_BUILD_TESTS)

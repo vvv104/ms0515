@@ -10,7 +10,7 @@
 #include "ms0515/Debugger.hpp"
 #include "EmulatorInternal.hpp"
 
-#include <format>
+#include <fmt/format.h>
 
 namespace ms0515 {
 
@@ -181,7 +181,7 @@ std::vector<DisassembledInstruction> Debugger::disassembleAtPc(int count) const
 std::string Debugger::formatRegisters() const
 {
     const auto &cpu = internal::cpu(emu_);
-    return std::format(
+    return fmt::format(
         "R0={:06o} R1={:06o} R2={:06o} R3={:06o}\n"
         "R4={:06o} R5={:06o} SP={:06o} PC={:06o}\n"
         "PSW={:06o}  [{}{}{}{}{}]  pri={}\n",

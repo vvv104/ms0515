@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **C/C++ compiler** with C11 and C++23 support
+- **C/C++ compiler** with C11 and C++20 support
   - Windows: Visual Studio 2022+ Build Tools (MSVC 19.5+)
   - Linux: GCC 13+ or Clang 17+
   - macOS: Xcode 15+ / Apple Clang
@@ -17,11 +17,11 @@ Before the first build, create a default Conan profile:
 conan profile detect
 ```
 
-Make sure it uses C++23. Edit `~/.conan2/profiles/default` and set:
+Make sure it uses C++20. Edit `~/.conan2/profiles/default` and set:
 
 ```ini
 [settings]
-compiler.cppstd=23
+compiler.cppstd=20
 ```
 
 On Windows, also add Ninja as the CMake generator:

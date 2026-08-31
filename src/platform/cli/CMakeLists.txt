@@ -12,7 +12,7 @@ endif()
 
 add_library(ms0515_platform_cli STATIC ${PLATFORM_CLI_SRC})
 
-target_compile_features(ms0515_platform_cli PUBLIC cxx_std_23)
+target_compile_features(ms0515_platform_cli PUBLIC cxx_std_20)
 
 target_include_directories(ms0515_platform_cli PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

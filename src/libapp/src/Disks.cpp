@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
-#include <format>
+#include <fmt/format.h>
 
 namespace ms0515::app {
 
@@ -27,7 +27,7 @@ validateDiskImage(const std::string &path, std::uintmax_t expected)
     std::error_code ec;
     auto sz = fs::file_size(path, ec);
     if (ec)
-        return std::format("cannot stat '{}': {}", path, ec.message());
+        return fmt::format("cannot stat '{}': {}", path, ec.message());
     if (sz == expected)
         return std::nullopt;
 
@@ -36,16 +36,16 @@ validateDiskImage(const std::string &path, std::uintmax_t expected)
                                                    : 2 * ms0515::kFloppyDiskSize));
     if (sizeIsOther) {
         return wantedDouble
-            ? std::format(
+            ? fmt::format(
                 "'{}' is a single-side image ({} bytes).  Use "
                 "--diskN-side0 (or -dNs0) to mount it on one side of "
                 "a drive.", path, ms0515::kFloppyDiskSize)
-            : std::format(
+            : fmt::format(
                 "'{}' is a double-sided image ({} bytes).  Use "
                 "--diskN (or -dN) to mount a whole double-sided drive "
                 "from one image.", path, 2 * ms0515::kFloppyDiskSize);
     }
-    return std::format(
+    return fmt::format(
         "'{}' has unrecognised disk format (size {} bytes; expected {} "
         "for a {} image).",
         path, static_cast<unsigned long long>(sz), expected,
@@ -73,7 +73,7 @@ validateSingleSideImage(const std::string &path)
     if (isRtfsDescriptor(path)) {
         std::error_code ec;
         if (!std::filesystem::is_regular_file(path, ec))
-            return std::format("cannot read descriptor '{}'", path);
+            return fmt::format("cannot read descriptor '{}'", path);
         return std::nullopt;
     }
     return validateDiskImage(path, ms0515::kFloppyDiskSize);
@@ -96,7 +96,7 @@ validateHdImage(const std::string &path)
     if (isRtfsDescriptor(path)) {
         std::error_code ec;
         if (!fs::is_regular_file(path, ec))
-            return std::format("cannot read descriptor '{}'", path);
+            return fmt::format("cannot read descriptor '{}'", path);
         return std::nullopt;
     }
 
@@ -106,14 +106,14 @@ validateHdImage(const std::string &path)
     std::error_code ec;
     auto sz = fs::file_size(path, ec);
     if (ec)
-        return std::format("cannot stat '{}': {}", path, ec.message());
+        return fmt::format("cannot stat '{}': {}", path, ec.message());
     if (sz == 0 || (sz % kHdBlock) != 0)
-        return std::format(
+        return fmt::format(
             "'{}' is not a valid HD image (size {} bytes; expected a "
             "positive multiple of {}).",
             path, static_cast<unsigned long long>(sz), kHdBlock);
     if (sz > kHdMaxBytes)
-        return std::format(
+        return fmt::format(
             "'{}' is {} bytes; an RT-11 volume tops out at {} blocks "
             "(~32 MB / {} bytes).",
             path, static_cast<unsigned long long>(sz),

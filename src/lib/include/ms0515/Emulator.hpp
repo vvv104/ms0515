@@ -5,7 +5,7 @@
  * core symbols (no `<ms0515/core/...>` header, no scancode macros).
  * Everything frontend-visible is expressed in plain C++ —
  * the strong `Key` enum mirrors the MS-7004 scancode set; ROM/disk
- * sizes and snapshot APIs use `std::span` / `std::expected`; pixel
+ * sizes and snapshot APIs use `std::span` / `Status`; pixel
  * iteration goes through visitor callbacks.
  *
  * The C-side board state lives behind a forward-declared `Impl` struct
@@ -19,7 +19,7 @@
 
 #include <array>
 #include <cstdint>
-#include <expected>
+#include "ms0515/Status.hpp"
 #include <functional>
 #include <memory>
 #include <span>
@@ -195,9 +195,9 @@ public:
 
     /* ── Snapshot (save/load state) ────────────────────────────────────── */
 
-    [[nodiscard]] std::expected<void, std::string> saveState(std::string_view path);
+    [[nodiscard]] Status saveState(std::string_view path);
 
-    [[nodiscard]] std::expected<void, std::string> loadState(std::string_view path);
+    [[nodiscard]] Status loadState(std::string_view path);
 
     [[nodiscard]] uint32_t romCrc32() const noexcept;
 

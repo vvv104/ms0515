@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
-#include <format>
+#include <fmt/format.h>
 
 namespace ms0515::disk {
 
@@ -78,7 +78,7 @@ bool parseFileLine(std::string_view v, RtfsFile &f, std::string *error)
         else if (tok.starts_with("date=")) {
             if (!parseDateAttr(tok.substr(5), f.date, error)) return false;
         }
-        else return fail(error, std::format("unknown file attribute '{}'", tok));
+        else return fail(error, fmt::format("unknown file attribute '{}'", tok));
     }
     return true;
 }
@@ -101,7 +101,7 @@ parseRtfs(std::string_view text, std::string *error)
 
         const std::size_t colon = line.find(':');
         if (colon == std::string_view::npos) {
-            fail(error, std::format("malformed line '{}'", line));
+            fail(error, fmt::format("malformed line '{}'", line));
             return std::nullopt;
         }
         const std::string_view key = trim(line.substr(0, colon));
@@ -110,7 +110,7 @@ parseRtfs(std::string_view text, std::string *error)
         if (key == "device") {
             if (val == "hd")          d.device = RtfsDescriptor::Device::Hd;
             else if (val == "floppy") d.device = RtfsDescriptor::Device::Floppy;
-            else { fail(error, std::format("unknown device '{}'", val));
+            else { fail(error, fmt::format("unknown device '{}'", val));
                    return std::nullopt; }
             sawDevice = true;
         } else if (key == "blocks") {
@@ -130,13 +130,13 @@ parseRtfs(std::string_view text, std::string *error)
             if (!parseFileLine(val, f, error)) return std::nullopt;
             for (const auto &prev : d.files)
                 if (prev.rt11Name == f.rt11Name) {
-                    fail(error, std::format("duplicate RT-11 name '{}'",
+                    fail(error, fmt::format("duplicate RT-11 name '{}'",
                                             f.rt11Name));
                     return std::nullopt;
                 }
             d.files.push_back(std::move(f));
         } else {
-            fail(error, std::format("unknown key '{}'", key));
+            fail(error, fmt::format("unknown key '{}'", key));
             return std::nullopt;
         }
     }
@@ -144,12 +144,12 @@ parseRtfs(std::string_view text, std::string *error)
     if (!sawDevice) { fail(error, "missing 'device:'"); return std::nullopt; }
     if (!sawBlocks) { fail(error, "missing 'blocks:'"); return std::nullopt; }
     if (d.blocks <= 0 || d.blocks > kRtfsMaxBlocks) {
-        fail(error, std::format("blocks must be 1..{}", kRtfsMaxBlocks));
+        fail(error, fmt::format("blocks must be 1..{}", kRtfsMaxBlocks));
         return std::nullopt;
     }
     if (d.device == RtfsDescriptor::Device::Floppy &&
         d.blocks != kRtfsFloppyBlocks) {
-        fail(error, std::format("a floppy device is exactly {} blocks",
+        fail(error, fmt::format("a floppy device is exactly {} blocks",
                                 kRtfsFloppyBlocks));
         return std::nullopt;
     }
@@ -159,20 +159,20 @@ parseRtfs(std::string_view text, std::string *error)
 std::string serializeRtfs(const RtfsDescriptor &d)
 {
     std::string out = "# MS0515 folder-backed block device\n";
-    out += std::format("device: {}\n",
+    out += fmt::format("device: {}\n",
                        d.device == RtfsDescriptor::Device::Hd ? "hd" : "floppy");
-    out += std::format("blocks: {}\n", d.blocks);
+    out += fmt::format("blocks: {}\n", d.blocks);
     if (d.volumeId != "RT11A")
-        out += std::format("volume-id: {}\n", d.volumeId);
+        out += fmt::format("volume-id: {}\n", d.volumeId);
     if (!d.owner.empty())
-        out += std::format("owner: {}\n", d.owner);
+        out += fmt::format("owner: {}\n", d.owner);
     if (!d.bootHost.empty())
-        out += std::format("boot: {}\n", d.bootHost);
+        out += fmt::format("boot: {}\n", d.bootHost);
     for (const auto &f : d.files) {
-        out += std::format("file: {} | {} |", f.rt11Name, f.hostName);
+        out += fmt::format("file: {} | {} |", f.rt11Name, f.hostName);
         if (f.date) {
             const auto dp = decodeDate(f.date);
-            out += std::format(" date={:04d}-{:02d}-{:02d}",
+            out += fmt::format(" date={:04d}-{:02d}-{:02d}",
                                dp.year, dp.month, dp.day);
         }
         if (f.isProtected) out += " protected";
