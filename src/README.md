@@ -8,7 +8,10 @@
   - macOS: Apple Clang 13+ (macOS 11 Big Sur and newer, Intel or Apple
     silicon — the Command Line Tools alone are enough, full Xcode is not)
 - **[Conan 2](https://conan.io/)** package manager (`pip install conan`)
-- **CMake** 3.16+ and **Ninja** (installed automatically by Conan if missing)
+- **CMake** 3.16+ and **Ninja** on PATH.  A machine that has neither can
+  take them from Conan too — add the `profiles/tools` add-on to the build
+  command (see [Build](#build) below); the emulator itself then needs
+  nothing but a compiler and Conan.
 
 ## Conan profile
 
@@ -38,6 +41,18 @@ tools.cmake.cmaketoolchain:generator=Ninja
 cd src
 conan build . --build=missing
 ```
+
+If the machine has no cmake or ninja on PATH, let Conan supply those as
+well:
+
+```bash
+conan build . -pr:h default -pr:h profiles/tools -pr:b default --build=missing
+```
+
+The add-on is a profile rather than part of the recipe on purpose:
+dependencies are compiled in their own environment, which a recipe's
+`build_requirements()` does not reach — without the profile, building
+`fmt` from source stops at `cmake: command not found`.
 
 This single command runs `conan install`, `cmake configure`, and
 `cmake build`. Third-party dependencies (SDL2, Dear ImGui) are
