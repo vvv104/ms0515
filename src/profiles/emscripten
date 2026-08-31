@@ -13,9 +13,10 @@ build_type=Release
 
 [tool_requires]
 emsdk/3.1.73
-# The dependencies of the browser build (fmt) are compiled with this same
-# profile, so the build tools have to come from Conan too: a machine that
-# has no cmake/ninja on PATH would otherwise fail inside the fmt build.
+# Dependencies are compiled with this same profile and build in their own
+# environment, which a recipe's build_requirements() does not reach — only
+# a profile's tool_requires does.  Without these, building fmt for wasm
+# fails on a machine with no cmake/ninja on PATH.
 cmake/[>=3.25 <5]
 ninja/[>=1.11]
 
