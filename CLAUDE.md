@@ -30,7 +30,17 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
   directly onto `main`.
 - **Test-driven development**: after designing the interface, write unit tests first, then implement. Run tests at each stage.
 - **Revert failed attempts**: always roll back changes from unsuccessful approaches to avoid accumulating dead code and clutter.
-- **Zero compiler warnings**: all code must compile without warnings. Use modern C++ idioms and features (C++20/23) in lib and frontend layers.
+- **The language standard is declared once**, in `src/CMakeLists.txt`
+  (`CMAKE_CXX_STANDARD` / `CMAKE_C_STANDARD`); every target — existing or
+  added later, `rt11_devel/` included — inherits it. Never repeat it with
+  `target_compile_features(... cxx_std_NN)` per target: that is how the
+  project ended up with the same standard spelled out in 15 files, one
+  edit away from a target silently building against another one. A target
+  that truly needs a different standard states it itself, with a comment
+  saying why. The Conan profiles' `compiler.cppstd` must match, since it
+  is what dependencies are built against.
+- **Zero compiler warnings**: all code must compile without warnings. Use
+  modern C++ idioms and features (C++20) in lib and frontend layers.
 - **Never suppress warnings**: do not silence `/W4 /WX` (MSVC) or `-Werror` (gcc/clang) with `_CRT_SECURE_NO_WARNINGS`, `#pragma warning(disable: ...)`, or equivalents. Rewrite the offending call instead — replace deprecated CRT functions with their safe siblings (`_dupenv_s` over `getenv`, `fopen_s` over `fopen`, ...) or drop the call entirely (e.g. move runtime config from env vars to CLI flags).
 - **No vendored third-party sources**: never store external source files in the repo. All dependencies must be managed through Conan.
 - **No machine-specific paths in tracked files**: never a user's home directory (`C:\Users\...`, `/home/...`), a drive letter or any absolute path of one machine - not as a default in code, not in docs, not in configs. External resources (the original game, tools) are located through an environment variable with a repository-relative fallback (see `rt11_devel/projects/fist/source/wotef_dir.py`); examples in docs use `$PWD` or relative paths. Before every commit `git grep -i "users[.]voron"` (and the equivalent for the machine at hand) must return nothing.

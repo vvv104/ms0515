@@ -15,8 +15,6 @@ add_executable(ms0515_libapp_tests
     test_disks.cpp
 )
 
-target_compile_features(ms0515_libapp_tests PRIVATE cxx_std_20)
-
 target_compile_definitions(ms0515_libapp_tests PRIVATE
     ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
     TESTS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"

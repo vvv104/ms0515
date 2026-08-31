@@ -14,8 +14,6 @@ add_library(ms0515_disk STATIC
     src/Build.cpp
 )
 
-target_compile_features(ms0515_disk PUBLIC cxx_std_20)
-
 target_include_directories(ms0515_disk
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
