@@ -631,6 +631,17 @@ void App::renderFrame()
         drawStatusBar(sbs);
     }
 
+    /* Retina / HiDPI: the window is created with SDL_WINDOW_ALLOW_HIGHDPI, so
+     * on a scaled display SDL's framebuffer is larger than the window — 2x on
+     * an Apple Retina screen.  ImGui lays out in window points, so without
+     * this the geometry lands in a corner of the framebuffer while the clip
+     * rectangles are computed at the framebuffer scale: elements come out cut
+     * off and the mouse misses what it points at.  Telling the renderer about
+     * the scale puts both into the same coordinate space.  A no-op (1.0) on
+     * an unscaled display. */
+    const ImVec2 fbScale = ImGui::GetIO().DisplayFramebufferScale;
+    SDL_RenderSetScale(renderer_, fbScale.x, fbScale.y);
+
     if (fullscreenOn_) SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
     else               SDL_SetRenderDrawColor(renderer_, 40, 40, 48, 255);
     SDL_RenderClear(renderer_);
