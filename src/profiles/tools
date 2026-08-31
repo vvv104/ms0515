@@ -1,0 +1,12 @@
+# Profile add-on: take cmake and ninja from Conan as well.
+#
+# For a machine that has neither on PATH.  The recipe's build_requirements()
+# covers our own build, but dependencies compile in their own environment
+# and only a profile's tool_requires reaches them — without this, building
+# fmt from source fails with "cmake: command not found".
+#
+# Compose it with your detected profile:
+#   conan build . -pr:h default -pr:h profiles/tools -pr:b default --build=missing
+[tool_requires]
+cmake/[>=3.25 <5]
+ninja/[>=1.11]
