@@ -8,7 +8,7 @@
 
 add_executable(ms0515_web src/ms0515_web.cpp)
 target_link_libraries(ms0515_web PRIVATE ms0515_lib ms0515_disk)
-target_compile_features(ms0515_web PRIVATE cxx_std_23)
+target_compile_features(ms0515_web PRIVATE cxx_std_20)
 
 set(WEB_DIST "${CMAKE_BINARY_DIR}/web/dist")
 

@@ -619,11 +619,11 @@ uint32_t Emulator::romCrc32() const noexcept
     return snap_crc32(impl_->board.mem.rom, MEM_ROM_SIZE);
 }
 
-std::expected<void, std::string> Emulator::saveState(std::string_view path)
+Status Emulator::saveState(std::string_view path)
 {
     std::ofstream f(std::string{path}, std::ios::binary);
     if (!f)
-        return std::unexpected{"Cannot open file for writing"};
+        return Status{"Cannot open file for writing"};
 
     const char *paths[4] = {};
     for (int i = 0; i < 4; i++) {
@@ -636,15 +636,15 @@ std::expected<void, std::string> Emulator::saveState(std::string_view path)
                                  romCrc32(), paths, &io);
 
     if (err != SNAP_OK)
-        return std::unexpected{"Failed to write snapshot data"};
+        return Status{"Failed to write snapshot data"};
     return {};
 }
 
-std::expected<void, std::string> Emulator::loadState(std::string_view path)
+Status Emulator::loadState(std::string_view path)
 {
     std::ifstream f(std::string{path}, std::ios::binary);
     if (!f)
-        return std::unexpected{"Cannot open snapshot file"};
+        return Status{"Cannot open snapshot file"};
 
     uint32_t expected_crc = romCrc32();
 
@@ -664,14 +664,14 @@ std::expected<void, std::string> Emulator::loadState(std::string_view path)
             "Unsupported version", "ROM mismatch", "Corrupt data"
         };
         rewirePointers();
-        return std::unexpected{std::string{msgs[err < 6 ? err : 5]}};
+        return Status{std::string{msgs[err < 6 ? err : 5]}};
     }
 
     if (saved_crc != expected_crc) {
         rewirePointers();
         for (int i = 0; i < 4; i++)
             free(disk_paths[i]);  // NOLINT — allocated by C snap_load
-        return std::unexpected{"ROM CRC mismatch — snapshot was saved with a different ROM"};
+        return Status{"ROM CRC mismatch — snapshot was saved with a different ROM"};
     }
 
     rewirePointers();

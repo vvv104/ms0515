@@ -24,7 +24,7 @@
 #include <imgui.h>
 
 #include <filesystem>
-#include <format>
+#include <fmt/format.h>
 
 namespace ms0515_frontend {
 
@@ -242,7 +242,7 @@ void OnScreenKeyboard::drawRow(size_t rowIdx, ms0515::Emulator &emu)
         ImVec2 sz(btnW, capH);
 
         if (!k.drawn) {
-            auto id = std::format("##gap{}_{}", rowIdx, i);
+            auto id = fmt::format("##gap{}_{}", rowIdx, i);
             ImGui::InvisibleButton(id.c_str(), sz);
             ImGui::SameLine(0, spacing);
             continue;

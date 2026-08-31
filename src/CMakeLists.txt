@@ -39,6 +39,11 @@ if(MS0515_BUILD_TESTS)
     enable_testing()
 endif()
 
+# ── Formatting ──────────────────────────────────────────────────────────────
+# {fmt} replaces std::format: the project stays on C++20 so it can be built
+# with the stock compiler on older macOS, whose libc++ has no <format>.
+find_package(fmt REQUIRED)
+
 # ── Sub-projects ─────────────────────────────────────────────────────────────
 # Each layer pulls in its own tests/ subdirectory when MS0515_BUILD_TESTS is
 # on, so each yields a separate test binary.  The top-level tests/ folder

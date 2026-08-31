@@ -23,7 +23,7 @@ add_executable(ms0515_core_tests
     test_joystick.cpp
 )
 
-target_compile_features(ms0515_core_tests PRIVATE c_std_11 cxx_std_23)
+target_compile_features(ms0515_core_tests PRIVATE c_std_11 cxx_std_20)
 
 target_compile_definitions(ms0515_core_tests PRIVATE
     TESTS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"

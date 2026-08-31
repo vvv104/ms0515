@@ -9,7 +9,7 @@
 #include "EmulatorInternal.hpp"
 
 #include <array>
-#include <format>
+#include <fmt/format.h>
 #include <unordered_map>
 
 namespace ms0515 {
@@ -24,12 +24,12 @@ constexpr std::array<const char *, 8> kReg = {
 
 std::string formatOctal6(uint16_t value)
 {
-    return std::format("{:06o}", value);
+    return fmt::format("{:06o}", value);
 }
 
 std::string formatOctal3(uint8_t value)
 {
-    return std::format("{:03o}", static_cast<unsigned>(value));
+    return fmt::format("{:03o}", static_cast<unsigned>(value));
 }
 
 /* Decoding cursor — owns the read callback and tracks how many extension

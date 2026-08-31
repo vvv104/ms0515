@@ -29,7 +29,21 @@ class Ms0515Recipe(ConanFile):
         "sdl/*:libunwind": False,
     }
 
+    def build_requirements(self):
+        # cmake and ninja come from Conan too, so the only prerequisites on a
+        # build machine are a compiler and Conan itself.  Without this the
+        # build tools arrive by accident — sdl's recipe happens to require
+        # cmake — which leaves configurations that do not use SDL (the
+        # browser build) with no cmake at all.
+        self.tool_requires("cmake/[>=3.25 <5]")
+        self.tool_requires("ninja/[>=1.11]")
+
     def requirements(self):
+        # {fmt} stands in for C++23's std::format so that the project builds
+        # with a C++20 standard library — the system compiler of older macOS
+        # has no <format>.  Needed by every build, the browser one included.
+        self.requires("fmt/11.2.0")
+
         # The browser build (os=Emscripten, profiles/emscripten) compiles the
         # core and the lib only: no SDL / ImGui, no host tests.
         if self.settings.os == "Emscripten":

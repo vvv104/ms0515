@@ -18,7 +18,7 @@ add_executable(fist_tests
     test_diag.cpp
 )
 
-target_compile_features(fist_tests PRIVATE cxx_std_23)
+target_compile_features(fist_tests PRIVATE cxx_std_20)
 
 target_include_directories(fist_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/lib/src

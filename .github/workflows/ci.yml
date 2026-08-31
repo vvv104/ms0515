@@ -65,7 +65,7 @@ jobs:
           PROFILE=~/.conan2/profiles/default
 
           # C++23 on every compiler
-          sed -i.bak -e 's/^compiler.cppstd=.*/compiler.cppstd=23/' "$PROFILE"
+          sed -i.bak -e 's/^compiler.cppstd=.*/compiler.cppstd=20/' "$PROFILE"
 
           # Pin compiler + version for Linux jobs (auto-detect uses system default)
           if [ -n "${{ matrix.conan_compiler }}" ]; then

@@ -14,7 +14,7 @@
 #include <charconv>
 #include <cstring>
 #include <filesystem>
-#include <format>
+#include <fmt/format.h>
 #include <string>
 #include <vector>
 
@@ -57,7 +57,7 @@ void drawDebuggerWindow(ms0515::Debugger &dbg,
     if (ImGui::CollapsingHeader("Disassembly", ImGuiTreeNodeFlags_DefaultOpen)) {
         auto lines = dbg.disassembleAtPc(16);
         for (const auto &ins : lines) {
-            auto line = std::format("{:06o}: {}", ins.address, ins.text());
+            auto line = fmt::format("{:06o}: {}", ins.address, ins.text());
             ImGui::TextUnformatted(line.c_str());
         }
     }
@@ -77,10 +77,10 @@ void drawDebuggerWindow(ms0515::Debugger &dbg,
         }
         std::vector<uint16_t> toRemove;
         for (uint16_t addr : dbg.breakpoints()) {
-            auto label = std::format("x##{:06o}", addr);
+            auto label = fmt::format("x##{:06o}", addr);
             if (ImGui::SmallButton(label.c_str())) toRemove.push_back(addr);
             ImGui::SameLine();
-            auto addrStr = std::format("{:06o}", addr);
+            auto addrStr = fmt::format("{:06o}", addr);
             ImGui::TextUnformatted(addrStr.c_str());
         }
         for (uint16_t addr : toRemove) dbg.removeBreakpoint(addr);

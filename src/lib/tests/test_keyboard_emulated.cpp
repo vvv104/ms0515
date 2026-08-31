@@ -342,9 +342,13 @@ TEST_CASE("ФКС inverts letter case in LAT mode (no Shift)") {
         static const std::pair<ms0515::Key, char> kCases[] = {
             {ms0515::Key::A, 'a'}, {ms0515::Key::M, 'm'}, {ms0515::Key::Z, 'z'},
         };
-        for (auto [key, expected] : kCases) {
+        for (auto [key, want] : kCases) {
             tapKey(fix.emu, key);
             auto snap = readScreen(fix.emu, fix.sr);
+            /* Copied out of the structured binding: CHECK_MESSAGE expands to a
+             * lambda, and capturing a binding directly is rejected by the older
+             * clang that ships with macOS 11/12. */
+            const char expected = want;
             const char actual = cellAt(snap, kPromptRow, kCursorCol);
             CHECK_MESSAGE(actual == expected,
                           "ФКС+'", expected, "' produced '", actual, "'");
@@ -364,9 +368,10 @@ TEST_CASE("ФКС + Shift cancel: LAT letter back to uppercase default") {
         static const std::pair<ms0515::Key, char> kCases[] = {
             {ms0515::Key::A, 'A'}, {ms0515::Key::M, 'M'}, {ms0515::Key::Z, 'Z'},
         };
-        for (auto [key, expected] : kCases) {
+        for (auto [key, want] : kCases) {
             tapKey(fix.emu, key, /*shift=*/true);
             auto snap = readScreen(fix.emu, fix.sr);
+            const char expected = want;   /* see the note above */
             const char actual = cellAt(snap, kPromptRow, kCursorCol);
             CHECK_MESSAGE(actual == expected,
                           "ФКС+Shift+'", expected, "' produced '", actual, "'");

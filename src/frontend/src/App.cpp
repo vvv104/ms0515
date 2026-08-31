@@ -16,7 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <format>
+#include <fmt/format.h>
 #include <string>
 #include <vector>
 
@@ -296,7 +296,7 @@ void App::detachDsRemnant(int keepUnit)
 void App::mountDoubleSided(int drive, const std::string &path)
 {
     if (auto err = validateDoubleSidedImage(path)) {
-        mountErrorMessage_ = std::format(
+        mountErrorMessage_ = fmt::format(
             "Cannot mount disk {}:\n\n{}", drive, *err);
         mountErrorPending_ = true;
         return;
@@ -308,7 +308,7 @@ void App::mountDoubleSided(int drive, const std::string &path)
     if (!ok) {
         emu_.unmountDisk(u0);
         emu_.unmountDisk(u1);
-        mountErrorMessage_ = std::format(
+        mountErrorMessage_ = fmt::format(
             "Failed to mount '{}' on disk {}.", path, drive);
         mountErrorPending_ = true;
         return;
@@ -327,7 +327,7 @@ void App::mountSingleSide(int unit, const std::string &path)
     if (auto err = validateSingleSideImage(path)) {
         int drive = unit & 1;
         int side  = unit >= 2 ? 1 : 0;
-        mountErrorMessage_ = std::format(
+        mountErrorMessage_ = fmt::format(
             "Cannot mount disk {} side {}:\n\n{}", drive, side, *err);
         mountErrorPending_ = true;
         return;
@@ -337,7 +337,7 @@ void App::mountSingleSide(int unit, const std::string &path)
     if (!emu_.mountDisk(unit, path)) {
         int drive = unit & 1;
         int side  = unit >= 2 ? 1 : 0;
-        mountErrorMessage_ = std::format(
+        mountErrorMessage_ = fmt::format(
             "Failed to mount '{}' on disk {} side {}.", path, drive, side);
         mountErrorPending_ = true;
         return;
@@ -401,13 +401,13 @@ void App::promptMountHd()
 void App::mountHd(const std::string &path)
 {
     if (auto err = validateHdImage(path)) {
-        mountErrorMessage_ = std::format("Cannot mount HD image:\n\n{}", *err);
+        mountErrorMessage_ = fmt::format("Cannot mount HD image:\n\n{}", *err);
         mountErrorPending_ = true;
         return;
     }
     if (!emu_.mountHd(path)) {       /* also enables the controller */
         mountErrorMessage_ =
-            std::format("Failed to mount HD image '{}'.", path);
+            fmt::format("Failed to mount HD image '{}'.", path);
         mountErrorPending_ = true;
         return;
     }
@@ -631,6 +631,17 @@ void App::renderFrame()
         drawStatusBar(sbs);
     }
 
+    /* Retina / HiDPI: the window is created with SDL_WINDOW_ALLOW_HIGHDPI, so
+     * on a scaled display SDL's framebuffer is larger than the window — 2x on
+     * an Apple Retina screen.  ImGui lays out in window points, so without
+     * this the geometry lands in a corner of the framebuffer while the clip
+     * rectangles are computed at the framebuffer scale: elements come out cut
+     * off and the mouse misses what it points at.  Telling the renderer about
+     * the scale puts both into the same coordinate space.  A no-op (1.0) on
+     * an unscaled display. */
+    const ImVec2 fbScale = ImGui::GetIO().DisplayFramebufferScale;
+    SDL_RenderSetScale(renderer_, fbScale.x, fbScale.y);
+
     if (fullscreenOn_) SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
     else               SDL_SetRenderDrawColor(renderer_, 40, 40, 48, 255);
     SDL_RenderClear(renderer_);
@@ -725,7 +736,7 @@ void App::drawFileDiskMenu(int drive)
     else if (side0 && side1)        summary = "both sides";
     else if (side0)                 summary = "0 side";
     else                            summary = "1 side";
-    auto driveLabel = std::format("Disk {}: {}", drive, summary);
+    auto driveLabel = fmt::format("Disk {}: {}", drive, summary);
     if (!ImGui::BeginMenu(driveLabel.c_str())) return;
 
     /* Show the currently mounted DS file alongside "Mount image" so
@@ -736,7 +747,7 @@ void App::drawFileDiskMenu(int drive)
             std::filesystem::path(mountedFd_[unit0]).filename().string() + "]";
     }
     if (ImGui::MenuItem(mountImageLabel.c_str())) {
-        auto title = std::format(
+        auto title = fmt::format(
             "Select double-sided image for drive {}", drive);
         std::string p = openFileDialog(
             window_, title.c_str(),
@@ -747,7 +758,7 @@ void App::drawFileDiskMenu(int drive)
     for (int side = 0; side < 2; ++side) {
         int unit       = (side == 0) ? unit0 : unit1;
         int otherUnit  = (side == 0) ? unit1 : unit0;
-        std::string label = std::format("Mount side {}...", side);
+        std::string label = fmt::format("Mount side {}...", side);
         if (!mountedAsDs_[drive]) {
             if (!mountedFd_[unit].empty()) {
                 label += "    [" +
@@ -758,7 +769,7 @@ void App::drawFileDiskMenu(int drive)
             }
         }
         if (ImGui::MenuItem(label.c_str())) {
-            auto title = std::format(
+            auto title = fmt::format(
                 "Select single-side image for disk {} side {}", drive, side);
             std::string p = openFileDialog(
                 window_, title.c_str(),
@@ -779,7 +790,7 @@ void App::drawFileHdMenu()
     const bool mounted = emu_.hdMounted();
     const char *summary = mounted ? "image"
                         : emu_.hdEnabled() ? "empty" : "off";
-    auto hdLabel = std::format("Hard disk (HD:): {}", summary);
+    auto hdLabel = fmt::format("Hard disk (HD:): {}", summary);
     if (!ImGui::BeginMenu(hdLabel.c_str())) return;
 
     std::string mountLabel = "Mount image...";
@@ -875,11 +886,11 @@ void App::drawRomSubmenu()
 
 void App::drawSpeedSubmenu()
 {
-    auto label = std::format("Speed: {:.0f}%", targetSpeed_);
+    auto label = fmt::format("Speed: {:.0f}%", targetSpeed_);
     if (!ImGui::BeginMenu(label.c_str())) return;
     constexpr float presets[] = {20, 50, 100, 200, 500};
     for (float p : presets) {
-        auto presetLabel = std::format("{:.0f}%", p);
+        auto presetLabel = fmt::format("{:.0f}%", p);
         if (ImGui::MenuItem(presetLabel.c_str(), nullptr, targetSpeed_ == p)) {
             targetSpeed_    = p;
             emuTimeAccumMs_ = 0.0f;
