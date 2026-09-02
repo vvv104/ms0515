@@ -50,6 +50,16 @@ if(MS0515_BUILD_TESTS)
     enable_testing()
 endif()
 
+# ── Dependency lookup ───────────────────────────────────────────────────────
+# Every dependency comes from Conan.  On macOS CMake searches frameworks
+# before package configs (CMAKE_FIND_FRAMEWORK defaults to FIRST), and a
+# system-installed SDL2.framework carries its own SDL2Config.cmake — so on a
+# machine that has one, find_package(SDL2) picks that up instead of the
+# static SDL2 Conan built for us.  The binary then depends on a library we
+# never meant to link, and macOS refuses to load it under its code-signature
+# policy.  Look at frameworks last so the Conan packages always win.
+set(CMAKE_FIND_FRAMEWORK LAST)
+
 # ── Formatting ──────────────────────────────────────────────────────────────
 # {fmt} replaces std::format: the project stays on C++20 so it can be built
 # with the stock compiler on older macOS, whose libc++ has no <format>.
