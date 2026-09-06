@@ -13,6 +13,8 @@ add_library(ms0515_files STATIC
     Location.cpp
     Mounts.cpp
     Keys.cpp
+    HostKey.cpp
+    Routing.cpp
     Panel.cpp
     Ops.cpp
     Viewer.cpp
