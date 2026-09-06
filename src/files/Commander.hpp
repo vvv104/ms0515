@@ -52,8 +52,8 @@ public:
      * unnamed Special events with xterm's CSI 1;3P / 1;3Q. */
     bool onEvent(const ftxui::Event &event);
 
-    /* F10 was pressed (and answered, when there is a question). */
-    [[nodiscard]] bool quitRequested() const noexcept;
+    /* F10 was pressed (and answered, when there is a question); once. */
+    [[nodiscard]] bool takeQuitRequest() noexcept;
     /* A dialog, the viewer or the image picker is open: every key is wanted. */
     [[nodiscard]] bool modal() const noexcept;
 

@@ -13,6 +13,7 @@ add_executable(ms0515_files_tests
     test_keys.cpp
     test_hostkey.cpp
     test_routing.cpp
+    test_hostevent.cpp
     test_panel.cpp
     test_ops.cpp
     test_viewer.cpp
@@ -26,6 +27,7 @@ target_compile_definitions(ms0515_files_tests PRIVATE
 target_link_libraries(ms0515_files_tests
     PRIVATE
         ms0515_files
+        ms0515_files_ui
         doctest::doctest
 )
 

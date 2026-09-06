@@ -125,7 +125,7 @@ public:
 
     Element render(Element guest);
     bool onEvent(const Event &e);
-    [[nodiscard]] bool quitRequested() const noexcept { return quit_; }
+    [[nodiscard]] bool takeQuitRequest() noexcept { const bool q = quit_; quit_ = false; return q; }
     [[nodiscard]] bool modal() const noexcept { return dialog_ || view_ || browse_[0] || browse_[1]; }
     [[nodiscard]] const Mounts &mounts() const noexcept { return mounts_; }
     void setSize(int width, int height) noexcept { width_ = width; height_ = height; }
@@ -832,9 +832,9 @@ bool Commander::onEvent(const Event &event)
     return impl_->tui.onEvent(event);
 }
 
-bool Commander::quitRequested() const noexcept
+bool Commander::takeQuitRequest() noexcept
 {
-    return impl_->tui.quitRequested();
+    return impl_->tui.takeQuitRequest();
 }
 
 bool Commander::modal() const noexcept
@@ -861,7 +861,7 @@ int runCommander(Mounts mounts, app::Config &config, const std::string &quitQues
     auto component = Renderer([&] { return commander.render(screen.dimx(), screen.dimy()); })
                    | CatchEvent([&](const Event &e) {
                          const bool used = commander.onEvent(e);
-                         if (commander.quitRequested()) screen.ExitLoopClosure()();
+                         if (commander.takeQuitRequest()) screen.ExitLoopClosure()();
                          return used;
                      });
     screen.TrackMouse(false);   /* keyboard only - and a terminal left in mouse-tracking mode after a crash is a mess */

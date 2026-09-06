@@ -18,6 +18,7 @@
 #include <ms0515/app/Screen.hpp>
 
 #include <chrono>
+#include <optional>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -25,6 +26,7 @@
 #include <thread>
 
 #include "Platform.hpp"
+#include "CommanderHost.hpp"
 #include "StdioBridge.hpp"
 
 namespace app = ms0515::app;
@@ -202,6 +204,14 @@ int main(int argc, char **argv)
      * guest currently considers "next". */
     std::fputs("\x1B[2J\x1B[H\x1B[?25l", stdout);
 
+    /* The commander over the machine - Ctrl+\ - for a person at a
+     * terminal; a pipe drives the machine alone. */
+    std::optional<ms0515::cli::CommanderHost> commander;
+    if (ms0515::cli::stdinIsTerminal()) {
+        commander.emplace(emu, mirror, cli);
+        ms0515::cli::bridge::setHostKeySink([&commander](const ms0515::files::HostKey &k) { return commander->onKey(k); });
+    }
+
     /* Permit keystroke injection once VRAM has been quiet (no
      * substantial paint activity) for a while — that's our "kernel
      * sits at a prompt" signal.  See VramMirror::framesIdle. */
@@ -237,6 +247,7 @@ int main(int argc, char **argv)
         ms0515::cli::bridge::pumpInput();
         (void)emu.stepFrame();
         mirror.flushFrame();
+        if (commander) commander->frame();
         if (mirror.framesIdle() >= kInputReadyIdleFrames) {
             ms0515::cli::bridge::setInputReady(true);
         }
@@ -280,6 +291,9 @@ int main(int argc, char **argv)
             shotFailed = true;
         }
     }
+
+    if (commander) commander->shutdown(!cli.noConfig);
+    ms0515::cli::bridge::setHostKeySink(nullptr);
 
     /* Show the host cursor again before handing the terminal back. */
     std::fputs("\x1B[?25h", stdout);

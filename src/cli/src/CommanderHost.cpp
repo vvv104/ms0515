@@ -1,0 +1,198 @@
+/*
+ * CommanderHost.cpp — the panels up and down over the machine, the keys
+ * routed, the picture drawn from the frame loop.
+ */
+#include "CommanderHost.hpp"
+
+#include "Commander.hpp"
+#include "GuestScreen.hpp"
+#include "HostEvent.hpp"
+#include "MountSync.hpp"
+#include "Routing.hpp"
+
+#include "ms0515/app/Cli.hpp"
+#include "ms0515/app/Config.hpp"
+
+#include <ftxui/dom/node.hpp>
+#include <ftxui/screen/screen.hpp>
+#include <ftxui/screen/terminal.hpp>
+
+#include <algorithm>
+#include <cstdio>
+#include <optional>
+#include <string>
+
+namespace ms0515::cli {
+
+namespace {
+
+constexpr const char *kAltScreenOn  = "\x1B[?1049h\x1B[?25l";
+constexpr const char *kAltScreenOff = "\x1B[?1049l";
+
+} // namespace
+
+struct CommanderHost::Impl {
+    Emulator &emu;
+    VramMirror &mirror;
+    app::CliArgs cli;
+    app::Config scratchConfig;      /* the commander writes its mounts here; stored for real at shutdown */
+    files::RouteState state;
+    std::optional<files::Commander> commander;
+    std::string lastPicture;
+    ftxui::Dimensions lastSize{0, 0};
+    bool mountsTouched = false;
+
+    Impl(Emulator &e, VramMirror &m, const app::CliArgs &c) : emu(e), mirror(m), cli(c) {}
+
+    void makeCommander();
+    void enter();
+    void leave();
+    void draw();
+    [[nodiscard]] ftxui::Element picture(int width, int height);
+    bool onKey(const files::HostKey &key);
+};
+
+void CommanderHost::Impl::makeCommander()
+{
+    files::CommanderHooks hooks;
+    hooks.mountsChanged = [this] {
+        mountsTouched = true;
+        (void)applyMounts(emu, commander->mounts());
+    };
+    hooks.imageChanged = [this](const std::filesystem::path &image) {
+        /* the HD keeps the image in memory: read it again */
+        if (emu.hdMounted() && std::filesystem::path(emu.hdPath()) == image) {
+            emu.unmountHd();
+            (void)emu.mountHd(image.string());
+        }
+    };
+    /* the panels come down on F10, nothing is lost: no question */
+    commander.emplace(files::Mounts::fromEmulator(cli, scratchConfig), scratchConfig, std::move(hooks));
+}
+
+void CommanderHost::Impl::enter()
+{
+    if (!commander) makeCommander();
+    else commander->refresh();
+    mirror.setOutput(nullptr);
+    std::fputs(kAltScreenOn, stdout);
+    std::fflush(stdout);
+    lastPicture.clear();
+    state.commanderOn = true;
+    state.panelsHidden = false;
+    draw();
+}
+
+void CommanderHost::Impl::leave()
+{
+    state.commanderOn = false;
+    std::fputs(kAltScreenOff, stdout);
+    std::fflush(stdout);
+    /* the machine's screen again, every cell, whatever changed meanwhile */
+    mirror.setOutput(stdout);
+    mirror.invalidate();
+}
+
+ftxui::Element CommanderHost::Impl::picture(int width, int height)
+{
+    const auto shadow = mirror.snapshot();
+    if (state.panelsHidden) return guestRows(shadow, 0, VramMirror::kRows);
+    /* the rows around the guest's cursor: its prompt, NC's command line */
+    const int cursor = std::clamp(mirror.lastWriteRow(), 0, VramMirror::kRows - 1);
+    const int from = std::clamp(cursor - 1, 0, VramMirror::kRows - 2);
+    return commander->render(width, height, guestRows(shadow, from, from + 2));
+}
+
+void CommanderHost::Impl::draw()
+{
+    const auto size = ftxui::Terminal::Size();
+    lastSize = size;
+    const int width = std::max(20, size.dimx);
+    const int height = std::max(8, size.dimy);
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(width), ftxui::Dimension::Fixed(height));
+    ftxui::Render(screen, picture(width, height));
+    const std::string now = screen.ToString();
+    if (now == lastPicture) return;
+    lastPicture = now;
+    /* row by row at its own position: the terminal is raw, a bare '\n'
+     * would not return the carriage */
+    std::string out;
+    int row = 1;
+    size_t at = 0;
+    while (at <= now.size()) {
+        size_t nl = now.find('\n', at);
+        if (nl == std::string::npos) nl = now.size();
+        std::string line = now.substr(at, nl - at);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        out += "\x1B[" + std::to_string(row++) + ";1H" + line;
+        at = nl + 1;
+    }
+    std::fputs(out.c_str(), stdout);
+    std::fflush(stdout);
+}
+
+bool CommanderHost::Impl::onKey(const files::HostKey &key)
+{
+    state.modal = commander && state.commanderOn && commander->modal();
+    const files::Route route = files::routeKey(key, state);
+    state = files::afterRouting(state, key, route);
+    switch (route) {
+    case files::Route::toggle:
+        if (state.commanderOn) leave(); else enter();
+        return true;
+    case files::Route::hidePanels:
+        state.panelsHidden = !state.panelsHidden;
+        draw();
+        return true;
+    case files::Route::commander:
+        (void)commander->onEvent(files::toEvent(key));
+        if (commander->takeQuitRequest()) leave();
+        else draw();
+        return true;
+    case files::Route::guest:
+        return false;
+    }
+    return false;
+}
+
+CommanderHost::CommanderHost(Emulator &emu, VramMirror &mirror, const app::CliArgs &cli)
+    : impl_(std::make_unique<Impl>(emu, mirror, cli))
+{
+}
+
+CommanderHost::~CommanderHost()
+{
+    if (impl_ && impl_->state.commanderOn) impl_->leave();
+}
+
+bool CommanderHost::active() const noexcept
+{
+    return impl_->state.commanderOn;
+}
+
+bool CommanderHost::onKey(const files::HostKey &key)
+{
+    return impl_->onKey(key);
+}
+
+void CommanderHost::frame()
+{
+    if (!impl_->state.commanderOn) return;
+    /* redraw when the guest wrote to its screen or the terminal changed
+     * size; the keys draw on their own */
+    const auto size = ftxui::Terminal::Size();
+    const bool resized = size.dimx != impl_->lastSize.dimx || size.dimy != impl_->lastSize.dimy;
+    if (impl_->mirror.framesIdle() == 0 || resized) impl_->draw();
+}
+
+void CommanderHost::shutdown(bool saveConfig)
+{
+    if (impl_->state.commanderOn) impl_->leave();
+    if (saveConfig && impl_->mountsTouched && impl_->commander) {
+        app::Config config = app::Config::load();
+        impl_->commander->mounts().store(config);
+        config.save();
+    }
+}
+
+} /* namespace ms0515::cli */

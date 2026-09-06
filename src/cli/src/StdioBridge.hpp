@@ -23,6 +23,10 @@
 
 #include <ms0515/Emulator.hpp>
 
+#include "HostKey.hpp"
+
+#include <functional>
+
 namespace ms0515::cli::bridge {
 
 /* Remember the emu pointer for pumpInput(). */
@@ -42,6 +46,11 @@ void install(ms0515::Emulator &emu);
 void pumpInput();
 
 void setInputReady(bool ready);
+
+/* Every key of the host goes to `sink` first; a key it returns true for
+ * never reaches the guest.  The commander over the machine installs
+ * itself here.  Ctrl-] (quit) is handled before the sink. */
+void setHostKeySink(std::function<bool(const files::HostKey &)> sink);
 
 }  /* namespace ms0515::cli::bridge */
 

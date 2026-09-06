@@ -33,6 +33,7 @@ find_package(ftxui REQUIRED)
 
 add_library(ms0515_files_ui STATIC
     Commander.cpp
+    HostEvent.cpp
 )
 
 target_link_libraries(ms0515_files_ui
