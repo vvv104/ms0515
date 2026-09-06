@@ -55,6 +55,15 @@ TEST_CASE("panels shown: text, Backspace and Ctrl+letters go to the guest, the p
     CHECK(routeKey(HostKey::ofSpecial(SpecialKey::f3), s) == Route::commander);
     CHECK(routeKey(HostKey::ofSpecial(SpecialKey::f1, true), s) == Route::commander);
     CHECK(routeKey(HostKey::ofByte(0x0F), s) == Route::hidePanels);
+    /* mc's + - * work the panel while the command line is empty, and are
+     * text once something is typed */
+    CHECK(routeKey(HostKey::ofByte('+'), s) == Route::commander);
+    CHECK(routeKey(HostKey::ofByte('-'), s) == Route::commander);
+    CHECK(routeKey(HostKey::ofByte('*'), s) == Route::commander);
+    RouteState typed = s;
+    typed.typedPending = true;
+    CHECK(routeKey(HostKey::ofByte('+'), typed) == Route::guest);
+    CHECK(routeKey(HostKey::ofByte('*'), typed) == Route::guest);
 }
 
 TEST_CASE("Enter goes to the guest only when text was typed since the last Enter, else it acts on the panel")

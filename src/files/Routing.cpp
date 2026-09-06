@@ -32,6 +32,10 @@ Route routeKey(const HostKey &key, const RouteState &state) noexcept
     case kEnter: return state.typedPending ? Route::guest : Route::commander;
     case kTab:
     case kEsc:   return Route::commander;
+    /* mc's select / unselect / invert: the panel's while nothing is typed */
+    case '+':
+    case '-':
+    case '*':    return state.typedPending ? Route::guest : Route::commander;
     default:     return Route::guest;
     }
 }

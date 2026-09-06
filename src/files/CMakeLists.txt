@@ -33,6 +33,9 @@ find_package(ftxui REQUIRED)
 
 add_library(ms0515_files_ui STATIC
     Commander.cpp
+    CommanderDialogs.cpp
+    CommanderActions.cpp
+    CommanderViewer.cpp
     HostEvent.cpp
 )
 

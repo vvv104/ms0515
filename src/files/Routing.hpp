@@ -5,7 +5,8 @@
  * line: what you type - letters, Backspace, the Ctrl+letters RT-11 knows
  * (^C, ^U, ^S ...) - goes to the machine even with the panels up, and so
  * does Enter once something was typed; Tab, the arrows, Insert, Home,
- * End, PgUp, PgDn, Esc, the F-keys and an untyped Enter work the panels.
+ * End, PgUp, PgDn, Esc, the F-keys and an untyped Enter work the panels,
+ * and so do + - * (select, unselect, invert) while nothing is typed.
  * Ctrl+O hides the panels, and then every key is the guest's; Ctrl+\
  * (0x1C, the one byte every terminal delivers as itself and RT-11 never
  * uses) brings the commander up or takes it down.  A dialog or the
