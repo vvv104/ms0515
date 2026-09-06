@@ -14,7 +14,7 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Frontend** (`src/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
 - **Disk** (`src/disk/`) — Offline RT-11 / MS-0515 disk-image library (lib `ms0515_disk`): LBN→byte geometry mirroring the emulator FDC, directory parse, file read, and volume create/init/put/rm/squeeze + per-entry protect/date metadata. No emulator dependency.
 - **Web** (`src/web/`) — The browser build: the core + lib compiled with Emscripten behind a flat C API (`ms0515_web.cpp`), a static page (`www/`) that runs the machine in the tab, a Node smoke test. Configured only under the Emscripten toolchain (`src/profiles/emscripten`); no host layers.
-- **Tools** (`src/tools/`) — Standalone offline binaries over the libs. `tools/disk/` builds `ms0515-disk` (`create/init/put/rm/squeeze/protect/unprotect/setdate/get/dir/boot/system/split/merge`). Heuristic recovery (consensus/donor) stays out — see `disk_recovery/`.
+- **Tools** (`src/tools/`) — Standalone offline binaries over the libs. `tools/disk/` builds `ms0515-disk` (`create/init/put/rm/squeeze/protect/unprotect/setdate/get/dir/boot/system/split/merge`); `tools/files/` builds `ms0515-files`, the two-panel terminal file manager over the machine's disks (FTXUI via Conan; its panel model, operations and viewer are `ms0515_files_core`, unit-tested without a terminal). Heuristic recovery (consensus/donor) stays out — see `disk_recovery/`.
 
 ## Key rules
 - All code, comments, and documentation must be in **English only**.
@@ -58,6 +58,7 @@ src/                — emulator source code and build files
   disk/             — offline RT-11 disk-image lib (Layout, Directory, Image, Build)
   disk/tests/       — disk lib unit tests
   tools/disk/       — ms0515-disk binary (offline disk utility)
+  tools/files/      — ms0515-files: the terminal file manager (core lib + FTXUI front-end + tests/)
   web/              — browser build: C API shim, www/ page, smoke.mjs (Emscripten only)
   profiles/         — Conan host profiles (emscripten)
   platform/cli/     — CLI host abstractions (Platform_unix.cpp / Platform_win32.cpp)
@@ -66,7 +67,7 @@ src/                — emulator source code and build files
   frontend/         — SDL2 + ImGui application
   frontend/tests/   — placeholder for future frontend tests
   assets/           — runtime resources (ROM files, keyboard layout, disk images)
-package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.exe, ms0515.yaml, assets/
+package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.exe, ms0515-files.exe, ms0515.yaml, assets/
 rt11_devel/         — RT-11 guest programs: toolset/ (build.py: MACRO/LINK inside the emulator),
                       projects/<name>/ (sources, generators, README) and projects/<name>/tests/
                       (the program's own doctest harness on ms0515_lib; pulled in by the emulator's

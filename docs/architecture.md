@@ -148,6 +148,29 @@ tool that read and write images directly, without running the machine.
   follows the image size; `--hd`, `--dv` and `--mz` pick the other volume
   kinds, and `dir` says when the content rather parses as another one.
 
+### Terminal File Manager — `ms0515-files` (C++)
+
+Two panels over the machine's disks - never the host's file system - in
+the terminal, with the web commander's keys (`src/tools/files/`):
+
+- The panels show the RT-11 volumes of the mounted devices, named as the
+  guest names them: `DZ0:`/`DZ2:` (drive A's sides), `DZ1:`/`DZ3:`, `HD0:`,
+  or one `DV0:`/`MZ0:` when the image's content is a whole-diskette
+  volume.  The mounts are the emulator's: libapp's flag parser and
+  `ms0515.yaml`, so the tool starts on the disks the emulator had last and
+  a mount made here (F4) is what the emulator mounts next.  The host
+  enters only as a path typed at a prompt (Tab completes) - a file to
+  bring in (F1), a directory to put files out to (F2), an image to mount.
+- `ms0515_files_core` — `Location` (a device's volume through `ms0515_disk`,
+  every change written back to the image at once), `Mounts` (slots →
+  devices by content), `Panel` (cursor, marks, selection), `Ops` (copy /
+  move / delete / rename / protect between volumes, import / export, with
+  an explicit policy for overwriting and protected files), `Viewer` (text
+  in ASCII / KOI-8R / KOI-7 / KOI-7 with ^N ^O / CP866, octal and hex
+  dumps, search).  Unit-tested on scratch copies of the fixture disks.
+- The front-end draws with FTXUI (Conan), sized to the terminal; keys and
+  dialogs only, all state in the core.
+
 The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
 is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified
 against the real OS in the emulator (`src/lib/tests/test_dir_vs_os.cpp`).
