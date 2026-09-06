@@ -4,7 +4,8 @@
 // file is the front-end: it fetches the ROM and the disk images into the
 // module's in-memory file system, mounts them the way the desktop
 // front-ends do (two floppy drives of two sides each, a paravirtual hard
-// disk), runs 50 frames a second, paints each frame on the canvas, hands
+// disk), runs 50 frames a second (or faster and slower, by the speed
+// control), paints each frame on the canvas, hands
 // its sound to an AudioWorklet, turns key events into MS7004 keys the way
 // the SDL front-end does, and keeps the images the guest writes to in
 // IndexedDB so the next visit finds them - nothing is ever written back to
@@ -42,6 +43,11 @@ const sidesLabel = (n) => n === 2 ? "two-sided" : "one-sided";
 const ROMS = { a: "rom/ms0515-roma.rom", b: "rom/ms0515-romb.rom" };
 const SS_SIZE = 409600, DS_SIZE = 2 * SS_SIZE;
 const FRAME_MS = 20;
+// The speed control: the machine's frames per second of ours, 20% to 500%
+// like the SDL front-end's slider.  Sound is only right at 100% - the
+// worklet plays real time - so it goes quiet at any other speed.
+const SPEED_MIN = 20, SPEED_MAX = 500, SPEED_KEY = "ms0515.speed";
+let speedPct = 100;
 
 // FDC units: unit = side * 2 + drive (FD0 = DZ0 = drive A side 0, FD1 =
 // drive B side 0, FD2 / FD3 the drives' side 1) - core/floppy.c's numbering.
@@ -242,6 +248,7 @@ async function wipe() {
   window.removeEventListener("beforeunload", flushDisks);
   localStorage.removeItem("ms0515.images");
   localStorage.removeItem("ms0515.mounts");
+  localStorage.removeItem(SPEED_KEY);
   await new Promise((ok, no) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = ok; r.onerror = () => no(r.error); r.onblocked = ok; });
   location.href = location.pathname;
 }
@@ -506,14 +513,21 @@ function stop() { running = false; }
 
 function loop(now) {
   if (!running) return;
-  acc += Math.min(now - lastTick, 200);
+  // Real time elapsed, scaled by the speed: at 200% a second of ours is two
+  // seconds of the machine's.  A burst is clamped like the SDL front-end
+  // does (a tab that was hidden does not replay its absence), and one
+  // animation frame runs the machine for 14 ms of our time at most - what
+  // the host cannot keep up with is dropped, not queued.
+  acc += Math.min(now - lastTick, 200) * (speedPct / 100);
   lastTick = now;
+  const budgetEnd = performance.now() + 14;
   let n = 0;
-  while (acc >= FRAME_MS && n < 4) {
+  while (acc >= FRAME_MS && running && performance.now() < budgetEnd) {
     acc -= FRAME_MS;
     step(now);
     ++n;
   }
+  if (acc > 4 * FRAME_MS) acc = 4 * FRAME_MS;
   if (n) { paint(); lamps(); }
   requestAnimationFrame(loop);
 }
@@ -525,8 +539,18 @@ function step(now) {
   ++frames;
   speakerTransitions += api.transitions(h);
   if (cycles === 0) { say("CPU halted"); stop(); return; }
-  if (speaker) queueAudio();
+  if (speaker && speedPct === 100) queueAudio();
   if ((frames & 63) === 0) flushDisks();
+}
+
+// ── speed ──────────────────────────────────────────────────────────────────
+function setSpeed(pct, persist = true) {
+  pct = Math.round(Math.min(SPEED_MAX, Math.max(SPEED_MIN, +pct || 100)) / 10) * 10;
+  speedPct = pct;
+  $("speed").value = pct;
+  $("speedv").textContent = pct + "%";
+  if (persist) localStorage.setItem(SPEED_KEY, String(pct));
+  if (speaker && pct !== 100) hint("sound plays at 100% only - quiet at " + pct + "%");
 }
 
 function paint() {
@@ -813,6 +837,11 @@ function bindControls() {
   };
   $("boot").onclick = () => boot().catch(fail);
   $("sound").onclick = () => toggleSound().catch(fail);
+  $("speed").oninput = (e) => setSpeed(e.target.value);
+  $("speed").onchange = () => canvas.focus();      // the keys go back to the machine once the slider is let go
+  $("speed").ondblclick = () => { setSpeed(100); canvas.focus(); };   // a double click on the slider: back to 100%
+  $("speedv").onclick = () => { setSpeed(100); canvas.focus(); };
+  setSpeed(localStorage.getItem(SPEED_KEY) ?? 100, false);
   $("save").onclick = () => { if (h) say(api.save(h, "/state.bin") ? "state saved: Restore brings the machine back to it" : "save failed"); };
   $("restore").onclick = () => { if (h) say(api.load(h, "/state.bin") ? "state restored" : "no saved state"); };
   $("wipe").onclick = () => wipe().catch(fail);
@@ -841,6 +870,7 @@ async function main() {
 
   say("ready");
   const q = new URLSearchParams(location.search);
+  if (q.get("speed")) setSpeed(q.get("speed"), false);   // `speed=200`: for this visit only
   if (q.get("autostart") !== "0") {
     boot().then(() => {
       // `type=`: a command for the monitor, after the boot (delay= ms, 3000)
@@ -855,13 +885,14 @@ window.__ms = () => {
   const ptr = h ? api.render(h) : 0;
   const hist = {};
   if (ptr) for (const v of M.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + 640 * 400)) hist[v >>> 0] = (hist[v >>> 0] ?? 0) + 1;
-  return { frames, running, status: status.textContent, colours: Object.keys(hist).length, hist,
+  return { frames, running, speed: speedPct, status: status.textContent, colours: Object.keys(hist).length, hist,
            mounts: { fd: [...slots.fd], hd: slots.hd }, audio: audioStats && { ...audioStats, rate: audio?.sampleRate, state: audio?.state },
            speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
            joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null,
            fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null };
 };
 window.__ms.type = (text) => typing.type(text);
+window.__ms.speed = (pct) => setSpeed(pct);   // the control, for scripted checks
 window.__ms.api = () => api;                 // the module's calls, for scripted checks
 window.__ms.sources = fileSources;           // the commander's disks, for scripted checks
 window.__ms.module = () => M;

@@ -86,7 +86,16 @@ own images persist in localStorage, the image bytes in IndexedDB.
 drive B, the HD and the ROM (over the remembered mounts); `autostart=0`
 waits for the Boot button; `type=R%20FIST` (with `delay=` ms, 3000) types
 a command for the monitor after the boot (`window.__ms.type()` does the
-same).
+same); `speed=200` sets the speed control for the visit.
+
+The speed control (the slider in the toolbar, 20% to 500%; a double
+click on it, or the value button beside it, is back to 100%) scales the machine's time against
+ours the way the SDL front-end's slider does: at 200% every second of
+ours runs two seconds of the machine.  One animation frame runs the
+machine for at most 14 ms of host time, so a speed the host cannot
+sustain simply falls short rather than queueing up.  The setting
+persists in localStorage.  Sound is only right at 100% - the worklet
+plays in real time - and is quiet at any other speed.
 
 The keyboard is the SDL front-end's (`Keymap.cpp` / `PhysicalKeyboard.cpp`)
 with `KeyboardEvent.code` for the scancode: a host key maps by character to
