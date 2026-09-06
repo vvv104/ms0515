@@ -10,7 +10,7 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Platform** (`src/platform/`) — Host abstractions kept out of binary sources. Split into two sublibs because needs barely overlap:
   - `platform/cli/` — raw stdin, signal handling, UTF-8 console setup.
   - `platform/gui/` — file dialogs, font discovery, GUI-subsystem console attach.
-- **CLI** (`src/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer.
+- **CLI** (`src/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer. Ctrl+\ brings the two-panel commander (`src/files/`) up over the running machine, NC-style: the machine's prompt is the command line, Ctrl+O hides the panels, mounts made there go into the machine. `ms0515_cli_core` (mounts applied to the Emulator, the machine's screen as FTXUI rows) is unit-tested in `cli/tests/`.
 - **Frontend** (`src/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
 - **Disk** (`src/disk/`) — Offline RT-11 / MS-0515 disk-image library (lib `ms0515_disk`): LBN→byte geometry mirroring the emulator FDC, directory parse, file read, and volume create/init/put/rm/squeeze + per-entry protect/date metadata. No emulator dependency.
 - **Web** (`src/web/`) — The browser build: the core + lib compiled with Emscripten behind a flat C API (`ms0515_web.cpp`), a static page (`www/`) that runs the machine in the tab, a Node smoke test. Configured only under the Emscripten toolchain (`src/profiles/emscripten`); no host layers.

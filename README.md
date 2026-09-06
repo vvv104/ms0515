@@ -116,13 +116,17 @@ are documented in the source comment at the top of
 
 Disks can also be mounted at runtime via the File menu.
 
-`ms0515-files` is the machine's disks in two panels, in the terminal: the
-same flags choose the images (or the ones `ms0515.yaml` remembers from the
-emulator), Alt+F1 / Alt+F2 choose a panel's disk or mount another image,
-F5/F6/F8 copy, move and delete between volumes, F1/F2 bring a host file in
-and put files out, F3 views a file in the machine's encodings, F9
-initialises a volume.  `ms0515-disk` does the
-same from the command line.
+In `ms0515-cli`, Ctrl+\ brings a two-panel commander up over the running
+machine, Norton Commander style: the panels show the RT-11 volumes of the
+mounted devices, the machine's own prompt stays under them as the command
+line (what you type and Enter go to RT-11, the panel keys to the panels),
+Ctrl+O hides the panels to see the whole screen, F10 takes them down.
+Alt+F1 / Alt+F2 choose a panel's disk or mount another image - into the
+running machine - F5/F6/F8 copy, move and delete between volumes, F1/F2
+bring a host file in and put files out, F3 views a file in the machine's
+encodings, F9 initialises a volume.  `ms0515-files` is the same panels
+as a standalone program over the images alone, and `ms0515-disk` does
+the same from the command line.
 
 ## Documentation
 
