@@ -5,6 +5,10 @@
 # binaries against this library means a flag added to ms0515.exe is
 # automatically supported by ms0515-cli.exe — and vice versa.
 #
+# It also composes the machine's picture (Screen) and writes it out as a
+# PNG, so that both the SDL frontend and the headless CLI show/save the
+# same frame from the same decoder.
+#
 # Strictly host-app code — no emulation primitives, no core API.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -13,7 +17,11 @@ add_library(ms0515_libapp STATIC
     src/Config.cpp
     src/Cli.cpp
     src/Disks.cpp
+    src/Screen.cpp
+    src/Screenshot.cpp
 )
+
+find_package(stb REQUIRED)
 
 target_include_directories(ms0515_libapp
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -24,6 +32,7 @@ target_include_directories(ms0515_libapp
 target_link_libraries(ms0515_libapp
     PUBLIC ms0515_lib
     PRIVATE fmt::fmt
+    PRIVATE stb::stb
 )
 
 if(MS0515_BUILD_TESTS)

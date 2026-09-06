@@ -15,6 +15,7 @@
 #include <ms0515/app/Config.hpp>
 #include <ms0515/app/Disks.hpp>
 #include <ms0515/app/Paths.hpp>
+#include <ms0515/app/Screen.hpp>
 
 #include <chrono>
 #include <cstdio>
@@ -65,6 +66,15 @@ options:
                           settings never leak into automation.
   --frames <N>            Stop after N emu frames (default: unlimited).
                           Useful for smoke-testing.
+  --screenshot <path>     Save the machine's screen as a PNG.  The
+                          terminal mirror only shows text; this is the
+                          real 640x400 picture, so graphical programs
+                          can be probed without a display.  Taken at
+                          --screenshot-frame N when given, and always
+                          on the way out when the run ends first (the
+                          quit hotkey, a HALT, the --frames cap).
+  --screenshot-frame <N>  Take the shot at frame N.  Implies --frames N
+                          when no cap was given, so the run ends there.
   --realtime              Throttle the emulator to the MS-0515's
                           original 50 Hz refresh, so OS-side timing
                           (sleep-driven UIs, timer-based code)
@@ -208,6 +218,19 @@ int main(int argc, char **argv)
     constexpr auto kFramePeriod = std::chrono::microseconds(20'000);  /* 50 Hz */
     auto nextFrameAt = Clock::now();
 
+    /* Frame at which --screenshot fires during the run; 0 = only at the
+     * end.  --screenshot-frame wins, else the --frames cap.  A run that
+     * ends before the shot frame — the quit hotkey, a HALT, no frame given
+     * at all — still gets its picture: the loop's last frame is saved on
+     * the way out.  That end-of-run shot is what makes headless probing
+     * deterministic: a driver types at wall-clock speed while the frames
+     * race ahead, so "frame N" lands at no predictable point of the
+     * dialogue, but "at exit" always lands after everything typed. */
+    const long shotAtFrame = cli.screenshotPath.empty() ? 0
+        : (cli.screenshotFrame > 0 ? cli.screenshotFrame : cli.maxFrames);
+    bool shotFailed = false;
+    bool shotTaken  = false;
+
     long frame_count = 0;
     while (!emu.halted() && !ms0515::cli::shouldQuit()) {
         if (cli.maxFrames > 0 && frame_count >= cli.maxFrames) break;
@@ -218,6 +241,19 @@ int main(int argc, char **argv)
             ms0515::cli::bridge::setInputReady(true);
         }
         ++frame_count;
+
+        /* Screenshot at the requested frame — same rule as the GUI:
+         * an explicit --screenshot-frame, else the --frames cap. */
+        if (shotAtFrame > 0 && frame_count == shotAtFrame) {
+            app::Screen screen;
+            screen.render(emu, static_cast<uint32_t>(frame_count));
+            if (app::saveScreenshot(screen, cli.screenshotPath).empty()) {
+                std::fprintf(stderr, "ms0515-cli: could not write %s\n",
+                             cli.screenshotPath.c_str());
+                shotFailed = true;
+            }
+            shotTaken = true;
+        }
 
         if (local.realtime) {
             nextFrameAt += kFramePeriod;
@@ -230,6 +266,18 @@ int main(int argc, char **argv)
                  * out, which would defeat the throttle. */
                 nextFrameAt = now;
             }
+        }
+    }
+
+    /* The run is over and no shot was taken during it — save the frame it
+     * ended on.  See the note at shotAtFrame. */
+    if (!cli.screenshotPath.empty() && !shotTaken) {
+        app::Screen screen;
+        screen.render(emu, static_cast<uint32_t>(frame_count));
+        if (app::saveScreenshot(screen, cli.screenshotPath).empty()) {
+            std::fprintf(stderr, "ms0515-cli: could not write %s\n",
+                         cli.screenshotPath.c_str());
+            shotFailed = true;
         }
     }
 
@@ -251,5 +299,5 @@ int main(int argc, char **argv)
             "\nms0515-cli: stopped after %ld frames (--frames cap)\n",
             frame_count);
     }
-    return 0;
+    return shotFailed ? 1 : 0;
 }

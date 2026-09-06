@@ -427,3 +427,48 @@ side so the protection's sector read returns real bytes.
   of ШЩЧЭ; check whether one releases the host Shift before sending
   and the other doesn't.
 
+
+
+## RESOLVED: the C* "crashes" were a missing resident, not a core bug
+
+The 23 per-instruction programs (`CADD.SAV`, `CMOV.SAV`, ...) died with
+what was read as a trap through vector 100 - and an investigation went
+after the core's interrupt-priority modeling.  Both readings were wrong.
+
+The monitor prints the PC as six digits, so `10001226` is **vector 10,
+PC 001226** - the reserved-instruction trap.  The programs are
+*instruction timing meters*: their bodies are packed with EIS words
+(MUL/DIV/ASH/ASHC) the KR1807VM1 does not implement, and they measure
+cycles per addressing mode against the 50 Hz clock (that is why they
+take over vector 100 - it is their timebase).  On the real machine the
+missing instructions are emulated by a resident, shipped in two forms:
+the `EM.SYS` handler (`SET EM ON` - the canonical use, per Alex_K's
+zx-pk post of 28.04.2026, thread 15146 p.31: `SET EM ON` / `GET CMOV` /
+`D 1002=44760` / `ST`) and the loadable `GETEML.SAV`.  GETEML's bytes
+hold compare constants for the whole missing set (070000/071000/072000/
+073000 and 075000..075030); EM.SYS is an independent implementation of
+the same job.  With either resident, CMOV prints its full timing matrix
+in our emulator - **the core's trap-10 behaviour was authentic all
+along.**
+
+The earlier note here blaming `cpu_check_interrupts` reading an
+interrupt's priority from the vector+2 word is withdrawn as the cause of
+this; that modeling question stands on its own merits but has no known
+victim.
+
+Worth doing someday: run the C* timing matrices in the emulator and
+compare against Alex_K's real-hardware numbers (7.5 MHz) - a free
+cycle-accuracy audit of the core.
+
+
+## WITHDRAWN: the startup-file BLACK crash was not a core defect
+
+A synthetic single-sided rebuild of vvv's disk1 crashed into ODT at
+026454 when its startup file ran BLACK.SAV, and this was briefly recorded
+as an open core question.  The real restored disk
+(`src/assets/disks/vvv/disk1.dsk`) runs the *same* BLACK build (17c2870)
+from the same startup line and boots clean through to DATIME - so the
+anomaly belonged to the synthetic rebuild's configuration (a different
+DZ build, single-sided mount), not to the emulator.  Kept here as a
+reminder that a defect reproduced only on a synthetic setup accuses the
+setup first.

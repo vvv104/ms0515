@@ -6,7 +6,7 @@
 Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Core** (`src/core/`) — Pure C11, zero OS deps. Fully implemented and verified.
 - **Lib** (`src/lib/`) — C++ wrapper: Emulator, Debugger, Disassembler, GDB RSP.
-- **Libapp** (`src/libapp/`) — Shared host-side app utilities: filesystem paths, YAML config loader/writer, CLI argument parser, disk-mount helpers. Linked by both binaries so any flag added to one is automatically supported by the other. Strictly host-app code — no emulation primitives, no core API.
+- **Libapp** (`src/libapp/`) — Shared host-side app utilities: filesystem paths, YAML config loader/writer, CLI argument parser, disk-mount helpers, screen composition (VRAM→RGBA) and PNG screenshots. Linked by both binaries so any flag added to one is automatically supported by the other. Strictly host-app code — no emulation primitives, no core API.
 - **Platform** (`src/platform/`) — Host abstractions kept out of binary sources. Split into two sublibs because needs barely overlap:
   - `platform/cli/` — raw stdin, signal handling, UTF-8 console setup.
   - `platform/gui/` — file dialogs, font discovery, GUI-subsystem console attach.
@@ -53,7 +53,7 @@ src/                — emulator source code and build files
   core/tests/       — pure-core unit tests (link only against ms0515_core)
   lib/              — C++ wrapper (Emulator, Debugger, Disassembler, GdbStub)
   lib/tests/        — lib-level tests (Emulator/Terminal/KeyboardLayout/...) + disk fixtures
-  libapp/           — shared host-app utilities (Paths, Config, Cli, Disks)
+  libapp/           — shared host-app utilities (Paths, Config, Cli, Disks, Screen)
   libapp/tests/     — libapp unit tests (paths/config/cli/disks)
   disk/             — offline RT-11 disk-image lib (Layout, Directory, Image, Build)
   disk/tests/       — disk lib unit tests

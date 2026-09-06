@@ -13,6 +13,7 @@ add_executable(ms0515_libapp_tests
     test_config.cpp
     test_cli.cpp
     test_disks.cpp
+    test_screen.cpp
 )
 
 target_compile_definitions(ms0515_libapp_tests PRIVATE

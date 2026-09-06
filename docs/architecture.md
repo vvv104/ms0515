@@ -114,6 +114,10 @@ Headless text-mode session over the same emulator core:
 - KOI-8R ↔ host encoding conversion
 - Same argument parser and config loader as the frontend (via `libapp`)
 - Console setup, signal handling via `platform/cli`
+- `--screenshot` saves the real 640x400 picture as a PNG, decoded by the
+  same `libapp` `Screen` the GUI displays.  The terminal mirror only carries
+  text, so this is how a graphical guest program is probed without a display.
+
 
 ### Offline Disk Tooling — `ms0515-disk` (C++)
 
