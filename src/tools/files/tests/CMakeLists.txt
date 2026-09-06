@@ -10,6 +10,7 @@ add_executable(ms0515_files_tests
     test_main.cpp
     test_location.cpp
     test_mounts.cpp
+    test_keys.cpp
     test_panel.cpp
     test_ops.cpp
     test_viewer.cpp

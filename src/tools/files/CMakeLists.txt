@@ -9,6 +9,7 @@
 add_library(ms0515_files_core STATIC
     Location.cpp
     Mounts.cpp
+    Keys.cpp
     Panel.cpp
     Ops.cpp
     Viewer.cpp

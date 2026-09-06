@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iterator>
 #include <system_error>
 
 namespace ms0515::files {
@@ -206,6 +207,37 @@ std::vector<std::string> completePath(const std::string &prefix)
         const auto size = entry.file_size(ec);
         if (!ec && size > 0 && size % disk::kBlock == 0) out.push_back(entry.path().string());
     }
+    return out;
+}
+
+std::vector<HostEntry> listImages(const std::filesystem::path &dir)
+{
+    namespace fs = std::filesystem;
+    const auto utf8 = [](const fs::path &p) { const auto u = p.u8string(); return std::string(u.begin(), u.end()); };
+    std::vector<HostEntry> dirs, files;
+    std::error_code iterEc;
+    for (const auto &entry : fs::directory_iterator(dir, iterEc)) {
+        std::error_code ec;
+        HostEntry h;
+        h.path = entry.path();
+        h.name = utf8(entry.path().filename());
+        if (entry.is_directory(ec)) { h.directory = true; dirs.push_back(std::move(h)); continue; }
+        h.bytes = entry.file_size(ec);
+        if (!ec && h.bytes > 0 && h.bytes % disk::kBlock == 0) files.push_back(std::move(h));
+    }
+    const auto byName = [](const HostEntry &a, const HostEntry &b) { return a.name < b.name; };
+    std::sort(dirs.begin(), dirs.end(), byName);
+    std::sort(files.begin(), files.end(), byName);
+    std::vector<HostEntry> out;
+    if (!iterEc && dir.has_parent_path() && dir.parent_path() != dir) {
+        HostEntry up;
+        up.path = dir.parent_path();
+        up.name = "..";
+        up.directory = true;
+        out.push_back(std::move(up));
+    }
+    out.insert(out.end(), std::make_move_iterator(dirs.begin()), std::make_move_iterator(dirs.end()));
+    out.insert(out.end(), std::make_move_iterator(files.begin()), std::make_move_iterator(files.end()));
     return out;
 }
 

@@ -1,12 +1,19 @@
 /*
  * Tui.cpp — two panels, a key bar, dialogs and the viewer, drawn with
- * FTXUI.  The keys are the web commander's: F1 from the host, F2 to the
- * host, F3 view, F4 the disks (mount / choose a device), F5 copy, F6
- * rename / move, F7 squeeze, F8 delete, F9 init, F10 quit; Tab switches
- * the panel, Insert marks, Enter views.
+ * FTXUI in the blue of the classic commanders.  The keys are the web
+ * commander's: F1 from the host, F2 to the host, F3 view, F5 copy, F6
+ * rename / move, F7 squeeze, F8 delete, F9 init, F10 quit (asked first);
+ * Tab switches the panel, Insert marks, Enter views.
+ *
+ * Alt+F1 / Alt+F2 (F4 for the panel in use) choose the left / right
+ * panel's disk: one of the mounted devices, or another image - picked
+ * from a listing of the host directory that stands in the panel for the
+ * moment, the only time the host's files are on screen; the device then
+ * opens where the listing was.
  */
 #include "Tui.hpp"
 
+#include "Keys.hpp"
 #include "Ops.hpp"
 #include "Panel.hpp"
 #include "Viewer.hpp"
@@ -24,9 +31,11 @@
 #include <algorithm>
 #include <chrono>
 #include <ctime>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace ms0515::files {
@@ -87,6 +96,26 @@ struct ViewState {
     std::string lastSearch;
 };
 
+/* A panel picking an image to mount: the host directory it lists. */
+struct HostBrowse {
+    std::filesystem::path dir;
+    std::vector<HostEntry> items;
+    int cursor = 0;
+    int top = 0;
+};
+
+/* The palette: blue panels, a cyan cursor and title, grey dialogs. */
+const Decorator kPanel   = bgcolor(Color::Blue) | color(Color::White);
+const Decorator kCursor  = bgcolor(Color::Cyan) | color(Color::Black);
+const Decorator kKeyName = bgcolor(Color::Cyan) | color(Color::Black);
+const Decorator kDialog  = bgcolor(Color::GrayLight) | color(Color::Black);
+
+std::string utf8(const std::filesystem::path &p)
+{
+    const auto u = p.u8string();
+    return std::string(u.begin(), u.end());
+}
+
 class Tui {
 public:
     Tui(Mounts mounts, app::Config &config) : mounts_(std::move(mounts)), config_(config) {}
@@ -100,6 +129,8 @@ private:
     std::string status_;
     std::optional<Dialog> dialog_;
     std::optional<ViewState> view_;
+    std::optional<HostBrowse> browse_[2];
+    std::filesystem::path lastDir_;      /* where the picker starts */
     ScreenInteractive screen_ = ScreenInteractive::Fullscreen();
 
     [[nodiscard]] Panel &panel() { return panels_[active_]; }
@@ -109,6 +140,7 @@ private:
     /* drawing */
     Element render();
     Element renderPanel(int index);
+    Element renderHost(int index);
     Element renderKeyBar() const;
     Element renderDialog() const;
     Element renderViewer() const;
@@ -116,15 +148,17 @@ private:
     /* keys */
     bool onEvent(const Event &e);
     bool onBrowseKey(const Event &e);
+    bool onHostKey(const Event &e);
     bool onDialogKey(const Event &e);
     bool onViewerKey(const Event &e);
     void completeInput();
 
     /* the actions behind the keys */
-    void openDevices();
+    void openDevices(int panelIndex);
     void showDevice(const Device &device);
     void refreshPanels();
-    void askMount(Slot slot);
+    void startHostBrowse(int panelIndex, const std::filesystem::path &dir);
+    void mountPicked(int panelIndex, const std::filesystem::path &image);
     void doMount(Slot slot, const std::string &path, int side, bool force);
     void doImport();
     void doExport();
@@ -149,7 +183,10 @@ int Tui::run()
     const auto devices = mounts_.devices();
     if (!devices.empty()) showDevice(devices[0]);
     if (devices.size() > 1) { active_ = 1; showDevice(devices[1]); active_ = 0; }
-    status_ = devices.empty() ? "no disks mounted - F4 mounts an image" : "F4 the disks, Tab the other panel, F10 quits";
+    std::error_code ec;
+    lastDir_ = devices.empty() ? std::filesystem::current_path(ec) : devices[0].image.parent_path();
+    status_ = devices.empty() ? "no disks mounted - Alt+F1 / Alt+F2 mount an image into the left / right panel"
+                              : "Alt+F1 / Alt+F2 the left / right panel's disk, Tab the other panel, F10 quits";
     auto component = Renderer([this] { return render(); })
                    | CatchEvent([this](const Event &e) { return onEvent(e); });
     screen_.Loop(component);
@@ -167,6 +204,7 @@ Element Tui::render()
 
 Element Tui::renderPanel(int index)
 {
+    if (browse_[static_cast<size_t>(index)]) return renderHost(index);
     Panel &p = panels_[index];
     const bool isActive = index == active_;
     const int rows = panelRows();
@@ -179,15 +217,35 @@ Element Tui::renderPanel(int index)
         std::string line = fmt::format(" {:<10} {:>5} {:>10} {} ", e.name, e.blocks, e.date, e.protectedFlag ? "P" : " ");
         Element el = text(line);
         if (p.isMarked(e.name)) el = el | color(Color::Yellow) | bold;
-        if (i == p.cursor()) el = isActive ? el | inverted : el | underlined;
+        if (i == p.cursor()) el = isActive ? el | kCursor : el | underlined;
         lines.push_back(el);
     }
     Element title = text(" " + p.title() + " ") | bold;
-    if (isActive) title = title | inverted;
-    std::string foot = p.hasLocation() ? p.location().summary() : "F4 picks a disk";
+    if (isActive) title = title | kCursor;
+    std::string foot = p.hasLocation() ? p.location().summary() : (index == 0 ? "Alt+F1 picks a disk" : "Alt+F2 picks a disk");
     if (p.hasLocation() && !p.location().volumeId().empty()) foot += " - " + p.location().volumeId();
     if (p.markedCount()) foot += fmt::format(" - {} marked", p.markedCount());
-    return vbox({title | hcenter, separator(), vbox(lines) | flex, separator(), text(" " + foot)}) | border;
+    return vbox({title | hcenter, separator(), vbox(lines) | flex, separator(), text(" " + foot)}) | border | kPanel;
+}
+
+Element Tui::renderHost(int index)
+{
+    const HostBrowse &b = *browse_[static_cast<size_t>(index)];
+    const bool isActive = index == active_;
+    const int rows = panelRows();
+    Elements lines;
+    for (int i = b.top; i < b.top + rows; ++i) {
+        if (i >= static_cast<int>(b.items.size())) { lines.push_back(text("")); continue; }
+        const HostEntry &h = b.items[static_cast<size_t>(i)];
+        Element el = h.directory ? text(fmt::format(" {:<24.24} <DIR>", h.name)) | bold
+                                 : text(fmt::format(" {:<24.24} {:>6} blk", h.name, h.bytes / 512));
+        if (i == b.cursor) el = isActive ? el | kCursor : el | underlined;
+        lines.push_back(el);
+    }
+    Element title = text(" host: " + utf8(b.dir) + " ") | bold;
+    if (isActive) title = title | kCursor;
+    const char *foot = " Enter mounts the image / enters the directory, Esc back";
+    return vbox({title | hcenter, separator(), vbox(lines) | flex, separator(), text(foot)}) | border | kPanel;
 }
 
 Element Tui::renderKeyBar() const
@@ -197,7 +255,7 @@ Element Tui::renderKeyBar() const
         {"6", "RenMov"}, {"7", "Squeez"}, {"8", "Delete"}, {"9", "Init"}, {"10", "Quit"}};
     Elements items;
     for (const auto &[num, name] : keys)
-        items.push_back(hbox({text(num), text(name) | inverted | flex}) | flex);
+        items.push_back(hbox({text(num), text(name) | kKeyName | flex}) | flex);
     return hbox(items);
 }
 
@@ -226,7 +284,7 @@ Element Tui::renderDialog() const
         body.push_back(text(""));
         body.push_back(hbox(buttons) | hcenter);
     }
-    return window(text(" " + d.title + " ") | bold, vbox(body)) | bgcolor(Color::Black) | color(Color::White);
+    return window(text(" " + d.title + " ") | bold, vbox(body)) | kDialog;
 }
 
 Element Tui::renderViewer() const
@@ -240,14 +298,47 @@ Element Tui::renderViewer() const
                                          viewName(v.opts.view), encodingName(v.opts.encoding),
                                          v.top + 1, v.lines.size());
     const std::string keys = " 1 text/octal/hex  2 wrap  4 encoding  5 go to  7 search  3/10 back ";
-    return vbox({text(head) | inverted, vbox(lines) | flex, text(keys) | inverted});
+    return vbox({text(head) | kCursor, vbox(lines) | flex | kPanel, text(keys) | kCursor});
 }
 
 bool Tui::onEvent(const Event &e)
 {
     if (dialog_) return onDialogKey(e);
     if (view_) return onViewerKey(e);
+    if (const auto fk = parseFunctionKey(e.input()); fk && fk->alt && (fk->number == 1 || fk->number == 2)) {
+        openDevices(fk->number - 1);
+        return true;
+    }
+    if (browse_[static_cast<size_t>(active_)]) return onHostKey(e);
     return onBrowseKey(e);
+}
+
+bool Tui::onHostKey(const Event &e)
+{
+    HostBrowse &b = *browse_[static_cast<size_t>(active_)];
+    const int n = static_cast<int>(b.items.size());
+    const int rows = panelRows();
+    const auto moveTo = [&](int cursor) {
+        b.cursor = std::clamp(cursor, 0, std::max(0, n - 1));
+        if (b.cursor < b.top) b.top = b.cursor;
+        if (b.cursor >= b.top + rows) b.top = b.cursor - rows + 1;
+    };
+    if (e == Event::Escape || e == Event::F10) { browse_[static_cast<size_t>(active_)].reset(); status_ = "nothing mounted"; return true; }
+    if (e == Event::Tab || e == Event::TabReverse) { active_ = 1 - active_; return true; }
+    if (e == Event::ArrowUp)   { moveTo(b.cursor - 1); return true; }
+    if (e == Event::ArrowDown) { moveTo(b.cursor + 1); return true; }
+    if (e == Event::PageUp)    { moveTo(b.cursor - (rows - 1)); return true; }
+    if (e == Event::PageDown)  { moveTo(b.cursor + (rows - 1)); return true; }
+    if (e == Event::Home)      { moveTo(0); return true; }
+    if (e == Event::End)       { moveTo(n - 1); return true; }
+    if (e == Event::Backspace) { startHostBrowse(active_, b.dir.parent_path()); return true; }
+    if (e == Event::Return && n > 0) {
+        const HostEntry h = b.items[static_cast<size_t>(b.cursor)];
+        if (h.directory) startHostBrowse(active_, h.path);
+        else mountPicked(active_, h.path);
+        return true;
+    }
+    return true;
 }
 
 bool Tui::onBrowseKey(const Event &e)
@@ -265,13 +356,16 @@ bool Tui::onBrowseKey(const Event &e)
     if (e == Event::F1)  { doImport(); return true; }
     if (e == Event::F2)  { doExport(); return true; }
     if (e == Event::F3)  { doView(); return true; }
-    if (e == Event::F4)  { openDevices(); return true; }
+    if (e == Event::F4)  { openDevices(active_); return true; }
     if (e == Event::F5)  { doCopy(false); return true; }
     if (e == Event::F6)  { doRename(); return true; }
     if (e == Event::F7)  { doSqueeze(); return true; }
     if (e == Event::F8)  { doDelete(); return true; }
     if (e == Event::F9)  { doInit(); return true; }
-    if (e == Event::F10 || e == Event::Escape) { screen_.ExitLoopClosure()(); return true; }
+    if (e == Event::F10) {
+        ask("Quit", {"Leave ms0515-files?"}, {"Yes", "No"}, [this](int c) { if (c == 0) screen_.ExitLoopClosure()(); });
+        return true;
+    }
     if (e == Event::Character('r') || e == Event::Character('R')) { refreshPanels(); return true; }
     return false;
 }
@@ -367,27 +461,35 @@ bool Tui::onViewerKey(const Event &e)
     return true;
 }
 
-void Tui::openDevices()
+void Tui::openDevices(int panelIndex)
 {
+    active_ = panelIndex;
     const auto devices = mounts_.devices();
     std::vector<std::string> items;
     for (const auto &d : devices) items.push_back(d.label());
+    items.push_back("Mount another image...");
     const auto forSlot = [&](Slot s, const char *name) {
-        const auto m = mounts_.mounted(s);
-        items.push_back(std::string(m ? "Mount another in " : "Mount ") + name + "...");
-        if (m) items.push_back(std::string("Unmount ") + name + " (" + m->image.filename().string() + ")");
+        if (const auto m = mounts_.mounted(s))
+            items.push_back(std::string("Unmount ") + name + " (" + m->image.filename().string() + ")");
     };
     forSlot(Slot::driveA, "drive A");
     forSlot(Slot::driveB, "drive B");
     forSlot(Slot::hd, "HD");
-    pick("Disks", items, [this, devices, items](int i) {
+    pick(panelIndex == 0 ? "Left panel" : "Right panel", items, [this, panelIndex, devices, items](int i) {
         if (i < 0) return;
-        if (i < static_cast<int>(devices.size())) { showDevice(devices[static_cast<size_t>(i)]); return; }
+        if (i < static_cast<int>(devices.size())) {
+            browse_[static_cast<size_t>(panelIndex)].reset();
+            showDevice(devices[static_cast<size_t>(i)]);
+            return;
+        }
         const std::string &item = items[static_cast<size_t>(i)];
+        if (item.rfind("Mount", 0) == 0) { startHostBrowse(panelIndex, lastDir_); return; }
         const Slot slot = item.find("drive A") != std::string::npos ? Slot::driveA
                         : item.find("drive B") != std::string::npos ? Slot::driveB : Slot::hd;
-        if (item.rfind("Unmount", 0) == 0) { mounts_.unmount(slot); mounts_.store(config_); refreshPanels(); status_ = item; return; }
-        askMount(slot);
+        mounts_.unmount(slot);
+        mounts_.store(config_);
+        refreshPanels();
+        status_ = item;
     });
 }
 
@@ -411,20 +513,46 @@ void Tui::refreshPanels()
     }
 }
 
-void Tui::askMount(Slot slot)
+void Tui::startHostBrowse(int panelIndex, const std::filesystem::path &dir)
 {
-    const char *name = slot == Slot::driveA ? "drive A" : slot == Slot::driveB ? "drive B" : "the HD";
-    prompt(std::string("Mount an image in ") + name, "the image file (Tab completes)", "", [this, slot](const std::string &path) {
-        if (path.empty()) return;
-        std::error_code ec;
-        const auto size = std::filesystem::file_size(path, ec);
-        if (ec) { message("Mount", {path + ": cannot read"}); return; }
-        if (slot != Slot::hd && size == 409600) {
-            ask("Mount", {Mounts::describe(path), "which side of the drive?"}, {"side 0", "side 1", "Cancel"},
-                [this, slot, path](int c) { if (c == 0 || c == 1) doMount(slot, path, c, false); });
+    HostBrowse b;
+    std::error_code ec;
+    b.dir = std::filesystem::canonical(dir, ec);
+    if (ec) b.dir = dir;
+    b.items = listImages(b.dir);
+    browse_[static_cast<size_t>(panelIndex)] = std::move(b);
+    active_ = panelIndex;
+    status_ = "pick the image to mount - Enter; Esc keeps the panel as it was";
+}
+
+/* An image chosen in the listing: which slot (and side) it goes into,
+ * then the mount, and the device opens in the panel that listed it. */
+void Tui::mountPicked(int panelIndex, const std::filesystem::path &image)
+{
+    lastDir_ = image.parent_path();
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(image, ec);
+    if (ec) { message("Mount", {image.string() + ": cannot read"}); return; }
+    const bool floppy = size == 409600 || size == 819200;
+    const std::vector<std::string> buttons = floppy ? std::vector<std::string>{"Drive A", "Drive B", "Cancel"}
+                                                    : std::vector<std::string>{"HD", "Cancel"};
+    const std::string path = image.string();
+    ask("Mount", {image.filename().string(), Mounts::describe(image), "where?"}, buttons,
+        [this, panelIndex, path, size, floppy](int c) {
+        const int cancel = floppy ? 2 : 1;
+        if (c < 0 || c == cancel) return;
+        const Slot slot = !floppy ? Slot::hd : c == 0 ? Slot::driveA : Slot::driveB;
+        auto go = [this, panelIndex, slot, path](int side) {
+            browse_[static_cast<size_t>(panelIndex)].reset();
+            active_ = panelIndex;
+            doMount(slot, path, side, false);
+        };
+        if (size == 409600) {
+            ask("Mount", {"which side of the drive?"}, {"side 0", "side 1", "Cancel"},
+                [go](int s) { if (s == 0 || s == 1) go(s); });
             return;
         }
-        doMount(slot, path, 0, false);
+        go(0);
     });
 }
 

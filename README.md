@@ -118,9 +118,10 @@ Disks can also be mounted at runtime via the File menu.
 
 `ms0515-files` is the machine's disks in two panels, in the terminal: the
 same flags choose the images (or the ones `ms0515.yaml` remembers from the
-emulator), F4 mounts another, F5/F6/F8 copy, move and delete between
-volumes, F1/F2 bring a host file in and put files out, F3 views a file in
-the machine's encodings, F9 initialises a volume.  `ms0515-disk` does the
+emulator), Alt+F1 / Alt+F2 choose a panel's disk or mount another image,
+F5/F6/F8 copy, move and delete between volumes, F1/F2 bring a host file in
+and put files out, F3 views a file in the machine's encodings, F9
+initialises a volume.  `ms0515-disk` does the
 same from the command line.
 
 ## Documentation

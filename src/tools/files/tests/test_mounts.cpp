@@ -136,3 +136,31 @@ TEST_CASE("completing a path lists the directories and image files that start wi
     CHECK(got == want);
     CHECK(completePath((s.dir() / "zzz").string()).empty());
 }
+
+TEST_CASE("listing a host directory for mounting: '..', the directories, then the image files, each group by name")
+{
+    Scratch s("listdir");
+    s.disk("test_osa.dsk", "osa.dsk");
+    s.disk("test_omega.dsk", "omega.dsk");
+    s.text("notes.txt", "x");                   /* not a 512-multiple: not an image */
+    s.subdir("zeta");
+    s.subdir("alpha");
+    const auto got = listImages(s.dir());
+    REQUIRE(got.size() == 5);
+    CHECK(got[0].name == "..");
+    CHECK(got[0].directory);
+    CHECK(got[0].path == s.dir().parent_path());
+    CHECK(got[1].name == "alpha");
+    CHECK(got[1].directory);
+    CHECK(got[2].name == "zeta");
+    CHECK(got[3].name == "omega.dsk");
+    CHECK_FALSE(got[3].directory);
+    CHECK(got[3].path == s.dir() / "omega.dsk");
+    CHECK(got[3].bytes == fs::file_size(s.dir() / "omega.dsk"));
+    CHECK(got[4].name == "osa.dsk");
+    /* a root has no '..' */
+    const auto root = listImages(s.dir().root_path());
+    CHECK((root.empty() || root[0].name != ".."));
+    /* a directory that is not there lists nothing */
+    CHECK(listImages(s.dir() / "nope").empty());
+}

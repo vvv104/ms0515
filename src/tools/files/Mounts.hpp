@@ -80,6 +80,20 @@ private:
  * (directories with a trailing separator, image files), for Tab. */
 [[nodiscard]] std::vector<std::string> completePath(const std::string &prefix);
 
+/* One line of the host listing a panel shows while an image is being
+ * picked for mounting - the only time the host's files are on screen. */
+struct HostEntry {
+    std::filesystem::path path;
+    std::string name;           /* UTF-8, for the screen; ".." for the parent */
+    bool directory = false;
+    uintmax_t bytes = 0;
+};
+
+/* `dir` for the picker: ".." (unless `dir` is a root), then the
+ * directories, then the files an image could be (512-byte multiples),
+ * each group by name.  An unreadable directory lists nothing. */
+[[nodiscard]] std::vector<HostEntry> listImages(const std::filesystem::path &dir);
+
 } /* namespace ms0515::files */
 
 #endif /* MS0515_FILES_MOUNTS_HPP */
