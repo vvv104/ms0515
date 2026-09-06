@@ -196,7 +196,8 @@ int Tui::run()
 Element Tui::render()
 {
     if (view_) return renderViewer();
-    Element panels = hbox({renderPanel(0) | flex, renderPanel(1) | flex});
+    const int left = screen_.dimx() / 2;   /* strictly halves, whatever the panels hold */
+    Element panels = hbox({renderPanel(0) | size(WIDTH, EQUAL, left), renderPanel(1) | size(WIDTH, EQUAL, screen_.dimx() - left)});
     Element page = vbox({panels | flex, text(" " + status_), renderKeyBar()});
     if (dialog_) return dbox({page, renderDialog() | center});
     return page;
@@ -217,7 +218,7 @@ Element Tui::renderPanel(int index)
         std::string line = fmt::format(" {:<10} {:>5} {:>10} {} ", e.name, e.blocks, e.date, e.protectedFlag ? "P" : " ");
         Element el = text(line);
         if (p.isMarked(e.name)) el = el | color(Color::Yellow) | bold;
-        if (i == p.cursor()) el = isActive ? el | kCursor : el | underlined;
+        if (i == p.cursor() && isActive) el = el | kCursor;   /* the other panel shows no cursor, as mc does */
         lines.push_back(el);
     }
     Element title = text(" " + p.title() + " ") | bold;
@@ -239,7 +240,7 @@ Element Tui::renderHost(int index)
         const HostEntry &h = b.items[static_cast<size_t>(i)];
         Element el = h.directory ? text(fmt::format(" {:<24.24} <DIR>", h.name)) | bold
                                  : text(fmt::format(" {:<24.24} {:>6} blk", h.name, h.bytes / 512));
-        if (i == b.cursor) el = isActive ? el | kCursor : el | underlined;
+        if (i == b.cursor && isActive) el = el | kCursor;
         lines.push_back(el);
     }
     Element title = text(" host: " + utf8(b.dir) + " ") | bold;
