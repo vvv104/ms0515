@@ -189,6 +189,7 @@ int Tui::run()
                               : "Alt+F1 / Alt+F2 the left / right panel's disk, Tab the other panel, F10 quits";
     auto component = Renderer([this] { return render(); })
                    | CatchEvent([this](const Event &e) { return onEvent(e); });
+    screen_.TrackMouse(false);   /* keyboard only - and a terminal left in mouse-tracking mode after a crash is a mess */
     screen_.Loop(component);
     return 0;
 }
