@@ -151,7 +151,7 @@ tool that read and write images directly, without running the machine.
 ### Terminal File Manager — `ms0515-files` (C++)
 
 Two panels over the machine's disks - never the host's file system - in
-the terminal, with the web commander's keys (`src/tools/files/`):
+the terminal, with the web commander's keys (`src/files/` as libraries, `src/tools/files/` the standalone binary):
 
 - The panels show the RT-11 volumes of the mounted devices, named as the
   guest names them: `DZ0:`/`DZ2:` (drive A's sides), `DZ1:`/`DZ3:`, `HD0:`,
@@ -171,7 +171,7 @@ the terminal, with the web commander's keys (`src/tools/files/`):
   unnamed.  A terminal never reports a modifier pressed on its own, so
   the key bar cannot relabel itself while Alt is held - only react to
   the key the modifier lands on.
-- `ms0515_files_core` — `Location` (a device's volume through `ms0515_disk`,
+- `ms0515_files` — `Location` (a device's volume through `ms0515_disk`,
   every change written back to the image at once), `Mounts` (slots →
   devices by content), `Panel` (cursor, marks, selection), `Ops` (copy /
   move / delete / rename / protect between volumes, import / export, with

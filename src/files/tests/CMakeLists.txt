@@ -1,5 +1,5 @@
-# ── ms0515_files_core unit tests ─────────────────────────────────────────────
-# The panel model, the operations and the viewer, exercised on scratch
+# ── ms0515_files unit tests ─────────────────────────────────────────────
+# The file manager's model, exercised on scratch
 # copies of the lib's fixture disks and on scratch host directories under
 # the build tree - no terminal, no emulator.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -23,7 +23,7 @@ target_compile_definitions(ms0515_files_tests PRIVATE
 
 target_link_libraries(ms0515_files_tests
     PRIVATE
-        ms0515_files_core
+        ms0515_files
         doctest::doctest
 )
 
