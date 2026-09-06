@@ -38,8 +38,35 @@ using namespace ftxui;
 
 namespace {
 
-/* A vertical rule between the columns, as mc draws them. */
-constexpr const char *kCol = "\xE2\x94\x82";
+/* One column of the listing: the header, then a cell per row, the
+ * cursor row and the marked rows coloured cell by cell so the bar runs
+ * across the rules between the columns, as mc draws it. */
+struct Column {
+    std::string header;
+    int width = 0;                  /* 0: takes what is left */
+    std::vector<std::string> cells;
+    std::vector<Decorator> looks;   /* per cell */
+};
+
+Element renderColumn(const Column &c)
+{
+    Elements cells = {text(c.header) | kHeader};
+    for (size_t i = 0; i < c.cells.size(); ++i) cells.push_back(text(c.cells[i]) | c.looks[i]);
+    Element v = vbox(std::move(cells));
+    return c.width > 0 ? v | size(WIDTH, EQUAL, c.width) : v | flex;
+}
+
+/* The columns side by side with a rule between each two, the whole
+ * height of the listing. */
+Element renderColumns(const std::vector<Column> &columns)
+{
+    Elements parts;
+    for (size_t i = 0; i < columns.size(); ++i) {
+        if (i > 0) parts.push_back(separator());
+        parts.push_back(renderColumn(columns[i]));
+    }
+    return hbox(std::move(parts));
+}
 
 const std::vector<std::pair<const char *, const char *>> kPanelKeys = {
     {"1", "Help"}, {"2", "Menu"}, {"3", "View"}, {"4", "Disk"}, {"5", "Copy"},
@@ -132,13 +159,14 @@ Element Tui::renderMenuBar() const
 }
 
 /* mc's frame: the title on the top border, the summary on the bottom one;
- * inside, the column header, the rows, a rule (carrying the marks summary
- * when there is one) and the line of the current entry. */
-Element Tui::frame(bool isActive, const std::string &title, Elements lines, Element rule, Element info, const std::string &foot)
+ * inside, the columns, a rule (carrying the marks summary when there is
+ * one) and the line of the current entry.  No bold on the title: bold
+ * black is grey on most terminals. */
+Element Tui::frame(bool isActive, const std::string &title, Element columns, Element rule, Element info, const std::string &foot)
 {
-    Element head = text(" " + title + " ") | bold;
+    Element head = text(" " + title + " ");
     if (isActive) head = head | kCursor;
-    Element body = vbox({vbox(std::move(lines)) | flex, std::move(rule), std::move(info)});
+    Element body = vbox({std::move(columns) | flex, std::move(rule), std::move(info)});
     Element panel = window(head | hcenter, body) | kPanel;
     /* only the text is painted: a colour on the whole overlay would
      * repaint every cell of the panel, cursor and headers included */
@@ -152,16 +180,18 @@ Element Tui::renderPanel(int index)
     Panel &p = panels_[index];
     const bool isActive = index == active_;
     const int rows = panelRows();
-    Elements lines = {text(fmt::format(" {:<10}{}{:>5}{}{:>10}{}{}", "Name", kCol, "Blk", kCol, "Date", kCol, "P")) | kHeader};
+    std::vector<Column> cols = {{" Name", 0, {}, {}}, {"  Blk", 5, {}, {}}, {"   Date", 10, {}, {}}, {"P", 1, {}, {}}};
     const auto &entries = p.entries();
     const int top = p.scrollTop(rows);
     for (int i = top; i < top + rows; ++i) {
-        if (i >= static_cast<int>(entries.size())) { lines.push_back(text("")); continue; }
-        const Entry &e = entries[static_cast<size_t>(i)];
-        Element el = text(fmt::format(" {:<10}{}{:>5}{}{:>10}{}{}", e.name, kCol, e.blocks, kCol, e.date, kCol, e.protectedFlag ? "P" : " "));
-        if (p.isMarked(e.name)) el = el | kMarked;
-        if (i == p.cursor() && isActive) el = el | kCursor;   /* the other panel shows no cursor, as mc does */
-        lines.push_back(el);
+        const bool have = i < static_cast<int>(entries.size());
+        const Entry e = have ? entries[static_cast<size_t>(i)] : Entry{};
+        Decorator look = nothing;
+        if (have && p.isMarked(e.name)) look = kMarked;
+        if (have && i == p.cursor() && isActive) look = look | kCursor;   /* the other panel shows no cursor, as mc does */
+        const std::vector<std::string> cells = {have ? " " + e.name : "", have ? fmt::format("{:>5}", e.blocks) : "",
+                                                have ? e.date : "", have && e.protectedFlag ? "P" : ""};
+        for (size_t c = 0; c < cols.size(); ++c) { cols[c].cells.push_back(cells[c]); cols[c].looks.push_back(look); }
     }
     Element rule = separator();
     if (p.markedCount())
@@ -170,7 +200,7 @@ Element Tui::renderPanel(int index)
     if (const auto cur = p.current()) current = fmt::format(" {:<10} {:>5} blocks  {}", cur->name, cur->blocks, cur->date);
     std::string foot = p.hasLocation() ? p.location().summary() : (index == 0 ? "Alt-F1 picks a disk" : "Alt-F2 picks a disk");
     if (p.hasLocation() && !p.location().volumeId().empty()) foot += " - " + p.location().volumeId();
-    return frame(isActive, p.title(), std::move(lines), rule, text(current), foot);
+    return frame(isActive, p.title(), renderColumns(cols), rule, text(current), foot);
 }
 
 Element Tui::renderHost(int index)
@@ -178,18 +208,19 @@ Element Tui::renderHost(int index)
     const HostBrowse &b = *browse_[static_cast<size_t>(index)];
     const bool isActive = index == active_;
     const int rows = panelRows();
-    Elements lines = {text(fmt::format(" {:<24}{}{:>6}", "Name", kCol, "Size")) | kHeader};
+    std::vector<Column> cols = {{" Name", 0, {}, {}}, {"  Size", 9, {}, {}}};
     for (int i = b.top; i < b.top + rows; ++i) {
-        if (i >= static_cast<int>(b.items.size())) { lines.push_back(text("")); continue; }
-        const HostEntry &h = b.items[static_cast<size_t>(i)];
-        Element el = h.directory ? text(fmt::format(" {:<24.24}{} <DIR>", h.name, kCol)) | bold
-                                 : text(fmt::format(" {:<24.24}{}{:>6} blk", h.name, kCol, h.bytes / 512));
-        if (i == b.cursor && isActive) el = el | kCursor;
-        lines.push_back(el);
+        const bool have = i < static_cast<int>(b.items.size());
+        const HostEntry h = have ? b.items[static_cast<size_t>(i)] : HostEntry{};
+        Decorator look = have && h.directory ? bold : nothing;
+        if (have && i == b.cursor && isActive) look = look | kCursor;
+        cols[0].cells.push_back(have ? " " + h.name : "");
+        cols[1].cells.push_back(!have ? "" : h.directory ? "    <DIR>" : fmt::format("{:>5} blk", h.bytes / 512));
+        for (auto &c : cols) c.looks.push_back(look);
     }
     std::string current;
     if (!b.items.empty()) current = " " + b.items[static_cast<size_t>(b.cursor)].name;
-    return frame(isActive, "host: " + utf8(b.dir), std::move(lines), separator(), text(current), "Enter mounts / enters, Esc back");
+    return frame(isActive, "host: " + utf8(b.dir), renderColumns(cols), separator(), text(current), "Enter mounts / enters, Esc back");
 }
 
 Element Tui::renderKeyBar(const std::vector<std::pair<const char *, const char *>> &keys) const

@@ -75,7 +75,7 @@ Element Tui::renderDialog() const
         body.push_back(separator());
         body.push_back(hbox(buttons) | hcenter);
     }
-    return window(text(" " + d.title + " ") | bold | hcenter, vbox(body) | size(WIDTH, GREATER_THAN, kDialogWidth)) | kDialog;
+    return window(text(" " + d.title + " ") | hcenter, vbox(body) | size(WIDTH, GREATER_THAN, kDialogWidth)) | kDialog;
 }
 
 /* The menu pulled down: a box under its name on the bar. */

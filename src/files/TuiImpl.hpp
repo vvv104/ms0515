@@ -178,7 +178,7 @@ public:
     Element renderMenuBar() const;
     Element renderPanel(int index);
     Element renderHost(int index);
-    Element frame(bool isActive, const std::string &title, Elements lines, Element rule, Element info, const std::string &foot);
+    Element frame(bool isActive, const std::string &title, Element columns, Element rule, Element info, const std::string &foot);
     Element renderKeyBar(const std::vector<std::pair<const char *, const char *>> &keys) const;
 
     /* keys - Commander.cpp */
