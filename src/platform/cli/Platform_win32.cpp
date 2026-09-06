@@ -205,6 +205,19 @@ size_t keyEventBytes(const KEY_EVENT_RECORD &ke, uint8_t *buf, size_t cap)
         }
     }
 
+    /* Ctrl with the bracket keys under a layout that has no control
+     * character for them (the Russian layout puts letters on [ ] and \): the physical
+     * key decides, so Ctrl+] quits and Ctrl+\ toggles the commander
+     * whatever the layout. */
+    if (wc == 0 && (ctl & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0) {
+        switch (vkey) {
+        case VK_OEM_4: wc = 0x1B; break;   /* [ */
+        case VK_OEM_5: wc = 0x1C; break;   /* \ */
+        case VK_OEM_6: wc = 0x1D; break;   /* ] */
+        default: break;
+        }
+    }
+
     /* Fall back to the physical-key VK code only when the OS
      * gave us no Unicode character at all — typically because
      * a layout doesn't define one for a particular key.  We
