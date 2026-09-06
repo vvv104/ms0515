@@ -1,6 +1,6 @@
 /*
- * Tui.cpp — two panels, a key bar, dialogs and the viewer, drawn with
- * FTXUI in the blue of the classic commanders.  The keys are the web
+ * Commander.cpp — two panels, a key bar, dialogs and the viewer, drawn
+ * with FTXUI in the blue of the classic commanders.  The keys are the web
  * commander's: F1 from the host, F2 to the host, F3 view, F5 copy, F6
  * rename / move, F7 squeeze, F8 delete, F9 init, F10 quit (asked first);
  * Tab switches the panel, Insert marks, Enter views.
@@ -11,7 +11,7 @@
  * moment, the only time the host's files are on screen; the device then
  * opens where the listing was.
  */
-#include "Tui.hpp"
+#include "Commander.hpp"
 
 #include "Keys.hpp"
 #include "Ops.hpp"
@@ -104,6 +104,9 @@ struct HostBrowse {
     int top = 0;
 };
 
+/* How many of the guest's rows go under the panels when the host gives them. */
+constexpr int kGuestRows = 2;
+
 /* The palette: blue panels, a cyan cursor and title, grey dialogs. */
 const Decorator kPanel   = bgcolor(Color::Blue) | color(Color::White);
 const Decorator kCursor  = bgcolor(Color::Cyan) | color(Color::Black);
@@ -118,12 +121,24 @@ std::string utf8(const std::filesystem::path &p)
 
 class Tui {
 public:
-    Tui(Mounts mounts, app::Config &config) : mounts_(std::move(mounts)), config_(config) {}
-    int run();
+    Tui(Mounts mounts, app::Config &config, CommanderHooks hooks);
+
+    Element render(Element guest);
+    bool onEvent(const Event &e);
+    [[nodiscard]] bool quitRequested() const noexcept { return quit_; }
+    [[nodiscard]] bool modal() const noexcept { return dialog_ || view_ || browse_[0] || browse_[1]; }
+    [[nodiscard]] const Mounts &mounts() const noexcept { return mounts_; }
+    void setSize(int width, int height) noexcept { width_ = width; height_ = height; }
+    void refreshPanels();
 
 private:
     Mounts mounts_;
     app::Config &config_;
+    CommanderHooks hooks_;
+    int width_ = 80;
+    int height_ = 25;
+    int guestRows_ = 0;                  /* rows of the host's screen under the panels */
+    bool quit_ = false;
     Panel panels_[2];
     int active_ = 0;
     std::string status_;
@@ -131,14 +146,12 @@ private:
     std::optional<ViewState> view_;
     std::optional<HostBrowse> browse_[2];
     std::filesystem::path lastDir_;      /* where the picker starts */
-    ScreenInteractive screen_ = ScreenInteractive::Fullscreen();
 
     [[nodiscard]] Panel &panel() { return panels_[active_]; }
     [[nodiscard]] Panel &other() { return panels_[1 - active_]; }
-    [[nodiscard]] int panelRows() const { return std::max(3, screen_.dimy() - 6); }
+    [[nodiscard]] int panelRows() const { return std::max(3, height_ - 6 - guestRows_); }
 
     /* drawing */
-    Element render();
     Element renderPanel(int index);
     Element renderHost(int index);
     Element renderKeyBar() const;
@@ -146,7 +159,6 @@ private:
     Element renderViewer() const;
 
     /* keys */
-    bool onEvent(const Event &e);
     bool onBrowseKey(const Event &e);
     bool onHostKey(const Event &e);
     bool onDialogKey(const Event &e);
@@ -156,7 +168,7 @@ private:
     /* the actions behind the keys */
     void openDevices(int panelIndex);
     void showDevice(const Device &device);
-    void refreshPanels();
+    void changed(Panel &p);
     void startHostBrowse(int panelIndex, const std::filesystem::path &dir);
     void mountPicked(int panelIndex, const std::filesystem::path &image);
     void doMount(Slot slot, const std::string &path, int side, bool force);
@@ -178,7 +190,8 @@ private:
     void pick(const std::string &title, std::vector<std::string> items, std::function<void(int)> onDone);
 };
 
-int Tui::run()
+Tui::Tui(Mounts mounts, app::Config &config, CommanderHooks hooks)
+    : mounts_(std::move(mounts)), config_(config), hooks_(std::move(hooks))
 {
     const auto devices = mounts_.devices();
     if (!devices.empty()) showDevice(devices[0]);
@@ -186,20 +199,22 @@ int Tui::run()
     std::error_code ec;
     lastDir_ = devices.empty() ? std::filesystem::current_path(ec) : devices[0].image.parent_path();
     status_ = devices.empty() ? "no disks mounted - Alt+F1 / Alt+F2 mount an image into the left / right panel"
-                              : "Alt+F1 / Alt+F2 the left / right panel's disk, Tab the other panel, F10 quits";
-    auto component = Renderer([this] { return render(); })
-                   | CatchEvent([this](const Event &e) { return onEvent(e); });
-    screen_.TrackMouse(false);   /* keyboard only - and a terminal left in mouse-tracking mode after a crash is a mess */
-    screen_.Loop(component);
-    return 0;
+                              : "Alt+F1 / Alt+F2 the left / right panel's disk, Tab the other panel, F10 leaves";
 }
 
-Element Tui::render()
+/* The guest's rows go between the panels and the status line: NC's
+ * command line, here the machine's own prompt. */
+Element Tui::render(Element guest)
 {
     if (view_) return renderViewer();
-    const int left = screen_.dimx() / 2;   /* strictly halves, whatever the panels hold */
-    Element panels = hbox({renderPanel(0) | size(WIDTH, EQUAL, left), renderPanel(1) | size(WIDTH, EQUAL, screen_.dimx() - left)});
-    Element page = vbox({panels | flex, text(" " + status_), renderKeyBar()});
+    guestRows_ = 0;
+    const int left = width_ / 2;   /* strictly halves, whatever the panels hold */
+    Element panels = hbox({renderPanel(0) | size(WIDTH, EQUAL, left), renderPanel(1) | size(WIDTH, EQUAL, width_ - left)});
+    Elements rows = {panels | flex};
+    if (guest) { rows.push_back(guest); guestRows_ = kGuestRows; }
+    rows.push_back(text(" " + status_));
+    rows.push_back(renderKeyBar());
+    Element page = vbox(rows);
     if (dialog_) return dbox({page, renderDialog() | center});
     return page;
 }
@@ -292,7 +307,7 @@ Element Tui::renderDialog() const
 Element Tui::renderViewer() const
 {
     const ViewState &v = *view_;
-    const int rows = std::max(1, screen_.dimy() - 2);
+    const int rows = std::max(1, height_ - 2);
     Elements lines;
     for (int i = v.top; i < v.top + rows; ++i)
         lines.push_back(text(i < static_cast<int>(v.lines.size()) ? v.lines[static_cast<size_t>(i)] : ""));
@@ -365,7 +380,8 @@ bool Tui::onBrowseKey(const Event &e)
     if (e == Event::F8)  { doDelete(); return true; }
     if (e == Event::F9)  { doInit(); return true; }
     if (e == Event::F10) {
-        ask("Quit", {"Leave ms0515-files?"}, {"Yes", "No"}, [this](int c) { if (c == 0) screen_.ExitLoopClosure()(); });
+        if (hooks_.quitQuestion.empty()) { quit_ = true; return true; }
+        ask("Quit", {hooks_.quitQuestion}, {"Yes", "No"}, [this](int c) { if (c == 0) quit_ = true; });
         return true;
     }
     if (e == Event::Character('r') || e == Event::Character('R')) { refreshPanels(); return true; }
@@ -423,7 +439,7 @@ void Tui::completeInput()
 bool Tui::onViewerKey(const Event &e)
 {
     ViewState &v = *view_;
-    const int rows = std::max(1, screen_.dimy() - 2);
+    const int rows = std::max(1, height_ - 2);
     const int maxTop = std::max(0, static_cast<int>(v.lines.size()) - rows);
     auto rerender = [&] { v.lines = renderLines(v.bytes, v.opts); v.top = std::min(v.top, std::max(0, static_cast<int>(v.lines.size()) - rows)); };
     if (e == Event::Escape || e == Event::F3 || e == Event::F10) { view_.reset(); return true; }
@@ -490,6 +506,7 @@ void Tui::openDevices(int panelIndex)
                         : item.find("drive B") != std::string::npos ? Slot::driveB : Slot::hd;
         mounts_.unmount(slot);
         mounts_.store(config_);
+        if (hooks_.mountsChanged) hooks_.mountsChanged();
         refreshPanels();
         status_ = item;
     });
@@ -501,6 +518,16 @@ void Tui::showDevice(const Device &device)
     if (!loc) { status_ = device.label() + ": cannot open"; return; }
     panel().show(*loc);
     status_ = device.label();
+}
+
+/* A volume was written: re-read it here, and tell the host, whose
+ * machine may keep a copy of the image. */
+void Tui::changed(Panel &p)
+{
+    p.reload();
+    if (p.hasLocation() && hooks_.imageChanged) hooks_.imageChanged(p.location().device().image);
+    for (Panel &q : panels_)
+        if (&q != &p && q.hasLocation() && p.hasLocation() && q.location().device().image == p.location().device().image) q.reload();
 }
 
 void Tui::refreshPanels()
@@ -563,6 +590,7 @@ void Tui::doMount(Slot slot, const std::string &path, int side, bool force)
     const auto why = mounts_.mount(slot, path, side, force);
     if (why.empty()) {
         mounts_.store(config_);
+        if (hooks_.mountsChanged) hooks_.mountsChanged();
         refreshPanels();
         const auto devices = mounts_.devices();
         for (const auto &d : devices)
@@ -589,7 +617,7 @@ void Tui::doImport()
         const std::string name = Location::toVolumeName(std::filesystem::path(path).filename().string());
         auto go = [this, path, policy, &to]() mutable {
             report(importFiles({path}, to, policy), "brought in");
-            panel().reload();
+            changed(panel());
         };
         if (to.find(name)) {
             ask("From the host", {name + " is already on " + to.device().name}, {"Overwrite", "Cancel"},
@@ -643,8 +671,8 @@ void Tui::doCopy(bool move)
     auto go = [this, sel, move, &from, &to](Policy policy) {
         report(move ? moveFiles(from, sel, to, policy) : copyFiles(from, sel, to, policy), move ? "moved" : "copied");
         panel().clearMarks();
-        panel().reload();
-        other().reload();
+        changed(panel());
+        changed(other());
     };
     ask(verb, {fmt::format("{} {} file(s) to {}?", verb, sel.size(), to.device().name)}, {"Yes", "No"}, [this, clash, go, verb, move, sel](int c) {
         if (c != 0) return;
@@ -670,7 +698,7 @@ void Tui::doRename()
         std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
         protectedGuard({entry}, "rename", [this, entry, upper](Policy policy) {
             report(renameFile(panel().location(), entry, upper, policy), "renamed");
-            panel().reload();
+            changed(panel());
         });
     });
 }
@@ -682,7 +710,7 @@ void Tui::doSqueeze()
         if (c != 0) return;
         const auto why = panel().location().squeeze();
         status_ = why.empty() ? "squeezed" : why;
-        panel().reload();
+        changed(panel());
     });
 }
 
@@ -698,7 +726,7 @@ void Tui::doDelete()
         protectedGuard(sel, "delete", [this, sel](Policy policy) {
             report(deleteFiles(panel().location(), sel, policy), "deleted");
             panel().clearMarks();
-            panel().reload();
+            changed(panel());
         });
     });
 }
@@ -714,7 +742,7 @@ void Tui::doInit()
             if (!id.empty()) opts.volumeId = id.substr(0, 12);
             const auto why = panel().location().init(opts);
             status_ = why.empty() ? "initialised" : why;
-            panel().reload();
+            changed(panel());
         });
     });
 }
@@ -782,10 +810,63 @@ void Tui::pick(const std::string &title, std::vector<std::string> items, std::fu
 
 } // namespace
 
-int runTui(Mounts mounts, app::Config &config)
+struct Commander::Impl {
+    Tui tui;
+};
+
+Commander::Commander(Mounts mounts, app::Config &config, CommanderHooks hooks)
+    : impl_(std::make_unique<Impl>(Impl{Tui(std::move(mounts), config, std::move(hooks))}))
 {
-    Tui tui(std::move(mounts), config);
-    return tui.run();
+}
+
+Commander::~Commander() = default;
+
+Element Commander::render(int width, int height, Element guest)
+{
+    impl_->tui.setSize(width, height);
+    return impl_->tui.render(std::move(guest));
+}
+
+bool Commander::onEvent(const Event &event)
+{
+    return impl_->tui.onEvent(event);
+}
+
+bool Commander::quitRequested() const noexcept
+{
+    return impl_->tui.quitRequested();
+}
+
+bool Commander::modal() const noexcept
+{
+    return impl_->tui.modal();
+}
+
+const Mounts &Commander::mounts() const noexcept
+{
+    return impl_->tui.mounts();
+}
+
+void Commander::refresh()
+{
+    impl_->tui.refreshPanels();
+}
+
+int runCommander(Mounts mounts, app::Config &config, const std::string &quitQuestion)
+{
+    CommanderHooks hooks;
+    hooks.quitQuestion = quitQuestion;
+    Commander commander(std::move(mounts), config, std::move(hooks));
+    auto screen = ScreenInteractive::Fullscreen();
+    auto component = Renderer([&] { return commander.render(screen.dimx(), screen.dimy()); })
+                   | CatchEvent([&](const Event &e) {
+                         const bool used = commander.onEvent(e);
+                         if (commander.quitRequested()) screen.ExitLoopClosure()();
+                         return used;
+                     });
+    screen.TrackMouse(false);   /* keyboard only - and a terminal left in mouse-tracking mode after a crash is a mess */
+    screen.Loop(component);
+    return 0;
 }
 
 } /* namespace ms0515::files */

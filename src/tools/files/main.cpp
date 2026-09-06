@@ -9,7 +9,7 @@
  * yaml (flags only).
  */
 #include "Mounts.hpp"
-#include "Tui.hpp"
+#include "Commander.hpp"
 
 #include "ms0515/app/Cli.hpp"
 #include "ms0515/app/Config.hpp"
@@ -57,7 +57,7 @@ int main(int argc, char **argv)
     ms0515::app::Config config = cli.noConfig ? ms0515::app::Config{} : ms0515::app::Config::load();
 
     ms0515::files::Mounts mounts = ms0515::files::Mounts::fromEmulator(cli, config);
-    const int rc = ms0515::files::runTui(std::move(mounts), config);
+    const int rc = ms0515::files::runCommander(std::move(mounts), config, "Leave ms0515-files?");
     if (!cli.noConfig) config.save();
     return rc;
 }

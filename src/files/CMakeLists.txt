@@ -32,7 +32,7 @@ target_link_libraries(ms0515_files
 find_package(ftxui REQUIRED)
 
 add_library(ms0515_files_ui STATIC
-    Tui.cpp
+    Commander.cpp
 )
 
 target_link_libraries(ms0515_files_ui
