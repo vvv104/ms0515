@@ -16,6 +16,12 @@
 
 namespace ms0515::files {
 
+/* The listing's order, as mc offers it. */
+enum class SortOrder { name, extension, size, date };
+
+/* A shell pattern (* and ?) against an RT-11 name, case-insensitively. */
+[[nodiscard]] bool matchPattern(const std::string &name, const std::string &pattern);
+
 class Panel {
 public:
     /* An empty panel: no device chosen yet. */
@@ -55,6 +61,17 @@ public:
     /* Insert toggles the mark under the cursor and moves down. */
     void toggleMark();
     void clearMarks();
+    /* mc's + and -: mark / unmark every entry matching a shell pattern;
+     * *: invert the marks. */
+    void markPattern(const std::string &pattern, bool on);
+    void invertMarks();
+    /* The blocks of the marked entries, for the "N blocks in M files" line. */
+    [[nodiscard]] uint32_t markedBlocks() const;
+
+    /* The order of the listing; it survives reloads, the cursor keeps its file. */
+    void setSort(SortOrder order, bool reversed);
+    [[nodiscard]] SortOrder sortOrder() const noexcept { return sort_; }
+    [[nodiscard]] bool reversed() const noexcept { return reversed_; }
     /* What an operation acts on: the marked entries, else the one under
      * the cursor. */
     [[nodiscard]] std::vector<Entry> selection() const;
@@ -65,6 +82,10 @@ private:
     int                     cursor_ = 0;
     mutable int             top_ = 0;
     std::set<std::string>   marks_;
+    SortOrder               sort_ = SortOrder::name;
+    bool                    reversed_ = false;
+
+    void sortEntries();
 
     void placeCursor(const std::string &name);
 };

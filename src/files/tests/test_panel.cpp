@@ -6,6 +6,7 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -130,4 +131,68 @@ TEST_CASE("show() switches the panel to another volume, clear() empties it")
     p.clear();
     CHECK_FALSE(p.hasLocation());
     CHECK(p.entries().empty());
+}
+
+TEST_CASE("sort order: by name, extension, size, date, each reversible; the cursor stays on its file")
+{
+    Scratch s("sort");
+    Panel p = osaPanel(s);
+    p.home();
+    const std::string first = p.current()->name;
+    CHECK(p.sortOrder() == SortOrder::name);
+
+    p.setSort(SortOrder::size, false);
+    const auto &bySize = p.entries();
+    CHECK(std::is_sorted(bySize.begin(), bySize.end(), [](const Entry &a, const Entry &b) { return a.blocks < b.blocks; }));
+    CHECK(p.current()->name == first);            /* the cursor follows its file */
+
+    p.setSort(SortOrder::size, true);
+    const auto &bySizeRev = p.entries();
+    CHECK(std::is_sorted(bySizeRev.begin(), bySizeRev.end(), [](const Entry &a, const Entry &b) { return a.blocks > b.blocks; }));
+    CHECK(p.reversed());
+
+    p.setSort(SortOrder::extension, false);
+    const auto &byExt = p.entries();
+    CHECK(std::is_sorted(byExt.begin(), byExt.end(), [](const Entry &a, const Entry &b) {
+        const auto ea = a.name.substr(a.name.find('.') + 1), eb = b.name.substr(b.name.find('.') + 1);
+        return ea != eb ? ea < eb : a.name < b.name;
+    }));
+
+    p.setSort(SortOrder::date, false);
+    const auto &byDate = p.entries();
+    CHECK(std::is_sorted(byDate.begin(), byDate.end(), [](const Entry &a, const Entry &b) { return a.date < b.date; }));
+
+    p.setSort(SortOrder::name, false);
+    p.reload();                                   /* the order survives a reload */
+    CHECK(std::is_sorted(p.entries().begin(), p.entries().end(), [](const Entry &a, const Entry &b) { return a.name < b.name; }));
+}
+
+TEST_CASE("marking by pattern: shell * and ?, case-insensitive; unmark; invert; the marked blocks add up")
+{
+    CHECK(matchPattern("DIR.SAV", "*.SAV"));
+    CHECK(matchPattern("DIR.SAV", "*.sav"));
+    CHECK(matchPattern("DIR.SAV", "D??.*"));
+    CHECK(matchPattern("DIR.SAV", "*"));
+    CHECK_FALSE(matchPattern("DIR.SAV", "*.SYS"));
+    CHECK_FALSE(matchPattern("DIR.SAV", "DIR"));
+    CHECK(matchPattern("SWAP.SYS", "S*S"));
+
+    Scratch s("pattern");
+    Panel p = osaPanel(s);
+    const int savs = static_cast<int>(std::count_if(p.entries().begin(), p.entries().end(),
+                                                    [](const Entry &e) { return e.name.ends_with(".SAV"); }));
+    REQUIRE(savs >= 2);
+    p.markPattern("*.SAV", true);
+    CHECK(p.markedCount() == savs);
+    uint32_t blocks = 0;
+    for (const auto &e : p.selection()) blocks += e.blocks;
+    CHECK(p.markedBlocks() == blocks);
+    p.markPattern("DIR.*", false);
+    CHECK(p.markedCount() == savs - 1);
+    CHECK_FALSE(p.isMarked("DIR.SAV"));
+    p.invertMarks();
+    CHECK(p.markedCount() == static_cast<int>(p.entries().size()) - (savs - 1));
+    CHECK(p.isMarked("DIR.SAV"));
+    p.clearMarks();
+    CHECK(p.markedBlocks() == 0);
 }
