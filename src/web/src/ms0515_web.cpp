@@ -10,7 +10,7 @@
  * persistence — stays in JavaScript; nothing here knows about a browser.
  *
  * The picture is rendered the way the SDL front-end renders it
- * (Video.cpp): 640x400 RGBA, both modes line-doubled, lo-res pixels
+ * (libapp Screen.cpp): 640x400 RGBA, both modes line-doubled, lo-res pixels
  * doubled horizontally, the 3-bit GRB palette, flash swapping fg/bg every
  * 30 frames.  The sound is the front-end's too (Audio.cpp): the speaker
  * level transitions of the frame, stamped with their CPU cycle, resampled

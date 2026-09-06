@@ -552,18 +552,18 @@ void App::tick()
 
 void App::renderFrame()
 {
-    /* ── Video decode + texture upload ─── */
+    /* ── Screen decode + texture upload ─── */
     ++frameCounter_;
-    video_.render(emu_, frameCounter_);
-    SDL_UpdateTexture(frameTex_, nullptr, video_.pixels(), kScreenWidth * 4);
+    screen_.render(emu_, frameCounter_);
+    SDL_UpdateTexture(frameTex_, nullptr, screen_.pixels(), kScreenWidth * 4);
 
     /* CLI / hotkey screenshot. */
     if (!cli_.screenshotPath.empty() &&
         (int)frameCounter_ ==
             (cli_.screenshotFrame > 0 ? cli_.screenshotFrame : cli_.maxFrames))
-        saveScreenshot(video_, cli_.screenshotPath);
+        saveScreenshot(screen_, cli_.screenshotPath);
     if (wantScreenshot_) {
-        saveScreenshot(video_, {});
+        saveScreenshot(screen_, {});
         wantScreenshot_ = false;
     }
 

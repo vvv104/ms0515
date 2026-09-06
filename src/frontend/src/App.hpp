@@ -17,7 +17,7 @@
 #include "OnScreenKeyboard.hpp"
 #include "Joystick.hpp"
 #include "PhysicalKeyboard.hpp"
-#include "Video.hpp"
+#include "ms0515/app/Screen.hpp"
 
 #include <ms0515/Debugger.hpp>
 #include <ms0515/Emulator.hpp>
@@ -111,7 +111,7 @@ private:
     /* ── Emulator + companions ──────────────────────────────────────── */
     ms0515::Emulator     emu_;
     ms0515::Debugger     dbg_{emu_};
-    Video                video_;
+    ms0515::app::Screen  screen_;
     Audio                audio_;
     PhysicalKeyboard     physKbd_;
     OnScreenKeyboard     osk_;

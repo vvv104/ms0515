@@ -1,5 +1,5 @@
 /*
- * Video.cpp — frame composer.
+ * Screen.cpp — frame composer.
  *
  * The lib walks VRAM and emits decoded pixel attributes via the
  * Emulator::forEach{Hi,Lo}ResPixel visitors; this file only handles
@@ -9,12 +9,12 @@
  * Reference: docs/hardware/video.md
  */
 
-#include "Video.hpp"
+#include <ms0515/app/Screen.hpp>
 #include <ms0515/Emulator.hpp>
 
 #include <cstring>
 
-namespace ms0515_frontend {
+namespace ms0515::app {
 
 namespace {
 
@@ -34,9 +34,9 @@ inline void put2(uint32_t *frame, int x, int y, uint32_t color)
 
 } /* anonymous namespace */
 
-Video::Video() : frame_(kScreenWidth * kScreenHeight, 0) {}
+Screen::Screen() : frame_(kScreenWidth * kScreenHeight, 0) {}
 
-uint32_t Video::paletteColor(int grb, bool bright)
+uint32_t Screen::paletteColor(int grb, bool bright)
 {
     /* GRB layout: bit 2 = G, bit 1 = R, bit 0 = B. */
     bool g = (grb >> 2) & 1;
@@ -46,7 +46,7 @@ uint32_t Video::paletteColor(int grb, bool bright)
     return rgba(r ? hi : 0, g ? hi : 0, b ? hi : 0);
 }
 
-void Video::render(const ms0515::Emulator &emu, uint32_t frameCounter)
+void Screen::render(const Emulator &emu, uint32_t frameCounter)
 {
     if (emu.isHires()) {
         /* Hi-res is two-colour: background = border, foreground =
@@ -62,7 +62,7 @@ void Video::render(const ms0515::Emulator &emu, uint32_t frameCounter)
         /* Flash phase toggles every ~30 frames (≈1.66 Hz at 50 Hz). */
         const bool flashOn = (frameCounter / 30) & 1;
         emu.forEachLoResPixel([&](int x, int y, bool lit,
-                                   const ms0515::LoResAttr &a) {
+                                   const LoResAttr &a) {
             uint32_t fg = paletteColor(a.fgGrb, a.bright);
             uint32_t bg = paletteColor(a.bgGrb, a.bright);
             /* Flash: during the "off" half-period swap fg/bg so the
@@ -78,4 +78,4 @@ void Video::render(const ms0515::Emulator &emu, uint32_t frameCounter)
     }
 }
 
-} /* namespace ms0515_frontend */
+} /* namespace ms0515::app */
