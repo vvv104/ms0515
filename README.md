@@ -117,14 +117,16 @@ are documented in the source comment at the top of
 Disks can also be mounted at runtime via the File menu.
 
 In `ms0515-cli`, Ctrl+\ brings a two-panel commander up over the running
-machine, Norton Commander style: the panels show the RT-11 volumes of the
-mounted devices, the machine's own prompt stays under them as the command
-line (what you type and Enter go to RT-11, the panel keys to the panels),
-Ctrl+O hides the panels to see the whole screen, F10 takes them down.
-Alt+F1 / Alt+F2 choose a panel's disk or mount another image - into the
-running machine - F5/F6/F8 copy, move and delete between volumes, F1/F2
-bring a host file in and put files out, F3 views a file in the machine's
-encodings, F9 initialises a volume.  `ms0515-files` is the same panels
+machine, the Midnight Commander way: the panels show the RT-11 volumes of
+the mounted devices, the machine's own prompt stays under them as the
+command line (what you type and Enter go to RT-11, the panel keys to the
+panels), Ctrl+O hides the panels to see the whole screen, F10 takes them
+down.  The keys are mc's: F1 help, F2 the user menu (host files in and
+out, protect, dates, init), F3 view, F4 / Alt+F1 / Alt+F2 a panel's disk
+(a mounted device or another image, mounted into the running machine),
+F5 copy and F6 rename / move to the device in the "to:" line with mc's
+"File exists" question, F7 squeeze, F8 delete, F9 the menu, Insert and
++ - * mark, Ctrl+U swaps the panels.  `ms0515-files` is the same panels
 as a standalone program over the images alone, and `ms0515-disk` does
 the same from the command line.
 

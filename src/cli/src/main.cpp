@@ -95,12 +95,14 @@ Quit hotkey (interactive session):  Ctrl-]
 
 The commander (interactive session):  Ctrl-\ brings two panels over the
 running machine - the RT-11 volumes of the mounted devices - and takes
-them down; the machine's prompt stays under the panels as the command
-line: typed text and Enter go to RT-11, Tab / arrows / Insert / F-keys
-work the panels.  Ctrl-O hides the panels to see the whole screen, F10
-takes them down.  Alt-F1 / Alt-F2 (or F4) choose a panel's disk or mount
-another image into the machine; F1 a host file in, F2 files out, F3 view,
-F5 copy, F6 rename / move, F7 squeeze, F8 delete, F9 init.
+them down, Midnight Commander's way.  The machine's prompt stays under
+the panels as the command line: typed text and Enter go to RT-11; Tab,
+the arrows, Insert, + - * and the F-keys work the panels.  Ctrl-O hides
+the panels to see the whole screen, F10 takes them down.  F1 help, F2 the
+user menu (host files in and out, protect, dates, init), F3 view, F4 /
+Alt-F1 / Alt-F2 a panel's disk (a mounted device or another image, into
+the machine), F5 copy, F6 rename / move, F7 squeeze, F8 delete, F9 the
+menu; Ctrl-U swaps the panels, Ctrl-R re-reads.
 )";
 
 /* Per-binary local flags that aren't part of the shared `CliArgs`

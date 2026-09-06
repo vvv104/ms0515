@@ -196,8 +196,21 @@ the terminal, with the web commander's keys (`src/files/` as libraries, `src/too
   an explicit policy for overwriting and protected files), `Viewer` (text
   in ASCII / KOI-8R / KOI-7 / KOI-7 with ^N ^O / CP866, octal and hex
   dumps, search).  Unit-tested on scratch copies of the fixture disks.
-- The front-end draws with FTXUI (Conan), sized to the terminal; keys and
-  dialogs only, all state in the core.
+- The front-end (`ms0515_files_ui`: `Commander.cpp` the page and the
+  panels, `CommanderDialogs.cpp`, `CommanderActions.cpp`,
+  `CommanderViewer.cpp`, behind `TuiImpl.hpp`) draws with FTXUI (Conan),
+  sized to the terminal, the way Midnight Commander does: the menu bar
+  (F9), two panels with the title on the top border and the free space on
+  the bottom one, column rules, the marks summary on the rule above the
+  current-file line, a hint line, the key bar; grey dialogs with a cyan
+  input line, radio and check items, `[< OK >] [ Cancel ]`.  The keys are
+  mc's - F1 help, F2 user menu, F3 view, F5 copy / F6 move to the device
+  in the "to:" line (a bare name renames) with the per-file "File exists"
+  question (Yes / No / All / None / Abort), F7 squeeze, F8 delete, Insert
+  and + - * marks, Ctrl+U swap, Ctrl+R reread, sort order from the
+  Left / Right menus; the viewer's F2 wrap, F4 hex, F5 goto, F7 search,
+  F8 encoding, F9 octal.  All state stays in the model; the panels are
+  unit-tested by rendering into an FTXUI screen (`test_commander`).
 
 The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
 is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified
