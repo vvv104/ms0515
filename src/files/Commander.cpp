@@ -107,6 +107,13 @@ struct HostBrowse {
 /* How many of the guest's rows go under the panels when the host gives them. */
 constexpr int kGuestRows = 2;
 
+/* A panel's rows that are not files: the top border with the title on
+ * it, the column header, the separator, the current-file line, the
+ * bottom border with the summary on it. */
+constexpr int kPanelChrome = 5;
+/* The page's rows below the panels: the status line and the key bar. */
+constexpr int kPageChrome = 2;
+
 /* The palette: blue panels, a cyan cursor and title, grey dialogs. */
 const Decorator kPanel   = bgcolor(Color::Blue) | color(Color::White);
 const Decorator kCursor  = bgcolor(Color::Cyan) | color(Color::Black);
@@ -149,11 +156,12 @@ private:
 
     [[nodiscard]] Panel &panel() { return panels_[active_]; }
     [[nodiscard]] Panel &other() { return panels_[1 - active_]; }
-    [[nodiscard]] int panelRows() const { return std::max(3, height_ - 6 - guestRows_); }
+    [[nodiscard]] int panelRows() const { return std::max(3, height_ - kPanelChrome - kPageChrome - guestRows_); }
 
     /* drawing */
     Element renderPanel(int index);
     Element renderHost(int index);
+    Element frame(bool isActive, const std::string &title, Elements lines, Element info, const std::string &foot);
     Element renderKeyBar() const;
     Element renderDialog() const;
     Element renderViewer() const;
@@ -207,16 +215,29 @@ Tui::Tui(Mounts mounts, app::Config &config, CommanderHooks hooks)
 Element Tui::render(Element guest)
 {
     if (view_) return renderViewer();
-    guestRows_ = 0;
+    guestRows_ = guest ? kGuestRows : 0;   /* before the panels: their height depends on it */
     const int left = width_ / 2;   /* strictly halves, whatever the panels hold */
     Element panels = hbox({renderPanel(0) | size(WIDTH, EQUAL, left), renderPanel(1) | size(WIDTH, EQUAL, width_ - left)});
     Elements rows = {panels | flex};
-    if (guest) { rows.push_back(guest); guestRows_ = kGuestRows; }
+    if (guest) rows.push_back(guest);
     rows.push_back(text(" " + status_));
     rows.push_back(renderKeyBar());
     Element page = vbox(rows);
     if (dialog_) return dbox({page, renderDialog() | center});
     return page;
+}
+
+/* The Far way: the title sits on the top border, the summary on the
+ * bottom one; inside, a column header, the rows, a rule and the line of
+ * the current entry. */
+Element Tui::frame(bool isActive, const std::string &title, Elements lines, Element info, const std::string &foot)
+{
+    Element head = text(" " + title + " ") | bold;
+    if (isActive) head = head | kCursor;
+    Element body = vbox({vbox(std::move(lines)) | flex, separator(), info});
+    Element panel = window(head | hcenter, body) | kPanel;
+    Element bottom = vbox({filler(), text(" " + foot + " ") | hcenter}) | kPanel;
+    return dbox({panel, bottom});
 }
 
 Element Tui::renderPanel(int index)
@@ -225,7 +246,7 @@ Element Tui::renderPanel(int index)
     Panel &p = panels_[index];
     const bool isActive = index == active_;
     const int rows = panelRows();
-    Elements lines;
+    Elements lines = {text(fmt::format(" {:<10} {:>5} {:>10} {} ", "Name", "Blk", "Date", "P")) | color(Color::Yellow)};
     const auto &entries = p.entries();
     const int top = p.scrollTop(rows);
     for (int i = top; i < top + rows; ++i) {
@@ -237,12 +258,12 @@ Element Tui::renderPanel(int index)
         if (i == p.cursor() && isActive) el = el | kCursor;   /* the other panel shows no cursor, as mc does */
         lines.push_back(el);
     }
-    Element title = text(" " + p.title() + " ") | bold;
-    if (isActive) title = title | kCursor;
+    std::string current;
+    if (const auto cur = p.current()) current = fmt::format(" {:<10} {:>5} blocks  {}", cur->name, cur->blocks, cur->date);
+    if (p.markedCount()) current += fmt::format("   {} marked", p.markedCount());
     std::string foot = p.hasLocation() ? p.location().summary() : (index == 0 ? "Alt+F1 picks a disk" : "Alt+F2 picks a disk");
     if (p.hasLocation() && !p.location().volumeId().empty()) foot += " - " + p.location().volumeId();
-    if (p.markedCount()) foot += fmt::format(" - {} marked", p.markedCount());
-    return vbox({title | hcenter, separator(), vbox(lines) | flex, separator(), text(" " + foot)}) | border | kPanel;
+    return frame(isActive, p.title(), std::move(lines), text(current), foot);
 }
 
 Element Tui::renderHost(int index)
@@ -250,7 +271,7 @@ Element Tui::renderHost(int index)
     const HostBrowse &b = *browse_[static_cast<size_t>(index)];
     const bool isActive = index == active_;
     const int rows = panelRows();
-    Elements lines;
+    Elements lines = {text(fmt::format(" {:<24} {:>6}", "Name", "Size")) | color(Color::Yellow)};
     for (int i = b.top; i < b.top + rows; ++i) {
         if (i >= static_cast<int>(b.items.size())) { lines.push_back(text("")); continue; }
         const HostEntry &h = b.items[static_cast<size_t>(i)];
@@ -259,10 +280,9 @@ Element Tui::renderHost(int index)
         if (i == b.cursor && isActive) el = el | kCursor;
         lines.push_back(el);
     }
-    Element title = text(" host: " + utf8(b.dir) + " ") | bold;
-    if (isActive) title = title | kCursor;
-    const char *foot = " Enter mounts the image / enters the directory, Esc back";
-    return vbox({title | hcenter, separator(), vbox(lines) | flex, separator(), text(foot)}) | border | kPanel;
+    std::string current;
+    if (!b.items.empty()) current = " " + b.items[static_cast<size_t>(b.cursor)].name;
+    return frame(isActive, "host: " + utf8(b.dir), std::move(lines), text(current), "Enter mounts / enters, Esc back");
 }
 
 Element Tui::renderKeyBar() const

@@ -14,6 +14,7 @@ add_executable(ms0515_files_tests
     test_hostkey.cpp
     test_routing.cpp
     test_hostevent.cpp
+    test_commander.cpp
     test_panel.cpp
     test_ops.cpp
     test_viewer.cpp
