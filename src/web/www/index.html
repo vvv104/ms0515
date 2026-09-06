@@ -17,6 +17,9 @@
   button.small { padding: .1em .4em; font-size: .9em; }
   button.icon { display: inline-flex; align-items: center; padding: .3em .5em; }
   input[type=number] { width: 4em; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .2em .3em; }
+  .speed { display: inline-flex; align-items: center; gap: .3em; }
+  .speed input[type=range] { width: 6em; margin: 0; accent-color: #3a8; }
+  .speed button { min-width: 3.6em; }
   .spacer { flex: 1; }
 
   /* The drives: an icon, an activity lamp, the mounted image; a click opens
@@ -137,6 +140,7 @@
   <span class="spacer"></span>
   <button id="softkbd" title="the on-screen keyboard" hidden>&#9000;</button>
   <button id="joystick" title="the arrows and Space (or a touch screen) as the joystick on the MS7007 port">Joystick: off</button>
+  <label class="speed" title="emulation speed - the machine's frames per second of yours, 20% to 500%; a double click (or the value button) is back to 100%; sound plays at 100% only"><input id="speed" type="range" min="20" max="500" step="10" value="100"> <button id="speedv" class="small" title="back to 100%">100%</button></label>
   <button id="sound">Sound: off</button>
   <button id="save">Save state</button>
   <button id="restore">Restore</button>
