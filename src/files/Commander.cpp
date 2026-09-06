@@ -236,7 +236,9 @@ Element Tui::frame(bool isActive, const std::string &title, Elements lines, Elem
     if (isActive) head = head | kCursor;
     Element body = vbox({vbox(std::move(lines)) | flex, separator(), info});
     Element panel = window(head | hcenter, body) | kPanel;
-    Element bottom = vbox({filler(), text(" " + foot + " ") | hcenter}) | kPanel;
+    /* only the text is painted: a colour on the whole overlay would
+     * repaint every cell of the panel, cursor and headers included */
+    Element bottom = vbox({filler(), text(" " + foot + " ") | kPanel | hcenter});
     return dbox({panel, bottom});
 }
 

@@ -74,6 +74,16 @@ TEST_CASE("the title sits on the top border, the summary on the bottom one; a sh
     CHECK_FALSE(anyRowHas(shortAfter, "DIR.SAV"));
     /* the current-file line above the bottom border names it too */
     CHECK(rowText(shortAfter, 8).find(last) != std::string::npos);
+
+    /* the cursor row is painted cyan, the column header yellow - the
+     * summary on the bottom border must not repaint them */
+    bool cyanRow = false, yellowHeader = false;
+    for (int y = 0; y < shortAfter.dimy(); ++y) {
+        if (rowText(shortAfter, y).find(last) != std::string::npos && shortAfter.PixelAt(2, y).background_color == ftxui::Color::Cyan) cyanRow = true;
+        if (rowText(shortAfter, y).find("Name") != std::string::npos && shortAfter.PixelAt(2, y).foreground_color == ftxui::Color::Yellow) yellowHeader = true;
+    }
+    CHECK(cyanRow);
+    CHECK(yellowHeader);
 }
 
 TEST_CASE("with the host's rows under the panels the page still fits the height")
