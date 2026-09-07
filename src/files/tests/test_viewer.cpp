@@ -116,3 +116,27 @@ TEST_CASE("the cycles and names the key bar shows")
     CHECK(std::string(viewName(View::hex)) == "hex");
     CHECK(std::string(encodingName(Encoding::koi7shift)) == "KOI-7 ^N/^O");
 }
+
+TEST_CASE("a text file is told from a binary one; the text view drops the block padding at the end")
+{
+    /* an RT-11 text file: lines, a Ctrl-Z, then the block padded with NULs */
+    std::string txt = "one\r\ntwo\r\n";
+    txt += '\x1A';
+    txt += std::string(512 - txt.size(), '\0');
+    const auto textBytes = bytesOf(txt);
+    CHECK(isTextLike(textBytes));
+    const auto lines = renderLines(textBytes, text(Encoding::ascii));
+    REQUIRE(lines.size() == 2);
+    CHECK(lines[0] == "one");
+    CHECK(lines[1] == "two");
+
+    /* KOI-8 Cyrillic and a form feed are text; a NUL inside is not, nor a .SAV's bytes */
+    CHECK(isTextLike(bytesOf("\xF0\xD2\xC9\xD7\xC5\xD4\r\n\x0C")));
+    CHECK(isTextLike(bytesOf("")));
+    CHECK_FALSE(isTextLike(bytesOf(std::string("abc\0def", 7))));
+    std::vector<uint8_t> sav(1024, 0);
+    for (size_t i = 0; i < sav.size(); i += 2) { sav[i] = static_cast<uint8_t>(i); sav[i + 1] = 0x01; }
+    CHECK_FALSE(isTextLike(sav));
+    /* the padding alone is no reason to call a file binary; the dumps keep it */
+    CHECK(renderLines(textBytes, ViewOptions{View::hex, Encoding::ascii, true}).size() == 512 / 16);
+}

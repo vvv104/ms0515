@@ -122,6 +122,7 @@ void Tui::doView()
     v.name = panel().location().device().name + (cur->empty ? fmt::format("<unused at {}>", cur->offset) : cur->name);
     v.bytes = *bytes;
     v.opts.encoding = viewEncoding_;
+    v.opts.view = isTextLike(v.bytes) ? View::text : View::hex;   /* a binary file opens as a dump */
     v.lines = renderLines(v.bytes, v.opts);
     view_ = std::move(v);
 }

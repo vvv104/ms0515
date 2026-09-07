@@ -38,6 +38,14 @@ struct ViewOptions {
  * line. */
 [[nodiscard]] std::vector<std::string> renderLines(std::span<const uint8_t> bytes, const ViewOptions &opts);
 
+/* A text file, as RT-11 keeps them: printable bytes, the line ends, tabs,
+ * form feeds, the KOI-7 shifts, a Ctrl-Z, then the last block's NUL
+ * padding - and nothing else.  Anything with a control byte elsewhere,
+ * a NUL inside, is binary and opens in the hex dump. */
+[[nodiscard]] bool isTextLike(std::span<const uint8_t> bytes);
+/* The text without its end: the block padding of NULs and a Ctrl-Z. */
+[[nodiscard]] std::span<const uint8_t> textBody(std::span<const uint8_t> bytes);
+
 /* One byte of the file to UTF-8 in `encoding` (for koi7shift pass the
  * current shift and let the function update it). */
 [[nodiscard]] std::string decodeByte(uint8_t byte, Encoding encoding, bool &rusShift);

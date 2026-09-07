@@ -61,14 +61,14 @@ size_t utf8Length(const std::string &s, size_t i)
     return 4;
 }
 
-std::vector<std::string> textLines(std::span<const uint8_t> bytes, const ViewOptions &opts)
+std::vector<std::string> textLines(std::span<const uint8_t> whole, const ViewOptions &opts)
 {
     std::vector<std::string> out;
     std::string line;
     int column = 0;
     bool rus = false;
     auto flush = [&]() { out.push_back(line); line.clear(); column = 0; };
-    for (const uint8_t b : bytes) {
+    for (const uint8_t b : textBody(whole)) {
         if (b == '\n') { flush(); continue; }
         if (b == '\r') continue;
         if (b == 0x0E || b == 0x0F) {
@@ -148,6 +148,30 @@ std::string decodeByte(uint8_t byte, Encoding encoding, bool &rusShift)
         return asciiChar(byte);
     }
     return ".";
+}
+
+std::span<const uint8_t> textBody(std::span<const uint8_t> bytes)
+{
+    size_t end = bytes.size();
+    while (end > 0 && bytes[end - 1] == 0) --end;
+    if (end > 0 && bytes[end - 1] == 0x1A) --end;
+    return bytes.first(end);
+}
+
+bool isTextLike(std::span<const uint8_t> bytes)
+{
+    for (const uint8_t b : textBody(bytes)) {
+        if (b >= 0x20 && b != 0x7F) continue;               /* printable ASCII and the 8-bit letters */
+        switch (b) {
+        case 0x09: case 0x0A: case 0x0D: case 0x0C:         /* tab, the line ends, form feed */
+        case 0x0E: case 0x0F:                                /* the KOI-7 shifts */
+        case 0x1B:                                           /* escape sequences of the terminal */
+            continue;
+        default:
+            return false;
+        }
+    }
+    return true;
 }
 
 std::vector<std::string> renderLines(std::span<const uint8_t> bytes, const ViewOptions &opts)
