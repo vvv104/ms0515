@@ -20,9 +20,10 @@
 #include <ms0515/Emulator.hpp>
 #include <ms0515/VramMirror.hpp>
 
-#include <cstdio>
+#include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace ms0515::app { struct CliArgs; }
 
@@ -37,10 +38,13 @@ namespace ms0515::cli {
 
 class CommanderHost {
 public:
+    /* What the host paints on the terminal goes to `out`.  An empty one
+     * draws nothing - the tests take the bytes into a string instead. */
+    using Writer = std::function<void(std::string_view)>;
+
     /* `cli` names the disks the machine started with (the flags over the
-     * config), so the panels open on them.  `out` is the terminal; nullptr
-     * draws nothing (the tests drive the keys alone). */
-    CommanderHost(Emulator &emu, VramMirror &mirror, const app::CliArgs &cli, FILE *out);
+     * config), so the panels open on them. */
+    CommanderHost(Emulator &emu, VramMirror &mirror, const app::CliArgs &cli, Writer out);
     ~CommanderHost();
     CommanderHost(const CommanderHost &) = delete;
     CommanderHost &operator=(const CommanderHost &) = delete;

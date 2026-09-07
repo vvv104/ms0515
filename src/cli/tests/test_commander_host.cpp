@@ -13,10 +13,7 @@
 
 #include <doctest/doctest.h>
 
-#include <cstdio>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -48,18 +45,12 @@ files::HostKey byte(uint8_t b) { return files::HostKey::ofByte(b); }
 TEST_CASE("the host never sets a cursor shape - the terminal keeps the one it is configured with - and hides the cursor while it has nowhere to put it")
 {
     Machine m;
-    const fs::path drawnPath = fs::path(TESTS_BUILD_DIR) / "scratch" / "cursor_drawn.txt";
-    FILE *drawn = nullptr;
-    fopen_s(&drawn, drawnPath.string().c_str(), "wb");
-    REQUIRE(drawn != nullptr);
+    std::string painted;
     {
-        cli::CommanderHost host(m.emu, m.mirror, m.cli, drawn);
+        cli::CommanderHost host(m.emu, m.mirror, m.cli, [&painted](std::string_view s) { painted.append(s); });
         CHECK(host.onKey(byte(0x1C)));
         host.shutdown(false);
     }
-    std::fclose(drawn);
-    std::ifstream back(drawnPath, std::ios::binary);
-    const std::string painted((std::istreambuf_iterator<char>(back)), std::istreambuf_iterator<char>());
     /* DECSCUSR - "ESC [ <n> SP q" - would override the terminal's own shape */
     CHECK(painted.find(" q") == std::string::npos);
     /* the machine has not drawn a cursor yet: none is shown */
@@ -122,18 +113,13 @@ TEST_CASE("the hint at the bottom of the terminal names the keys, saves and rest
 TEST_CASE("the host writes the hint while the panels are down, and never while they are up")
 {
     Machine m;
-    const fs::path drawnPath = fs::path(TESTS_BUILD_DIR) / "scratch" / "hint_drawn.txt";
-    FILE *drawn = nullptr;
-    fopen_s(&drawn, drawnPath.string().c_str(), "wb");
-    REQUIRE(drawn != nullptr);
+    std::string painted;
     const bool room = ftxui::Terminal::Size().dimy > ms0515::VramMirror::kRows;
     {
-        cli::CommanderHost host(m.emu, m.mirror, m.cli, drawn);
+        cli::CommanderHost host(m.emu, m.mirror, m.cli, [&painted](std::string_view s) { painted.append(s); });
         host.frame();
         host.frame();
-        std::fflush(drawn);
-        std::ifstream down(drawnPath, std::ios::binary);
-        const std::string beforeUp((std::istreambuf_iterator<char>(down)), std::istreambuf_iterator<char>());
+        const std::string beforeUp = painted;
         if (room) CHECK(beforeUp.find("Ctrl+]") != std::string::npos);
         const size_t hints = [&beforeUp] {
             size_t n = 0;
@@ -145,13 +131,10 @@ TEST_CASE("the host writes the hint while the panels are down, and never while t
         CHECK(host.onKey(byte(0x1C)));        /* the panels up: the hint is not part of them */
         host.frame();
         host.frame();
-        std::fflush(drawn);
-        std::ifstream up(drawnPath, std::ios::binary);
-        const std::string all((std::istreambuf_iterator<char>(up)), std::istreambuf_iterator<char>());
+        const std::string all = painted;
         size_t afterUp = 0;
         for (size_t at = all.find("Ctrl+]"); at != std::string::npos; at = all.find("Ctrl+]", at + 1)) ++afterUp;
         CHECK(afterUp == hints);
         host.shutdown(false);
     }
-    std::fclose(drawn);
 }

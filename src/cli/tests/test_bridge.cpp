@@ -12,10 +12,7 @@
 
 #include <doctest/doctest.h>
 
-#include <cstdio>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -112,20 +109,6 @@ bool screenHas(const VramMirror &mirror, const std::string &needle)
 
 namespace {
 
-/* What has been written to `f` so far, read back through the same handle -
- * fopen_s takes a file exclusively, so no second reader can open it. */
-std::string writtenSoFar(FILE *f)
-{
-    std::fflush(f);
-    const long end = std::ftell(f);
-    std::rewind(f);
-    std::string out(static_cast<size_t>(end < 0 ? 0 : end), '\0');
-    const size_t n = out.empty() ? 0 : std::fread(out.data(), 1, out.size(), f);
-    out.resize(n);
-    std::fseek(f, 0, SEEK_END);
-    return out;
-}
-
 /* "ESC [ <row> ; <col> H" at `at` of `s`. */
 bool cursorPos(const std::string &s, size_t at, int &row, int &col)
 {
@@ -160,11 +143,9 @@ TEST_CASE("the booted machine takes a DIR typed with the commander down, and one
     mirror.attach(emu);
     app::CliArgs cliArgs;
     cliArgs.fdPath[0] = disk.string();
-    /* a real output stream, so the host draws as it does on a terminal */
-    FILE *drawn = nullptr;
-    fopen_s(&drawn, (dir / "bridge_boot_drawn.txt").string().c_str(), "w+b");
-    REQUIRE(drawn != nullptr);
-    cli::CommanderHost host(emu, mirror, cliArgs, drawn);
+    /* the bytes the host paints, kept for a look at what a terminal would show */
+    std::string painted;
+    cli::CommanderHost host(emu, mirror, cliArgs, [&painted](std::string_view s) { painted.append(s); });
     cli::bridge::install(emu);
     cli::bridge::setHostKeySink([&host](const files::HostKey &k) { return host.onKey(k); });
 
@@ -191,7 +172,7 @@ TEST_CASE("the booted machine takes a DIR typed with the commander down, and one
      * the parent terminal's own is what shows */
     feed("abc");
     runUntilQuiet(emu, mirror, host, 60, 2000);
-    const std::string painted = writtenSoFar(drawn);
+    /* what the host has painted so far */
     CHECK(painted.find(" q") == std::string::npos);
     const size_t show = painted.rfind("\x1B[?25h");
     REQUIRE(show != std::string::npos);
@@ -220,5 +201,4 @@ TEST_CASE("the booted machine takes a DIR typed with the commander down, and one
 
     cli::bridge::setHostKeySink(nullptr);
     host.shutdown(false);
-    std::fclose(drawn);
 }

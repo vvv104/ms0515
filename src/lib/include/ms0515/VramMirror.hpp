@@ -86,6 +86,9 @@ public:
      * to disable the mirror to FILE while keeping history accumulation
      * (history() always grows from the per-cell emissions). */
     void setOutput(FILE *f) noexcept { out_ = f; }
+    /* Where it writes now - for a caller that takes the terminal for a
+     * while and hands it back. */
+    [[nodiscard]] FILE *output() const noexcept { return out_; }
 
     /* Plain-text history.  One char per emit, in order.  No ANSI escape
      * sequences — host-terminal positioning lives in the FILE* path only. */

@@ -33,8 +33,6 @@ std::vector<Entry> pick(const Location &loc, const std::vector<std::string> &nam
     return out;
 }
 
-std::vector<uint8_t> bytesOf(const std::string &s) { return {s.begin(), s.end()}; }
-
 } // namespace
 
 TEST_CASE("copy between volumes keeps bytes, date and the [P] flag; a clash needs the overwrite policy")

@@ -56,7 +56,8 @@ struct CommanderHost::Impl {
     Emulator &emu;
     VramMirror &mirror;
     app::CliArgs cli;
-    FILE *out;                      /* the terminal, or nullptr for none */
+    CommanderHost::Writer out;      /* the terminal, or empty for none */
+    FILE *mirrorOut = nullptr;      /* where the mirror wrote before we took the screen */
     app::Config scratchConfig;      /* the commander writes its mounts here; stored for real at shutdown */
     files::RouteState state;
     std::optional<files::Commander> commander;
@@ -75,8 +76,9 @@ struct CommanderHost::Impl {
     int guestRow = -1;
     int guestCol = -1;
 
-    Impl(Emulator &e, VramMirror &m, const app::CliArgs &c, FILE *o) : emu(e), mirror(m), cli(c), out(o) {}
-    void write(const char *s) { if (out) { std::fputs(s, out); std::fflush(out); } }
+    Impl(Emulator &e, VramMirror &m, const app::CliArgs &c, CommanderHost::Writer o)
+        : emu(e), mirror(m), cli(c), out(std::move(o)) {}
+    void write(std::string_view s) { if (out) out(s); }
 
     void makeCommander();
     void enter();
@@ -114,7 +116,7 @@ void CommanderHost::Impl::drawHint(ftxui::Dimensions size)
 {
     const std::string hint = hintLine(size.dimx, size.dimy);
     if (hint.empty()) return;
-    write(hint.c_str());
+    write(hint);
     hintDrawn = true;
 }
 
@@ -122,6 +124,7 @@ void CommanderHost::Impl::enter()
 {
     if (!commander) makeCommander();
     else commander->refresh();
+    mirrorOut = mirror.output();
     mirror.setOutput(nullptr);
     write(kAltScreenOn);
     lastPicture.clear();
@@ -136,7 +139,7 @@ void CommanderHost::Impl::leave()
     hintDrawn = false;          /* the main screen is back: the hint with it */
     write(kAltScreenOff);
     /* the machine's screen again, every cell, whatever changed meanwhile */
-    mirror.setOutput(out);
+    mirror.setOutput(mirrorOut);
     mirror.invalidate();
 }
 
@@ -234,7 +237,7 @@ void CommanderHost::Impl::draw()
         painted += "\x1B[" + std::to_string(row++) + ";1H" + line;
         at = nl + 1;
     }
-    write((painted + cursorAt).c_str());
+    write(painted + cursorAt);
 }
 
 bool CommanderHost::Impl::onKey(const files::HostKey &key)
@@ -268,8 +271,8 @@ bool CommanderHost::Impl::onKey(const files::HostKey &key)
     return false;
 }
 
-CommanderHost::CommanderHost(Emulator &emu, VramMirror &mirror, const app::CliArgs &cli, FILE *out)
-    : impl_(std::make_unique<Impl>(emu, mirror, cli, out))
+CommanderHost::CommanderHost(Emulator &emu, VramMirror &mirror, const app::CliArgs &cli, Writer out)
+    : impl_(std::make_unique<Impl>(emu, mirror, cli, std::move(out)))
 {
 }
 
@@ -315,7 +318,7 @@ void CommanderHost::shutdown(bool saveConfig)
     if (impl_->hintDrawn) {
         /* the hint goes with us */
         const auto size = ftxui::Terminal::Size();
-        impl_->write((kSaveCursor + "\x1B[" + std::to_string(size.dimy) + ";1H\x1B[2K" + kRestoreCursor).c_str());
+        impl_->write(kSaveCursor + "\x1B[" + std::to_string(size.dimy) + ";1H\x1B[2K" + kRestoreCursor);
         impl_->hintDrawn = false;
     }
     if (saveConfig && impl_->mountsTouched && impl_->commander) {
