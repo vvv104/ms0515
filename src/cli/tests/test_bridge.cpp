@@ -71,6 +71,13 @@ TEST_CASE("typed bytes become taps for the guest whether the commander is down o
     feed("\x09");
     CHECK(cli::bridge::pendingTaps() == 0);
 
+    /* text the host puts in itself - a command typed for the user - goes
+     * straight to the guest, past the commander */
+    cli::bridge::typeToGuest("RUN DZ0:DIR\r");
+    CHECK(cli::bridge::pendingTaps() == 12);
+    drain();
+    CHECK(cli::bridge::pendingTaps() == 0);
+
     cli::bridge::setHostKeySink(nullptr);
     host.shutdown(false);
 }

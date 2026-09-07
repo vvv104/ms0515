@@ -130,6 +130,31 @@ void Tui::doView()
     view_ = std::move(v);
 }
 
+/* The command that runs a program on the machine: RUN for a .SAV, @ for
+ * a .COM (an indirect command file); "" for anything else. */
+std::string Tui::runCommand(const std::string &device, const std::string &name)
+{
+    const auto dot = name.rfind('.');
+    if (dot == std::string::npos) return "";
+    const std::string stem = name.substr(0, dot), ext = name.substr(dot + 1);
+    if (ext == "SAV") return "RUN " + device + stem;
+    if (ext == "COM") return "@" + device + stem;
+    return "";
+}
+
+/* Enter with nothing typed: a program runs, through the host's hands at
+ * the machine's prompt; anything else opens in the viewer. */
+void Tui::doEnter()
+{
+    if (!panel().hasLocation()) return;
+    const auto cur = panel().current();
+    if (!cur || cur->empty || !hooks_.runInGuest) { doView(); return; }
+    const std::string line = runCommand(panel().location().device().name, cur->name);
+    if (line.empty()) { doView(); return; }
+    hooks_.runInGuest(line);
+    status_ = line;
+}
+
 /* mc's dialog: "Copy file "X" to:" with the other panel's device in the
  * line.  A move with a bare name in the line is a rename. */
 void Tui::doCopy(bool move)

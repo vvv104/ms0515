@@ -362,6 +362,11 @@ void feedHostBytes(const uint8_t *bytes, size_t n)
     for (const auto &k : g_parser.flush()) dispatch(k);
 }
 
+void typeToGuest(const std::string &koi8)
+{
+    for (const char c : koi8) enqueueGuest(files::HostKey::ofByte(static_cast<uint8_t>(c)));
+}
+
 size_t pendingTaps()
 {
     return g_tapQueue.size() + (g_phase == TapPhase::Idle ? 0 : 1);

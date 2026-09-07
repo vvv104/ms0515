@@ -34,6 +34,10 @@ struct CommanderHooks {
     std::function<void(const std::filesystem::path &image)> imageChanged;
     /* F10 asks this before quitting; empty: F10 quits at once. */
     std::string quitQuestion;
+    /* Enter on a program: the host types this line into the machine's
+     * prompt ("RUN DZ0:GAME", "@DZ0:START") and presses Enter there.
+     * Without it Enter views the file. */
+    std::function<void(const std::string &line)> runInGuest;
 };
 
 class Commander {

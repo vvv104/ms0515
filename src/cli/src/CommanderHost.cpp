@@ -4,6 +4,8 @@
  */
 #include "CommanderHost.hpp"
 
+#include "StdioBridge.hpp"
+
 #include "Commander.hpp"
 #include "GuestScreen.hpp"
 #include "HostEvent.hpp"
@@ -70,6 +72,7 @@ void CommanderHost::Impl::makeCommander()
         }
     };
     hooks.quitQuestion = "Leave the commander?";   /* F10, asked, is the only way down */
+    hooks.runInGuest = [](const std::string &line) { bridge::typeToGuest(line + "\r"); };
     commander.emplace(files::Mounts::fromEmulator(cli, scratchConfig), scratchConfig, std::move(hooks));
 }
 

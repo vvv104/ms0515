@@ -26,6 +26,7 @@
 #include "HostKey.hpp"
 
 #include <functional>
+#include <string>
 
 namespace ms0515::cli::bridge {
 
@@ -59,6 +60,10 @@ void feedHostBytes(const uint8_t *bytes, size_t n);
 
 /* Keystrokes queued for the guest and not yet tapped out. */
 [[nodiscard]] size_t pendingTaps();
+
+/* KOI-8 text the host types into the guest on the user's behalf (the
+ * command that runs a program), past the commander's sink. */
+void typeToGuest(const std::string &koi8);
 
 }  /* namespace ms0515::cli::bridge */
 

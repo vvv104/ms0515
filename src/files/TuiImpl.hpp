@@ -215,6 +215,8 @@ public:
     void userMenu();
     void help();
     void doView();
+    void doEnter();
+    [[nodiscard]] static std::string runCommand(const std::string &device, const std::string &name);
     void doCopy(bool move);
     void startTransfer(bool move, const std::vector<Entry> &sel, const Device &target);
     void continueTransfer();

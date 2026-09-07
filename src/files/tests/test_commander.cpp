@@ -343,3 +343,45 @@ TEST_CASE("a dialog and a menu hide what lies under them")
         CHECK(frameRow.find(junction) == std::string::npos);
     CHECK(d.c.onEvent(ftxui::Event::Escape));
 }
+
+TEST_CASE("Enter on a program types the command that runs it into the machine's prompt; on anything else it views")
+{
+    Scratch s("run");
+    const auto osa = s.disk("test_osa.dsk", "osa.dsk");
+    Mounts m;
+    REQUIRE(m.mount(Slot::driveA, osa, 0).empty());
+    ms0515::app::Config config;
+    std::string typed;
+    CommanderHooks hooks;
+    hooks.runInGuest = [&typed](const std::string &line) { typed = line; };
+    Commander c(std::move(m), config, std::move(hooks));
+    const auto vol = Location::open(Device{"DZ0:", osa, disk::VolumeSpec{disk::Vol::floppy, 0}});
+    const auto names = vol->list();
+    for (size_t i = 0; i < names.size() && names[i].name != "DIR.SAV"; ++i) c.onEvent(ftxui::Event::ArrowDown);
+    CHECK(c.onEvent(ftxui::Event::Return));
+    CHECK(typed == "RUN DZ0:DIR");
+    CHECK_FALSE(c.modal());
+    /* a .COM is an indirect command file */
+    c.onEvent(ftxui::Event::Home);
+    for (size_t i = 0; i < names.size() && names[i].name != "START.COM"; ++i) c.onEvent(ftxui::Event::ArrowDown);
+    if (vol->find("START.COM")) {
+        CHECK(c.onEvent(ftxui::Event::Return));
+        CHECK(typed == "@DZ0:START");
+    }
+    /* a data file is viewed, not run */
+    typed.clear();
+    c.onEvent(ftxui::Event::Home);
+    for (size_t i = 0; i < names.size() && names[i].name != "SWAP.SYS"; ++i) c.onEvent(ftxui::Event::ArrowDown);
+    CHECK(c.onEvent(ftxui::Event::Return));
+    CHECK(typed.empty());
+    CHECK(c.modal());
+    CHECK(c.onEvent(ftxui::Event::Escape));
+
+    /* without the hook - the standalone program - Enter views a program too */
+    Mounts m2;
+    REQUIRE(m2.mount(Slot::driveA, osa, 0).empty());
+    Commander plain(std::move(m2), config);
+    for (size_t i = 0; i < names.size() && names[i].name != "DIR.SAV"; ++i) plain.onEvent(ftxui::Event::ArrowDown);
+    CHECK(plain.onEvent(ftxui::Event::Return));
+    CHECK(plain.modal());
+}

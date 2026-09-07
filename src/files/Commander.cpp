@@ -265,7 +265,7 @@ bool Tui::onBrowseKey(const Event &e)
     if (e == Event::Home)      { p.home(); return true; }
     if (e == Event::End)       { p.end(); return true; }
     if (e == Event::Insert)    { p.toggleMark(); return true; }
-    if (e == Event::Return)    { doView(); return true; }
+    if (e == Event::Return)    { doEnter(); return true; }
     if (e == Event::F1)  { help(); return true; }
     if (e == Event::F2)  { userMenu(); return true; }
     if (e == Event::F3)  { doView(); return true; }
