@@ -52,7 +52,7 @@ class Ms0515Recipe(ConanFile):
         self.requires("imgui/1.91.5")
         self.requires("doctest/2.4.11")
         self.requires("stb/cci.20240213")
-        # The terminal file manager (tools/files) draws with FTXUI.
+        # The two-panel file manager (src/files) draws with FTXUI.
         self.requires("ftxui/7.0.3")
 
     def set_version(self):

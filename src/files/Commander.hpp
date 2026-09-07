@@ -3,10 +3,9 @@
  * the dialogs and the viewer, drawn with FTXUI.  All state lives in the
  * model (Panel / Mounts / Ops / Viewer); this draws it and routes keys.
  *
- * It does not own the terminal: whoever does - the standalone
- * ms0515-files in FTXUI's own loop, ms0515-cli over the running machine
- * in its frame loop - asks for the picture of a given size and hands the
- * keys in as FTXUI events.  The host learns of what changed through the
+ * It does not own the terminal: ms0515-cli, which draws it over the
+ * running machine in its own frame loop, asks for the picture of a given
+ * size and hands the keys in as FTXUI events.  The host learns of what changed through the
  * hooks: the mounts, so it can apply them to its machine, and the images
  * written, so it can resync a device that keeps a copy.
  */
@@ -75,10 +74,6 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
-
-/* The standalone program: the commander in FTXUI's own loop until F10.
- * `config` receives the mounts the user made, to be saved by the caller. */
-int runCommander(Mounts mounts, app::Config &config, const std::string &quitQuestion);
 
 } /* namespace ms0515::files */
 

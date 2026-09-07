@@ -206,7 +206,7 @@ uint8_t kbd_read(ms0515_keyboard_t *kbd, int reg)
          * Clears RXRDY; next byte will be loaded from FIFO by kbd_tick().
          */
         uint8_t data = kbd->rx_data;
-            kbd->rx_ready = false;
+        kbd->rx_ready = false;
         update_status(kbd);
         return data;
     }

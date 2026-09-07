@@ -6,7 +6,7 @@
  * paravirtual HD.  They come from the same two places the emulator reads
  * them from - the command line (--disk0, --disk0-side1, --disk1, --hd,
  * libapp's parser, so every flag of ms0515.exe works here too) and
- * ms0515.yaml next to the binaries - so ms0515-files starts on the disks
+ * ms0515.yaml next to the binaries - so the panels start on the disks
  * the emulator had last, and a mount made here is what the emulator
  * mounts next.  That is the whole convenience: no separate mount state
  * to keep in sync.

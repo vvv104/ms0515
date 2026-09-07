@@ -1,6 +1,6 @@
 # ── ms0515_files / ms0515_files_ui ───────────────────────────────────────────
 # The RT-11 file manager as libraries, so that both the standalone
-# ms0515-files binary (tools/files/) and the commander inside ms0515-cli
+# commander inside ms0515-cli
 # share them:
 #   ms0515_files    — the model: a device's volume (Location), which image is
 #                     behind which device (Mounts), the panel state, the

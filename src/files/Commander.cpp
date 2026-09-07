@@ -22,9 +22,6 @@
 
 #include "ms0515/app/Config.hpp"
 
-#include <ftxui/component/component.hpp>
-#include <ftxui/component/screen_interactive.hpp>
-
 #include <fmt/format.h>
 
 #include <algorithm>
@@ -525,23 +522,6 @@ int Commander::guestRowsTop(int height) noexcept
 void Commander::refresh()
 {
     impl_->tui.refreshPanels();
-}
-
-int runCommander(Mounts mounts, app::Config &config, const std::string &quitQuestion)
-{
-    CommanderHooks hooks;
-    hooks.quitQuestion = quitQuestion;
-    Commander commander(std::move(mounts), config, std::move(hooks));
-    auto screen = ftxui::ScreenInteractive::Fullscreen();
-    auto component = ftxui::Renderer([&] { return commander.render(screen.dimx(), screen.dimy()); })
-                   | ftxui::CatchEvent([&](const ftxui::Event &e) {
-                         const bool used = commander.onEvent(e);
-                         if (commander.takeQuitRequest()) screen.ExitLoopClosure()();
-                         return used;
-                     });
-    screen.TrackMouse(false);   /* keyboard only - and a terminal left in mouse-tracking mode after a crash is a mess */
-    screen.Loop(component);
-    return 0;
 }
 
 } /* namespace ms0515::files */

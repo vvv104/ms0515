@@ -1,7 +1,7 @@
 /*
  * Location.hpp — a panel's place: the RT-11 volume of one mounted device.
  *
- * ms0515-files shows the machine's disks, not the host's: DZ0: and DZ2:
+ * The panels show the machine's disks, not the host's: DZ0: and DZ2:
  * (the two sides of drive A), DZ1: and DZ3: (drive B), HD0:, or a DV0: /
  * MZ0: whole-diskette volume - the same devices the web commander lists,
  * named as the guest names them.  Which image is behind a device is the

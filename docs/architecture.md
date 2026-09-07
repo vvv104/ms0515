@@ -185,24 +185,25 @@ tool that read and write images directly, without running the machine.
   follows the image size; `--hd`, `--dv` and `--mz` pick the other volume
   kinds, and `dir` says when the content rather parses as another one.
 
-### Terminal File Manager — `ms0515-files` (C++)
+### The File Manager — `src/files/` (C++)
 
 Two panels over the machine's disks - never the host's file system - in
-the terminal, with the web commander's keys (`src/files/` as libraries, `src/tools/files/` the standalone binary):
+the terminal, drawn over the running machine by `ms0515-cli` (see the CLI
+section above).  Two libraries: the model and the FTXUI panels.
 
 - The panels show the RT-11 volumes of the mounted devices, named as the
   guest names them: `DZ0:`/`DZ2:` (drive A's sides), `DZ1:`/`DZ3:`, `HD0:`,
   or one `DV0:`/`MZ0:` when the image's content is a whole-diskette
   volume.  The mounts are the emulator's: libapp's flag parser and
-  `ms0515.yaml`, so the tool starts on the disks the emulator had last and
-  a mount made here is what the emulator mounts next.  Alt+F1 / Alt+F2
+  `ms0515.yaml`, so the panels start on the disks the emulator had last
+  and a mount made there is what the emulator mounts next.  Alt+F1 / Alt+F2
   (F4 for the panel in use) choose the left / right panel's disk: a
   mounted device, or another image - picked from a listing of a host
   directory that stands in that panel for the moment, the only time the
   host's files are on screen; the device then opens where the listing was.
   Otherwise the host enters only as a path typed at a prompt (Tab
   completes) - a file to bring in (F1), a directory to put files out to
-  (F2).  F10 asks before quitting; Esc only closes dialogs.
+  (F2).  Esc only closes dialogs.
 - `Keys` decodes the function keys a terminal sends with a modifier
   (xterm's `ESC [ 1 ; 3 P` for Alt+F1), which FTXUI passes through
   unnamed.  A terminal never reports a modifier pressed on its own, so
