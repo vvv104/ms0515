@@ -46,6 +46,14 @@ struct ViewOptions {
 /* The text without its end: the block padding of NULs and a Ctrl-Z. */
 [[nodiscard]] std::span<const uint8_t> textBody(std::span<const uint8_t> bytes);
 
+/* The encoding a text is most likely in.  The KOI-7 shifts (^N ^O) name
+ * theirs; 8-bit letters are KOI-8R's (0xC0..0xFF) or CP866's (0x80..0xAF,
+ * 0xE0..0xF1), whichever has more; a 7-bit text with nothing in the
+ * lower-case range is ASCII, and one with letters there is KOI-7 Russian
+ * when the codes English hardly uses - q j x and ` { | } ~, which KOI-7
+ * gives to common Cyrillic letters - make 3% of that range, else ASCII. */
+[[nodiscard]] Encoding detectEncoding(std::span<const uint8_t> bytes);
+
 /* One byte of the file to UTF-8 in `encoding` (for koi7shift pass the
  * current shift and let the function update it). */
 [[nodiscard]] std::string decodeByte(uint8_t byte, Encoding encoding, bool &rusShift);

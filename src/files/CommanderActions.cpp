@@ -121,8 +121,11 @@ void Tui::doView()
     ViewState v;
     v.name = panel().location().device().name + (cur->empty ? fmt::format("<unused at {}>", cur->offset) : cur->name);
     v.bytes = *bytes;
-    v.opts.encoding = viewEncoding_;
-    v.opts.view = isTextLike(v.bytes) ? View::text : View::hex;   /* a binary file opens as a dump */
+    /* a text opens as text, in the encoding its bytes point to; a binary
+     * file as a dump, in the encoding set under Options */
+    const bool isText = isTextLike(v.bytes);
+    v.opts.view = isText ? View::text : View::hex;
+    v.opts.encoding = isText ? detectEncoding(v.bytes) : viewEncoding_;
     v.lines = renderLines(v.bytes, v.opts);
     view_ = std::move(v);
 }

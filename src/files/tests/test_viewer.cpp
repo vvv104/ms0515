@@ -140,3 +140,23 @@ TEST_CASE("a text file is told from a binary one; the text view drops the block 
     /* the padding alone is no reason to call a file binary; the dumps keep it */
     CHECK(renderLines(textBytes, ViewOptions{View::hex, Encoding::ascii, true}).size() == 512 / 16);
 }
+
+TEST_CASE("the encoding is told from the bytes: the shifts, the 8-bit halves, KOI-7 Russian against plain English")
+{
+    /* the KOI-7 shifts settle it */
+    CHECK(detectEncoding(bytesOf("HELLO \x0Epriwet\x0F")) == Encoding::koi7shift);
+    /* 8-bit: KOI-8R letters live in 0xC0..0xFF, CP866's in 0x80..0xAF and 0xE0..0xF1 */
+    CHECK(detectEncoding(bytesOf("\xF0\xD2\xC9\xD7\xC5\xD4 \xCD\xC9\xD2")) == Encoding::koi8r);
+    CHECK(detectEncoding(bytesOf("\x8F\xE0\xA8\xA2\xA5\xE2 \xAC\xA8\xE0")) == Encoding::cp866);
+    /* 7-bit: upper-case only, or English prose, is ASCII */
+    CHECK(detectEncoding(bytesOf("EXPRESS SERVICE\r\nTYPE ANY KEY\r\n")) == Encoding::ascii);
+    CHECK(detectEncoding(bytesOf("this is a plain english text file with some lines of prose in it\r\n"
+                                 "and another line that says nothing much at all\r\n")) == Encoding::ascii);
+    CHECK(detectEncoding(bytesOf("")) == Encoding::ascii);
+    /* KOI-7 Russian in the lower-case range: the letters English hardly
+     * uses - q j x and the ` { | } ~ signs - stand for common Cyrillic ones */
+    CHECK(detectEncoding(bytesOf("priwet, |to prowerka. q duma`, ~to wse horo{o.\r\n"
+                                 "sleду`]ij |kzemplqr fajla.\r\n")) == Encoding::koi7);
+    /* a text-like file with a form feed and tabs stays what its letters say */
+    CHECK(detectEncoding(bytesOf("\x0C\tA LINE\r\n")) == Encoding::ascii);
+}

@@ -174,6 +174,31 @@ bool isTextLike(std::span<const uint8_t> bytes)
     return true;
 }
 
+Encoding detectEncoding(std::span<const uint8_t> whole)
+{
+    const auto bytes = textBody(whole);
+    size_t koi8 = 0, cp866 = 0, high = 0, lowerRange = 0, koi7Marks = 0;
+    for (const uint8_t b : bytes) {
+        if (b == 0x0E || b == 0x0F) return Encoding::koi7shift;
+        if (b >= 0x80) {
+            ++high;
+            if (b >= 0xC0) ++koi8;
+            if (b <= 0xAF || (b >= 0xE0 && b <= 0xF1)) ++cp866;
+            continue;
+        }
+        if (b >= 0x60 && b <= 0x7E) {
+            ++lowerRange;
+            switch (b) {
+            case 'q': case 'j': case 'x': case '`': case '{': case '|': case '}': case '~': ++koi7Marks; break;
+            default: break;
+            }
+        }
+    }
+    if (high > 0) return cp866 > koi8 ? Encoding::cp866 : Encoding::koi8r;
+    if (lowerRange == 0) return Encoding::ascii;
+    return koi7Marks * 100 >= lowerRange * 3 ? Encoding::koi7 : Encoding::ascii;
+}
+
 std::vector<std::string> renderLines(std::span<const uint8_t> bytes, const ViewOptions &opts)
 {
     switch (opts.view) {
