@@ -89,6 +89,7 @@ TEST_CASE("the title sits on the top border, the summary on the bottom one; a sh
     /* the title sits one cell in from the corner, with a plain cell before it */
     const std::string titleRow = rowText(shortAfter, 1);
     CHECK(titleRow.find(" DZ0: osa.dsk ") != std::string::npos);
+    CHECK(shortAfter.PixelAt(1, 1).character == "\xE2\x94\x80");   /* the border line runs up to the title */
     CHECK(shortAfter.PixelAt(1, 1).background_color != ftxui::Color::Cyan);
     CHECK(shortAfter.PixelAt(2, 1).background_color == ftxui::Color::Cyan);
 

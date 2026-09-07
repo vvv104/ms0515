@@ -164,7 +164,7 @@ Element Tui::frame(bool isActive, const std::string &title, Element columns, Ele
 {
     Element head = text(" " + title + " ");
     if (isActive) head = head | kCursor;
-    head = hbox({text(" "), head});        /* one cell in from the corner */
+    head = hbox({filler() | size(WIDTH, EQUAL, 1), head});   /* one cell in from the corner, the border line showing there */
     Element body = vbox({std::move(columns) | flex, std::move(rule), std::move(info)});
     Element panel = window(head | hcenter, body) | kPanel;
     /* only the text is painted: a colour on the whole overlay would
