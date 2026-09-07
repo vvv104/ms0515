@@ -76,3 +76,29 @@ TEST_CASE("the whole screen is 25 rows; a range past the screen is clipped, an e
     const auto none = draw(cli::guestRows(s, 5, 5), 1);
     CHECK(blankCell(none.PixelAt(0, 0)));
 }
+
+TEST_CASE("with the panels hidden the guest's cursor row lands where it sits under the panels, the key bar kept below")
+{
+    /* a 25-row terminal: under the panels the guest's cursor row is row 22 */
+    auto p = cli::placeGuest(24, 25);
+    CHECK(p.pad == 0);
+    CHECK(p.from == 2);
+    CHECK(p.to == VramMirror::kRows);
+    CHECK(p.pad + (24 - p.from) == 22);
+    /* the cursor at the top of the guest's screen: padded down to the same row */
+    p = cli::placeGuest(0, 25);
+    CHECK(p.pad == 22);
+    CHECK(p.from == 0);
+    CHECK(p.to == 2);
+    /* a tall terminal shows the whole screen, padded */
+    p = cli::placeGuest(24, 40);
+    CHECK(p.pad == 13);
+    CHECK(p.from == 0);
+    CHECK(p.to == VramMirror::kRows);
+    CHECK(p.pad + 24 == 37);
+    /* a short one shows what fits above the cursor and one row below */
+    p = cli::placeGuest(10, 8);
+    CHECK(p.pad == 0);
+    CHECK(p.from == 5);
+    CHECK(p.to == 12);
+}

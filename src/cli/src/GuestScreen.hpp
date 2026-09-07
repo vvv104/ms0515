@@ -20,6 +20,17 @@ namespace ms0515::cli {
  * each 80 cells, the inverted cells inverted. */
 [[nodiscard]] ftxui::Element guestRows(const VramMirror::Snapshot &snapshot, int from, int to);
 
+/* Where the guest's screen goes when the panels are hidden: its cursor
+ * row on the terminal row it has under the panels (two above the key
+ * bar), so the prompt does not jump; `pad` blank rows above, the guest's
+ * rows `from` .. `to` (one below the cursor at most). */
+struct GuestPlacement {
+    int pad = 0;
+    int from = 0;
+    int to = 0;
+};
+[[nodiscard]] GuestPlacement placeGuest(int cursorRow, int height);
+
 } /* namespace ms0515::cli */
 
 #endif /* MS0515_CLI_GUEST_SCREEN_HPP */

@@ -33,6 +33,17 @@ ftxui::Element guestRow(const VramMirror::Snapshot &s, int row)
 
 } // namespace
 
+GuestPlacement placeGuest(int cursorRow, int height)
+{
+    const int cursor = std::clamp(cursorRow, 0, VramMirror::kRows - 1);
+    const int screenRow = std::max(0, height - 3);   /* the second guest row under the panels */
+    GuestPlacement p;
+    p.from = std::max(0, cursor - screenRow);
+    p.pad = std::max(0, screenRow - cursor);
+    p.to = std::min(VramMirror::kRows, cursor + 2);
+    return p;
+}
+
 ftxui::Element guestRows(const VramMirror::Snapshot &snapshot, int from, int to)
 {
     ftxui::Elements rows;

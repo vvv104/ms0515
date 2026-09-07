@@ -96,9 +96,19 @@ void CommanderHost::Impl::leave()
 ftxui::Element CommanderHost::Impl::picture(int width, int height)
 {
     const auto shadow = mirror.snapshot();
-    if (state.panelsHidden) return guestRows(shadow, 0, VramMirror::kRows);
-    /* the rows around the guest's cursor: its prompt, NC's command line */
     const int cursor = std::clamp(mirror.lastWriteRow(), 0, VramMirror::kRows - 1);
+    if (state.panelsHidden) {
+        /* the guest's screen with its cursor row where it sits under the
+         * panels, the key bar kept below */
+        const GuestPlacement at = placeGuest(cursor, height);
+        ftxui::Elements rows;
+        for (int i = 0; i < at.pad; ++i) rows.push_back(ftxui::text(""));
+        rows.push_back(guestRows(shadow, at.from, at.to));
+        rows.push_back(ftxui::filler());
+        rows.push_back(commander->keyBar());
+        return ftxui::vbox(std::move(rows));
+    }
+    /* the rows around the guest's cursor: its prompt, NC's command line */
     const int from = std::clamp(cursor - 1, 0, VramMirror::kRows - 2);
     return commander->render(width, height, guestRows(shadow, from, from + 2));
 }

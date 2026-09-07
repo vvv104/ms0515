@@ -58,6 +58,8 @@ public:
     [[nodiscard]] bool modal() const noexcept;
 
     [[nodiscard]] const Mounts &mounts() const noexcept;
+    /* The panels' key bar alone, for a host that shows the machine's screen. */
+    [[nodiscard]] ftxui::Element keyBar() const;
     /* Re-read the panels' volumes (the host changed something). */
     void refresh();
 

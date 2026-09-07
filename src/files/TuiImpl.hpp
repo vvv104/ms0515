@@ -181,6 +181,7 @@ public:
     Element renderHost(int index);
     Element frame(bool isActive, const std::string &title, Element columns, Element rule, Element info, const std::string &foot);
     Element renderKeyBar(const std::vector<std::pair<const char *, const char *>> &keys) const;
+    Element panelKeyBar() const;
 
     /* keys - Commander.cpp */
     bool onBrowseKey(const Event &e);

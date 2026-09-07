@@ -138,7 +138,7 @@ Element Tui::render(Element guest)
     Elements rows = {renderMenuBar(), panels | flex};
     if (guest) rows.push_back(guest);
     rows.push_back(text(" " + status_));
-    rows.push_back(renderKeyBar(kPanelKeys));
+    rows.push_back(panelKeyBar());
     Element page = vbox(rows);
     if (menu_ >= 0 && menuDown_) page = dbox({page, renderMenu()});
     if (dialog_) page = dbox({page, renderDialog() | center});
@@ -226,6 +226,11 @@ Element Tui::renderHost(int index)
     std::string current;
     if (!b.items.empty()) current = " " + b.items[static_cast<size_t>(b.cursor)].name;
     return frame(isActive, "host: " + utf8(b.dir), vbox(std::move(lines)), separator(), text(current), "Enter mounts / enters, Esc back");
+}
+
+Element Tui::panelKeyBar() const
+{
+    return renderKeyBar(kPanelKeys);
 }
 
 Element Tui::renderKeyBar(const std::vector<std::pair<const char *, const char *>> &keys) const
@@ -486,6 +491,11 @@ bool Commander::modal() const noexcept
 const Mounts &Commander::mounts() const noexcept
 {
     return impl_->tui.mounts();
+}
+
+ftxui::Element Commander::keyBar() const
+{
+    return impl_->tui.panelKeyBar();
 }
 
 void Commander::refresh()
