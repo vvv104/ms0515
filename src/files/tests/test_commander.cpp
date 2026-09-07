@@ -98,7 +98,9 @@ TEST_CASE("the title sits on the top border, the summary on the bottom one; a sh
     bool cyanRow = false, yellowHeader = false;
     for (int y = 0; y < shortAfter.dimy(); ++y) {
         if (rowText(shortAfter, y).find(last) != std::string::npos && shortAfter.PixelAt(2, y).background_color == ftxui::Color::Cyan) cyanRow = true;
-        if (rowText(shortAfter, y).find("Name") != std::string::npos && shortAfter.PixelAt(2, y).foreground_color == ftxui::Color::Yellow) yellowHeader = true;
+        if (rowText(shortAfter, y).find("Name") == std::string::npos) continue;
+        for (int x = 0; x < shortAfter.dimx(); ++x)   /* the header is centred: look along the row */
+            if (shortAfter.PixelAt(x, y).foreground_color == ftxui::Color::Yellow) yellowHeader = true;
     }
     CHECK(cyanRow);
     CHECK(yellowHeader);
@@ -178,7 +180,7 @@ TEST_CASE("the columns are Name, blocks with the P flag, and the date the mc way
     bool found = false;
     for (int y = 0; y < screen.dimy() && !found; ++y) {
         const std::string row = rowText(screen, y);
-        if (row.find("DIR.SAV") == std::string::npos || row.find("Dec 27  1990") == std::string::npos) continue;
+        if (row.find("DIR.SAV") == std::string::npos || row.find("Dec 27 1990") == std::string::npos) continue;
         CHECK(row.find("20 P") != std::string::npos);          /* the flag stands apart, under the P of "Blk P" */
         CHECK(row.find("20 P") < row.find("Dec 27"));
         found = true;
@@ -229,7 +231,7 @@ TEST_CASE("F5 copies to the device in the 'to:' line; a file that exists asks, m
     const auto names = left->list();
     for (size_t i = 0; i < names.size() && names[i].name != "DIR.SAV"; ++i) d.c.onEvent(ftxui::Event::ArrowDown);
     CHECK(rowText(shot(d.c, 80, 25), 21).find("DIR.SAV") != std::string::npos);   /* the current-file line */
-    CHECK(rowText(shot(d.c, 80, 25), 21).find("Dec 27  1990") != std::string::npos);
+    CHECK(rowText(shot(d.c, 80, 25), 21).find("Dec 27 1990") != std::string::npos);
     CHECK(d.c.onEvent(ftxui::Event::F5));
     auto dlg = shot(d.c, 80, 25);
     CHECK(anyRowHas(dlg, "Copy file \"DIR.SAV\""));
@@ -428,7 +430,7 @@ TEST_CASE("a program is green in the panel, as mc paints executables; a marked o
     const std::string rule = "\xE2\x94\x82";
     const std::string header = rowText(screen, 2);
     CHECK(header.find("Blk P" + rule + "Offset" + rule) != std::string::npos);
-    CHECK(rowText(screen, program).find(rule + "Dec 27  1990") != std::string::npos);
+    CHECK(rowText(screen, program).find(rule + "Dec 27 1990") != std::string::npos);
     CHECK(rowText(screen, program).find("20 P" + rule) != std::string::npos);
 
     /* the colour is the text's alone: the rules between the columns keep

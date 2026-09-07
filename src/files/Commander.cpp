@@ -47,28 +47,30 @@ constexpr const char *kCol = "\xE2\x94\x82";
  * colour is the cells' alone - the rules keep the panel's own, as mc
  * paints them - while the cursor bar takes the whole row, rules and all.
  * A width of 0 takes what is left. */
-Element listRow(const std::vector<std::string> &cells, const std::vector<int> &widths, Decorator cellLook, Decorator rowLook)
+Element listRow(const std::vector<std::string> &cells, const std::vector<int> &widths, Decorator cellLook,
+                Decorator rowLook, bool centreFlex = false)
 {
     Elements parts;
     for (size_t i = 0; i < cells.size(); ++i) {
         if (i > 0) parts.push_back(text(kCol));
         Element cell = text(cells[i]) | cellLook;
-        parts.push_back(widths[i] > 0 ? cell | size(WIDTH, EQUAL, widths[i]) : cell | flex);
+        if (widths[i] > 0) parts.push_back(cell | size(WIDTH, EQUAL, widths[i]));
+        else parts.push_back(centreFlex ? cell | hcenter | flex : cell | flex);   /* the header over the names */
     }
     return hbox(std::move(parts)) | rowLook;
 }
 
-/* What "Dec 27  1990" takes. */
-constexpr int kDateWidth = 12;
+/* What "Dec 27 1990" takes. */
+constexpr int kDateWidth = 11;
 
-/* "1990-12-27" the way mc shows a date of another year: "Dec 27  1990". */
+/* "1990-12-27" the way mc shows a date: "Dec 27 1990". */
 std::string mcDate(const std::string &iso)
 {
     static constexpr const char *kMonths[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     if (iso.size() != 10) return iso;
     const int month = std::atoi(iso.substr(5, 2).c_str());
     if (month < 1 || month > 12) return iso;
-    return fmt::format("{} {:>2}  {}", kMonths[month - 1], std::atoi(iso.substr(8, 2).c_str()), iso.substr(0, 4));
+    return fmt::format("{} {:>2} {}", kMonths[month - 1], std::atoi(iso.substr(8, 2).c_str()), iso.substr(0, 4));
 }
 
 const std::vector<std::pair<const char *, const char *>> kPanelKeys = {
@@ -193,9 +195,9 @@ Element Tui::renderPanel(int index)
         offsetDigits = std::max(offsetDigits, static_cast<int>(std::to_string(e.offset).size()));
     }
     const std::vector<int> widths = {0, blkDigits + 2, offsetDigits, kDateWidth};
-    Elements lines = {listRow({" Name", fmt::format("{:>{}} P", "Blk", blkDigits),
+    Elements lines = {listRow({"Name", fmt::format("{:>{}} P", "Blk", blkDigits),
                                fmt::format("{:>{}}", "Offset", offsetDigits), fmt::format("{:^{}}", "Date", kDateWidth)},
-                              widths, kHeader, nothing)};
+                              widths, kHeader, nothing, /*centreFlex=*/true)};
     const int top = p.scrollTop(rows);
     for (int i = top; i < top + rows; ++i) {
         const bool have = i < static_cast<int>(entries.size());
@@ -230,7 +232,7 @@ Element Tui::renderHost(int index)
     const bool isActive = index == active_;
     const int rows = panelRows();
     const std::vector<int> widths = {0, 10};
-    Elements lines = {listRow({" Name", fmt::format("{:>10}", "Size")}, widths, kHeader, nothing)};
+    Elements lines = {listRow({"Name", fmt::format("{:>10}", "Size")}, widths, kHeader, nothing, /*centreFlex=*/true)};
     for (int i = b.top; i < b.top + rows; ++i) {
         const bool have = i < static_cast<int>(b.items.size());
         const HostEntry h = have ? b.items[static_cast<size_t>(i)] : HostEntry{};
