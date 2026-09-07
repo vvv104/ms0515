@@ -20,6 +20,7 @@
 #include <ms0515/Emulator.hpp>
 #include <ms0515/VramMirror.hpp>
 
+#include <cstdio>
 #include <memory>
 
 namespace ms0515::app { struct CliArgs; }
@@ -29,8 +30,9 @@ namespace ms0515::cli {
 class CommanderHost {
 public:
     /* `cli` names the disks the machine started with (the flags over the
-     * config), so the panels open on them. */
-    CommanderHost(Emulator &emu, VramMirror &mirror, const app::CliArgs &cli);
+     * config), so the panels open on them.  `out` is the terminal; nullptr
+     * draws nothing (the tests drive the keys alone). */
+    CommanderHost(Emulator &emu, VramMirror &mirror, const app::CliArgs &cli, FILE *out);
     ~CommanderHost();
     CommanderHost(const CommanderHost &) = delete;
     CommanderHost &operator=(const CommanderHost &) = delete;

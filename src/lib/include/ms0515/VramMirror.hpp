@@ -113,6 +113,16 @@ public:
      * paint can confuse the OS). */
     [[nodiscard]] int framesIdle() const noexcept { return framesIdle_; }
 
+    /* True when the last flushFrame() changed any cell of the shadow -
+     * a single typed letter included, which framesIdle() ignores. */
+    [[nodiscard]] bool changedThisFlush() const noexcept { return changedThisFlush_; }
+
+    /* Where the guest OS keeps its cursor (the blinking '_' it draws),
+     * as the decoder last saw it; -1 before the first sighting.  The
+     * cell itself is kept blank in the shadow. */
+    [[nodiscard]] int osCursorRow() const noexcept { return osCursorRow_; }
+    [[nodiscard]] int osCursorCol() const noexcept { return osCursorCol_; }
+
     /* Run the dirty-cell sweep.  For each cell whose 8-byte glyph
      * changed since the previous flush, look up the new code in the
      * font map and (if different from the shadow) emit ANSI cursor +
@@ -201,6 +211,7 @@ private:
     int  lastWriteCol_  = -1;
     int  framesIdle_    = 0;                        /* frames since last write */
     int  writesThisFlush_ = 0;                      /* byte writes since last flush */
+    bool changedThisFlush_ = false;                 /* the shadow moved in the last flush */
 
     /* OS-side cursor — the cell where the kernel currently draws its
      * blinking `_`.  Detected on the fly: any cell that resolves to

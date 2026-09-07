@@ -17,8 +17,11 @@
 namespace ms0515::cli {
 
 /* Rows `from` .. `to` (exclusive) of the snapshot, clipped to the screen,
- * each 80 cells, the inverted cells inverted. */
-[[nodiscard]] ftxui::Element guestRows(const VramMirror::Snapshot &snapshot, int from, int to);
+ * each 80 cells, the inverted cells inverted; the cell at (cursorRow,
+ * cursorCol) - the guest's cursor, which the mirror keeps blank - drawn
+ * inverted so the prompt shows where the typing goes. */
+[[nodiscard]] ftxui::Element guestRows(const VramMirror::Snapshot &snapshot, int from, int to,
+                                       int cursorRow = -1, int cursorCol = -1);
 
 /* Where the guest's screen goes when the panels are hidden: its cursor
  * row on the terminal row it has under the panels (two above the key

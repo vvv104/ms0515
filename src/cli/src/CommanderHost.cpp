@@ -18,6 +18,7 @@
 #include <ftxui/screen/terminal.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <optional>
 #include <string>
@@ -35,6 +36,7 @@ struct CommanderHost::Impl {
     Emulator &emu;
     VramMirror &mirror;
     app::CliArgs cli;
+    FILE *out;                      /* the terminal, or nullptr for none */
     app::Config scratchConfig;      /* the commander writes its mounts here; stored for real at shutdown */
     files::RouteState state;
     std::optional<files::Commander> commander;
@@ -42,7 +44,8 @@ struct CommanderHost::Impl {
     ftxui::Dimensions lastSize{0, 0};
     bool mountsTouched = false;
 
-    Impl(Emulator &e, VramMirror &m, const app::CliArgs &c) : emu(e), mirror(m), cli(c) {}
+    Impl(Emulator &e, VramMirror &m, const app::CliArgs &c, FILE *o) : emu(e), mirror(m), cli(c), out(o) {}
+    void write(const char *s) { if (out) { std::fputs(s, out); std::fflush(out); } }
 
     void makeCommander();
     void enter();
@@ -75,8 +78,7 @@ void CommanderHost::Impl::enter()
     if (!commander) makeCommander();
     else commander->refresh();
     mirror.setOutput(nullptr);
-    std::fputs(kAltScreenOn, stdout);
-    std::fflush(stdout);
+    write(kAltScreenOn);
     lastPicture.clear();
     state.commanderOn = true;
     state.panelsHidden = false;
@@ -86,35 +88,37 @@ void CommanderHost::Impl::enter()
 void CommanderHost::Impl::leave()
 {
     state.commanderOn = false;
-    std::fputs(kAltScreenOff, stdout);
-    std::fflush(stdout);
+    write(kAltScreenOff);
     /* the machine's screen again, every cell, whatever changed meanwhile */
-    mirror.setOutput(stdout);
+    mirror.setOutput(out);
     mirror.invalidate();
 }
 
 ftxui::Element CommanderHost::Impl::picture(int width, int height)
 {
     const auto shadow = mirror.snapshot();
-    const int cursor = std::clamp(mirror.lastWriteRow(), 0, VramMirror::kRows - 1);
+    /* the guest's cursor: where it draws its '_', else where it last wrote */
+    const int cursorCol = mirror.osCursorCol();
+    const int cursor = std::clamp(mirror.osCursorRow() >= 0 ? mirror.osCursorRow() : mirror.lastWriteRow(), 0, VramMirror::kRows - 1);
     if (state.panelsHidden) {
         /* the guest's screen with its cursor row where it sits under the
          * panels, the key bar kept below */
         const GuestPlacement at = placeGuest(cursor, height);
         ftxui::Elements rows;
         for (int i = 0; i < at.pad; ++i) rows.push_back(ftxui::text(""));
-        rows.push_back(guestRows(shadow, at.from, at.to));
+        rows.push_back(guestRows(shadow, at.from, at.to, cursor, cursorCol));
         rows.push_back(ftxui::filler());
         rows.push_back(commander->keyBar());
         return ftxui::vbox(std::move(rows));
     }
     /* the rows around the guest's cursor: its prompt, NC's command line */
     const int from = std::clamp(cursor - 1, 0, VramMirror::kRows - 2);
-    return commander->render(width, height, guestRows(shadow, from, from + 2));
+    return commander->render(width, height, guestRows(shadow, from, from + 2, cursor, cursorCol));
 }
 
 void CommanderHost::Impl::draw()
 {
+    if (!out) return;
     const auto size = ftxui::Terminal::Size();
     lastSize = size;
     const int width = std::max(20, size.dimx);
@@ -126,7 +130,7 @@ void CommanderHost::Impl::draw()
     lastPicture = now;
     /* row by row at its own position: the terminal is raw, a bare '\n'
      * would not return the carriage */
-    std::string out;
+    std::string painted;
     int row = 1;
     size_t at = 0;
     while (at <= now.size()) {
@@ -134,11 +138,10 @@ void CommanderHost::Impl::draw()
         if (nl == std::string::npos) nl = now.size();
         std::string line = now.substr(at, nl - at);
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        out += "\x1B[" + std::to_string(row++) + ";1H" + line;
+        painted += "\x1B[" + std::to_string(row++) + ";1H" + line;
         at = nl + 1;
     }
-    std::fputs(out.c_str(), stdout);
-    std::fflush(stdout);
+    write(painted.c_str());
 }
 
 bool CommanderHost::Impl::onKey(const files::HostKey &key)
@@ -165,8 +168,8 @@ bool CommanderHost::Impl::onKey(const files::HostKey &key)
     return false;
 }
 
-CommanderHost::CommanderHost(Emulator &emu, VramMirror &mirror, const app::CliArgs &cli)
-    : impl_(std::make_unique<Impl>(emu, mirror, cli))
+CommanderHost::CommanderHost(Emulator &emu, VramMirror &mirror, const app::CliArgs &cli, FILE *out)
+    : impl_(std::make_unique<Impl>(emu, mirror, cli, out))
 {
 }
 
@@ -187,12 +190,12 @@ bool CommanderHost::onKey(const files::HostKey &key)
 
 void CommanderHost::frame()
 {
-    if (!impl_->state.commanderOn) return;
+    if (!impl_->state.commanderOn || !impl_->out) return;
     /* redraw when the guest wrote to its screen or the terminal changed
      * size; the keys draw on their own */
     const auto size = ftxui::Terminal::Size();
     const bool resized = size.dimx != impl_->lastSize.dimx || size.dimy != impl_->lastSize.dimy;
-    if (impl_->mirror.framesIdle() == 0 || resized) impl_->draw();
+    if (impl_->mirror.changedThisFlush() || resized) impl_->draw();
 }
 
 void CommanderHost::shutdown(bool saveConfig)

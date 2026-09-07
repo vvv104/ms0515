@@ -328,14 +328,20 @@ bool         g_phaseCtrl   = false;
 void readBytesFromHost()
 {
     std::array<uint8_t, 256> buf{};
-    size_t n = cli::readStdinNonBlocking(buf.data(), buf.size());
-    if (n == 0) return;
+    const size_t n = cli::readStdinNonBlocking(buf.data(), buf.size());
+    if (n != 0) feedHostBytes(buf.data(), n);
+}
 
+}  /* namespace */
+
+void feedHostBytes(const uint8_t *bytes, size_t n)
+{
+    if (n == 0 || n > 256) return;
     /* Prepend any leftover UTF-8 bytes from the previous read. */
     std::array<uint8_t, 256 + 4> work{};
     size_t workLen = 0;
     for (size_t i = 0; i < g_utf8PendingLen; ++i) work[workLen++] = g_utf8Pending[i];
-    for (size_t i = 0; i < n; ++i) work[workLen++] = buf[i];
+    for (size_t i = 0; i < n; ++i) work[workLen++] = bytes[i];
     g_utf8PendingLen = 0;
 
     size_t off = 0;
@@ -356,7 +362,10 @@ void readBytesFromHost()
     for (const auto &k : g_parser.flush()) dispatch(k);
 }
 
-}  /* namespace */
+size_t pendingTaps()
+{
+    return g_tapQueue.size() + (g_phase == TapPhase::Idle ? 0 : 1);
+}
 
 void install(ms0515::Emulator &emu)
 {
@@ -404,7 +413,7 @@ void pumpInput()
         KeyMapping km = g_tapQueue.front();
         g_tapQueue.pop_front();
         if (km.key == ms0515::Key::None) continue;
-        if (km.ctrl)  g_emu->keyPress(ms0515::Key::Ctrl,   true);
+            if (km.ctrl)  g_emu->keyPress(ms0515::Key::Ctrl,   true);
         if (km.shift) g_emu->keyPress(ms0515::Key::ShiftL, true);
         g_emu->keyPress(km.key, true);
         g_phaseKey    = km.key;

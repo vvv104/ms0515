@@ -10,11 +10,14 @@ add_executable(ms0515_cli_tests
     test_main.cpp
     test_mount_sync.cpp
     test_guest_screen.cpp
+    test_commander_host.cpp
+    test_bridge.cpp
 )
 
 target_compile_definitions(ms0515_cli_tests PRIVATE
     TESTS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"
     FIXTURE_DISKS_DIR="${CMAKE_SOURCE_DIR}/lib/tests/disks"
+    ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
 )
 
 target_link_libraries(ms0515_cli_tests

@@ -52,6 +52,14 @@ void setInputReady(bool ready);
  * itself here.  Ctrl-] (quit) is handled before the sink. */
 void setHostKeySink(std::function<bool(const files::HostKey &)> sink);
 
+/* A burst of the host's bytes (UTF-8, ESC sequences), as if read from
+ * stdin - what pumpInput() does with the terminal's input; for the tests
+ * and for text the host itself puts in.  At most 256 bytes a call. */
+void feedHostBytes(const uint8_t *bytes, size_t n);
+
+/* Keystrokes queued for the guest and not yet tapped out. */
+[[nodiscard]] size_t pendingTaps();
+
 }  /* namespace ms0515::cli::bridge */
 
 #endif  /* MS0515_CLI_STDIO_BRIDGE_HPP */

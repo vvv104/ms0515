@@ -12,6 +12,9 @@
 add_library(ms0515_cli_core STATIC
     src/MountSync.cpp
     src/GuestScreen.cpp
+    src/CommanderHost.cpp
+    src/StdioBridge.cpp
+    src/Koi8.cpp
 )
 
 target_include_directories(ms0515_cli_core PUBLIC
@@ -22,13 +25,11 @@ target_link_libraries(ms0515_cli_core
     PUBLIC ms0515_lib
     PUBLIC ms0515_libapp
     PUBLIC ms0515_files_ui
+    PUBLIC ms0515_platform_cli
 )
 
 add_executable(ms0515-cli
     src/main.cpp
-    src/Koi8.cpp
-    src/StdioBridge.cpp
-    src/CommanderHost.cpp
 )
 
 target_link_libraries(ms0515-cli

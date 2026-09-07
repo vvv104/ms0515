@@ -219,7 +219,7 @@ int main(int argc, char **argv)
      * terminal; a pipe drives the machine alone. */
     std::optional<ms0515::cli::CommanderHost> commander;
     if (ms0515::cli::stdinIsTerminal()) {
-        commander.emplace(emu, mirror, cli);
+        commander.emplace(emu, mirror, cli, stdout);
         ms0515::cli::bridge::setHostKeySink([&commander](const ms0515::files::HostKey &k) { return commander->onKey(k); });
     }
 
