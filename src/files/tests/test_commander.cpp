@@ -116,6 +116,7 @@ TEST_CASE("with the host's rows under the panels the page still fits the height"
     ftxui::Render(screen, c.render(80, 20, ftxui::vbox({ftxui::text(".DIR DZ0:"), ftxui::text(".")})));
     CHECK(rowText(screen, 19).find("Quit") != std::string::npos);
     CHECK(rowText(screen, 16).find(".DIR DZ0:") != std::string::npos);   /* the two guest rows: 16, 17 */
+    CHECK(Commander::guestRowsTop(20) == 16);
     CHECK(rowText(screen, 15).find("files") != std::string::npos);      /* the bottom border above them */
     CHECK(rowText(screen, 1).find("DZ0: osa.dsk") != std::string::npos);
 }

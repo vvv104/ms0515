@@ -129,9 +129,12 @@ public:
      * UTF-8 char to out_ and append the char to history_. */
     void flushFrame();
 
-    /* Drop all dirty markers and force a re-decode of the full screen
-     * on the next flushFrame().  Use after loadState() or any other
-     * coarse VRAM overwrite the hook didn't see byte-by-byte. */
+    /* Drop all dirty markers and force a re-decode of the full screen on
+     * the next flushFrame(), which then emits every cell: the shadow is
+     * forgotten too, since the host's screen may hold something else by
+     * now (another program had the terminal).  Use after loadState(), any
+     * coarse VRAM overwrite the hook didn't see byte-by-byte, or when the
+     * terminal was someone else's for a while. */
     void invalidate() noexcept;
 
     /* ── Snapshot (for tests / static dumps) ─────────────────────────── */

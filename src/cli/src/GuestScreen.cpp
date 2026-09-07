@@ -11,7 +11,7 @@ namespace ms0515::cli {
 
 namespace {
 
-ftxui::Element guestRow(const VramMirror::Snapshot &s, int row, int cursorCol)
+ftxui::Element guestRow(const VramMirror::Snapshot &s, int row)
 {
     ftxui::Elements runs;
     std::string run;
@@ -24,8 +24,7 @@ ftxui::Element guestRow(const VramMirror::Snapshot &s, int row, int cursorCol)
     };
     for (int col = 0; col < VramMirror::kCols; ++col) {
         const size_t at = static_cast<size_t>(row) * VramMirror::kCols + static_cast<size_t>(col);
-        const bool inv = s.inverted[at] != (col == cursorCol);   /* the cursor cell flips */
-        if (inv != runInverted) { flush(); runInverted = inv; }
+        if (s.inverted[at] != runInverted) { flush(); runInverted = s.inverted[at]; }
         run += VramMirror::utf8FromKoi8(s.cells[at] == 0 ? 0x20 : s.cells[at]);
     }
     flush();
@@ -45,12 +44,12 @@ GuestPlacement placeGuest(int cursorRow, int height)
     return p;
 }
 
-ftxui::Element guestRows(const VramMirror::Snapshot &snapshot, int from, int to, int cursorRow, int cursorCol)
+ftxui::Element guestRows(const VramMirror::Snapshot &snapshot, int from, int to)
 {
     ftxui::Elements rows;
     const int first = std::max(0, from);
     const int last = std::min(to, VramMirror::kRows);
-    for (int row = first; row < last; ++row) rows.push_back(guestRow(snapshot, row, row == cursorRow ? cursorCol : -1));
+    for (int row = first; row < last; ++row) rows.push_back(guestRow(snapshot, row));
     return ftxui::vbox(std::move(rows));
 }
 

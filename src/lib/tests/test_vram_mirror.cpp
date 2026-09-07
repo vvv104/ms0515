@@ -233,7 +233,7 @@ TEST_CASE("FILE* output writes ANSI cursor positioning + UTF-8 char") {
     CHECK(out == "\x1B[?2026h\x1B[5;8HZ\x1B[?2026l");
 }
 
-TEST_CASE("invalidate() forces a re-decode on next flush") {
+TEST_CASE("invalidate() forces a re-decode on next flush, and the whole screen is emitted again") {
     if (!std::filesystem::exists(kRomPath)) return;
     ms0515::Emulator emu;
     REQUIRE(emu.loadRomFile(kRomPath));
@@ -258,9 +258,11 @@ TEST_CASE("invalidate() forces a re-decode on next flush") {
 
     mirror.invalidate();
     mirror.flushFrame();
-    /* After invalidate, the changed cell shows up. */
-    CHECK(mirror.history().size() > historyBefore.size());
-    CHECK(mirror.history().back() == 'Q');
+    /* After invalidate, every cell is emitted again - the host's screen may
+     * hold something else by now - the changed cell among them. */
+    const std::string emitted = mirror.history().substr(historyBefore.size());
+    CHECK(emitted.find('Q') != std::string::npos);
+    CHECK(emitted.size() > 80);
 }
 
 TEST_CASE("detach stops further writes from registering") {

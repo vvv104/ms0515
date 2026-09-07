@@ -12,7 +12,10 @@
 
 #include <doctest/doctest.h>
 
+#include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -107,6 +110,42 @@ bool screenHas(const VramMirror &mirror, const std::string &needle)
 
 } // namespace
 
+namespace {
+
+/* What has been written to `f` so far, read back through the same handle -
+ * fopen_s takes a file exclusively, so no second reader can open it. */
+std::string writtenSoFar(FILE *f)
+{
+    std::fflush(f);
+    const long end = std::ftell(f);
+    std::rewind(f);
+    std::string out(static_cast<size_t>(end < 0 ? 0 : end), '\0');
+    const size_t n = out.empty() ? 0 : std::fread(out.data(), 1, out.size(), f);
+    out.resize(n);
+    std::fseek(f, 0, SEEK_END);
+    return out;
+}
+
+/* "ESC [ <row> ; <col> H" at `at` of `s`. */
+bool cursorPos(const std::string &s, size_t at, int &row, int &col)
+{
+    if (s.compare(at, 2, "\x1B[") != 0) return false;
+    size_t i = at + 2;
+    const auto number = [&](int &out) {
+        const size_t start = i;
+        out = 0;
+        for (; i < s.size() && s[i] >= '0' && s[i] <= '9'; ++i) out = out * 10 + (s[i] - '0');
+        return i > start;
+    };
+    if (!number(row)) return false;
+    if (i >= s.size() || s[i] != ';') return false;
+    ++i;
+    if (!number(col)) return false;
+    return i < s.size() && s[i] == 'H';
+}
+
+} // namespace
+
 TEST_CASE("the booted machine takes a DIR typed with the commander down, and one typed with it up")
 {
     const fs::path dir = fs::path(TESTS_BUILD_DIR) / "scratch";
@@ -123,7 +162,7 @@ TEST_CASE("the booted machine takes a DIR typed with the commander down, and one
     cliArgs.fdPath[0] = disk.string();
     /* a real output stream, so the host draws as it does on a terminal */
     FILE *drawn = nullptr;
-    fopen_s(&drawn, (dir / "bridge_boot_drawn.txt").string().c_str(), "wb");
+    fopen_s(&drawn, (dir / "bridge_boot_drawn.txt").string().c_str(), "w+b");
     REQUIRE(drawn != nullptr);
     cli::CommanderHost host(emu, mirror, cliArgs, drawn);
     cli::bridge::install(emu);
@@ -147,6 +186,29 @@ TEST_CASE("the booted machine takes a DIR typed with the commander down, and one
     CHECK(screenHas(mirror, ".dir"));
     CHECK(screenHas(mirror, "SYS"));
 
+    /* text left standing at the prompt: the terminal's own cursor sits on
+     * that row, right after what was typed, and no shape is ever set -
+     * the parent terminal's own is what shows */
+    feed("abc");
+    runUntilQuiet(emu, mirror, host, 60, 2000);
+    const std::string painted = writtenSoFar(drawn);
+    CHECK(painted.find(" q") == std::string::npos);
+    const size_t show = painted.rfind("\x1B[?25h");
+    REQUIRE(show != std::string::npos);
+    const size_t place = painted.rfind("\x1B[", show - 1);
+    int cursorRow = 0, cursorCol = 0;
+    REQUIRE(cursorPos(painted, place, cursorRow, cursorCol));
+    /* the same frame's row that carries the prompt */
+    const size_t frameStart = painted.rfind("\x1B[1;1H", show);
+    REQUIRE(frameStart != std::string::npos);
+    const std::string frame = painted.substr(frameStart, show - frameStart);
+    const size_t prompt = frame.rfind(".abc");
+    REQUIRE(prompt != std::string::npos);
+    int promptRow = 0, promptCol = 0;
+    REQUIRE(cursorPos(frame, frame.rfind("\x1B[", prompt), promptRow, promptCol));
+    CHECK(cursorRow == promptRow);
+    CHECK(cursorCol == 5);            /* ".abc" typed, the cursor past it */
+
     /* F10 + Yes: the panels down, and the terminal repainted in full - the
      * mirror's history (every cell emitted) grows by the whole screen */
     const size_t before = mirror.history().size();
@@ -159,13 +221,4 @@ TEST_CASE("the booted machine takes a DIR typed with the commander down, and one
     cli::bridge::setHostKeySink(nullptr);
     host.shutdown(false);
     std::fclose(drawn);
-    /* what the host drew while the panels were up carried the typed text */
-    FILE *back = nullptr;
-    fopen_s(&back, (dir / "bridge_boot_drawn.txt").string().c_str(), "rb");
-    REQUIRE(back != nullptr);
-    std::string picture;
-    char buf[4096];
-    for (size_t n; (n = std::fread(buf, 1, sizeof buf, back)) > 0;) picture.append(buf, n);
-    std::fclose(back);
-    CHECK(picture.find(".dir") != std::string::npos);
 }

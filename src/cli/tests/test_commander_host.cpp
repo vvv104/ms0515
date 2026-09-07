@@ -11,7 +11,11 @@
 
 #include <doctest/doctest.h>
 
+#include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 
 namespace fs = std::filesystem;
 using namespace ms0515;
@@ -38,6 +42,27 @@ struct Machine {
 files::HostKey byte(uint8_t b) { return files::HostKey::ofByte(b); }
 
 } // namespace
+
+TEST_CASE("the host never sets a cursor shape - the terminal keeps the one it is configured with - and hides the cursor while it has nowhere to put it")
+{
+    Machine m;
+    const fs::path drawnPath = fs::path(TESTS_BUILD_DIR) / "scratch" / "cursor_drawn.txt";
+    FILE *drawn = nullptr;
+    fopen_s(&drawn, drawnPath.string().c_str(), "wb");
+    REQUIRE(drawn != nullptr);
+    {
+        cli::CommanderHost host(m.emu, m.mirror, m.cli, drawn);
+        CHECK(host.onKey(byte(0x1C)));
+        host.shutdown(false);
+    }
+    std::fclose(drawn);
+    std::ifstream back(drawnPath, std::ios::binary);
+    const std::string painted((std::istreambuf_iterator<char>(back)), std::istreambuf_iterator<char>());
+    /* DECSCUSR - "ESC [ <n> SP q" - would override the terminal's own shape */
+    CHECK(painted.find(" q") == std::string::npos);
+    /* the machine has not drawn a cursor yet: none is shown */
+    CHECK(painted.find("\x1B[?25l") != std::string::npos);
+}
 
 TEST_CASE("typed text goes to the guest while the panels are up, the panel keys stay with the commander")
 {

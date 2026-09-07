@@ -498,6 +498,12 @@ ftxui::Element Commander::keyBar() const
     return impl_->tui.panelKeyBar();
 }
 
+int Commander::guestRowsTop(int height) noexcept
+{
+    /* the page ends with the guest's rows, the hint line and the key bar */
+    return std::max(0, height - detail::kGuestRows - 2);
+}
+
 void Commander::refresh()
 {
     impl_->tui.refreshPanels();

@@ -9,6 +9,7 @@
 #include "Commander.hpp"
 #include "GuestScreen.hpp"
 #include "HostEvent.hpp"
+#include "Commander.hpp"
 #include "MountSync.hpp"
 #include "Routing.hpp"
 #include "Scrollback.hpp"
@@ -48,6 +49,14 @@ struct CommanderHost::Impl {
     bool mountsTouched = false;
     Scrollback scrollback;          /* the rows that left the machine's screen, kept all along */
     int scrolledBack = 0;           /* rows leafed back into it with PgUp */
+    /* where the terminal's own cursor goes, 0-based; -1: nowhere to put it */
+    int cursorRow = -1;
+    int cursorCol = -1;
+    /* the guest's cursor cell, as last seen.  The mirror reports none
+     * while the OS has a letter in that cell (the moment of typing) and
+     * between the blinks, so the last sighting is what to go by. */
+    int guestRow = -1;
+    int guestCol = -1;
 
     Impl(Emulator &e, VramMirror &m, const app::CliArgs &c, FILE *o) : emu(e), mirror(m), cli(c), out(o) {}
     void write(const char *s) { if (out) { std::fputs(s, out); std::fflush(out); } }
@@ -56,6 +65,7 @@ struct CommanderHost::Impl {
     void enter();
     void leave();
     void draw();
+    bool noteGuestCursor();
     [[nodiscard]] ftxui::Element picture(int width, int height);
     [[nodiscard]] VramMirror::Snapshot historyRows(int count) const;
     void leafBack(int rows);
@@ -102,26 +112,43 @@ void CommanderHost::Impl::leave()
     mirror.invalidate();
 }
 
+/* The guest's cursor, when the mirror has it in sight; true when it moved. */
+bool CommanderHost::Impl::noteGuestCursor()
+{
+    if (mirror.osCursorRow() < 0 || mirror.osCursorCol() < 0) return false;
+    const bool moved = mirror.osCursorRow() != guestRow || mirror.osCursorCol() != guestCol;
+    guestRow = mirror.osCursorRow();
+    guestCol = mirror.osCursorCol();
+    return moved;
+}
+
+/* The picture, and with it where the terminal's own cursor goes: on the
+ * guest's cursor cell, so the prompt blinks in the shape the terminal is
+ * configured with, panels up or down alike.  A dialog takes it away. */
 ftxui::Element CommanderHost::Impl::picture(int width, int height)
 {
     const auto shadow = mirror.snapshot();
-    /* the guest's cursor: where it draws its '_', else where it last wrote */
-    const int cursorCol = mirror.osCursorCol();
-    const int cursor = std::clamp(mirror.osCursorRow() >= 0 ? mirror.osCursorRow() : mirror.lastWriteRow(), 0, VramMirror::kRows - 1);
+    (void)noteGuestCursor();
+    const int row = std::clamp(guestRow >= 0 ? guestRow : mirror.lastWriteRow(), 0, VramMirror::kRows - 1);
+    const bool haveCursor = guestRow >= 0 && guestCol >= 0 && !commander->modal();
+    cursorRow = -1;
+    cursorCol = haveCursor ? guestCol : -1;
     if (state.panelsHidden) {
         /* the guest's screen with its cursor row where it sits under the
          * panels, the rows that left the screen above it, the key bar below */
-        const GuestPlacement at = placeGuest(cursor, height);
+        const GuestPlacement at = placeGuest(row, height);
+        if (haveCursor) cursorRow = at.pad + (row - at.from);
         ftxui::Elements rows;
         rows.push_back(guestRows(historyRows(at.pad), 0, at.pad));
-        rows.push_back(guestRows(shadow, at.from, at.to, cursor, cursorCol));
+        rows.push_back(guestRows(shadow, at.from, at.to));
         rows.push_back(ftxui::filler());
         rows.push_back(commander->keyBar());
         return ftxui::vbox(std::move(rows));
     }
     /* the rows around the guest's cursor: its prompt, NC's command line */
-    const int from = std::clamp(cursor - 1, 0, VramMirror::kRows - 2);
-    return commander->render(width, height, guestRows(shadow, from, from + 2, cursor, cursorCol));
+    const int from = std::clamp(row - 1, 0, VramMirror::kRows - 2);
+    if (haveCursor) cursorRow = files::Commander::guestRowsTop(height) + (row - from);
+    return commander->render(width, height, guestRows(shadow, from, from + 2));
 }
 
 /* The last `count` kept rows, less those leafed back, as a screen to draw. */
@@ -159,8 +186,13 @@ void CommanderHost::Impl::draw()
     auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(width), ftxui::Dimension::Fixed(height));
     ftxui::Render(screen, picture(width, height));
     const std::string now = screen.ToString();
-    if (now == lastPicture) return;
-    lastPicture = now;
+    /* the terminal's own cursor on the guest's cell, its shape left alone -
+     * no DECSCUSR is ever sent, so the parent terminal keeps its own */
+    const std::string cursorAt = cursorRow >= 0 && cursorCol >= 0
+        ? "\x1B[" + std::to_string(cursorRow + 1) + ";" + std::to_string(cursorCol + 1) + "H\x1B[?25h"
+        : "\x1B[?25l";
+    if (now + cursorAt == lastPicture) return;
+    lastPicture = now + cursorAt;
     /* row by row at its own position: the terminal is raw, a bare '\n'
      * would not return the carriage */
     std::string painted;
@@ -174,7 +206,7 @@ void CommanderHost::Impl::draw()
         painted += "\x1B[" + std::to_string(row++) + ";1H" + line;
         at = nl + 1;
     }
-    write(painted.c_str());
+    write((painted + cursorAt).c_str());
 }
 
 bool CommanderHost::Impl::onKey(const files::HostKey &key)
@@ -233,11 +265,12 @@ void CommanderHost::frame()
     /* the rows leaving the screen are kept whether the panels are up or not */
     if (impl_->mirror.changedThisFlush()) impl_->scrollback.frame(impl_->mirror.snapshot());
     if (!impl_->state.commanderOn || !impl_->out) return;
-    /* redraw when the guest wrote to its screen or the terminal changed
-     * size; the keys draw on their own */
+    /* redraw when the guest wrote to its screen, moved its cursor, or the
+     * terminal changed size; the keys draw on their own */
+    const bool moved = impl_->noteGuestCursor();
     const auto size = ftxui::Terminal::Size();
     const bool resized = size.dimx != impl_->lastSize.dimx || size.dimy != impl_->lastSize.dimy;
-    if (impl_->mirror.changedThisFlush() || resized) impl_->draw();
+    if (impl_->mirror.changedThisFlush() || moved || resized) impl_->draw();
 }
 
 void CommanderHost::shutdown(bool saveConfig)

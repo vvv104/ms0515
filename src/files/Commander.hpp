@@ -64,6 +64,10 @@ public:
     [[nodiscard]] const Mounts &mounts() const noexcept;
     /* The panels' key bar alone, for a host that shows the machine's screen. */
     [[nodiscard]] ftxui::Element keyBar() const;
+
+    /* The terminal row the guest's rows start at on a page of `height` -
+     * where the host puts the terminal's own cursor. */
+    [[nodiscard]] static int guestRowsTop(int height) noexcept;
     /* Re-read the panels' volumes (the host changed something). */
     void refresh();
 

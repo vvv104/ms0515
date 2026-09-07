@@ -60,11 +60,9 @@ TEST_CASE("the rows asked for come out cell by cell, inverted where the screen i
     const auto bottom = draw(cli::guestRows(s, 23, 25), 2);
     CHECK(bottom.PixelAt(79, 1).character == "_");
     CHECK(bottom.PixelAt(0, 0).character == " ");
-    /* the guest's cursor cell comes out inverted */
-    const auto withCursor = draw(cli::guestRows(s, 0, 2, 0, 4), 2);
-    CHECK(withCursor.PixelAt(4, 0).inverted);
-    CHECK_FALSE(withCursor.PixelAt(3, 0).inverted);
-    CHECK_FALSE(withCursor.PixelAt(0, 1).inverted);
+    /* no cursor is painted into the rows: the terminal's own sits there */
+    const auto plain = draw(cli::guestRows(s, 0, 2), 2);
+    CHECK_FALSE(plain.PixelAt(4, 0).inverted);
 }
 
 TEST_CASE("the whole screen is 25 rows; a range past the screen is clipped, an empty one is nothing")
