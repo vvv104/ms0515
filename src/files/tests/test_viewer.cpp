@@ -71,7 +71,7 @@ TEST_CASE("the encodings: KOI-8R, KOI-7, KOI-7 with the SO/SI shifts, CP866, and
     CHECK(decodeByte('a', Encoding::koi7, shift) == "А");
 }
 
-TEST_CASE("the octal dump prints eight words a line, the hex dump sixteen bytes with an ASCII gutter")
+TEST_CASE("the octal dump prints eight words a line, the hex dump sixteen bytes; both carry the characters at the right")
 {
     std::vector<uint8_t> bytes;
     for (int i = 0; i < 20; ++i) bytes.push_back(static_cast<uint8_t>(i));
@@ -90,6 +90,46 @@ TEST_CASE("the octal dump prints eight words a line, the hex dump sixteen bytes 
     /* printable bytes show in the gutter */
     const auto txt = renderLines(bytesOf("Hi"), o);
     CHECK(txt[0].find("|Hi|") != std::string::npos);
+
+    /* the octal dump carries the characters too, DUMP's way: no bars, and
+     * the line is the machine's 80 columns */
+    o.view = View::octal;
+    const auto octText = renderLines(bytesOf("Hi"), o);
+    CHECK(octText[0].ends_with(" Hi"));
+    CHECK(oct[0].ends_with(" ................"));
+    CHECK(oct[0].size() == 80);
+}
+
+TEST_CASE("the gutter of both dumps speaks the encoding the viewer is set to")
+{
+    /* KOI-8R 0xF0..0xF2 are р с т; in CP866 the same bytes are ЁёЄ-ish -
+     * whatever they are, the two must differ, and ASCII shows dots */
+    const auto bytes = bytesOf("\xF0\xD2\xC9 AB");
+    ViewOptions o;
+    o.view = View::hex;
+    o.encoding = Encoding::koi8r;
+    const std::string koi8 = renderLines(bytes, o)[0];
+    o.encoding = Encoding::cp866;
+    const std::string cp866 = renderLines(bytes, o)[0];
+    o.encoding = Encoding::ascii;
+    const std::string ascii = renderLines(bytes, o)[0];
+    /* the hex dump keeps its characters between bars; the octal one puts
+     * them after the words, which take 63 columns and a space */
+    const auto gutter = [](const std::string &line) {
+        if (line.back() == '|') {
+            const auto open = line.rfind('|', line.size() - 2);
+            return line.substr(open + 1, line.size() - open - 2);
+        }
+        return line.substr(64);
+    };
+    CHECK(gutter(koi8) != gutter(cp866));
+    CHECK(gutter(koi8).find("\xD1\x80") != std::string::npos);      /* р */
+    CHECK(gutter(ascii).find("...") != std::string::npos);
+    CHECK(gutter(ascii).find(" AB") != std::string::npos);
+    /* the octal dump goes the same way */
+    o.view = View::octal;
+    o.encoding = Encoding::koi8r;
+    CHECK(gutter(renderLines(bytes, o)[0]).find("\xD1\x80") != std::string::npos);
 }
 
 TEST_CASE("search: a string typed by the user is encoded the way the file is, then found")

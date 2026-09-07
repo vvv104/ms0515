@@ -86,37 +86,50 @@ std::vector<std::string> textLines(std::span<const uint8_t> whole, const ViewOpt
     return out;
 }
 
-std::vector<std::string> octalLines(std::span<const uint8_t> bytes)
+/* The characters of one line of a dump, in the viewer's encoding: a
+ * control byte is a dot, the rest is what the encoding makes of it. */
+std::string gutterOf(std::span<const uint8_t> bytes, size_t from, size_t to, Encoding encoding, bool &rus)
+{
+    std::string out;
+    for (size_t i = from; i < to && i < bytes.size(); ++i) {
+        const uint8_t b = bytes[i];
+        if (b < 0x20 || b == 0x7F) { (void)decodeByte(b, encoding, rus); out += "."; continue; }
+        out += decodeByte(b, encoding, rus);
+    }
+    return out;
+}
+
+std::vector<std::string> octalLines(std::span<const uint8_t> bytes, const ViewOptions &opts)
 {
     std::vector<std::string> out;
+    bool rus = false;
     for (size_t off = 0; off < bytes.size(); off += 16) {
         std::string line = fmt::format("{:06o}:", off);
-        for (size_t i = off; i < off + 16 && i < bytes.size(); i += 2) {
+        for (size_t i = off; i < off + 16; i += 2) {
+            if (i >= bytes.size()) { line += "       "; continue; }
             const unsigned lo = bytes[i];
             const unsigned hi = i + 1 < bytes.size() ? bytes[i + 1] : 0;
             line += fmt::format(" {:06o}", (hi << 8) | lo);
         }
+        /* the characters at the right, as the machine's own DUMP prints
+         * them - a space, then the sixteen, and the line is 80 columns */
+        line += " " + gutterOf(bytes, off, off + 16, opts.encoding, rus);
         out.push_back(line);
     }
     return out;
 }
 
-std::vector<std::string> hexLines(std::span<const uint8_t> bytes)
+std::vector<std::string> hexLines(std::span<const uint8_t> bytes, const ViewOptions &opts)
 {
     std::vector<std::string> out;
+    bool rus = false;
     for (size_t off = 0; off < bytes.size(); off += 16) {
         std::string line = fmt::format("{:06x} ", off);
-        std::string gutter;
         for (size_t i = off; i < off + 16; ++i) {
             if (i % 8 == 0) line += ' ';
-            if (i < bytes.size()) {
-                line += fmt::format("{:02x} ", bytes[i]);
-                gutter += asciiChar(bytes[i]);
-            } else {
-                line += "   ";
-            }
+            line += i < bytes.size() ? fmt::format("{:02x} ", bytes[i]) : "   ";
         }
-        line += " |" + gutter + "|";
+        line += " |" + gutterOf(bytes, off, off + 16, opts.encoding, rus) + "|";
         out.push_back(line);
     }
     return out;
@@ -203,8 +216,8 @@ std::vector<std::string> renderLines(std::span<const uint8_t> bytes, const ViewO
 {
     switch (opts.view) {
     case View::text:  return textLines(bytes, opts);
-    case View::octal: return octalLines(bytes);
-    case View::hex:   return hexLines(bytes);
+    case View::octal: return octalLines(bytes, opts);
+    case View::hex:   return hexLines(bytes, opts);
     }
     return {};
 }
