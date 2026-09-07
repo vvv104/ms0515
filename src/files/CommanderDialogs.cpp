@@ -4,10 +4,13 @@
  */
 #include "TuiImpl.hpp"
 
+#include <ftxui/dom/node.hpp>
+
 #include <fmt/format.h>
 
 #include <algorithm>
 #include <cctype>
+#include <memory>
 
 namespace ms0515::files::detail {
 
@@ -15,7 +18,26 @@ using namespace ftxui;
 
 namespace {
 
-constexpr int kDialogWidth = 56;
+/* The width an input line gets; other dialogs take what their text needs. */
+constexpr int kInputDialogWidth = 56;
+
+/* FTXUI joins adjacent box-drawing cells into junctions ("─" against a
+ * "│" becomes "┤"), which welds a dialog's frame to the panel borders it
+ * lies over.  A box drawn through this keeps its frame to itself. */
+class NoMerge : public Node {
+public:
+    explicit NoMerge(Element child) : Node({std::move(child)}) {}
+    void ComputeRequirement() override { Node::ComputeRequirement(); requirement_ = children_[0]->requirement(); }
+    void SetBox(Box box) override { Node::SetBox(box); children_[0]->SetBox(box); }
+    void Render(Screen &screen) override
+    {
+        Node::Render(screen);
+        for (int y = box_.y_min; y <= box_.y_max; ++y)
+            for (int x = box_.x_min; x <= box_.x_max; ++x) screen.PixelAt(x, y).automerge = false;
+    }
+};
+
+Element noMerge(Element child) { return std::make_shared<NoMerge>(std::move(child)); }
 
 } // namespace
 
@@ -76,7 +98,9 @@ Element Tui::renderDialog() const
         body.push_back(hbox(buttons) | hcenter);
     }
     /* clear_under: the panel must not show through the box's blank cells */
-    return window(text(" " + d.title + " ") | hcenter, vbox(body) | size(WIDTH, GREATER_THAN, kDialogWidth)) | kDialog | clear_under;
+    Element content = vbox(body);
+    if (d.hasInput) content = content | size(WIDTH, GREATER_THAN, kInputDialogWidth);
+    return noMerge(window(text(" " + d.title + " ") | hcenter, content) | kDialog | clear_under);
 }
 
 /* The menu pulled down: a box under its name on the bar. */
@@ -92,7 +116,7 @@ Element Tui::renderMenu() const
         Element el = text(fmt::format(" {:<22} {:>6} ", it.label, it.key));
         rows.push_back(i == menuItem_ ? el | kCursor : el);
     }
-    Element box = vbox(rows) | border | kDialog | clear_under;
+    Element box = noMerge(vbox(rows) | border | kDialog | clear_under);
     return vbox({filler() | size(HEIGHT, EQUAL, 1),
                  hbox({filler() | size(WIDTH, EQUAL, x), box, filler()}),
                  filler()});

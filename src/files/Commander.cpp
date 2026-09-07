@@ -185,13 +185,15 @@ Element Tui::renderPanel(int index)
     for (int i = top; i < top + rows; ++i) {
         const bool have = i < static_cast<int>(entries.size());
         const Entry e = have ? entries[static_cast<size_t>(i)] : Entry{};
-        Decorator look = have && e.empty ? dim : nothing;   /* an unused area: the deleted file's name, or none */
+        /* an unused area is dim - its cells, not the rules between the columns */
+        const Decorator cellLook = have && e.empty ? dim : nothing;
+        Decorator look = nothing;
         if (have && !e.empty && p.isMarked(e.name)) look = kMarked;
         if (have && i == p.cursor() && isActive) look = look | kCursor;   /* the other panel shows no cursor, as mc does */
         const std::string name = !have ? "" : e.empty && e.name.empty() ? " < UNUSED >" : " " + e.name;
         lines.push_back(listRow({name, have ? fmt::format("{:>5}{}", e.blocks, e.protectedFlag ? "P" : " ") : "",
                                  have ? fmt::format("{:>6}", e.offset) : "", have ? " " + mcDate(e.date) : ""},
-                                widths, nothing, look));
+                                widths, cellLook, look));
     }
     Element rule = separator();
     if (p.markedCount())

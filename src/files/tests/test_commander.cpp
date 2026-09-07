@@ -15,6 +15,7 @@
 #include <doctest/doctest.h>
 
 #include <string>
+#include <vector>
 
 using namespace ms0515::files;
 namespace disk = ms0515::disk;
@@ -317,5 +318,21 @@ TEST_CASE("a dialog and a menu hide what lies under them")
         CHECK(inside.find("SWAP.SYS") == std::string::npos);
         CHECK(inside.find("Dec 27") == std::string::npos);
     }
+    /* and the frame is not welded to the panel borders it lies over: the
+     * junction characters FTXUI makes of touching borders must not appear
+     * on the dialog's title row once the screen is printed */
+    const std::string printed = dlg.ToString();
+    std::vector<std::string> printedRows;
+    for (size_t at = 0; at < printed.size();) {
+        size_t nl = printed.find('\n', at);
+        if (nl == std::string::npos) nl = printed.size();
+        printedRows.push_back(printed.substr(at, nl - at));
+        at = nl + 1;
+    }
+    REQUIRE(static_cast<int>(printedRows.size()) > titleRow);
+    const std::string &frameRow = printedRows[static_cast<size_t>(titleRow)];
+    CHECK(frameRow.find("Left panel") != std::string::npos);
+    for (const char *junction : {"\xE2\x94\xA4", "\xE2\x94\x9C", "\xE2\x94\xBC", "\xE2\x94\xAC", "\xE2\x94\xB4"})
+        CHECK(frameRow.find(junction) == std::string::npos);
     CHECK(d.c.onEvent(ftxui::Event::Escape));
 }
