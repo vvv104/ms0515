@@ -75,7 +75,8 @@ Element Tui::renderDialog() const
         body.push_back(separator());
         body.push_back(hbox(buttons) | hcenter);
     }
-    return window(text(" " + d.title + " ") | hcenter, vbox(body) | size(WIDTH, GREATER_THAN, kDialogWidth)) | kDialog;
+    /* clear_under: the panel must not show through the box's blank cells */
+    return window(text(" " + d.title + " ") | hcenter, vbox(body) | size(WIDTH, GREATER_THAN, kDialogWidth)) | kDialog | clear_under;
 }
 
 /* The menu pulled down: a box under its name on the bar. */
@@ -91,7 +92,7 @@ Element Tui::renderMenu() const
         Element el = text(fmt::format(" {:<22} {:>6} ", it.label, it.key));
         rows.push_back(i == menuItem_ ? el | kCursor : el);
     }
-    Element box = vbox(rows) | border | kDialog;
+    Element box = vbox(rows) | border | kDialog | clear_under;
     return vbox({filler() | size(HEIGHT, EQUAL, 1),
                  hbox({filler() | size(WIDTH, EQUAL, x), box, filler()}),
                  filler()});

@@ -299,3 +299,23 @@ TEST_CASE("the Offset column, the unused areas as '< UNUSED >' or the deleted fi
     CHECK(d.c.onEvent(ftxui::Event::End));
     CHECK_FALSE(anyRowHas(shot(d.c, 80, 25), "< UNUSED >"));
 }
+
+TEST_CASE("a dialog and a menu hide what lies under them")
+{
+    TwoDisks d;
+    CHECK(d.c.onEvent(ftxui::Event::F4));
+    auto dlg = shot(d.c, 80, 25);
+    int titleRow = -1;
+    for (int y = 0; y < dlg.dimy(); ++y) if (rowText(dlg, y).find("Left panel") != std::string::npos) titleRow = y;
+    REQUIRE(titleRow >= 0);
+    /* the rows of the box carry no file name of the panels beneath */
+    for (int y = titleRow + 1; y < titleRow + 4; ++y) {
+        const std::string row = rowText(dlg, y);
+        const auto open = row.find("\xE2\x94\x82"), close = row.rfind("\xE2\x94\x82");
+        REQUIRE(open != std::string::npos);
+        const std::string inside = row.substr(open, close - open);
+        CHECK(inside.find("SWAP.SYS") == std::string::npos);
+        CHECK(inside.find("Dec 27") == std::string::npos);
+    }
+    CHECK(d.c.onEvent(ftxui::Event::Escape));
+}
