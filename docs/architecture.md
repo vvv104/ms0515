@@ -134,7 +134,21 @@ Headless text-mode session over the same emulator core:
   the HD - kept in memory with write-through - is re-read after the panels
   write into it.  The bridge parses the terminal's bytes into keys
   (`files/HostKey`) once, for the panels and the guest alike; Windows
-  synthesises the same ESC sequences from console records.
+  synthesises the same ESC sequences from console records.  What is
+  typed shows under the panels as the machine echoes it, with its cursor
+  (the mirror reports any change of its shadow and where the guest keeps
+  its cursor); Enter with nothing typed on a program types the command
+  that runs it - `RUN dev:NAME` for a .SAV, `@dev:NAME` for a .COM - into
+  the prompt.  With the panels hidden the screen sits with its cursor row
+  where it is under the panels, and above it the rows that left the
+  screen: `Scrollback` reads a scroll off the shadow after every frame
+  that changed it - a frame is a scroll only when the whole screen agrees
+  on the shift, a move caught half-way waits for the next frame, a row
+  caught torn still counts once - and PgUp / PgDn leaf through what it
+  kept.  On leaving, the mirror forgets its shadow and repaints every
+  cell, so the terminal shows what the machine did meanwhile.
+  `ms0515_cli_core` holds all of it, tested with a booted OSA: DIR typed
+  with the panels down and up reaches the machine and the host's picture.
 
 
 ### Offline Disk Tooling — `ms0515-disk` (C++)
