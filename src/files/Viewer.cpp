@@ -124,12 +124,13 @@ std::vector<std::string> hexLines(std::span<const uint8_t> bytes, const ViewOpti
     std::vector<std::string> out;
     bool rus = false;
     for (size_t off = 0; off < bytes.size(); off += 16) {
-        std::string line = fmt::format("{:06x} ", off);
+        std::string line = fmt::format("{:06x}:", off);
         for (size_t i = off; i < off + 16; ++i) {
-            if (i % 8 == 0) line += ' ';
-            line += i < bytes.size() ? fmt::format("{:02x} ", bytes[i]) : "   ";
+            if (i == off + 8) line += ' ';                  /* the halves apart */
+            line += i < bytes.size() ? fmt::format(" {:02x}", bytes[i]) : "   ";
         }
-        line += " |" + gutterOf(bytes, off, off + 16, opts.encoding, rus) + "|";
+        /* the characters at the right, as in the octal dump */
+        line += " " + gutterOf(bytes, off, off + 16, opts.encoding, rus);
         out.push_back(line);
     }
     return out;
