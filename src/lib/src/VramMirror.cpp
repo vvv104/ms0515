@@ -117,9 +117,16 @@ void VramMirror::detach()
 void VramMirror::invalidate() noexcept
 {
     dirty_.fill(true);
+    /* the shadow forgets what it held, so the next flush emits every cell
+     * again - the host's screen may show something else by now (another
+     * program had it, the commander's alternate screen came and went) */
+    shadow_.fill(0);
+    inverted_.fill(false);
     fontBuilt_     = false;   /* force font rebuild on next flush */
     hostCursorRow_ = -1;
     hostCursorCol_ = -1;
+    osCursorRow_   = -1;
+    osCursorCol_   = -1;
 }
 
 /* Map a VRAM byte offset to the (row, col) cell it belongs to in the
@@ -513,6 +520,8 @@ void VramMirror::flushFrame()
      * █ adjacent to an inverted cell into an inverted space (0x20,
      * inverted=true).  Two passes (LR + RL) catch blocks that lead
      * or trail the highlight. */
+    changedThisFlush_ = shadow_ != prev_shadow || inverted_ != prev_inverted;
+
     for (int r = 0; r < kRows; ++r) {
         bool span = false;
         for (int c = 0; c < kCols; ++c) {

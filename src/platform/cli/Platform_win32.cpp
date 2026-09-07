@@ -138,6 +138,127 @@ void restoreTerminal()
     g_rawSet = false;
 }
 
+namespace {
+
+/* One key-down record as the bytes a POSIX terminal would send for the
+ * same key: the character in UTF-8, or the ESC sequence of an arrow,
+ * an editing key or an F-key (with Alt as xterm's modifier).  Returns
+ * how many bytes went into `buf` (at most `cap`). */
+size_t keyEventBytes(const KEY_EVENT_RECORD &ke, uint8_t *buf, size_t cap)
+{
+    size_t n = 0;
+    WCHAR wc   = ke.uChar.UnicodeChar;
+    WORD  vkey = ke.wVirtualKeyCode;
+    const DWORD ctl = ke.dwControlKeyState;
+    const bool alt   = (ctl & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) != 0;
+    const bool shift = (ctl & SHIFT_PRESSED) != 0;
+
+    /* Shift+Tab: the console gives a plain tab; send xterm's
+     * back-tab so the commander can tell them apart. */
+    if (vkey == VK_TAB && shift) {
+        for (const char *p = "\x1B[Z"; *p != '\0' && n < cap; ++p)
+            buf[n++] = static_cast<uint8_t>(*p);
+        return n;
+    }
+
+    /* Non-character keys (arrows, F-keys, …) deliver
+     * UnicodeChar = 0 on Windows consoles.  Synthesise the
+     * same ESC sequences POSIX terminals emit in raw mode so
+     * the bridge's ESC state machine sees a uniform byte
+     * stream from both platforms.  F1..F12 use the "linux
+     * console" CSI ~ form across all twelve, which the
+     * bridge unifies with the xterm SS3 form (ESC O P/Q/R/S
+     * for F1..F4) some POSIX terminals send instead. */
+    if (wc == 0) {
+        const char *seq = nullptr;
+        int fnum = 0;   /* an F-key, by number */
+        switch (vkey) {
+        case VK_UP:     seq = "\x1B[A";  break;
+        case VK_DOWN:   seq = "\x1B[B";  break;
+        case VK_RIGHT:  seq = "\x1B[C";  break;
+        case VK_LEFT:   seq = "\x1B[D";  break;
+        case VK_HOME:   seq = "\x1B[1~"; break;
+        case VK_INSERT: seq = "\x1B[2~"; break;
+        case VK_DELETE: seq = "\x1B[3~"; break;
+        case VK_END:    seq = "\x1B[4~"; break;
+        case VK_PRIOR:  seq = "\x1B[5~"; break;
+        case VK_NEXT:   seq = "\x1B[6~"; break;
+        default:
+            if (vkey >= VK_F1 && vkey <= VK_F12) fnum = vkey - VK_F1 + 1;
+            break;
+        }
+        if (fnum != 0) {
+            /* the linux-console numbers; with Alt, xterm's modifier
+             * parameter (3 = Alt) in the CSI form, as the commander
+             * expects for Alt+F1 / Alt+F2 */
+            static constexpr int kCode[12] = {11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24};
+            char fseq[16];
+            std::snprintf(fseq, sizeof fseq, alt ? "\x1B[%d;3~" : "\x1B[%d~", kCode[fnum - 1]);
+            for (const char *p = fseq; *p != '\0' && n < cap; ++p)
+                buf[n++] = static_cast<uint8_t>(*p);
+            return n;
+        }
+        if (seq != nullptr) {
+            for (const char *p = seq; *p != '\0' && n < cap; ++p)
+                buf[n++] = static_cast<uint8_t>(*p);
+            return n;
+        }
+    }
+
+    /* Ctrl with the bracket keys under a layout that has no control
+     * character for them (the Russian layout puts letters on [ ] and \): the physical
+     * key decides, so Ctrl+] quits and Ctrl+\ toggles the commander
+     * whatever the layout. */
+    if (wc == 0 && (ctl & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0) {
+        switch (vkey) {
+        case VK_OEM_4: wc = 0x1B; break;   /* [ */
+        case VK_OEM_5: wc = 0x1C; break;   /* \ */
+        case VK_OEM_6: wc = 0x1D; break;   /* ] */
+        default: break;
+        }
+    }
+
+    /* Fall back to the physical-key VK code only when the OS
+     * gave us no Unicode character at all — typically because
+     * a layout doesn't define one for a particular key.  We
+     * deliberately respect the active layout when it does
+     * produce a char: a Russian-layout user pressing the 'D'
+     * physical key gets Cyrillic в (0x0432), and the bridge
+     * will route that to the MS-7004 'W' key under RUS mode.
+     * The earlier "always force vkey for letters" override
+     * blocked Cyrillic input entirely. */
+    if (wc == 0 &&
+        ((vkey >= '0' && vkey <= '9') ||
+         (vkey >= 'A' && vkey <= 'Z')))
+    {
+        wc = static_cast<WCHAR>(vkey);
+    }
+    if (wc == 0) return n;
+    /* Encode the UTF-16 code unit into UTF-8 bytes for the
+     * shared UTF-8 → KOI-8 decoder downstream.  Surrogate
+     * pairs are uncommon enough on console input that we
+     * accept a one-shot loss on lone surrogates. */
+    uint32_t cp = static_cast<uint32_t>(wc);
+    uint8_t enc[4];
+    size_t  encLen = 0;
+    if (cp < 0x80u) {
+        enc[encLen++] = static_cast<uint8_t>(cp);
+    } else if (cp < 0x800u) {
+        enc[encLen++] = static_cast<uint8_t>(0xC0u | (cp >> 6));
+        enc[encLen++] = static_cast<uint8_t>(0x80u | (cp & 0x3Fu));
+    } else {
+        enc[encLen++] = static_cast<uint8_t>(0xE0u | (cp >> 12));
+        enc[encLen++] = static_cast<uint8_t>(0x80u | ((cp >> 6) & 0x3Fu));
+        enc[encLen++] = static_cast<uint8_t>(0x80u | (cp & 0x3Fu));
+    }
+    for (size_t i = 0; i < encLen && n < cap; ++i) {
+        buf[n++] = enc[i];
+    }
+    return n;
+}
+
+}  /* namespace */
+
 size_t readStdinNonBlocking(uint8_t *buf, size_t cap)
 {
     if (g_eof.load(std::memory_order_acquire) || cap == 0) return 0;
@@ -165,81 +286,7 @@ size_t readStdinNonBlocking(uint8_t *buf, size_t cap)
             }
             if (rec.EventType != KEY_EVENT) continue;
             if (!rec.Event.KeyEvent.bKeyDown) continue;
-            WCHAR wc   = rec.Event.KeyEvent.uChar.UnicodeChar;
-            WORD  vkey = rec.Event.KeyEvent.wVirtualKeyCode;
-
-            /* Non-character keys (arrows, F-keys, …) deliver
-             * UnicodeChar = 0 on Windows consoles.  Synthesise the
-             * same ESC sequences POSIX terminals emit in raw mode so
-             * the bridge's ESC state machine sees a uniform byte
-             * stream from both platforms.  F1..F12 use the "linux
-             * console" CSI ~ form across all twelve, which the
-             * bridge unifies with the xterm SS3 form (ESC O P/Q/R/S
-             * for F1..F4) some POSIX terminals send instead. */
-            if (wc == 0) {
-                const char *seq = nullptr;
-                switch (vkey) {
-                case VK_UP:    seq = "\x1B[A";   break;
-                case VK_DOWN:  seq = "\x1B[B";   break;
-                case VK_RIGHT: seq = "\x1B[C";   break;
-                case VK_LEFT:  seq = "\x1B[D";   break;
-                case VK_F1:    seq = "\x1B[11~"; break;
-                case VK_F2:    seq = "\x1B[12~"; break;
-                case VK_F3:    seq = "\x1B[13~"; break;
-                case VK_F4:    seq = "\x1B[14~"; break;
-                case VK_F5:    seq = "\x1B[15~"; break;
-                case VK_F6:    seq = "\x1B[17~"; break;
-                case VK_F7:    seq = "\x1B[18~"; break;
-                case VK_F8:    seq = "\x1B[19~"; break;
-                case VK_F9:    seq = "\x1B[20~"; break;
-                case VK_F10:   seq = "\x1B[21~"; break;
-                case VK_F11:   seq = "\x1B[23~"; break;
-                case VK_F12:   seq = "\x1B[24~"; break;
-                default: break;
-                }
-                if (seq != nullptr) {
-                    for (const char *p = seq; *p != '\0' && out < cap; ++p)
-                        buf[out++] = static_cast<uint8_t>(*p);
-                    continue;
-                }
-            }
-
-            /* Fall back to the physical-key VK code only when the OS
-             * gave us no Unicode character at all — typically because
-             * a layout doesn't define one for a particular key.  We
-             * deliberately respect the active layout when it does
-             * produce a char: a Russian-layout user pressing the 'D'
-             * physical key gets Cyrillic в (0x0432), and the bridge
-             * will route that to the MS-7004 'W' key under RUS mode.
-             * The earlier "always force vkey for letters" override
-             * blocked Cyrillic input entirely. */
-            if (wc == 0 &&
-                ((vkey >= '0' && vkey <= '9') ||
-                 (vkey >= 'A' && vkey <= 'Z')))
-            {
-                wc = static_cast<WCHAR>(vkey);
-            }
-            if (wc == 0) continue;
-            /* Encode the UTF-16 code unit into UTF-8 bytes for the
-             * shared UTF-8 → KOI-8 decoder downstream.  Surrogate
-             * pairs are uncommon enough on console input that we
-             * accept a one-shot loss on lone surrogates. */
-            uint32_t cp = static_cast<uint32_t>(wc);
-            uint8_t enc[4];
-            size_t  encLen = 0;
-            if (cp < 0x80u) {
-                enc[encLen++] = static_cast<uint8_t>(cp);
-            } else if (cp < 0x800u) {
-                enc[encLen++] = static_cast<uint8_t>(0xC0u | (cp >> 6));
-                enc[encLen++] = static_cast<uint8_t>(0x80u | (cp & 0x3Fu));
-            } else {
-                enc[encLen++] = static_cast<uint8_t>(0xE0u | (cp >> 12));
-                enc[encLen++] = static_cast<uint8_t>(0x80u | ((cp >> 6) & 0x3Fu));
-                enc[encLen++] = static_cast<uint8_t>(0x80u | (cp & 0x3Fu));
-            }
-            for (size_t i = 0; i < encLen && out < cap; ++i) {
-                buf[out++] = enc[i];
-            }
+            out += keyEventBytes(rec.Event.KeyEvent, buf + out, cap - out);
         }
         return out;
     }
@@ -276,6 +323,11 @@ size_t readStdinNonBlocking(uint8_t *buf, size_t cap)
 bool isStdinEof()
 {
     return g_eof.load(std::memory_order_acquire);
+}
+
+bool stdinIsTerminal()
+{
+    return GetFileType(GetStdHandle(STD_INPUT_HANDLE)) == FILE_TYPE_CHAR;
 }
 
 void writeStdout(const char *data, size_t n)

@@ -59,6 +59,10 @@ size_t readStdinNonBlocking(uint8_t *buf, size_t cap);
 /* True once stdin has reached EOF. */
 bool isStdinEof();
 
+/* True when stdin is the console / a tty - a person at a terminal, not
+ * a pipe or a file.  The commander over the machine exists only then. */
+bool stdinIsTerminal();
+
 /* Write a buffer to stdout.  Used by the .TTYOUT / .PRINT hooks.
  * Does NOT flush — callers must invoke flushStdout() at meaningful
  * boundaries (end of each .TTYOUT / .PRINT call) so each guest-side

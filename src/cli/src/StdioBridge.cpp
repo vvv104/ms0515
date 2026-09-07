@@ -10,9 +10,12 @@
 #include "Koi8.hpp"
 #include "Platform.hpp"
 
+#include "HostKey.hpp"
+
 #include <array>
 #include <cstdio>
 #include <deque>
+#include <functional>
 
 namespace ms0515::cli::bridge {
 
@@ -41,28 +44,6 @@ std::deque<KeyMapping> g_tapQueue;
  * stays out of sync and may flip the wrong direction. */
 bool g_assumedRusMode = false;
 
-/* Host arrow / F-keys arrive as ANSI escape sequences:
- *   arrows : ESC [ A/B/C/D
- *   F1..F4 : ESC O P/Q/R/S    (xterm SS3 form, some POSIX terminals)
- *   F1..F12: ESC [ N ~        (linux-console form, what Platform_win32
- *                              synthesises and what most modern terminals
- *                              — Windows Terminal, xterm with rmkx —
- *                              send by default).
- * The state machine threads each ESC-prefixed burst through a small
- * pipeline and emits the matching MS-7004 Key tap.  Any sequence the
- * MS-0515 keyboard has no key for (Home, End, PgUp, …) is silently
- * dropped — better than letting a tilde-terminator slip through as
- * literal user input. */
-enum class EscState : uint8_t {
-    None,             /* not inside an ESC sequence */
-    AfterEsc,         /* saw ESC, waiting for '[' / 'O' / other */
-    AfterCsi,         /* saw ESC [ */
-    CollectingCsiNum, /* saw ESC [ <digit>, accumulating until '~' */
-    AfterSs3,         /* saw ESC O, waiting for P/Q/R/S */
-};
-EscState g_escState  = EscState::None;
-int      g_csiAccum  = 0;       /* digits accumulated under CollectingCsiNum */
-
 /* Active emulator pointer — pumpInput() calls emu.keyPress(). */
 ms0515::Emulator *g_emu = nullptr;
 
@@ -82,154 +63,58 @@ size_t                 g_utf8PendingLen = 0;
 KeyMapping asciiToKey(uint8_t c);
 KeyMapping koi8CyrillicToKey(uint8_t b);
 
-/* Map an ANSI CSI final byte to the matching MS-7004 arrow Key. */
-ms0515::Key csiArrow(uint8_t b)
-{
-    using Key = ms0515::Key;
-    switch (b) {
-    case 'A': return Key::Up;
-    case 'B': return Key::Down;
-    case 'C': return Key::Right;
-    case 'D': return Key::Left;
-    default:  return Key::None;
-    }
-}
-
-/* "ESC [ N ~" — linux-console / xterm-rmkx style F-key sequence.
- * The numbers match the convention every modern terminal agrees on;
- * gaps in the sequence (16, 22, 25, …) are historical from VT-220
- * keypad codes that aren't used for F-keys. */
-ms0515::Key csiNumToKey(int n)
-{
-    using Key = ms0515::Key;
-    switch (n) {
-    case 11: return Key::F1;
-    case 12: return Key::F2;
-    case 13: return Key::F3;
-    case 14: return Key::F4;
-    case 15: return Key::F5;
-    case 17: return Key::F6;
-    case 18: return Key::F7;
-    case 19: return Key::F8;
-    case 20: return Key::F9;
-    case 21: return Key::F10;
-    case 23: return Key::F11;
-    case 24: return Key::F12;
-    default: return Key::None;
-    }
-}
-
-/* "ESC O P/Q/R/S" — xterm SS3 form for F1..F4.  F5+ aren't reachable
- * through this prefix; terminals that use SS3 for the low four switch
- * to the CSI ~ form for the rest, which csiNumToKey() handles. */
-ms0515::Key ss3ToKey(uint8_t b)
-{
-    using Key = ms0515::Key;
-    switch (b) {
-    case 'P': return Key::F1;
-    case 'Q': return Key::F2;
-    case 'R': return Key::F3;
-    case 'S': return Key::F4;
-    default:  return Key::None;
-    }
-}
-
 void enqueueLetterByte(uint8_t b);
 
-/* Run incoming KOI-8 bytes through the ESC-sequence state machine.
- * Anything outside an ESC sequence falls through to enqueueLetterByte
- * for the normal Latin / Cyrillic / punctuation classification. */
-void enqueueKoi8(uint8_t b)
+/* The terminal's bytes become keys here; each key goes to the sink
+ * first (the commander over the machine, when it is up) and to the
+ * guest otherwise. */
+files::KeyParser g_parser;
+std::function<bool(const files::HostKey &)> g_sink;
+
+/* The MS-7004 key behind a special key of the host, or None: the
+ * machine has no Insert, Home, End, PgUp, PgDn - those are dropped. */
+ms0515::Key specialToKey(files::SpecialKey s)
 {
     using Key = ms0515::Key;
+    using S = files::SpecialKey;
+    switch (s) {
+    case S::up:    return Key::Up;
+    case S::down:  return Key::Down;
+    case S::left:  return Key::Left;
+    case S::right: return Key::Right;
+    case S::f1:  return Key::F1;   case S::f2:  return Key::F2;   case S::f3:  return Key::F3;
+    case S::f4:  return Key::F4;   case S::f5:  return Key::F5;   case S::f6:  return Key::F6;
+    case S::f7:  return Key::F7;   case S::f8:  return Key::F8;   case S::f9:  return Key::F9;
+    case S::f10: return Key::F10;  case S::f11: return Key::F11;  case S::f12: return Key::F12;
+    default:     return Key::None;
+    }
+}
 
-    /* Ctrl-]  (ASCII 0x1D) is the CLI's quit escape — matching the
+void enqueueGuest(const files::HostKey &k)
+{
+    if (k.isByte()) { enqueueLetterByte(k.byte); return; }
+    const ms0515::Key key = specialToKey(k.special);
+    if (key != ms0515::Key::None) g_tapQueue.push_back({key, false});
+}
+
+void dispatch(const files::HostKey &k)
+{
+    /* Ctrl-]  (ASCII 0x1D) is the CLI's quit escape - matching the
      * familiar telnet escape character.  RT-11 has no use for it, so
      * intercepting it here doesn't take anything away from the guest.
      * The signal is delivered via the Platform shouldQuit() flag the
      * main loop already polls. */
-    if (b == 0x1Du) {
+    if (k.isByte() && k.byte == 0x1Du) {
         cli::requestQuit();
         return;
     }
+    if (g_sink && g_sink(k)) return;
+    enqueueGuest(k);
+}
 
-    switch (g_escState) {
-    case EscState::None:
-        if (b == 0x1Bu) {
-            g_escState = EscState::AfterEsc;
-            return;
-        }
-        enqueueLetterByte(b);
-        return;
-
-    case EscState::AfterEsc:
-        if (b == '[') { g_escState = EscState::AfterCsi; return; }
-        if (b == 'O') { g_escState = EscState::AfterSs3; return; }
-        /* ESC followed by something else — flush both as plain bytes
-         * and reset.  The guest may use bare ESC for some monitors
-         * (e.g. as command-cancel), so we don't drop it. */
-        g_escState = EscState::None;
-        enqueueLetterByte(0x1Bu);
-        enqueueLetterByte(b);
-        return;
-
-    case EscState::AfterCsi:
-        if (Key arrow = csiArrow(b); arrow != Key::None) {
-            g_escState = EscState::None;
-            g_tapQueue.push_back({arrow, false});
-            return;
-        }
-        if (b >= '0' && b <= '9') {
-            g_csiAccum = b - '0';
-            g_escState = EscState::CollectingCsiNum;
-            return;
-        }
-        /* Unknown CSI final byte — flush the prefix and the byte. */
-        g_escState = EscState::None;
-        enqueueLetterByte(0x1Bu);
-        enqueueLetterByte('[');
-        enqueueLetterByte(b);
-        return;
-
-    case EscState::CollectingCsiNum:
-        if (b >= '0' && b <= '9') {
-            g_csiAccum = g_csiAccum * 10 + (b - '0');
-            return;
-        }
-        if (b == '~') {
-            const Key fkey = csiNumToKey(g_csiAccum);
-            g_escState = EscState::None;
-            if (fkey != Key::None) g_tapQueue.push_back({fkey, false});
-            /* Otherwise this is a Home / End / Ins / Del / PgUp / PgDn
-             * style sequence the MS-0515 keyboard has no equivalent
-             * for — silently drop it. */
-            return;
-        }
-        /* Sequence broke off mid-number — flush what we'd swallowed. */
-        g_escState = EscState::None;
-        enqueueLetterByte(0x1Bu);
-        enqueueLetterByte('[');
-        if (g_csiAccum >= 10) {
-            enqueueLetterByte(static_cast<uint8_t>('0' + g_csiAccum / 10));
-            enqueueLetterByte(static_cast<uint8_t>('0' + g_csiAccum % 10));
-        } else {
-            enqueueLetterByte(static_cast<uint8_t>('0' + g_csiAccum));
-        }
-        enqueueLetterByte(b);
-        return;
-
-    case EscState::AfterSs3:
-        g_escState = EscState::None;
-        if (Key fkey = ss3ToKey(b); fkey != Key::None) {
-            g_tapQueue.push_back({fkey, false});
-            return;
-        }
-        /* Unknown SS3 final byte — flush. */
-        enqueueLetterByte(0x1Bu);
-        enqueueLetterByte('O');
-        enqueueLetterByte(b);
-        return;
-    }
+void feedKoi8(uint8_t b)
+{
+    for (const auto &k : g_parser.feed(b)) dispatch(k);
 }
 
 /* Expand one host-stdin KOI-8R byte into the keystroke tap(s) the guest
@@ -443,14 +328,20 @@ bool         g_phaseCtrl   = false;
 void readBytesFromHost()
 {
     std::array<uint8_t, 256> buf{};
-    size_t n = cli::readStdinNonBlocking(buf.data(), buf.size());
-    if (n == 0) return;
+    const size_t n = cli::readStdinNonBlocking(buf.data(), buf.size());
+    if (n != 0) feedHostBytes(buf.data(), n);
+}
 
+}  /* namespace */
+
+void feedHostBytes(const uint8_t *bytes, size_t n)
+{
+    if (n == 0 || n > 256) return;
     /* Prepend any leftover UTF-8 bytes from the previous read. */
     std::array<uint8_t, 256 + 4> work{};
     size_t workLen = 0;
     for (size_t i = 0; i < g_utf8PendingLen; ++i) work[workLen++] = g_utf8Pending[i];
-    for (size_t i = 0; i < n; ++i) work[workLen++] = buf[i];
+    for (size_t i = 0; i < n; ++i) work[workLen++] = bytes[i];
     g_utf8PendingLen = 0;
 
     size_t off = 0;
@@ -464,12 +355,22 @@ void readBytesFromHost()
             g_utf8PendingLen = workLen - off;
             break;
         }
-        enqueueKoi8(k);
+        feedKoi8(k);
         off += consumed;
     }
+    /* the burst is over: an ESC that ended it was the Esc key */
+    for (const auto &k : g_parser.flush()) dispatch(k);
 }
 
-}  /* namespace */
+void typeToGuest(const std::string &koi8)
+{
+    for (const char c : koi8) enqueueGuest(files::HostKey::ofByte(static_cast<uint8_t>(c)));
+}
+
+size_t pendingTaps()
+{
+    return g_tapQueue.size() + (g_phase == TapPhase::Idle ? 0 : 1);
+}
 
 void install(ms0515::Emulator &emu)
 {
@@ -479,6 +380,11 @@ void install(ms0515::Emulator &emu)
 void setInputReady(bool ready)
 {
     g_inputReady = ready;
+}
+
+void setHostKeySink(std::function<bool(const files::HostKey &)> sink)
+{
+    g_sink = std::move(sink);
 }
 
 void pumpInput()
@@ -512,7 +418,7 @@ void pumpInput()
         KeyMapping km = g_tapQueue.front();
         g_tapQueue.pop_front();
         if (km.key == ms0515::Key::None) continue;
-        if (km.ctrl)  g_emu->keyPress(ms0515::Key::Ctrl,   true);
+            if (km.ctrl)  g_emu->keyPress(ms0515::Key::Ctrl,   true);
         if (km.shift) g_emu->keyPress(ms0515::Key::ShiftL, true);
         g_emu->keyPress(km.key, true);
         g_phaseKey    = km.key;

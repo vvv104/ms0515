@@ -86,6 +86,9 @@ public:
      * to disable the mirror to FILE while keeping history accumulation
      * (history() always grows from the per-cell emissions). */
     void setOutput(FILE *f) noexcept { out_ = f; }
+    /* Where it writes now - for a caller that takes the terminal for a
+     * while and hands it back. */
+    [[nodiscard]] FILE *output() const noexcept { return out_; }
 
     /* Plain-text history.  One char per emit, in order.  No ANSI escape
      * sequences — host-terminal positioning lives in the FILE* path only. */
@@ -113,15 +116,28 @@ public:
      * paint can confuse the OS). */
     [[nodiscard]] int framesIdle() const noexcept { return framesIdle_; }
 
+    /* True when the last flushFrame() changed any cell of the shadow -
+     * a single typed letter included, which framesIdle() ignores. */
+    [[nodiscard]] bool changedThisFlush() const noexcept { return changedThisFlush_; }
+
+    /* Where the guest OS keeps its cursor (the blinking '_' it draws),
+     * as the decoder last saw it; -1 before the first sighting.  The
+     * cell itself is kept blank in the shadow. */
+    [[nodiscard]] int osCursorRow() const noexcept { return osCursorRow_; }
+    [[nodiscard]] int osCursorCol() const noexcept { return osCursorCol_; }
+
     /* Run the dirty-cell sweep.  For each cell whose 8-byte glyph
      * changed since the previous flush, look up the new code in the
      * font map and (if different from the shadow) emit ANSI cursor +
      * UTF-8 char to out_ and append the char to history_. */
     void flushFrame();
 
-    /* Drop all dirty markers and force a re-decode of the full screen
-     * on the next flushFrame().  Use after loadState() or any other
-     * coarse VRAM overwrite the hook didn't see byte-by-byte. */
+    /* Drop all dirty markers and force a re-decode of the full screen on
+     * the next flushFrame(), which then emits every cell: the shadow is
+     * forgotten too, since the host's screen may hold something else by
+     * now (another program had the terminal).  Use after loadState(), any
+     * coarse VRAM overwrite the hook didn't see byte-by-byte, or when the
+     * terminal was someone else's for a while. */
     void invalidate() noexcept;
 
     /* ── Snapshot (for tests / static dumps) ─────────────────────────── */
@@ -201,6 +217,7 @@ private:
     int  lastWriteCol_  = -1;
     int  framesIdle_    = 0;                        /* frames since last write */
     int  writesThisFlush_ = 0;                      /* byte writes since last flush */
+    bool changedThisFlush_ = false;                 /* the shadow moved in the last flush */
 
     /* OS-side cursor — the cell where the kernel currently draws its
      * blinking `_`.  Detected on the fly: any cell that resolves to

@@ -117,6 +117,43 @@ Headless text-mode session over the same emulator core:
 - `--screenshot` saves the real 640x400 picture as a PNG, decoded by the
   same `libapp` `Screen` the GUI displays.  The terminal mirror only carries
   text, so this is how a graphical guest program is probed without a display.
+- The commander over the running machine (`CommanderHost`, a person at a
+  terminal only): Ctrl+\ - the one byte every terminal delivers as itself
+  and RT-11 never uses - brings the panels of `src/files/` up in the
+  alternate screen (F10, asked, takes them down; Ctrl+\ is swallowed
+  meanwhile).  The mirror stops writing to the
+  terminal and its 80x25 shadow is drawn instead: two rows around the
+  guest's cursor under the panels (NC's command line is the machine's own
+  prompt), the whole screen when Ctrl+O hides the panels.  Keys follow the
+  NC rule (`files/Routing`): typed text, Backspace, Ctrl+letters and an
+  Enter after typing go to the machine; Tab, arrows, Insert, Home / End /
+  PgUp / PgDn, Esc, the F-keys and an untyped Enter work the panels; a
+  dialog takes everything.  Ctrl+] still quits the CLI.  A mount made in the panels is applied to the machine at once
+  (`MountSync`: units FD0..FD3 and the HD follow the slots); the floppies
+  are shared through the image file the FDC reads and writes per sector,
+  the HD - kept in memory with write-through - is re-read after the panels
+  write into it.  The bridge parses the terminal's bytes into keys
+  (`files/HostKey`) once, for the panels and the guest alike; Windows
+  synthesises the same ESC sequences from console records.  What is
+  typed shows under the panels as the machine echoes it, with its cursor
+  (the mirror reports any change of its shadow and where the guest keeps
+  its cursor); Enter with nothing typed on a program - a `.SAV` or a
+  `.COM`, painted green as mc paints executables - types the command that
+  runs it (`RUN dev:NAME`, `@dev:NAME`) into the prompt, and on anything
+  else does nothing, F3 being what views a file.  With the panels hidden the screen sits with its cursor row
+  where it is under the panels, and above it the rows that left the
+  screen: `Scrollback` reads a scroll off the shadow after every frame
+  that changed it - a frame is a scroll only when the whole screen agrees
+  on the shift, a move caught half-way waits for the next frame, a row
+  caught torn still counts once - and PgUp / PgDn leaf through what it
+  kept.  On leaving, the mirror forgets its shadow and repaints every
+  cell, so the terminal shows what the machine did meanwhile.  While the
+  panels are down a hint stands on the terminal's bottom row - the keys
+  that bring them up and quit - written once, clear of the machine's own
+  25 rows and with the cursor put back; the panels have their own key bar
+  and live on the alternate screen, so it is not there.
+  `ms0515_cli_core` holds all of it, tested with a booted OSA: DIR typed
+  with the panels down and up reaches the machine and the host's picture.
 
 
 ### Offline Disk Tooling — `ms0515-disk` (C++)
@@ -147,6 +184,60 @@ tool that read and write images directly, without running the machine.
   monitor names made anew, then the bootstrap).  The floppy geometry
   follows the image size; `--hd`, `--dv` and `--mz` pick the other volume
   kinds, and `dir` says when the content rather parses as another one.
+
+### The File Manager — `src/files/` (C++)
+
+Two panels over the machine's disks - never the host's file system - in
+the terminal, drawn over the running machine by `ms0515-cli` (see the CLI
+section above).  Two libraries: the model and the FTXUI panels.
+
+- The panels show the RT-11 volumes of the mounted devices, named as the
+  guest names them: `DZ0:`/`DZ2:` (drive A's sides), `DZ1:`/`DZ3:`, `HD0:`,
+  or one `DV0:`/`MZ0:` when the image's content is a whole-diskette
+  volume.  The mounts are the emulator's: libapp's flag parser and
+  `ms0515.yaml`, so the panels start on the disks the emulator had last
+  and a mount made there is what the emulator mounts next.  Alt+F1 / Alt+F2
+  (F4 for the panel in use) choose the left / right panel's disk: a
+  mounted device, or another image - picked from a listing of a host
+  directory that stands in that panel for the moment, the only time the
+  host's files are on screen; the device then opens where the listing was.
+  Otherwise the host enters only as a path typed at a prompt (Tab
+  completes) - a file to bring in (F1), a directory to put files out to
+  (F2).  Esc only closes dialogs.
+- `Keys` decodes the function keys a terminal sends with a modifier
+  (xterm's `ESC [ 1 ; 3 P` for Alt+F1), which FTXUI passes through
+  unnamed.  A terminal never reports a modifier pressed on its own, so
+  the key bar cannot relabel itself while Alt is held - only react to
+  the key the modifier lands on.
+- `ms0515_files` — `Location` (a device's volume through `ms0515_disk`,
+  every change written back to the image at once), `Mounts` (slots →
+  devices by content), `Panel` (cursor, marks, selection), `Ops` (copy /
+  move / delete / rename / protect between volumes, import / export, with
+  an explicit policy for overwriting and protected files), `Viewer` (text
+  in ASCII / KOI-8R / KOI-7 / KOI-7 with ^N ^O / CP866, octal and hex
+  dumps, search).  Unit-tested on scratch copies of the fixture disks.
+- The front-end (`ms0515_files_ui`: `Commander.cpp` the page and the
+  panels, `CommanderDialogs.cpp`, `CommanderActions.cpp`,
+  `CommanderViewer.cpp`, behind `TuiImpl.hpp`) draws with FTXUI (Conan),
+  sized to the terminal, the way Midnight Commander does: the menu bar
+  (F9), two panels with the title on the top border and the free space on
+  the bottom one, column rules, the marks summary on the rule above the
+  current-file line, a hint line, the key bar; grey dialogs with a cyan
+  input line, radio and check items, `[< OK >] [ Cancel ]`.  The keys are
+  mc's - F1 help, F2 user menu, F3 view, F5 copy / F6 move to the device
+  in the "to:" line (a bare name renames) with the per-file "File exists"
+  question (Yes / No / All / None / Abort), F7 squeeze, F8 delete, Insert
+  and + - * marks, Ctrl+U swap, Ctrl+R reread, sort order from the
+  Left / Right menus; the viewer's F2 wrap, F4 hex, F5 goto, F7 search,
+  F8 encoding, F9 octal.  The listing is the directory's own, in its
+  order (Name, blocks with the P flag, Offset, Date): the unused areas
+  are entries too - dim, `< UNUSED >` for the free space INIT left, or the
+  name of the file deleted from it, which RT-11's DELETE leaves in the
+  entry - so an area can be viewed (F3) and brought back (Undelete, in
+  the File and user menus: under its kept name or one typed, which also
+  turns a nameless area into a file).  Options / Show unused areas hides
+  them, mc's hidden files.  All state stays in the model; the panels are
+  unit-tested by rendering into an FTXUI screen (`test_commander`).
 
 The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
 is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified

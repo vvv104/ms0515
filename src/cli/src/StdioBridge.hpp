@@ -23,6 +23,11 @@
 
 #include <ms0515/Emulator.hpp>
 
+#include "HostKey.hpp"
+
+#include <functional>
+#include <string>
+
 namespace ms0515::cli::bridge {
 
 /* Remember the emu pointer for pumpInput(). */
@@ -42,6 +47,23 @@ void install(ms0515::Emulator &emu);
 void pumpInput();
 
 void setInputReady(bool ready);
+
+/* Every key of the host goes to `sink` first; a key it returns true for
+ * never reaches the guest.  The commander over the machine installs
+ * itself here.  Ctrl-] (quit) is handled before the sink. */
+void setHostKeySink(std::function<bool(const files::HostKey &)> sink);
+
+/* A burst of the host's bytes (UTF-8, ESC sequences), as if read from
+ * stdin - what pumpInput() does with the terminal's input; for the tests
+ * and for text the host itself puts in.  At most 256 bytes a call. */
+void feedHostBytes(const uint8_t *bytes, size_t n);
+
+/* Keystrokes queued for the guest and not yet tapped out. */
+[[nodiscard]] size_t pendingTaps();
+
+/* KOI-8 text the host types into the guest on the user's behalf (the
+ * command that runs a program), past the commander's sink. */
+void typeToGuest(const std::string &koi8);
 
 }  /* namespace ms0515::cli::bridge */
 

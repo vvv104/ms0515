@@ -120,6 +120,11 @@ bool isStdinEof()
     return g_eof.load(std::memory_order_acquire);
 }
 
+bool stdinIsTerminal()
+{
+    return isatty(STDIN_FILENO) != 0;
+}
+
 void writeStdout(const char *data, size_t n)
 {
     if (n == 0) return;
