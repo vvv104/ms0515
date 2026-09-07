@@ -5,6 +5,8 @@
  */
 #include "CommanderHost.hpp"
 
+#include <ftxui/screen/terminal.hpp>
+
 #include <ms0515/Emulator.hpp>
 #include <ms0515/VramMirror.hpp>
 #include <ms0515/app/Cli.hpp>
@@ -94,4 +96,62 @@ TEST_CASE("typed text goes to the guest while the panels are up, the panel keys 
     CHECK(host.onKey(byte('y')));
     CHECK_FALSE(host.active());
     host.shutdown(false);
+}
+
+TEST_CASE("the hint at the bottom of the terminal names the keys, saves and restores the cursor, and keeps off the machine's rows")
+{
+    const std::string hint = cli::hintLine(80, 30);
+    CHECK(hint.find("Ctrl-\\") != std::string::npos);
+    CHECK(hint.find("Ctrl-]") != std::string::npos);
+    /* the bottom row, and the guest's cursor put back where it was */
+    CHECK(hint.find("\x1B[30;1H") != std::string::npos);
+    CHECK(hint.rfind("\x1B" "7", 0) == 0);
+    CHECK(hint.size() >= 4);
+    CHECK(hint.compare(hint.size() - 2, 2, "\x1B" "8") == 0);
+    /* it never reaches the last column - some terminals scroll on that */
+    const size_t textAt = hint.find("\x1B[7m") + 4;
+    const size_t textEnd = hint.find("\x1B[27m");
+    REQUIRE(textEnd != std::string::npos);
+    CHECK(textEnd - textAt == 79);
+    /* a terminal with no room below the machine's 25 rows gets none */
+    CHECK(cli::hintLine(80, 25).empty());
+    CHECK(cli::hintLine(80, 24).empty());
+    CHECK(cli::hintLine(20, 40).empty());
+}
+
+TEST_CASE("the host writes the hint while the panels are down, and never while they are up")
+{
+    Machine m;
+    const fs::path drawnPath = fs::path(TESTS_BUILD_DIR) / "scratch" / "hint_drawn.txt";
+    FILE *drawn = nullptr;
+    fopen_s(&drawn, drawnPath.string().c_str(), "wb");
+    REQUIRE(drawn != nullptr);
+    const bool room = ftxui::Terminal::Size().dimy > ms0515::VramMirror::kRows;
+    {
+        cli::CommanderHost host(m.emu, m.mirror, m.cli, drawn);
+        host.frame();
+        host.frame();
+        std::fflush(drawn);
+        std::ifstream down(drawnPath, std::ios::binary);
+        const std::string beforeUp((std::istreambuf_iterator<char>(down)), std::istreambuf_iterator<char>());
+        if (room) CHECK(beforeUp.find("Ctrl-]") != std::string::npos);
+        const size_t hints = [&beforeUp] {
+            size_t n = 0;
+            for (size_t at = beforeUp.find("Ctrl-]"); at != std::string::npos; at = beforeUp.find("Ctrl-]", at + 1)) ++n;
+            return n;
+        }();
+        CHECK(hints <= 1);                    /* drawn once, not every frame */
+
+        CHECK(host.onKey(byte(0x1C)));        /* the panels up: the hint is not part of them */
+        host.frame();
+        host.frame();
+        std::fflush(drawn);
+        std::ifstream up(drawnPath, std::ios::binary);
+        const std::string all((std::istreambuf_iterator<char>(up)), std::istreambuf_iterator<char>());
+        size_t afterUp = 0;
+        for (size_t at = all.find("Ctrl-]"); at != std::string::npos; at = all.find("Ctrl-]", at + 1)) ++afterUp;
+        CHECK(afterUp == hints);
+        host.shutdown(false);
+    }
+    std::fclose(drawn);
 }

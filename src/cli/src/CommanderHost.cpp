@@ -34,7 +34,23 @@ namespace {
 constexpr const char *kAltScreenOn  = "\x1B[?1049h\x1B[?25l";
 constexpr const char *kAltScreenOff = "\x1B[?1049l";
 
+/* DECSC / DECRC: the cursor where the machine left it, before and after. */
+const std::string kSaveCursor = "\x1B" "7";
+const std::string kRestoreCursor = "\x1B" "8";
+
 } // namespace
+
+std::string hintLine(int width, int height)
+{
+    /* the machine's own rows come first; the hint needs one below them */
+    if (height <= VramMirror::kRows || width < 40) return "";
+    std::string text = " Ctrl-\\ the commander    Ctrl-] quit ";
+    /* never the last column: writing there scrolls some terminals */
+    const size_t room = static_cast<size_t>(width - 1);
+    if (text.size() > room) text.resize(room);
+    else text.append(room - text.size(), ' ');
+    return kSaveCursor + "\x1B[" + std::to_string(height) + ";1H\x1B[7m" + text + "\x1B[27m" + kRestoreCursor;
+}
 
 struct CommanderHost::Impl {
     Emulator &emu;
@@ -48,6 +64,7 @@ struct CommanderHost::Impl {
     ftxui::Dimensions lastSize{0, 0};
     bool mountsTouched = false;
     Scrollback scrollback;          /* the rows that left the machine's screen, kept all along */
+    bool hintDrawn = false;         /* the bottom line naming the keys, while the panels are down */
     int scrolledBack = 0;           /* rows leafed back into it with PgUp */
     /* where the terminal's own cursor goes, 0-based; -1: nowhere to put it */
     int cursorRow = -1;
@@ -65,6 +82,7 @@ struct CommanderHost::Impl {
     void enter();
     void leave();
     void draw();
+    void drawHint(ftxui::Dimensions size);
     bool noteGuestCursor();
     [[nodiscard]] ftxui::Element picture(int width, int height);
     [[nodiscard]] VramMirror::Snapshot historyRows(int count) const;
@@ -91,6 +109,15 @@ void CommanderHost::Impl::makeCommander()
     commander.emplace(files::Mounts::fromEmulator(cli, scratchConfig), scratchConfig, std::move(hooks));
 }
 
+/* The bottom line, once, while the panels are down. */
+void CommanderHost::Impl::drawHint(ftxui::Dimensions size)
+{
+    const std::string hint = hintLine(size.dimx, size.dimy);
+    if (hint.empty()) return;
+    write(hint.c_str());
+    hintDrawn = true;
+}
+
 void CommanderHost::Impl::enter()
 {
     if (!commander) makeCommander();
@@ -106,6 +133,7 @@ void CommanderHost::Impl::enter()
 void CommanderHost::Impl::leave()
 {
     state.commanderOn = false;
+    hintDrawn = false;          /* the main screen is back: the hint with it */
     write(kAltScreenOff);
     /* the machine's screen again, every cell, whatever changed meanwhile */
     mirror.setOutput(out);
@@ -264,18 +292,32 @@ void CommanderHost::frame()
 {
     /* the rows leaving the screen are kept whether the panels are up or not */
     if (impl_->mirror.changedThisFlush()) impl_->scrollback.frame(impl_->mirror.snapshot());
-    if (!impl_->state.commanderOn || !impl_->out) return;
+    if (!impl_->out) return;
+    const auto size = ftxui::Terminal::Size();
+    const bool resized = size.dimx != impl_->lastSize.dimx || size.dimy != impl_->lastSize.dimy;
+    if (!impl_->state.commanderOn) {
+        /* the panels are down: the machine's screen, with the hint below it */
+        if (!impl_->hintDrawn || resized) {
+            impl_->lastSize = size;
+            impl_->drawHint(size);
+        }
+        return;
+    }
     /* redraw when the guest wrote to its screen, moved its cursor, or the
      * terminal changed size; the keys draw on their own */
     const bool moved = impl_->noteGuestCursor();
-    const auto size = ftxui::Terminal::Size();
-    const bool resized = size.dimx != impl_->lastSize.dimx || size.dimy != impl_->lastSize.dimy;
     if (impl_->mirror.changedThisFlush() || moved || resized) impl_->draw();
 }
 
 void CommanderHost::shutdown(bool saveConfig)
 {
     if (impl_->state.commanderOn) impl_->leave();
+    if (impl_->hintDrawn) {
+        /* the hint goes with us */
+        const auto size = ftxui::Terminal::Size();
+        impl_->write((kSaveCursor + "\x1B[" + std::to_string(size.dimy) + ";1H\x1B[2K" + kRestoreCursor).c_str());
+        impl_->hintDrawn = false;
+    }
     if (saveConfig && impl_->mountsTouched && impl_->commander) {
         app::Config config = app::Config::load();
         impl_->commander->mounts().store(config);

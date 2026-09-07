@@ -147,7 +147,11 @@ Headless text-mode session over the same emulator core:
   on the shift, a move caught half-way waits for the next frame, a row
   caught torn still counts once - and PgUp / PgDn leaf through what it
   kept.  On leaving, the mirror forgets its shadow and repaints every
-  cell, so the terminal shows what the machine did meanwhile.
+  cell, so the terminal shows what the machine did meanwhile.  While the
+  panels are down a hint stands on the terminal's bottom row - the keys
+  that bring them up and quit - written once, clear of the machine's own
+  25 rows and with the cursor put back; the panels have their own key bar
+  and live on the alternate screen, so it is not there.
   `ms0515_cli_core` holds all of it, tested with a booted OSA: DIR typed
   with the panels down and up reaches the machine and the host's picture.
 

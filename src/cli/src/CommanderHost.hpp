@@ -22,10 +22,18 @@
 
 #include <cstdio>
 #include <memory>
+#include <string>
 
 namespace ms0515::app { struct CliArgs; }
 
 namespace ms0515::cli {
+
+/* The line that stands at the bottom of the terminal while the panels are
+ * down: the keys that bring them up and leave.  It is written once and
+ * never again - the machine's screen keeps to its own 25 rows - and the
+ * cursor is put back where the machine had it.  "" when the terminal is
+ * too small to hold it clear of those rows. */
+[[nodiscard]] std::string hintLine(int width, int height);
 
 class CommanderHost {
 public:
