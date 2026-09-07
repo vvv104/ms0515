@@ -43,8 +43,9 @@ namespace {
 /* A vertical rule between the columns, as mc draws them. */
 constexpr const char *kCol = "\xE2\x94\x82";
 
-/* A row of the listing: the cells with a rule between each two, all
- * under one look, so the cursor bar runs through the rules as mc's does.
+/* A row of the listing: the cells with a rule between each two.  The
+ * colour is the cells' alone - the rules keep the panel's own, as mc
+ * paints them - while the cursor bar takes the whole row, rules and all.
  * A width of 0 takes what is left. */
 Element listRow(const std::vector<std::string> &cells, const std::vector<int> &widths, Decorator cellLook, Decorator rowLook)
 {
@@ -180,30 +181,31 @@ Element Tui::renderPanel(int index)
     Panel &p = panels_[index];
     const bool isActive = index == active_;
     const int rows = panelRows();
-    const std::vector<int> widths = {0, 6, 7, 13};
-    Elements lines = {listRow({" Name", " Blk P", " Offset", " Date"}, widths, kHeader, nothing)};
+    const std::vector<int> widths = {0, 7, 7, 13};
+    Elements lines = {listRow({" Name", "  Blk P", " Offset", " Date"}, widths, kHeader, nothing)};
     const auto &entries = p.entries();
     const int top = p.scrollTop(rows);
     for (int i = top; i < top + rows; ++i) {
         const bool have = i < static_cast<int>(entries.size());
         const Entry e = have ? entries[static_cast<size_t>(i)] : Entry{};
-        /* an unused area is dim - its cells, not the rules between the columns */
-        const Decorator cellLook = have && e.empty ? dim : nothing;
-        Decorator look = nothing;
-        if (have && !e.empty && Location::isProgram(e.name)) look = kProgram;
-        if (have && !e.empty && p.isMarked(e.name)) look = kMarked;
-        if (have && i == p.cursor() && isActive) look = look | kCursor;   /* the other panel shows no cursor, as mc does */
+        /* the colour goes on the cells; the rules between the columns keep
+         * the panel's own, and only the cursor bar takes the whole row */
+        Decorator cellLook = nothing;
+        if (have && e.empty) cellLook = dim;                       /* an unused area */
+        else if (have && Location::isProgram(e.name)) cellLook = kProgram;
+        if (have && !e.empty && p.isMarked(e.name)) cellLook = kMarked;
+        const Decorator rowLook = have && i == p.cursor() && isActive ? kCursor : nothing;   /* the other panel shows no cursor, as mc does */
         const std::string name = !have ? "" : e.empty && e.name.empty() ? " < UNUSED >" : " " + e.name;
-        lines.push_back(listRow({name, have ? fmt::format("{:>5}{}", e.blocks, e.protectedFlag ? "P" : " ") : "",
+        lines.push_back(listRow({name, have ? fmt::format("{:>5} {}", e.blocks, e.protectedFlag ? "P" : " ") : "",
                                  have ? fmt::format("{:>6}", e.offset) : "", have ? " " + mcDate(e.date) : ""},
-                                widths, cellLook, look));
+                                widths, cellLook, rowLook));
     }
     Element rule = separator();
     if (p.markedCount())
         rule = dbox({separator(), text(fmt::format(" {} blocks in {} file{} ", p.markedBlocks(), p.markedCount(), p.markedCount() == 1 ? "" : "s")) | hcenter});
     std::string current;
     if (const auto cur = p.current())
-        current = fmt::format(" {:<10}{:>5}{} {:>4} {}", cur->empty && cur->name.empty() ? "< UNUSED >" : cur->name,
+        current = fmt::format(" {:<10}{:>5} {} {:>4} {}", cur->empty && cur->name.empty() ? "< UNUSED >" : cur->name,
                               cur->blocks, cur->protectedFlag ? "P" : " ", cur->offset, mcDate(cur->date));
     std::string foot = p.hasLocation() ? p.location().summary() : (index == 0 ? "Alt+F1 picks a disk" : "Alt+F2 picks a disk");
     if (p.hasLocation() && !p.location().volumeId().empty()) foot += " - " + p.location().volumeId();
@@ -220,10 +222,10 @@ Element Tui::renderHost(int index)
     for (int i = b.top; i < b.top + rows; ++i) {
         const bool have = i < static_cast<int>(b.items.size());
         const HostEntry h = have ? b.items[static_cast<size_t>(i)] : HostEntry{};
-        Decorator look = have && h.directory ? bold : nothing;
-        if (have && i == b.cursor && isActive) look = look | kCursor;
+        const Decorator cellLook = have && h.directory ? bold : nothing;
+        const Decorator rowLook = have && i == b.cursor && isActive ? kCursor : nothing;
         lines.push_back(listRow({have ? " " + h.name : "", !have ? "" : h.directory ? "     <DIR>" : fmt::format("{:>6} blk", h.bytes / 512)},
-                                widths, nothing, look));
+                                widths, cellLook, rowLook));
     }
     std::string current;
     if (!b.items.empty()) current = " " + b.items[static_cast<size_t>(b.cursor)].name;

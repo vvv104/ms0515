@@ -179,8 +179,8 @@ TEST_CASE("the columns are Name, blocks with the P flag, and the date the mc way
     for (int y = 0; y < screen.dimy() && !found; ++y) {
         const std::string row = rowText(screen, y);
         if (row.find("DIR.SAV") == std::string::npos || row.find("Dec 27  1990") == std::string::npos) continue;
-        CHECK(row.find("20P") != std::string::npos);
-        CHECK(row.find("20P") < row.find("Dec 27"));
+        CHECK(row.find("20 P") != std::string::npos);          /* the flag stands apart, under the P of "Blk P" */
+        CHECK(row.find("20 P") < row.find("Dec 27"));
         found = true;
     }
     CHECK(found);
@@ -423,6 +423,15 @@ TEST_CASE("a program is green in the panel, as mc paints executables; a marked o
     REQUIRE(data > 0);
     CHECK(screen.PixelAt(2, program).foreground_color == ftxui::Color::GreenLight);
     CHECK(screen.PixelAt(2, data).foreground_color != ftxui::Color::GreenLight);
+    /* the colour is the text's alone: the rules between the columns keep
+     * the panel's own, as they do in mc */
+    const std::string row = rowText(screen, program);
+    const size_t rule = row.find("\xE2\x94\x82");
+    REQUIRE(rule != std::string::npos);
+    int ruleColumn = 0;
+    for (size_t at = 0; at < rule; ++ruleColumn) at += static_cast<size_t>((row[at] & 0xC0) == 0xC0 ? 3 : 1);
+    CHECK(screen.PixelAt(ruleColumn, program).character == "\xE2\x94\x82");
+    CHECK(screen.PixelAt(ruleColumn, program).foreground_color == ftxui::Color::White);
     /* Insert on the program: marked is yellow, over the green */
     const auto vol = Location::open(Device{"DZ0:", d.osa, disk::VolumeSpec{disk::Vol::floppy, 0}});
     const auto names = vol->list();
