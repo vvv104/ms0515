@@ -209,7 +209,14 @@ the terminal, with the web commander's keys (`src/files/` as libraries, `src/too
   question (Yes / No / All / None / Abort), F7 squeeze, F8 delete, Insert
   and + - * marks, Ctrl+U swap, Ctrl+R reread, sort order from the
   Left / Right menus; the viewer's F2 wrap, F4 hex, F5 goto, F7 search,
-  F8 encoding, F9 octal.  All state stays in the model; the panels are
+  F8 encoding, F9 octal.  The listing is the directory's own, in its
+  order (Name, blocks with the P flag, Offset, Date): the unused areas
+  are entries too - dim, `< UNUSED >` for the free space INIT left, or the
+  name of the file deleted from it, which RT-11's DELETE leaves in the
+  entry - so an area can be viewed (F3) and brought back (Undelete, in
+  the File and user menus: under its kept name or one typed, which also
+  turns a nameless area into a file).  Options / Show unused areas hides
+  them, mc's hidden files.  All state stays in the model; the panels are
   unit-tested by rendering into an FTXUI screen (`test_commander`).
 
 The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format

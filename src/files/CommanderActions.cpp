@@ -36,6 +36,7 @@ void Tui::buildMenus()
                   {"Protect", "", [this] { doProtect(true); }},
                   {"Unprotect", "", [this] { doProtect(false); }},
                   {"Set date...", "", [this] { doSetDate(); }},
+                  {"Undelete...", "", [this] { doUndelete(); }},
                   {},
                   {"From host...", "", [this] { doImport(); }},
                   {"To host...", "", [this] { doExport(); }},
@@ -68,13 +69,14 @@ void Tui::buildMenus()
                               if (!s.empty() && Location::dateWord(s) == 0) { message("Date", {s + ": not a date"}); return; }
                               newFileDate_ = s;
                           });
-                      }}};
+                      }},
+                     {"Show unused areas", "", [this] { setShowUnused(!showUnused_); }}};
     menus_ = {side(0, "M-F1"), std::move(file), std::move(command), std::move(options), side(1, "M-F2")};
 }
 
 void Tui::userMenu()
 {
-    pick("User menu", {"From host...", "To host...", "Protect", "Unprotect", "Set date...", "Squeeze", "Init volume..."},
+    pick("User menu", {"From host...", "To host...", "Protect", "Unprotect", "Set date...", "Squeeze", "Init volume...", "Undelete..."},
          [this](int i) {
         switch (i) {
         case 0: doImport(); break;
@@ -84,6 +86,7 @@ void Tui::userMenu()
         case 4: doSetDate(); break;
         case 5: doSqueeze(); break;
         case 6: doInit(); break;
+        case 7: doUndelete(); break;
         default: break;
         }
     });
@@ -113,10 +116,10 @@ void Tui::doView()
     if (!panel().hasLocation()) return;
     const auto cur = panel().current();
     if (!cur) return;
-    const auto bytes = panel().location().read(cur->name);
+    const auto bytes = panel().location().readArea(*cur);   /* a file's blocks, or an unused area's */
     if (!bytes) { status_ = cur->name + ": cannot read"; return; }
     ViewState v;
-    v.name = panel().location().device().name + cur->name;
+    v.name = panel().location().device().name + (cur->empty ? fmt::format("<unused at {}>", cur->offset) : cur->name);
     v.bytes = *bytes;
     v.opts.encoding = viewEncoding_;
     v.lines = renderLines(v.bytes, v.opts);
@@ -281,6 +284,27 @@ void Tui::doProtect(bool on)
     changed(panel());
 }
 
+/* An unused area back as a file: under the name it kept, or one typed. */
+void Tui::doUndelete()
+{
+    if (!panel().hasLocation()) return;
+    const auto cur = panel().current();
+    if (!cur || !cur->empty) { status_ = "Undelete works on an unused area (the dim entries)."; return; }
+    const Entry area = *cur;
+    inputDialog("Undelete", {fmt::format("Bring back {} blocks at {} as:", area.blocks, area.offset)}, "", area.name, false,
+                [this, area](const std::string &name) {
+        const auto why = panel().location().undelete(area, upperCase(name));
+        status_ = why.empty() ? "Undeleted." : why;
+        changed(panel());
+    });
+}
+
+void Tui::setShowUnused(bool on)
+{
+    showUnused_ = on;
+    for (Panel &p : panels_) p.setShowUnused(on);
+}
+
 void Tui::doSetDate()
 {
     if (!panel().hasLocation()) return;
@@ -346,7 +370,7 @@ void Tui::doSort()
 {
     Dialog d;
     d.title = "Sort order";
-    d.radio = {"Name", "Extension", "Size", "Date"};
+    d.radio = {"Offset", "Name", "Extension", "Size", "Date"};
     d.radioAt = static_cast<int>(panel().sortOrder());
     d.checks = {{"Reverse", panel().reversed()}};
     d.buttons = {"OK", "Cancel"};

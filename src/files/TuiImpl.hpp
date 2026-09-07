@@ -168,6 +168,7 @@ public:
     int menuItem_ = 0;
     std::filesystem::path lastDir_;         /* where the image picker starts */
     std::string newFileDate_;               /* the date host files get on a volume */
+    bool showUnused_ = true;                /* the unused areas in the panels, mc's hidden files */
     Encoding viewEncoding_ = Encoding::koi8r;
 
     [[nodiscard]] Panel &panel() { return panels_[active_]; }
@@ -223,6 +224,8 @@ public:
     void doDelete();
     void doInit();
     void doProtect(bool on);
+    void doUndelete();
+    void setShowUnused(bool on);
     void doSetDate();
     void doImport();
     void doExport();

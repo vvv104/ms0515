@@ -17,7 +17,7 @@
 namespace ms0515::files {
 
 /* The listing's order, as mc offers it. */
-enum class SortOrder { name, extension, size, date };
+enum class SortOrder { offset, name, extension, size, date };   /* offset: the directory's own order, as DIR lists */
 
 /* A shell pattern (* and ?) against an RT-11 name, case-insensitively. */
 [[nodiscard]] bool matchPattern(const std::string &name, const std::string &pattern);
@@ -70,6 +70,9 @@ public:
 
     /* The order of the listing; it survives reloads, the cursor keeps its file. */
     void setSort(SortOrder order, bool reversed);
+    /* The unused areas in the listing, or not (mc's hidden files). */
+    void setShowUnused(bool on);
+    [[nodiscard]] bool showUnused() const noexcept { return showUnused_; }
     [[nodiscard]] SortOrder sortOrder() const noexcept { return sort_; }
     [[nodiscard]] bool reversed() const noexcept { return reversed_; }
     /* What an operation acts on: the marked entries, else the one under
@@ -82,12 +85,14 @@ private:
     int                     cursor_ = 0;
     mutable int             top_ = 0;
     std::set<std::string>   marks_;
-    SortOrder               sort_ = SortOrder::name;
+    SortOrder               sort_ = SortOrder::offset;
     bool                    reversed_ = false;
+    bool                    showUnused_ = true;
 
+    void load();
     void sortEntries();
 
-    void placeCursor(const std::string &name);
+    void placeCursor(const std::optional<Entry> &keep);   /* a file by name, an area by offset */
 };
 
 } /* namespace ms0515::files */

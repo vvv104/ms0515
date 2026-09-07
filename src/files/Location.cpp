@@ -99,24 +99,55 @@ std::vector<Entry> Location::list() const
 {
     std::vector<Entry> out;
     if (!hasDirectory()) return out;
-    for (const auto &e : image_->directory.permanentFiles()) {
+    const auto &entries = image_->directory.entries;
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const auto &e = entries[i];
+        if (!e.isPermanent() && !e.isEmpty()) continue;
         Entry entry;
-        entry.name = e.name;
+        entry.empty = e.isEmpty();
+        /* an area's name is the deleted file's; INIT's own " EMPTY.FIL" is no file */
+        entry.name = entry.empty && (!validName(e.name) || e.name == "EMPTY.FIL") ? "" : e.name;
         entry.blocks = e.length;
         entry.bytes = static_cast<uint64_t>(e.length) * disk::kBlock;
-        entry.date = dateText(e.date);
-        entry.protectedFlag = (e.status & disk::kStatusProtected) != 0;
+        entry.date = entry.empty ? "" : dateText(e.date);
+        entry.protectedFlag = !entry.empty && (e.status & disk::kStatusProtected) != 0;
+        entry.offset = e.startBlock;
+        entry.ordinal = static_cast<int>(i);
         out.push_back(std::move(entry));
     }
-    std::sort(out.begin(), out.end(), [](const Entry &a, const Entry &b) { return a.name < b.name; });
     return out;
 }
 
 std::optional<Entry> Location::find(const std::string &name) const
 {
     for (auto &e : list())
-        if (e.name == name) return e;
+        if (!e.empty && e.name == name) return e;
     return std::nullopt;
+}
+
+std::optional<std::vector<uint8_t>> Location::readArea(const Entry &entry) const
+{
+    if (!image_ || entry.blocks < 0) return std::nullopt;
+    std::vector<uint8_t> out;
+    for (int lbn = entry.offset; lbn < entry.offset + entry.blocks; ++lbn) {
+        const auto block = image_->block(lbn);
+        if (block.size() != disk::kBlock) return std::nullopt;
+        out.insert(out.end(), block.begin(), block.end());
+    }
+    return out;
+}
+
+std::string Location::undelete(const Entry &area, const std::string &newName)
+{
+    if (!hasDirectory()) return "no RT-11 directory on " + device_.name;
+    if (!area.empty) return area.name + ": a file, not an unused area";
+    if (!newName.empty() && !validName(newName)) return newName + ": not an RT-11 name";
+    try {
+        disk::undeleteEntry(image_->data, image_->side, image_->ds, area.ordinal, newName, image_->vol);
+    } catch (const std::exception &e) {
+        return std::string("undelete: ") + e.what();
+    }
+    return save();
 }
 
 std::optional<std::vector<uint8_t>> Location::read(const std::string &name) const

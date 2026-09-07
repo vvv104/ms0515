@@ -30,12 +30,18 @@
 namespace ms0515::files {
 
 /* One row of a panel. */
+/* A directory entry: a file, or an unused area.  An area keeps the name
+ * of the file that was deleted from it, as RT-11's DELETE leaves it - the
+ * candidate for undelete(); the free space INIT left has none. */
 struct Entry {
-    std::string name;                  /* "DIR.SAV" */
+    std::string name;                  /* "DIR.SAV"; an area's: the deleted file's, or "" */
     int         blocks = 0;
     uint64_t    bytes = 0;             /* blocks * 512 */
     std::string date;                  /* "1990-12-27", or "" */
     bool        protectedFlag = false; /* the RT-11 [P] flag */
+    int         offset = 0;            /* the first block, as DIR/FULL shows it */
+    bool        empty = false;         /* an unused area, not a file */
+    int         ordinal = 0;           /* the entry's place in the directory */
 
     bool operator==(const Entry &) const = default;
 };
@@ -70,9 +76,17 @@ public:
     /* The volume's ID and owner from the home block, "" when none. */
     [[nodiscard]] std::string volumeId() const;
 
-    /* The listing, fresh from the image, by name. */
+    /* The listing, fresh from the image, in the directory's order (by
+     * offset): the files and the unused areas.  find() knows the files. */
     [[nodiscard]] std::vector<Entry> list() const;
     [[nodiscard]] std::optional<Entry> find(const std::string &name) const;
+    /* The blocks of an entry - a file's, or an unused area's, for a look
+     * at what lies there.  nullopt when the entry is off the volume. */
+    [[nodiscard]] std::optional<std::vector<uint8_t>> readArea(const Entry &entry) const;
+    /* An unused area back as a file: under the deleted file's name it
+     * still carries, or `newName` - which also makes a nameless area a
+     * file, a recovery of whatever lies in it.  "" or why not. */
+    std::string undelete(const Entry &area, const std::string &newName);
 
     /* File access; names are RT-11 names, upper-case.  Errors come back as
      * a non-empty message. */

@@ -37,8 +37,9 @@ TEST_CASE("a single-sided image lists its files by name, with blocks, date and t
 
     const auto entries = vol->list();
     REQUIRE(entries.size() >= 9);
+    /* the directory's own order: by offset, the unused areas in their places */
     CHECK(std::is_sorted(entries.begin(), entries.end(),
-                         [](const Entry &a, const Entry &b) { return a.name < b.name; }));
+                         [](const Entry &a, const Entry &b) { return a.offset < b.offset; }));
     const auto dir = vol->find("DIR.SAV");
     REQUIRE(dir.has_value());
     CHECK(dir->blocks == 20);
@@ -63,7 +64,9 @@ TEST_CASE("a two-sided image is two volumes, one per side")
     CHECK_FALSE(side0->list().empty());
     /* the fixture's upper side is an initialised, empty volume */
     CHECK(side1->hasDirectory());
-    CHECK(side1->list().empty());
+    REQUIRE(side1->list().size() == 1);   /* the free space INIT left, and nothing else */
+    CHECK(side1->list()[0].empty);
+    CHECK(side1->list()[0].name.empty());
     CHECK(side1->summary().find("0 files") != std::string::npos);
 }
 
@@ -175,4 +178,54 @@ TEST_CASE("RT-11 names and dates")
     CHECK(Location::dateWord("") == 0);
     CHECK(Location::dateWord("nonsense") == 0);
     CHECK(Location::dateText(0).empty());
+}
+
+TEST_CASE("the listing carries the offsets and the unused areas; a deleted file's area keeps its name and comes back with undelete()")
+{
+    Scratch s("unused");
+    const auto path = s.disk("test_osa.dsk", "osa.dsk");
+    auto vol = Location::open(dz0(path));
+    REQUIRE(vol.has_value());
+    const auto all = vol->list();
+    /* the directory order: offsets ascend, files and the free areas alike */
+    for (size_t i = 1; i < all.size(); ++i) CHECK(all[i - 1].offset <= all[i].offset);
+    const auto files = std::count_if(all.begin(), all.end(), [](const Entry &e) { return !e.empty; });
+    const auto areas = std::count_if(all.begin(), all.end(), [](const Entry &e) { return e.empty; });
+    CHECK(files >= 9);
+    CHECK(areas >= 1);
+    /* the tail of the volume is the free space INIT left, without a file's name */
+    CHECK(all.back().empty);
+    CHECK(all.back().name.empty());
+    CHECK(all.back().blocks > 0);
+    /* find() knows the files only */
+    CHECK(vol->find("DIR.SAV").has_value());
+    CHECK_FALSE(vol->find("DIR.SAV")->empty);
+    CHECK(vol->find("DIR.SAV")->offset > 0);
+
+    /* delete PIP.SAV: its area stays, named, at the same offset, and reads as the file did */
+    const auto pip = *vol->find("PIP.SAV");
+    const auto pipBytes = *vol->read("PIP.SAV");
+    CHECK(vol->remove("PIP.SAV").empty());
+    const auto after = vol->list();
+    const auto area = std::find_if(after.begin(), after.end(), [](const Entry &e) { return e.empty && e.name == "PIP.SAV"; });
+    REQUIRE(area != after.end());
+    CHECK(area->offset == pip.offset);
+    CHECK(area->blocks == pip.blocks);
+    CHECK_FALSE(vol->find("PIP.SAV").has_value());
+    const auto raw = vol->readArea(*area);
+    REQUIRE(raw.has_value());
+    CHECK(*raw == pipBytes);
+    /* readArea() reads a file's blocks as well */
+    CHECK(*vol->readArea(*vol->find("DIR.SAV")) == *vol->read("DIR.SAV"));
+
+    /* back it comes, under its own name; the tail area is not a file to bring back */
+    CHECK(vol->undelete(*area, "").empty());
+    REQUIRE(vol->find("PIP.SAV").has_value());
+    CHECK(*vol->read("PIP.SAV") == pipBytes);
+    CHECK_FALSE(vol->undelete(vol->list().back(), "").empty());
+    /* ... unless a name is given: then the free space becomes a file of that name */
+    CHECK(vol->undelete(vol->list().back(), "REST.DAT").empty());
+    CHECK(vol->find("REST.DAT").has_value());
+    /* a file is not an area */
+    CHECK_FALSE(vol->undelete(*vol->find("DIR.SAV"), "").empty());
 }

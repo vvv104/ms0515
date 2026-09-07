@@ -178,25 +178,28 @@ Element Tui::renderPanel(int index)
     Panel &p = panels_[index];
     const bool isActive = index == active_;
     const int rows = panelRows();
-    const std::vector<int> widths = {0, 6, 13};
-    Elements lines = {listRow({" Name", " Blk P", " Date"}, widths, kHeader, nothing)};
+    const std::vector<int> widths = {0, 6, 7, 13};
+    Elements lines = {listRow({" Name", " Blk P", " Offset", " Date"}, widths, kHeader, nothing)};
     const auto &entries = p.entries();
     const int top = p.scrollTop(rows);
     for (int i = top; i < top + rows; ++i) {
         const bool have = i < static_cast<int>(entries.size());
         const Entry e = have ? entries[static_cast<size_t>(i)] : Entry{};
-        Decorator look = nothing;
-        if (have && p.isMarked(e.name)) look = kMarked;
+        Decorator look = have && e.empty ? dim : nothing;   /* an unused area: the deleted file's name, or none */
+        if (have && !e.empty && p.isMarked(e.name)) look = kMarked;
         if (have && i == p.cursor() && isActive) look = look | kCursor;   /* the other panel shows no cursor, as mc does */
-        lines.push_back(listRow({have ? " " + e.name : "", have ? fmt::format("{:>5}{}", e.blocks, e.protectedFlag ? "P" : " ") : "",
-                                 have ? " " + mcDate(e.date) : ""}, widths, nothing, look));
+        const std::string name = !have ? "" : e.empty && e.name.empty() ? " < UNUSED >" : " " + e.name;
+        lines.push_back(listRow({name, have ? fmt::format("{:>5}{}", e.blocks, e.protectedFlag ? "P" : " ") : "",
+                                 have ? fmt::format("{:>6}", e.offset) : "", have ? " " + mcDate(e.date) : ""},
+                                widths, nothing, look));
     }
     Element rule = separator();
     if (p.markedCount())
         rule = dbox({separator(), text(fmt::format(" {} blocks in {} file{} ", p.markedBlocks(), p.markedCount(), p.markedCount() == 1 ? "" : "s")) | hcenter});
     std::string current;
     if (const auto cur = p.current())
-        current = fmt::format(" {:<10} {:>5}{}  {}", cur->name, cur->blocks, cur->protectedFlag ? "P" : " ", mcDate(cur->date));
+        current = fmt::format(" {:<10}{:>5}{} {:>4} {}", cur->empty && cur->name.empty() ? "< UNUSED >" : cur->name,
+                              cur->blocks, cur->protectedFlag ? "P" : " ", cur->offset, mcDate(cur->date));
     std::string foot = p.hasLocation() ? p.location().summary() : (index == 0 ? "Alt-F1 picks a disk" : "Alt-F2 picks a disk");
     if (p.hasLocation() && !p.location().volumeId().empty()) foot += " - " + p.location().volumeId();
     return frame(isActive, p.title(), vbox(std::move(lines)), rule, text(current), foot);

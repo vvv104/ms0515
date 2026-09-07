@@ -55,14 +55,22 @@ std::string Panel::title() const
     return location_ ? location_->title() : "no disk";
 }
 
+/* The listing from the volume, the areas dropped when hidden, in order. */
+void Panel::load()
+{
+    entries_ = location_ ? location_->list() : std::vector<Entry>{};
+    if (!showUnused_)
+        entries_.erase(std::remove_if(entries_.begin(), entries_.end(), [](const Entry &e) { return e.empty; }), entries_.end());
+    sortEntries();
+}
+
 void Panel::reload()
 {
-    const std::string keep = current() ? current()->name : "";
-    entries_ = location_ ? location_->list() : std::vector<Entry>{};
-    sortEntries();
+    const auto keep = current();
+    load();
     for (auto it = marks_.begin(); it != marks_.end();) {
         const bool there = std::any_of(entries_.begin(), entries_.end(),
-                                       [&](const Entry &e) { return e.name == *it; });
+                                       [&](const Entry &e) { return !e.empty && e.name == *it; });   /* the area of a deleted file keeps its name: not a mark */
         it = there ? std::next(it) : marks_.erase(it);
     }
     placeCursor(keep);
@@ -74,8 +82,7 @@ void Panel::show(Location location)
     marks_.clear();
     cursor_ = 0;
     top_ = 0;
-    entries_ = location_->list();
-    sortEntries();
+    load();
 }
 
 void Panel::clear()
@@ -114,7 +121,7 @@ void Panel::toggleMark()
 {
     const auto cur = current();
     if (!cur) return;
-    if (!marks_.erase(cur->name)) marks_.insert(cur->name);
+    if (!cur->empty && !marks_.erase(cur->name)) marks_.insert(cur->name);   /* an area takes no mark */
     moveCursor(1);
 }
 
@@ -123,7 +130,7 @@ void Panel::clearMarks() { marks_.clear(); }
 void Panel::markPattern(const std::string &pattern, bool on)
 {
     for (const auto &e : entries_) {
-        if (!matchPattern(e.name, pattern)) continue;
+        if (e.empty || !matchPattern(e.name, pattern)) continue;
         if (on) marks_.insert(e.name); else marks_.erase(e.name);
     }
 }
@@ -131,7 +138,7 @@ void Panel::markPattern(const std::string &pattern, bool on)
 void Panel::invertMarks()
 {
     for (const auto &e : entries_)
-        if (!marks_.erase(e.name)) marks_.insert(e.name);
+        if (!e.empty && !marks_.erase(e.name)) marks_.insert(e.name);
 }
 
 uint32_t Panel::markedBlocks() const
@@ -144,23 +151,33 @@ uint32_t Panel::markedBlocks() const
 
 void Panel::setSort(SortOrder order, bool reversed)
 {
-    const std::string keep = current() ? current()->name : "";
+    const auto keep = current();
     sort_ = order;
     reversed_ = reversed;
     sortEntries();
     placeCursor(keep);
 }
 
+void Panel::setShowUnused(bool on)
+{
+    if (showUnused_ == on) return;
+    showUnused_ = on;
+    reload();
+}
+
 void Panel::sortEntries()
 {
-    const auto less = [this](const Entry &a, const Entry &b) {
+    /* a nameless area sorts after every name */
+    const auto key = [](const Entry &e) { return e.name.empty() ? std::string("\x7F") : e.name; };
+    const auto less = [this, &key](const Entry &a, const Entry &b) {
         switch (sort_) {
-        case SortOrder::extension: { const auto ea = extensionOf(a.name), eb = extensionOf(b.name); return ea != eb ? ea < eb : a.name < b.name; }
-        case SortOrder::size:      return a.blocks != b.blocks ? a.blocks < b.blocks : a.name < b.name;
-        case SortOrder::date:      return a.date != b.date ? a.date < b.date : a.name < b.name;
+        case SortOrder::offset:    return a.offset != b.offset ? a.offset < b.offset : a.ordinal < b.ordinal;
+        case SortOrder::extension: { const auto ea = extensionOf(a.name), eb = extensionOf(b.name); return ea != eb ? ea < eb : key(a) < key(b); }
+        case SortOrder::size:      return a.blocks != b.blocks ? a.blocks < b.blocks : key(a) < key(b);
+        case SortOrder::date:      return a.date != b.date ? a.date < b.date : key(a) < key(b);
         case SortOrder::name:      break;
         }
-        return a.name < b.name;
+        return key(a) < key(b);
     };
     std::stable_sort(entries_.begin(), entries_.end(), less);
     if (reversed_) std::reverse(entries_.begin(), entries_.end());
@@ -171,17 +188,19 @@ std::vector<Entry> Panel::selection() const
     std::vector<Entry> out;
     if (!marks_.empty()) {
         for (const auto &e : entries_)
-            if (marks_.count(e.name)) out.push_back(e);
+            if (!e.empty && marks_.count(e.name)) out.push_back(e);
         return out;
     }
-    if (const auto cur = current()) out.push_back(*cur);
+    if (const auto cur = current(); cur && !cur->empty) out.push_back(*cur);
     return out;
 }
 
-void Panel::placeCursor(const std::string &name)
+void Panel::placeCursor(const std::optional<Entry> &keep)
 {
-    const auto it = std::find_if(entries_.begin(), entries_.end(),
-                                 [&](const Entry &e) { return e.name == name; });
+    if (!keep) { moveCursor(0); return; }
+    const auto it = std::find_if(entries_.begin(), entries_.end(), [&](const Entry &e) {
+        return keep->name.empty() ? e.empty && e.offset == keep->offset : e.name == keep->name;
+    });
     if (it != entries_.end()) cursor_ = static_cast<int>(it - entries_.begin());
     else moveCursor(0);
 }

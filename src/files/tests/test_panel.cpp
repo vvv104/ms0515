@@ -73,6 +73,7 @@ TEST_CASE("marks: Insert toggles and steps down; the selection is the marks, els
 {
     Scratch s("marks");
     Panel p = osaPanel(s);
+    p.setShowUnused(false);               /* files only here; the areas have their own case */
     const auto first = p.entries()[0].name;
     const auto second = p.entries()[1].name;
     CHECK(p.selection().size() == 1);
@@ -137,9 +138,10 @@ TEST_CASE("sort order: by name, extension, size, date, each reversible; the curs
 {
     Scratch s("sort");
     Panel p = osaPanel(s);
+    p.setShowUnused(false);               /* the areas' place in the orders is the areas' case */
     p.home();
     const std::string first = p.current()->name;
-    CHECK(p.sortOrder() == SortOrder::name);
+    CHECK(p.sortOrder() == SortOrder::offset);
 
     p.setSort(SortOrder::size, false);
     const auto &bySize = p.entries();
@@ -182,6 +184,8 @@ TEST_CASE("marking by pattern: shell * and ?, case-insensitive; unmark; invert; 
     const int savs = static_cast<int>(std::count_if(p.entries().begin(), p.entries().end(),
                                                     [](const Entry &e) { return e.name.ends_with(".SAV"); }));
     REQUIRE(savs >= 2);
+    const int files = static_cast<int>(std::count_if(p.entries().begin(), p.entries().end(),
+                                                     [](const Entry &e) { return !e.empty; }));
     p.markPattern("*.SAV", true);
     CHECK(p.markedCount() == savs);
     uint32_t blocks = 0;
@@ -191,8 +195,45 @@ TEST_CASE("marking by pattern: shell * and ?, case-insensitive; unmark; invert; 
     CHECK(p.markedCount() == savs - 1);
     CHECK_FALSE(p.isMarked("DIR.SAV"));
     p.invertMarks();
-    CHECK(p.markedCount() == static_cast<int>(p.entries().size()) - (savs - 1));
+    CHECK(p.markedCount() == files - (savs - 1));
     CHECK(p.isMarked("DIR.SAV"));
     p.clearMarks();
     CHECK(p.markedBlocks() == 0);
+}
+
+TEST_CASE("the panel lists in directory order (by offset) with the unused areas; they take no marks; a setting hides them")
+{
+    Scratch s("areas");
+    Panel p = osaPanel(s);
+    CHECK(p.sortOrder() == SortOrder::offset);
+    const auto &entries = p.entries();
+    for (size_t i = 1; i < entries.size(); ++i) CHECK(entries[i - 1].offset <= entries[i].offset);
+    CHECK(p.showUnused());
+    const int withAreas = static_cast<int>(entries.size());
+    const int areas = static_cast<int>(std::count_if(entries.begin(), entries.end(), [](const Entry &e) { return e.empty; }));
+    REQUIRE(areas >= 1);
+
+    /* the cursor on the tail area: no mark, no selection */
+    p.end();
+    REQUIRE(p.current()->empty);
+    p.toggleMark();
+    CHECK(p.markedCount() == 0);
+    CHECK(p.selection().empty());
+    p.markPattern("*", true);
+    CHECK(p.markedCount() == withAreas - areas);
+    p.clearMarks();
+
+    /* hidden, like mc's hidden files */
+    p.setShowUnused(false);
+    CHECK_FALSE(p.showUnused());
+    CHECK(static_cast<int>(p.entries().size()) == withAreas - areas);
+    CHECK(std::none_of(p.entries().begin(), p.entries().end(), [](const Entry &e) { return e.empty; }));
+    p.reload();
+    CHECK(static_cast<int>(p.entries().size()) == withAreas - areas);
+    p.setShowUnused(true);
+    CHECK(static_cast<int>(p.entries().size()) == withAreas);
+
+    /* by name the areas without a name go last, together */
+    p.setSort(SortOrder::name, false);
+    CHECK_FALSE(p.entries().front().empty);
 }

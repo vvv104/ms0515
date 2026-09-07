@@ -69,15 +69,19 @@ TEST_CASE("the title sits on the top border, the summary on the bottom one; a sh
     /* twelve rows: the list holds five; End must bring the last file into view */
     const auto vol = Location::open(Device{"DZ0:", osa, disk::VolumeSpec{disk::Vol::floppy, 0}});
     REQUIRE(vol.has_value());
-    const std::string last = vol->list().back().name;
+    std::string last;
+    for (const auto &e : vol->list()) if (!e.empty) last = e.name;   /* the last file */
     const auto shortBefore = shot(c, 80, 12);
     CHECK(rowText(shortBefore, 1).find("DZ0: osa.dsk") != std::string::npos);
     CHECK(rowText(shortBefore, 9).find("files") != std::string::npos);
     CHECK_FALSE(anyRowHas(shortBefore, last));
     CHECK(c.onEvent(ftxui::Event::End));
+    CHECK(c.onEvent(ftxui::Event::ArrowUp));       /* End lands on the free space after the last file */
     const auto shortAfter = shot(c, 80, 12);
     CHECK(anyRowHas(shortAfter, last));
-    CHECK_FALSE(anyRowHas(shortAfter, "DIR.SAV"));
+    std::string first;
+    for (const auto &e : vol->list()) if (!e.empty) { first = e.name; break; }   /* the first file scrolled away */
+    CHECK_FALSE(anyRowHas(shortAfter, first));
     /* the current-file line above the bottom border names it too */
     CHECK(rowText(shortAfter, 8).find(last) != std::string::npos);
 
@@ -149,7 +153,7 @@ TEST_CASE("F9 pulls the menu down; Esc puts it away")
     CHECK(d.c.onEvent(ftxui::Event::ArrowDown));
     CHECK(d.c.onEvent(ftxui::Event::Return));
     auto sort = shot(d.c, 80, 25);
-    CHECK(anyRowHas(sort, "(*) Name"));
+    CHECK(anyRowHas(sort, "(*) Offset"));
     CHECK(anyRowHas(sort, "[ ] Reverse"));
     CHECK(d.c.onEvent(ftxui::Event::Escape));
     CHECK_FALSE(d.c.modal());
@@ -191,7 +195,9 @@ TEST_CASE("+ marks by pattern through the Select dialog, * inverts, and the pane
     CHECK(d.c.onEvent(ftxui::Event::Return));
     CHECK(anyRowHas(shot(d.c, 80, 25), fmt_files(savs)));
     CHECK(d.c.onEvent(ftxui::Event::Character("*")));
-    const int rest = static_cast<int>(vol->list().size()) - savs;
+    int files = 0;
+    for (const auto &e : vol->list()) if (!e.empty) ++files;
+    const int rest = files - savs;
     CHECK(anyRowHas(shot(d.c, 80, 25), fmt_files(rest)));
 }
 
@@ -253,4 +259,43 @@ TEST_CASE("F8 asks before deleting, F6 with a bare name renames")
     CHECK_FALSE(d.c.modal());
     CHECK(left->reload());
     CHECK_FALSE(left->find("PIPX.SAV").has_value());
+}
+
+TEST_CASE("the Offset column, the unused areas as '< UNUSED >' or the deleted file's name, and the Options toggle that hides them")
+{
+    TwoDisks d;
+    CHECK(anyRowHas(shot(d.c, 80, 25), "Offset"));
+    CHECK(d.c.onEvent(ftxui::Event::End));         /* the free space is the volume's tail */
+    CHECK(anyRowHas(shot(d.c, 80, 25), "< UNUSED >"));
+    CHECK(d.c.onEvent(ftxui::Event::Home));
+    /* F8 on PIP.SAV, then its area carries the name */
+    const auto left = Location::open(Device{"DZ0:", d.osa, disk::VolumeSpec{disk::Vol::floppy, 0}});
+    const auto names = left->list();
+    for (size_t i = 0; i < names.size() && names[i].name != "PIP.SAV"; ++i) d.c.onEvent(ftxui::Event::ArrowDown);
+    CHECK(d.c.onEvent(ftxui::Event::F8));
+    CHECK(d.c.onEvent(ftxui::Event::Return));
+    auto gone = shot(d.c, 80, 25);
+    CHECK(anyRowHas(gone, "PIP.SAV"));                 /* the area, under the old name */
+    CHECK(rowText(gone, 21).find("PIP.SAV") != std::string::npos);   /* the cursor stayed on it */
+    /* the user menu brings it back: Undelete... with the name prefilled */
+    CHECK(d.c.onEvent(ftxui::Event::F2));
+    CHECK(d.c.onEvent(ftxui::Event::End));
+    CHECK(d.c.onEvent(ftxui::Event::Return));
+    auto undel = shot(d.c, 80, 25);
+    CHECK(anyRowHas(undel, "Undelete"));
+    CHECK(d.c.onEvent(ftxui::Event::Return));
+    CHECK_FALSE(d.c.modal());
+    auto fresh = Location::open(Device{"DZ0:", d.osa, disk::VolumeSpec{disk::Vol::floppy, 0}});
+    CHECK(fresh->find("PIP.SAV").has_value());
+
+    /* Options -> Show unused areas: off */
+    CHECK(d.c.onEvent(ftxui::Event::F9));
+    for (int i = 0; i < 3; ++i) CHECK(d.c.onEvent(ftxui::Event::ArrowRight));
+    CHECK(d.c.onEvent(ftxui::Event::Return));
+    CHECK(anyRowHas(shot(d.c, 80, 25), "Show unused areas"));
+    CHECK(d.c.onEvent(ftxui::Event::End));
+    CHECK(d.c.onEvent(ftxui::Event::Return));
+    CHECK_FALSE(d.c.modal());
+    CHECK(d.c.onEvent(ftxui::Event::End));
+    CHECK_FALSE(anyRowHas(shot(d.c, 80, 25), "< UNUSED >"));
 }
