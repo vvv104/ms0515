@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <ctime>
 #include <system_error>
 
@@ -38,34 +39,31 @@ using namespace ftxui;
 
 namespace {
 
-/* One column of the listing: the header, then a cell per row, the
- * cursor row and the marked rows coloured cell by cell so the bar runs
- * across the rules between the columns, as mc draws it. */
-struct Column {
-    std::string header;
-    int width = 0;                  /* 0: takes what is left */
-    std::vector<std::string> cells;
-    std::vector<Decorator> looks;   /* per cell */
-};
+/* A vertical rule between the columns, as mc draws them. */
+constexpr const char *kCol = "\xE2\x94\x82";
 
-Element renderColumn(const Column &c)
-{
-    Elements cells = {text(c.header) | kHeader};
-    for (size_t i = 0; i < c.cells.size(); ++i) cells.push_back(text(c.cells[i]) | c.looks[i]);
-    Element v = vbox(std::move(cells));
-    return c.width > 0 ? v | size(WIDTH, EQUAL, c.width) : v | flex;
-}
-
-/* The columns side by side with a rule between each two, the whole
- * height of the listing. */
-Element renderColumns(const std::vector<Column> &columns)
+/* A row of the listing: the cells with a rule between each two, all
+ * under one look, so the cursor bar runs through the rules as mc's does.
+ * A width of 0 takes what is left. */
+Element listRow(const std::vector<std::string> &cells, const std::vector<int> &widths, Decorator cellLook, Decorator rowLook)
 {
     Elements parts;
-    for (size_t i = 0; i < columns.size(); ++i) {
-        if (i > 0) parts.push_back(separator());
-        parts.push_back(renderColumn(columns[i]));
+    for (size_t i = 0; i < cells.size(); ++i) {
+        if (i > 0) parts.push_back(text(kCol));
+        Element cell = text(cells[i]) | cellLook;
+        parts.push_back(widths[i] > 0 ? cell | size(WIDTH, EQUAL, widths[i]) : cell | flex);
     }
-    return hbox(std::move(parts));
+    return hbox(std::move(parts)) | rowLook;
+}
+
+/* "1990-12-27" the way mc shows a date of another year: "Dec 27  1990". */
+std::string mcDate(const std::string &iso)
+{
+    static constexpr const char *kMonths[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    if (iso.size() != 10) return iso;
+    const int month = std::atoi(iso.substr(5, 2).c_str());
+    if (month < 1 || month > 12) return iso;
+    return fmt::format("{} {:>2}  {}", kMonths[month - 1], std::atoi(iso.substr(8, 2).c_str()), iso.substr(0, 4));
 }
 
 const std::vector<std::pair<const char *, const char *>> kPanelKeys = {
@@ -180,7 +178,8 @@ Element Tui::renderPanel(int index)
     Panel &p = panels_[index];
     const bool isActive = index == active_;
     const int rows = panelRows();
-    std::vector<Column> cols = {{" Name", 0, {}, {}}, {"  Blk", 5, {}, {}}, {"   Date", 10, {}, {}}, {"P", 1, {}, {}}};
+    const std::vector<int> widths = {0, 6, 13};
+    Elements lines = {listRow({" Name", " Blk P", " Date"}, widths, kHeader, nothing)};
     const auto &entries = p.entries();
     const int top = p.scrollTop(rows);
     for (int i = top; i < top + rows; ++i) {
@@ -189,18 +188,18 @@ Element Tui::renderPanel(int index)
         Decorator look = nothing;
         if (have && p.isMarked(e.name)) look = kMarked;
         if (have && i == p.cursor() && isActive) look = look | kCursor;   /* the other panel shows no cursor, as mc does */
-        const std::vector<std::string> cells = {have ? " " + e.name : "", have ? fmt::format("{:>5}", e.blocks) : "",
-                                                have ? e.date : "", have && e.protectedFlag ? "P" : ""};
-        for (size_t c = 0; c < cols.size(); ++c) { cols[c].cells.push_back(cells[c]); cols[c].looks.push_back(look); }
+        lines.push_back(listRow({have ? " " + e.name : "", have ? fmt::format("{:>5}{}", e.blocks, e.protectedFlag ? "P" : " ") : "",
+                                 have ? " " + mcDate(e.date) : ""}, widths, nothing, look));
     }
     Element rule = separator();
     if (p.markedCount())
         rule = dbox({separator(), text(fmt::format(" {} blocks in {} file{} ", p.markedBlocks(), p.markedCount(), p.markedCount() == 1 ? "" : "s")) | hcenter});
     std::string current;
-    if (const auto cur = p.current()) current = fmt::format(" {:<10} {:>5} blocks  {}", cur->name, cur->blocks, cur->date);
+    if (const auto cur = p.current())
+        current = fmt::format(" {:<10} {:>5}{}  {}", cur->name, cur->blocks, cur->protectedFlag ? "P" : " ", mcDate(cur->date));
     std::string foot = p.hasLocation() ? p.location().summary() : (index == 0 ? "Alt-F1 picks a disk" : "Alt-F2 picks a disk");
     if (p.hasLocation() && !p.location().volumeId().empty()) foot += " - " + p.location().volumeId();
-    return frame(isActive, p.title(), renderColumns(cols), rule, text(current), foot);
+    return frame(isActive, p.title(), vbox(std::move(lines)), rule, text(current), foot);
 }
 
 Element Tui::renderHost(int index)
@@ -208,19 +207,19 @@ Element Tui::renderHost(int index)
     const HostBrowse &b = *browse_[static_cast<size_t>(index)];
     const bool isActive = index == active_;
     const int rows = panelRows();
-    std::vector<Column> cols = {{" Name", 0, {}, {}}, {"  Size", 9, {}, {}}};
+    const std::vector<int> widths = {0, 10};
+    Elements lines = {listRow({" Name", "      Size"}, widths, kHeader, nothing)};
     for (int i = b.top; i < b.top + rows; ++i) {
         const bool have = i < static_cast<int>(b.items.size());
         const HostEntry h = have ? b.items[static_cast<size_t>(i)] : HostEntry{};
         Decorator look = have && h.directory ? bold : nothing;
         if (have && i == b.cursor && isActive) look = look | kCursor;
-        cols[0].cells.push_back(have ? " " + h.name : "");
-        cols[1].cells.push_back(!have ? "" : h.directory ? "    <DIR>" : fmt::format("{:>5} blk", h.bytes / 512));
-        for (auto &c : cols) c.looks.push_back(look);
+        lines.push_back(listRow({have ? " " + h.name : "", !have ? "" : h.directory ? "     <DIR>" : fmt::format("{:>6} blk", h.bytes / 512)},
+                                widths, nothing, look));
     }
     std::string current;
     if (!b.items.empty()) current = " " + b.items[static_cast<size_t>(b.cursor)].name;
-    return frame(isActive, "host: " + utf8(b.dir), renderColumns(cols), separator(), text(current), "Enter mounts / enters, Esc back");
+    return frame(isActive, "host: " + utf8(b.dir), vbox(std::move(lines)), separator(), text(current), "Enter mounts / enters, Esc back");
 }
 
 Element Tui::renderKeyBar(const std::vector<std::pair<const char *, const char *>> &keys) const
@@ -443,12 +442,15 @@ void Tui::refreshPanels()
 
 namespace ms0515::files {
 
+/* The Tui is built in place and never moves: its menus and dialogs hold
+ * `this`. */
 struct Commander::Impl {
     detail::Tui tui;
+    Impl(Mounts mounts, app::Config &config, CommanderHooks hooks) : tui(std::move(mounts), config, std::move(hooks)) {}
 };
 
 Commander::Commander(Mounts mounts, app::Config &config, CommanderHooks hooks)
-    : impl_(std::make_unique<Impl>(Impl{detail::Tui(std::move(mounts), config, std::move(hooks))}))
+    : impl_(std::make_unique<Impl>(std::move(mounts), config, std::move(hooks)))
 {
 }
 

@@ -142,6 +142,41 @@ TEST_CASE("F9 pulls the menu down; Esc puts it away")
     CHECK(d.c.onEvent(ftxui::Event::Escape));
     CHECK_FALSE(d.c.modal());
     CHECK_FALSE(anyRowHas(shot(d.c, 80, 25), "Sort order"));
+
+    /* a menu item runs its action: Left -> Sort order... opens the dialog */
+    CHECK(d.c.onEvent(ftxui::Event::F9));
+    CHECK(d.c.onEvent(ftxui::Event::ArrowDown));
+    CHECK(d.c.onEvent(ftxui::Event::ArrowDown));
+    CHECK(d.c.onEvent(ftxui::Event::Return));
+    auto sort = shot(d.c, 80, 25);
+    CHECK(anyRowHas(sort, "(*) Name"));
+    CHECK(anyRowHas(sort, "[ ] Reverse"));
+    CHECK(d.c.onEvent(ftxui::Event::Escape));
+    CHECK_FALSE(d.c.modal());
+}
+
+TEST_CASE("the columns are Name, blocks with the P flag, and the date the mc way; the cursor bar runs through the rules")
+{
+    TwoDisks d;
+    auto screen = shot(d.c, 80, 25);
+    CHECK(anyRowHas(screen, "Blk P"));
+    CHECK(anyRowHas(screen, "Date"));
+    /* DIR.SAV: 20 blocks, protected, 1990-12-27 */
+    bool found = false;
+    for (int y = 0; y < screen.dimy() && !found; ++y) {
+        const std::string row = rowText(screen, y);
+        if (row.find("DIR.SAV") == std::string::npos || row.find("Dec 27  1990") == std::string::npos) continue;
+        CHECK(row.find("20P") != std::string::npos);
+        CHECK(row.find("20P") < row.find("Dec 27"));
+        found = true;
+    }
+    CHECK(found);
+    /* the cursor row: the rule cells carry the bar's colour too */
+    const int cursorRow = 3;   /* menu bar, the border, the header, then the first file */
+    const std::string row = rowText(screen, cursorRow);
+    REQUIRE(row.find("\xE2\x94\x82") != std::string::npos);
+    for (int x = 1; x < 38; ++x)   /* inside the left panel, its own border at 39 aside */
+        if (screen.PixelAt(x, cursorRow).character == "\xE2\x94\x82") CHECK(screen.PixelAt(x, cursorRow).background_color == ftxui::Color::Cyan);
 }
 
 TEST_CASE("+ marks by pattern through the Select dialog, * inverts, and the panel says how many")
@@ -179,6 +214,7 @@ TEST_CASE("F5 copies to the device in the 'to:' line; a file that exists asks, m
     const auto names = left->list();
     for (size_t i = 0; i < names.size() && names[i].name != "DIR.SAV"; ++i) d.c.onEvent(ftxui::Event::ArrowDown);
     CHECK(rowText(shot(d.c, 80, 25), 21).find("DIR.SAV") != std::string::npos);   /* the current-file line */
+    CHECK(rowText(shot(d.c, 80, 25), 21).find("Dec 27  1990") != std::string::npos);
     CHECK(d.c.onEvent(ftxui::Event::F5));
     auto dlg = shot(d.c, 80, 25);
     CHECK(anyRowHas(dlg, "Copy file \"DIR.SAV\""));
