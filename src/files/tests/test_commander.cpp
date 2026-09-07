@@ -100,7 +100,7 @@ TEST_CASE("the title sits on the top border, the summary on the bottom one; a sh
         if (rowText(shortAfter, y).find(last) != std::string::npos && shortAfter.PixelAt(2, y).background_color == ftxui::Color::Cyan) cyanRow = true;
         if (rowText(shortAfter, y).find("Name") == std::string::npos) continue;
         for (int x = 0; x < shortAfter.dimx(); ++x)   /* the header is centred: look along the row */
-            if (shortAfter.PixelAt(x, y).foreground_color == ftxui::Color::Yellow) yellowHeader = true;
+            if (shortAfter.PixelAt(x, y).foreground_color == ftxui::Color::YellowLight) yellowHeader = true;
     }
     CHECK(cyanRow);
     CHECK(yellowHeader);
