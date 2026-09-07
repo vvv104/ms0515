@@ -58,6 +58,9 @@ Element listRow(const std::vector<std::string> &cells, const std::vector<int> &w
     return hbox(std::move(parts)) | rowLook;
 }
 
+/* What "Dec 27  1990" takes. */
+constexpr int kDateWidth = 12;
+
 /* "1990-12-27" the way mc shows a date of another year: "Dec 27  1990". */
 std::string mcDate(const std::string &iso)
 {
@@ -181,9 +184,18 @@ Element Tui::renderPanel(int index)
     Panel &p = panels_[index];
     const bool isActive = index == active_;
     const int rows = panelRows();
-    const std::vector<int> widths = {0, 7, 7, 13};
-    Elements lines = {listRow({" Name", "  Blk P", " Offset", " Date"}, widths, kHeader, nothing)};
     const auto &entries = p.entries();
+    /* the columns are as wide as their widest value and no wider - the
+     * headers set the floor - so they sit tight against the rules */
+    int blkDigits = 3, offsetDigits = 6;
+    for (const Entry &e : entries) {
+        blkDigits = std::max(blkDigits, static_cast<int>(std::to_string(e.blocks).size()));
+        offsetDigits = std::max(offsetDigits, static_cast<int>(std::to_string(e.offset).size()));
+    }
+    const std::vector<int> widths = {0, blkDigits + 2, offsetDigits, kDateWidth};
+    Elements lines = {listRow({" Name", fmt::format("{:>{}} P", "Blk", blkDigits),
+                               fmt::format("{:>{}}", "Offset", offsetDigits), fmt::format("{:^{}}", "Date", kDateWidth)},
+                              widths, kHeader, nothing)};
     const int top = p.scrollTop(rows);
     for (int i = top; i < top + rows; ++i) {
         const bool have = i < static_cast<int>(entries.size());
@@ -196,8 +208,8 @@ Element Tui::renderPanel(int index)
         if (have && !e.empty && p.isMarked(e.name)) cellLook = kMarked;
         const Decorator rowLook = have && i == p.cursor() && isActive ? kCursor : nothing;   /* the other panel shows no cursor, as mc does */
         const std::string name = !have ? "" : e.empty && e.name.empty() ? " < UNUSED >" : " " + e.name;
-        lines.push_back(listRow({name, have ? fmt::format("{:>5} {}", e.blocks, e.protectedFlag ? "P" : " ") : "",
-                                 have ? fmt::format("{:>6}", e.offset) : "", have ? " " + mcDate(e.date) : ""},
+        lines.push_back(listRow({name, have ? fmt::format("{:>{}} {}", e.blocks, blkDigits, e.protectedFlag ? "P" : " ") : "",
+                                 have ? fmt::format("{:>{}}", e.offset, offsetDigits) : "", have ? mcDate(e.date) : ""},
                                 widths, cellLook, rowLook));
     }
     Element rule = separator();
@@ -218,7 +230,7 @@ Element Tui::renderHost(int index)
     const bool isActive = index == active_;
     const int rows = panelRows();
     const std::vector<int> widths = {0, 10};
-    Elements lines = {listRow({" Name", "      Size"}, widths, kHeader, nothing)};
+    Elements lines = {listRow({" Name", fmt::format("{:>10}", "Size")}, widths, kHeader, nothing)};
     for (int i = b.top; i < b.top + rows; ++i) {
         const bool have = i < static_cast<int>(b.items.size());
         const HostEntry h = have ? b.items[static_cast<size_t>(i)] : HostEntry{};

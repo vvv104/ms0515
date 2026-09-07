@@ -423,13 +423,21 @@ TEST_CASE("a program is green in the panel, as mc paints executables; a marked o
     REQUIRE(data > 0);
     CHECK(screen.PixelAt(2, program).foreground_color == ftxui::Color::GreenLight);
     CHECK(screen.PixelAt(2, data).foreground_color != ftxui::Color::GreenLight);
+    /* the columns sit tight against the rules, as mc lays them out: no
+     * padding on either side of a value */
+    const std::string rule = "\xE2\x94\x82";
+    const std::string header = rowText(screen, 2);
+    CHECK(header.find("Blk P" + rule + "Offset" + rule) != std::string::npos);
+    CHECK(rowText(screen, program).find(rule + "Dec 27  1990") != std::string::npos);
+    CHECK(rowText(screen, program).find("20 P" + rule) != std::string::npos);
+
     /* the colour is the text's alone: the rules between the columns keep
      * the panel's own, as they do in mc */
     const std::string row = rowText(screen, program);
-    const size_t rule = row.find("\xE2\x94\x82");
-    REQUIRE(rule != std::string::npos);
+    const size_t ruleAt = row.find(rule);
+    REQUIRE(ruleAt != std::string::npos);
     int ruleColumn = 0;
-    for (size_t at = 0; at < rule; ++ruleColumn) at += static_cast<size_t>((row[at] & 0xC0) == 0xC0 ? 3 : 1);
+    for (size_t at = 0; at < ruleAt; ++ruleColumn) at += static_cast<size_t>((row[at] & 0xC0) == 0xC0 ? 3 : 1);
     CHECK(screen.PixelAt(ruleColumn, program).character == "\xE2\x94\x82");
     CHECK(screen.PixelAt(ruleColumn, program).foreground_color == ftxui::Color::White);
     /* Insert on the program: marked is yellow, over the green */
