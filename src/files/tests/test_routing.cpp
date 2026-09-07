@@ -1,7 +1,8 @@
 /*
  * test_routing.cpp — who gets a key while the commander sits over the
  * machine: the NC rule.  Typed text and Enter go to the guest's prompt,
- * the panel keys to the commander; Ctrl+\ toggles; Ctrl+O hides the
+ * the panel keys to the commander; Ctrl+\ brings the commander up (F10
+ * takes it down); Ctrl+O hides the
  * panels and then everything goes to the guest.
  */
 #include "HostKey.hpp"
@@ -22,14 +23,14 @@ RouteState on()
 
 } // namespace
 
-TEST_CASE("Ctrl+\\ toggles whatever the state; with the commander off everything else is the guest's")
+TEST_CASE("Ctrl+\\ brings the commander up, and is the commander's (swallowed) while it is up; with it off everything else is the guest's")
 {
     const HostKey toggle = HostKey::ofByte(0x1C);
     CHECK(routeKey(toggle, RouteState{}) == Route::toggle);
-    CHECK(routeKey(toggle, on()) == Route::toggle);
+    CHECK(routeKey(toggle, on()) == Route::commander);
     RouteState modal = on();
     modal.modal = true;
-    CHECK(routeKey(toggle, modal) == Route::toggle);
+    CHECK(routeKey(toggle, modal) == Route::commander);
 
     CHECK(routeKey(HostKey::ofByte('a'), RouteState{}) == Route::guest);
     CHECK(routeKey(HostKey::ofSpecial(SpecialKey::f5), RouteState{}) == Route::guest);
@@ -113,7 +114,7 @@ TEST_CASE("a dialog or the viewer takes every key; hidden panels give every key 
     CHECK(routeKey(HostKey::ofSpecial(SpecialKey::up), hidden) == Route::guest);
     CHECK(routeKey(HostKey::ofByte(0x09), hidden) == Route::guest);
     CHECK(routeKey(HostKey::ofByte(0x0F), hidden) == Route::hidePanels);
-    CHECK(routeKey(HostKey::ofByte(0x1C), hidden) == Route::toggle);
+    CHECK(routeKey(HostKey::ofByte(0x1C), hidden) == Route::commander);   /* never the guest's, never a way down */
 
     /* the toggle and the hide leave the typed flag alone */
     RouteState s = on();

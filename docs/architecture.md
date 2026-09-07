@@ -120,15 +120,15 @@ Headless text-mode session over the same emulator core:
 - The commander over the running machine (`CommanderHost`, a person at a
   terminal only): Ctrl+\ - the one byte every terminal delivers as itself
   and RT-11 never uses - brings the panels of `src/files/` up in the
-  alternate screen and takes them down.  The mirror stops writing to the
+  alternate screen (F10, asked, takes them down; Ctrl+\ is swallowed
+  meanwhile).  The mirror stops writing to the
   terminal and its 80x25 shadow is drawn instead: two rows around the
   guest's cursor under the panels (NC's command line is the machine's own
   prompt), the whole screen when Ctrl+O hides the panels.  Keys follow the
   NC rule (`files/Routing`): typed text, Backspace, Ctrl+letters and an
   Enter after typing go to the machine; Tab, arrows, Insert, Home / End /
   PgUp / PgDn, Esc, the F-keys and an untyped Enter work the panels; a
-  dialog takes everything.  F10 takes the panels down, Ctrl+] still quits
-  the CLI.  A mount made in the panels is applied to the machine at once
+  dialog takes everything.  Ctrl+] still quits the CLI.  A mount made in the panels is applied to the machine at once
   (`MountSync`: units FD0..FD3 and the HD follow the slots); the floppies
   are shared through the image file the FDC reads and writes per sector,
   the HD - kept in memory with write-through - is re-read after the panels

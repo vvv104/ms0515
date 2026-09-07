@@ -1,8 +1,8 @@
 /*
  * CommanderHost.hpp — the commander over the running machine.
  *
- * Ctrl+\ brings the two panels up over the machine's screen and takes
- * them down again.  While they are up the terminal is the commander's:
+ * Ctrl+\ brings the two panels up over the machine's screen; F10, with
+ * its question, takes them down.  While they are up the terminal is the commander's:
  * it draws into the alternate screen from the CLI's frame loop, the
  * mirror of the machine's screen stops writing to the terminal and is
  * drawn from its shadow instead - the rows around the guest's cursor

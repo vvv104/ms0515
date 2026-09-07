@@ -86,6 +86,12 @@ TEST_CASE("the title sits on the top border, the summary on the bottom one; a sh
     /* the current-file line above the bottom border names it too */
     CHECK(rowText(shortAfter, 8).find(last) != std::string::npos);
 
+    /* the title sits one cell in from the corner, with a plain cell before it */
+    const std::string titleRow = rowText(shortAfter, 1);
+    CHECK(titleRow.find(" DZ0: osa.dsk ") != std::string::npos);
+    CHECK(shortAfter.PixelAt(1, 1).background_color != ftxui::Color::Cyan);
+    CHECK(shortAfter.PixelAt(2, 1).background_color == ftxui::Color::Cyan);
+
     /* the cursor row is painted cyan, the column header yellow - the
      * summary on the bottom border must not repaint them */
     bool cyanRow = false, yellowHeader = false;

@@ -94,11 +94,11 @@ falls back to the default ROM next to the binary.
 Quit hotkey (interactive session):  Ctrl-]
 
 The commander (interactive session):  Ctrl-\ brings two panels over the
-running machine - the RT-11 volumes of the mounted devices - and takes
-them down, Midnight Commander's way.  The machine's prompt stays under
+running machine - the RT-11 volumes of the mounted devices - Midnight
+Commander's way; F10 (asked) takes them down.  The machine's prompt stays under
 the panels as the command line: typed text and Enter go to RT-11; Tab,
 the arrows, Insert, + - * and the F-keys work the panels.  Ctrl-O hides
-the panels to see the whole screen, F10 takes them down.  F1 help, F2 the
+the panels to see the whole screen.  F1 help, F2 the
 user menu (host files in and out, protect, dates, init), F3 view, F4 /
 Alt-F1 / Alt-F2 a panel's disk (a mounted device or another image, into
 the machine), F5 copy, F6 rename / move, F7 squeeze, F8 delete, F9 the

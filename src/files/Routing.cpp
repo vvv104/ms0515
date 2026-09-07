@@ -22,7 +22,7 @@ bool printable(uint8_t b) noexcept
 
 Route routeKey(const HostKey &key, const RouteState &state) noexcept
 {
-    if (key.isByte() && key.byte == kToggleByte) return Route::toggle;
+    if (key.isByte() && key.byte == kToggleByte) return state.commanderOn ? Route::commander : Route::toggle;
     if (!state.commanderOn) return Route::guest;
     if (state.modal) return Route::commander;
     if (key.isByte() && key.byte == kHidePanelsByte) return Route::hidePanels;

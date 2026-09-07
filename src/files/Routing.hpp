@@ -9,8 +9,9 @@
  * and so do + - * (select, unselect, invert) while nothing is typed.
  * Ctrl+O hides the panels, and then every key is the guest's; Ctrl+\
  * (0x1C, the one byte every terminal delivers as itself and RT-11 never
- * uses) brings the commander up or takes it down.  A dialog or the
- * viewer takes every key while it is open.
+ * uses) brings the commander up - F10 takes it down, and while it is up
+ * Ctrl+\ is swallowed.  A dialog or the viewer takes every key while it
+ * is open.
  */
 #ifndef MS0515_FILES_ROUTING_HPP
 #define MS0515_FILES_ROUTING_HPP
@@ -22,7 +23,7 @@ namespace ms0515::files {
 constexpr uint8_t kToggleByte = 0x1C;     /* Ctrl+\ */
 constexpr uint8_t kHidePanelsByte = 0x0F; /* Ctrl+O */
 
-enum class Route { guest, commander, toggle, hidePanels };
+enum class Route { guest, commander, toggle /* the commander up */, hidePanels };
 
 struct RouteState {
     bool commanderOn = false;

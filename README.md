@@ -120,8 +120,8 @@ In `ms0515-cli`, Ctrl+\ brings a two-panel commander up over the running
 machine, the Midnight Commander way: the panels show the RT-11 volumes of
 the mounted devices, the machine's own prompt stays under them as the
 command line (what you type and Enter go to RT-11, the panel keys to the
-panels), Ctrl+O hides the panels to see the whole screen, F10 takes them
-down.  The keys are mc's: F1 help, F2 the user menu (host files in and
+panels), Ctrl+O hides the panels to see the whole screen, F10 (asked)
+takes them down.  The keys are mc's: F1 help, F2 the user menu (host files in and
 out, protect, dates, init), F3 view, F4 / Alt+F1 / Alt+F2 a panel's disk
 (a mounted device or another image, mounted into the running machine),
 F5 copy and F6 rename / move to the device in the "to:" line with mc's

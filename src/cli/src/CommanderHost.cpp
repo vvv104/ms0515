@@ -66,7 +66,7 @@ void CommanderHost::Impl::makeCommander()
             (void)emu.mountHd(image.string());
         }
     };
-    /* the panels come down on F10, nothing is lost: no question */
+    hooks.quitQuestion = "Leave the commander?";   /* F10, asked, is the only way down */
     commander.emplace(files::Mounts::fromEmulator(cli, scratchConfig), scratchConfig, std::move(hooks));
 }
 
@@ -138,7 +138,7 @@ bool CommanderHost::Impl::onKey(const files::HostKey &key)
     state = files::afterRouting(state, key, route);
     switch (route) {
     case files::Route::toggle:
-        if (state.commanderOn) leave(); else enter();
+        enter();
         return true;
     case files::Route::hidePanels:
         state.panelsHidden = !state.panelsHidden;
