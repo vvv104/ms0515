@@ -7,7 +7,8 @@
  * does Enter once something was typed; Tab, the arrows, Insert, Home,
  * End, PgUp, PgDn, Esc, the F-keys and an untyped Enter work the panels,
  * and so do + - * (select, unselect, invert) while nothing is typed.
- * Ctrl+O hides the panels, and then every key is the guest's; Ctrl+\
+ * Ctrl+O hides the panels, and then every key is the guest's but PgUp
+ * and PgDn, which leaf through the rows that left the screen; Ctrl+\
  * (0x1C, the one byte every terminal delivers as itself and RT-11 never
  * uses) brings the commander up - F10 takes it down, and while it is up
  * Ctrl+\ is swallowed.  A dialog or the viewer takes every key while it

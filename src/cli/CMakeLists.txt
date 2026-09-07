@@ -15,6 +15,7 @@ add_library(ms0515_cli_core STATIC
     src/CommanderHost.cpp
     src/StdioBridge.cpp
     src/Koi8.cpp
+    src/Scrollback.cpp
 )
 
 target_include_directories(ms0515_cli_core PUBLIC

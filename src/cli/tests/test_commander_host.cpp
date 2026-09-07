@@ -60,6 +60,8 @@ TEST_CASE("typed text goes to the guest while the panels are up, the panel keys 
     CHECK(host.onKey(byte(0x0F)));
     CHECK_FALSE(host.onKey(byte('x')));
     CHECK_FALSE(host.onKey(files::HostKey::ofSpecial(files::SpecialKey::f3)));
+    CHECK(host.onKey(files::HostKey::ofSpecial(files::SpecialKey::pageUp)));    /* the scrollback, the host's */
+    CHECK(host.onKey(files::HostKey::ofSpecial(files::SpecialKey::pageDown)));
     CHECK(host.onKey(byte(0x0F)));
     /* F10 asks; 'y' answers and the panels come down */
     CHECK(host.onKey(files::HostKey::ofSpecial(files::SpecialKey::f10)));

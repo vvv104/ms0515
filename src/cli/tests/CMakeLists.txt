@@ -12,6 +12,7 @@ add_executable(ms0515_cli_tests
     test_guest_screen.cpp
     test_commander_host.cpp
     test_bridge.cpp
+    test_scrollback.cpp
 )
 
 target_compile_definitions(ms0515_cli_tests PRIVATE

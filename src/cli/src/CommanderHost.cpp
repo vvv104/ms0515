@@ -11,6 +11,7 @@
 #include "HostEvent.hpp"
 #include "MountSync.hpp"
 #include "Routing.hpp"
+#include "Scrollback.hpp"
 
 #include "ms0515/app/Cli.hpp"
 #include "ms0515/app/Config.hpp"
@@ -45,6 +46,8 @@ struct CommanderHost::Impl {
     std::string lastPicture;
     ftxui::Dimensions lastSize{0, 0};
     bool mountsTouched = false;
+    Scrollback scrollback;          /* the rows that left the machine's screen, kept all along */
+    int scrolledBack = 0;           /* rows leafed back into it with PgUp */
 
     Impl(Emulator &e, VramMirror &m, const app::CliArgs &c, FILE *o) : emu(e), mirror(m), cli(c), out(o) {}
     void write(const char *s) { if (out) { std::fputs(s, out); std::fflush(out); } }
@@ -54,6 +57,8 @@ struct CommanderHost::Impl {
     void leave();
     void draw();
     [[nodiscard]] ftxui::Element picture(int width, int height);
+    [[nodiscard]] VramMirror::Snapshot historyRows(int count) const;
+    void leafBack(int rows);
     bool onKey(const files::HostKey &key);
 };
 
@@ -105,10 +110,10 @@ ftxui::Element CommanderHost::Impl::picture(int width, int height)
     const int cursor = std::clamp(mirror.osCursorRow() >= 0 ? mirror.osCursorRow() : mirror.lastWriteRow(), 0, VramMirror::kRows - 1);
     if (state.panelsHidden) {
         /* the guest's screen with its cursor row where it sits under the
-         * panels, the key bar kept below */
+         * panels, the rows that left the screen above it, the key bar below */
         const GuestPlacement at = placeGuest(cursor, height);
         ftxui::Elements rows;
-        for (int i = 0; i < at.pad; ++i) rows.push_back(ftxui::text(""));
+        rows.push_back(guestRows(historyRows(at.pad), 0, at.pad));
         rows.push_back(guestRows(shadow, at.from, at.to, cursor, cursorCol));
         rows.push_back(ftxui::filler());
         rows.push_back(commander->keyBar());
@@ -117,6 +122,31 @@ ftxui::Element CommanderHost::Impl::picture(int width, int height)
     /* the rows around the guest's cursor: its prompt, NC's command line */
     const int from = std::clamp(cursor - 1, 0, VramMirror::kRows - 2);
     return commander->render(width, height, guestRows(shadow, from, from + 2, cursor, cursorCol));
+}
+
+/* The last `count` kept rows, less those leafed back, as a screen to draw. */
+VramMirror::Snapshot CommanderHost::Impl::historyRows(int count) const
+{
+    VramMirror::Snapshot s;
+    s.cells.fill(0x20);
+    const auto &lines = scrollback.lines();
+    const int end = static_cast<int>(lines.size()) - scrolledBack;
+    for (int i = 0; i < count && i < VramMirror::kRows; ++i) {
+        const int at = end - count + i;
+        if (at < 0 || at >= static_cast<int>(lines.size())) continue;
+        std::copy(lines[static_cast<size_t>(at)].cells.begin(), lines[static_cast<size_t>(at)].cells.end(),
+                  s.cells.begin() + static_cast<long>(i) * VramMirror::kCols);
+        std::copy(lines[static_cast<size_t>(at)].inverted.begin(), lines[static_cast<size_t>(at)].inverted.end(),
+                  s.inverted.begin() + static_cast<long>(i) * VramMirror::kCols);
+    }
+    return s;
+}
+
+void CommanderHost::Impl::leafBack(int rows)
+{
+    const int most = static_cast<int>(scrollback.lines().size());
+    scrolledBack = std::clamp(scrolledBack + rows, 0, most);
+    draw();
 }
 
 void CommanderHost::Impl::draw()
@@ -158,9 +188,16 @@ bool CommanderHost::Impl::onKey(const files::HostKey &key)
         return true;
     case files::Route::hidePanels:
         state.panelsHidden = !state.panelsHidden;
+        scrolledBack = 0;
         draw();
         return true;
     case files::Route::commander:
+        if (state.panelsHidden) {
+            /* only PgUp / PgDn come here with the panels hidden */
+            const int page = std::max(1, ftxui::Terminal::Size().dimy - 3);
+            leafBack(key.special == files::SpecialKey::pageUp ? page : -page);
+            return true;
+        }
         (void)commander->onEvent(files::toEvent(key));
         if (commander->takeQuitRequest()) leave();
         else draw();
@@ -193,6 +230,8 @@ bool CommanderHost::onKey(const files::HostKey &key)
 
 void CommanderHost::frame()
 {
+    /* the rows leaving the screen are kept whether the panels are up or not */
+    if (impl_->mirror.changedThisFlush()) impl_->scrollback.frame(impl_->mirror.snapshot());
     if (!impl_->state.commanderOn || !impl_->out) return;
     /* redraw when the guest wrote to its screen or the terminal changed
      * size; the keys draw on their own */

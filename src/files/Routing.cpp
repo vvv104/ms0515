@@ -26,7 +26,12 @@ Route routeKey(const HostKey &key, const RouteState &state) noexcept
     if (!state.commanderOn) return Route::guest;
     if (state.modal) return Route::commander;
     if (key.isByte() && key.byte == kHidePanelsByte) return Route::hidePanels;
-    if (state.panelsHidden) return Route::guest;
+    if (state.panelsHidden) {
+        /* with the machine's screen alone, PgUp / PgDn leaf through the
+         * rows that left it - keys the machine has none of */
+        const bool leaf = key.special == SpecialKey::pageUp || key.special == SpecialKey::pageDown;
+        return leaf ? Route::commander : Route::guest;
+    }
     if (key.isSpecial()) return Route::commander;
     switch (key.byte) {
     case kEnter: return state.typedPending ? Route::guest : Route::commander;

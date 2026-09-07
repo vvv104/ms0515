@@ -113,6 +113,10 @@ TEST_CASE("a dialog or the viewer takes every key; hidden panels give every key 
     CHECK(routeKey(HostKey::ofSpecial(SpecialKey::f3), hidden) == Route::guest);
     CHECK(routeKey(HostKey::ofSpecial(SpecialKey::up), hidden) == Route::guest);
     CHECK(routeKey(HostKey::ofByte(0x09), hidden) == Route::guest);
+    /* PgUp / PgDn leaf through the rows that left the screen - the
+     * machine has no such keys anyway */
+    CHECK(routeKey(HostKey::ofSpecial(SpecialKey::pageUp), hidden) == Route::commander);
+    CHECK(routeKey(HostKey::ofSpecial(SpecialKey::pageDown), hidden) == Route::commander);
     CHECK(routeKey(HostKey::ofByte(0x0F), hidden) == Route::hidePanels);
     CHECK(routeKey(HostKey::ofByte(0x1C), hidden) == Route::commander);   /* never the guest's, never a way down */
 
