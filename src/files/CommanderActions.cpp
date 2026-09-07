@@ -101,14 +101,14 @@ void Tui::help()
         "Enter     run the program        F3        view the file",
         "+ - *     select / unselect / invert",
         "F1        this help              F2        the user menu",
-        "F4        the panel's disk       Alt-F1/F2 the left / right panel's disk",
+        "F4        the panel's disk       Alt+F1/F2 the left / right panel's disk",
         "F5        copy to a device       F6        rename / move",
         "F7        squeeze the volume     F8        delete",
         "F9        the menu               F10       quit",
-        "Ctrl-U    swap the panels        Ctrl-R    re-read",
+        "Ctrl+U    swap the panels        Ctrl+R    re-read",
         "",
         "Typed text goes to the machine's prompt under the panels; Enter",
-        "after typing goes there too.  Ctrl-O shows the machine's screen.",
+        "after typing goes there too.  Ctrl+O shows the machine's screen.",
     });
 }
 
@@ -131,30 +131,32 @@ void Tui::doView()
     view_ = std::move(v);
 }
 
-/* The command that runs a program on the machine: RUN for a .SAV, @ for
- * a .COM (an indirect command file); "" for anything else. */
+/* The command that runs a program on the machine.  The monitor runs a
+ * .SAV on the system device from its bare name - and only from there: it
+ * answers "DZ0:PIP" with "invalid command" (asked, on OSA) - so a program
+ * anywhere else goes through RUN.  A .COM is an indirect command file,
+ * which the @ takes.  "" for anything the machine cannot run. */
 std::string Tui::runCommand(const std::string &device, const std::string &name)
 {
     if (!Location::isProgram(name)) return "";
+    /* the machine boots from drive 0, side 0: that is its SY: */
+    const bool systemDevice = device == "DZ0:";
     const auto dot = name.rfind('.');
     const std::string stem = name.substr(0, dot), ext = name.substr(dot + 1);
-    return ext == "SAV" ? "RUN " + device + stem : "@" + device + stem;
+    if (ext == "COM") return systemDevice ? "@" + stem : "@" + device + stem;
+    return systemDevice ? stem : "RUN " + device + stem;
 }
 
 /* Enter with nothing typed runs the program under the cursor, through the
- * host's hands at the machine's prompt.  On anything else it does
- * nothing, as in mc - F3 is what views a file. */
+ * host's hands at the machine's prompt.  Anything else it ignores, as
+ * other commanders do - F3 is what views a file. */
 void Tui::doEnter()
 {
     if (!panel().hasLocation()) return;
     const auto cur = panel().current();
-    if (!cur || cur->empty) return;
-    const std::string line = hooks_.runInGuest ? runCommand(panel().location().device().name, cur->name) : "";
-    if (line.empty()) {
-        status_ = Location::isProgram(cur->name) ? "No machine to run it on - F3 views the file."
-                                                 : cur->name + ": not a program - F3 views it.";
-        return;
-    }
+    if (!cur || cur->empty || !hooks_.runInGuest) return;
+    const std::string line = runCommand(panel().location().device().name, cur->name);
+    if (line.empty()) return;
     hooks_.runInGuest(line);
     status_ = line;
 }

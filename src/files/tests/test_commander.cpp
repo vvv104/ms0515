@@ -345,12 +345,14 @@ TEST_CASE("a dialog and a menu hide what lies under them")
     CHECK(d.c.onEvent(ftxui::Event::Escape));
 }
 
-TEST_CASE("Enter on a program types the command that runs it into the machine's prompt; on anything else it views")
+TEST_CASE("Enter runs the program under the cursor: its bare name on the default device, RUN with the device anywhere else; anything else it ignores")
 {
     Scratch s("run");
     const auto osa = s.disk("test_osa.dsk", "osa.dsk");
+    const auto rod = s.disk("test_rod.dsk", "rod.dsk");
     Mounts m;
     REQUIRE(m.mount(Slot::driveA, osa, 0).empty());
+    REQUIRE(m.mount(Slot::driveB, rod, 0).empty());
     ms0515::app::Config config;
     std::string typed;
     CommanderHooks hooks;
@@ -360,23 +362,39 @@ TEST_CASE("Enter on a program types the command that runs it into the machine's 
     const auto names = vol->list();
     for (size_t i = 0; i < names.size() && names[i].name != "DIR.SAV"; ++i) c.onEvent(ftxui::Event::ArrowDown);
     CHECK(c.onEvent(ftxui::Event::Return));
-    CHECK(typed == "RUN DZ0:DIR");
+    CHECK(typed == "DIR");            /* the system device: the bare name runs it */
     CHECK_FALSE(c.modal());
     /* a .COM is an indirect command file */
     c.onEvent(ftxui::Event::Home);
     for (size_t i = 0; i < names.size() && names[i].name != "START.COM"; ++i) c.onEvent(ftxui::Event::ArrowDown);
     if (vol->find("START.COM")) {
         CHECK(c.onEvent(ftxui::Event::Return));
-        CHECK(typed == "@DZ0:START");
+        CHECK(typed == "@START");
     }
-    /* a file the machine cannot run: Enter does nothing at all, no viewer -
-     * F3 is what views a file */
+
+    /* another device: the monitor takes no bare name there - it answers
+     * "DZ0:PIP" with "invalid command" - so the command says RUN */
+    typed.clear();
+    CHECK(c.onEvent(ftxui::Event::Tab));
+    const auto right = Location::open(Device{"DZ1:", rod, disk::VolumeSpec{disk::Vol::floppy, 0}});
+    REQUIRE(right.has_value());
+    std::string program;
+    for (const auto &e : right->list()) if (Location::isProgram(e.name) && e.name.ends_with(".SAV")) { program = e.name; break; }
+    REQUIRE_FALSE(program.empty());
+    for (const auto &e : right->list()) { if (e.name == program) break; c.onEvent(ftxui::Event::ArrowDown); }
+    CHECK(c.onEvent(ftxui::Event::Return));
+    CHECK(typed == "RUN DZ1:" + program.substr(0, program.rfind('.')));
+    CHECK(c.onEvent(ftxui::Event::Tab));
+    /* a file the machine cannot run: Enter does nothing at all - no viewer,
+     * and not a word in the status line, as other commanders ignore it */
     typed.clear();
     c.onEvent(ftxui::Event::Home);
     for (size_t i = 0; i < names.size() && names[i].name != "SWAP.SYS"; ++i) c.onEvent(ftxui::Event::ArrowDown);
+    const std::string statusBefore = rowText(shot(c, 80, 25), 23);
     CHECK(c.onEvent(ftxui::Event::Return));
     CHECK(typed.empty());
     CHECK_FALSE(c.modal());
+    CHECK(rowText(shot(c, 80, 25), 23) == statusBefore);
     CHECK(c.onEvent(ftxui::Event::F3));
     CHECK(c.modal());
     CHECK(c.onEvent(ftxui::Event::Escape));

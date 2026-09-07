@@ -91,19 +91,19 @@ written by ms0515.exe when settings change in the UI.  CLI args override
 the config; absent CLI args fall back to the config; absent config
 falls back to the default ROM next to the binary.
 
-Quit hotkey (interactive session):  Ctrl-]
+Quit hotkey (interactive session):  Ctrl+]
 
-The commander (interactive session):  Ctrl-\ brings two panels over the
+The commander (interactive session):  Ctrl+\ brings two panels over the
 running machine - the RT-11 volumes of the mounted devices - Midnight
 Commander's way; F10 (asked) takes them down.  The machine's prompt stays under
 the panels as the command line: typed text and Enter go to RT-11; Tab,
 the arrows, Insert, + - * and the F-keys work the panels.  The programs
-are green: Enter with nothing typed runs the one under the cursor.  Ctrl-O hides
+are green: Enter with nothing typed runs the one under the cursor.  Ctrl+O hides
 the panels to see the whole screen.  F1 help, F2 the
 user menu (host files in and out, protect, dates, init), F3 view, F4 /
-Alt-F1 / Alt-F2 a panel's disk (a mounted device or another image, into
+Alt+F1 / Alt+F2 a panel's disk (a mounted device or another image, into
 the machine), F5 copy, F6 rename / move, F7 squeeze, F8 delete, F9 the
-menu; Ctrl-U swaps the panels, Ctrl-R re-reads.
+menu; Ctrl+U swaps the panels, Ctrl+R re-reads.
 )";
 
 /* Per-binary local flags that aren't part of the shared `CliArgs`

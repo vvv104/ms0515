@@ -124,7 +124,7 @@ Tui::Tui(Mounts mounts, app::Config &config, CommanderHooks hooks)
     std::error_code ec;
     lastDir_ = devices.empty() ? std::filesystem::current_path(ec) : devices[0].image.parent_path();
     newFileDate_ = today();
-    status_ = devices.empty() ? "Hint: Alt-F1 / Alt-F2 mount an image into the left / right panel."
+    status_ = devices.empty() ? "Hint: Alt+F1 / Alt+F2 mount an image into the left / right panel."
                               : "Hint: Tab changes your current panel.";
 }
 
@@ -205,7 +205,7 @@ Element Tui::renderPanel(int index)
     if (const auto cur = p.current())
         current = fmt::format(" {:<10}{:>5}{} {:>4} {}", cur->empty && cur->name.empty() ? "< UNUSED >" : cur->name,
                               cur->blocks, cur->protectedFlag ? "P" : " ", cur->offset, mcDate(cur->date));
-    std::string foot = p.hasLocation() ? p.location().summary() : (index == 0 ? "Alt-F1 picks a disk" : "Alt-F2 picks a disk");
+    std::string foot = p.hasLocation() ? p.location().summary() : (index == 0 ? "Alt+F1 picks a disk" : "Alt+F2 picks a disk");
     if (p.hasLocation() && !p.location().volumeId().empty()) foot += " - " + p.location().volumeId();
     return frame(isActive, p.title(), vbox(std::move(lines)), rule, text(current), foot);
 }

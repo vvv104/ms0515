@@ -44,7 +44,7 @@ std::string hintLine(int width, int height)
 {
     /* the machine's own rows come first; the hint needs one below them */
     if (height <= VramMirror::kRows || width < 40) return "";
-    std::string text = " Ctrl-\\ the commander    Ctrl-] quit ";
+    std::string text = " Ctrl+\\ the commander    Ctrl+] quit ";
     /* never the last column: writing there scrolls some terminals */
     const size_t room = static_cast<size_t>(width - 1);
     if (text.size() > room) text.resize(room);

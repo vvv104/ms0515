@@ -101,8 +101,8 @@ TEST_CASE("typed text goes to the guest while the panels are up, the panel keys 
 TEST_CASE("the hint at the bottom of the terminal names the keys, saves and restores the cursor, and keeps off the machine's rows")
 {
     const std::string hint = cli::hintLine(80, 30);
-    CHECK(hint.find("Ctrl-\\") != std::string::npos);
-    CHECK(hint.find("Ctrl-]") != std::string::npos);
+    CHECK(hint.find("Ctrl+\\") != std::string::npos);
+    CHECK(hint.find("Ctrl+]") != std::string::npos);
     /* the bottom row, and the guest's cursor put back where it was */
     CHECK(hint.find("\x1B[30;1H") != std::string::npos);
     CHECK(hint.rfind("\x1B" "7", 0) == 0);
@@ -134,10 +134,10 @@ TEST_CASE("the host writes the hint while the panels are down, and never while t
         std::fflush(drawn);
         std::ifstream down(drawnPath, std::ios::binary);
         const std::string beforeUp((std::istreambuf_iterator<char>(down)), std::istreambuf_iterator<char>());
-        if (room) CHECK(beforeUp.find("Ctrl-]") != std::string::npos);
+        if (room) CHECK(beforeUp.find("Ctrl+]") != std::string::npos);
         const size_t hints = [&beforeUp] {
             size_t n = 0;
-            for (size_t at = beforeUp.find("Ctrl-]"); at != std::string::npos; at = beforeUp.find("Ctrl-]", at + 1)) ++n;
+            for (size_t at = beforeUp.find("Ctrl+]"); at != std::string::npos; at = beforeUp.find("Ctrl+]", at + 1)) ++n;
             return n;
         }();
         CHECK(hints <= 1);                    /* drawn once, not every frame */
@@ -149,7 +149,7 @@ TEST_CASE("the host writes the hint while the panels are down, and never while t
         std::ifstream up(drawnPath, std::ios::binary);
         const std::string all((std::istreambuf_iterator<char>(up)), std::istreambuf_iterator<char>());
         size_t afterUp = 0;
-        for (size_t at = all.find("Ctrl-]"); at != std::string::npos; at = all.find("Ctrl-]", at + 1)) ++afterUp;
+        for (size_t at = all.find("Ctrl+]"); at != std::string::npos; at = all.find("Ctrl+]", at + 1)) ++afterUp;
         CHECK(afterUp == hints);
         host.shutdown(false);
     }
