@@ -156,7 +156,7 @@ TEST_CASE("the encoding is told from the bytes: the shifts, the 8-bit halves, KO
     /* KOI-7 Russian in the lower-case range: the letters English hardly
      * uses - q j x and the ` { | } ~ signs - stand for common Cyrillic ones */
     CHECK(detectEncoding(bytesOf("priwet, |to prowerka. q duma`, ~to wse horo{o.\r\n"
-                                 "sleду`]ij |kzemplqr fajla.\r\n")) == Encoding::koi7);
+                                 "sledu`]ij |kzemplqr fajla.\r\n")) == Encoding::koi7);
     /* a text-like file with a form feed and tabs stays what its letters say */
     CHECK(detectEncoding(bytesOf("\x0C\tA LINE\r\n")) == Encoding::ascii);
 }
