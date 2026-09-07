@@ -126,7 +126,8 @@ out, protect, dates, init), F3 view, F4 / Alt+F1 / Alt+F2 a panel's disk
 (a mounted device or another image, mounted into the running machine),
 F5 copy and F6 rename / move to the device in the "to:" line with mc's
 "File exists" question, F7 squeeze, F8 delete, F9 the menu, Insert and
-+ - * mark, Ctrl+U swaps the panels.  `ms0515-files` is the same panels
++ - * mark, Ctrl+U swaps the panels.  The programs are green, as mc
+paints executables, and Enter runs the one under the cursor.  `ms0515-files` is the same panels
 as a standalone program over the images alone, and `ms0515-disk` does
 the same from the command line.
 

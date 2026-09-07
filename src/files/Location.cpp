@@ -274,6 +274,15 @@ bool Location::validName(const std::string &name)
     return splitName(name).has_value();
 }
 
+bool Location::isProgram(const std::string &name)
+{
+    if (!validName(name)) return false;
+    const auto dot = name.rfind('.');
+    if (dot == std::string::npos) return false;
+    const std::string ext = name.substr(dot + 1);
+    return ext == "SAV" || ext == "COM";
+}
+
 std::string Location::toVolumeName(const std::string &hostName)
 {
     std::string stem, ext;

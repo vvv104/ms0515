@@ -9,7 +9,8 @@
  * rename / move, F7 squeeze (mc makes a directory; a volume has none), F8
  * delete, F9 the menu, F10 quit; Tab the other panel, Insert marks, + - *
  * select by pattern, Ctrl+U swaps the panels, Ctrl+R re-reads, Enter
- * views.  Alt+F1 / Alt+F2 choose the left / right panel's disk: one of
+ * runs the program under the cursor.  Alt+F1 / Alt+F2 choose the left /
+ * right panel's disk: one of
  * the mounted devices, or another image - picked from a listing of the
  * host directory that stands in the panel for the moment, the only time
  * the host's files are on screen; the device then opens where the
@@ -189,6 +190,7 @@ Element Tui::renderPanel(int index)
         /* an unused area is dim - its cells, not the rules between the columns */
         const Decorator cellLook = have && e.empty ? dim : nothing;
         Decorator look = nothing;
+        if (have && !e.empty && Location::isProgram(e.name)) look = kProgram;
         if (have && !e.empty && p.isMarked(e.name)) look = kMarked;
         if (have && i == p.cursor() && isActive) look = look | kCursor;   /* the other panel shows no cursor, as mc does */
         const std::string name = !have ? "" : e.empty && e.name.empty() ? " < UNUSED >" : " " + e.name;

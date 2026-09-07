@@ -369,20 +369,48 @@ TEST_CASE("Enter on a program types the command that runs it into the machine's 
         CHECK(c.onEvent(ftxui::Event::Return));
         CHECK(typed == "@DZ0:START");
     }
-    /* a data file is viewed, not run */
+    /* a file the machine cannot run: Enter does nothing at all, no viewer -
+     * F3 is what views a file */
     typed.clear();
     c.onEvent(ftxui::Event::Home);
     for (size_t i = 0; i < names.size() && names[i].name != "SWAP.SYS"; ++i) c.onEvent(ftxui::Event::ArrowDown);
     CHECK(c.onEvent(ftxui::Event::Return));
     CHECK(typed.empty());
+    CHECK_FALSE(c.modal());
+    CHECK(c.onEvent(ftxui::Event::F3));
     CHECK(c.modal());
     CHECK(c.onEvent(ftxui::Event::Escape));
 
-    /* without the hook - the standalone program - Enter views a program too */
+    /* without a runner - the standalone program - Enter does nothing either */
     Mounts m2;
     REQUIRE(m2.mount(Slot::driveA, osa, 0).empty());
     Commander plain(std::move(m2), config);
     for (size_t i = 0; i < names.size() && names[i].name != "DIR.SAV"; ++i) plain.onEvent(ftxui::Event::ArrowDown);
     CHECK(plain.onEvent(ftxui::Event::Return));
-    CHECK(plain.modal());
+    CHECK_FALSE(plain.modal());
+}
+
+TEST_CASE("a program is green in the panel, as mc paints executables; a marked one is yellow all the same")
+{
+    TwoDisks d;
+    const auto screen = shot(d.c, 80, 25);
+    const auto rowOf = [&screen](const std::string &name) {
+        for (int y = 0; y < screen.dimy(); ++y)
+            if (rowText(screen, y).find(name) != std::string::npos) return y;
+        return -1;
+    };
+    const int program = rowOf("DIR.SAV");
+    const int data = rowOf("SWAP.SYS");
+    REQUIRE(program > 0);
+    REQUIRE(data > 0);
+    CHECK(screen.PixelAt(2, program).foreground_color == ftxui::Color::GreenLight);
+    CHECK(screen.PixelAt(2, data).foreground_color != ftxui::Color::GreenLight);
+    /* Insert on the program: marked is yellow, over the green */
+    const auto vol = Location::open(Device{"DZ0:", d.osa, disk::VolumeSpec{disk::Vol::floppy, 0}});
+    const auto names = vol->list();
+    for (size_t i = 0; i < names.size() && names[i].name != "DIR.SAV"; ++i) d.c.onEvent(ftxui::Event::ArrowDown);
+    CHECK(d.c.onEvent(ftxui::Event::Insert));
+    const auto marked = shot(d.c, 80, 25);
+    CHECK(rowText(marked, program).find("DIR.SAV") != std::string::npos);   /* the cursor has stepped past it */
+    CHECK(marked.PixelAt(2, program).foreground_color == ftxui::Color::Yellow);
 }

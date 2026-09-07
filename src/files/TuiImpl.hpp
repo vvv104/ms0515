@@ -48,6 +48,7 @@ constexpr int kGuestRows = 2;
 inline const Decorator kPanel   = ftxui::bgcolor(ftxui::Color::Blue) | ftxui::color(ftxui::Color::White);
 inline const Decorator kCursor  = ftxui::bgcolor(ftxui::Color::Cyan) | ftxui::color(ftxui::Color::Black);
 inline const Decorator kMarked  = ftxui::color(ftxui::Color::Yellow) | ftxui::bold;
+inline const Decorator kProgram = ftxui::color(ftxui::Color::GreenLight);   /* mc paints executables green */
 inline const Decorator kHeader  = ftxui::color(ftxui::Color::Yellow);
 inline const Decorator kBar     = ftxui::bgcolor(ftxui::Color::Cyan) | ftxui::color(ftxui::Color::Black);
 inline const Decorator kBarOpen = ftxui::bgcolor(ftxui::Color::Black) | ftxui::color(ftxui::Color::White);

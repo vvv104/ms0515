@@ -137,9 +137,10 @@ Headless text-mode session over the same emulator core:
   synthesises the same ESC sequences from console records.  What is
   typed shows under the panels as the machine echoes it, with its cursor
   (the mirror reports any change of its shadow and where the guest keeps
-  its cursor); Enter with nothing typed on a program types the command
-  that runs it - `RUN dev:NAME` for a .SAV, `@dev:NAME` for a .COM - into
-  the prompt.  With the panels hidden the screen sits with its cursor row
+  its cursor); Enter with nothing typed on a program - a `.SAV` or a
+  `.COM`, painted green as mc paints executables - types the command that
+  runs it (`RUN dev:NAME`, `@dev:NAME`) into the prompt, and on anything
+  else does nothing, F3 being what views a file.  With the panels hidden the screen sits with its cursor row
   where it is under the panels, and above it the rows that left the
   screen: `Scrollback` reads a scroll off the shadow after every frame
   that changed it - a frame is a scroll only when the whole screen agrees

@@ -105,6 +105,9 @@ public:
 
     /* "FOO.SAV" -> true: what RT-11 holds as a name (6.3, RAD50 chars). */
     [[nodiscard]] static bool validName(const std::string &name);
+    /* A file the machine runs: NAME.SAV, which the monitor RUNs, or
+     * NAME.COM, the indirect command file it takes commands from. */
+    [[nodiscard]] static bool isProgram(const std::string &name);
     /* A host name reduced to what a volume holds: "my-file.txt" -> "MYFILE.TXT". */
     [[nodiscard]] static std::string toVolumeName(const std::string &hostName);
     /* "1990-12-27" <-> the directory date word; 0 for "" or a bad string. */

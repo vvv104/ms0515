@@ -36,7 +36,7 @@ struct CommanderHooks {
     std::string quitQuestion;
     /* Enter on a program: the host types this line into the machine's
      * prompt ("RUN DZ0:GAME", "@DZ0:START") and presses Enter there.
-     * Without it Enter views the file. */
+     * Without it Enter does nothing - there is no machine to run on. */
     std::function<void(const std::string &line)> runInGuest;
 };
 

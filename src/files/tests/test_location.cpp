@@ -160,6 +160,18 @@ TEST_CASE("the host end: a whole file read and written")
     CHECK_FALSE(writeHostFile(s.dir() / "no-such-dir" / "x", bytesOf("x")).empty());
 }
 
+TEST_CASE("a program is a .SAV the monitor RUNs or a .COM it takes commands from")
+{
+    CHECK(Location::isProgram("DIR.SAV"));
+    CHECK(Location::isProgram("START.COM"));
+    CHECK_FALSE(Location::isProgram("SWAP.SYS"));
+    CHECK_FALSE(Location::isProgram("EXPRES.TXT"));
+    CHECK_FALSE(Location::isProgram("NONAME"));
+    CHECK_FALSE(Location::isProgram(""));
+    CHECK_FALSE(Location::isProgram(".SAV"));
+    CHECK_FALSE(Location::isProgram("A.SAVE"));      /* not an RT-11 name at all */
+}
+
 TEST_CASE("RT-11 names and dates")
 {
     CHECK(Location::validName("DIR.SAV"));

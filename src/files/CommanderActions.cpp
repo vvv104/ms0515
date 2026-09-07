@@ -98,7 +98,8 @@ void Tui::help()
         "The machine's disks in two panels, the Midnight Commander way.",
         "",
         "Tab       the other panel        Insert    mark, and down",
-        "Enter/F3  view the file          + - *     select / unselect / invert",
+        "Enter     run the program        F3        view the file",
+        "+ - *     select / unselect / invert",
         "F1        this help              F2        the user menu",
         "F4        the panel's disk       Alt-F1/F2 the left / right panel's disk",
         "F5        copy to a device       F6        rename / move",
@@ -134,23 +135,26 @@ void Tui::doView()
  * a .COM (an indirect command file); "" for anything else. */
 std::string Tui::runCommand(const std::string &device, const std::string &name)
 {
+    if (!Location::isProgram(name)) return "";
     const auto dot = name.rfind('.');
-    if (dot == std::string::npos) return "";
     const std::string stem = name.substr(0, dot), ext = name.substr(dot + 1);
-    if (ext == "SAV") return "RUN " + device + stem;
-    if (ext == "COM") return "@" + device + stem;
-    return "";
+    return ext == "SAV" ? "RUN " + device + stem : "@" + device + stem;
 }
 
-/* Enter with nothing typed: a program runs, through the host's hands at
- * the machine's prompt; anything else opens in the viewer. */
+/* Enter with nothing typed runs the program under the cursor, through the
+ * host's hands at the machine's prompt.  On anything else it does
+ * nothing, as in mc - F3 is what views a file. */
 void Tui::doEnter()
 {
     if (!panel().hasLocation()) return;
     const auto cur = panel().current();
-    if (!cur || cur->empty || !hooks_.runInGuest) { doView(); return; }
-    const std::string line = runCommand(panel().location().device().name, cur->name);
-    if (line.empty()) { doView(); return; }
+    if (!cur || cur->empty) return;
+    const std::string line = hooks_.runInGuest ? runCommand(panel().location().device().name, cur->name) : "";
+    if (line.empty()) {
+        status_ = Location::isProgram(cur->name) ? "No machine to run it on - F3 views the file."
+                                                 : cur->name + ": not a program - F3 views it.";
+        return;
+    }
     hooks_.runInGuest(line);
     status_ = line;
 }
