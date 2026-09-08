@@ -48,6 +48,9 @@ const FRAME_MS = 20;
 // like the SDL front-end's slider.  Sound is only right at 100% - the
 // worklet plays real time - so it goes quiet at any other speed.
 const SPEED_MIN = 20, SPEED_MAX = 500, SPEED_KEY = "ms0515.speed";
+// The event ring the snapshot carries (reg A, the dispatcher, the FDC,
+// traps, HALTs): nothing is recorded per instruction, so it can stay on.
+const HISTORY_EVENTS = 4096;
 let speedPct = 100;
 
 // FDC units: unit = side * 2 + drive (FD0 = DZ0 = drive A side 0, FD1 =
@@ -568,6 +571,7 @@ function bugDeps(at = {}) {
       running: at.running ?? running,
       halted, frames, speedPct,
       status: at.status ?? status.textContent,
+      pc: h ? api.pc(h).toString(8).padStart(6, "0") : null,
       regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
       ruslat: h ? api.ruslat(h) : null,
       caps: h ? api.caps(h) : null,
@@ -845,6 +849,8 @@ function bindApi() {
     ldPut:    c("ms_ld_put", "number", ["string", "number", "number", "number", "number", "number", "number"]),
     ldData:   c("ms_ld_data", "number", []),
     ldSize:   c("ms_ld_size", "number", []),
+    history: c("ms_history", null, ["number", "number"]),
+    pc:      c("ms_pc", "number", ["number"]),
     save:    c("ms_save_state", "number", ["number", "string"]),
     load:    c("ms_load_state", "number", ["number", "string"]),
   };
@@ -915,6 +921,7 @@ async function main() {
   $("ver").textContent = "v" + api.version();
   image = ctx.createImageData(canvas.width, canvas.height);
   h = api.create();
+  api.history(h, HISTORY_EVENTS);   // the machine's own trail, for a bug report
 
   const m = loadMounts();
   $("rom").value = m.rom;

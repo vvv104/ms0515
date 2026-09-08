@@ -66,6 +66,8 @@ the `web / emscripten` job.
 | `ms_audio(h, out, max, rate)` | the last frame's speaker as 16-bit PCM |
 | `ms_key(h, key, down)` / `ms_key_tick(h, ms)` | `ms0515::Key` values (`www/keys.js` mirrors the enum, `ms_key_max()` guards the drift); the tick drives auto-repeat |
 | `ms_save_state(h, path)` / `ms_load_state(h, path)` | snapshots in the module's file system |
+| `ms_history(h, events)` | the event ring - reg A and dispatcher writes, FDC commands, traps, HALTs - which the snapshot carries in its HIST chunk; the page turns it on at startup so every bug report holds the machine's last steps |
+| `ms_pc(h)` | where the CPU is now (the report says so) |
 | `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
 | `ms_key_release_all(h)` | every key up (the canvas lost the focus) |
 | `ms_disk_dir(path, side, linear)` (the volume id, the owner and the segment count with the files) / `ms_disk_get(path, side, linear, name)` + `ms_disk_data()` / `ms_disk_put(path, side, linear, name, data, len, y, m, d, prot)` / `ms_disk_rm(...)` / `ms_disk_rename(...)` / `ms_disk_protect(..., on)` / `ms_disk_init(..., volumeId, owner, segments)` / `ms_disk_volume_id(..., volumeId, owner)` / `ms_disk_squeeze(...)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library; `linear` for the HD): the page's commander |
@@ -209,7 +211,9 @@ report.json     the version, the browser, the mounts (name, size, CRC-32
                 the run - frames, speed, halted, the status line - and the
                 note
 state.ms0515    the snapshot (ms_save_state): CPU, memory, video RAM, the
-                timer, the FDC, the MS7004 - File / Load State opens it
+                timer, the FDC, the MS7004, and the event ring the page
+                keeps running (`ms_history`) - File / Load State opens it,
+                tools/dump_state.py prints the ring
 rom.bin         the ROM as loaded (a snapshot carries its CRC and refuses
                 to load against another one)
 screen.png      the picture as it was

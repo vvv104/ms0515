@@ -47,7 +47,15 @@ determines the startup address.
   Bits 15-13 = 111 → Start address: 172000, Restart address: 172004
 ```
 
-At reset, the CPU reads PC from address 172000 and PSW from 172002.
+At reset the CPU begins fetching instructions at the start address
+(172000) - it does not read a PC/PSW pair from there; the ROM's first
+word is a `JMP`.  The priority field comes up set: **PSW = 0340**, as it
+does on the HALT restart below.  That matters: the ROM's self-test writes
+its pattern over the whole of RAM, the vector page included, and only
+lowers the priority once the vectors are its own.  At priority 0 a key
+pressed during the test would take the keyboard interrupt (vector 0130,
+priority 5) through a vector holding the test pattern, and the machine
+would run off into a HALT storm.
 
 ## Addressing Modes
 
