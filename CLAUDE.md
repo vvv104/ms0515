@@ -76,7 +76,8 @@ rt11_devel/         — RT-11 guest programs: toolset/ (build.py: MACRO/LINK ins
 docs/               — architecture and subsystem documentation
   kb/              — knowledge base (references, verification, known issues)
 disk_recovery/      — disk-recovery knowledge base + verified-image vault (no build inputs)
-tools/              — misc Python utilities: pdp11 disassembler, Extended-CPC convert, state dump;
+tools/              — misc Python utilities: pdp11 disassembler, Extended-CPC convert, state dump,
+                      bugreport.py (open a report the browser build saved: unpack, summarise, place the images);
                       run_program.py (boot a disk headless, type, keep the text and the screen PNG),
                       scr2png.py (.SCR video-RAM dumps to PNG), sample2wav.py (the home-made
                       sampler's recordings to WAV)

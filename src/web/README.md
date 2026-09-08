@@ -216,12 +216,15 @@ screen.png      the picture as it was
 disks/<name>    every mounted image as the guest left it
 ```
 
-An OSA disk and its snapshot pack into about 230 KB.  To take the fault
-apart: unpack, put the images where `report.json` names them (the
-snapshot mounts them by that path - `/disks/osa.dsk` is `\disks\osa.dsk`
-on Windows, absent files simply stay unmounted), point the emulator at the
-same ROM and load `state.ms0515`; `tools/dump_state.py` reads the same
-file without one - the registers, the PC and the vectors.
+An OSA disk and its snapshot pack into about 230 KB.  `tools/bugreport.py`
+opens one: it unpacks the archive, prints what the report says (the note,
+the version, the ROM, the mounts with their CRCs, the machine as it was)
+and with `--place` copies the images to the paths the snapshot names - the
+path they had in the browser, `/disks/osa.dsk`, which on Windows is that
+path on the current drive (`--root` puts them elsewhere; absent images
+simply leave the drives empty).  Then point the emulator at the same ROM
+and load `state.ms0515`; `tools/dump_state.py` reads the same file without
+an emulator - the registers, the PC and the vectors.
 
 The button turns red once the CPU has halted (`ms_frame` returning 0), and
 the status line says so; nothing is sent anywhere - the browser saves the

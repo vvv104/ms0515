@@ -556,13 +556,18 @@ function setHalted(on) {
   $("bug").classList.toggle("alert", on);
 }
 
-function bugDeps() {
+// `at` is what the page knew the moment the button was pressed: the run
+// is stopped and the status line taken over while the report is packed,
+// so neither would describe the machine any more.
+function bugDeps(at = {}) {
   return {
     api, handle: h, module: M, canvas, pathOf,
     rom: () => $("rom").value,
     mounts: () => ({ fd: [...slots.fd], hd: slots.hd }),
     machine: () => ({
-      running, halted, frames, speedPct, status: status.textContent,
+      running: at.running ?? running,
+      halted, frames, speedPct,
+      status: at.status ?? status.textContent,
       regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
       ruslat: h ? api.ruslat(h) : null,
       caps: h ? api.caps(h) : null,
@@ -574,22 +579,22 @@ function bugDeps() {
 
 function askBugReport() {
   const dlg = $("bugdlg");
-  if (!dlg.showModal) { saveBugReport("").catch(fail); return; }   // no <dialog> here: the file alone
-  const wasRunning = running;
+  if (!dlg.showModal) { saveBugReport("", { running, status: status.textContent }).catch(fail); return; }   // no <dialog> here: the file alone
+  const at = { running, status: status.textContent };
   stop();
   $("bugnote").value = "";
   dlg.returnValue = "";
   dlg.showModal();
   dlg.addEventListener("close", () => {
     const note = $("bugnote").value;
-    const done = dlg.returnValue === "save" ? saveBugReport(note) : Promise.resolve();
-    done.catch(fail).finally(() => { if (wasRunning) start(); canvas.focus(); });
+    const done = dlg.returnValue === "save" ? saveBugReport(note, at) : Promise.resolve();
+    done.catch(fail).finally(() => { if (at.running) start(); canvas.focus(); });
   }, { once: true });
 }
 
-async function saveBugReport(note) {
+async function saveBugReport(note, at) {
   say("packing the report…");
-  const { name, size } = await bugreport.save(bugDeps(), note);
+  const { name, size } = await bugreport.save(bugDeps(at), note);
   say(`${name} saved (${Math.round(size / 1024)} KB): send it with what you were doing`);
 }
 
