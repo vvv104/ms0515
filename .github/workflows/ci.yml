@@ -162,6 +162,11 @@ jobs:
       - name: Smoke test (Node)
         run: node src/web/smoke.mjs src/build/emscripten-release/web/dist
 
+      # The page's archive writer (the commander's downloads, the bug
+      # report): the zip read back and inflated under Node.
+      - name: Zip check (Node)
+        run: node src/web/zip_check.mjs
+
       # The page itself in the runner's Chrome (headless, DevTools protocol):
       # boot, the date prompt answered, RT-11's text on the canvas.
       - name: Browser check (Chrome)

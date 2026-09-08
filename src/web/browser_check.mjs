@@ -2,7 +2,8 @@
 // the DevTools protocol: load it, let the machine boot, ask the page's
 // window.__ms() for the frame count and the picture's colours, type a
 // Return at RT-11's date prompt, expect the monitor's text on a black
-// screen; then have the page type DIR and expect the listing (more text).
+// screen; then have the page type DIR and expect the listing (more text);
+// last, have it pack a bug report and check what went into it.
 // Needs a Chromium-family browser started with --remote-debugging-port
 // (see the CI job) and a server for dist/.
 //
@@ -71,6 +72,19 @@ await evaluate('window.__ms.type("DIR\\r")');
 await sleep(5000);
 peek = await evaluate("window.__ms()");
 console.log(`after DIR: frames ${peek.frames}, white ${white(peek)}`);
+
+// The bug report: the page packs the machine's state, the ROM, the mounted
+// image and the picture into one .zip (bugreport.js) - built here, not
+// downloaded, so its parts can be counted.
+const bug = await evaluate('window.__ms.bugreport("browser check")');
+console.log(`bug report: ${bug.zip} bytes, ${bug.entries.map((e) => e.name + " " + e.size).join(", ")}`);
+const entry = (name) => bug.entries.find((e) => e.name === name);
+if (bug.magic !== "PK") throw new Error("the bug report is not a zip");
+if (!(entry("state.ms0515")?.size > 100000)) throw new Error("the bug report carries no snapshot");
+if (!(entry("rom.bin")?.size > 0 && entry("screen.png")?.size > 0)) throw new Error("the bug report carries no ROM or picture");
+if (entry("disks/osa.dsk")?.size !== 409600) throw new Error("the bug report carries no mounted image");
+if (bug.report.note !== "browser check" || bug.report.mounts.fd[0]?.name !== "osa.dsk")
+  throw new Error("the bug report's json does not describe the machine");
 
 // SHOT_SIZE=1920x1080 takes the screenshot at that viewport (a layout check).
 const size = /^(\d+)x(\d+)$/.exec(process.env.SHOT_SIZE ?? "");

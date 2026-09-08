@@ -17,6 +17,7 @@ import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey } from "./keys.js?v=@S
 import { Joystick } from "./joystick.js?v=@STAMP@";
 import { SoftKeyboard, isTouchDevice } from "./softkeys.js?v=@STAMP@";
 import { Commander } from "./fm.js?v=@STAMP@";
+import * as bugreport from "./bugreport.js?v=@STAMP@";
 
 // The floppy images the site ships (dist/disks/, from assets/disks) and
 // their sides (a two-sided image takes both sides of its drive).
@@ -65,6 +66,7 @@ let image, pcmBuf;
 let running = false, lastTick = 0, acc = 0;
 let audio = null, speaker = null, audioStats = null;   // the worklet's counters, for __ms()
 let frames = 0, speakerTransitions = 0;   // the speaker's level changes, summed over the frames
+let halted = false;                        // the CPU stopped on a HALT: the bug-report button says so
 let joystick = null;                       // the MS7007-port joystick (joystick.js)
 let softkbd = null;                        // the OS's on-screen keyboard (softkeys.js)
 let commander = null;                      // the files of the mounted images (fm.js)
@@ -493,6 +495,7 @@ async function boot() {
   M.FS.writeFile("/rom.bin", await fetchBytes(ROMS[rom]));
   if (!api.loadRom(h, "/rom.bin")) throw new Error("ROM load failed");
   api.reset(h);
+  setHalted(false);
   saveMounts();
   const disk = slots.fd[unitOf(0, 0)];
   if (!disk) hint("nothing in drive A: open its panel, pick an image, Boot again");
@@ -538,9 +541,56 @@ function step(now) {
   const cycles = api.frame(h);
   ++frames;
   speakerTransitions += api.transitions(h);
-  if (cycles === 0) { say("CPU halted"); stop(); return; }
+  if (cycles === 0) { setHalted(true); say("CPU halted — \"Bug report\" saves everything needed to look into it"); stop(); return; }
   if (speaker && speedPct === 100) queueAudio();
   if ((frames & 63) === 0) flushDisks();
+}
+
+// ── the bug report ────────────────────────────────────────────────────────
+// A machine that halts or stops answering cannot be looked into from a
+// screenshot: the button packs the snapshot, the ROM, the mounted images
+// and what the page knows into one .zip (bugreport.js).  The run stops
+// while the note is asked, so the state saved is the state of the moment.
+function setHalted(on) {
+  halted = on;
+  $("bug").classList.toggle("alert", on);
+}
+
+function bugDeps() {
+  return {
+    api, handle: h, module: M, canvas, pathOf,
+    rom: () => $("rom").value,
+    mounts: () => ({ fd: [...slots.fd], hd: slots.hd }),
+    machine: () => ({
+      running, halted, frames, speedPct, status: status.textContent,
+      regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
+      ruslat: h ? api.ruslat(h) : null,
+      caps: h ? api.caps(h) : null,
+      speakerTransitions,
+      sound: audio ? audio.state : "off",
+    }),
+  };
+}
+
+function askBugReport() {
+  const dlg = $("bugdlg");
+  if (!dlg.showModal) { saveBugReport("").catch(fail); return; }   // no <dialog> here: the file alone
+  const wasRunning = running;
+  stop();
+  $("bugnote").value = "";
+  dlg.returnValue = "";
+  dlg.showModal();
+  dlg.addEventListener("close", () => {
+    const note = $("bugnote").value;
+    const done = dlg.returnValue === "save" ? saveBugReport(note) : Promise.resolve();
+    done.catch(fail).finally(() => { if (wasRunning) start(); canvas.focus(); });
+  }, { once: true });
+}
+
+async function saveBugReport(note) {
+  say("packing the report…");
+  const { name, size } = await bugreport.save(bugDeps(), note);
+  say(`${name} saved (${Math.round(size / 1024)} KB): send it with what you were doing`);
 }
 
 // ── speed ──────────────────────────────────────────────────────────────────
@@ -844,6 +894,7 @@ function bindControls() {
   setSpeed(localStorage.getItem(SPEED_KEY) ?? 100, false);
   $("save").onclick = () => { if (h) say(api.save(h, "/state.bin") ? "state saved: Restore brings the machine back to it" : "save failed"); };
   $("restore").onclick = () => { if (h) say(api.load(h, "/state.bin") ? "state restored" : "no saved state"); };
+  $("bug").onclick = () => askBugReport();
   $("wipe").onclick = () => wipe().catch(fail);
   canvas.addEventListener("keydown", (e) => onKey(e, true));
   canvas.addEventListener("keyup", (e) => onKey(e, false));
@@ -889,13 +940,20 @@ window.__ms = () => {
            mounts: { fd: [...slots.fd], hd: slots.hd }, audio: audioStats && { ...audioStats, rate: audio?.sampleRate, state: audio?.state },
            speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
            joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null,
-           fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null };
+           fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null,
+           halted };
 };
 window.__ms.type = (text) => typing.type(text);
 window.__ms.speed = (pct) => setSpeed(pct);   // the control, for scripted checks
 window.__ms.api = () => api;                 // the module's calls, for scripted checks
 window.__ms.sources = fileSources;           // the commander's disks, for scripted checks
 window.__ms.module = () => M;
+// The bug report without the download: the entries and the JSON, for scripted checks.
+window.__ms.bugreport = async (note = "") => {
+  const { report, entries, bytes } = await bugreport.build(bugDeps(), note);
+  return { report, entries: entries.map((e) => ({ name: e.name, size: e.bytes.length })), zip: bytes.length,
+           magic: String.fromCharCode(bytes[0], bytes[1]) };
+};
 
 window.addEventListener("error", (e) => say("error: " + e.message));
 window.addEventListener("unhandledrejection", (e) => say("error: " + (e.reason?.message ?? e.reason)));

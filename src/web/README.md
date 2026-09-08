@@ -45,8 +45,12 @@ disk for three seconds and expects RT-11's screen (the same oracle the
 native tests use).  `node src/web/browser_check.mjs http://localhost:8515/`
 does the same through the page in a headless Chromium-family browser
 started with `--remote-debugging-port=9222` (the page exposes
-`window.__ms()` - the frame count and the picture's colours - for it).
-CI runs both in the `web / emscripten` job.
+`window.__ms()` - the frame count and the picture's colours - for it); it
+also has the page pack a bug report and looks at what went in.
+`node src/web/zip_check.mjs` reads the page's archive writer (`www/zip.js`)
+back: the central directory, every local header, the CRC of each entry and
+the deflated ones inflated again - no build needed.  CI runs all three in
+the `web / emscripten` job.
 
 ## The C API
 
@@ -190,3 +194,35 @@ to is copied to IndexedDB (checked every 64 frames by its mtime in the
 module's file system); "Download" saves the live image, "Revert" drops
 what was written to a shipped image and mounts the original again,
 "Delete" removes one of the user's own.
+
+## The bug report
+
+A machine that halts, or stops answering while it looks alive, cannot be
+looked into from a screenshot: what is needed is where the CPU was and
+what it had in memory.  "Bug report" in the toolbar stops the machine,
+asks what happened, and saves one `.zip` (`www/bugreport.js`, deflated by
+the browser's own CompressionStream):
+
+```
+report.json     the version, the browser, the mounts (name, size, CRC-32
+                and the path the snapshot names), what the page knew about
+                the run - frames, speed, halted, the status line - and the
+                note
+state.ms0515    the snapshot (ms_save_state): CPU, memory, video RAM, the
+                timer, the FDC, the MS7004 - File / Load State opens it
+rom.bin         the ROM as loaded (a snapshot carries its CRC and refuses
+                to load against another one)
+screen.png      the picture as it was
+disks/<name>    every mounted image as the guest left it
+```
+
+An OSA disk and its snapshot pack into about 230 KB.  To take the fault
+apart: unpack, put the images where `report.json` names them (the
+snapshot mounts them by that path - `/disks/osa.dsk` is `\disks\osa.dsk`
+on Windows, absent files simply stay unmounted), point the emulator at the
+same ROM and load `state.ms0515`; `tools/dump_state.py` reads the same
+file without one - the registers, the PC and the vectors.
+
+The button turns red once the CPU has halted (`ms_frame` returning 0), and
+the status line says so; nothing is sent anywhere - the browser saves the
+file and the user sends it.
