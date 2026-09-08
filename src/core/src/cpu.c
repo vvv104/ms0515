@@ -191,13 +191,21 @@ void cpu_reset(ms0515_cpu_t *cpu)
      *
      * So after reset:
      *   PC  = 0172000  (start address, fetched from ROM on next step)
-     *   PSW = 0        (priority level 0, no flags set)
+     *   PSW = 0340     (priority 7: the T-11 comes out of reset with
+     *                  its priority field set, as it does on the HALT
+     *                  restart below.  The ROM's self-test wipes the
+     *                  vector page while testing RAM and only lowers
+     *                  the priority once the vectors are its own; at
+     *                  priority 0 a key pressed during the test takes
+     *                  the keyboard interrupt (vector 0130) through a
+     *                  vector full of the test pattern and the machine
+     *                  runs off into HALT.)
      */
     for (int i = 0; i < 8; i++)
         cpu->r[i] = 0;
 
     cpu->r[CPU_REG_PC] = 0172000;
-    cpu->psw           = 0;
+    cpu->psw           = 0340;
 
     cpu->halted  = false;
     cpu->waiting = false;

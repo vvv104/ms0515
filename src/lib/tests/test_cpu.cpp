@@ -52,6 +52,13 @@ TEST_CASE("initial state after reset") {
     CHECK(cpu.r[CPU_REG_PC] != 0);
     CHECK(cpu.halted == false);
     CHECK(cpu.waiting == false);
+    /* Priority 7: the machine comes out of reset with interrupts
+     * masked, as it does on the HALT restart.  The ROM's self-test
+     * writes its pattern over the vector page and only lowers the
+     * priority once the vectors are its own - at priority 0 a key
+     * pressed during the test takes the keyboard interrupt through a
+     * vector full of the pattern and the machine runs off. */
+    CHECK(((cpu.psw >> 5) & 7) == 7);
 }
 
 /* ── MOV ─────────────────────────────────────────────────────────────────── */

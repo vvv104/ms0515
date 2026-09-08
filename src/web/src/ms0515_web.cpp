@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include <ms0515/Debugger.hpp>
 #include <ms0515/Emulator.hpp>
 #include <ms0515/disk/Build.hpp>
 #include <ms0515/disk/Image.hpp>
@@ -44,6 +45,9 @@ struct Transition {
 
 struct Handle {
     ms0515::Emulator        emu;
+    /* The event ring lives on the Debugger; a bug report carries it in
+     * the snapshot's HIST chunk (see www/bugreport.js). */
+    ms0515::Debugger        dbg{emu};
     std::vector<uint32_t>   frame = std::vector<uint32_t>(kWidth * kHeight, 0);
     std::vector<Transition> transitions;
     int                     level      = 0;  /* the speaker level now */
@@ -625,6 +629,19 @@ EMSCRIPTEN_KEEPALIVE int ms_key_held(Handle *h, int key)
 {
     return h->emu.keyHeld(static_cast<ms0515::Key>(key)) ? 1 : 0;
 }
+
+/* The event ring: `events` records of the machine's own trail - reg A and
+ * dispatcher writes, FDC commands, traps, HALTs - kept for a snapshot to
+ * carry (0 turns it off).  The push is a few stores on an event, nothing
+ * per instruction, so a page can leave it on. */
+EMSCRIPTEN_KEEPALIVE void ms_history(Handle *h, int events)
+{
+    h->dbg.enableHistory(events > 0 ? static_cast<std::size_t>(events) : 0);
+}
+
+/* Where the CPU is now: a page watching for a machine that stopped
+ * answering says so in its report. */
+EMSCRIPTEN_KEEPALIVE int ms_pc(Handle *h) { return h->emu.pc(); }
 
 EMSCRIPTEN_KEEPALIVE int ms_save_state(Handle *h, const char *path)
 {

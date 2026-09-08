@@ -45,8 +45,12 @@ disk for three seconds and expects RT-11's screen (the same oracle the
 native tests use).  `node src/web/browser_check.mjs http://localhost:8515/`
 does the same through the page in a headless Chromium-family browser
 started with `--remote-debugging-port=9222` (the page exposes
-`window.__ms()` - the frame count and the picture's colours - for it).
-CI runs both in the `web / emscripten` job.
+`window.__ms()` - the frame count and the picture's colours - for it); it
+also has the page pack a bug report and looks at what went in.
+`node src/web/zip_check.mjs` reads the page's archive writer (`www/zip.js`)
+back: the central directory, every local header, the CRC of each entry and
+the deflated ones inflated again - no build needed.  CI runs all three in
+the `web / emscripten` job.
 
 ## The C API
 
@@ -62,6 +66,8 @@ CI runs both in the `web / emscripten` job.
 | `ms_audio(h, out, max, rate)` | the last frame's speaker as 16-bit PCM |
 | `ms_key(h, key, down)` / `ms_key_tick(h, ms)` | `ms0515::Key` values (`www/keys.js` mirrors the enum, `ms_key_max()` guards the drift); the tick drives auto-repeat |
 | `ms_save_state(h, path)` / `ms_load_state(h, path)` | snapshots in the module's file system |
+| `ms_history(h, events)` | the event ring - reg A and dispatcher writes, FDC commands, traps, HALTs - which the snapshot carries in its HIST chunk; the page turns it on at startup so every bug report holds the machine's last steps |
+| `ms_pc(h)` | where the CPU is now (the report says so) |
 | `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
 | `ms_key_release_all(h)` | every key up (the canvas lost the focus) |
 | `ms_disk_dir(path, side, linear)` (the volume id, the owner and the segment count with the files) / `ms_disk_get(path, side, linear, name)` + `ms_disk_data()` / `ms_disk_put(path, side, linear, name, data, len, y, m, d, prot)` / `ms_disk_rm(...)` / `ms_disk_rename(...)` / `ms_disk_protect(..., on)` / `ms_disk_init(..., volumeId, owner, segments)` / `ms_disk_volume_id(..., volumeId, owner)` / `ms_disk_squeeze(...)` / `ms_disk_error()` | the RT-11 directory of an image in the module's file system (the `src/disk` library; `linear` for the HD): the page's commander |
@@ -190,3 +196,40 @@ to is copied to IndexedDB (checked every 64 frames by its mtime in the
 module's file system); "Download" saves the live image, "Revert" drops
 what was written to a shipped image and mounts the original again,
 "Delete" removes one of the user's own.
+
+## The bug report
+
+A machine that halts, or stops answering while it looks alive, cannot be
+looked into from a screenshot: what is needed is where the CPU was and
+what it had in memory.  "Bug report" in the toolbar stops the machine,
+asks what happened, and saves one `.zip` (`www/bugreport.js`, deflated by
+the browser's own CompressionStream):
+
+```
+report.json     the version, the browser, the mounts (name, size, CRC-32
+                and the path the snapshot names), what the page knew about
+                the run - frames, speed, halted, the status line - and the
+                note
+state.ms0515    the snapshot (ms_save_state): CPU, memory, video RAM, the
+                timer, the FDC, the MS7004, and the event ring the page
+                keeps running (`ms_history`) - File / Load State opens it,
+                tools/dump_state.py prints the ring
+rom.bin         the ROM as loaded (a snapshot carries its CRC and refuses
+                to load against another one)
+screen.png      the picture as it was
+disks/<name>    every mounted image as the guest left it
+```
+
+An OSA disk and its snapshot pack into about 230 KB.  `tools/bugreport.py`
+opens one: it unpacks the archive, prints what the report says (the note,
+the version, the ROM, the mounts with their CRCs, the machine as it was)
+and with `--place` copies the images to the paths the snapshot names - the
+path they had in the browser, `/disks/osa.dsk`, which on Windows is that
+path on the current drive (`--root` puts them elsewhere; absent images
+simply leave the drives empty).  Then point the emulator at the same ROM
+and load `state.ms0515`; `tools/dump_state.py` reads the same file without
+an emulator - the registers, the PC and the vectors.
+
+The button turns red once the CPU has halted (`ms_frame` returning 0), and
+the status line says so; nothing is sent anywhere - the browser saves the
+file and the user sends it.

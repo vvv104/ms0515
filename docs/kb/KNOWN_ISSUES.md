@@ -472,3 +472,36 @@ anomaly belonged to the synthetic rebuild's configuration (a different
 DZ build, single-sided mount), not to the emulator.  Kept here as a
 reminder that a defect reproduced only on a synthetic setup accuses the
 setup first.
+
+
+## RESOLVED: a key pressed during the ROM's self-test hung the machine
+
+The browser build's first bug report (2026-09-08, "during rom check
+pressed ctrl + f5 and freezed") caught it: the picture stopped on the
+self-test's colour bars and nothing moved again.  The report's snapshot
+and its event ring told the whole story -
+
+```
+cycle=3616686 PC=172214 TRAP vec=130     the keyboard interrupt, taken
+cycle=3616686 PC=177777 HALT             ... into the top of I/O space
+cycle=3616686 PC=177777 PSW  prio 0 -> 7
+cycle=3616707 PC=177777 TRAP vec=014     ... and a HALT storm after it
+```
+
+PC 0172214 is inside the ROM's RAM test (`CLR SP` / `CMP R0,(SP)` at
+0172206), which writes its pattern over every word of RAM - the vector
+page with it: every vector in the snapshot held the pattern 0000013.
+The keyboard USART's receive interrupt (vector 0130, priority 5) was
+taken through such a vector and the CPU ran off.
+
+**Cause: `cpu_reset()` left PSW = 0.**  The machine comes out of reset
+at **priority 7** (as it does on the HALT restart, which the same file
+already modelled), so the self-test runs masked and a key pressed during
+it simply waits in the USART's FIFO until the ROM is ready for it.  Any
+key did it - Ctrl+F5 was not special - within roughly the first two
+seconds (frames ~5..100 of the boot).
+
+Fixed in `core/src/cpu.c`; `test_cpu.cpp` pins the reset priority and
+`test_boot.cpp` presses a key at frame 20 of every ROM x disk pair and
+requires the prompt anyway.  The whole suite passes with the change: the
+OS lowers the priority itself once its vectors are in place.

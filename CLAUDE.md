@@ -13,7 +13,7 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **CLI** (`src/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer. Ctrl+\ brings the two-panel commander (`src/files/`) up over the running machine, NC-style: the machine's prompt is the command line, Ctrl+O hides the panels, mounts made there go into the machine. `ms0515_cli_core` (mounts applied to the Emulator, the machine's screen as FTXUI rows) is unit-tested in `cli/tests/`.
 - **Frontend** (`src/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
 - **Disk** (`src/disk/`) — Offline RT-11 / MS-0515 disk-image library (lib `ms0515_disk`): LBN→byte geometry mirroring the emulator FDC, directory parse, file read, and volume create/init/put/rm/squeeze + per-entry protect/date metadata. No emulator dependency.
-- **Web** (`src/web/`) — The browser build: the core + lib compiled with Emscripten behind a flat C API (`ms0515_web.cpp`), a static page (`www/`) that runs the machine in the tab, a Node smoke test. Configured only under the Emscripten toolchain (`src/profiles/emscripten`); no host layers.
+- **Web** (`src/web/`) — The browser build: the core + lib compiled with Emscripten behind a flat C API (`ms0515_web.cpp`), a static page (`www/`) that runs the machine in the tab (its "Bug report" button saves the snapshot, the ROM and the mounted images as one .zip - `www/bugreport.js`), a Node smoke test. Configured only under the Emscripten toolchain (`src/profiles/emscripten`); no host layers.
 - **Files** (`src/files/`) — The RT-11 file manager as libraries: `ms0515_files` (the model — a device's volume, the mounts, the panels, the operations between volumes and the host, the viewer; no terminal, unit-tested) and `ms0515_files_ui` (the two panels, dialogs and viewer drawn with FTXUI via Conan). Used by the commander inside `ms0515-cli`.
 - **Tools** (`src/tools/`) — Standalone offline binaries over the libs. `tools/disk/` builds `ms0515-disk` (`create/init/put/rm/squeeze/protect/unprotect/setdate/get/dir/boot/system/split/merge`). Heuristic recovery (consensus/donor) stays out — see `disk_recovery/`.
 
@@ -60,7 +60,7 @@ src/                — emulator source code and build files
   disk/tests/       — disk lib unit tests
   tools/disk/       — ms0515-disk binary (offline disk utility)
   files/            — the RT-11 file manager libs: model (ms0515_files) + FTXUI panels (ms0515_files_ui) + tests/
-  web/              — browser build: C API shim, www/ page, smoke.mjs (Emscripten only)
+  web/              — browser build: C API shim, www/ page, smoke.mjs / zip_check.mjs / browser_check.mjs (Emscripten only)
   profiles/         — Conan host profiles (emscripten)
   platform/cli/     — CLI host abstractions (Platform_unix.cpp / Platform_win32.cpp)
   platform/gui/     — GUI host abstractions (file dialogs, fonts, console attach) + tests/
@@ -76,7 +76,8 @@ rt11_devel/         — RT-11 guest programs: toolset/ (build.py: MACRO/LINK ins
 docs/               — architecture and subsystem documentation
   kb/              — knowledge base (references, verification, known issues)
 disk_recovery/      — disk-recovery knowledge base + verified-image vault (no build inputs)
-tools/              — misc Python utilities: pdp11 disassembler, Extended-CPC convert, state dump;
+tools/              — misc Python utilities: pdp11 disassembler, Extended-CPC convert, state dump,
+                      bugreport.py (open a report the browser build saved: unpack, summarise, place the images);
                       run_program.py (boot a disk headless, type, keep the text and the screen PNG),
                       scr2png.py (.SCR video-RAM dumps to PNG), sample2wav.py (the home-made
                       sampler's recordings to WAV)

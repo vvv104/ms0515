@@ -113,9 +113,18 @@ struct BootResult {
     uint8_t  borderColor;      /* 0..7; recorded for diagnosis only */
 };
 
+/* A key to press while the machine is still in the ROM's self-test:
+ * `pressFrame` < 0 presses nothing. */
+struct PostKey {
+    int          pressFrame = -1;
+    int          holdFrames = 3;
+    ms0515::Key  key        = ms0515::Key::A;
+};
+
 static BootResult runBoot(const std::string &romPath,
                           const std::string &diskPath,
-                          int frames)
+                          int frames,
+                          PostKey typed = {})
 {
     /* TempDisk first → destructed last (after Emulator releases its
      * FILE handle) so the temp copy is always cleaned up.  The
@@ -150,6 +159,11 @@ static BootResult runBoot(const std::string &romPath,
     int sameCount = 0;
 
     for (int i = 0; i < frames; i++) {
+        if (i == typed.pressFrame)
+            emu.keyPress(typed.key, true);
+        if (typed.pressFrame >= 0 && i == typed.pressFrame + typed.holdFrames)
+            emu.keyPress(typed.key, false);
+
         (void)emu.stepFrame();
 
         /* Sample every 10 frames to detect stalls */
@@ -274,6 +288,49 @@ TEST_CASE("Boot: ROM + disk matrix") {
                             << " frames — boot did not reach a usable "
                             "state");
                     }
+                }
+            }
+        }
+    }
+}
+
+/* ── A key pressed during the self-test must not derail the boot ───────── */
+
+/* The ROM's self-test writes its pattern over the whole of RAM, the
+ * vector page with it, and only puts the vectors in place afterwards.
+ * A key pressed while that runs raises the keyboard USART's receive
+ * interrupt (vector 0130, priority 5): with the machine at priority 0
+ * the CPU would take it through a vector holding the test pattern and
+ * run off into a HALT storm - which is what the browser build's first
+ * bug report showed (Ctrl+F5 during the self-test, the picture frozen
+ * on the test pattern).  The machine comes out of reset at priority 7,
+ * so the key is simply queued until the ROM is ready for it. */
+TEST_CASE("Boot: a key pressed during the self-test does not derail the boot") {
+    auto roms  = discoverFiles(kRomDir, ".rom");
+    auto disks = discoverFiles(kDiskDir, ".dsk");
+    REQUIRE_MESSAGE(!roms.empty(),  "No ROM files found in "  << kRomDir);
+    REQUIRE_MESSAGE(!disks.empty(), "No disk files found in " << kDiskDir);
+
+    for (const auto &romFile : roms) {
+        SUBCASE(romFile.c_str()) {
+            for (const auto &diskFile : disks) {
+                if (isKnownBad(romFile, diskFile))
+                    continue;
+                SUBCASE(diskFile.c_str()) {
+                    /* Frame 20 is inside the RAM test on both ROMs. */
+                    auto r = runBoot(kRomDir  + "/" + romFile,
+                                     kDiskDir + "/" + diskFile,
+                                     kBootFrames,
+                                     PostKey{20, 3, ms0515::Key::A});
+
+                    CHECK_MESSAGE(!r.halted,
+                        "CPU halted at PC=0" << std::oct << r.pc);
+                    CHECK_MESSAGE(!r.tightLoop,
+                        "CPU stuck in tight loop at PC=0" << std::oct << r.pc);
+                    CHECK_MESSAGE(r.reachedPrompt,
+                        "no '.' prompt visible after " << kBootFrames
+                        << " frames - the key during the self-test derailed "
+                        "the boot");
                 }
             }
         }
