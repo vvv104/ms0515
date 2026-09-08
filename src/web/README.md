@@ -189,6 +189,15 @@ module's file system, mounted again, so the guest sees a changed disk at
 its next directory read; a file that grows moves to a free area, leaving
 an unused one where it was.
 
+"Save state" keeps the snapshot (`ms_save_state`) in IndexedDB beside the
+images - a second object store, one slot, with the ROM and the mounts it
+was taken with - so "Restore" reaches it after a reload or on a later
+visit; the module's own file system is the tab's memory and goes with the
+tab.  Restore checks the ROM first (a snapshot carries its CRC and refuses
+another one) and says which of the state's images are not mounted now: the
+snapshot re-attaches the floppies by the paths they had, and an image that
+is not in the session leaves its drive empty.
+
 Sound: each frame's PCM goes to an AudioWorklet (`audio-worklet.js`) that
 plays the chunks back to back and drops the oldest past ~100 ms of lag; it
 starts on a click (browsers require a gesture).  An image the guest writes

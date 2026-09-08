@@ -88,26 +88,35 @@ async function fetchBytes(url) {
 // ── persistence ────────────────────────────────────────────────────────────
 // IndexedDB holds image bytes by name: the user's own images, and the
 // shipped images the guest has written to (a copy; "Revert" drops it).
+// A second store holds the saved state - the machine's memory and its CPU
+// as "Save state" left them - so Restore reaches it on a later visit too
+// (the module's own file system is the tab's memory and goes with it).
 // localStorage holds the small things: the user's image list (name ->
 // size) and the mounts.
-const DB = "ms0515", STORE = "disks";
+const DB = "ms0515", STORE = "disks", STATE_STORE = "state", STATE_KEY = "last";
 function db() {
   return new Promise((ok, no) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+    const r = indexedDB.open(DB, 2);
+    r.onupgradeneeded = () => {
+      const d = r.result;                       // version 1 had `disks` alone
+      if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE);
+      if (!d.objectStoreNames.contains(STATE_STORE)) d.createObjectStore(STATE_STORE);
+    };
     r.onsuccess = () => ok(r.result);
     r.onerror = () => no(r.error);
   });
 }
-function dbRequest(mode, op) {
+function dbRequest(mode, op, store = STORE) {
   return db().then((d) => new Promise((ok, no) => {
-    const r = op(d.transaction(STORE, mode).objectStore(STORE));
+    const r = op(d.transaction(store, mode).objectStore(store));
     r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
   }));
 }
 const dbGet = (key) => dbRequest("readonly", (s) => s.get(key));
 const dbPut = (key, value) => dbRequest("readwrite", (s) => s.put(value, key));
 const dbDel = (key) => dbRequest("readwrite", (s) => s.delete(key));
+const stateGet = () => dbRequest("readonly", (s) => s.get(STATE_KEY), STATE_STORE);
+const statePut = (rec) => dbRequest("readwrite", (s) => s.put(rec, STATE_KEY), STATE_STORE);
 
 const own = new Map(Object.entries(JSON.parse(localStorage.getItem("ms0515.images") ?? "{}")));
 const saveOwn = () => localStorage.setItem("ms0515.images", JSON.stringify(Object.fromEntries(own)));
@@ -602,6 +611,44 @@ async function saveBugReport(note, at) {
   say(`${name} saved (${Math.round(size / 1024)} KB): send it with what you were doing`);
 }
 
+// ── the saved state ───────────────────────────────────────────────────────
+// "Save state" writes the snapshot into the module's file system (the
+// tab's memory) and keeps a copy in IndexedDB with the ROM and the mounts
+// it was taken with, so "Restore" finds it after a reload as well.  A
+// snapshot carries the ROM's CRC and refuses to load against another one,
+// so the ROM is checked here to say why rather than just "failed".
+const STATE_PATH = "/state.bin";
+const shortTime = (iso) => { try { return new Date(iso).toLocaleString(); } catch { return iso; } };
+
+async function saveState() {
+  if (!h) return;
+  if (!api.save(h, STATE_PATH)) throw new Error("save state failed");
+  const bytes = M.FS.readFile(STATE_PATH);
+  await statePut({ bytes, saved: new Date().toISOString(), rom: $("rom").value,
+                   mounts: { fd: [...slots.fd], hd: slots.hd } });
+  say(`state saved (${Math.round(bytes.length / 1024)} KB): Restore brings the machine back to it, this visit or the next`);
+}
+
+async function restoreState() {
+  if (!h) return;
+  const rec = await stateGet();
+  if (!rec) { say("no saved state: press \"Save state\" first"); return; }
+  if (rec.rom && rec.rom !== $("rom").value) {
+    say(`the state was saved with ROM ${rec.rom.toUpperCase()}: pick it, Boot, then Restore`);
+    return;
+  }
+  M.FS.writeFile(STATE_PATH, rec.bytes);
+  if (!api.load(h, STATE_PATH)) { say("restore failed: the state does not fit this ROM"); return; }
+  paint();
+  // The snapshot mounts the floppies by the paths they had; an image that
+  // is not in this session leaves its drive empty.
+  const wanted = [...new Set([...(rec.mounts?.fd ?? []), rec.mounts?.hd].filter(Boolean))];
+  const gone = wanted.filter((name) => !M.FS.analyzePath(pathOf(name)).exists);
+  say(`state restored (saved ${shortTime(rec.saved)})`
+      + (gone.length ? ` — ${gone.join(", ")} is not mounted now: mount it and Restore again` : ""));
+  canvas.focus();
+}
+
 // ── speed ──────────────────────────────────────────────────────────────────
 function setSpeed(pct, persist = true) {
   pct = Math.round(Math.min(SPEED_MAX, Math.max(SPEED_MIN, +pct || 100)) / 10) * 10;
@@ -903,8 +950,8 @@ function bindControls() {
   $("speed").ondblclick = () => { setSpeed(100); canvas.focus(); };   // a double click on the slider: back to 100%
   $("speedv").onclick = () => { setSpeed(100); canvas.focus(); };
   setSpeed(localStorage.getItem(SPEED_KEY) ?? 100, false);
-  $("save").onclick = () => { if (h) say(api.save(h, "/state.bin") ? "state saved: Restore brings the machine back to it" : "save failed"); };
-  $("restore").onclick = () => { if (h) say(api.load(h, "/state.bin") ? "state restored" : "no saved state"); };
+  $("save").onclick = () => saveState().catch(fail);
+  $("restore").onclick = () => restoreState().catch(fail);
   $("bug").onclick = () => askBugReport();
   $("wipe").onclick = () => wipe().catch(fail);
   canvas.addEventListener("keydown", (e) => onKey(e, true));
