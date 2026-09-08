@@ -98,9 +98,33 @@ if (shot.result?.data) {
   const { writeFileSync } = await import("node:fs");
   writeFileSync("browser_check.png", Buffer.from(shot.result.data, "base64"));
 }
-ws.close();
 if (!(peek.frames > 300 && black(peek) > 150000 && textBefore > 500))
   throw new Error("expected RT-11's monitor text on a black screen");
 if (!(white(peek) > textBefore * 2))
   throw new Error("typing DIR did not bring a listing");
+const listing = white(peek);
+
+// The saved state outlives the page: save the machine as the listing left
+// it, load the page anew (which boots it to a bare screen), restore, and
+// expect the listing back.
+await evaluate('document.getElementById("save").click()');
+await sleep(1500);
+console.log(`save: "${await evaluate("window.__ms().status")}"`);
+await send("Page.navigate", { url: url + (url.includes("?") ? "&" : "?") + "autostart=1" });
+let booted = null;
+for (let i = 0; i < 60; ++i) {
+  await sleep(500);
+  booted = await evaluate("window.__ms ? window.__ms() : null").catch(() => null);
+  if (booted && booted.frames > 200) break;
+}
+await evaluate('document.getElementById("restore").click()');
+await sleep(1500);
+const restored = await evaluate("window.__ms()");
+console.log(`after reload white ${white(booted)}, after restore white ${white(restored)}, `
+            + `status "${restored.status}"`);
+ws.close();
+if (!/state restored/.test(restored.status))
+  throw new Error("the saved state did not outlive the page: " + restored.status);
+if (!(white(restored) > white(booted) * 2 && white(restored) > listing / 2))
+  throw new Error("the restored screen does not carry the listing");
 console.log("browser check OK");
