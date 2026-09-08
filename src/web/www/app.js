@@ -639,6 +639,7 @@ async function restoreState() {
   }
   M.FS.writeFile(STATE_PATH, rec.bytes);
   if (!api.load(h, STATE_PATH)) { say("restore failed: the state does not fit this ROM"); return; }
+  api.history(h, HISTORY_EVENTS);   // the state brought its own ring: ours again
   paint();
   // The snapshot mounts the floppies by the paths they had; an image that
   // is not in this session leaves its drive empty.

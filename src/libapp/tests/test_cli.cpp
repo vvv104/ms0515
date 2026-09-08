@@ -51,6 +51,8 @@ TEST_CASE("no arguments → all paths empty, frame counters zero") {
     CHECK(a.historyWatchLen      == -1);
     CHECK(a.historyReadWatchAddr == -1);
     CHECK(a.historyReadWatchLen  == -1);
+    CHECK(a.statePath.empty());
+    CHECK(a.saveStatePath.empty());
 }
 
 }  // TEST_SUITE
@@ -103,6 +105,20 @@ TEST_CASE("--hd <path> populates hdPath") {
 TEST_CASE("--no-config sets the flag (default off)") {
     CHECK_FALSE(parse({}).noConfig);
     CHECK(parse({"--no-config"}).noConfig);
+}
+
+}  // TEST_SUITE
+
+
+TEST_SUITE("parseArgs — snapshots") {
+
+/* A bug report's state, put back on its feet: --state loads a snapshot
+ * once the disks are mounted, --save-state writes one at the end. */
+TEST_CASE("--state <path> and --save-state <path>") {
+    app::CliArgs a = parse({"--state", "bug/state.ms0515",
+                            "--save-state", "after.ms0515"});
+    CHECK(a.statePath     == "bug/state.ms0515");
+    CHECK(a.saveStatePath == "after.ms0515");
 }
 
 }  // TEST_SUITE

@@ -37,6 +37,13 @@ struct CliArgs {
     int         historyWatchLen  = -1;
     int         historyReadWatchAddr = -1;
     int         historyReadWatchLen  = -1;
+    /* Snapshots.  --state loads one once the disks are mounted (the
+     * snapshot names the images it had, and re-attaches those it
+     * finds); --save-state writes one when the run ends.  Together
+     * with --frames and --screenshot they put a bug report's machine
+     * back on its feet headlessly. */
+    std::string statePath;
+    std::string saveStatePath;
     /* --no-config: ignore ms0515.yaml entirely.  Automated runs (the
      * rt11_devel toolset, oracle scripts) pass explicit flags; whatever
      * the GUI last saved must not leak into them (e.g. a yaml
