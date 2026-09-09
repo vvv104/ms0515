@@ -11,10 +11,11 @@ rather than gaining a third:
 
     blocks 0..N-1   FIST.DAT exactly as the build made it - the game's own
                     loader reads it from block 0 and is untouched
-    blocks N..      the program's regions, each block-aligned so .READW can
-                    read one straight to its address
+    blocks N..      the program's regions, LZSS-packed where that helps and
+                    each block-aligned, so one .READW brings a whole region
     the last block  the table: the count, then (load address, word count,
-                    start block) per region
+                    start block, packed byte count) per region - a packed
+                    count of zero means the region is stored as it is
 
 FLOAD.MAC finds the table without being told where it is: .LOOKUP hands
 back the file's length in blocks, and the table is the last one.
@@ -30,8 +31,12 @@ import struct
 import sys
 from pathlib import Path
 
+import lzss
+
 BLOCK = 512
 GAP = 256            # a run of zeros this long or longer separates two regions
+MAX_REGION = 8192    # a region's packed form has to fit FLOAD's scratch, and
+                     # that has to fit below RT-11's monitor: see FLOAD.MAC
 
 
 def regions(image: bytes) -> list[tuple[int, int]]:
@@ -49,7 +54,11 @@ def regions(image: bytes) -> list[tuple[int, int]]:
                         break
                 j += 1
             end = j - zeros + 1              # just past the last content byte
-            out.append((i & ~1, (end + 1) & ~1))
+            a, b = i & ~1, (end + 1) & ~1
+            while b - a > MAX_REGION:        # split what the scratch cannot hold
+                out.append((a, a + MAX_REGION))
+                a += MAX_REGION
+            out.append((a, b))
             i = j
         else:
             i += 1
@@ -64,10 +73,13 @@ def pack(image: bytes, dat: bytes) -> tuple[bytes, list[tuple[int, int]]]:
     body, table, blk = b'', [len(regs)], first
     for start, end in regs:
         piece = image[start:end]
-        pad = (-len(piece)) % BLOCK
-        table += [start, len(piece) // 2, blk]
-        body += piece + b'\0' * pad
-        blk += (len(piece) + pad) // BLOCK
+        squeezed = lzss.compress(piece)
+        stored, n = ((squeezed, len(squeezed)) if len(squeezed) < len(piece)
+                     else (piece, 0))       # a zero count: stored as it is
+        pad = (-len(stored)) % BLOCK
+        table += [start, len(piece) // 2, blk, n]
+        body += stored + b'\0' * pad
+        blk += (len(stored) + pad) // BLOCK
     head = struct.pack(f'<{len(table)}H', *table)
     return dat + body + head + b'\0' * (BLOCK - len(head)), regs
 
@@ -78,8 +90,11 @@ def unpack(packed: bytes, size: int) -> bytes:
     out = bytearray(size)
     n = struct.unpack_from('<H', table, 0)[0]
     for k in range(n):
-        addr, words, blk = struct.unpack_from('<3H', table, 2 + 6 * k)
-        out[addr:addr + 2 * words] = packed[blk * BLOCK:blk * BLOCK + 2 * words]
+        addr, words, blk, clen = struct.unpack_from('<4H', table, 2 + 8 * k)
+        raw = packed[blk * BLOCK:]
+        piece = (lzss.decompress(raw[:clen], 2 * words) if clen
+                 else raw[:2 * words])
+        out[addr:addr + 2 * words] = piece
     return bytes(out)
 
 
@@ -88,7 +103,7 @@ def already_packed(dat: bytes) -> bool:
     if len(dat) < 2 * BLOCK:
         return False
     n = struct.unpack_from('<H', dat, len(dat) - BLOCK)[0]
-    return 1 <= n <= 32 and 2 + 6 * n <= BLOCK
+    return 1 <= n <= 32 and 2 + 8 * n <= BLOCK
 
 
 def main(argv: list[str]) -> int:
@@ -108,7 +123,9 @@ def main(argv: list[str]) -> int:
     print(f'{sav.name}: {len(image)} B, {len(regs)} regions, '
           f'{sum(e - s for s, e in regs)} B of content')
     for s, e in regs:
-        print(f'    {s:#08o} .. {e:#08o}  {e - s:6d} B')
+        n = len(lzss.compress(image[s:e]))
+        how = f'{n:6d} packed' if n < e - s else '  stored'
+        print(f'    {s:#08o} .. {e:#08o}  {e - s:6d} B ->{how}')
 
     if unpack(packed, len(image)) != image:
         print('VERIFY FAILED: the pieces do not rebuild the image', file=sys.stderr)

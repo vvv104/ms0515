@@ -142,6 +142,21 @@ class TestManifestErrors:
         with pytest.raises(ValueError, match="project"):
             load_manifest(m)
 
+    @pytest.mark.parametrize("key,value", [("commands", '["MACRO X"]'),
+                                           ("libs", '["MYLIB.OBJ"]')])
+    def test_build_keys_under_project_are_refused(self, tmp_path, key, value):
+        # They used to be read from [build] alone and silently ignored
+        # elsewhere, so the project built with the language's default recipe
+        # and nobody was told - FIST lost three of its five commands that way.
+        m = write_manifest(tmp_path, f"""
+            [project]
+            name     = "STRAY"
+            language = "macro11"
+            {key} = {value}
+        """)
+        with pytest.raises(ValueError, match=key):
+            load_manifest(m)
+
     def test_missing_name(self, tmp_path):
         m = write_manifest(tmp_path, """
             [project]

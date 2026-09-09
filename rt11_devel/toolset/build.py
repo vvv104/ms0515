@@ -140,6 +140,14 @@ class BuildPlan:
         self.sources  = proj.get("sources",  [f"{self.name}.{recipe['extension']}"])
         self.outputs  = proj.get("outputs",  [f"{self.name}.SAV"])
 
+        for stray in ("commands", "libs"):
+            if stray in proj:
+                raise ValueError(
+                    f"[project] carries {stray!r}: it belongs in [build], and "
+                    "was being ignored - the project built with the language's "
+                    "default recipe instead"
+                )
+
         build_cfg = manifest.get("build", {})
         self.extra_libs = build_cfg.get("libs", [])
         commands_tmpl   = build_cfg.get("commands", recipe["commands"])
