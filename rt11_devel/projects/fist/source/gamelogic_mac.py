@@ -3600,7 +3600,7 @@ OVLAY:  MOV     #FBUF,R1
     src = (program
            + f"\n;------ background {bgn} data ------\n" + bg.emit()
            + "\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows)
-           + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
+           + "\n        .EVEN\n; SCRBUF lives above the image, as DOJOBUF above it does: a .BLKB\n; here would write 6912 bytes of nothing into every .SAV.\nSCRBUF = .\n"
            + equs + decrun + emit_setupchain() + ovlay + tail
            + "\n        .EVEN\nC408W:  .WORD   0\n" + gst
            + "\n        .END    START\n")
@@ -3946,7 +3946,7 @@ BLITBB: MOV     #BBBUF,R1
     src = (program
            + f"\n;------ background {bgn} data ------\n" + bg.emit()
            + "\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows)
-           + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
+           + "\n        .EVEN\n; SCRBUF lives above the image, as DOJOBUF above it does: a .BLKB\n; here would write 6912 bytes of nothing into every .SAV.\nSCRBUF = .\n"
            + equs + decrun + emit_setupchain() + ovlay + tabsrc + tail
            + "\n        .EVEN\nC408W:  .WORD   0\n" + gst
            + "\n        .END    START\n")
@@ -4181,7 +4181,7 @@ BLITBB: MOV     #BBBUF,R1
     src = (program
            + f"\n;------ background {bgn} data ------\n" + bg.emit()
            + "\n        .EVEN\n" + gen_fist._emit_words("SROWS", rows)
-           + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
+           + "\n        .EVEN\n; SCRBUF lives above the image, as DOJOBUF above it does: a .BLKB\n; here would write 6912 bytes of nothing into every .SAV.\nSCRBUF = .\n"
            + equs + decrun + emit_setupchain() + ovlay + tabsrc + tail
            + "\n        .EVEN\nC408W:  .WORD   0\n" + gst
            + "\n        .END    START\n")

@@ -1,5 +1,9 @@
 [project]
 name      = "FIST"
 language  = "macro11"
-pre_build = "source/gen_fist.py"      # extracts the loading screen, emits FIST.MAC
-outputs   = ["FIST.SAV"]              # pulled off the work disk after build
+pre_build  = "source/gen_fist.py"     # extracts the loading screen, emits FIST.MAC
+post_build = "source/pack_fist.py"    # the image into FIST.DAT, FLOAD as FIST.SAV
+sources   = ["FIST.MAC", "FLOAD.MAC"]
+commands  = ["MACRO FIST", "DELETE/NOQUERY FIST.MAC", "LINK FIST",
+             "MACRO FLOAD", "LINK FLOAD"]
+outputs   = ["FIST.SAV", "FLOAD.SAV"]  # FIST.SAV is the image; the hook repacks it

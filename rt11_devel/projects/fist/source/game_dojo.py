@@ -140,7 +140,7 @@ def block(bgn, boot_code, extra):
     VRAM rows 4..195, 12288 bytes), built at every dojo draw."""
     return ("\n        .ASECT\n        . = 100000\n"
             + engine(bgn) + BUILDDB + boot_code + extra
-            + "\n        .EVEN\nSCRBUF: .BLKB   6912.\n"
+            + "\n        .EVEN\n; SCRBUF lives above the image, as DOJOBUF above it does: a .BLKB\n; here would write 6912 bytes of nothing into every .SAV.\nSCRBUF = .\n"
             + "DOJOBUF = SCRBUF+6912.\n        .EVEN\n")
 
 
