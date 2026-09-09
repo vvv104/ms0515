@@ -3830,7 +3830,7 @@ def main_demo_anim():
         JSR     PC,OVLBB               ; compose fighter into the back-buffer
         JSR     PC,BLITBB              ; write the region to VRAM in one pass
         MOV     #6.,R1                 ; frame delay (~0.15 s, watchable)
-56$:    MOV     #60000.,R0
+56$:    MOV     #10417.,R0
 54$:    SOB     R0,54$
         SOB     R1,56$
         INCB    FRAME                  ; next frame (cycle 0..{nframes-1})
@@ -4073,7 +4073,7 @@ def main_demo_fight():
 {onef(20, 21, 22)}
         JSR     PC,BLITBB              ; write the whole region to VRAM, one pass
         MOV     #6.,R1                 ; frame delay
-56$:    MOV     #60000.,R0
+56$:    MOV     #10417.,R0
 54$:    SOB     R0,54$
         SOB     R1,56$
         INCB    FRAME

@@ -72,6 +72,11 @@ CliArgs parseArgs(int argc, char **argv)
         if (a == "--rom" && i + 1 < argc) {
             out.romPath = argv[++i];
         } else if (reportRetiredArg(a)) {
+            /* A retired flag is an argument error, not a warning: the GUI
+             * binary cannot print, so refusing to open a window is its only
+             * way of saying "that command line is wrong".  Walking past it
+             * left the emulator running with the image silently unmounted. */
+            out.unknownArgSeen = true;
             if (i + 1 < argc) ++i;
         } else if (auto *opt = std::find_if(
                        std::begin(kDiskOptions), std::end(kDiskOptions),

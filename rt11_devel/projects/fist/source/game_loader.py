@@ -79,7 +79,7 @@ def after_load(withbg):
         BNE     9$
         TST     KSTART
         BNE     9$
-        MOV     #2500.,R4              ; ~3 ms
+        MOV     #1250.,R4              ; ~3 ms
 81$:    SOB     R4,81$
         SOB     R3,8$
 9$:     CLR     KSTART
