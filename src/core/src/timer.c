@@ -81,11 +81,21 @@ static void channel_tick(timer_channel_t *ch)
     case 3:
         /* Mode 3: Square wave generator.
          * OUT high for ceil(N/2), low for floor(N/2).
-         * Decrements by 2 each tick. */
+         * Decrements by 2 each tick.
+         *
+         * An odd divisor cannot be halved: the half in which OUT is low
+         * counts from N-1, so the counter takes even values there and
+         * odd ones in the other half.  Reloading with N in both halves
+         * would leave an odd divisor's counter permanently odd - and a
+         * program sampling the counter for randomness then sees a bit
+         * stuck (SABOT2 latches channel 2 for its random numbers, and
+         * with the low bit fixed its guards never changed their mind:
+         * the robots patrolled and never attacked). */
         ch->count -= 2;
         if (ch->count == 0 || ch->count == 1) {
             ch->out   = !ch->out;
-            ch->count = ch->reload;
+            ch->count = ch->out ? ch->reload
+                                : (uint16_t)(ch->reload & 0xFFFEu);
         }
         break;
 
