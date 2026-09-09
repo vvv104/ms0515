@@ -143,6 +143,43 @@ std::vector<std::string> screenRows(const ms0515::Emulator &emu)
     return rows;
 }
 
+/* The monitor is asking for a command when the last line on the screen is
+ * its bare prompt. */
+bool atPrompt(const ms0515::Emulator &emu)
+{
+    const auto rows = screenRows(emu);
+    for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
+        std::string row = *it;
+        /* The cursor sits on the prompt line and renders as a glyph. */
+        while (!row.empty() && (row.back() == '_' || row.back() == ' '))
+            row.pop_back();
+        if (row.empty()) continue;
+        return row == ".";
+    }
+    return false;
+}
+
+/*
+ * Wait for the machine to finish booting.
+ *
+ * Waiting for the screen to go quiet is not enough on its own: booting has
+ * silent stretches - the OS reading itself in, then settling with neither
+ * output nor disk activity - and once the processor runs at the speed its
+ * documentation gives rather than at twice that, one of those stretches
+ * outlasts any fixed quiet threshold.  The wait then ends mid-boot and the
+ * command typed next is swallowed, or loses its first letter, which on
+ * screen looks exactly like a broken DIR.  So settle, then ask the screen
+ * whether the monitor is really waiting for us, and settle again if not.
+ */
+void waitForBoot(ms0515::Emulator &emu, ms0515::VramMirror &mirror)
+{
+    for (int round = 0; round < 12; ++round) {
+        waitForDiskIdle(emu, mirror, /*quiet=*/60, /*cap=*/20000);
+        waitForIdle(emu, mirror, /*quiet=*/60, /*cap=*/6000);
+        if (atPrompt(emu)) return;
+    }
+}
+
 /* Pull (FILENAME.EXT -> blocks) pairs out of RT-11 DIR text. */
 std::map<std::string, int> parseOsDir(const std::vector<std::string> &rows)
 {
@@ -226,7 +263,7 @@ void runDirCheck(const DiskConfig &cfg,
     mirror.setOutput(nullptr);
     emu.reset();
 
-    waitForIdle(emu, mirror, /*quiet=*/120, /*cap=*/3500);
+    waitForBoot(emu, mirror);
     typeLine(emu, mirror, "DIR");
     waitForIdle(emu, mirror, /*quiet=*/120, /*cap=*/4000);
 
@@ -274,7 +311,7 @@ TEST_CASE("buildVolume is byte-identical to the OS's INIT (OSA)") {
     REQUIRE(emu.mountDisk(0, sys.path().string()));
     REQUIRE(emu.mountDisk(3, dstPath));
     ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
-    emu.reset(); waitForIdle(emu, mirror, 120, 3500);
+    emu.reset(); waitForBoot(emu, mirror);
     typeLine(emu, mirror, "INIT DZ3:"); waitForIdle(emu, mirror, 80, 2500);
     typeLine(emu, mirror, "Y");
     waitForDiskIdle(emu, mirror, 200, 60000); waitForIdle(emu, mirror, 150, 6000);
@@ -312,7 +349,7 @@ TEST_CASE("buildDoubleSided is byte-identical to the OS's INIT of both sides (OS
     REQUIRE(emu.mountDisk(1, dstPath));        /* DZ1: side 0 */
     REQUIRE(emu.mountDisk(3, dstPath));        /* DZ3: side 1 */
     ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
-    emu.reset(); waitForIdle(emu, mirror, 120, 3500);
+    emu.reset(); waitForBoot(emu, mirror);
 
     for (const char *dev : {"DZ1:", "DZ3:"}) {
         typeLine(emu, mirror, (std::string("INIT ") + dev).c_str());
@@ -358,7 +395,7 @@ TEST_CASE("OS-oracle: extracted content is byte-exact (OSA single-sided)") {
     REQUIRE(emu.mountDisk(3, dstPath));        /* raw blank -> OS will INIT */
     ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
     emu.reset();
-    waitForIdle(emu, mirror, 120, 3500);
+    waitForBoot(emu, mirror);
 
     typeLine(emu, mirror, "INIT DZ3:");
     waitForIdle(emu, mirror, 80, 2500);
@@ -430,7 +467,7 @@ TEST_CASE("OS-oracle: removeFile is the same as the OS's own DELETE (OSA)") {
     REQUIRE(emu.mountDisk(3, dstPath));
     ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
     emu.reset();
-    waitForIdle(emu, mirror, 120, 3500);
+    waitForBoot(emu, mirror);
 
     typeLine(emu, mirror, "DIR DZ3:");
     waitForIdle(emu, mirror, 150, 6000);
@@ -500,7 +537,7 @@ TEST_CASE("OS-oracle: squeeze leaves a volume the OS reads correctly (OSA)") {
     REQUIRE(emu.mountDisk(3, dstPath));
     ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
     emu.reset();
-    waitForIdle(emu, mirror, 120, 3500);
+    waitForBoot(emu, mirror);
 
     typeLine(emu, mirror, "DIR DZ3:");
     waitForIdle(emu, mirror, 150, 6000);
@@ -548,7 +585,7 @@ TEST_CASE("OS-oracle: rm of the only file leaves a volume the OS can refill (OSA
     REQUIRE(emu.mountDisk(3, dstPath));
     ms0515::VramMirror mirror; mirror.attach(emu); mirror.setOutput(nullptr);
     emu.reset();
-    waitForIdle(emu, mirror, 120, 3500);
+    waitForBoot(emu, mirror);
 
     typeLine(emu, mirror, "DIR DZ3:");
     waitForIdle(emu, mirror, 150, 6000);

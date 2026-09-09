@@ -46,31 +46,51 @@ const evaluate = async (expression) => {
 const white = (peek) => peek.hist[0xffffffff] ?? 0;
 const black = (peek) => peek.hist[0xff000000] ?? 0;
 
+// Wait until the picture stops changing and `ok` is happy with it.
+// Counting frames or sleeping a fixed number of seconds is a guess about
+// how fast the processor is, and such a guess stopped being true the
+// moment the processor started taking the time its documentation gives:
+// the machine was still booting when the check typed at it, and the
+// listing never came.  Asking the screen costs nothing and cannot go stale.
+//
+// Note the polarity: an empty page is white all over, and it is the booted
+// machine that paints most of the screen black with white text on it.
+async function settle(what, ok = () => true, tries = 160) {
+  let last = -1, same = 0, peek = null;
+  for (let i = 0; i < tries; ++i) {
+    await sleep(500);
+    peek = await evaluate("window.__ms ? window.__ms() : null").catch(() => null);
+    if (!peek) continue;
+    const now = white(peek);
+    same = now === last ? same + 1 : 0;
+    last = now;
+    if (same >= 3 && ok(peek)) return peek;
+  }
+  if (!peek) throw new Error("the page never exposed __ms (a script error?)");
+  throw new Error(`the screen never settled on ${what}: `
+                  + `white ${last}, black ${peek ? black(peek) : "?"}`);
+}
+
+// The machine's own screen is up: black ground, not the page's blank white.
+const painted = (p) => black(p) > 150000;
+
 await send("Page.enable");
 await send("Runtime.enable");
 await send("Page.navigate", { url: url + (url.includes("?") ? "&" : "?") + "autostart=1" });
-let peek = null;
-for (let i = 0; i < 60; ++i) {
-  await sleep(500);
-  peek = await evaluate("window.__ms ? window.__ms() : null").catch(() => null);
-  if (peek && peek.frames > 300) break;
-}
-if (!peek) throw new Error("the page never exposed __ms (a script error?)");
+let peek = await settle("the date prompt", painted);
 console.log(`after boot: frames ${peek.frames}, running ${peek.running}, colours ${peek.colours}, status "${peek.status}"`);
 
 // RT-11's date prompt: a Return through the browser's key events.
 await send("Input.dispatchKeyEvent", { type: "keyDown", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
 await sleep(100);
 await send("Input.dispatchKeyEvent", { type: "keyUp", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
-await sleep(3000);
-peek = await evaluate("window.__ms()");
+peek = await settle("the monitor's prompt", (p) => painted(p) && white(p) > 500);
 const textBefore = white(peek);
 console.log(`at the prompt: frames ${peek.frames}, colours ${peek.colours}, black ${black(peek)}, white ${textBefore}`);
 
 // The page's typing: DIR lists the disk - more text on the screen.
 await evaluate('window.__ms.type("DIR\\r")');
-await sleep(5000);
-peek = await evaluate("window.__ms()");
+peek = await settle("the DIR listing", (p) => white(p) > textBefore * 2);
 console.log(`after DIR: frames ${peek.frames}, white ${white(peek)}`);
 
 // The bug report: the page packs the machine's state, the ROM, the mounted
@@ -111,12 +131,7 @@ await evaluate('document.getElementById("save").click()');
 await sleep(1500);
 console.log(`save: "${await evaluate("window.__ms().status")}"`);
 await send("Page.navigate", { url: url + (url.includes("?") ? "&" : "?") + "autostart=1" });
-let booted = null;
-for (let i = 0; i < 60; ++i) {
-  await sleep(500);
-  booted = await evaluate("window.__ms ? window.__ms() : null").catch(() => null);
-  if (booted && booted.frames > 200) break;
-}
+const booted = await settle("the reloaded page", painted);
 await evaluate('document.getElementById("restore").click()');
 await sleep(1500);
 const restored = await evaluate("window.__ms()");
