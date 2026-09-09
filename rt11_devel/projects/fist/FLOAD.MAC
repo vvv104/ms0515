@@ -5,21 +5,23 @@
 ; An RT-11 .SAV is a memory image from address 0, so every hole in the
 ; program's address map is stored on disk.  FIST's image is 38400 bytes
 ; of which 11194 are holes and buffers it never reads, so the program
-; travels in FIST.DAT instead (source/pack_fist.py appends it there) and
-; this reads it back.  The file's last block is a table of
+; travels in FIST.DAT instead (source/pack_fist.py appends it there,
+; LZSS-packed where that helps) and this reads it back.  The file's last
+; block is a table of
 ;
-;       count, then (load address, word count, start block) per region
+;       count, then (load address, word count, start block, packed byte
+;       count) per region - a packed count of zero meaning the region is
+;       stored as it is
 ;
 ; and .LOOKUP hands back the file's length, so nothing here has to be
 ; told where the table is.
 ;
 ; The one awkward part: the program's own code lands at 01000, where
-; this loader runs.  So every other region is read first, then eight
-; instructions are copied into 060000 - address space the game never
-; touches, verified by the packer - and they read the last region over
-; us and enter the game.  Those eight use only registers, constants and
-; the stack, so they run correctly at whatever address they are copied
-; to.
+; this loader runs.  So every other region goes first, then the unpacker
+; and the finisher are copied into 060000 - address space the game never
+; touches - and they place the last region over us and enter the game.
+; Both use only registers, constants and the stack, so they run at
+; whatever address they are copied to.
 ;-------------------------------------------------------------------
         .MCALL  .LOOKUP,.PRINT,.EXIT
         .ASECT
@@ -27,9 +29,14 @@
         .WORD   21000                  ; JSW: this .SAV does file I/O
         . = 1000
 
-HOLE   = 60000                         ; where the finisher runs
-TABBUF = 70000                         ; the table block is read here
-STACK  = 77776                         ; above both, still in the hole
+; The whole working set sits in the hole between the game's regions -
+; 057574..077777, which the game never touches and which is below
+; RT-11's resident monitor.  Above the monitor is not free: the game
+; opens FIST.DAT itself, so RT-11 has to survive until it starts.
+HOLE   = 57600                         ; the unpacker, then the finisher
+TABBUF = 60600                         ; the table block is read here
+SCRAT  = 61000                         ; packed regions land here to be expanded
+STACK  = 77776                         ; above them all, still in the hole
 IMGTOP = 112226                        ; just past the program's highest byte
 RDW    = 4001                          ; .READW, channel 1 (code 8 in the high byte)
 CLOSE  = 3001                          ; .CLOSE, channel 1 (code 6)
@@ -46,8 +53,6 @@ START:  MOV     #STACK,SP
         MOV     R0,R3
         JSR     PC,READ                ; the table block
 
-        ; The image's own zeros: the .SAV would have brought them, so
-        ; bring them too - everything but this code and the hole.
         ; Low memory is the monitor's: the words the image carries below
         ; 01000 are LINK's own bookkeeping (start address, high limit, JSW)
         ; and RT-11 sets them when it loads a .SAV.  Clearing them here took
@@ -60,32 +65,65 @@ START:  MOV     #STACK,SP
         MOV     #IMGTOP,R1
         JSR     PC,ZERO
 
+        ; The unpacker and the finisher into the hole, before any region
+        ; needs expanding.
+        MOV     #PIC,R0
+        MOV     #HOLE,R1
+        MOV     #<PICEND-PIC>/2,R2
+2$:     MOV     (R0)+,(R1)+
+        SOB     R2,2$
+
         ; Every region but the one that covers this loader.
         MOV     #TABBUF,R4
         MOV     (R4)+,R5               ; the region count
-2$:     MOV     (R4)+,R1               ; load address
-        MOV     (R4)+,R2               ; word count
-        MOV     (R4)+,R3               ; start block
-        CMP     R1,#1000
-        BLO     4$                     ; below 01000: the monitor's, leave it
-        BNE     3$
-        MOV     R1,KADR                ; ours: it goes last, from the hole
-        MOV     R2,KCNT
-        MOV     R3,KBLK
-        BR      4$
-3$:     JSR     PC,READ                ; R1/R2/R3 are already what READ wants
-4$:     SOB     R5,2$
+3$:     MOV     (R4)+,R0               ; load address
+        MOV     (R4)+,R1               ; word count
+        MOV     (R4)+,R2               ; start block
+        MOV     (R4)+,R3               ; packed bytes, 0 = stored
+        CMP     R0,#1000
+        BLO     5$                     ; below 01000: the monitor's, leave it
+        BNE     4$
+        MOV     R0,KADR                ; ours: it goes last, from the hole
+        MOV     R1,KCNT
+        MOV     R2,KBLK
+        MOV     R3,KLEN
+        BR      5$
+4$:     MOV     R4,-(SP)               ; the unpacker uses every register,
+        MOV     R5,-(SP)               ;   and these two are the table walk
+        JSR     PC,PLACE
+        MOV     (SP)+,R5
+        MOV     (SP)+,R4
+5$:     SOB     R5,3$
 
-        ; The finisher into the hole, its parameters in registers, go.
-        MOV     #FIN,R0
-        MOV     #HOLE,R1
-        MOV     #<FINEND-FIN>/2,R2
-5$:     MOV     (R0)+,(R1)+
-        SOB     R2,5$
+        ; Into the finisher, with the last region in the registers.
         MOV     KBLK,R1
         MOV     KADR,R2
         MOV     KCNT,R3
-        JMP     @#HOLE
+        MOV     KLEN,R4
+        JMP     @#HOLE+<FIN-PIC>
+
+        ; PLACE: R0 = address, R1 = words, R2 = block, R3 = packed bytes.
+PLACE:  TST     R3
+        BNE     6$
+        MOV     R2,R3                  ; stored: read it where it belongs
+        MOV     R1,R2
+        MOV     R0,R1
+        JMP     READ                   ; and return to our caller
+6$:     MOV     R0,-(SP)               ; packed: read it aside, then expand
+        MOV     R1,-(SP)
+        ADD     #511.,R3
+        BIC     #777,R3                ; up to a whole number of blocks
+        ASR     R3                     ; as words
+        MOV     R2,-(SP)
+        MOV     R3,R2                  ; words to read
+        MOV     (SP)+,R3               ; the block
+        MOV     #SCRAT,R1
+        JSR     PC,READ
+        MOV     (SP)+,R3               ; the region's word count
+        ASL     R3                     ;   as bytes
+        MOV     (SP)+,R2               ; where it belongs
+        MOV     #SCRAT,R1
+        JMP     @#HOLE                 ; the unpacker returns to our caller
 
         ; READ: R1 = buffer, R2 = words, R3 = block.  Keeps R4/R5.
 READ:   MOV     R4,-(SP)
@@ -98,43 +136,112 @@ READ:   MOV     R4,-(SP)
         CLR     10(R5)
         MOV     R5,R0
         EMT     375
-        BCS     6$
+        BCS     7$
         MOV     (SP)+,R5
         MOV     (SP)+,R4
         RTS     PC
-6$:     JMP     ERR
+7$:     JMP     ERR
 
         ; ZERO: R0 = from, R1 = to (exclusive).
 ZERO:   CMP     R0,R1
-        BHIS    7$
+        BHIS    8$
         CLR     (R0)+
         BR      ZERO
-7$:     RTS     PC
+8$:     RTS     PC
 
 ERR:    .PRINT  #EMSG
         .EXIT
 
-        ; --- the finisher: copied to HOLE and entered with R1 = block,
-        ;     R2 = load address, R3 = word count.  Registers, constants
-        ;     and the stack only, so it runs wherever it is put. --------
-FIN:    CLR     -(SP)                  ; .READW: no completion routine
-        MOV     R3,-(SP)               ;   word count
-        MOV     R2,-(SP)               ;   buffer
-        MOV     R1,-(SP)               ;   block
-        MOV     #RDW,-(SP)             ;   function and channel
+;-------------------------------------------------------------------
+; Copied to HOLE and run there: registers, constants and the stack only.
+;-------------------------------------------------------------------
+        ; The unpacker, entered at HOLE: R1 = packed bytes, R2 = where to
+        ; put them, R3 = bytes to produce.  LZSS - a flag byte, then eight
+        ; items, low bit first: a set bit is a literal byte, a clear one
+        ; two bytes giving a distance of up to 4095 and a length of 3..18.
+        ; A match copies from what is already written, so a run comes out
+        ; by itself.
+PIC:    TST     R3
+        BEQ     19$
+11$:    CLR     R5
+        BISB    (R1)+,R5
+        BIS     #400,R5                ; a sentinel above the eight flags
+12$:    ASR     R5                     ; C = this item's flag
+        BCC     13$
+        MOVB    (R1)+,(R2)+            ; a literal byte
+        DEC     R3
+        BR      18$
+13$:    CLR     R0
+        BISB    (R1)+,R0               ; the distance, low eight bits
+        CLR     R4
+        BISB    (R1)+,R4               ; its top four, and the length
+        MOV     R4,-(SP)
+        BIC     #177417,R4             ; the high nibble alone
+        ASL     R4
+        ASL     R4
+        ASL     R4
+        ASL     R4                     ; into bits 11..8
+        ADD     R4,R0                  ; R0 = the distance
+        MOV     (SP)+,R4
+        BIC     #177760,R4             ; the length nibble
+        ADD     #3,R4                  ; 3..18
+        MOV     R2,-(SP)
+        SUB     R0,(SP)
+        MOV     (SP)+,R0               ; where to copy from
+14$:    MOVB    (R0)+,(R2)+
+        DEC     R3
+        BEQ     19$
+        SOB     R4,14$
+18$:    TST     R3
+        BEQ     19$
+        CMP     R5,#1                  ; the sentinel down to bit 0: eight done
+        BNE     12$
+        BR      11$
+19$:    RTS     PC
+
+        ; The finisher: R1 = block, R2 = load address, R3 = word count,
+        ; R4 = packed bytes (0 = stored).
+FIN:    TST     R4
+        BEQ     21$
+        MOV     R4,R5                  ; packed: read it aside first
+        ADD     #511.,R5
+        BIC     #777,R5
+        ASR     R5
+        MOV     R3,-(SP)
+        MOV     R2,-(SP)
+        CLR     -(SP)
+        MOV     R5,-(SP)
+        MOV     #SCRAT,-(SP)
+        MOV     R1,-(SP)
+        MOV     #RDW,-(SP)
         MOV     SP,R0
-        EMT     375                    ; reads the game over this loader
+        EMT     375
         ADD     #12,SP
-        MOV     #CLOSE,-(SP)
+        MOV     (SP)+,R2
+        MOV     (SP)+,R3
+        ASL     R3                     ; the region's bytes
+        MOV     #SCRAT,R1
+        JSR     PC,@#HOLE              ; expand it over this loader
+        BR      22$
+21$:    CLR     -(SP)                  ; stored: straight over this loader
+        MOV     R3,-(SP)
+        MOV     R2,-(SP)
+        MOV     R1,-(SP)
+        MOV     #RDW,-(SP)
+        MOV     SP,R0
+        EMT     375
+        ADD     #12,SP
+22$:    MOV     #CLOSE,-(SP)
         MOV     SP,R0
         EMT     375                    ; the game opens the channel itself
         TST     (SP)+
         JMP     @#1000                 ; into the game
-FINEND:
+PICEND:
 
 KADR:   .WORD   0
 KCNT:   .WORD   0
 KBLK:   .WORD   0
+KLEN:   .WORD   0
         .EVEN
 DATFIL: .RAD50  /DK FIST  DAT/
         .EVEN
