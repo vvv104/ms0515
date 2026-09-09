@@ -43,6 +43,13 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Zero compiler warnings**: all code must compile without warnings. Use
   modern C++ idioms and features (C++20) in lib and frontend layers.
 - **Never suppress warnings**: do not silence `/W4 /WX` (MSVC) or `-Werror` (gcc/clang) with `_CRT_SECURE_NO_WARNINGS`, `#pragma warning(disable: ...)`, or equivalents. Rewrite the offending call instead — replace deprecated CRT functions with their safe siblings (`_dupenv_s` over `getenv`, `fopen_s` over `fopen`, ...) or drop the call entirely (e.g. move runtime config from env vars to CLI flags).
+- **No session links in the history**: commit messages and pull request
+  bodies carry the `Co-Authored-By:` trailer and the "Generated with Claude
+  Code" credit, and nothing else.  A `Claude-Session:` line points into the
+  owner's private Claude account - it opens nothing for anyone else and puts
+  a session identifier into a public history.  Whatever attribution an
+  assistant session is configured with, this rule wins; strip the link
+  before committing.
 - **No vendored third-party sources**: never store external source files in the repo. All dependencies must be managed through Conan.
 - **No machine-specific paths in tracked files**: never a user's home directory (`C:\Users\...`, `/home/...`), a drive letter or any absolute path of one machine - not as a default in code, not in docs, not in configs. External resources (the original game, tools) are located through an environment variable with a repository-relative fallback (see `rt11_devel/projects/fist/source/wotef_dir.py`); examples in docs use `$PWD` or relative paths. Before every commit `git grep -i "users[.]voron"` (and the equivalent for the machine at hand) must return nothing.
 
