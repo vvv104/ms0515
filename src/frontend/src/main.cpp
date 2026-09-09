@@ -37,9 +37,11 @@
  * shell returns control to the user before our output arrives), and
  * the obvious workarounds (modal dialog, AttachConsole + synthesised
  * Enter, dual-subsystem stub binary) all looked worse than just
- * pointing curious users at `ms0515-cli --help`.  Unknown arguments
- * trigger a silent early exit so a typo on the command line doesn't
- * bring up a half-configured emulator window.
+ * pointing curious users at `ms0515-cli --help`.  Unknown arguments -
+ * and retired ones, such as the old --disk - trigger a silent early exit
+ * so a typo on the command line doesn't bring up a half-configured
+ * emulator window.  Mind the disk flags: a 409600-byte image is one side
+ * (--disk0-side0), and only an 819200-byte one takes --disk0.
  *
  * Defaults: looks for assets/rom/ms0515-roma.rom (the patched ROM-A,
  * relative to either the executable directory or the current working

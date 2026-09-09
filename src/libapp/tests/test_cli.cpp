@@ -185,11 +185,21 @@ TEST_CASE("unknown flags don't crash (warning printed to stderr)") {
     CHECK(a.romPath.empty());
 }
 
-TEST_CASE("retired flags (--fd0..fd3, --disk, --drive) don't crash") {
-    parse({"--fd0", "x.dsk"});
-    parse({"--disk", "x.dsk"});
-    parse({"--drive", "0"});
-    MESSAGE("retired-arg path executes without throwing");
+/* A retired flag is an argument error, not a warning to be walked past.
+ * The GUI binary prints nothing (a GUI-subsystem program cannot), so its
+ * only signal for a bad command line is refusing to open a window - and
+ * that signal is `unknownArgSeen`.  Without this, `ms0515.exe --disk foo`
+ * opened the emulator with foo silently unmounted and whatever the saved
+ * config had in its place, which is indistinguishable from success. */
+TEST_CASE("a retired flag is an argument error, and mounts nothing") {
+    for (const char *flag : {"--fd0", "--fd1", "--fd2", "--fd3",
+                             "--disk", "--drive"}) {
+        app::CliArgs a = parse({flag, "x.dsk"});
+        CHECK_MESSAGE(a.unknownArgSeen,
+                      std::string(flag) << " should be an argument error");
+        for (const auto &p : a.fdPath) CHECK(p.empty());
+        for (const auto &p : a.dsPath) CHECK(p.empty());
+    }
 }
 
 TEST_CASE("flags missing their value argument are ignored gracefully") {
