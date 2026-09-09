@@ -15,6 +15,11 @@ TEST_CASE("fist: VRAM oracle")
         MESSAGE("FIST.SAV not built - skipping the FIST VRAM oracle");
         return;
     }
+    if (fist::packedGame()) {
+        MESSAGE("FIST.SAV is the loader, not an image - the oracle wants a "
+                "verification build (FIST_MODE=fighter / FIST_GL=...)");
+        return;
+    }
     ms0515::Emulator emu;
     REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
     emu.reset();
