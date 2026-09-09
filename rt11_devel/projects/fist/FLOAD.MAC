@@ -1,0 +1,145 @@
+        .TITLE  FLOAD
+;-------------------------------------------------------------------
+; FLOAD - the loader FIST ships as its .SAV.
+;
+; An RT-11 .SAV is a memory image from address 0, so every hole in the
+; program's address map is stored on disk.  FIST's image is 38400 bytes
+; of which 11194 are holes and buffers it never reads, so the program
+; travels in FIST.DAT instead (source/pack_fist.py appends it there) and
+; this reads it back.  The file's last block is a table of
+;
+;       count, then (load address, word count, start block) per region
+;
+; and .LOOKUP hands back the file's length, so nothing here has to be
+; told where the table is.
+;
+; The one awkward part: the program's own code lands at 01000, where
+; this loader runs.  So every other region is read first, then eight
+; instructions are copied into 060000 - address space the game never
+; touches, verified by the packer - and they read the last region over
+; us and enter the game.  Those eight use only registers, constants and
+; the stack, so they run correctly at whatever address they are copied
+; to.
+;-------------------------------------------------------------------
+        .MCALL  .LOOKUP,.PRINT,.EXIT
+        .ASECT
+        . = 44
+        .WORD   21000                  ; JSW: this .SAV does file I/O
+        . = 1000
+
+HOLE   = 60000                         ; where the finisher runs
+TABBUF = 70000                         ; the table block is read here
+STACK  = 77776                         ; above both, still in the hole
+IMGTOP = 112226                        ; just past the program's highest byte
+RDW    = 4001                          ; .READW, channel 1 (code 8 in the high byte)
+CLOSE  = 3001                          ; .CLOSE, channel 1 (code 6)
+; Channel 1, not 0: the game opens 0 for itself the moment it starts, and
+; a channel still in use would fail its .LOOKUP.
+
+START:  MOV     #STACK,SP
+        .LOOKUP #LKAREA,#1,#DATFIL
+        BCC     1$
+        JMP     ERR
+1$:     DEC     R0                     ; R0 = the file's length; the table is last
+        MOV     #TABBUF,R1
+        MOV     #256.,R2
+        MOV     R0,R3
+        JSR     PC,READ                ; the table block
+
+        ; The image's own zeros: the .SAV would have brought them, so
+        ; bring them too - everything but this code and the hole.
+        ; Low memory is the monitor's: the words the image carries below
+        ; 01000 are LINK's own bookkeeping (start address, high limit, JSW)
+        ; and RT-11 sets them when it loads a .SAV.  Clearing them here took
+        ; 054 - the pointer to RMON - with them, and the next EMT went
+        ; nowhere.  So low memory is neither cleared nor loaded.
+        MOV     #LOADND,R0
+        MOV     #HOLE,R1
+        JSR     PC,ZERO
+        MOV     #100000,R0
+        MOV     #IMGTOP,R1
+        JSR     PC,ZERO
+
+        ; Every region but the one that covers this loader.
+        MOV     #TABBUF,R4
+        MOV     (R4)+,R5               ; the region count
+2$:     MOV     (R4)+,R1               ; load address
+        MOV     (R4)+,R2               ; word count
+        MOV     (R4)+,R3               ; start block
+        CMP     R1,#1000
+        BLO     4$                     ; below 01000: the monitor's, leave it
+        BNE     3$
+        MOV     R1,KADR                ; ours: it goes last, from the hole
+        MOV     R2,KCNT
+        MOV     R3,KBLK
+        BR      4$
+3$:     JSR     PC,READ                ; R1/R2/R3 are already what READ wants
+4$:     SOB     R5,2$
+
+        ; The finisher into the hole, its parameters in registers, go.
+        MOV     #FIN,R0
+        MOV     #HOLE,R1
+        MOV     #<FINEND-FIN>/2,R2
+5$:     MOV     (R0)+,(R1)+
+        SOB     R2,5$
+        MOV     KBLK,R1
+        MOV     KADR,R2
+        MOV     KCNT,R3
+        JMP     @#HOLE
+
+        ; READ: R1 = buffer, R2 = words, R3 = block.  Keeps R4/R5.
+READ:   MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        MOV     #LKAREA,R5
+        MOV     #RDW,(R5)
+        MOV     R3,2(R5)
+        MOV     R1,4(R5)
+        MOV     R2,6(R5)
+        CLR     10(R5)
+        MOV     R5,R0
+        EMT     375
+        BCS     6$
+        MOV     (SP)+,R5
+        MOV     (SP)+,R4
+        RTS     PC
+6$:     JMP     ERR
+
+        ; ZERO: R0 = from, R1 = to (exclusive).
+ZERO:   CMP     R0,R1
+        BHIS    7$
+        CLR     (R0)+
+        BR      ZERO
+7$:     RTS     PC
+
+ERR:    .PRINT  #EMSG
+        .EXIT
+
+        ; --- the finisher: copied to HOLE and entered with R1 = block,
+        ;     R2 = load address, R3 = word count.  Registers, constants
+        ;     and the stack only, so it runs wherever it is put. --------
+FIN:    CLR     -(SP)                  ; .READW: no completion routine
+        MOV     R3,-(SP)               ;   word count
+        MOV     R2,-(SP)               ;   buffer
+        MOV     R1,-(SP)               ;   block
+        MOV     #RDW,-(SP)             ;   function and channel
+        MOV     SP,R0
+        EMT     375                    ; reads the game over this loader
+        ADD     #12,SP
+        MOV     #CLOSE,-(SP)
+        MOV     SP,R0
+        EMT     375                    ; the game opens the channel itself
+        TST     (SP)+
+        JMP     @#1000                 ; into the game
+FINEND:
+
+KADR:   .WORD   0
+KCNT:   .WORD   0
+KBLK:   .WORD   0
+        .EVEN
+DATFIL: .RAD50  /DK FIST  DAT/
+        .EVEN
+LKAREA: .BLKW   5
+EMSG:   .ASCIZ  /?FLOAD-F-Cannot read FIST.DAT/
+        .EVEN
+LOADND:
+        .END    START
