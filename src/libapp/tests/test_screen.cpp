@@ -29,6 +29,26 @@ std::vector<unsigned char> readAll(const fs::path &p)
 
 } /* anonymous namespace */
 
+TEST_CASE("the dim half of the palette carries half the light, not half the code")
+{
+    /* Attribute bit 14 clear is "half brightness" (docs/hardware/video.md).
+     * Halving the code byte does not halve the light: 0x80 on an sRGB
+     * display is about a fifth of white, which is what made the machine's
+     * dark blue and dark red look black next to every other emulator. */
+    const uint32_t red    = app::Screen::paletteColor(0b010, /*bright=*/false);
+    const uint32_t bright = app::Screen::paletteColor(0b010, /*bright=*/true);
+    CHECK((red    & 0xFFu) == 0xCDu);
+    CHECK((bright & 0xFFu) == 0xFFu);
+
+    /* Black stays black in both halves, and a colour lights only its own
+     * channel: RGBA is R in bits 0-7, G in 8-15, B in 16-23. */
+    CHECK(app::Screen::paletteColor(0b000, false) == 0xFF000000u);
+    CHECK(app::Screen::paletteColor(0b000, true)  == 0xFF000000u);
+    CHECK(app::Screen::paletteColor(0b100, false) == 0xFF00CD00u);
+    CHECK(app::Screen::paletteColor(0b001, false) == 0xFFCD0000u);
+    CHECK(app::Screen::paletteColor(0b111, false) == 0xFFCDCDCDu);
+}
+
 TEST_CASE("Screen renders an opaque 640x400 frame")
 {
     ms0515::Emulator emu;

@@ -74,6 +74,12 @@ This is similar to the ZX Spectrum attribute system, but applied per
 The intensity bit affects both foreground and background colors within the
 same attribute group.
 
+A lit channel is rendered as 0xFF when intensified and 0xCD when not - the
+levels of a digital RGBI monitor's two states.  Half brightness is half the
+*light*, not half the code byte: 0x80 would put out about a fifth of white
+on an sRGB display, which is how the machine's dark blue and dark red once
+came out nearly black (`src/libapp/src/Screen.cpp`).
+
 ## High Resolution Mode (640 x 200)
 
 All 16 bits of each word are pixel data (no attributes).  The word is

@@ -44,10 +44,13 @@ public:
     static constexpr int width()  { return kScreenWidth; }
     static constexpr int height() { return kScreenHeight; }
 
-private:
-    /* GRB → RGBA8888 lookup, with intensity (dim/bright). */
+    /* GRB → RGBA8888 lookup, with intensity (dim/bright).  Public because
+     * it is the machine's palette, not this class's private business: the
+     * tests pin the two levels, and anything drawing the machine's colours
+     * outside a frame (a legend, a picker) wants the same answer. */
     static uint32_t paletteColor(int grb, bool bright);
 
+private:
     /* Heap-allocated to avoid a ~1 MB stack allocation on Windows. */
     std::vector<uint32_t> frame_;
 };
