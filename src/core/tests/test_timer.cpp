@@ -120,6 +120,33 @@ TEST_CASE("mode 3: OUT toggles to produce square wave") {
     CHECK(transitions >= 4);
 }
 
+/* An odd divisor cannot be halved: the 8253 counts from N-1 in the half
+ * where OUT is low, so the counter takes even values there and odd ones
+ * in the other half.  Reloading with N in both halves would leave the
+ * counter permanently odd - and a program that samples it as a source of
+ * randomness (SABOT2 latches channel 2 and takes the low byte) would get
+ * a stream with a bit stuck, which is how this was found. */
+TEST_CASE("mode 3: an odd divisor gives both even and odd counts") {
+    auto t = make_timer();
+
+    program_channel(&t, 0, 3, 3);
+    load_count_word(&t, 0, 32639);   /* odd, as SABOT2 programs it */
+
+    bool sawEven = false, sawOdd = false;
+    for (int i = 0; i < 40000; i++) {
+        timer_tick(&t);
+        /* Latch and read the low byte, the way the guest does. */
+        timer_write(&t, 3, 0x80);                 /* latch channel 2... */
+        timer_write(&t, 3, (uint8_t)(0 << 6));    /* ...here channel 0 */
+        const uint8_t lsb = timer_read(&t, 0);
+        (void)timer_read(&t, 0);                  /* MSB */
+        if (lsb & 1) sawOdd = true; else sawEven = true;
+        if (sawEven && sawOdd) break;
+    }
+    CHECK(sawOdd);
+    CHECK_MESSAGE(sawEven, "an odd divisor left the counter permanently odd");
+}
+
 /* ── Gate control ────────────────────────────────────────────────────────── */
 
 TEST_CASE("gate low inhibits counting in mode 0") {
