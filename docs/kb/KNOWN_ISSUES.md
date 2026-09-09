@@ -585,5 +585,13 @@ JMP  exit                  BNE  loop
 to 255 and runs 256 times - `DJNZ`, which is what the data was written
 for.  Verified on both builds from the states that crash: the room draws
 whole and the game plays on.  The patched bodies live in the software
-collection under `software/games/sabot2/fixed/`; the untouched
-originals stay beside them.
+collection under `software/games/sabot2/fixed/`, with the untouched
+originals beside them, and the repair is applied in place inside the
+asset images that carry the game - `src/assets/disks/osa.dsk` (0x25492)
+and `src/assets/disks/omega-games.dsk` (0x354d0).  The body is stored
+block by block, so the 512-byte block holding the loop appears verbatim
+in an image: find it and patch the six bytes, and the file reads back
+byte-identical to the repaired body through the volume's own directory.
+
+Noted in passing: `omega-games.dsk` carries a third loader, one byte
+different from the collection's `SABOT2.SAV` (0x297: 002 vs 000).
