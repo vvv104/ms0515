@@ -32,6 +32,17 @@ inline void put2(uint32_t *frame, int x, int y, uint32_t color)
     frame[(y * 2 + 1) * kScreenWidth + x] = color;
 }
 
+/* The dim half of the palette.  Attribute bit 14 clear is "half
+ * brightness" (docs/hardware/video.md), and halving the code byte - the
+ * 0x80 this used to be - does not halve the light: on an sRGB display
+ * 0x80 puts out about a fifth of white, which is why the machine's dark
+ * blue and dark red came out nearly black while every other emulator
+ * showed them as colours.  0xCD is the level a digital RGBI monitor's
+ * un-intensified line drives, the one the ZX Spectrum - whose attribute
+ * scheme this machine's copies - is rendered with, and it matches the
+ * originals of the software we have to compare against. */
+constexpr uint8_t kDimLevel = 0xCD;
+
 } /* anonymous namespace */
 
 Screen::Screen() : frame_(kScreenWidth * kScreenHeight, 0) {}
@@ -42,7 +53,7 @@ uint32_t Screen::paletteColor(int grb, bool bright)
     bool g = (grb >> 2) & 1;
     bool r = (grb >> 1) & 1;
     bool b = (grb >> 0) & 1;
-    uint8_t hi = bright ? 0xFF : 0x80;
+    uint8_t hi = bright ? 0xFF : kDimLevel;
     return rgba(r ? hi : 0, g ? hi : 0, b ? hi : 0);
 }
 

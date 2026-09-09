@@ -61,12 +61,15 @@ constexpr uint32_t rgba(uint8_t r, uint8_t g, uint8_t b)
     return 0xFF000000u | (uint32_t(b) << 16) | (uint32_t(g) << 8) | r;
 }
 
+/* The dim level, and why it is not 0x80: see libapp/src/Screen.cpp. */
+constexpr uint8_t kDimLevel = 0xCD;
+
 uint32_t paletteColor(int grb, bool bright)
 {
     const bool g = (grb >> 2) & 1;
     const bool r = (grb >> 1) & 1;
     const bool b = (grb >> 0) & 1;
-    const uint8_t hi = bright ? 0xFF : 0x80;
+    const uint8_t hi = bright ? 0xFF : kDimLevel;
     return rgba(r ? hi : 0, g ? hi : 0, b ? hi : 0);
 }
 
