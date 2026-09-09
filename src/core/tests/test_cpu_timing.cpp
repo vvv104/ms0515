@@ -1,12 +1,24 @@
 /*
  * test_cpu_timing.cpp — instruction execution times of the KR1807VM1.
  *
- * The numbers come from the T-11 Engineering Specification (Rev E,
- * Mar 82), Appendix B "T-11 instruction execution times in microcycles",
- * 16-bit bus mode - which is how the MS 0515 wires the processor.  One
- * microcycle is three clocks of the 7.5 MHz input (400 ns), and the core
- * counts clocks, so every expectation below is written as
- * `microcycles * MICROCYCLE` with the table's own figure spelled out.
+ * The numbers come from two DEC documents that agree almost everywhere.
+ * The T-11 Engineering Specification (Rev E, Mar 82), Appendix B, gives
+ * them in microcycles; the Micro/T-11 User's Manual, Tables A-17..A-21,
+ * gives them in microseconds at 7.5 MHz, from a later microcode revision.
+ * Both are read in 16-bit bus mode, which is how the MS 0515 wires the
+ * processor.  One microcycle is three clocks of the 7.5 MHz input
+ * (400 ns) and the core counts clocks, so most expectations below are
+ * written as `microcycles * MICROCYCLE`.  Where the two documents differ
+ * - RTT and RESET - the manual wins and the figure is spelled out.
+ *
+ * The manual's tables have separate columns for memory refresh on and
+ * off.  The MS 0515 runs its dynamic RAM from the processor's own refresh
+ * (mode register bit 9 selects dynamic memory, and the machine's
+ * technical description lists REGENERATION among the bus cycles), and
+ * refresh adds up to 0.13 us to addressing modes 5, 6 and 7 - one clock,
+ * under 3 % of those instructions, and variable, since the manual gives a
+ * minimum and a maximum.  We model the refresh-off column, which is the
+ * deterministic one, and this note is the record of that choice.
  *
  * Why this matters beyond pedantry: programs of the period time
  * themselves by counting instructions, not by watching a clock.
@@ -68,7 +80,7 @@ int time_of(std::initializer_list<uint16_t> words)
 
 }  // namespace
 
-TEST_SUITE("CPU instruction timing (T-11 Appendix B, 16-bit mode)") {
+TEST_SUITE("CPU instruction timing (T-11, 16-bit mode)") {
 
 /* ── Double operand: source mode time + destination mode time ───────────── */
 
@@ -127,7 +139,7 @@ TEST_CASE("SOB, JMP, JSR, RTS") {
 TEST_CASE("EMT, RTI and RTT") {
     CHECK(time_of({0104000}) == 16 * MICROCYCLE);   /* EMT 0 */
     CHECK(time_of({0000002}) ==  8 * MICROCYCLE);   /* RTI   */
-    CHECK(time_of({0000006}) ==  8 * MICROCYCLE);   /* RTT   */
+    CHECK(time_of({0000006}) == 11 * MICROCYCLE);   /* RTT, 4.40 us */
 }
 
 /* ── Miscellaneous and condition codes ──────────────────────────────────── */
@@ -139,7 +151,7 @@ TEST_CASE("NOP, the condition-code group, MFPT, HALT, WAIT and RESET") {
     CHECK(time_of({0000007}) ==  5 * MICROCYCLE);   /* MFPT  */
     CHECK(time_of({0000000}) == 14 * MICROCYCLE);   /* HALT  */
     CHECK(time_of({0000001}) ==  4 * MICROCYCLE);   /* WAIT  */
-    CHECK(time_of({0000005}) == 39 * MICROCYCLE);   /* RESET */
+    CHECK(time_of({0000005}) == 110);               /* RESET, 14.60 us */
 }
 
 /* ── Cross-check against the machine's own documentation ────────────────── */
@@ -149,10 +161,10 @@ TEST_CASE("NOP, the condition-code group, MFPT, HALT, WAIT and RESET") {
  * that the Soviet part keeps the same times.  The MS 0515 technical
  * description (NS4, Table 2) settles it where it is specific:
  *
- *   Базовый микроцикл, нс                              400
- *   Быстродействие, млн коротких операций/с, не менее  0,5
- *   Время выполнения одноадресных команд типа
- *   «очистка», мкс, не более                           1,6
+ *   base microcycle, ns                                  400
+ *   performance, M short operations/s, at least          0.5
+ *   execution time of single-operand instructions
+ *   "of the clear kind", us, at most                     1.6
  *
  * 1.6 us is exactly the four microcycles Appendix B gives a single-operand
  * instruction in mode 0, and 0.5 M short operations a second is met by the
