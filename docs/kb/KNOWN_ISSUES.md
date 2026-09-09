@@ -505,3 +505,93 @@ Fixed in `core/src/cpu.c`; `test_cpu.cpp` pins the reset priority and
 `test_boot.cpp` presses a key at frame 20 of every ROM x disk pair and
 requires the prompt anyway.  The whole suite passes with the change: the
 OS lowers the priority itself once its vectors are in place.
+
+
+## NOT OURS: SABOT2 kills the machine in one room - a Z80 idiom lost in the port
+
+A player's bug report (forum thread 36741, 2026-09-08) had the machine
+turn to coloured garbage while walking left out of the "BIKE ARRIVED"
+screen.  The report's snapshot reproduced it in minutes, and a state
+saved half a second before the fault reproduces it **with no input at
+all** (`ms0515_data/bugreports/sabot2/t000-doomed-no-input.ms0515` -
+`ms0515-cli --state <it> --frames 900`), which made the whole
+investigation deterministic.
+
+**What runs.**  The game draws a room by walking a byte-code list: a
+dispatch table indexed by the command byte, an interpreter that pushes
+the argument pointer and lets each routine say how many arguments it
+consumed.  The room's list is
+
+```
+003 372 | 002 032 010 010 117 144 | 000 000 010 054 145 | 016 017 137 144 | 377
+```
+
+Command 000 is the byte fill.  Its four arguments are count, tile,
+offset low, offset high - and **the count is zero**:
+
+```
+020160  CLR  R1
+020162  BISB (R0)+, R1     ; the count byte - 000
+...
+020216  MOVB R0, (R3)
+020220  ADD  R2, R3
+020222  SOB  R1, 020216    ; R1 = 0 -> 65536 passes
+```
+
+So the fill writes tile 010 across the entire address space: RAM, the
+game's own code, then the I/O page, where it lands in the memory
+dispatcher and in register C, whose bit 3 is the hi-res bit - hence the
+black-and-white or coloured mess, depending on which build gets there
+first.  Everything visible is downstream of those 65536 passes.
+
+**Why zero is the right byte.**  The fill's stride entry points are 1,
+31, 32 and 33, so the tile map is 32 wide; the fill starts at offset
+224 - the beginning of row 7 - and 256 cells are exactly eight full
+rows.  Patching the count to 255 leaves precisely one tile missing at
+the end, which the owner confirmed on screen.  256 is what the data
+means, and 256 does not fit in a byte: `LD B,0` / `DJNZ` counts 256
+times on a Z80, and this game is a port of Durell's Spectrum
+*Saboteur 2*.  The room data carries the Z80 convention; the port
+translated the loop as `SOB`, where zero means 65536.
+
+**Why it is not a damaged copy of ours.**  Both surviving builds of the
+body (`SABOT2.DAT` 23511979 and 46d73a51 - the loader `SABOT2.SAV` is
+the same file in both) lay their code out differently, 92 % of the
+bytes in 010000..073000 differ, and both contain the same fill loop
+with no zero guard.  The room's drawing list is byte-identical in both
+data files, at different offsets, and it is the only zero-count fill in
+either.  A corrupted byte does not land in the same room of two
+independent builds.
+
+**Conclusion: the emulator executes the game faithfully.**  nzeemin's
+ms0515btl breaks in the same room in the same way, and no hardware
+behaviour can make 65536 byte writes harmless - the sweep covers the
+game's own code.  The room is fatal on a real machine too.  What is
+still unproven is whether the port ever shipped it working: every copy
+we have comes from one collection, so an independent copy of the game
+would be the last word.
+
+**A repair exists**, kept with the game rather than in the emulator:
+restoring the intended semantics takes six bytes in the body, in place,
+
+```
+SOB  R1, loop        ->    DECB R1
+JMP  exit                  BNE  loop
+                           BR   <another routine's JMP exit>
+```
+
+`DECB` touches only the low byte, and the count is always loaded with
+`CLR R1` / `BISB`, so counts 1..255 behave exactly as before and 0 wraps
+to 255 and runs 256 times - `DJNZ`, which is what the data was written
+for.  Verified on both builds from the states that crash: the room draws
+whole and the game plays on.  The patched bodies live in the software
+collection under `software/games/sabot2/fixed/`, with the untouched
+originals beside them, and the repair is applied in place inside the
+asset images that carry the game - `src/assets/disks/osa.dsk` (0x25492)
+and `src/assets/disks/omega-games.dsk` (0x354d0).  The body is stored
+block by block, so the 512-byte block holding the loop appears verbatim
+in an image: find it and patch the six bytes, and the file reads back
+byte-identical to the repaired body through the volume's own directory.
+
+Noted in passing: `omega-games.dsk` carries a third loader, one byte
+different from the collection's `SABOT2.SAV` (0x297: 002 vs 000).
