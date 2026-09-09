@@ -9,6 +9,7 @@
  * the other way: bridge.cpp drains stdin into the MS-7004 emulation.
  */
 
+#include <ms0515/Debugger.hpp>
 #include <ms0515/Emulator.hpp>
 #include <ms0515/VramMirror.hpp>
 #include <ms0515/app/Cli.hpp>
@@ -66,6 +67,16 @@ options:
   --no-config             Ignore ms0515.yaml — use only the flags given.
                           For scripted runs (the build toolchain), so GUI
                           settings never leak into automation.
+  --state <path>          Load a snapshot once the disks are mounted -
+                          a bug report's machine, put back on its feet
+                          (the same ROM it was saved with is required).
+  --save-state <path>     Write a snapshot when the run ends.
+  --history-size <N>      Keep the last N machine events (reg A and
+                          dispatcher writes, FDC commands, traps,
+                          HALTs) in the snapshot's HIST chunk;
+                          --history-watch-addr/-len add writes to a
+                          memory range, --history-read-watch-addr/-len
+                          reads.  tools/dump_state.py prints them.
   --frames <N>            Stop after N emu frames (default: unlimited).
                           Useful for smoke-testing.
   --screenshot <path>     Save the machine's screen as a PNG.  The
@@ -199,7 +210,38 @@ int main(int argc, char **argv)
      * unconditionally for now. */
     emu.enableRamDisk();
     emu.reset();
+
+    /* The event ring, and a state to start from.  A bug report's
+     * snapshot goes on its feet here: the disks are mounted, the ROM is
+     * loaded (the snapshot refuses another one), so loading it puts the
+     * reported machine in front of us - with --frames, --screenshot and
+     * --save-state around it, headlessly. */
+    if (!cli.statePath.empty()) {
+        if (auto r = emu.loadState(cli.statePath); !r) {
+            ms0515::cli::restoreTerminal();
+            std::fprintf(stderr, "error: %s: %s\n", cli.statePath.c_str(), r.error().c_str());
+            return 1;
+        }
+    }
+
+    /* The ring and the watches go on AFTER a state is loaded: a snapshot
+     * carries a ring of its own, and loading it would otherwise put the
+     * reported machine's (usually smaller) ring back in place of ours. */
+    ms0515::Debugger debugger{emu};
+    if (cli.historySize > 0)
+        debugger.enableHistory(static_cast<std::size_t>(cli.historySize));
+    if (cli.historyWatchAddr >= 0 && cli.historyWatchLen > 0)
+        debugger.setMemoryWatch(static_cast<std::uint16_t>(cli.historyWatchAddr),
+                                static_cast<std::uint16_t>(cli.historyWatchLen));
+    if (cli.historyReadWatchAddr >= 0 && cli.historyReadWatchLen > 0)
+        debugger.setReadWatch(static_cast<std::uint16_t>(cli.historyReadWatchAddr),
+                              static_cast<std::uint16_t>(cli.historyReadWatchLen));
     ms0515::cli::bridge::install(emu);
+    /* A machine restored from a snapshot is already up and, if it is
+     * a game, its screen never goes quiet - so the "wait for a still
+     * screen before letting keys through" rule below would swallow
+     * every keystroke.  A state says the machine is ready. */
+    if (!cli.statePath.empty()) ms0515::cli::bridge::setInputReady(true);
 
     /* VramMirror — hook-driven cell-by-cell mirror of the hires text
      * plane.  Per-frame flushFrame emits ANSI cursor-positioned UTF-8
@@ -305,6 +347,12 @@ int main(int argc, char **argv)
                          cli.screenshotPath.c_str());
             shotFailed = true;
         }
+    }
+
+    if (!cli.saveStatePath.empty()) {
+        if (auto r = emu.saveState(cli.saveStatePath); !r)
+            std::fprintf(stderr, "ms0515-cli: %s: %s\n",
+                         cli.saveStatePath.c_str(), r.error().c_str());
     }
 
     if (commander) commander->shutdown(!cli.noConfig);

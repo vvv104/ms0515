@@ -98,6 +98,10 @@ CliArgs parseArgs(int argc, char **argv)
             out.screenshotPath = argv[++i];
         } else if (a == "--screenshot-frame" && i + 1 < argc) {
             out.screenshotFrame = std::atoi(argv[++i]);
+        } else if (a == "--state" && i + 1 < argc) {
+            out.statePath = argv[++i];
+        } else if (a == "--save-state" && i + 1 < argc) {
+            out.saveStatePath = argv[++i];
         } else if (a == "--history-size" && i + 1 < argc) {
             out.historySize = std::max(0, std::atoi(argv[++i]));
         } else if (a == "--history-watch-addr" && i + 1 < argc) {
