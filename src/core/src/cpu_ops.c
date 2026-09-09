@@ -123,6 +123,47 @@ static inline bool get_c(const ms0515_cpu_t *cpu)
 #define AUTODEC_CYCLE    3
 #define INDEX_CYCLE      3
 
+/*
+ * Instruction execution times — T-11 Engineering Specification (Rev E,
+ * Mar 82), Appendix B "T-11 instruction execution times in microcycles",
+ * 16-bit bus mode, which is how the MS 0515 wires the processor.  That
+ * appendix is in microcycles; one microcycle is three clocks of the
+ * 7.5 MHz input (400 ns), and this core counts clocks.
+ *
+ * The addressing-mode costs above already reproduce Appendix B's source-
+ * and destination-mode tables exactly, so the double- and single-operand
+ * instructions come out right by construction.  Everything else needs its
+ * own figure, and the ones below set `cycles` outright rather than adding
+ * to it: their appendix entry covers the whole instruction, fetch and
+ * decode included.
+ *
+ * This is not pedantry.  Programs of the period time themselves by
+ * counting instructions rather than by watching a clock — FIREBIRD paces
+ * each frame with `MOV #177777,R2 / SOB R2,.` — so an instruction charged
+ * half its time makes the whole program run at double speed, with nothing
+ * in any screenshot to show for it.  test_cpu_timing.cpp pins the table.
+ *
+ * Why a DEC table for a Soviet part: the KR1807VM1 is a copy of the T-11,
+ * and the machine's own documentation agrees with the appendix wherever it
+ * is specific.  The system module's technical description (NS4,
+ * 3.858.420 TO, Table 2) gives the base microcycle as 400 ns, a
+ * single-operand instruction "of the clear kind" as at most 1.6 us - which
+ * is exactly the four microcycles Appendix B gives one in mode 0 - and at
+ * least 0.5 M short operations a second, which the four microcycles of a
+ * register-to-register double operand meet (0.625 M).  No Soviet table of
+ * per-instruction times is known to exist, so the individual figures below
+ * rest on the copy being faithful rather than on a local document.
+ *
+ * Not covered here: servicing an asynchronous interrupt, which Appendix B
+ * does not give a figure for and which this core still does for free.
+ */
+#define MICROCYCLE 3
+
+/* By destination mode.  Mode 0 is illegal for JMP/JSR and traps instead. */
+static const int JMP_MICROCYCLES[8]  = { 0,  5,  6,  6,  6,  7,  7,  9 };
+static const int JSR_MICROCYCLES[8]  = { 0,  9, 10, 10, 10, 11, 11, 13 };
+static const int MTPS_MICROCYCLES[8] = { 8, 10, 10, 12, 11, 13, 13, 15 };
+
 static uint16_t get_word_addr(ms0515_cpu_t *cpu, int mode, int reg)
 {
     uint16_t addr;
@@ -356,7 +397,7 @@ static void op_unknown(ms0515_cpu_t *cpu)
 
 static void op_nop(ms0515_cpu_t *cpu)
 {
-    (void)cpu;
+    cpu->cycles = 6 * MICROCYCLE;   /* Appendix B: NOP */
 }
 
 /* ── HALT ─────────────────────────────────────────────────────────────────── */
@@ -377,12 +418,18 @@ static void op_halt(ms0515_cpu_t *cpu)
     cpu->r[CPU_REG_PC] = 0172004;
     cpu->psw = 0340;
     cpu->waiting = false;
+    /* Appendix B's figure covers the stack work above as well. */
+    cpu->cycles = 14 * MICROCYCLE;   /* Appendix B: HALT */
 }
 
 /* ── WAIT ─────────────────────────────────────────────────────────────────── */
 
 static void op_wait(ms0515_cpu_t *cpu)
 {
+    /* "4 then loop": the instruction itself, after which the processor
+     * idles until an interrupt line is asserted.  The idling is the
+     * board's business - cpu_step reports no work while waiting. */
+    cpu->cycles  = 4 * MICROCYCLE;
     cpu->waiting = true;
 }
 
@@ -395,7 +442,7 @@ static void op_reset(ms0515_cpu_t *cpu)
     /* board_reset_devices() would be called here through the board pointer.
      * For now, this is a placeholder — actual device reset is handled
      * at the board level when it detects a RESET instruction. */
-    (void)cpu;
+    cpu->cycles = 39 * MICROCYCLE;   /* Appendix B: RESET */
 }
 
 /* ── RTI — Return from Interrupt ──────────────────────────────────────────── */
@@ -416,6 +463,8 @@ static void op_rti(ms0515_cpu_t *cpu)
 {
     cpu->r[CPU_REG_PC] = pop(cpu);
     cpu->psw            = pop(cpu) & 0377;
+    /* Appendix B's figure covers the stack work above as well. */
+    cpu->cycles = 8 * MICROCYCLE;   /* Appendix B: RTI */
     /* KR1807VM1: RTI inhibits T-bit trap, same as RTT */
     cpu->irq_tbit = false;
 }
@@ -430,6 +479,8 @@ static void op_rtt(ms0515_cpu_t *cpu)
 {
     cpu->r[CPU_REG_PC] = pop(cpu);
     cpu->psw            = pop(cpu) & 0377;
+    /* Appendix B's figure covers the stack work above as well. */
+    cpu->cycles = 8 * MICROCYCLE;   /* Appendix B: RTT */
     /* RTT inhibits the T-bit trap for the next instruction */
     cpu->irq_tbit = false;
 }
@@ -438,6 +489,7 @@ static void op_rtt(ms0515_cpu_t *cpu)
 
 static void op_bpt(ms0515_cpu_t *cpu)
 {
+    cpu->cycles = 16 * MICROCYCLE;   /* Appendix B: BPT */
     cpu->irq_bpt = true;
 }
 
@@ -445,6 +497,7 @@ static void op_bpt(ms0515_cpu_t *cpu)
 
 static void op_iot(ms0515_cpu_t *cpu)
 {
+    cpu->cycles = 16 * MICROCYCLE;   /* Appendix B: IOT */
     cpu->irq_iot = true;
 }
 
@@ -452,6 +505,7 @@ static void op_iot(ms0515_cpu_t *cpu)
 
 static void op_emt(ms0515_cpu_t *cpu)
 {
+    cpu->cycles = 16 * MICROCYCLE;   /* Appendix B: EMT */
     cpu->irq_emt = true;
 }
 
@@ -459,6 +513,7 @@ static void op_emt(ms0515_cpu_t *cpu)
 
 static void op_trap(ms0515_cpu_t *cpu)
 {
+    cpu->cycles = 16 * MICROCYCLE;   /* Appendix B: TRAP */
     cpu->irq_trap = true;
 }
 
@@ -470,6 +525,7 @@ static void op_trap(ms0515_cpu_t *cpu)
  */
 static void op_mfpt(ms0515_cpu_t *cpu)
 {
+    cpu->cycles = 5 * MICROCYCLE;   /* Appendix B: MFPT */
     cpu->r[0] = 4;
 }
 
@@ -626,6 +682,9 @@ static void op_negb(ms0515_cpu_t *cpu)
 
 static void op_tst(ms0515_cpu_t *cpu)
 {
+    /* TST has no output; its appendix row is still one microcycle
+     * longer than fetching the operand accounts for. */
+    cpu->cycles += MICROCYCLE;
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_word_addr(cpu, mode, reg);
@@ -637,6 +696,9 @@ static void op_tst(ms0515_cpu_t *cpu)
 
 static void op_tstb(ms0515_cpu_t *cpu)
 {
+    /* TST has no output; its appendix row is still one microcycle
+     * longer than fetching the operand accounts for. */
+    cpu->cycles += MICROCYCLE;
     int mode = DST_MODE(cpu->instruction);
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
@@ -889,6 +951,7 @@ static void op_mtps(ms0515_cpu_t *cpu)
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
     /* On T-11, MTPS can only change the low byte of PSW */
     cpu->psw = (cpu->psw & 0xFF00) | val;
+    cpu->cycles = MTPS_MICROCYCLES[mode] * MICROCYCLE;
 }
 
 /* ── MFPS — Move From PSW (byte) ──────────────────────────────────────────── */
@@ -901,6 +964,7 @@ static void op_mfps(ms0515_cpu_t *cpu)
 
     if (mode == 0) {
         /* To register: sign-extend */
+        cpu->cycles += REG_WRITE_CYCLE;
         cpu->r[reg] = (val & 0x80) ? (0xFF00 | val) : val;
     } else {
         uint16_t addr = get_byte_addr(cpu, mode, reg);
@@ -960,6 +1024,10 @@ static void op_movb(ms0515_cpu_t *cpu)
 
 static void op_cmp(ms0515_cpu_t *cpu)
 {
+    /* CMP and BIT have no output and get their own, shorter,
+     * destination column - but the instruction itself still costs
+     * one microcycle beyond the two operand fetches. */
+    cpu->cycles += MICROCYCLE;
     int sm = SRC_MODE(cpu->instruction), sr = SRC_REG(cpu->instruction);
     int dm = DST_MODE(cpu->instruction), dr = DST_REG(cpu->instruction);
 
@@ -977,6 +1045,10 @@ static void op_cmp(ms0515_cpu_t *cpu)
 
 static void op_cmpb(ms0515_cpu_t *cpu)
 {
+    /* CMP and BIT have no output and get their own, shorter,
+     * destination column - but the instruction itself still costs
+     * one microcycle beyond the two operand fetches. */
+    cpu->cycles += MICROCYCLE;
     int sm = SRC_MODE(cpu->instruction), sr = SRC_REG(cpu->instruction);
     int dm = DST_MODE(cpu->instruction), dr = DST_REG(cpu->instruction);
 
@@ -1039,6 +1111,10 @@ static void op_sub(ms0515_cpu_t *cpu)
 
 static void op_bit(ms0515_cpu_t *cpu)
 {
+    /* CMP and BIT have no output and get their own, shorter,
+     * destination column - but the instruction itself still costs
+     * one microcycle beyond the two operand fetches. */
+    cpu->cycles += MICROCYCLE;
     int sm = SRC_MODE(cpu->instruction), sr = SRC_REG(cpu->instruction);
     int dm = DST_MODE(cpu->instruction), dr = DST_REG(cpu->instruction);
 
@@ -1054,6 +1130,10 @@ static void op_bit(ms0515_cpu_t *cpu)
 
 static void op_bitb(ms0515_cpu_t *cpu)
 {
+    /* CMP and BIT have no output and get their own, shorter,
+     * destination column - but the instruction itself still costs
+     * one microcycle beyond the two operand fetches. */
+    cpu->cycles += MICROCYCLE;
     int sm = SRC_MODE(cpu->instruction), sr = SRC_REG(cpu->instruction);
     int dm = DST_MODE(cpu->instruction), dr = DST_REG(cpu->instruction);
 
@@ -1168,11 +1248,10 @@ static void op_xor(ms0515_cpu_t *cpu)
  * t11ops.hxx — every Bxx variant has `m_icount -= 12`).  The condition
  * has no effect on timing; taken and not-taken branches cost the same.
  * Initial fetch already accounts for 9; +3 brings us to 12. */
-#define BRANCH_EXTRA 3
-
 static void apply_branch(ms0515_cpu_t *cpu, bool take)
 {
-    cpu->cycles += BRANCH_EXTRA;
+    /* Whether or not the branch is taken does not affect the time. */
+    cpu->cycles = 4 * MICROCYCLE;
     if (take)
         cpu->r[CPU_REG_PC] += (int16_t)(BRANCH_OFF(cpu->instruction) * 2);
 }
@@ -1281,6 +1360,7 @@ static void op_jmp(ms0515_cpu_t *cpu)
 
     uint16_t addr = get_word_addr(cpu, mode, reg);
     cpu->r[CPU_REG_PC] = addr;
+    cpu->cycles = JMP_MICROCYCLES[mode] * MICROCYCLE;
 }
 
 /* ── JSR — Jump to Subroutine ─────────────────────────────────────────────── */
@@ -1301,6 +1381,7 @@ static void op_jsr(ms0515_cpu_t *cpu)
     push(cpu, cpu->r[linkr]);
     cpu->r[linkr] = cpu->r[CPU_REG_PC];
     cpu->r[CPU_REG_PC] = addr;
+    cpu->cycles = JSR_MICROCYCLES[mode] * MICROCYCLE;
 }
 
 /* ── RTS — Return from Subroutine ─────────────────────────────────────────── */
@@ -1310,12 +1391,15 @@ static void op_rts(ms0515_cpu_t *cpu)
     int reg = cpu->instruction & 7;
     cpu->r[CPU_REG_PC] = cpu->r[reg];
     cpu->r[reg] = pop(cpu);
+    /* Appendix B's figure covers the stack work above as well. */
+    cpu->cycles = 7 * MICROCYCLE;   /* Appendix B: RTS */
 }
 
 /* ── SOB — Subtract One and Branch ────────────────────────────────────────── */
 
 static void op_sob(ms0515_cpu_t *cpu)
 {
+    cpu->cycles = 6 * MICROCYCLE;   /* Appendix B: SOB */
     int reg = (cpu->instruction >> 6) & 7;
     cpu->r[reg]--;
     if (cpu->r[reg] != 0) {
@@ -1335,6 +1419,7 @@ static void op_sob(ms0515_cpu_t *cpu)
 
 static void op_ccc(ms0515_cpu_t *cpu)
 {
+    cpu->cycles = 6 * MICROCYCLE;   /* Appendix B: the condition-code group */
     /* Clear selected condition code bits */
     uint16_t mask = cpu->instruction & 0x0F;
     cpu->psw &= ~mask;
@@ -1342,6 +1427,7 @@ static void op_ccc(ms0515_cpu_t *cpu)
 
 static void op_scc(ms0515_cpu_t *cpu)
 {
+    cpu->cycles = 6 * MICROCYCLE;   /* Appendix B: the condition-code group */
     /* Set selected condition code bits */
     uint16_t mask = cpu->instruction & 0x0F;
     cpu->psw |= mask;

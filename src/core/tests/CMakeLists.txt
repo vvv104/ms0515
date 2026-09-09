@@ -18,6 +18,7 @@ add_executable(ms0515_core_tests
     test_hd.cpp
     test_floppy.cpp
     test_trap_thunk.cpp
+    test_cpu_timing.cpp
     test_vram_write_hook.cpp
     test_sound.cpp
     test_joystick.cpp
