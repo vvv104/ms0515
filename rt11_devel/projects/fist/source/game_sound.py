@@ -6,8 +6,8 @@ sounds the same each time; the rumble (code 4) draws on a 24-bit shift
 register in the game state ($B153..$B155, $B2D7).  The port embeds those
 ROM bytes (the first 1 KB of the ROM, read at build time like the rest of
 the art) in the dojo block and keeps the shift register in the GST, so
-the effects are the original's byte for byte.  Timing: one Z80 T-state =
-7.5 / 3.5 CPU cycles, calibrated into the delay loops.
+the effects are the original's byte for byte.  The delays are turns of a
+SOB loop, converted from the original's T-states by `timing.py`.
 
 Banks 0-1 being full, the driver lives in the dojo block and runs at 3177
 (all slots primary, VRAM off - the display is not affected, only the CPU's
@@ -17,6 +17,10 @@ shift register (in the GST, unseen at 3177) in and out through RUMB.
 Every function returns MACRO-11 text; game_build.py assembles the game.
 """
 from gst_addr import g
+from timing import turns_for_t, split
+
+# $B2F0: a $2000 x 26 T pause, as a nested pair of SOB loops.
+PAUSE = split(turns_for_t(0x2000 * 26), 61)
 
 # The ROM byte ranges each effect walks (start, end) - $B179.. / $B1FB.. .
 RANGES = {1: (0x0A, 0x400), 2: (0x0A, 0x300), 3: (0xC0, 0x100),
@@ -66,8 +70,8 @@ SND5:   MOV     #377,R1              ; $B1FB: mask $FF, ROM $00E0..$0120 (~68 ms
         MOV     #ROMBYT+{r[5][0]}.,R3
         MOV     #ROMBYT+{r[5][1]}.,R2
         JSR     PC,NOISE
-        MOV     #61.,R3              ;   a 61 ms pause ($B2F0: $2000 x 26 T),
-51$:    MOV     #800.,R4
+        MOV     #{PAUSE[0]}.,R3              ;   a 61 ms pause ($B2F0: $2000 x 26 T),
+51$:    MOV     #{PAUSE[1]}.,R4
 52$:    SOB     R4,52$
         SOB     R3,51$
         MOV     #377,R1              ;   and again, ROM $03C0..$0400
@@ -83,12 +87,10 @@ NOISE:  JSR     PC,SNDON
         BNE     2$
         INC     R0
 2$:     JSR     PC,SPKTOG
-        MOV     R0,R4                ; delay 6.5 x B loop turns (~62 cycles per B
-        ASL     R4                   ;   = 29 T-states; calibrated: a SOB turn is
-        ASL     R4                   ;   ~9.3 cycles, the per-half overhead ~340)
-        ADD     R0,R4
-        ADD     R0,R4
-        MOV     R0,R5
+        MOV     R0,R4                ; delay 3.5 x B turns: one B is 29 T-states,
+        ASL     R4                   ;   which timing.py puts at 3.45 turns - the
+        ADD     R0,R4                ;   half a turn over is under a hundredth of
+        MOV     R0,R5                ;   a semitone, and shifts are all it takes
         ASR     R5
         ADD     R5,R4
 3$:     SOB     R4,3$
