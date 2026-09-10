@@ -16,41 +16,48 @@
 ; and .LOOKUP hands back the file's length, so nothing here has to be
 ; told where the table is.
 ;
-; The one awkward part: the program's own code lands at 01000, where
-; this loader runs.  So every other region goes first, then the unpacker
-; and the finisher are copied into the hole and they place the last
-; region over us and enter the game.  Both use only registers, constants
-; and the stack, so they run at whatever address they are copied to.
+; WHERE THIS WORKS, AND WHY IT TAKES SO MUCH CARE
+;
+; It used to keep its working set in the hole in the game's own map,
+; 057600..077777, on the argument that the game never touches it.  The
+; game does not - but RT-11 might, and on Rodionov's RT15SJ it does:
+; parts of that monitor start at 072000, so the loader wrote over the
+; monitor it still needed and the next read went nowhere.
+;
+; Nothing is assumed about the monitor's whereabouts now.  Everything
+; the loader needs is either inside its own image - which RT-11
+; guarantees is the program's - or in the EXTENDED banks, which the
+; monitor cannot see at all: the dispatcher picks primary or extended
+; per 8 KB bank, so extended bank 3 (060000..077777) and bank 5
+; (0120000..0137777) can be ours while the code in bank 0 and the
+; destinations in banks 0, 1, 2 and 4 stay primary.  The game's regions
+; occupy no part of banks 3 and 5, which is what makes them free.
+;
+; The last region covers 01000, where this runs, so it goes last: it is
+; expanded into extended bank 5, and a copier planted in the free bytes
+; between the vectors and 01000 - part of no region, and primary in
+; every mapping - moves it down and enters the game.
 ;-------------------------------------------------------------------
-        .MCALL  .LOOKUP,.PRINT,.EXIT,.SETTOP
+        .MCALL  .LOOKUP,.PRINT,.EXIT
         .ASECT
         . = 44
         .WORD   21000                  ; JSW: this .SAV does file I/O
         . = 1000
 
-; The whole working set sits in the hole between the game's regions -
-; 057574..077777, which the game never touches and which is below
-; RT-11's resident monitor.  Above the monitor is not free: the game
-; opens FIST.DAT itself, so RT-11 has to survive until it starts.
-HOLE   = 57600                         ; the unpacker, then the finisher
-TABBUF = 60100                         ; the table block is read here - a WHOLE
-                                       ;   block below SCRAT, because the table's
-                                       ;   entries are at its end and the scratch
-                                       ;   would otherwise land on them
-SCRAT  = 61100                         ; packed regions land here to be expanded
-STACK  = 77776                         ; above them all, still in the hole
-; The scratch holds a region's packed form plus its offset into the first
-; block, rounded up to whole blocks: pack_fist.MAX_REGION keeps that under
-; STACK-SCRAT.
-SYSC   = 177604                        ; System Register C (border + video mode)
 DISPAT = 177400                        ; the memory dispatcher
-VRAM   = 40000                         ; the VRAM window, banks 2-3
-TVIDEO = 3377                          ; VRAM on at 040000, banks 4-6 primary
+SYSC   = 177604                        ; System Register C (border + video mode)
+DPRIM  = 2177                          ; every bank primary - RT-11's own setting
+DEXT3  = 2167                          ; bank 3 extended: the scratch
+DEXT35 = 2127                          ; banks 3 and 5 extended: + the last region
+DPIC   = 6367                          ; bank 3 extended, VRAM on at 0100000
+SCRAT  = 60000                         ; extended bank 3: packed bytes land here,
+                                       ;   and the picture expands here first
+EXPBUF = 120000                        ; extended bank 5: the last region, expanded
+VRAMW  = 100000                        ; the VRAM window while the picture goes up
+LOWST  = 400                           ; the copier: past the vectors, below 01000
 LMARG  = 8.                            ; the picture is 256 px in 320: 8 bytes in
 TMARG  = 4.                            ;   and 192 lines in 200: 4 lines down
-LSTRID = 80.                           ; bytes per VRAM line
 RDW    = 4001                          ; .READW, channel 1 (code 8 in the high byte)
-CLOSE  = 3001                          ; .CLOSE, channel 1 (code 6)
 ; Channel 1, not 0: the game opens 0 for itself the moment it starts, and
 ; a channel still in use would fail its .LOOKUP.
 
@@ -61,9 +68,8 @@ START:  MOV     #STACK,SP
         JMP     ERR
 1$:     DEC     R0                     ; R0 = the file's length; the table is last
         MOV     #TABBUF,R1
-        MOV     #256.,R2
         MOV     R0,R3
-        JSR     PC,READ                ; the table block
+        JSR     PC,RDBLK1              ; the table block, into our own image
 
         ; Low memory is the monitor's: the words the image carries below
         ; 01000 are LINK's own bookkeeping (start address, high limit, JSW)
@@ -71,20 +77,12 @@ START:  MOV     #STACK,SP
         ; 054 - the pointer to RMON - with them, and the next EMT went
         ; nowhere.  So low memory is neither cleared nor loaded.
         MOV     #LOADND,R0
-        MOV     #HOLE,R1
+        MOV     #57600,R1
         JSR     PC,ZERO
         MOV     #100000,R0
         MOV     TABBUF+774,R1          ; the image's top, from the table: the
         JSR     PC,ZERO                ;   buffers up there are .BLKB, never
                                        ;   stored, and the game wants them zero
-
-        ; The unpacker and the finisher into the hole, before any region
-        ; needs expanding.
-        MOV     #PIC,R0
-        MOV     #HOLE,R1
-        MOV     #<PICEND-PIC>/2,R2
-2$:     MOV     (R0)+,(R1)+
-        SOB     R2,2$
 
         ; The count is the table block's last word and the entries are the
         ; ten bytes each in front of it.
@@ -99,8 +97,8 @@ START:  MOV     #STACK,SP
         SUB     R0,R4                  ; the first entry
 
         ; Every region but the one that covers this loader.  That one is
-        ; remembered by its entry: the table block outlives the loader, so
-        ; there is no need to copy the five words out of it.
+        ; remembered by its entry: the table block is in our own image and
+        ; outlives everything but the last copy.
 3$:     MOV     R4,ENT
         MOV     (R4)+,EADR
         MOV     (R4)+,ECNT
@@ -110,82 +108,136 @@ START:  MOV     #STACK,SP
         CMP     EADR,#1000
         BLO     5$                     ; below 01000: the monitor's, leave it
         BNE     4$
-        MOV     ENT,KENT               ; ours: it goes last, from the hole
+        MOV     ENT,KENT               ; ours: it goes last
         BR      5$
-4$:     MOV     R4,-(SP)               ; the unpacker uses every register,
+4$:     MOV     R4,-(SP)               ; the decoder uses every register,
         MOV     R5,-(SP)               ;   and these two are the table walk
         JSR     PC,PLACE
         MOV     (SP)+,R5
         MOV     (SP)+,R4
 5$:     SOB     R5,3$
 
-        ; Into the finisher, with the last region in the registers.
+        ; The last region: read it aside and expand it into extended bank 5,
+        ; out of the way of the copy that follows.
         MOV     KENT,R0
-        MOV     (R0)+,R2               ; load address
-        MOV     (R0)+,R3               ; word count
-        MOV     (R0)+,R1               ; start block
-        MOV     (R0)+,R5               ; byte offset into it
-        MOV     (R0),R4                ; packed length
-        JMP     @#HOLE+<FIN-PIC>
-
-        ; PLACE: the region described by the E cells, read aside and expanded.
-PLACE:  MOV     EOFF,R3
-        ADD     ELEN,R3
-        ADD     #511.,R3
-        BIC     #777,R3                ; up to a whole number of blocks
-        ASR     R3                     ; as words
-        MOV     R3,R2
-        MOV     EBLK,R3
+        MOV     (R0)+,EADR
+        MOV     (R0)+,ECNT
+        MOV     (R0)+,EBLK
+        MOV     (R0)+,EOFF
+        MOV     (R0),ELEN
+        JSR     PC,FETCH               ; its packed bytes into the scratch
+        MOV     #DEXT35,@#DISPAT
         MOV     #SCRAT,R1
-        JSR     PC,READ
+        ADD     EOFF,R1
+        MOV     #EXPBUF,R2
+        MOV     ECNT,R3
+        ASL     R3
+        JSR     PC,PIC
+        MOV     #DPRIM,@#DISPAT
+
+        ; The copier into low memory - past the vectors, below 01000: it is
+        ; part of no region and primary in every mapping, so it survives
+        ; both the bank switch and the region landing on this loader.
+        MOV     #COPY,R0
+        MOV     #LOWST,R1
+        MOV     #<COPYE-COPY>/2,R2
+2$:     MOV     (R0)+,(R1)+
+        SOB     R2,2$
+        MOV     ECNT,R3                ; words to move down
+        JMP     @#LOWST
+
+        ; PLACE: the region in the E cells, read aside and expanded home.
+PLACE:  JSR     PC,FETCH
+        MOV     #DEXT3,@#DISPAT
         MOV     #SCRAT,R1
         ADD     EOFF,R1                ; the packed bytes start here
         MOV     EADR,R2
         MOV     ECNT,R3
         ASL     R3                     ;   as bytes
-        JMP     @#HOLE                 ; the unpacker returns to our caller
+        JSR     PC,PIC
+        MOV     #DPRIM,@#DISPAT
+        RTS     PC
 
-        ; READ: R1 = buffer, R2 = words, R3 = block.  Keeps R4/R5.
-READ:   MOV     R4,-(SP)
+        ; FETCH: the E region's packed bytes into the scratch, a block at a
+        ; time - .READW writes to primary memory, so each block lands in our
+        ; own image and is copied up into the extended bank.
+FETCH:  MOV     EOFF,R0
+        ADD     ELEN,R0
+        ADD     #511.,R0
+        ASR     R0                     ; R0 = blocks the region spans:
+        ASR     R0                     ;   nine shifts, because ASH is an
+        ASR     R0                     ;   EIS instruction and this machine
+        ASR     R0                     ;   need not have it
+        ASR     R0
+        ASR     R0
+        ASR     R0
+        ASR     R0
+        ASR     R0
+        MOV     R0,FBLKS
+        MOV     EBLK,FBLK
+        MOV     #SCRAT,FDST
+6$:     MOV     #BLKBUF,R1
+        MOV     FBLK,R3
+        JSR     PC,RDBLK1
+        MOV     #DEXT3,@#DISPAT
+        MOV     #BLKBUF,R0
+        MOV     FDST,R1
+        MOV     #256.,R2
+7$:     MOV     (R0)+,(R1)+
+        SOB     R2,7$
+        MOV     R1,FDST
+        MOV     #DPRIM,@#DISPAT
+        INC     FBLK
+        DEC     FBLKS
+        BGT     6$
+        RTS     PC
+
+        ; RDBLK1: one block, R1 = where (primary), R3 = which.  Keeps R4/R5.
+RDBLK1: MOV     R4,-(SP)
         MOV     R5,-(SP)
         MOV     #LKAREA,R5
         MOV     #RDW,(R5)
         MOV     R3,2(R5)
         MOV     R1,4(R5)
-        MOV     R2,6(R5)
+        MOV     #256.,6(R5)
         CLR     10(R5)
         MOV     R5,R0
         EMT     375
-        BCS     7$
+        BCS     8$
         MOV     (SP)+,R5
         MOV     (SP)+,R4
         RTS     PC
-7$:     JMP     ERR
+8$:     JMP     ERR
 
-        ; TITLE1: expand the packed loading screen above our own image
-        ; and convert it into VRAM.  RT-11 owns no part of either: the
-        ; buffer is memory .SETTOP asked for, and VRAM is the video
-        ; hardware's, so the picture stays up through the whole load.
-TITLE1: .SETTOP #PICBUF+SCRRAW
-        CMP     R0,#PICBUF+SCRRAW      ; did we get it?  R0 = the real top
-        BLO     18$                    ;   no: skip the picture, still load
+        ; ZERO: R0 = from, R1 = to (exclusive).
+ZERO:   CMP     R0,R1
+        BHIS    9$
+        CLR     (R0)+
+        BR      ZERO
+9$:     RTS     PC
+
+        ; TITLE1: expand the packed loading screen - it ships inside this
+        ; loader - into extended bank 3 and convert it into VRAM.  Neither
+        ; is memory RT-11 owns, so the picture goes up before a block is
+        ; read and stays up through the whole load.
+TITLE1: MOV     #DEXT3,@#DISPAT
         MOV     #SCRPK,R1
-        MOV     #PICBUF,R2
+        MOV     #SCRAT,R2
         MOV     #SCRRAW,R3
-        JSR     PC,PIC                 ; the decoder, still in our own image
+        JSR     PC,PIC                 ; the decoder is in our image, bank 0
         MTPS    #340
         MOVB    @#SYSC,R0
         BIC     #17,R0                 ; medium resolution, colour
         MOVB    R0,@#SYSC
-        MOV     #TVIDEO,@#DISPAT
-        MOV     #VRAM,R0               ; the window is ours now: the cyan
-16$:    MOV     #24000,(R0)+           ;   border the game paints (BORDER),
-        CMP     R0,#VRAM+16384.        ;   and the picture goes over it
-        BLO     16$
+        MOV     #DPIC,@#DISPAT         ; + VRAM at 0100000, bank 3 still ours
+        MOV     #VRAMW,R0              ; the cyan margins the game paints
+10$:    MOV     #24000,(R0)+
+        CMP     R0,#VRAMW+16384.
+        BLO     10$
         CLR     R5                     ; R5 = the Spectrum line, 0..191
-17$:    MOV     R5,R0
+11$:    MOV     R5,R0
         JSR     PC,ROWOFF              ; R1 = the line's offset in the pixels
-        ADD     #PICBUF,R1
+        ADD     #SCRAT,R1
         MOV     R5,R2                  ; the attribute row: 6144 + (y>>3)*32
         ASR     R2
         ASR     R2
@@ -195,7 +247,7 @@ TITLE1: .SETTOP #PICBUF+SCRRAW
         ASL     R2
         ASL     R2
         ASL     R2
-        ADD     #PICBUF+6144.,R2
+        ADD     #SCRAT+6144.,R2
         MOV     R5,R3                  ; the VRAM line: (TMARG + y) * 80
         ADD     #TMARG,R3
         MOV     R3,R0
@@ -207,22 +259,22 @@ TITLE1: .SETTOP #PICBUF+SCRRAW
         ASL     R0
         ASL     R0                     ; * 64
         ADD     R4,R0                  ; * 80
-        ADD     #VRAM+LMARG,R0
+        ADD     #VRAMW+LMARG,R0
         MOV     R0,R3
         MOV     #32.,R4                ; 32 cells across
-15$:    CLR     R0
+12$:    CLR     R0
         BISB    (R2)+,R0
         SWAB    R0                     ; the attribute is the high byte
         BISB    (R1)+,R0               ;   and the pixels the low one
         MOV     R0,(R3)+
         DEC     R4
-        BNE     15$
+        BNE     12$
         INC     R5
         CMP     R5,#192.
-        BLO     17$
-        MOV     #3177,@#DISPAT         ; the window off again; the picture stays
+        BLO     11$
+        MOV     #DPRIM,@#DISPAT        ; the window closes; the picture stays
         MTPS    #0
-18$:    RTS     PC
+        RTS     PC
 
         ; ROWOFF: R0 = the Spectrum line, R1 = its offset in the pixel area.
 ROWOFF: MOV     R0,R1
@@ -243,36 +295,25 @@ ROWOFF: MOV     R0,R1
         BIS     (SP)+,R1               ; | (y & 0300) << 5
         RTS     PC
 
-        ; ZERO: R0 = from, R1 = to (exclusive).
-ZERO:   CMP     R0,R1
-        BHIS    8$
-        CLR     (R0)+
-        BR      ZERO
-8$:     RTS     PC
-
 ERR:    .PRINT  #EMSG
         .EXIT
 
-;-------------------------------------------------------------------
-; Copied to HOLE and run there: registers, constants and the stack only.
-;-------------------------------------------------------------------
-        ; The unpacker, entered at HOLE: R1 = packed bytes, R2 = where to
-        ; put them, R3 = bytes to produce.  LZSS - a flag byte, then eight
-        ; items, low bit first: a set bit is a literal byte, a clear one
-        ; two bytes giving a distance of up to 4095 and a length of 3..18.
-        ; A match copies from what is already written, so a run comes out
-        ; by itself.
+        ; The decoder: R1 = packed bytes, R2 = where to put them, R3 = bytes
+        ; to produce.  LZSS - a flag byte, then eight items, low bit first:
+        ; a set bit is a literal byte, a clear one two bytes giving a
+        ; distance of up to 4095 and a length of 3..18.  A match copies from
+        ; what is already written, so a run comes out by itself.
 PIC:    TST     R3
         BEQ     19$
-11$:    CLR     R5
+13$:    CLR     R5
         BISB    (R1)+,R5
         BIS     #400,R5                ; a sentinel above the eight flags
-12$:    ASR     R5                     ; C = this item's flag
-        BCC     13$
+14$:    ASR     R5                     ; C = this item's flag
+        BCC     15$
         MOVB    (R1)+,(R2)+            ; a literal byte
         DEC     R3
         BR      18$
-13$:    CLR     R0
+15$:    CLR     R0
         BISB    (R1)+,R0               ; the distance, low eight bits
         CLR     R4
         BISB    (R1)+,R4               ; its top four, and the length
@@ -289,64 +330,50 @@ PIC:    TST     R3
         MOV     R2,-(SP)
         SUB     R0,(SP)
         MOV     (SP)+,R0               ; where to copy from
-14$:    MOVB    (R0)+,(R2)+
+16$:    MOVB    (R0)+,(R2)+
         DEC     R3
         BEQ     19$
-        SOB     R4,14$
+        SOB     R4,16$
 18$:    TST     R3
         BEQ     19$
         CMP     R5,#1                  ; the sentinel down to bit 0: eight done
-        BNE     12$
-        BR      11$
+        BNE     14$
+        BR      13$
 19$:    RTS     PC
 
-        ; The finisher: R1 = block, R2 = load address, R3 = word count,
-        ; R4 = packed length, R5 = byte offset into the block.  The K cells
-        ; live in the image this is about to overwrite, so everything it
-        ; needs is in registers and on the stack.
-FIN:    MOV     R5,R0
-        ADD     R4,R0
-        ADD     #511.,R0
-        BIC     #777,R0
-        ASR     R0                     ; words to read
-        MOV     R3,-(SP)               ; the region's word count
-        MOV     R2,-(SP)               ;   and where it belongs
-        MOV     R5,-(SP)               ;   and the offset
-        CLR     -(SP)
-        MOV     R0,-(SP)
-        MOV     #SCRAT,-(SP)
-        MOV     R1,-(SP)
-        MOV     #RDW,-(SP)
-        MOV     SP,R0
-        EMT     375
-        ADD     #12,SP                 ; drop the five-word argument block
-        MOV     (SP)+,R1               ; the offset
-        ADD     #SCRAT,R1              ;   into the scratch
-        MOV     (SP)+,R2
-        MOV     (SP)+,R3
-        ASL     R3                     ; the region's bytes
-        JSR     PC,@#HOLE              ; expand it over this loader
-        MOV     #CLOSE,-(SP)
-        MOV     SP,R0
-        EMT     375                    ; the game opens the channel itself
-        TST     (SP)+
-        JMP     @#1000                 ; into the game
-PICEND:
+        ; The copier, moved to LOWST and run there: R3 = words.  It brings
+        ; the last region down out of extended bank 5 and enters the game.
+        ; Nothing here is PC-relative, and low memory is primary whatever
+        ; the dispatcher says, so it survives its own bank switches.
+COPY:   MOV     #DEXT35,@#DISPAT
+        MOV     #EXPBUF,R0
+        MOV     #1000,R1
+20$:    MOV     (R0)+,(R1)+
+        SOB     R3,20$
+        MOV     #DPRIM,@#DISPAT
+        JMP     @#1000
+COPYE:
 
+ENT:    .WORD   0
 EADR:   .WORD   0
 ECNT:   .WORD   0
 EBLK:   .WORD   0
 EOFF:   .WORD   0
 ELEN:   .WORD   0
-ENT:    .WORD   0
 KENT:   .WORD   0
+FBLK:   .WORD   0
+FBLKS:  .WORD   0
+FDST:   .WORD   0
         .EVEN
 DATFIL: .RAD50  /DK FIST  DAT/
         .EVEN
 LKAREA: .BLKW   5
 EMSG:   .ASCIZ  /?FLOAD-F-Cannot read FIST.DAT/
         .EVEN
+        .BLKW   64.                    ; the stack, inside our own image: the
+STACK:                                 ;   only primary memory RT-11 promises
+BLKBUF: .BLKW   256.                   ; one block, where .READW can reach it
+TABBUF: .BLKW   256.                   ; the table block, kept for the walk
 LOADND:
 ; The picture's packed bytes follow, from FSCRN.MAC, and it ends the
-; assembly: `.END` here would cut them off.  It also defines PICBUF, the
-; buffer above the image that the picture expands into.
+; assembly: `.END` here would cut them off.  It also defines PICBUF.

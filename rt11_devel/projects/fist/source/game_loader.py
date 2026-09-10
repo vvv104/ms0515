@@ -12,7 +12,6 @@ Every function returns MACRO-11 text; game_build.py assembles the game.
 # which is what MAX_PACKED leaves room for.
 CHUNK = 8                                    # blocks a piece expands to (4 KB)
 BUF = 0o100000 - CHUNK * 512
-UNPK = 0o57600       # the decoder FLOAD copied into the hole and left there
 STAGE = 0o60200                              # packed bytes are read here,
                                              #   clear of that decoder
 STAGE_ROOM = BUF - STAGE                     # 4224 B
@@ -59,6 +58,54 @@ def tables(gst):
     return "GSTTAB:\n" + entries(gst) + f"NGST   = {len(gst)}.\n"
 
 
+def unpacker():
+    """The LZSS decoder, the same format the packer writes and FLOAD's own
+    copy decodes (source/lzss.py has the format): R1 = packed bytes,
+    R2 = where they go, R3 = bytes to produce."""
+    return """        ; UNPK: a flag byte, then eight items, low bit first; a set bit
+        ; is a literal byte, a clear one two bytes giving a distance of up
+        ; to 4095 and a length of 3..18.  A match copies from what is
+        ; already written, so a run comes out by itself.
+UNPK:   TST     R3
+        BEQ     39$
+31$:    CLR     R5
+        BISB    (R1)+,R5
+        BIS     #400,R5
+32$:    ASR     R5
+        BCC     33$
+        MOVB    (R1)+,(R2)+
+        DEC     R3
+        BR      38$
+33$:    CLR     R0
+        BISB    (R1)+,R0
+        CLR     R4
+        BISB    (R1)+,R4
+        MOV     R4,-(SP)
+        BIC     #177417,R4
+        ASL     R4
+        ASL     R4
+        ASL     R4
+        ASL     R4
+        ADD     R4,R0
+        MOV     (SP)+,R4
+        BIC     #177760,R4
+        ADD     #3,R4
+        MOV     R2,-(SP)
+        SUB     R0,(SP)
+        MOV     (SP)+,R0
+34$:    MOVB    (R0)+,(R2)+
+        DEC     R3
+        BEQ     39$
+        SOB     R4,34$
+38$:    TST     R3
+        BEQ     39$
+        CMP     R5,#1
+        BNE     32$
+        BR      31$
+39$:    RTS     PC
+"""
+
+
 def runner():
     """LOADP - work through a table of pieces.
 
@@ -88,7 +135,7 @@ LOADP:  MOV     R1,-(SP)               ; 4(SP): the destination
         MOV     6(SP),R2               ; where it expands to
         BNE     22$
         MOV     #{BUF:o},R2            ; the banks: through the buffer
-22$:    JSR     PC,@#{UNPK:o}
+22$:    JSR     PC,UNPK
         MOV     (SP)+,R3
         MOV     4(SP),R1
         BNE     23$
@@ -169,7 +216,7 @@ def boot(withbg, pieces):
         MOV     #NGST,R2
         JSR     PC,LOADP
         .CLOSE  #0
-{after_load(withbg)}{runner()}{tables(pieces)}"""
+{after_load(withbg)}{runner()}{unpacker()}{tables(pieces)}"""
 
 
 def start(boot_inline, dojo_boot):
