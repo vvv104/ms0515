@@ -122,6 +122,22 @@ def main(argv: list[str]) -> int:
               file=sys.stderr)
         return 1
     image, data = sav.read_bytes(), dat.read_bytes()
+
+    # SCRBUF (6912 B) and DOJOBUF (192 rows of 32 words = 12288 B) live above
+    # the image, and the machine's memory ends where the I/O page begins.
+    # Overrun it and the dojo's last rows go into device registers, which is
+    # what put a strip of noise along the bottom of the picture once.
+    hilim = struct.unpack_from('<H', image, 0o50)[0]     # LINK's high limit
+    top = hilim + 6912 + 12288
+    if top > 0o160000:
+        print(f'{sav.name}: the program ends at {hilim:#o}, which is '
+              f'{top - 0o160000} bytes too high - SCRBUF and DOJOBUF above it '
+              f'would reach {top:#o}, past the I/O page at 0160000',
+              file=sys.stderr)
+        return 1
+    print(f'{sav.name}: ends at {hilim:#o}; SCRBUF + DOJOBUF reach {top:#o}, '
+          f'{0o160000 - top} bytes below the I/O page')
+
     packed, regs = pack(image, data)
 
     print(f'{sav.name}: {len(image)} B, {len(regs)} regions, '
