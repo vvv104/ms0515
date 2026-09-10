@@ -3,13 +3,31 @@ park / copy into the extended banks), the loading screen.
 
 Every function returns MACRO-11 text; game_build.py assembles the game.
 """
-# The .DAT is read in CHUNK-block pieces into BUF, the top of the primary
-# banks 2-3 just under the dojo block at 0100000 (VRAM is off under RT-11, so
-# that is plain RAM), each piece copied into the parked extended banks.  The
-# rest of banks 2-3 (040000..BUF) is free for data the .SAV carries itself -
-# the three backgrounds' tables live there (game_dojo.tables).
-CHUNK = 8                                    # blocks per .READW (4 KB)
+# The .DAT travels LZSS-packed (source/lzss.py).  A piece is read into STAGE,
+# expanded into BUF - the top of the primary banks 2-3, just under the dojo
+# block at 0100000, plain RAM because VRAM is off under RT-11 - and copied
+# from there into the parked extended banks.  STAGE is the gap between the
+# backgrounds' tables (which end at 057600) and BUF; a read is whole blocks,
+# so a piece's packed form plus its offset into the first block must fit it,
+# which is what MAX_PACKED leaves room for.
+CHUNK = 8                                    # blocks a piece expands to (4 KB)
 BUF = 0o100000 - CHUNK * 512
+STAGE = 0o57600                              # packed bytes are read here
+STAGE_ROOM = BUF - STAGE                     # 4224 B
+MAX_PACKED = 3584                            # + a 511-byte offset = 8 whole blocks
+
+
+class Piece:
+    """One packed piece of FIST.DAT: where it goes, how big it is raw, and
+    where its bytes are (block, byte offset in it, packed length)."""
+
+    def __init__(self, dest, raw, block, offset, packed):
+        self.dest, self.raw, self.block = dest, raw, block
+        self.offset, self.packed = offset, packed
+
+    def blocks(self):
+        """Whole blocks the read must cover to bring the piece in."""
+        return -(-(self.offset + self.packed) // 512)
 
 
 def preamble():
@@ -22,35 +40,89 @@ def preamble():
         "EXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
 
 
-def chunks(nblocks):
-    """(start block, blocks) of each .READW of FIST.DAT."""
-    return [(sb, min(CHUNK, nblocks - sb)) for sb in range(0, nblocks, CHUNK)]
-
-
-def reads(nblocks):
-    """The chunk reads: each .READW into BUF, then CHUNK copies it up."""
-    out = ""
-    for sb, nb in chunks(nblocks):
-        out += f"""        .READW  #LKAREA,#0,#BUF,#{nb * 256}.,#{sb}.
+def expand(piece, into):
+    """Read a piece and expand it - the packed bytes into STAGE, the result
+    at `into`.  Whole blocks are read, so the piece starts `offset` in."""
+    assert piece.packed, "a stored piece would have to be block-aligned"
+    assert piece.blocks() * 512 <= STAGE_ROOM, "the packed piece overruns STAGE"
+    return f"""        .READW  #LKAREA,#0,#{STAGE:o},#{piece.blocks() * 256}.,#{piece.block}.
         BCC     .+6
         JMP     LDERR
-        MOV     #GST+{sb * 512}.,R1
-        MOV     #{nb * 256}.,R2
+        MOV     #{STAGE + piece.offset:o},R1
+        MOV     #{into},R2
+        MOV     #{piece.raw}.,R3
+        JSR     PC,UNPK
+"""
+
+
+def reads(pieces):
+    """Every GST piece: read, expand into BUF, copy up into the banks."""
+    out = ""
+    for piece in pieces:
+        out += expand(piece, f"{BUF:o}")
+        out += f"""        MOV     #GST+{piece.dest}.,R1
+        MOV     #{piece.raw // 2}.,R2
         JSR     PC,CHUNK
 """
     return out
 
 
-def title_load(scrblk):
-    """Read the loading screen (block `scrblk` of FIST.DAT) into SCRBUF and
-    present it before the state loads."""
-    return f"""        ; --- the loading screen: read it into SCRBUF (plain RAM under RT-11),
-        ;     switch to the medium-res colour mode and present it - then load
-        ;     the game state behind it, as the tape loader did ---
-        .READW  #LKAREA,#0,#SCRBUF,#3456.,#{scrblk}.
-        BCC     .+6
-        JMP     LDERR
-        MTPS    #340
+def unpacker():
+    """The LZSS decoder, the same format FLOAD's copy decodes (see
+    source/lzss.py for the format and FLOAD.MAC for the other copy):
+    R1 = packed bytes, R2 = where they go, R3 = bytes to produce."""
+    return """        ; UNPK: LZSS - a flag byte, then eight items, low bit first; a set
+        ; bit is a literal byte, a clear one two bytes giving a distance of
+        ; up to 4095 and a length of 3..18.  A match copies from what is
+        ; already written, so a run comes out by itself.
+UNPK:   TST     R3
+        BEQ     29$
+21$:    CLR     R5
+        BISB    (R1)+,R5
+        BIS     #400,R5                ; a sentinel above the eight flags
+22$:    ASR     R5
+        BCC     23$
+        MOVB    (R1)+,(R2)+
+        DEC     R3
+        BR      28$
+23$:    CLR     R0
+        BISB    (R1)+,R0
+        CLR     R4
+        BISB    (R1)+,R4
+        MOV     R4,-(SP)
+        BIC     #177417,R4
+        ASL     R4
+        ASL     R4
+        ASL     R4
+        ASL     R4
+        ADD     R4,R0                  ; R0 = the distance
+        MOV     (SP)+,R4
+        BIC     #177760,R4
+        ADD     #3,R4                  ; 3..18
+        MOV     R2,-(SP)
+        SUB     R0,(SP)
+        MOV     (SP)+,R0
+24$:    MOVB    (R0)+,(R2)+
+        DEC     R3
+        BEQ     29$
+        SOB     R4,24$
+28$:    TST     R3
+        BEQ     29$
+        CMP     R5,#1                  ; the sentinel down to bit 0: eight done
+        BNE     22$
+        BR      21$
+29$:    RTS     PC
+"""
+
+
+def title_load(scr):
+    """Expand the loading screen into SCRBUF and present it before the state
+    loads."""
+    read = "".join(expand(p, f"SCRBUF+{p.dest}.") for p in scr)
+    return f"""        ; --- the loading screen: expand it into SCRBUF (plain RAM under
+        ;     RT-11), switch to the medium-res colour mode and present it -
+        ;     then load the game state behind it, as the tape loader did ---
+{read}        MTPS    #340
         MOVB    @#SYSC,R0
         BIC     #17,R0
         MOVB    R0,@#SYSC
@@ -96,21 +168,21 @@ def after_load(withbg):
 """
 
 
-def boot(withbg, nblocks, scrblk):
+def boot(withbg, pieces, scr):
     """BOOT: .FETCH / .LOOKUP FIST.DAT, the loading screen, the chunk reads,
     the hold.  Boot-only code: it lives in the dojo block at 0100000 when
     there is one (banks 0-1 are full) and runs there at RT-11's all-primary
     banking; the chunk copies (which hide banks 4-6) go through CHUNK in
     banks 0-1."""
-    title = title_load(scrblk) if withbg else ""
+    title = title_load(scr) if withbg else ""
     return f"""BOOT:   .FETCH  #HSPACE,#DATFIL
         BCC     .+6
         JMP     LDERR
         .LOOKUP #LKAREA,#0,#DATFIL
         BCC     .+6
         JMP     LDERR
-{title}{reads(nblocks)}        .CLOSE  #0
-{after_load(withbg)}"""
+{title}{reads(pieces)}        .CLOSE  #0
+{after_load(withbg)}{unpacker()}"""
 
 
 def start(boot_inline, dojo_boot):

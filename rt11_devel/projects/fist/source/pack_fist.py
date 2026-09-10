@@ -9,16 +9,18 @@ SABOT2 ships a tiny .SAV and a big .DAT.
 The program's pieces are appended to FIST.DAT, so the game keeps two files
 rather than gaining a third:
 
-    blocks 0..N-1   FIST.DAT exactly as the build made it - the game's own
-                    loader reads it from block 0 and is untouched
-    blocks N..      the program's regions, LZSS-packed where that helps and
-                    each block-aligned, so one .READW brings a whole region
-    the last block  the table: the count, then (load address, word count,
-                    start block, packed byte count) per region - a packed
-                    count of zero means the region is stored as it is
+    the front     FIST.DAT exactly as the build made it - the game's own
+                  packed pieces, which its own loader reads and is told
+                  about in its generated source
+    behind it     the program's regions, LZSS-packed, following each other
+                  byte for byte
+    the tail      the table: (load address, word count, start block, byte
+                  offset into it, packed length) per region, and the count
+                  as the file's very last word
 
 FLOAD.MAC finds the table without being told where it is: .LOOKUP hands
-back the file's length in blocks, and the table is the last one.
+back the file's length in blocks, the count is the last word of the last
+one, and the entries are the ten bytes each in front of it.
 
 `verify()` puts the pieces back together and checks the result is the image
 they came from, byte for byte, and that the game's own part of the file did
@@ -66,44 +68,45 @@ def regions(image: bytes) -> list[tuple[int, int]]:
 
 
 def pack(image: bytes, dat: bytes) -> tuple[bytes, list[tuple[int, int]]]:
-    """FIST.DAT with the program's regions and their table appended."""
-    assert len(dat) % BLOCK == 0, 'the data file is not a whole number of blocks'
+    """FIST.DAT with the program's regions and their table appended.
+
+    Regions follow each other byte for byte - a read is whole blocks, so the
+    table says which block a region starts in and how far into it - and the
+    table sits at the very end of the file, its count the last word, so
+    .LOOKUP's length is all the loader needs to find it."""
     regs = regions(image)
-    first = len(dat) // BLOCK
-    body, table, blk = b'', [len(regs)], first
+    body, table = bytearray(dat), []
     for start, end in regs:
         piece = image[start:end]
         squeezed = lzss.compress(piece)
-        stored, n = ((squeezed, len(squeezed)) if len(squeezed) < len(piece)
-                     else (piece, 0))       # a zero count: stored as it is
-        pad = (-len(stored)) % BLOCK
-        table += [start, len(piece) // 2, blk, n]
-        body += stored + b'\0' * pad
-        blk += (len(stored) + pad) // BLOCK
+        assert len(squeezed) < len(piece),             f'region {start:#o} does not pack ({len(squeezed)} >= {len(piece)})'
+        at = len(body)
+        table += [start, len(piece) // 2, at // 512, at % 512, len(squeezed)]
+        body += squeezed
+    table += [len(regs)]                          # the count is the last word
     head = struct.pack(f'<{len(table)}H', *table)
-    return dat + body + head + b'\0' * (BLOCK - len(head)), regs
+    size = -(-(len(body) + len(head)) // BLOCK) * BLOCK
+    return bytes(body) + b'\0' * (size - len(body) - len(head)) + head, regs
 
 
 def unpack(packed: bytes, size: int) -> bytes:
     """What the loader does, in Python: the image the pieces rebuild."""
-    table = packed[-BLOCK:]
+    n = struct.unpack_from('<H', packed, len(packed) - 2)[0]
+    at = len(packed) - 2 - 10 * n
     out = bytearray(size)
-    n = struct.unpack_from('<H', table, 0)[0]
     for k in range(n):
-        addr, words, blk, clen = struct.unpack_from('<4H', table, 2 + 8 * k)
-        raw = packed[blk * BLOCK:]
-        piece = (lzss.decompress(raw[:clen], 2 * words) if clen
-                 else raw[:2 * words])
-        out[addr:addr + 2 * words] = piece
+        addr, words, blk, off, clen = struct.unpack_from('<5H', packed, at + 10 * k)
+        raw = packed[blk * BLOCK + off:][:clen]
+        out[addr:addr + 2 * words] = lzss.decompress(raw, 2 * words)
     return bytes(out)
 
 
 def already_packed(dat: bytes) -> bool:
-    """A table in the last block means this file has been packed before."""
-    if len(dat) < 2 * BLOCK:
+    """A count in the file's last word means this file has been packed."""
+    if len(dat) < 2 * BLOCK or len(dat) % BLOCK:
         return False
-    n = struct.unpack_from('<H', dat, len(dat) - BLOCK)[0]
-    return 1 <= n <= 32 and 2 + 8 * n <= BLOCK
+    n = struct.unpack_from('<H', dat, len(dat) - 2)[0]
+    return 1 <= n <= 32 and 2 + 10 * n <= BLOCK
 
 
 def main(argv: list[str]) -> int:
