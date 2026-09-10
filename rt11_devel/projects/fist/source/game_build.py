@@ -290,6 +290,8 @@ def _datblk(lb_words, withbg):
               "KTG:    .WORD   0\nKTH:    .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\nTWOUP:  .WORD   0\n"
               "KHOLD:  .WORD   0    ; what the chord rule refreshes a timer to:\n"
               "                     ;   a make code is worth more than a repeat\n"
+              "CREM:   .WORD   0    ; the cells left over when the overlay\n"
+              "                     ;   runs out of groups of four\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRPHASE: .WORD   0\nRANKB:  .WORD   0\n"
               "        .EVEN\nKOPT:   .WORD   0\nSETPLY: .WORD   0\nSNDENA: .WORD   1\n"

@@ -347,16 +347,47 @@ CDDN:   MOV     ROWN,R0              ; --- fighter 1 ---
         ASL     R4
         ADD     R4,R0
         MOV     SRC1,R1
-C1OV:   MOVB    (R1)+,R4
-        BEQ     C1TR                 ; zero cell = fully transparent (dojo shows)
-        BISB    R4,(R0)              ; OR the fighter pixels into the background cell.
-                                     ;   MOVB sign-extended R4, but BISB takes the low
-                                     ;   byte alone - clearing the high one was work
-                                     ;   nobody read, in the busiest loop of the frame
+        ; The overlay, four cells to a turn: DEC and BNE are two of the
+        ; seven instructions a cell costs, and this is the busiest loop
+        ; of the frame.  A zero cell is fully transparent - the dojo
+        ; shows - and MOVB sign-extends into R4, which BISB does not
+        ; mind: it takes the low byte alone.
+        MOV     R3,CREM              ; the cells that do not fill a
+        BIC     #177774,CREM         ;   group of four, 0..3
+        ASR     R3
+        ASR     R3                   ; and the groups themselves
+        BEQ     C1R1
+C1OV:  MOVB    (R1)+,R4
+        BEQ     41$
+        BISB    R4,(R0)
         {ovl_ink}
-C1TR:   TST     (R0)+
+41$:    TST     (R0)+
+        MOVB    (R1)+,R4
+        BEQ     42$
+        BISB    R4,(R0)
+        {ovl_ink}
+42$:    TST     (R0)+
+        MOVB    (R1)+,R4
+        BEQ     43$
+        BISB    R4,(R0)
+        {ovl_ink}
+43$:    TST     (R0)+
+        MOVB    (R1)+,R4
+        BEQ     44$
+        BISB    R4,(R0)
+        {ovl_ink}
+44$:    TST     (R0)+
         DEC     R3
         BNE     C1OV
+C1R1:  TST     CREM
+        BEQ     C1AD
+C1R2:  MOVB    (R1)+,R4
+        BEQ     45$
+        BISB    R4,(R0)
+        {ovl_ink}
+45$:    TST     (R0)+
+        DEC     CREM
+        BNE     C1R2
 C1AD:   ADD     BWID1,SRC1           ; next compose row (full stride)
 C1SK:   MOV     ROWN,R0              ; --- fighter 2 ---
         CMP     R0,TOP2
@@ -370,13 +401,42 @@ C1SK:   MOV     ROWN,R0              ; --- fighter 2 ---
         ASL     R4
         ADD     R4,R0
         MOV     SRC2,R1
-C2OV:   MOVB    (R1)+,R4
-        BEQ     C2TR
-        BISB    R4,(R0)              ; OR the fighter pixels into the background cell
+        MOV     R3,CREM              ; the cells that do not fill a
+        BIC     #177774,CREM         ;   group of four, 0..3
+        ASR     R3
+        ASR     R3                   ; and the groups themselves
+        BEQ     C2R1
+C2OV:  MOVB    (R1)+,R4
+        BEQ     51$
+        BISB    R4,(R0)
         {ovl_ink}
-C2TR:   TST     (R0)+
+51$:    TST     (R0)+
+        MOVB    (R1)+,R4
+        BEQ     52$
+        BISB    R4,(R0)
+        {ovl_ink}
+52$:    TST     (R0)+
+        MOVB    (R1)+,R4
+        BEQ     53$
+        BISB    R4,(R0)
+        {ovl_ink}
+53$:    TST     (R0)+
+        MOVB    (R1)+,R4
+        BEQ     54$
+        BISB    R4,(R0)
+        {ovl_ink}
+54$:    TST     (R0)+
         DEC     R3
         BNE     C2OV
+C2R1:  TST     CREM
+        BEQ     C2AD
+C2R2:  MOVB    (R1)+,R4
+        BEQ     55$
+        BISB    R4,(R0)
+        {ovl_ink}
+55$:    TST     (R0)+
+        DEC     CREM
+        BNE     C2R2
 C2AD:   ADD     BWID2,SRC2
 C2SK:   BIT     #17,ROWN             ; every 16 rows: the pace's clock sample
         BNE     C2BL
