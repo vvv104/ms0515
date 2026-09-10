@@ -349,8 +349,10 @@ CDDN:   MOV     ROWN,R0              ; --- fighter 1 ---
         MOV     SRC1,R1
 C1OV:   MOVB    (R1)+,R4
         BEQ     C1TR                 ; zero cell = fully transparent (dojo shows)
-        BIC     #177400,R4
-        BISB    R4,(R0)              ; OR the fighter pixels into the background cell
+        BISB    R4,(R0)              ; OR the fighter pixels into the background cell.
+                                     ;   MOVB sign-extended R4, but BISB takes the low
+                                     ;   byte alone - clearing the high one was work
+                                     ;   nobody read, in the busiest loop of the frame
         {ovl_ink}
 C1TR:   TST     (R0)+
         DEC     R3
@@ -370,7 +372,6 @@ C1SK:   MOV     ROWN,R0              ; --- fighter 2 ---
         MOV     SRC2,R1
 C2OV:   MOVB    (R1)+,R4
         BEQ     C2TR
-        BIC     #177400,R4
         BISB    R4,(R0)              ; OR the fighter pixels into the background cell
         {ovl_ink}
 C2TR:   TST     (R0)+

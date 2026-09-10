@@ -33,6 +33,7 @@ program changes, only where its bytes are kept.
 """
 from __future__ import annotations
 
+import os
 import struct
 import sys
 from pathlib import Path
@@ -136,7 +137,12 @@ def main(argv: list[str]) -> int:
     # what put a strip of noise along the bottom of the picture once.
     hilim = struct.unpack_from('<H', image, 0o50)[0]     # LINK's high limit
     top = hilim + 6912 + 12288
-    if top > 0o160000:
+    if top > 0o160000 and os.environ.get('FIST_SYMTAB'):
+        print(f'{sav.name}: WARNING - the symbol table pushes the program to '
+              f'{hilim:#o}, {top - 0o160000} bytes past what SCRBUF and DOJOBUF '
+              f'have room for.  A profiling build, so it goes on: the dojo will '
+              f'lose its bottom rows.')
+    elif top > 0o160000:
         print(f'{sav.name}: the program ends at {hilim:#o}, which is '
               f'{top - 0o160000} bytes too high - SCRBUF and DOJOBUF above it '
               f'would reach {top:#o}, past the I/O page at 0160000',

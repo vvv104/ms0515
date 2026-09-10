@@ -7,6 +7,8 @@
  */
 #include "FistGame.hpp"
 
+#include <map>
+
 #include <algorithm>
 #include <string>
 
@@ -104,6 +106,44 @@ TEST_CASE("fist: match transition log (diagnostic)")
 // --fist-profile-out=<file>: sample the PC per instruction during a real fight
 // (--fist-profile-steps, default 3M) - "octal count" per distinct PC.  A
 // FIST_SYMTAB=1 build + source/profile_agg.py map the samples to routines.
+// --fist-pace-hist: the length of every game frame, in host frames (20 ms
+// each), so a systematic loss can be told from occasional long frames.
+TEST_CASE("fist: pace histogram (diagnostic)")
+{
+    if (fist::opt("pace-hist").empty() || !fist::built()) {
+        MESSAGE("--fist-pace-hist not given - skipping");
+        return;
+    }
+    FistGame g("fist_paceh_lib");
+    auto frames = [&]() { return g.gst(0xB158) + 256 * g.gst(0xB159); };
+    for (int pass = 0; pass < 3; ++pass) {
+        if (pass == 1) { g.startGame(); g.parkP2(); }
+        if (pass == 2) { g.poke(0xAA46, 1); }        /* P2 back on the AI */
+        int last = frames(), gap = 0;
+        std::map<int, int> hist;
+        for (int i = 0; i < 600; ++i) {
+            if (pass == 2 && i % 9 == 0)             /* P1 attacking, too */
+                g.emu.keyPress(ms0515::Key::Space, (i / 9) % 2 == 0);
+            g.step();
+            ++gap;
+            int now = frames();
+            if (now != last) { hist[gap] += 1; last = now; gap = 0; }
+        }
+        std::string line;
+        int total = 0, sum = 0;
+        for (auto &kv : hist) { total += kv.second; sum += kv.first * kv.second; }
+        for (auto &kv : hist) {
+            char b[64];
+            snprintf(b, sizeof b, "%d host frames: %d;  ", kv.first, kv.second);
+            line += b;
+        }
+        std::string what = pass == 0 ? "the demo" : pass == 1 ? "a quiet game" : "a real fight";
+        MESSAGE(what << ": " << line << " mean "
+                << (total ? 20.0 * sum / total : 0.0) << " ms");
+    }
+    CHECK(true);
+}
+
 TEST_CASE("fist: PC profile (diagnostic)")
 {
     std::string outPath = fist::opt("profile-out");
