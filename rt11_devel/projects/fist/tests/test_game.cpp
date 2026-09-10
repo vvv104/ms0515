@@ -513,6 +513,62 @@ TEST_CASE("fist: 2 in the demo starts a 2-player game; player 2 on Q W E / A S D
     if (!out.empty()) g.dumpVram(out);
 }
 
+TEST_CASE("fist: a direction stops when it is let go, not when the repeats stop")
+{
+    if (!fist::built()) { MESSAGE("FIST not built - skipping"); return; }
+    FistGame g("fist_hold_lib");
+    g.startGame();
+    g.parkP2();
+    g.resetFighters();
+    g.settle(20);
+
+    /* The MS7004 sends no release codes, so a held control is a timer the
+     * keyboard's auto-repeat refreshes.  Two things a fighter feels. */
+
+    /* One: walking.  Forward moves the fighter's x ($AA19) once a game
+     * frame, so the host frames of movement after the key is up are the
+     * ghost hold, end to end. */
+    g.emu.keyPress(ms0515::Key::Kp6, true);
+    g.settle(40);                                   /* long enough to repeat */
+    g.emu.keyPress(ms0515::Key::Kp6, false);
+    uint8_t was = g.gst(0xAA19);
+    int still = 0, frames = 0;
+    for (; frames < 120 && still < 12; ++frames) {
+        g.step();
+        uint8_t now = g.gst(0xAA19);
+        still = (now == was) ? still + 1 : 0;
+        was = now;
+    }
+    const int walked = frames - still;
+    g.settle(30);
+
+    /* Two: the chord.  Fire and forward is a kick; let forward go with fire
+     * still down and the kick must stop coming.  Fire repeats every 50 ms,
+     * and while any event refreshed every timer by the full hold, those
+     * repeats kept forward alive for as long as fire was held. */
+    g.resetFighters();
+    g.settle(20);
+    g.emu.keyPress(ms0515::Key::Kp5, true);         /* fire */
+    g.emu.keyPress(ms0515::Key::Kp6, true);         /* + forward: a kick */
+    g.settle(40);
+    g.emu.keyPress(ms0515::Key::Kp6, false);        /* forward up, fire still down */
+    g.settle(20);                                    /* let the kick in flight end */
+    int kicks = 0;
+    for (int i = 0; i < 80; ++i) {
+        g.step();
+        if (g.gst(0xAA05) == 12) ++kicks;            /* fire+forward, still */
+    }
+    g.emu.keyPress(ms0515::Key::Kp5, false);
+
+    MESSAGE("after the key is up: " << walked << " host frames of walking; "
+            << kicks << " frames still asking for the fire+forward kick");
+
+    /* A game frame is about four host frames, and one is all the slack a
+     * repeat needs to buy. */
+    CHECK(walked <= 12);
+    CHECK(kicks == 0);
+}
+
 TEST_CASE("fist: the pace is the original's, 13 frames a second")
 {
     if (!fist::built()) { MESSAGE("FIST not built - skipping"); return; }

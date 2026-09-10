@@ -57,13 +57,17 @@ KSCAN_NOTE = """        ; --- KSCAN: drain the MS7004 keyboard into the control 
         ; The MS7004 sends make codes only: no release codes, auto-repeat for
         ; the LAST regular key, modifiers emit their own code on every press
         ; and ALL-UP once everything is released.  So each control (UP, DOWN,
-        ; LEFT, RIGHT, FIRE) of each player has a hold timer: a key's make /
-        ; repeat code sets its timer to KTMR frames, and - the CHORD rule -
-        ; refreshes every other timer still running: keys pressed together
-        ; stay "held" as long as any one of them repeats (the keyboard only
-        ; repeats the last one).  A key released less than KTMR before the
-        ; next press is read as part of the chord - the price of a keyboard
-        ; without release codes.  Each player's keys are a table of (scancode,
+        ; LEFT, RIGHT, FIRE) of each player has a hold timer, and - the CHORD
+        ; rule - any key event refreshes every timer still running: keys
+        ; pressed together stay "held" as long as any one of them repeats,
+        ; since the keyboard repeats only the last one.
+        ; How long depends on what arrived.  A make code has to bridge the
+        ; 125 ms before that key's first repeat, so it holds for KMAKE
+        ; frames.  The auto-repeat code says only that SOME key is still
+        ; down, and in the game preset it comes every 50 ms - inside a game
+        ; frame - so it holds for KREP: one frame, no more.  That is what
+        ; lets a direction released while fire is held drop out at once
+        ; instead of riding fire's repeats.  Each player's keys are a table of (scancode,
         ; bits) pairs - the defaults DEF1 (the keypad, the arrows, Space / VR /
         ; SU) and DEF2 (Q W E / A S D / Z X C, S = fire), or the nine keys the
         ; settings screen defined (KEYTAB / KEYTB2); the fixed keys ("1", "2",
@@ -73,7 +77,7 @@ KSCAN_NOTE = """        ; --- KSCAN: drain the MS7004 keyboard into the control 
 """
 
 
-def kscan(ktmout):
+def kscan(ktmout, krep):
     """KSCAN: drain the MS7004 keyboard into the hold timers; KMATCH: one
     player's key table against a scancode."""
     return KSCAN_NOTE + f"""KSCAN:  CLR     R2                   ; poll budget: none until a byte was read
@@ -96,9 +100,13 @@ KS1:    MOVB    @#177440,R0          ; read the scancode
         DEC     R1
         BNE     2$
         BR      KS0
-1$:     JSR     PC,KREFR             ; any key event: refresh the running timers
-        CMP     R0,#254              ; auto-repeat code (real MS7004): that is all
-        BEQ     KS0
+1$:     CMP     R0,#254              ; the auto-repeat code: some key is still
+        BNE     11$                  ;   down, but the keyboard will not say which
+        MOV     #{krep}.,KHOLD       ; so the chord gets a frame, not a hold
+        JSR     PC,KREFR
+        BR      KS0
+11$:    MOV     #{ktmout}.,KHOLD     ; a real key event: the full hold
+        JSR     PC,KREFR
         CMP     R0,#300              ; "1": start a 1-player game from the demo
         BNE     15$
         MOV     #1,KSTART
@@ -154,14 +162,15 @@ KMATCH: MOVB    (R3)+,R1
 """
 
 
-def kctrl(ktmout):
+def kctrl(ktmout, krep):
     """KREFR (the chord rule) and KCTRL (one player's timers -> control bits)."""
-    return f"""        ; KREFR: the chord rule - every timer still running gets the full hold
+    return f"""        ; KREFR: the chord rule - every timer still running is refreshed to
+        ; KHOLD, which the caller sets to what the event is worth.
 KREFR:  MOV     #KTUP,R3
         MOV     #12.,R4
 1$:     TST     (R3)
         BEQ     2$
-        MOV     #{ktmout}.,(R3)
+        MOV     KHOLD,(R3)
 2$:     TST     (R3)+
         DEC     R4
         BNE     1$

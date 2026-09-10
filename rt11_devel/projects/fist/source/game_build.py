@@ -44,10 +44,14 @@ LDAT_BASE, LDAT_END = 0x9368, 0x9600
 # or run off the screen (both showed as garbage).  LOWBUF holds the largest
 # clamped box.
 FWMAX = 40
-KTMOUT = 3                                   # game frames a control stays held after its last event:
-                                             # the MS7004 game preset repeats after 125 ms then every
-                                             # 50 ms, so three frames bridge the first gap (a TAP = 1-3
-                                             # steps); 7 was a 1.5 s ghost hold at ~7 game-fps
+KTMOUT = 2                                   # game frames a MAKE code holds a control: the MS7004
+                                             # game preset repeats after 125 ms, and two frames
+                                             # (~154 ms) bridge that gap.  A tap is 1-2 steps.
+KTREP = 1                                    # what the auto-repeat code holds for.  It says only that
+                                             # some key is down, and it comes every 50 ms - inside a
+                                             # frame - so one frame is enough to keep a chord alive,
+                                             # and a released key drops within one frame instead of
+                                             # riding another key's repeats
 CAP = 120                                    # game frames that cap a round-end wait
 PAUSE = 40                                   # the $AF1A x2 pause after a time-out: held frames (~33 ms each) -> ~1.3 s
 
@@ -219,7 +223,7 @@ def _driver(withbg, snap, lb_words, boot_code, bgn):
             + game_round.demo() + game_compose.pace()
             + rendbg + text
             + game_sound.stub()
-            + game_keys.kscan(KTMOUT) + game_keys.kctrl(KTMOUT)
+            + game_keys.kscan(KTMOUT, KTREP) + game_keys.kctrl(KTMOUT, KTREP)
             + game_keys.c98a0(game_keys.control_map()))
 
 
@@ -284,6 +288,8 @@ def _datblk(lb_words, withbg):
               "KTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\n"
               "KT2UP:  .WORD   0\nKT2DN:  .WORD   0\nKT2LF:  .WORD   0\nKT2RT:  .WORD   0\nKT2FR:  .WORD   0\n"
               "KTG:    .WORD   0\nKTH:    .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\nTWOUP:  .WORD   0\n"
+              "KHOLD:  .WORD   0    ; what the chord rule refreshes a timer to:\n"
+              "                     ;   a make code is worth more than a repeat\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRPHASE: .WORD   0\nRANKB:  .WORD   0\n"
               "        .EVEN\nKOPT:   .WORD   0\nSETPLY: .WORD   0\nSNDENA: .WORD   1\n"
