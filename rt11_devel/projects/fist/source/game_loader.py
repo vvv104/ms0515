@@ -12,9 +12,11 @@ Every function returns MACRO-11 text; game_build.py assembles the game.
 # which is what MAX_PACKED leaves room for.
 CHUNK = 8                                    # blocks a piece expands to (4 KB)
 BUF = 0o100000 - CHUNK * 512
-STAGE = 0o57600                              # packed bytes are read here
+UNPK = 0o57600       # the decoder FLOAD copied into the hole and left there
+STAGE = 0o60200                              # packed bytes are read here,
+                                             #   clear of that decoder
 STAGE_ROOM = BUF - STAGE                     # 4224 B
-MAX_PACKED = 3584                            # + a 511-byte offset = 8 whole blocks
+MAX_PACKED = 3072                            # + a 511-byte offset = 7 whole blocks
 
 
 class Piece:
@@ -40,85 +42,81 @@ def preamble():
         "EXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
 
 
-def expand(piece, into):
-    """Read a piece and expand it - the packed bytes into STAGE, the result
-    at `into`.  Whole blocks are read, so the piece starts `offset` in."""
-    assert piece.packed, "a stored piece would have to be block-aligned"
-    assert piece.blocks() * 512 <= STAGE_ROOM, "the packed piece overruns STAGE"
-    return f"""        .READW  #LKAREA,#0,#{STAGE:o},#{piece.blocks() * 256}.,#{piece.block}.
-        BCC     .+6
-        JMP     LDERR
-        MOV     #{STAGE + piece.offset:o},R1
-        MOV     #{into},R2
-        MOV     #{piece.raw}.,R3
-        JSR     PC,UNPK
-"""
-
-
-def reads(pieces):
-    """Every GST piece: read, expand into BUF, copy up into the banks."""
+def entries(pieces):
+    """Four words a piece: the block it starts in, the words the read must
+    cover, its byte offset into that block, and the bytes it expands to."""
     out = ""
-    for piece in pieces:
-        out += expand(piece, f"{BUF:o}")
-        out += f"""        MOV     #GST+{piece.dest}.,R1
-        MOV     #{piece.raw // 2}.,R2
-        JSR     PC,CHUNK
-"""
+    for pc in pieces:
+        assert pc.packed, "a stored piece would have to be block-aligned"
+        assert pc.blocks() * 512 <= STAGE_ROOM, "the packed piece overruns STAGE"
+        out += (f"        .WORD   {pc.block}., {pc.blocks() * 256}., "
+                f"{pc.offset}., {pc.raw}.\n")
     return out
 
 
-def unpacker():
-    """The LZSS decoder, the same format FLOAD's copy decodes (see
-    source/lzss.py for the format and FLOAD.MAC for the other copy):
-    R1 = packed bytes, R2 = where they go, R3 = bytes to produce."""
-    return """        ; UNPK: LZSS - a flag byte, then eight items, low bit first; a set
-        ; bit is a literal byte, a clear one two bytes giving a distance of
-        ; up to 4095 and a length of 3..18.  A match copies from what is
-        ; already written, so a run comes out by itself.
-UNPK:   TST     R3
-        BEQ     29$
-21$:    CLR     R5
-        BISB    (R1)+,R5
-        BIS     #400,R5                ; a sentinel above the eight flags
-22$:    ASR     R5
-        BCC     23$
-        MOVB    (R1)+,(R2)+
-        DEC     R3
-        BR      28$
-23$:    CLR     R0
-        BISB    (R1)+,R0
-        CLR     R4
-        BISB    (R1)+,R4
-        MOV     R4,-(SP)
-        BIC     #177417,R4
-        ASL     R4
-        ASL     R4
-        ASL     R4
-        ASL     R4
-        ADD     R4,R0                  ; R0 = the distance
-        MOV     (SP)+,R4
-        BIC     #177760,R4
-        ADD     #3,R4                  ; 3..18
-        MOV     R2,-(SP)
-        SUB     R0,(SP)
-        MOV     (SP)+,R0
-24$:    MOVB    (R0)+,(R2)+
-        DEC     R3
-        BEQ     29$
-        SOB     R4,24$
-28$:    TST     R3
-        BEQ     29$
-        CMP     R5,#1                  ; the sentinel down to bit 0: eight done
+def tables(gst, scr):
+    """The GST's pieces and the loading screen's, and how many of each."""
+    return ("GSTTAB:\n" + entries(gst) +
+            "SCRTAB:\n" + entries(scr) +
+            f"NGST   = {len(gst)}.\nNSCR   = {len(scr)}.\n")
+
+
+def runner():
+    """LOADP - work through a table of pieces.
+
+    R0 = the first entry, R1 = where the first piece goes (0 means the
+    parked extended banks, through BUF and CHUNK), R2 = how many entries.
+    Everything lives on the stack across the calls: the decoder uses every
+    register, and CHUNK all but R3."""
+    return f"""        ; LOADP: R0 = &entries, R1 = destination (0 = the banks), R2 = count
+LOADP:  MOV     R1,-(SP)               ; 4(SP): the destination
+        MOV     R2,-(SP)               ; 2(SP): entries left
+        MOV     R0,-(SP)               ; 0(SP): the entry
+20$:    MOV     @SP,R4
+        MOV     #LKAREA,R0
+        MOV     #4000,(R0)             ; .READW (code 8), channel 0
+        MOV     (R4)+,2(R0)            ; the block it starts in
+        MOV     #{STAGE:o},4(R0)
+        MOV     (R4)+,6(R0)            ; words the read must cover
+        CLR     10(R0)
+        EMT     375
+        BCC     21$
+        JMP     LDERR
+21$:    MOV     #{STAGE:o},R1
+        ADD     (R4)+,R1               ; + the byte offset into that block
+        MOV     (R4)+,R3               ; bytes to produce
+        MOV     R4,@SP                 ; the next entry
+        MOV     R3,-(SP)               ; the size, across the decoder
+        MOV     6(SP),R2               ; where it expands to
         BNE     22$
-        BR      21$
-29$:    RTS     PC
+        MOV     #{BUF:o},R2            ; the banks: through the buffer
+22$:    JSR     PC,@#{UNPK:o}
+        MOV     (SP)+,R3
+        MOV     4(SP),R1
+        BNE     23$
+        MOV     R3,R2                  ; into the banks: words to copy
+        ASR     R2
+        MOV     GDEST,R1
+        JSR     PC,CHUNK
+        ADD     R3,GDEST
+        BR      24$
+23$:    ADD     R3,4(SP)               ; the next piece follows this one
+24$:    DEC     2(SP)
+        BNE     20$
+        ADD     #6,SP
+        RTS     PC
+GDEST:  .WORD   GST
 """
 
 
 def title_load(scr):
     """Expand the loading screen into SCRBUF and present it before the state
     loads."""
-    read = "".join(expand(p, f"SCRBUF+{p.dest}.") for p in scr)
+    read = """        MOV     #SCRTAB,R0
+        MOV     #SCRBUF,R1
+        MOV     #NSCR,R2
+        JSR     PC,LOADP
+"""
     return f"""        ; --- the loading screen: expand it into SCRBUF (plain RAM under
         ;     RT-11), switch to the medium-res colour mode and present it -
         ;     then load the game state behind it, as the tape loader did ---
@@ -181,8 +179,12 @@ def boot(withbg, pieces, scr):
         .LOOKUP #LKAREA,#0,#DATFIL
         BCC     .+6
         JMP     LDERR
-{title}{reads(pieces)}        .CLOSE  #0
-{after_load(withbg)}{unpacker()}"""
+{title}        MOV     #GSTTAB,R0
+        CLR     R1                     ; 0: into the parked extended banks
+        MOV     #NGST,R2
+        JSR     PC,LOADP
+        .CLOSE  #0
+{after_load(withbg)}{runner()}{tables(pieces, scr)}"""
 
 
 def start(boot_inline, dojo_boot):
