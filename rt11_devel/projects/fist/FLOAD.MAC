@@ -48,11 +48,19 @@ DISPAT = 177400                        ; the memory dispatcher
 SYSC   = 177604                        ; System Register C (border + video mode)
 DPRIM  = 2177                          ; every bank primary - RT-11's own setting
 DEXT3  = 2167                          ; bank 3 extended: the scratch
-DEXT35 = 2127                          ; banks 3 and 5 extended: + the last region
+DEXT23 = 2163                          ; banks 2 and 3 extended: the scratch and
+                                       ;   the room the last region expands into
+DEXT2  = 2173                          ; bank 2 alone, for the copy down
 DPIC   = 6367                          ; bank 3 extended, VRAM on at 0100000
+DGST   = 2007                          ; banks 3..6 extended: the scratch and
+                                       ;   the GST's home together
+GSTBAS = 100000                        ; where the game reads the GST, in the
+                                       ;   extended banks
 SCRAT  = 60000                         ; extended bank 3: packed bytes land here,
                                        ;   and the picture expands here first
-EXPBUF = 120000                        ; extended bank 5: the last region, expanded
+EXPBUF = 40000                         ; extended bank 2: the last region, expanded.
+                                       ;   Not bank 5 - the GST lives in 4, 5 and 6 -
+                                       ;   and not banks 0 or 1, where it lands.
 VRAMW  = 100000                        ; the VRAM window while the picture goes up
 LOWST  = 400                           ; the copier: past the vectors, below 01000
 LMARG  = 8.                            ; the picture is 256 px in 320: 8 bytes in
@@ -84,17 +92,46 @@ START:  MOV     #STACK,SP
         JSR     PC,ZERO                ;   buffers up there are .BLKB, never
                                        ;   stored, and the game wants them zero
 
-        ; The count is the table block's last word and the entries are the
-        ; ten bytes each in front of it.
+        ; The table's two halves, from the end of the block: the count of
+        ; program regions, the image's top, those regions, the count of GST
+        ; pieces, and the GST's pieces.
         MOV     #TABBUF+774,R4         ; the top; the count is the word after
-        MOV     2(R4),R5               ; the region count
+        MOV     2(R4),R5               ; how many program regions
         MOV     R5,R0
-        ASL     R0                     ; 2n
-        MOV     R0,R1
-        ASL     R1
-        ASL     R1                     ; 8n
-        ADD     R1,R0                  ; 10n - the entries' length in bytes
-        SUB     R0,R4                  ; the first entry
+        JSR     PC,TENB
+        SUB     R0,R4                  ; the first program entry
+        MOV     R4,-(SP)               ; keep it: the GST comes first
+        MOV     R5,-(SP)
+
+        ; The GST: expanded into the extended banks, where the game reads it.
+        ; Nothing of the monitor's is touched - the banks are invisible to it.
+        MOV     -(R4),R5               ; how many GST pieces
+        MOV     R5,R0
+        JSR     PC,TENB
+        SUB     R0,R4                  ; the first GST entry
+21$:    MOV     (R4)+,EADR             ; a byte offset into the GST
+        MOV     (R4)+,ECNT
+        MOV     (R4)+,EBLK
+        MOV     (R4)+,EOFF
+        MOV     (R4)+,ELEN
+        MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        JSR     PC,FETCH
+        MOV     #DGST,@#DISPAT
+        MOV     #SCRAT,R1
+        ADD     EOFF,R1
+        MOV     EADR,R2
+        ADD     #GSTBAS,R2
+        MOV     ECNT,R3
+        ASL     R3
+        JSR     PC,PIC
+        MOV     #DPRIM,@#DISPAT
+        MOV     (SP)+,R5
+        MOV     (SP)+,R4
+        SOB     R5,21$
+
+        MOV     (SP)+,R5               ; back to the program's regions
+        MOV     (SP)+,R4
 
         ; Every region but the one that covers this loader.  That one is
         ; remembered by its entry: the table block is in our own image and
@@ -126,7 +163,7 @@ START:  MOV     #STACK,SP
         MOV     (R0)+,EOFF
         MOV     (R0),ELEN
         JSR     PC,FETCH               ; its packed bytes into the scratch
-        MOV     #DEXT35,@#DISPAT
+        MOV     #DEXT23,@#DISPAT
         MOV     #SCRAT,R1
         ADD     EOFF,R1
         MOV     #EXPBUF,R2
@@ -208,6 +245,14 @@ RDBLK1: MOV     R4,-(SP)
         MOV     (SP)+,R4
         RTS     PC
 8$:     JMP     ERR
+
+        ; TENB: R0 = ten times R0 - an entry is ten bytes.
+TENB:   ASL     R0                     ; 2n
+        MOV     R0,R1
+        ASL     R1
+        ASL     R1                     ; 8n
+        ADD     R1,R0                  ; 10n
+        RTS     PC
 
         ; ZERO: R0 = from, R1 = to (exclusive).
 ZERO:   CMP     R0,R1
@@ -345,7 +390,7 @@ PIC:    TST     R3
         ; the last region down out of extended bank 5 and enters the game.
         ; Nothing here is PC-relative, and low memory is primary whatever
         ; the dispatcher says, so it survives its own bank switches.
-COPY:   MOV     #DEXT35,@#DISPAT
+COPY:   MOV     #DEXT2,@#DISPAT
         MOV     #EXPBUF,R0
         MOV     #1000,R1
 20$:    MOV     (R0)+,(R1)+

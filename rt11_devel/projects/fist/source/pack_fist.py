@@ -14,10 +14,13 @@ rather than gaining a third:
                   about in its generated source
     behind it     the program's regions, LZSS-packed, following each other
                   byte for byte
-    the tail      the table: (load address, word count, start block, byte
-                  offset into it, packed length) per region, then the image's
-                  top - what the loader clears up to - and the count as the
-                  file's very last word
+    the tail      the table, in two halves.  From the end: the count of
+                  program regions, the image's top - what the loader clears
+                  up to - the program's regions (load address, word count,
+                  start block, byte offset into it, packed length; ten bytes
+                  each), the count of GST pieces, and the GST's pieces in
+                  the same shape.  Each count sits right after what it
+                  counts, so one length finds the lot.
 
 FLOAD.MAC finds the table without being told where it is: .LOOKUP hands
 back the file's length in blocks, the count is the last word of the last
@@ -76,7 +79,10 @@ def pack(image: bytes, dat: bytes) -> tuple[bytes, list[tuple[int, int]]]:
     table sits at the very end of the file, its count the last word, so
     .LOOKUP's length is all the loader needs to find it."""
     regs = regions(image)
-    body, table = bytearray(dat), []
+    gst = Path(__file__).resolve().parent.parent / 'gst_table.bin'
+    body = bytearray(dat)
+    table = list(struct.unpack(f'<{gst.stat().st_size // 2}H', gst.read_bytes()))
+    table.append(len(table) // 5)                 # how many GST pieces
     for start, end in regs:
         piece = image[start:end]
         squeezed = lzss.compress(piece)
@@ -85,6 +91,7 @@ def pack(image: bytes, dat: bytes) -> tuple[bytes, list[tuple[int, int]]]:
         table += [start, len(piece) // 2, at // 512, at % 512, len(squeezed)]
         body += squeezed
     table += [len(image), len(regs)]              # the top, then the count
+    assert 2 * len(table) <= BLOCK, 'the table outgrew its block'
     head = struct.pack(f'<{len(table)}H', *table)
     size = -(-(len(body) + len(head)) // BLOCK) * BLOCK
     return bytes(body) + b'\0' * (size - len(body) - len(head)) + head, regs
@@ -93,7 +100,7 @@ def pack(image: bytes, dat: bytes) -> tuple[bytes, list[tuple[int, int]]]:
 def unpack(packed: bytes, size: int) -> bytes:
     """What the loader does, in Python: the image the pieces rebuild."""
     n = struct.unpack_from('<H', packed, len(packed) - 2)[0]
-    at = len(packed) - 4 - 10 * n
+    at = len(packed) - 4 - 10 * n                 # the program's own entries
     out = bytearray(size)
     for k in range(n):
         addr, words, blk, off, clen = struct.unpack_from('<5H', packed, at + 10 * k)

@@ -35,123 +35,10 @@ def preamble():
     """The .TITLE, the .MCALLs and the I/O / banking equates."""
     return (
         "        .TITLE  FIST\n"
-        "        .MCALL  .FETCH,.LOOKUP,.READW,.CLOSE,.EXIT\n"
+        "        .MCALL  .EXIT\n"
         "DISPAT = 177400\nSYSC   = 177604\nVRAM   = 40000\nVRAMEN = 100000\n"
         f"KBST   = 177442\nGST    = 100000\nHSPACE = 30000\nBUF    = {BUF:o}\n"
         "EXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
-
-
-def entries(pieces):
-    """Four words a piece: the block it starts in, the words the read must
-    cover, its byte offset into that block, and the bytes it expands to."""
-    out = ""
-    for pc in pieces:
-        assert pc.packed, "a stored piece would have to be block-aligned"
-        assert pc.blocks() * 512 <= STAGE_ROOM, "the packed piece overruns STAGE"
-        out += (f"        .WORD   {pc.block}., {pc.blocks() * 256}., "
-                f"{pc.offset}., {pc.raw}.\n")
-    return out
-
-
-def tables(gst):
-    """The GST's pieces, and how many."""
-    return "GSTTAB:\n" + entries(gst) + f"NGST   = {len(gst)}.\n"
-
-
-def unpacker():
-    """The LZSS decoder, the same format the packer writes and FLOAD's own
-    copy decodes (source/lzss.py has the format): R1 = packed bytes,
-    R2 = where they go, R3 = bytes to produce."""
-    return """        ; UNPK: a flag byte, then eight items, low bit first; a set bit
-        ; is a literal byte, a clear one two bytes giving a distance of up
-        ; to 4095 and a length of 3..18.  A match copies from what is
-        ; already written, so a run comes out by itself.
-UNPK:   TST     R3
-        BEQ     39$
-31$:    CLR     R5
-        BISB    (R1)+,R5
-        BIS     #400,R5
-32$:    ASR     R5
-        BCC     33$
-        MOVB    (R1)+,(R2)+
-        DEC     R3
-        BR      38$
-33$:    CLR     R0
-        BISB    (R1)+,R0
-        CLR     R4
-        BISB    (R1)+,R4
-        MOV     R4,-(SP)
-        BIC     #177417,R4
-        ASL     R4
-        ASL     R4
-        ASL     R4
-        ASL     R4
-        ADD     R4,R0
-        MOV     (SP)+,R4
-        BIC     #177760,R4
-        ADD     #3,R4
-        MOV     R2,-(SP)
-        SUB     R0,(SP)
-        MOV     (SP)+,R0
-34$:    MOVB    (R0)+,(R2)+
-        DEC     R3
-        BEQ     39$
-        SOB     R4,34$
-38$:    TST     R3
-        BEQ     39$
-        CMP     R5,#1
-        BNE     32$
-        BR      31$
-39$:    RTS     PC
-"""
-
-
-def runner():
-    """LOADP - work through a table of pieces.
-
-    R0 = the first entry, R1 = where the first piece goes (0 means the
-    parked extended banks, through BUF and CHUNK), R2 = how many entries.
-    Everything lives on the stack across the calls: the decoder uses every
-    register, and CHUNK all but R3."""
-    return f"""        ; LOADP: R0 = &entries, R1 = destination (0 = the banks), R2 = count
-LOADP:  MOV     R1,-(SP)               ; 4(SP): the destination
-        MOV     R2,-(SP)               ; 2(SP): entries left
-        MOV     R0,-(SP)               ; 0(SP): the entry
-20$:    MOV     @SP,R4
-        MOV     #LKAREA,R0
-        MOV     #4000,(R0)             ; .READW (code 8), channel 0
-        MOV     (R4)+,2(R0)            ; the block it starts in
-        MOV     #{STAGE:o},4(R0)
-        MOV     (R4)+,6(R0)            ; words the read must cover
-        CLR     10(R0)
-        EMT     375
-        BCC     21$
-        JMP     LDERR
-21$:    MOV     #{STAGE:o},R1
-        ADD     (R4)+,R1               ; + the byte offset into that block
-        MOV     (R4)+,R3               ; bytes to produce
-        MOV     R4,@SP                 ; the next entry
-        MOV     R3,-(SP)               ; the size, across the decoder
-        MOV     6(SP),R2               ; where it expands to
-        BNE     22$
-        MOV     #{BUF:o},R2            ; the banks: through the buffer
-22$:    JSR     PC,UNPK
-        MOV     (SP)+,R3
-        MOV     4(SP),R1
-        BNE     23$
-        MOV     R3,R2                  ; into the banks: words to copy
-        ASR     R2
-        MOV     GDEST,R1
-        JSR     PC,CHUNK
-        ADD     R3,GDEST
-        BR      24$
-23$:    ADD     R3,4(SP)               ; the next piece follows this one
-24$:    DEC     2(SP)
-        BNE     20$
-        ADD     #6,SP
-        RTS     PC
-GDEST:  .WORD   GST
-"""
 
 
 def title_load():
@@ -199,24 +86,17 @@ def after_load(withbg):
 
 
 def boot(withbg, pieces):
-    """BOOT: .FETCH / .LOOKUP FIST.DAT, the loading screen, the chunk reads,
-    the hold.  Boot-only code: it lives in the dojo block at 0100000 when
-    there is one (banks 0-1 are full) and runs there at RT-11's all-primary
-    banking; the chunk copies (which hide banks 4-6) go through CHUNK in
-    banks 0-1."""
+    """BOOT: the video mode and the hold on the loading screen.
+
+    Nothing is read here any more.  FLOAD placed the program, expanded the
+    GST straight into the extended banks and put the picture up out of its
+    own image before any of it - so by the time this runs the machine is
+    ready and RT-11 is not needed again.  Boot-only code: it lives in the
+    dojo block at 0100000 when there is one."""
     title = title_load() if withbg else ""
-    return f"""BOOT:   .FETCH  #HSPACE,#DATFIL
-        BCC     .+6
-        JMP     LDERR
-        .LOOKUP #LKAREA,#0,#DATFIL
-        BCC     .+6
-        JMP     LDERR
-{title}        MOV     #GSTTAB,R0
-        CLR     R1                     ; 0: into the parked extended banks
-        MOV     #NGST,R2
-        JSR     PC,LOADP
-        .CLOSE  #0
-{after_load(withbg)}{runner()}{unpacker()}{tables(pieces)}"""
+    return f"""BOOT:
+{title}
+{after_load(withbg)}"""
 
 
 def start(boot_inline, dojo_boot):

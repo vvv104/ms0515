@@ -35,6 +35,7 @@ import gamelogic_ref as ref
 import gen_fist
 import setup_ref as sr
 from gst_addr import GBASE, g
+import struct
 import lzss
 
 LDAT_BASE, LDAT_END = 0x9368, 0x9600
@@ -133,6 +134,11 @@ def _gst_dat(snap, withbg):
         assert bytes(back) == raw, f"the pieces do not rebuild {what}"
 
     (gm.OUT_MAC.parent / "FIST.DAT").write_bytes(bytes(body))
+    # The loader places these, so they go in the file's table - which
+    # pack_fist writes, after the build.  This is how they get there.
+    (gm.OUT_MAC.parent / "gst_table.bin").write_bytes(b"".join(
+        struct.pack("<5H", pc.dest, pc.raw // 2, pc.block, pc.offset, pc.packed)
+        for pc in gst_pieces))
     print(f"gst_dat: {len(gstdat)} B -> {len(body)} B in "
           f"{len(gst_pieces)} pieces, verified")
     return gst_pieces
