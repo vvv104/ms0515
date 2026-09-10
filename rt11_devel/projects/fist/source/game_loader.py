@@ -54,11 +54,9 @@ def entries(pieces):
     return out
 
 
-def tables(gst, scr):
-    """The GST's pieces and the loading screen's, and how many of each."""
-    return ("GSTTAB:\n" + entries(gst) +
-            "SCRTAB:\n" + entries(scr) +
-            f"NGST   = {len(gst)}.\nNSCR   = {len(scr)}.\n")
+def tables(gst):
+    """The GST's pieces, and how many."""
+    return "GSTTAB:\n" + entries(gst) + f"NGST   = {len(gst)}.\n"
 
 
 def runner():
@@ -109,30 +107,17 @@ GDEST:  .WORD   GST
 """
 
 
-def title_load(scr):
-    """Expand the loading screen into SCRBUF and present it before the state
-    loads."""
-    read = """        MOV     #SCRTAB,R0
-        MOV     #SCRBUF,R1
-        MOV     #NSCR,R2
-        JSR     PC,LOADP
-"""
-    return f"""        ; --- the loading screen: expand it into SCRBUF (plain RAM under
-        ;     RT-11), switch to the medium-res colour mode and present it -
-        ;     then load the game state behind it, as the tape loader did ---
-{read}        MTPS    #340
+def title_load():
+    """The picture is already on the screen - FLOAD expanded it out of its
+    own image and converted it into VRAM before it read a thing - so all
+    that is left here is the machine's side of it: the medium-resolution
+    colour mode, and the register C shadow the sound driver toggles."""
+    return """        ; --- the loader has the picture up; take the video mode over ---
+        MTPS    #340
         MOVB    @#SYSC,R0
         BIC     #17,R0
         MOVB    R0,@#SYSC
         MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 6 in it
-        MOV     #3377,@#DISPAT         ; VRAM on @40000, banks 4-6 primary (SCRBUF)
-        MOV     #VRAM,R0
-7$:     CLR     (R0)+
-        CMP     R0,#VRAMEN
-        BLO     7$
-        JSR     PC,SPSCR
-        JSR     PC,BORDER              ; the cyan border
-        MOV     #3177,@#DISPAT         ; window off again for the reads (the picture stays)
         MTPS    #0
 """
 
@@ -166,13 +151,13 @@ def after_load(withbg):
 """
 
 
-def boot(withbg, pieces, scr):
+def boot(withbg, pieces):
     """BOOT: .FETCH / .LOOKUP FIST.DAT, the loading screen, the chunk reads,
     the hold.  Boot-only code: it lives in the dojo block at 0100000 when
     there is one (banks 0-1 are full) and runs there at RT-11's all-primary
     banking; the chunk copies (which hide banks 4-6) go through CHUNK in
     banks 0-1."""
-    title = title_load(scr) if withbg else ""
+    title = title_load() if withbg else ""
     return f"""BOOT:   .FETCH  #HSPACE,#DATFIL
         BCC     .+6
         JMP     LDERR
@@ -184,7 +169,7 @@ def boot(withbg, pieces, scr):
         MOV     #NGST,R2
         JSR     PC,LOADP
         .CLOSE  #0
-{after_load(withbg)}{runner()}{tables(pieces, scr)}"""
+{after_load(withbg)}{runner()}{tables(pieces)}"""
 
 
 def start(boot_inline, dojo_boot):

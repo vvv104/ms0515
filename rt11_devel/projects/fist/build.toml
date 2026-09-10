@@ -3,7 +3,7 @@ name      = "FIST"
 language  = "macro11"
 pre_build  = "source/gen_fist.py"     # extracts the loading screen, emits FIST.MAC
 post_build = "source/pack_fist.py"    # the image into FIST.DAT, FLOAD as FIST.SAV
-sources   = ["FIST.MAC", "FLOAD.MAC"]
+sources   = ["FIST.MAC", "FLOAD.MAC", "FSCRN.MAC"]
 outputs   = ["FIST.SAV", "FLOAD.SAV"]  # FIST.SAV is the image; the hook repacks it
 
 [build]
@@ -11,4 +11,4 @@ outputs   = ["FIST.SAV", "FLOAD.SAV"]  # FIST.SAV is the image; the hook repacks
 # the source, the object and the image at the same time, and LINK truncates
 # the image without a word when it runs out.
 commands  = ["MACRO FIST", "DELETE/NOQUERY FIST.MAC", "LINK FIST",
-             "MACRO FLOAD", "LINK FLOAD"]
+             "MACRO FLOAD+FSCRN", "LINK FLOAD"]

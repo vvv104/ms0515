@@ -91,9 +91,11 @@ def _gst_dat(snap, withbg):
     The loader reads a piece, expands it, and copies it up into the parked
     extended banks - so a piece is one chunk of what the copy moves, and it
     is split further when its packed form would not fit the staging area
-    (see game_loader.MAX_PACKED).  Returns (the GST pieces, the loading
-    screen's); each is a `game_loader.Piece`, its `dest` a byte offset into
-    the GST or into SCRBUF.
+    (see game_loader.MAX_PACKED).  Returns the GST's pieces, each a
+    `game_loader.Piece` whose `dest` is a byte offset into the GST.
+
+    The loading screen does not travel here: it is the loader's picture, and
+    it ships packed inside the loader itself (FSCRN.MAC).
     """
     gstdat = bytes(snap[GBASE:0xF730])
     scrdat = bytes(gen_fist.load_loading_screen()) if withbg else b""
@@ -120,9 +122,8 @@ def _gst_dat(snap, withbg):
     chunk(gstdat, 0)
     gst_pieces, pieces = pieces, []
     if scrdat:
-        chunk(scrdat, 0)                         # these go to SCRBUF, not the banks
-    for what, group, raw in (("GST", gst_pieces, gstdat),
-                             ("the loading screen", pieces, scrdat)):
+        _fscrn(scrdat)
+    for what, group, raw in (("GST", gst_pieces, gstdat),):
         back = bytearray(len(raw))
         for pc in group:
             got = (lzss.decompress(bytes(body[pc.block * 512 + pc.offset:][:pc.packed]),
@@ -132,9 +133,37 @@ def _gst_dat(snap, withbg):
         assert bytes(back) == raw, f"the pieces do not rebuild {what}"
 
     (gm.OUT_MAC.parent / "FIST.DAT").write_bytes(bytes(body))
-    print(f"gst_dat: {len(gstdat)} + {len(scrdat)} B -> {len(body)} B in "
-          f"{len(gst_pieces)} + {len(pieces)} pieces, verified")
-    return gst_pieces, pieces
+    print(f"gst_dat: {len(gstdat)} B -> {len(body)} B in "
+          f"{len(gst_pieces)} pieces, verified")
+    return gst_pieces
+
+
+
+def _fscrn(scrdat):
+    """FSCRN.MAC: the loading screen, packed, assembled into the loader.
+
+    MACRO-11 takes `MACRO FLOAD+FSCRN` as one source, so FLOAD.MAC can
+    refer to SCRPK and SCRPKN without either file including the other."""
+    packed = lzss.compress(scrdat)
+    assert lzss.decompress(packed, len(scrdat)) == scrdat, \
+        "the packed loading screen does not decode"
+    out = ["; The loading screen, LZSS-packed - generated, do not edit.",
+           "; FLOAD expands it into its own image and converts it to VRAM.",
+           f"SCRRAW = {len(scrdat)}.                 ; bytes it expands to",
+           f"SCRPKN = {len(packed)}.                 ; bytes it takes packed",
+           "SCRPK:"]
+    for i in range(0, len(packed), 16):
+        row = ", ".join(f"{b}." for b in packed[i:i + 16])
+        out.append(f"        .BYTE   {row}")
+    out.append("        .EVEN")
+    out.append("; The expanded picture goes above the image; .SETTOP asks")
+    out.append("; RT-11 for it, so nothing of the monitor's is in the way.")
+    out.append("PICBUF:")
+    out.append("        .END    START")
+    (gm.OUT_MAC.parent / "FSCRN.MAC").write_text(
+        "\n".join(out) + "\n", encoding="ascii", newline="\r\n")
+    print(f"fscrn: the loading screen {len(scrdat)} -> {len(packed)} B, "
+          f"packed into the loader")
 
 
 def _equs(withbg):
@@ -294,8 +323,8 @@ def main_game(withbg=False):
     fbuf_addr = 0o100000 + (fd.FBUF - GBASE)     # compose buffer home (extended bank 6)
     safe_words = (0o157777 - fbuf_addr + 1) // 2  # composed words that fit below bank 7
     lb_words = ((fd.FBUF_LEN + 1) // 2) if withbg else safe_words
-    pieces, scr = _gst_dat(snap, withbg)
-    boot_code = game_loader.boot(withbg, pieces, scr)
+    pieces = _gst_dat(snap, withbg)
+    boot_code = game_loader.boot(withbg, pieces)
     extra = game_text.all_text(snap) + game_music.music() + game_sound.driver()
     bgsrc = game_dojo.block(bgn, boot_code, extra) if withbg else ""
     bgdat_src = game_dojo.tables(game_loader.BUF) if withbg else ""

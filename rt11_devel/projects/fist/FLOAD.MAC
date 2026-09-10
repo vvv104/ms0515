@@ -22,7 +22,7 @@
 ; region over us and enter the game.  Both use only registers, constants
 ; and the stack, so they run at whatever address they are copied to.
 ;-------------------------------------------------------------------
-        .MCALL  .LOOKUP,.PRINT,.EXIT
+        .MCALL  .LOOKUP,.PRINT,.EXIT,.SETTOP
         .ASECT
         . = 44
         .WORD   21000                  ; JSW: this .SAV does file I/O
@@ -42,12 +42,20 @@ STACK  = 77776                         ; above them all, still in the hole
 ; The scratch holds a region's packed form plus its offset into the first
 ; block, rounded up to whole blocks: pack_fist.MAX_REGION keeps that under
 ; STACK-SCRAT.
+SYSC   = 177604                        ; System Register C (border + video mode)
+DISPAT = 177400                        ; the memory dispatcher
+VRAM   = 40000                         ; the VRAM window, banks 2-3
+TVIDEO = 3377                          ; VRAM on at 040000, banks 4-6 primary
+LMARG  = 8.                            ; the picture is 256 px in 320: 8 bytes in
+TMARG  = 4.                            ;   and 192 lines in 200: 4 lines down
+LSTRID = 80.                           ; bytes per VRAM line
 RDW    = 4001                          ; .READW, channel 1 (code 8 in the high byte)
 CLOSE  = 3001                          ; .CLOSE, channel 1 (code 6)
 ; Channel 1, not 0: the game opens 0 for itself the moment it starts, and
 ; a channel still in use would fail its .LOOKUP.
 
 START:  MOV     #STACK,SP
+        JSR     PC,TITLE1              ; the picture, before anything is read
         .LOOKUP #LKAREA,#1,#DATFIL
         BCC     1$
         JMP     ERR
@@ -154,6 +162,87 @@ READ:   MOV     R4,-(SP)
         RTS     PC
 7$:     JMP     ERR
 
+        ; TITLE1: expand the packed loading screen above our own image
+        ; and convert it into VRAM.  RT-11 owns no part of either: the
+        ; buffer is memory .SETTOP asked for, and VRAM is the video
+        ; hardware's, so the picture stays up through the whole load.
+TITLE1: .SETTOP #PICBUF+SCRRAW
+        CMP     R0,#PICBUF+SCRRAW      ; did we get it?  R0 = the real top
+        BLO     18$                    ;   no: skip the picture, still load
+        MOV     #SCRPK,R1
+        MOV     #PICBUF,R2
+        MOV     #SCRRAW,R3
+        JSR     PC,PIC                 ; the decoder, still in our own image
+        MTPS    #340
+        MOVB    @#SYSC,R0
+        BIC     #17,R0                 ; medium resolution, colour
+        MOVB    R0,@#SYSC
+        MOV     #TVIDEO,@#DISPAT
+        MOV     #VRAM,R0               ; the window is ours now: the cyan
+16$:    MOV     #24000,(R0)+           ;   border the game paints (BORDER),
+        CMP     R0,#VRAM+16384.        ;   and the picture goes over it
+        BLO     16$
+        CLR     R5                     ; R5 = the Spectrum line, 0..191
+17$:    MOV     R5,R0
+        JSR     PC,ROWOFF              ; R1 = the line's offset in the pixels
+        ADD     #PICBUF,R1
+        MOV     R5,R2                  ; the attribute row: 6144 + (y>>3)*32
+        ASR     R2
+        ASR     R2
+        ASR     R2
+        ASL     R2
+        ASL     R2
+        ASL     R2
+        ASL     R2
+        ASL     R2
+        ADD     #PICBUF+6144.,R2
+        MOV     R5,R3                  ; the VRAM line: (TMARG + y) * 80
+        ADD     #TMARG,R3
+        MOV     R3,R0
+        ASL     R0
+        ASL     R0
+        ASL     R0
+        ASL     R0                     ; * 16
+        MOV     R0,R4
+        ASL     R0
+        ASL     R0                     ; * 64
+        ADD     R4,R0                  ; * 80
+        ADD     #VRAM+LMARG,R0
+        MOV     R0,R3
+        MOV     #32.,R4                ; 32 cells across
+15$:    CLR     R0
+        BISB    (R2)+,R0
+        SWAB    R0                     ; the attribute is the high byte
+        BISB    (R1)+,R0               ;   and the pixels the low one
+        MOV     R0,(R3)+
+        DEC     R4
+        BNE     15$
+        INC     R5
+        CMP     R5,#192.
+        BLO     17$
+        MOV     #3177,@#DISPAT         ; the window off again; the picture stays
+        MTPS    #0
+18$:    RTS     PC
+
+        ; ROWOFF: R0 = the Spectrum line, R1 = its offset in the pixel area.
+ROWOFF: MOV     R0,R1
+        BIC     #177770,R1
+        SWAB    R1                     ; (y & 7) << 8
+        MOV     R0,-(SP)
+        BIC     #177707,(SP)
+        ASL     (SP)
+        ASL     (SP)
+        BIS     (SP)+,R1               ; | (y & 070) << 2
+        MOV     R0,-(SP)
+        BIC     #177477,(SP)
+        ASL     (SP)
+        ASL     (SP)
+        ASL     (SP)
+        ASL     (SP)
+        ASL     (SP)
+        BIS     (SP)+,R1               ; | (y & 0300) << 5
+        RTS     PC
+
         ; ZERO: R0 = from, R1 = to (exclusive).
 ZERO:   CMP     R0,R1
         BHIS    8$
@@ -258,4 +347,6 @@ LKAREA: .BLKW   5
 EMSG:   .ASCIZ  /?FLOAD-F-Cannot read FIST.DAT/
         .EVEN
 LOADND:
-        .END    START
+; The picture's packed bytes follow, from FSCRN.MAC, and it ends the
+; assembly: `.END` here would cut them off.  It also defines PICBUF, the
+; buffer above the image that the picture expands into.
