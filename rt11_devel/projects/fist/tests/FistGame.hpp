@@ -77,17 +77,17 @@ inline void writeFile(const fs::path &p, const void *data, size_t n)
 
 /* The standalone game ships as a loader plus the data file: source/
  * pack_fist.py puts the program's regions into FIST.DAT and a table of them
- * in its last block, and FIST.SAV becomes FLOAD.  Whoever wants a .SAV that
+ * in its tail, and FIST.SAV becomes FLOAD.  Whoever wants a .SAV that
  * is a memory image - the VRAM oracle loads one straight into RAM - has to
  * know the difference, and the table is what tells them apart (the rule is
  * pack_fist.already_packed()'s). */
 inline bool packedGame()
 {
     std::vector<uint8_t> dat = readFile(datPath());
-    if (dat.size() < 1024) return false;
-    size_t at = dat.size() - 512;
+    if (dat.size() < 1024 || dat.size() % 512) return false;
+    size_t at = dat.size() - 2;                    /* the count is the last word */
     unsigned n = static_cast<unsigned>(dat[at]) | (static_cast<unsigned>(dat[at + 1]) << 8);
-    return n >= 1 && n <= 32 && 2 + 8 * n <= 512;
+    return n >= 1 && n <= 32 && 4 + 10 * n <= 512;
 }
 
 class FistGame {
