@@ -8,6 +8,7 @@
 #include "FistGame.hpp"
 
 #include <map>
+#include <set>
 
 #include <algorithm>
 #include <string>
@@ -137,6 +138,24 @@ TEST_CASE("fist: walking past the opponent (diagnostic)")
     g.emu.keyPress(ms0515::Key::Kp6, false);
     g.settle(20);
     say("after walking forward");
+
+    /* Facing changes in exactly one place in the engine ($9AD7): when the
+     * action is $11, the move the control map calls XDB - fire with down and
+     * back, KP5 + KP1.  Nothing turns a fighter round by position, in the
+     * reference or here.  So this is what a player standing back to back has
+     * to press, and it should flip the facing. */
+    g.emu.keyPress(ms0515::Key::Kp5, true);
+    g.emu.keyPress(ms0515::Key::Kp1, true);
+    std::set<int> queued, acting;
+    for (int i = 0; i < 40; ++i) { g.step(); queued.insert(g.gst(0xAA05)); acting.insert(g.gst(0xAA04)); }
+    g.emu.keyPress(ms0515::Key::Kp1, false);
+    g.emu.keyPress(ms0515::Key::Kp5, false);
+    for (int i = 0; i < 40; ++i) { g.step(); queued.insert(g.gst(0xAA05)); acting.insert(g.gst(0xAA04)); }
+    std::string q, a;
+    for (int v : queued) q += std::to_string(v) + " ";
+    for (int v : acting) a += std::to_string(v) + " ";
+    MESSAGE("while fire + down-back was held: queued moves { " << q << "}, acting { " << a << "}");
+    say("after fire + down-back (KP5 + KP1)");
     CHECK(true);
 }
 
