@@ -3,13 +3,33 @@ park / copy into the extended banks), the loading screen.
 
 Every function returns MACRO-11 text; game_build.py assembles the game.
 """
-# The .DAT is read in CHUNK-block pieces into BUF, the top of the primary
-# banks 2-3 just under the dojo block at 0100000 (VRAM is off under RT-11, so
-# that is plain RAM), each piece copied into the parked extended banks.  The
-# rest of banks 2-3 (040000..BUF) is free for data the .SAV carries itself -
-# the three backgrounds' tables live there (game_dojo.tables).
-CHUNK = 8                                    # blocks per .READW (4 KB)
+# The .DAT travels LZSS-packed (source/lzss.py).  A piece is read into STAGE,
+# expanded into BUF - the top of the primary banks 2-3, just under the dojo
+# block at 0100000, plain RAM because VRAM is off under RT-11 - and copied
+# from there into the parked extended banks.  STAGE is the gap between the
+# backgrounds' tables (which end at 057600) and BUF; a read is whole blocks,
+# so a piece's packed form plus its offset into the first block must fit it,
+# which is what MAX_PACKED leaves room for.
+CHUNK = 8                                    # blocks a piece expands to (4 KB)
 BUF = 0o100000 - CHUNK * 512
+UNPK = 0o57600       # the decoder FLOAD copied into the hole and left there
+STAGE = 0o60200                              # packed bytes are read here,
+                                             #   clear of that decoder
+STAGE_ROOM = BUF - STAGE                     # 4224 B
+MAX_PACKED = 3072                            # + a 511-byte offset = 7 whole blocks
+
+
+class Piece:
+    """One packed piece of FIST.DAT: where it goes, how big it is raw, and
+    where its bytes are (block, byte offset in it, packed length)."""
+
+    def __init__(self, dest, raw, block, offset, packed):
+        self.dest, self.raw, self.block = dest, raw, block
+        self.offset, self.packed = offset, packed
+
+    def blocks(self):
+        """Whole blocks the read must cover to bring the piece in."""
+        return -(-(self.offset + self.packed) // 512)
 
 
 def preamble():
@@ -22,35 +42,85 @@ def preamble():
         "EXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
 
 
-def chunks(nblocks):
-    """(start block, blocks) of each .READW of FIST.DAT."""
-    return [(sb, min(CHUNK, nblocks - sb)) for sb in range(0, nblocks, CHUNK)]
-
-
-def reads(nblocks):
-    """The chunk reads: each .READW into BUF, then CHUNK copies it up."""
+def entries(pieces):
+    """Four words a piece: the block it starts in, the words the read must
+    cover, its byte offset into that block, and the bytes it expands to."""
     out = ""
-    for sb, nb in chunks(nblocks):
-        out += f"""        .READW  #LKAREA,#0,#BUF,#{nb * 256}.,#{sb}.
-        BCC     .+6
-        JMP     LDERR
-        MOV     #GST+{sb * 512}.,R1
-        MOV     #{nb * 256}.,R2
-        JSR     PC,CHUNK
-"""
+    for pc in pieces:
+        assert pc.packed, "a stored piece would have to be block-aligned"
+        assert pc.blocks() * 512 <= STAGE_ROOM, "the packed piece overruns STAGE"
+        out += (f"        .WORD   {pc.block}., {pc.blocks() * 256}., "
+                f"{pc.offset}., {pc.raw}.\n")
     return out
 
 
-def title_load(scrblk):
-    """Read the loading screen (block `scrblk` of FIST.DAT) into SCRBUF and
-    present it before the state loads."""
-    return f"""        ; --- the loading screen: read it into SCRBUF (plain RAM under RT-11),
-        ;     switch to the medium-res colour mode and present it - then load
-        ;     the game state behind it, as the tape loader did ---
-        .READW  #LKAREA,#0,#SCRBUF,#3456.,#{scrblk}.
-        BCC     .+6
+def tables(gst, scr):
+    """The GST's pieces and the loading screen's, and how many of each."""
+    return ("GSTTAB:\n" + entries(gst) +
+            "SCRTAB:\n" + entries(scr) +
+            f"NGST   = {len(gst)}.\nNSCR   = {len(scr)}.\n")
+
+
+def runner():
+    """LOADP - work through a table of pieces.
+
+    R0 = the first entry, R1 = where the first piece goes (0 means the
+    parked extended banks, through BUF and CHUNK), R2 = how many entries.
+    Everything lives on the stack across the calls: the decoder uses every
+    register, and CHUNK all but R3."""
+    return f"""        ; LOADP: R0 = &entries, R1 = destination (0 = the banks), R2 = count
+LOADP:  MOV     R1,-(SP)               ; 4(SP): the destination
+        MOV     R2,-(SP)               ; 2(SP): entries left
+        MOV     R0,-(SP)               ; 0(SP): the entry
+20$:    MOV     @SP,R4
+        MOV     #LKAREA,R0
+        MOV     #4000,(R0)             ; .READW (code 8), channel 0
+        MOV     (R4)+,2(R0)            ; the block it starts in
+        MOV     #{STAGE:o},4(R0)
+        MOV     (R4)+,6(R0)            ; words the read must cover
+        CLR     10(R0)
+        EMT     375
+        BCC     21$
         JMP     LDERR
-        MTPS    #340
+21$:    MOV     #{STAGE:o},R1
+        ADD     (R4)+,R1               ; + the byte offset into that block
+        MOV     (R4)+,R3               ; bytes to produce
+        MOV     R4,@SP                 ; the next entry
+        MOV     R3,-(SP)               ; the size, across the decoder
+        MOV     6(SP),R2               ; where it expands to
+        BNE     22$
+        MOV     #{BUF:o},R2            ; the banks: through the buffer
+22$:    JSR     PC,@#{UNPK:o}
+        MOV     (SP)+,R3
+        MOV     4(SP),R1
+        BNE     23$
+        MOV     R3,R2                  ; into the banks: words to copy
+        ASR     R2
+        MOV     GDEST,R1
+        JSR     PC,CHUNK
+        ADD     R3,GDEST
+        BR      24$
+23$:    ADD     R3,4(SP)               ; the next piece follows this one
+24$:    DEC     2(SP)
+        BNE     20$
+        ADD     #6,SP
+        RTS     PC
+GDEST:  .WORD   GST
+"""
+
+
+def title_load(scr):
+    """Expand the loading screen into SCRBUF and present it before the state
+    loads."""
+    read = """        MOV     #SCRTAB,R0
+        MOV     #SCRBUF,R1
+        MOV     #NSCR,R2
+        JSR     PC,LOADP
+"""
+    return f"""        ; --- the loading screen: expand it into SCRBUF (plain RAM under
+        ;     RT-11), switch to the medium-res colour mode and present it -
+        ;     then load the game state behind it, as the tape loader did ---
+{read}        MTPS    #340
         MOVB    @#SYSC,R0
         BIC     #17,R0
         MOVB    R0,@#SYSC
@@ -96,21 +166,25 @@ def after_load(withbg):
 """
 
 
-def boot(withbg, nblocks, scrblk):
+def boot(withbg, pieces, scr):
     """BOOT: .FETCH / .LOOKUP FIST.DAT, the loading screen, the chunk reads,
     the hold.  Boot-only code: it lives in the dojo block at 0100000 when
     there is one (banks 0-1 are full) and runs there at RT-11's all-primary
     banking; the chunk copies (which hide banks 4-6) go through CHUNK in
     banks 0-1."""
-    title = title_load(scrblk) if withbg else ""
+    title = title_load(scr) if withbg else ""
     return f"""BOOT:   .FETCH  #HSPACE,#DATFIL
         BCC     .+6
         JMP     LDERR
         .LOOKUP #LKAREA,#0,#DATFIL
         BCC     .+6
         JMP     LDERR
-{title}{reads(nblocks)}        .CLOSE  #0
-{after_load(withbg)}"""
+{title}        MOV     #GSTTAB,R0
+        CLR     R1                     ; 0: into the parked extended banks
+        MOV     #NGST,R2
+        JSR     PC,LOADP
+        .CLOSE  #0
+{after_load(withbg)}{runner()}{tables(pieces, scr)}"""
 
 
 def start(boot_inline, dojo_boot):

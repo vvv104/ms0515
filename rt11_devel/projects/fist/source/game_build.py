@@ -35,6 +35,7 @@ import gamelogic_ref as ref
 import gen_fist
 import setup_ref as sr
 from gst_addr import GBASE, g
+import lzss
 
 LDAT_BASE, LDAT_END = 0x9368, 0x9600
 # per-frame present clamps: a runtime box can grow taller/wider than the
@@ -84,20 +85,56 @@ def _state():
 
 
 def _gst_dat(snap, withbg):
-    """Write FIST.DAT: the GST data ($F730+ compose is scratch), block-padded,
-    with the tape's loading screen (SCREEN$, 6912 B) behind it - the loader
-    reads it straight into SCRBUF and presents it while the state loads, the
-    picture the original shows while its tape loads.  Returns (state blocks,
-    the screen's first block)."""
+    """Write FIST.DAT: the GST data ($F730+ compose is scratch) and the tape's
+    loading screen (SCREEN$, 6912 B) behind it, both LZSS-packed.
+
+    The loader reads a piece, expands it, and copies it up into the parked
+    extended banks - so a piece is one chunk of what the copy moves, and it
+    is split further when its packed form would not fit the staging area
+    (see game_loader.MAX_PACKED).  Returns (the GST pieces, the loading
+    screen's); each is a `game_loader.Piece`, its `dest` a byte offset into
+    the GST or into SCRBUF.
+    """
     gstdat = bytes(snap[GBASE:0xF730])
-    if len(gstdat) % 512:
-        gstdat = gstdat + bytes(512 - (len(gstdat) % 512))
-    nblocks = len(gstdat) // 512
     scrdat = bytes(gen_fist.load_loading_screen()) if withbg else b""
-    if len(scrdat) % 512:
-        scrdat = scrdat + bytes(512 - (len(scrdat) % 512))
-    (gm.OUT_MAC.parent / "FIST.DAT").write_bytes(gstdat + scrdat)
-    return nblocks, nblocks
+
+    body, pieces = bytearray(), []
+
+    def put(raw, dest):
+        packed = lzss.compress(raw)
+        stored = packed if len(packed) < len(raw) else raw
+        at = len(body)
+        body.extend(stored)
+        pieces.append(game_loader.Piece(dest, len(raw), at // 512, at % 512,
+                                        len(stored) if stored is packed else 0))
+
+    def chunk(raw, dest):
+        """Split until every piece's packed form fits the staging area."""
+        if len(raw) > game_loader.CHUNK * 512 or            len(lzss.compress(raw)) > game_loader.MAX_PACKED:
+            half = (len(raw) // 2 + 1) & ~1
+            chunk(raw[:half], dest)
+            chunk(raw[half:], dest + half)
+        else:
+            put(raw, dest)
+
+    chunk(gstdat, 0)
+    gst_pieces, pieces = pieces, []
+    if scrdat:
+        chunk(scrdat, 0)                         # these go to SCRBUF, not the banks
+    for what, group, raw in (("GST", gst_pieces, gstdat),
+                             ("the loading screen", pieces, scrdat)):
+        back = bytearray(len(raw))
+        for pc in group:
+            got = (lzss.decompress(bytes(body[pc.block * 512 + pc.offset:][:pc.packed]),
+                                   pc.raw) if pc.packed
+                   else bytes(body[pc.block * 512 + pc.offset:][:pc.raw]))
+            back[pc.dest:pc.dest + pc.raw] = got
+        assert bytes(back) == raw, f"the pieces do not rebuild {what}"
+
+    (gm.OUT_MAC.parent / "FIST.DAT").write_bytes(bytes(body))
+    print(f"gst_dat: {len(gstdat)} + {len(scrdat)} B -> {len(body)} B in "
+          f"{len(gst_pieces)} + {len(pieces)} pieces, verified")
+    return gst_pieces, pieces
 
 
 def _equs(withbg):
@@ -257,8 +294,8 @@ def main_game(withbg=False):
     fbuf_addr = 0o100000 + (fd.FBUF - GBASE)     # compose buffer home (extended bank 6)
     safe_words = (0o157777 - fbuf_addr + 1) // 2  # composed words that fit below bank 7
     lb_words = ((fd.FBUF_LEN + 1) // 2) if withbg else safe_words
-    nblocks, scrblk = _gst_dat(snap, withbg)
-    boot_code = game_loader.boot(withbg, nblocks, scrblk)
+    pieces, scr = _gst_dat(snap, withbg)
+    boot_code = game_loader.boot(withbg, pieces, scr)
     extra = game_text.all_text(snap) + game_music.music() + game_sound.driver()
     bgsrc = game_dojo.block(bgn, boot_code, extra) if withbg else ""
     bgdat_src = game_dojo.tables(game_loader.BUF) if withbg else ""
