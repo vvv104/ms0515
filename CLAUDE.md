@@ -41,8 +41,13 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
      matters to whoever runs the thing, in the register of the releases
      before it (`gh release view v1.6.0 --json body`), ending with the
      browser link;
-  4. **publish it** (`gh release edit vX.Y.Z --notes-file ... --draft=false`)
-     and deploy the web build (`gh workflow run pages.yml`).
+  4. **publish it**
+     (`gh release edit vX.Y.Z --notes-file ... --draft=false`).
+  The web build needs no step of its own: the tag deploys Pages by itself.
+  Do NOT `gh workflow run pages.yml` after tagging - both runs share the
+  `pages` concurrency group, so the manual one cancels the tag's and
+  deploys `main` instead of the tag.  Dispatch it by hand only to
+  re-deploy between releases.
   Do not leave a draft standing and hand it back: unless the user says
   otherwise, "выкладывай" means through step 4.
 - **Test-driven development**: after designing the interface, write unit tests first, then implement. Run tests at each stage.
