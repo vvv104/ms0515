@@ -15,8 +15,9 @@ rather than gaining a third:
     behind it     the program's regions, LZSS-packed, following each other
                   byte for byte
     the tail      the table: (load address, word count, start block, byte
-                  offset into it, packed length) per region, and the count
-                  as the file's very last word
+                  offset into it, packed length) per region, then the image's
+                  top - what the loader clears up to - and the count as the
+                  file's very last word
 
 FLOAD.MAC finds the table without being told where it is: .LOOKUP hands
 back the file's length in blocks, the count is the last word of the last
@@ -83,7 +84,7 @@ def pack(image: bytes, dat: bytes) -> tuple[bytes, list[tuple[int, int]]]:
         at = len(body)
         table += [start, len(piece) // 2, at // 512, at % 512, len(squeezed)]
         body += squeezed
-    table += [len(regs)]                          # the count is the last word
+    table += [len(image), len(regs)]              # the top, then the count
     head = struct.pack(f'<{len(table)}H', *table)
     size = -(-(len(body) + len(head)) // BLOCK) * BLOCK
     return bytes(body) + b'\0' * (size - len(body) - len(head)) + head, regs
@@ -92,7 +93,7 @@ def pack(image: bytes, dat: bytes) -> tuple[bytes, list[tuple[int, int]]]:
 def unpack(packed: bytes, size: int) -> bytes:
     """What the loader does, in Python: the image the pieces rebuild."""
     n = struct.unpack_from('<H', packed, len(packed) - 2)[0]
-    at = len(packed) - 2 - 10 * n
+    at = len(packed) - 4 - 10 * n
     out = bytearray(size)
     for k in range(n):
         addr, words, blk, off, clen = struct.unpack_from('<5H', packed, at + 10 * k)
@@ -106,7 +107,7 @@ def already_packed(dat: bytes) -> bool:
     if len(dat) < 2 * BLOCK or len(dat) % BLOCK:
         return False
     n = struct.unpack_from('<H', dat, len(dat) - 2)[0]
-    return 1 <= n <= 32 and 2 + 10 * n <= BLOCK
+    return 1 <= n <= 32 and 4 + 10 * n <= BLOCK
 
 
 def main(argv: list[str]) -> int:

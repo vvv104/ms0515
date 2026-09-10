@@ -121,7 +121,19 @@ def _gst_dat(snap, withbg):
     gst_pieces, pieces = pieces, []
     if scrdat:
         chunk(scrdat, 0)                         # these go to SCRBUF, not the banks
+    for what, group, raw in (("GST", gst_pieces, gstdat),
+                             ("the loading screen", pieces, scrdat)):
+        back = bytearray(len(raw))
+        for pc in group:
+            got = (lzss.decompress(bytes(body[pc.block * 512 + pc.offset:][:pc.packed]),
+                                   pc.raw) if pc.packed
+                   else bytes(body[pc.block * 512 + pc.offset:][:pc.raw]))
+            back[pc.dest:pc.dest + pc.raw] = got
+        assert bytes(back) == raw, f"the pieces do not rebuild {what}"
+
     (gm.OUT_MAC.parent / "FIST.DAT").write_bytes(bytes(body))
+    print(f"gst_dat: {len(gstdat)} + {len(scrdat)} B -> {len(body)} B in "
+          f"{len(gst_pieces)} + {len(pieces)} pieces, verified")
     return gst_pieces, pieces
 
 

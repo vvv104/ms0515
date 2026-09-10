@@ -10,7 +10,8 @@
 ; byte for byte and the table sits at the very end of the file:
 ;
 ;       (load address, word count, start block, byte offset into it,
-;       packed length) per region, and the count as the last word
+;       packed length) per region, then the image's top - what this
+;       clears up to - and the count as the last word
 ;
 ; and .LOOKUP hands back the file's length, so nothing here has to be
 ; told where the table is.
@@ -41,7 +42,6 @@ STACK  = 77776                         ; above them all, still in the hole
 ; The scratch holds a region's packed form plus its offset into the first
 ; block, rounded up to whole blocks: pack_fist.MAX_REGION keeps that under
 ; STACK-SCRAT.
-IMGTOP = 112226                        ; just past the program's highest byte
 RDW    = 4001                          ; .READW, channel 1 (code 8 in the high byte)
 CLOSE  = 3001                          ; .CLOSE, channel 1 (code 6)
 ; Channel 1, not 0: the game opens 0 for itself the moment it starts, and
@@ -66,8 +66,9 @@ START:  MOV     #STACK,SP
         MOV     #HOLE,R1
         JSR     PC,ZERO
         MOV     #100000,R0
-        MOV     #IMGTOP,R1
-        JSR     PC,ZERO
+        MOV     TABBUF+774,R1          ; the image's top, from the table: the
+        JSR     PC,ZERO                ;   buffers up there are .BLKB, never
+                                       ;   stored, and the game wants them zero
 
         ; The unpacker and the finisher into the hole, before any region
         ; needs expanding.
@@ -79,8 +80,8 @@ START:  MOV     #STACK,SP
 
         ; The count is the table block's last word and the entries are the
         ; ten bytes each in front of it.
-        MOV     #TABBUF+776,R4
-        MOV     (R4),R5                ; the region count
+        MOV     #TABBUF+774,R4         ; the top; the count is the word after
+        MOV     2(R4),R5               ; the region count
         MOV     R5,R0
         ASL     R0                     ; 2n
         MOV     R0,R1
