@@ -222,6 +222,7 @@ def emit_hitdet(label, A, apply_label=None):
     latches both x-positions ($A071/$A072) first, P2 reuses them.  With
     apply_label set, a hit JMPs there (the $9E7F/$A01C tail-call) instead of
     returning - used by the orchestrator; a miss always RETs."""
+    mirror = "INC     R5\n32$:    " if A.get('mirror') else ""
     latch = ""
     if A['setpos']:
         sp0, sp1 = A['setpos']
@@ -250,9 +251,11 @@ def emit_hitdet(label, A, apply_label=None):
         MOVB    {g(A['aface'])},R0     ; same facing -> $A9BC, else $A98A
         CMPB    R0,{g(A['tface'])}
         BNE     1$
+        MOVB    #1,HDSAME              ; and it also turns the distance round
         MOV     #43452.,R2             ; $A9BC
         BR      2$
-1$:     MOV     #43402.,R2             ; $A98A
+1$:     CLRB    HDSAME
+        MOV     #43402.,R2             ; $A98A
 2$:     MOV     R1,R0                  ; paddr = tbl + 2*d
         ASL     R0
         ADD     R0,R2
@@ -271,14 +274,26 @@ def emit_hitdet(label, A, apply_label=None):
         ADD     #200,R0                ; e = (reach + $80) & $FF
         BIC     #177400,R0
         MOV     R0,R2
-        TSTB    {g(A['aface'])}        ; dist by facing
+        ; Which way round the subtraction goes.  $A071 / $A072 were latched
+        ; in player 1's order, so the order is the only thing carrying the
+        ; direction, and the original picks it in four places: the attacker's
+        ; facing, inverted for this second routine, inverted again when the
+        ; two face the same way ($9DA5 / $9E24 / $9F42 / $9FC1).
+        CLR     R5
+        TSTB    {g(A['aface'])}
+        BEQ     991$
+        INC     R5
+991$:   TSTB    HDSAME
+        BEQ     992$
+        INC     R5
+992$:   {mirror}BIT     #1,R5
         BEQ     3$
-        MOVB    {g(0xA071)},R0         ; facing!=0: $A071 - $A072
+        MOVB    {g(0xA071)},R0         ; $A071 - $A072
         BIC     #177400,R0
         MOVB    {g(0xA072)},R3
         BIC     #177400,R3
         BR      4$
-3$:     MOVB    {g(0xA072)},R0         ; facing==0: $A072 - $A071
+3$:     MOVB    {g(0xA072)},R0         ; $A072 - $A071
         BIC     #177400,R0
         MOVB    {g(0xA071)},R3
         BIC     #177400,R3

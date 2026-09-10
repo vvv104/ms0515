@@ -51,11 +51,43 @@ def apply_hit(m, A):
 # attacks, sets $AA08, applies via $9E7F) and $9ED2 (player 2, $AA48, $A01C).
 HIT_P1 = dict(act=0xAA04, g1=0xAA13, g2=0xAA16, g3=0xAA09, fg=0xAA12,
               aface=0xAA17, tface=0xAA57, ridx=0xAA52, result=0xAA08,
-              setpos=(0xAA19, 0xAA59), react=0xAA43)
+              setpos=(0xAA19, 0xAA59), react=0xAA43, mirror=False)
 HIT_P2 = dict(act=0xAA44, g1=0xAA53, g2=0xAA56, g3=0xAA49, fg=0xAA52,
               aface=0xAA57, tface=0xAA17, ridx=0xAA12, result=0xAA48,
-              setpos=None, react=0xAA03)
+              setpos=None, react=0xAA03, mirror=True)
 
+
+# The hit test measures its distance by subtracting the two latched positions,
+# and only the ORDER of that subtraction carries the direction: $A071 / $A072
+# are latched once, by player 1's routine, in that order.  The original picks
+# the order in four places, and they are not the same:
+#
+#   $9D29 player 1, facings differ ($9DA5)   facing 0: A072-A071  else A071-A072
+#   $9D29 player 1, facings match  ($9E24)   facing 0: A071-A072  else A072-A071
+#   $9ED2 player 2, facings differ ($9F42)   facing 0: A071-A072  else A072-A071
+#   $9ED2 player 2, facings match  ($9FC1)   facing 0: A072-A071  else A071-A072
+#
+# One rule: start from the first line and invert once for the second routine,
+# once again when the two fighters face the same way.  Folding them into one
+# formula measured a fighter standing BEHIND the attacker as standing in front,
+# and the opponent's forward punch landed on a player behind his back.
+HIT_DISTANCE_ORDER = {
+    #  (mirror, same facing, facing)  ->  True means A071 - A072
+    (False, False, 0): False, (False, False, 1): True,
+    (False, True,  0): True,  (False, True,  1): False,
+    (True,  False, 0): True,  (True,  False, 1): False,
+    (True,  True,  0): False, (True,  True,  1): True,
+}
+
+
+def _check_distance_rule():
+    for (mirror, same, facing), a071_first in HIT_DISTANCE_ORDER.items():
+        assert ((facing != 0) ^ mirror ^ same) == a071_first, \
+            f"the hit distance order for {(mirror, same, facing)} is not the "\
+            f"original's - see the four addresses above"
+
+
+_check_distance_rule()
 
 def hit_detect(m, A):
     """$9D29 / $9ED2: does this fighter's attack reach the opponent this frame?
@@ -70,14 +102,20 @@ def hit_detect(m, A):
         return False
     if m[A['fg']] != m[(0xA971 + d) & 0xFFFF]:
         return False
-    tbl = 0xA9BC if m[A['aface']] == m[A['tface']] else 0xA98A
+    same = m[A['aface']] == m[A['tface']]
+    tbl = 0xA9BC if same else 0xA98A
     paddr = (tbl + ((d * 2) & 0xFF)) & 0xFFFF
     m[0xA06F], m[0xA070] = m[paddr], m[(paddr + 1) & 0xFFFF]
     reach = m[(_u16(m, 0xA06F) + m[A['ridx']]) & 0xFFFF]
     if reach == 0x80:
         return False
     e = (reach + 0x80) & 0xFF
-    if m[A['aface']] != 0:
+    # $A071 and $A072 were latched in player 1's order, so only the order of
+    # the subtraction carries the direction - and the original chooses it in
+    # four places, one per (routine, facings match).  Start from the first
+    # ($9DA5) and invert for the second routine, and again when the two face
+    # the same way; see the four addresses in this module's notes.
+    if (m[A['aface']] != 0) ^ A['mirror'] ^ same:
         dist = (m[0xA071] - m[0xA072]) & 0xFF
     else:
         dist = (m[0xA072] - m[0xA071]) & 0xFF

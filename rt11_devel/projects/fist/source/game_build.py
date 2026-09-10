@@ -35,6 +35,7 @@ import gamelogic_ref as ref
 import gen_fist
 import setup_ref as sr
 from gst_addr import GBASE, g
+import struct
 import lzss
 
 LDAT_BASE, LDAT_END = 0x9368, 0x9600
@@ -46,7 +47,11 @@ FWMAX = 40
 KTMOUT = 3                                   # game frames a control stays held after its last event:
                                              # the MS7004 game preset repeats after 125 ms then every
                                              # 50 ms, so three frames bridge the first gap (a TAP = 1-3
-                                             # steps); 7 was a 1.5 s ghost hold at ~7 game-fps
+                                             # steps); 7 was a 1.5 s ghost hold at ~7 game-fps.
+                                             # It cannot go lower: an auto-repeat says only that SOME
+                                             # key is down, so the chord rule refreshes every timer
+                                             # still running, and any hold short enough to drop a
+                                             # released key drops a held one too
 CAP = 120                                    # game frames that cap a round-end wait
 PAUSE = 40                                   # the $AF1A x2 pause after a time-out: held frames (~33 ms each) -> ~1.3 s
 
@@ -91,9 +96,11 @@ def _gst_dat(snap, withbg):
     The loader reads a piece, expands it, and copies it up into the parked
     extended banks - so a piece is one chunk of what the copy moves, and it
     is split further when its packed form would not fit the staging area
-    (see game_loader.MAX_PACKED).  Returns (the GST pieces, the loading
-    screen's); each is a `game_loader.Piece`, its `dest` a byte offset into
-    the GST or into SCRBUF.
+    (see game_loader.MAX_PACKED).  Returns the GST's pieces, each a
+    `game_loader.Piece` whose `dest` is a byte offset into the GST.
+
+    The loading screen does not travel here: it is the loader's picture, and
+    it ships packed inside the loader itself (FSCRN.MAC).
     """
     gstdat = bytes(snap[GBASE:0xF730])
     scrdat = bytes(gen_fist.load_loading_screen()) if withbg else b""
@@ -120,9 +127,8 @@ def _gst_dat(snap, withbg):
     chunk(gstdat, 0)
     gst_pieces, pieces = pieces, []
     if scrdat:
-        chunk(scrdat, 0)                         # these go to SCRBUF, not the banks
-    for what, group, raw in (("GST", gst_pieces, gstdat),
-                             ("the loading screen", pieces, scrdat)):
+        _fscrn(scrdat)
+    for what, group, raw in (("GST", gst_pieces, gstdat),):
         back = bytearray(len(raw))
         for pc in group:
             got = (lzss.decompress(bytes(body[pc.block * 512 + pc.offset:][:pc.packed]),
@@ -132,9 +138,42 @@ def _gst_dat(snap, withbg):
         assert bytes(back) == raw, f"the pieces do not rebuild {what}"
 
     (gm.OUT_MAC.parent / "FIST.DAT").write_bytes(bytes(body))
-    print(f"gst_dat: {len(gstdat)} + {len(scrdat)} B -> {len(body)} B in "
-          f"{len(gst_pieces)} + {len(pieces)} pieces, verified")
-    return gst_pieces, pieces
+    # The loader places these, so they go in the file's table - which
+    # pack_fist writes, after the build.  This is how they get there.
+    (gm.OUT_MAC.parent / "gst_table.bin").write_bytes(b"".join(
+        struct.pack("<5H", pc.dest, pc.raw // 2, pc.block, pc.offset, pc.packed)
+        for pc in gst_pieces))
+    print(f"gst_dat: {len(gstdat)} B -> {len(body)} B in "
+          f"{len(gst_pieces)} pieces, verified")
+    return gst_pieces
+
+
+
+def _fscrn(scrdat):
+    """FSCRN.MAC: the loading screen, packed, assembled into the loader.
+
+    MACRO-11 takes `MACRO FLOAD+FSCRN` as one source, so FLOAD.MAC can
+    refer to SCRPK and SCRPKN without either file including the other."""
+    packed = lzss.compress(scrdat)
+    assert lzss.decompress(packed, len(scrdat)) == scrdat, \
+        "the packed loading screen does not decode"
+    out = ["; The loading screen, LZSS-packed - generated, do not edit.",
+           "; FLOAD expands it into its own image and converts it to VRAM.",
+           f"SCRRAW = {len(scrdat)}.                 ; bytes it expands to",
+           f"SCRPKN = {len(packed)}.                 ; bytes it takes packed",
+           "SCRPK:"]
+    for i in range(0, len(packed), 16):
+        row = ", ".join(f"{b}." for b in packed[i:i + 16])
+        out.append(f"        .BYTE   {row}")
+    out.append("        .EVEN")
+    out.append("; The expanded picture goes above the image; .SETTOP asks")
+    out.append("; RT-11 for it, so nothing of the monitor's is in the way.")
+    out.append("PICBUF:")
+    out.append("        .END    START")
+    (gm.OUT_MAC.parent / "FSCRN.MAC").write_text(
+        "\n".join(out) + "\n", encoding="ascii", newline="\r\n")
+    print(f"fscrn: the loading screen {len(scrdat)} -> {len(packed)} B, "
+          f"packed into the loader")
 
 
 def _equs(withbg):
@@ -249,6 +288,10 @@ def _datblk(lb_words, withbg):
               "KTUP:   .WORD   0\nKTDN:   .WORD   0\nKTLF:   .WORD   0\nKTRT:   .WORD   0\nKTFR:   .WORD   0\n"
               "KT2UP:  .WORD   0\nKT2DN:  .WORD   0\nKT2LF:  .WORD   0\nKT2RT:  .WORD   0\nKT2FR:  .WORD   0\n"
               "KTG:    .WORD   0\nKTH:    .WORD   0\nKSTART: .WORD   0\nDEMO:   .WORD   0\nTWOUP:  .WORD   0\n"
+              "CREM:   .WORD   0    ; the cells left over when the overlay\n"
+              "                     ;   runs out of groups of four\n"
+              "HDSAME: .BYTE   0    ; the hit test: did the two fighters face the\n"
+              "        .EVEN        ;   same way?  It turns the distance round\n"
               "        .EVEN\nRESULT: .WORD   0\nSC1:    .WORD   0\nSC2:    .WORD   0\n"
               "        .EVEN\nWINTMR: .WORD   0\nRPHASE: .WORD   0\nRANKB:  .WORD   0\n"
               "        .EVEN\nKOPT:   .WORD   0\nSETPLY: .WORD   0\nSNDENA: .WORD   1\n"
@@ -294,8 +337,8 @@ def main_game(withbg=False):
     fbuf_addr = 0o100000 + (fd.FBUF - GBASE)     # compose buffer home (extended bank 6)
     safe_words = (0o157777 - fbuf_addr + 1) // 2  # composed words that fit below bank 7
     lb_words = ((fd.FBUF_LEN + 1) // 2) if withbg else safe_words
-    pieces, scr = _gst_dat(snap, withbg)
-    boot_code = game_loader.boot(withbg, pieces, scr)
+    pieces = _gst_dat(snap, withbg)
+    boot_code = game_loader.boot(withbg, pieces)
     extra = game_text.all_text(snap) + game_music.music() + game_sound.driver()
     bgsrc = game_dojo.block(bgn, boot_code, extra) if withbg else ""
     bgdat_src = game_dojo.tables(game_loader.BUF) if withbg else ""

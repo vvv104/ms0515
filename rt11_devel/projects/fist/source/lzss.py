@@ -41,8 +41,8 @@ def _longest(data: bytes) -> list[tuple[int, int]]:
         key = data[i:i + MIN_MATCH]
         blen, bpos = 0, 0
         for p in reversed(seen[key]):
-            if i - p > WINDOW:
-                break
+            if i - p >= WINDOW:
+                break          # the distance is twelve bits: 1..4095
             n = MIN_MATCH
             while n < MAX_MATCH and i + n < len(data) and data[p + n] == data[i + n]:
                 n += 1

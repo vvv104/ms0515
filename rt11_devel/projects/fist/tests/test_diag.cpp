@@ -7,6 +7,9 @@
  */
 #include "FistGame.hpp"
 
+#include <map>
+#include <set>
+
 #include <algorithm>
 #include <string>
 
@@ -104,6 +107,94 @@ TEST_CASE("fist: match transition log (diagnostic)")
 // --fist-profile-out=<file>: sample the PC per instruction during a real fight
 // (--fist-profile-steps, default 3M) - "octal count" per distinct PC.  A
 // FIST_SYMTAB=1 build + source/profile_agg.py map the samples to routines.
+// --fist-pace-hist: the length of every game frame, in host frames (20 ms
+// each), so a systematic loss can be told from occasional long frames.
+// --fist-crossing: walk P1 past P2 and print both facings and positions.
+TEST_CASE("fist: walking past the opponent (diagnostic)")
+{
+    if (fist::opt("crossing").empty() || !fist::built()) {
+        MESSAGE("--fist-crossing not given - skipping");
+        return;
+    }
+    FistGame g("fist_cross_lib");
+    g.startGame();
+    g.parkP2();
+    g.resetFighters();
+    g.settle(20);
+    auto say = [&](const char *when) {
+        MESSAGE(when << ": P1 x=" << (int)g.gst(0xAA19) << " facing=" << (int)g.gst(0xAA17)
+                << ";  P2 x=" << (int)g.gst(0xAA59) << " facing=" << (int)g.gst(0xAA57));
+    };
+    say("start");
+    /* Walk P1 forward until it is past P2, or until it stops making ground. */
+    g.emu.keyPress(ms0515::Key::Kp6, true);
+    int last = -1, stuck = 0;
+    for (int i = 0; i < 400 && stuck < 40; ++i) {
+        g.step();
+        int x = g.gst(0xAA19);
+        stuck = (x == last) ? stuck + 1 : 0;
+        last = x;
+    }
+    g.emu.keyPress(ms0515::Key::Kp6, false);
+    g.settle(20);
+    say("after walking forward");
+
+    /* Facing changes in exactly one place in the engine ($9AD7): when the
+     * action is $11, the move the control map calls XDB - fire with down and
+     * back, KP5 + KP1.  Nothing turns a fighter round by position, in the
+     * reference or here.  So this is what a player standing back to back has
+     * to press, and it should flip the facing. */
+    g.emu.keyPress(ms0515::Key::Kp5, true);
+    g.emu.keyPress(ms0515::Key::Kp1, true);
+    std::set<int> queued, acting;
+    for (int i = 0; i < 40; ++i) { g.step(); queued.insert(g.gst(0xAA05)); acting.insert(g.gst(0xAA04)); }
+    g.emu.keyPress(ms0515::Key::Kp1, false);
+    g.emu.keyPress(ms0515::Key::Kp5, false);
+    for (int i = 0; i < 40; ++i) { g.step(); queued.insert(g.gst(0xAA05)); acting.insert(g.gst(0xAA04)); }
+    std::string q, a;
+    for (int v : queued) q += std::to_string(v) + " ";
+    for (int v : acting) a += std::to_string(v) + " ";
+    MESSAGE("while fire + down-back was held: queued moves { " << q << "}, acting { " << a << "}");
+    say("after fire + down-back (KP5 + KP1)");
+    CHECK(true);
+}
+
+TEST_CASE("fist: pace histogram (diagnostic)")
+{
+    if (fist::opt("pace-hist").empty() || !fist::built()) {
+        MESSAGE("--fist-pace-hist not given - skipping");
+        return;
+    }
+    FistGame g("fist_paceh_lib");
+    auto frames = [&]() { return g.gst(0xB158) + 256 * g.gst(0xB159); };
+    for (int pass = 0; pass < 3; ++pass) {
+        if (pass == 1) { g.startGame(); g.parkP2(); }
+        if (pass == 2) { g.poke(0xAA46, 1); }        /* P2 back on the AI */
+        int last = frames(), gap = 0;
+        std::map<int, int> hist;
+        for (int i = 0; i < 600; ++i) {
+            if (pass == 2 && i % 9 == 0)             /* P1 attacking, too */
+                g.emu.keyPress(ms0515::Key::Space, (i / 9) % 2 == 0);
+            g.step();
+            ++gap;
+            int now = frames();
+            if (now != last) { hist[gap] += 1; last = now; gap = 0; }
+        }
+        std::string line;
+        int total = 0, sum = 0;
+        for (auto &kv : hist) { total += kv.second; sum += kv.first * kv.second; }
+        for (auto &kv : hist) {
+            char b[64];
+            snprintf(b, sizeof b, "%d host frames: %d;  ", kv.first, kv.second);
+            line += b;
+        }
+        std::string what = pass == 0 ? "the demo" : pass == 1 ? "a quiet game" : "a real fight";
+        MESSAGE(what << ": " << line << " mean "
+                << (total ? 20.0 * sum / total : 0.0) << " ms");
+    }
+    CHECK(true);
+}
+
 TEST_CASE("fist: PC profile (diagnostic)")
 {
     std::string outPath = fist::opt("profile-out");

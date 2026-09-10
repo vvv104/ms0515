@@ -12,7 +12,6 @@ Every function returns MACRO-11 text; game_build.py assembles the game.
 # which is what MAX_PACKED leaves room for.
 CHUNK = 8                                    # blocks a piece expands to (4 KB)
 BUF = 0o100000 - CHUNK * 512
-UNPK = 0o57600       # the decoder FLOAD copied into the hole and left there
 STAGE = 0o60200                              # packed bytes are read here,
                                              #   clear of that decoder
 STAGE_ROOM = BUF - STAGE                     # 4224 B
@@ -36,103 +35,23 @@ def preamble():
     """The .TITLE, the .MCALLs and the I/O / banking equates."""
     return (
         "        .TITLE  FIST\n"
-        "        .MCALL  .FETCH,.LOOKUP,.READW,.CLOSE,.EXIT\n"
+        "        .MCALL  .EXIT\n"
         "DISPAT = 177400\nSYSC   = 177604\nVRAM   = 40000\nVRAMEN = 100000\n"
         f"KBST   = 177442\nGST    = 100000\nHSPACE = 30000\nBUF    = {BUF:o}\n"
         "EXT    = 17\nPRIM   = 177\nGAME   = 3217\n")
 
 
-def entries(pieces):
-    """Four words a piece: the block it starts in, the words the read must
-    cover, its byte offset into that block, and the bytes it expands to."""
-    out = ""
-    for pc in pieces:
-        assert pc.packed, "a stored piece would have to be block-aligned"
-        assert pc.blocks() * 512 <= STAGE_ROOM, "the packed piece overruns STAGE"
-        out += (f"        .WORD   {pc.block}., {pc.blocks() * 256}., "
-                f"{pc.offset}., {pc.raw}.\n")
-    return out
-
-
-def tables(gst, scr):
-    """The GST's pieces and the loading screen's, and how many of each."""
-    return ("GSTTAB:\n" + entries(gst) +
-            "SCRTAB:\n" + entries(scr) +
-            f"NGST   = {len(gst)}.\nNSCR   = {len(scr)}.\n")
-
-
-def runner():
-    """LOADP - work through a table of pieces.
-
-    R0 = the first entry, R1 = where the first piece goes (0 means the
-    parked extended banks, through BUF and CHUNK), R2 = how many entries.
-    Everything lives on the stack across the calls: the decoder uses every
-    register, and CHUNK all but R3."""
-    return f"""        ; LOADP: R0 = &entries, R1 = destination (0 = the banks), R2 = count
-LOADP:  MOV     R1,-(SP)               ; 4(SP): the destination
-        MOV     R2,-(SP)               ; 2(SP): entries left
-        MOV     R0,-(SP)               ; 0(SP): the entry
-20$:    MOV     @SP,R4
-        MOV     #LKAREA,R0
-        MOV     #4000,(R0)             ; .READW (code 8), channel 0
-        MOV     (R4)+,2(R0)            ; the block it starts in
-        MOV     #{STAGE:o},4(R0)
-        MOV     (R4)+,6(R0)            ; words the read must cover
-        CLR     10(R0)
-        EMT     375
-        BCC     21$
-        JMP     LDERR
-21$:    MOV     #{STAGE:o},R1
-        ADD     (R4)+,R1               ; + the byte offset into that block
-        MOV     (R4)+,R3               ; bytes to produce
-        MOV     R4,@SP                 ; the next entry
-        MOV     R3,-(SP)               ; the size, across the decoder
-        MOV     6(SP),R2               ; where it expands to
-        BNE     22$
-        MOV     #{BUF:o},R2            ; the banks: through the buffer
-22$:    JSR     PC,@#{UNPK:o}
-        MOV     (SP)+,R3
-        MOV     4(SP),R1
-        BNE     23$
-        MOV     R3,R2                  ; into the banks: words to copy
-        ASR     R2
-        MOV     GDEST,R1
-        JSR     PC,CHUNK
-        ADD     R3,GDEST
-        BR      24$
-23$:    ADD     R3,4(SP)               ; the next piece follows this one
-24$:    DEC     2(SP)
-        BNE     20$
-        ADD     #6,SP
-        RTS     PC
-GDEST:  .WORD   GST
-"""
-
-
-def title_load(scr):
-    """Expand the loading screen into SCRBUF and present it before the state
-    loads."""
-    read = """        MOV     #SCRTAB,R0
-        MOV     #SCRBUF,R1
-        MOV     #NSCR,R2
-        JSR     PC,LOADP
-"""
-    return f"""        ; --- the loading screen: expand it into SCRBUF (plain RAM under
-        ;     RT-11), switch to the medium-res colour mode and present it -
-        ;     then load the game state behind it, as the tape loader did ---
-{read}        MTPS    #340
+def title_load():
+    """The picture is already on the screen - FLOAD expanded it out of its
+    own image and converted it into VRAM before it read a thing - so all
+    that is left here is the machine's side of it: the medium-resolution
+    colour mode, and the register C shadow the sound driver toggles."""
+    return """        ; --- the loader has the picture up; take the video mode over ---
+        MTPS    #340
         MOVB    @#SYSC,R0
         BIC     #17,R0
         MOVB    R0,@#SYSC
         MOVB    R0,RCSHAD              ; reg C shadow: the sound driver toggles bit 6 in it
-        MOV     #3377,@#DISPAT         ; VRAM on @40000, banks 4-6 primary (SCRBUF)
-        MOV     #VRAM,R0
-7$:     CLR     (R0)+
-        CMP     R0,#VRAMEN
-        BLO     7$
-        JSR     PC,SPSCR
-        JSR     PC,BORDER              ; the cyan border
-        MOV     #3177,@#DISPAT         ; window off again for the reads (the picture stays)
         MTPS    #0
 """
 
@@ -166,25 +85,18 @@ def after_load(withbg):
 """
 
 
-def boot(withbg, pieces, scr):
-    """BOOT: .FETCH / .LOOKUP FIST.DAT, the loading screen, the chunk reads,
-    the hold.  Boot-only code: it lives in the dojo block at 0100000 when
-    there is one (banks 0-1 are full) and runs there at RT-11's all-primary
-    banking; the chunk copies (which hide banks 4-6) go through CHUNK in
-    banks 0-1."""
-    title = title_load(scr) if withbg else ""
-    return f"""BOOT:   .FETCH  #HSPACE,#DATFIL
-        BCC     .+6
-        JMP     LDERR
-        .LOOKUP #LKAREA,#0,#DATFIL
-        BCC     .+6
-        JMP     LDERR
-{title}        MOV     #GSTTAB,R0
-        CLR     R1                     ; 0: into the parked extended banks
-        MOV     #NGST,R2
-        JSR     PC,LOADP
-        .CLOSE  #0
-{after_load(withbg)}{runner()}{tables(pieces, scr)}"""
+def boot(withbg, pieces):
+    """BOOT: the video mode and the hold on the loading screen.
+
+    Nothing is read here any more.  FLOAD placed the program, expanded the
+    GST straight into the extended banks and put the picture up out of its
+    own image before any of it - so by the time this runs the machine is
+    ready and RT-11 is not needed again.  Boot-only code: it lives in the
+    dojo block at 0100000 when there is one."""
+    title = title_load() if withbg else ""
+    return f"""BOOT:
+{title}
+{after_load(withbg)}"""
 
 
 def start(boot_inline, dojo_boot):
