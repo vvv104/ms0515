@@ -108,6 +108,38 @@ TEST_CASE("fist: match transition log (diagnostic)")
 // FIST_SYMTAB=1 build + source/profile_agg.py map the samples to routines.
 // --fist-pace-hist: the length of every game frame, in host frames (20 ms
 // each), so a systematic loss can be told from occasional long frames.
+// --fist-crossing: walk P1 past P2 and print both facings and positions.
+TEST_CASE("fist: walking past the opponent (diagnostic)")
+{
+    if (fist::opt("crossing").empty() || !fist::built()) {
+        MESSAGE("--fist-crossing not given - skipping");
+        return;
+    }
+    FistGame g("fist_cross_lib");
+    g.startGame();
+    g.parkP2();
+    g.resetFighters();
+    g.settle(20);
+    auto say = [&](const char *when) {
+        MESSAGE(when << ": P1 x=" << (int)g.gst(0xAA19) << " facing=" << (int)g.gst(0xAA17)
+                << ";  P2 x=" << (int)g.gst(0xAA59) << " facing=" << (int)g.gst(0xAA57));
+    };
+    say("start");
+    /* Walk P1 forward until it is past P2, or until it stops making ground. */
+    g.emu.keyPress(ms0515::Key::Kp6, true);
+    int last = -1, stuck = 0;
+    for (int i = 0; i < 400 && stuck < 40; ++i) {
+        g.step();
+        int x = g.gst(0xAA19);
+        stuck = (x == last) ? stuck + 1 : 0;
+        last = x;
+    }
+    g.emu.keyPress(ms0515::Key::Kp6, false);
+    g.settle(20);
+    say("after walking forward");
+    CHECK(true);
+}
+
 TEST_CASE("fist: pace histogram (diagnostic)")
 {
     if (fist::opt("pace-hist").empty() || !fist::built()) {
