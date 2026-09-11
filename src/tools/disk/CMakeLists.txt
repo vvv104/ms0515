@@ -5,10 +5,12 @@
 
 add_executable(ms0515-disk
     main.cpp
+    ComposeCommand.cpp
 )
 
 target_link_libraries(ms0515-disk
     PRIVATE ms0515_disk
+    PRIVATE ms0515_disk_manifest
     PRIVATE ms0515_win7compat
 )
 
