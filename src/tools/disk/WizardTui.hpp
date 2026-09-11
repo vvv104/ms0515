@@ -47,7 +47,7 @@ public:
     [[nodiscard]] const std::string &status() const noexcept { return status_; }
 
 private:
-    enum class Ask { none, save, open, build, startup, label, find };
+    enum class Ask { none, save, open, build, find };
 
     void changed();
     void moveCursor(int delta);
@@ -59,6 +59,8 @@ private:
     void startAsk(Ask ask, std::string value);
     void finishAsk();
     bool onAskEvent(const ftxui::Event &event);
+    void startEdit(const disk::WizardRow &row, std::string text);
+    bool onEditEvent(const ftxui::Event &event);
     bool onListEvent(const ftxui::Event &event);
     void findNext(const std::string &text);
     void save(const std::filesystem::path &path);
@@ -85,6 +87,9 @@ private:
     int                     top_ = 0;
     Ask                     ask_ = Ask::none;
     std::string             input_;
+    bool                    editing_ = false;    /* a field's text being typed */
+    std::string             editKey_;
+    std::string             edit_;
     std::string             status_;
     bool                    quit_ = false;
 };

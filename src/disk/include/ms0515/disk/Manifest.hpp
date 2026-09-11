@@ -33,6 +33,10 @@ struct ManifestSystem {
      * needs on one media only (`requires_by_media`: DV.SYS for dv). */
     std::vector<std::string>   dependsOn;
     std::map<Media, std::vector<std::string>> dependsOnByMedia;
+    /* Where it requires a name ("dir") that several builds provide: its own
+     * build, the one on its original disks (TOML `prefer`).  Another can be
+     * picked in its place. */
+    std::vector<std::string>   prefer;
     /* The first lines of the startup command file (TOML `startup`). */
     std::optional<std::vector<std::string>> startup;
 };

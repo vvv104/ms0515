@@ -24,9 +24,10 @@ const Decorator kGrey    = color(Color::GrayDark);
 const Decorator kBar     = bgcolor(Color::Cyan) | color(Color::Black);
 const Decorator kKeyNum  = bgcolor(Color::Black) | color(Color::White);
 const Decorator kBad     = color(Color::RedLight);
+const Decorator kEdit    = bgcolor(Color::Black) | color(Color::White);
 
 const std::vector<std::pair<const char *, const char *>> kKeys = {
-    {" 2", "Save"}, {" 3", "Open"}, {" 5", "Build"}, {" 7", "Startup"}, {" 8", "Label"}, {"10", "Quit"},
+    {" 2", "Save"}, {" 3", "Open"}, {" 5", "Build"}, {"10", "Quit"},
 };
 
 int capacityOf(Media m) { return m == Media::dv ? 1586 : 786; }
@@ -38,19 +39,9 @@ std::optional<std::vector<uint8_t>> readHost(const std::filesystem::path &p)
     return std::vector<uint8_t>(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
 }
 
-std::vector<std::string> splitLines(const std::string &s)
-{
-    std::vector<std::string> out;
-    std::stringstream in(s);
-    for (std::string item; std::getline(in, item, ';');) {
-        const auto b = item.find_first_not_of(' '), e = item.find_last_not_of(' ');
-        if (b != std::string::npos) out.push_back(item.substr(b, e - b + 1));
-    }
-    return out;
-}
-
 const int kNoteWidth = 22;
 const int kSideWidth = 5 + 2 + kNoteWidth;   /* a group's summary sits where its rows' blocks and notes do */
+const int kLineWidth = 30;                   /* a START.COM line's box */
 const char *const kNotReady = "choose the diskette and the system first";
 
 /* What a note has room for: a title up to its " - " or " (" - "Pascal",
@@ -146,6 +137,10 @@ void WizardTui::activate(const WizardRow &r)
         if (r.available) wizard_.toggleFold(r.key); else status_ = r.why;
         return;
     case WizardRow::Kind::radio:
+    case WizardRow::Kind::line:
+        return;
+    case WizardRow::Kind::field:
+        startEdit(r, r.value);
         return;
     case WizardRow::Kind::media:
         status_ = wizard_.setMedia(*parseMedia(r.key));
@@ -251,8 +246,6 @@ void WizardTui::finishAsk()
     case Ask::save:    if (!input_.empty()) save(input_); break;
     case Ask::open:    if (!input_.empty()) openFile(input_); break;
     case Ask::build:   if (!input_.empty()) build(input_); break;
-    case Ask::startup: wizard_.setStartup(splitLines(input_)); changed(); break;
-    case Ask::label:   wizard_.setVolumeId(input_.empty() ? std::nullopt : std::optional<std::string>(input_.substr(0, 12))); changed(); break;
     case Ask::find:    findNext(input_); break;
     case Ask::none:    break;
     }
@@ -264,6 +257,36 @@ bool WizardTui::onAskEvent(const Event &e)
     if (e == Event::Return) { finishAsk(); return true; }
     if (e == Event::Backspace) { if (!input_.empty()) input_.pop_back(); return true; }
     if (e.is_character()) { input_ += e.character(); return true; }
+    return true;
+}
+
+void WizardTui::startEdit(const WizardRow &row, std::string text)
+{
+    editing_ = true;
+    editKey_ = row.key;
+    edit_ = std::move(text);
+}
+
+/* Typing into a field: Enter keeps the text (and goes on to the next new
+ * START.COM line), an arrow keeps it and moves, Esc drops it. */
+bool WizardTui::onEditEvent(const Event &e)
+{
+    if (e == Event::Escape) { editing_ = false; return true; }
+    if (e == Event::Return || e == Event::ArrowUp || e == Event::ArrowDown) {
+        editing_ = false;
+        status_ = wizard_.setField(editKey_, edit_);
+        changed();
+        const std::string prefix = kStartupField;
+        if (e == Event::Return && editKey_.rfind(prefix, 0) == 0 && status_.empty()) {
+            const auto next = prefix + std::to_string(std::stoul(editKey_.substr(prefix.size())) + 1);
+            if (const int at = indexOf(next, WizardRow::Kind::field); at >= 0) cursor_ = at;
+        }
+        if (e == Event::ArrowUp) moveCursor(-1);
+        if (e == Event::ArrowDown) moveCursor(1);
+        return true;
+    }
+    if (e == Event::Backspace) { if (!edit_.empty()) edit_.pop_back(); return true; }
+    if (e.is_character()) edit_ += e.character();
     return true;
 }
 
@@ -279,12 +302,14 @@ bool WizardTui::onListEvent(const Event &e)
     if (rows.empty()) return false;
     const auto &r = rows[static_cast<std::size_t>(cursor_)];
     if (e == Event::Character(" ") || e == Event::Return) { activate(r); return true; }
+    if (r.kind == WizardRow::Kind::field && e.is_character()) { startEdit(r, r.value + e.character()); return true; }
     return false;
 }
 
 bool WizardTui::onEvent(const Event &e)
 {
     if (ask_ != Ask::none) return onAskEvent(e);
+    if (editing_) return onEditEvent(e);
     if (e == Event::F10) { quit_ = true; return true; }
     if (e == Event::F2) {
         if (wizard_.ready()) startAsk(Ask::save, defaultName(".toml")); else status_ = kNotReady;
@@ -295,14 +320,6 @@ bool WizardTui::onEvent(const Event &e)
         if (wizard_.ready()) startAsk(Ask::build, defaultName(".dsk")); else status_ = kNotReady;
         return true;
     }
-    if (e == Event::F7) {
-        const auto &s = wizard_.selection().startup;
-        std::string v;
-        if (s) for (const auto &l : *s) v += (v.empty() ? "" : "; ") + l;
-        startAsk(Ask::startup, v);
-        return true;
-    }
-    if (e == Event::F8) { startAsk(Ask::label, wizard_.selection().volumeId.value_or("")); return true; }
     if (e == Event::Character("/")) { startAsk(Ask::find, ""); return true; }
     return onListEvent(e);
 }
@@ -332,8 +349,23 @@ Element WizardTui::renderList(int rows)
             line = line | (r.available ? kGroup : kGrey);
         } else if (r.kind == WizardRow::Kind::radio) {
             line = text(indent + "one of: " + r.title) | kGroup;
+        } else if (r.kind == WizardRow::Kind::field) {
+            const bool typing = editing_ && editKey_ == r.key;
+            const std::size_t width = r.key == kVolumeIdField ? 12 : kLineWidth;
+            std::string shownText = typing ? edit_ + "_" : r.value;
+            if (shownText.size() > width) shownText = shownText.substr(shownText.size() - width);
+            shownText.resize(width, ' ');
+            Element box = text(shownText);
+            if (typing) box = box | kEdit;
+            line = hbox({text(indent + (r.title.empty() ? std::string() : r.title + "  ") + "["), box, text("]"), filler(),
+                         text(r.summary) | size(WIDTH, EQUAL, kSideWidth)});
+        } else if (r.kind == WizardRow::Kind::line) {
+            const auto *sys = manifest_.system(wizard_.system());
+            const std::string from = sys && r.requiredBy == sys->title ? std::string("the system's") : "from " + shortTitle(r.requiredBy);
+            line = hbox({text(indent + r.title) | flex, text(from) | size(WIDTH, EQUAL, kSideWidth)});
         } else {
-            std::string note = r.mark == WizardRow::Mark::system ? "system"
+            std::string note = r.native ? "native"
+                             : r.mark == WizardRow::Mark::system ? "system"
                              : r.mark == WizardRow::Mark::added ? "for " + shortTitle(r.requiredBy)
                              : r.available ? std::string() : r.why;
             const bool bundle = r.kind == WizardRow::Kind::bundle;
@@ -344,7 +376,7 @@ Element WizardTui::renderList(int rows)
             else if (r.mark == WizardRow::Mark::added) row = row | kAdded;
             line = row;
         }
-        if (i == cursor_) line = line | kCursor;
+        if (i == cursor_ && !editing_) line = line | kCursor;
         lines.push_back(line);
     }
     return vbox(lines);
@@ -357,8 +389,13 @@ Element WizardTui::renderDetails() const
     const auto &r = list[static_cast<std::size_t>(cursor_)];
     const auto *b = manifest_.bundle(r.key);
     if (r.kind != WizardRow::Kind::bundle || !b) {
-        Elements out = {paragraph(r.kind == WizardRow::Kind::radio ? "one of: " + r.title : r.title), text("")};
+        const std::string title = r.kind == WizardRow::Kind::radio ? "one of: " + r.title
+                                : r.kind == WizardRow::Kind::field && r.title.empty() ? std::string("a line of START.COM")
+                                : r.title;
+        Elements out = {paragraph(title), text("")};
         if (!r.summary.empty()) out.push_back(paragraph(r.summary));
+        if (r.kind == WizardRow::Kind::line) out.push_back(paragraph("from " + r.requiredBy));
+        if (r.kind == WizardRow::Kind::field) out.push_back(paragraph("Type to change it; Enter keeps, Esc drops."));
         if (!r.available) out.push_back(paragraph(r.why) | kBad);
         return vbox(out);
     }
@@ -407,10 +444,11 @@ Element WizardTui::renderBottom() const
     Element line;
     static const std::map<Ask, const char *> prompts = {
         {Ask::save, "Save the choice to: "}, {Ask::open, "Open a choice: "}, {Ask::build, "Build the disk to: "},
-        {Ask::startup, "START.COM lines after the system's (; between): "}, {Ask::label, "Volume id: "}, {Ask::find, "Find: "}};
+        {Ask::find, "Find: "}};
     if (ask_ != Ask::none) line = hbox({text(prompts.at(ask_)), text(input_) | kCursor, filler()});
     else line = hbox({text(status_), filler()});
-    const Element hint = hbox({text("Space, Enter: choose, open or close a group    / find    Esc: cancel a prompt"), filler()});
+    const Element hint = hbox({text(editing_ ? "Enter: keep    Esc: drop    Up, Down: keep and move"
+                                             : "Space, Enter: choose, open or close a group, edit a field    / find"), filler()});
     Elements keys;
     for (const auto &[num, name] : kKeys) keys.push_back(hbox({text(num) | kKeyNum, text(name) | kBar | flex}) | flex);
     return vbox({line, hint, hbox(keys)});

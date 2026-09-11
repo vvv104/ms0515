@@ -245,6 +245,33 @@ TEST_CASE("F2 saves the choice, F3 opens it again, F5 builds a disk that boots")
     CHECK(other.quit());
 }
 
+TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter keeps, Esc drops") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    choose(tui, "dz - two sides");
+    downTo(tui, "Volume id");
+    press(tui, ftxui::Event::Return);
+    type(tui, "MYDISK");
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().volumeId == "MYDISK");
+    CHECK(shown(tui).find("[MYDISK") != std::string::npos);
+    type(tui, "X");                                           /* typing on a field starts an edit */
+    press(tui, ftxui::Event::Escape);
+    CHECK(tui.model().selection().volumeId == "MYDISK");
+
+    choose(tui, "OMEGA");
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);                      /* the new line under the heading */
+    type(tui, "R PAS1");
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1"});
+    const std::string s = shown(tui);
+    CHECK(s.find("[R PAS1") != std::string::npos);
+    CHECK(s.find("1 line") != std::string::npos);
+    CHECK(s.find("7Startup") == std::string::npos);            /* no keys of their own any more */
+}
+
 TEST_CASE("a system that does not go on the diskette is greyed; another diskette later drops it") {
     const Manifest m = parseManifest(kManifest);
     const Repository repo = repository();

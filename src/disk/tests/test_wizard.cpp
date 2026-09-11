@@ -24,8 +24,10 @@ version = "2026.09.11-4"
 title    = "OMEGA"
 image    = "systems/omega.dsk"
 media    = ["ss", "dz", "dv"]
-requires = ["dz"]
+requires = ["dz", "dir"]
 requires_by_media = { dv = ["dv"] }
+prefer   = ["dir-vvv"]
+startup  = ["SET TT QUIET"]
 
 [system.mihin]
 title    = "OS-16SJ"
@@ -43,6 +45,18 @@ title   = "DV.SYS"
 group   = "System"
 systems = ["omega"]
 files   = ["h/DV.SYS"]
+
+[bundle.dir-omega]
+title    = "DIR (OMEGA)"
+group    = "System"
+provides = ["dir"]
+files    = ["u/omega/DIR.SAV"]
+
+[bundle.dir-vvv]
+title    = "DIR (vvv104)"
+group    = "System"
+provides = ["dir"]
+files    = ["u/vvv/DIR.SAV"]
 
 [bundle.sysmac]
 title = "SYSMAC.SML"
@@ -83,6 +97,7 @@ title    = "Pascal"
 group    = "Development / Pascal"
 requires = ["macro11", "link"]
 prefer   = ["macro-vvv"]
+startup  = ["ASSIGN DK: SRC:"]
 files    = ["d/PAS1.SAV"]
 
 [bundle.sabot2]
@@ -126,8 +141,8 @@ TEST_CASE("rows: the groups in the file's order, the system's parts marked, the 
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m, "omega", Media::dz, [](const ManifestBundle &b) { return static_cast<int>(b.title.size()); });
     const auto rows = w.rows(true);
-    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Operating system", "System", "Development",
-                                                     "Assembler", "Linker", "Pascal", "Games"});
+    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "START.COM",
+                                                     "Development", "Assembler", "Linker", "Pascal", "Games"});
     REQUIRE(row(rows, "dz"));
     CHECK(row(rows, "dz")->mark == WizardRow::Mark::system);
     CHECK(row(rows, "dz")->blocks == 6);
@@ -202,7 +217,7 @@ TEST_CASE("a radio button: picked, it replaces the other; needed, it cannot be c
     CHECK(row(rows, "macro-omega")->mark == WizardRow::Mark::off);
     CHECK(w.toggle("macro-vvv").empty());                           /* and clears */
     CHECK(row(w.rows(true), "macro-vvv")->mark == WizardRow::Mark::off);
-    CHECK(w.resolution().bundles == std::vector<std::string>{"dz"});
+    CHECK(w.resolution().bundles == std::vector<std::string>{"dz", "dir-vvv"});
 }
 
 TEST_CASE("what cannot be taken is greyed out with the reason, and toggling it says the same") {
@@ -257,7 +272,7 @@ TEST_CASE("the steps: the diskette first, then the system, then the rest") {
     CHECK_FALSE(w.ready());
     CHECK_FALSE(w.media().has_value());
     auto rows = w.rows();
-    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Operating system", "System", "Development", "Games"});
+    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "Development", "Games"});
     const auto *diskette = row(rows, "#diskette", WizardRow::Kind::group);
     REQUIRE(diskette);
     CHECK(diskette->open);
@@ -307,14 +322,14 @@ TEST_CASE("the groups are a tree, folded, each saying how many are chosen") {
     DiskWizard w(m, "omega", Media::dz);
     REQUIRE(w.toggle("pascal").empty());
     auto rows = w.rows();
-    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Operating system", "System", "Development", "Games"});
+    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "Development", "Games"});
     CHECK(row(rows, "#diskette", WizardRow::Kind::group)->summary == "dz - two sides, 800 KB");
     CHECK(row(rows, "Development", WizardRow::Kind::group)->summary == "1 chosen, 3 added");
     CHECK(row(rows, "Games", WizardRow::Kind::group)->summary.empty());
 
     w.toggleFold("Development");
     rows = w.rows();
-    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Operating system", "System", "Development",
+    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "Development",
                                                      "Assembler", "Linker", "Pascal", "Games"});
     const auto *assembler = row(rows, "Development / Assembler", WizardRow::Kind::group);
     REQUIRE(assembler);
@@ -341,7 +356,94 @@ TEST_CASE("the groups are a tree, folded, each saying how many are chosen") {
     DiskWizard other(m);
     other.load(saved);
     CHECK(other.ready());
-    CHECK(headings(other.rows()) == std::vector<std::string>{"Diskette", "Operating system", "System", "Development", "Games"});
+    CHECK(headings(other.rows()) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "Development", "Games"});
+}
+
+TEST_CASE("the system's utilities: its own build marked native and on, another build can take its place") {
+    const Manifest m = parseManifest(kManifest);
+    DiskWizard w(m, "omega", Media::dz);
+    auto rows = w.rows(true);
+    REQUIRE(row(rows, "dir", WizardRow::Kind::radio));
+    CHECK(row(rows, "dir-vvv")->mark == WizardRow::Mark::system);
+    CHECK(row(rows, "dir-vvv")->native);
+    CHECK(row(rows, "dir-omega")->mark == WizardRow::Mark::off);
+    CHECK_FALSE(row(rows, "dir-omega")->native);
+    CHECK(row(rows, "dir-omega")->available);
+    CHECK_FALSE(row(rows, "dz")->native);                           /* no alternative: nothing to call native */
+
+    CHECK(w.toggle("dir-omega").empty());
+    rows = w.rows(true);
+    CHECK(row(rows, "dir-omega")->mark == WizardRow::Mark::system);
+    CHECK(row(rows, "dir-vvv")->mark == WizardRow::Mark::off);
+    CHECK(row(rows, "dir-vvv")->native);
+    CHECK(w.selection().bundles.empty());
+    CHECK(w.selection().picks.at("dir") == "dir-omega");
+    CHECK_FALSE(w.toggle("dir-omega").empty());                     /* the system needs one */
+    CHECK(w.toggle("dir-vvv").empty());
+    CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::system);
+}
+
+TEST_CASE("the label after the diskette, START.COM at the end of the system's group: fields to edit") {
+    const Manifest m = parseManifest(kManifest);
+    DiskWizard w(m);
+    auto rows = w.rows();
+    REQUIRE(row(rows, "#label", WizardRow::Kind::group));
+    CHECK_FALSE(row(rows, "#label", WizardRow::Kind::group)->available);
+    CHECK(w.setField(kVolumeIdField, "MYDISK") == "choose the diskette first");
+
+    REQUIRE(w.setMedia(Media::dz).empty());
+    rows = w.rows();
+    CHECK(row(rows, "#label", WizardRow::Kind::group)->open);           /* opened with the diskette */
+    const auto *id = row(rows, kVolumeIdField, WizardRow::Kind::field);
+    REQUIRE(id);
+    CHECK(id->title == "Volume id");
+    CHECK(id->value.empty());
+    CHECK(w.setField(kVolumeIdField, "MYDISK").empty());
+    CHECK(w.selection().volumeId == "MYDISK");
+    CHECK(row(w.rows(), "#label", WizardRow::Kind::group)->summary == "MYDISK");
+    CHECK(row(w.rows(), kVolumeIdField, WizardRow::Kind::field)->value == "MYDISK");
+    CHECK(w.setField(kVolumeIdField, "ABCDEFGHIJKLMNOP").empty());
+    CHECK(w.selection().volumeId == "ABCDEFGHIJKL");                    /* RT-11 keeps twelve */
+    CHECK(w.setField(kVolumeIdField, "").empty());
+    CHECK_FALSE(w.selection().volumeId.has_value());
+    CHECK(row(w.rows(), "#startup", WizardRow::Kind::group) == nullptr);
+
+    REQUIRE(w.setSystem("omega").empty());
+    REQUIRE(w.toggle("pascal").empty());
+    w.toggleFold("System");
+    rows = w.rows();
+    const auto *startup = row(rows, "#startup", WizardRow::Kind::group);
+    REQUIRE(startup);
+    CHECK(startup->depth == 1);
+    CHECK(startup->parent == "System");
+    CHECK(startup->open);
+    CHECK(startup->summary == "2 lines");
+    const auto at = static_cast<std::size_t>(startup - rows.data());
+    REQUIRE(at + 4 < rows.size());
+    CHECK(rows[at - 1].parent == "System");                             /* after all of the system's rows */
+    CHECK(rows[at + 1].kind == WizardRow::Kind::line);
+    CHECK(rows[at + 1].title == "SET TT QUIET");
+    CHECK(rows[at + 1].requiredBy == "OMEGA");
+    CHECK(rows[at + 2].title == "ASSIGN DK: SRC:");
+    CHECK(rows[at + 2].requiredBy == "Pascal");
+    CHECK(rows[at + 3].kind == WizardRow::Kind::field);                 /* a new line to type */
+    CHECK(rows[at + 3].key == "#startup:0");
+    CHECK(rows[at + 4].kind == WizardRow::Kind::group);
+    CHECK(rows[at + 4].title == "Development");
+
+    CHECK(w.setField("#startup:0", "  R PAS1 ").empty());
+    CHECK(w.setField("#startup:1", "DIR").empty());
+    CHECK(w.selection().startup == std::vector<std::string>{"R PAS1", "DIR"});
+    rows = w.rows();
+    CHECK(row(rows, "#startup:0", WizardRow::Kind::field)->value == "R PAS1");
+    CHECK(row(rows, "#startup:2", WizardRow::Kind::field)->value.empty());
+    CHECK(row(rows, "#startup", WizardRow::Kind::group)->summary == "4 lines");
+    CHECK(w.setField("#startup:0", "").empty());                        /* emptied: gone */
+    CHECK(w.selection().startup == std::vector<std::string>{"DIR"});
+    CHECK(w.setField("#startup:0", "").empty());
+    CHECK_FALSE(w.selection().startup.has_value());
+    w.toggleFold("System");
+    CHECK(row(w.rows(), "#startup", WizardRow::Kind::group) == nullptr);
 }
 
 TEST_CASE("the saved choice: its own file, tied to the collection's version") {

@@ -7,6 +7,7 @@
 #include <toml++/toml.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <set>
 #include <stdexcept>
 
@@ -111,13 +112,13 @@ struct DiskWizard::Branch {
 };
 
 DiskWizard::DiskWizard(const Manifest &manifest, std::function<int(const ManifestBundle &)> blocksOf)
-    : m_(manifest), blocksOf_(std::move(blocksOf)), open_{kDisketteGroup}
+    : m_(manifest), blocksOf_(std::move(blocksOf)), open_{kDisketteGroup, kStartupGroup}
 {
 }
 
 DiskWizard::DiskWizard(const Manifest &manifest, std::string system, Media media,
                        std::function<int(const ManifestBundle &)> blocksOf)
-    : m_(manifest), blocksOf_(std::move(blocksOf)), media_(media)
+    : m_(manifest), blocksOf_(std::move(blocksOf)), media_(media), open_{kStartupGroup}
 {
     if (const auto *sys = m_.system(system)) {
         sel_.system = std::move(system);
@@ -194,7 +195,10 @@ void DiskWizard::dropWhatDoesNotFit()
 std::string DiskWizard::setMedia(Media media)
 {
     notices_.clear();
-    if (!media_) open_.insert(kSystemGroup);         /* the first step done: the next opens */
+    if (!media_) {                                   /* the first step done: the next opens */
+        open_.insert(kLabelGroup);
+        open_.insert(kSystemGroup);
+    }
     media_ = media;
     sel_.media = media;
     if (const auto *sys = m_.system(sel_.system)) {
@@ -287,6 +291,32 @@ void DiskWizard::setStartup(std::vector<std::string> lines)
 
 void DiskWizard::setVolumeId(std::optional<std::string> id) { sel_.volumeId = std::move(id); }
 
+std::string DiskWizard::setField(const std::string &key, const std::string &value)
+{
+    const auto first = value.find_first_not_of(' '), last = value.find_last_not_of(' ');
+    const std::string text = first == std::string::npos ? std::string() : value.substr(first, last - first + 1);
+    if (key == kVolumeIdField) {
+        if (!media_) return "choose the diskette first";
+        std::string id = text.substr(0, 12);
+        for (auto &c : id) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        setVolumeId(id.empty() ? std::nullopt : std::optional<std::string>(id));
+        return "";
+    }
+    const std::string prefix = kStartupField;
+    if (key.rfind(prefix, 0) != 0 || key.size() == prefix.size()) return "no field " + key;
+    if (!ready()) return "choose the diskette and the system first";
+    const auto at = static_cast<std::size_t>(std::stoul(key.substr(prefix.size())));
+    auto lines = sel_.startup.value_or(std::vector<std::string>{});
+    if (at < lines.size()) {
+        if (text.empty()) lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(at));
+        else lines[at] = text;
+    } else if (!text.empty()) {
+        lines.push_back(text);
+    }
+    setStartup(std::move(lines));
+    return "";
+}
+
 /* ---- the rows ------------------------------------------------------------- */
 
 WizardRow::Mark DiskWizard::markOf(const ManifestBundle &b) const
@@ -303,6 +333,7 @@ WizardRow DiskWizard::bundleRow(const ManifestBundle &b, int depth, bool radio) 
     r.radio = radio;
     r.blocks = blocksOf_ ? blocksOf_(b) : 0;
     r.mark = markOf(b);
+    if (const auto *sys = m_.system(sel_.system); sys && !alternativesOf(b).empty()) r.native = contains(sys->prefer, b.key);
     if (r.mark == WizardRow::Mark::added) {
         for (const auto &[added, forWhom] : res_.addedFor) if (added == b.key) r.requiredBy = m_.bundle(forWhom)->title;
     } else if (r.mark == WizardRow::Mark::off) {
@@ -344,6 +375,7 @@ void DiskWizard::stepRows(std::vector<WizardRow> &out, bool everything) const
             out.push_back(std::move(r));
         }
     }
+    labelRows(out, everything);
     WizardRow os = heading(WizardRow::Kind::group, 0, kSystemGroup, "Operating system");
     os.available = media_.has_value();
     if (!os.available) os.why = "choose the diskette first";
@@ -442,11 +474,78 @@ void DiskWizard::leafRows(std::vector<WizardRow> &out, const Branch &branch, int
     }
 }
 
+void DiskWizard::labelRows(std::vector<WizardRow> &out, bool everything) const
+{
+    WizardRow label = heading(WizardRow::Kind::group, 0, kLabelGroup, "Label");
+    label.available = media_.has_value();
+    if (!label.available) label.why = "choose the diskette first";
+    label.open = label.available && (everything || open_.count(kLabelGroup) != 0);
+    label.summary = sel_.volumeId.value_or("");
+    out.push_back(label);
+    if (!label.open) return;
+    WizardRow id = heading(WizardRow::Kind::field, 1, kVolumeIdField, "Volume id");
+    id.parent = kLabelGroup;
+    id.value = sel_.volumeId.value_or("");
+    id.summary = "up to 12 characters";
+    out.push_back(std::move(id));
+}
+
+/* The top group holding the system's parts - where its startup file shows. */
+std::string DiskWizard::startupHome() const
+{
+    for (const auto &key : res_.bundles)
+        if (isSystemPart(key)) return groupPath(m_.bundle(key)->group).front();
+    return "";
+}
+
+void DiskWizard::startupRows(std::vector<WizardRow> &out, int depth, const std::string &parent, bool everything) const
+{
+    std::vector<std::pair<std::string, std::string>> fixed;       /* the line, whose */
+    auto add = [&](const std::string &line, const std::string &from) {
+        if (std::none_of(fixed.begin(), fixed.end(), [&](const auto &f) { return f.first == line; }))
+            fixed.emplace_back(line, from);
+    };
+    const auto *sys = m_.system(sel_.system);
+    if (sys && sys->startup) for (const auto &line : *sys->startup) add(line, sys->title);
+    for (const auto &key : res_.bundles)
+        if (const auto *b = m_.bundle(key)) for (const auto &line : b->startup) add(line, b->title);
+    const auto own = sel_.startup.value_or(std::vector<std::string>{});
+
+    WizardRow g = heading(WizardRow::Kind::group, depth, kStartupGroup, "START.COM");
+    g.parent = parent;
+    const auto count = fixed.size() + own.size();
+    g.summary = std::to_string(count) + (count == 1 ? " line" : " lines");
+    g.open = everything || open_.count(kStartupGroup) != 0;
+    out.push_back(g);
+    if (!g.open) return;
+    for (const auto &[line, from] : fixed) {
+        WizardRow r = heading(WizardRow::Kind::line, depth + 1, line, line);
+        r.parent = kStartupGroup;
+        r.requiredBy = from;
+        out.push_back(std::move(r));
+    }
+    for (std::size_t i = 0; i <= own.size(); ++i) {
+        WizardRow r = heading(WizardRow::Kind::field, depth + 1, kStartupField + std::to_string(i), "");
+        r.parent = kStartupGroup;
+        if (i < own.size()) r.value = own[i]; else r.summary = "a new line";
+        out.push_back(std::move(r));
+    }
+}
+
 std::vector<WizardRow> DiskWizard::rows(bool everything) const
 {
     std::vector<WizardRow> out;
     stepRows(out, everything);
-    for (const auto &top : tree().children) branchRows(out, top, 0, everything);
+    if (!ready()) {
+        for (const auto &top : tree().children) branchRows(out, top, 0, everything);
+        return out;
+    }
+    const std::string home = startupHome();
+    for (const auto &top : tree().children) {
+        branchRows(out, top, 0, everything);
+        if (top.key == home && (everything || open_.count(top.key) != 0)) startupRows(out, 1, top.key, everything);
+    }
+    if (home.empty()) startupRows(out, 0, "", everything);
     return out;
 }
 
@@ -476,7 +575,7 @@ void DiskWizard::load(const SavedSelection &saved)
     for (const auto &[name, key] : s.picks) if (m_.bundle(key)) sel_.picks[name] = key;
     sel_.startup = s.startup;
     sel_.volumeId = s.volumeId;
-    open_.clear();
+    open_ = {kStartupGroup};
     if (sel_.system.empty()) open_.insert(kSystemGroup);
     if (ready()) dropWhatDoesNotFit(); else resolve();
 }

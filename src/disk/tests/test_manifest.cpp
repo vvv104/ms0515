@@ -487,6 +487,26 @@ TEST_CASE("a preference per system: what sat next to it on that system's origina
     CHECK_THROWS_AS((void)parseManifest(replaced(text, "mihin = [\"macro-mihin\"]", "pdp = [\"macro-mihin\"]")), std::runtime_error);
 }
 
+TEST_CASE("a system requires a name: its own build preferred, another one picked in its place") {
+    const std::string text = replaced(replaced(kDeps,
+        "title = \"OMEGA vvv104\"\nimage = \"systems/omega.dsk\"\nmedia = [\"ss\", \"dz\", \"dv\"]\nrequires = [\"dz\"]",
+        "title = \"OMEGA vvv104\"\nimage = \"systems/omega.dsk\"\nmedia = [\"ss\", \"dz\", \"dv\"]\nrequires = [\"dz\", \"link\"]\n"
+        "prefer = [\"link-vvv\"]"),
+        "[bundle.link-vvv]", "[bundle.link-omega]\ntitle    = \"LINK (OMEGA build)\"\nprovides = [\"link\"]\n"
+        "files    = [\"dev/omega/LINK.SAV\"]\n\n[bundle.link-vvv]");
+    const Manifest m = parseManifest(text);
+    CHECK(m.system("omega2")->prefer == std::vector<std::string>{"link-vvv"});
+    Resolution r = resolveBundles(m, "omega2", Media::dz, {});
+    REQUIRE_MESSAGE(r.ok, r.problem);
+    CHECK(r.bundles == std::vector<std::string>{"dz", "link-vvv"});           /* over the file order */
+    r = resolveBundles(m, "omega2", Media::dz, {}, {{"link", "link-omega"}});
+    REQUIRE_MESSAGE(r.ok, r.problem);
+    CHECK(r.bundles == std::vector<std::string>{"dz", "link-omega"});
+    CHECK(r.addedFor.empty());                                                /* the system's, still */
+    CHECK_THROWS_AS((void)parseManifest(replaced(text, "prefer = [\"link-vvv\"]", "prefer = [\"sysmac\"]")), std::runtime_error);
+    CHECK_THROWS_AS((void)parseManifest(replaced(text, "prefer = [\"link-vvv\"]", "prefer = [\"link-pdp\"]")), std::runtime_error);
+}
+
 TEST_CASE("a need nothing on this system satisfies refuses what needs it, saying which") {
     const Manifest m = parseManifest(kDeps);
     const Resolution r = resolveBundles(m, "mihin", Media::dz, {"pascal-graphics"});

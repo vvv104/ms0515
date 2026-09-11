@@ -23,8 +23,9 @@
 namespace ms0515::disk {
 
 /* One line of the wizard's list.  The list is a tree walked in steps: the
- * diskette, then the operating system on it, then the groups of bundles -
- * "Games / Pac-Man" a branch "Pac-Man" under "Games". */
+ * diskette and its label, then the operating system on it, then the groups
+ * of bundles - "Games / Pac-Man" a branch "Pac-Man" under "Games" - with
+ * the startup file's lines at the end of the group of the system's parts. */
 struct WizardRow {
     enum class Kind : uint8_t {
         group,      /* a branch: "Diskette", "Operating system", "Development", "Pascal" */
@@ -32,6 +33,8 @@ struct WizardRow {
         bundle,     /* a checkbox, or a radio button under a radio heading */
         media,      /* a radio button under "Diskette" */
         system,     /* a radio button under "Operating system" */
+        field,      /* an edit box: the volume id, one of the user's START.COM lines */
+        line,       /* a START.COM line the system or a bundle brings: title the line */
     };
     enum class Mark : uint8_t {
         off,        /* [ ]  / ( ) */
@@ -48,15 +51,23 @@ struct WizardRow {
     bool        radio = false; /* drawn as a radio button */
     bool        available = true;
     std::string why;           /* when not available: the reason */
-    std::string requiredBy;    /* for Mark::added: the title of what needs it */
+    std::string requiredBy;    /* for Mark::added: the title of what needs it; for a line: whose it is */
+    bool        native = false;/* the system's own build among alternatives */
+    std::string value;         /* a field: its text */
     int         blocks = 0;
     bool        open = false;  /* a group: its rows follow */
-    std::string summary;       /* a group: the diskette or the system chosen, "2 chosen, 1 added" */
+    std::string summary;       /* a group: the diskette or the system chosen, "2 chosen, 1 added"; a field: a hint */
 };
 
 /* The keys of the two first steps' groups; a bundle group's key is its path. */
 inline constexpr const char *kDisketteGroup = "#diskette";
+inline constexpr const char *kLabelGroup = "#label";
 inline constexpr const char *kSystemGroup = "#system";
+inline constexpr const char *kStartupGroup = "#startup";
+/* The fields' keys: the volume id; START.COM's own line N ("#startup:N", N
+ * one past the last: a new line). */
+inline constexpr const char *kVolumeIdField = "#volume-id";
+inline constexpr const char *kStartupField = "#startup:";
 
 /* "dz - two sides, 800 KB" */
 [[nodiscard]] const char *mediaTitle(Media m);
@@ -114,6 +125,10 @@ public:
 
     void setStartup(std::vector<std::string> lines);
     void setVolumeId(std::optional<std::string> id);
+    /* A field's text, as typed: "" when taken, else why not.  The volume id
+     * keeps twelve characters; a START.COM line emptied goes, one typed into
+     * the new line is added. */
+    std::string setField(const std::string &key, const std::string &value);
 
     [[nodiscard]] const Selection &selection() const noexcept { return sel_; }
     [[nodiscard]] const Resolution &resolution() const noexcept { return res_; }
@@ -142,6 +157,9 @@ private:
     [[nodiscard]] WizardRow bundleRow(const ManifestBundle &b, int depth, bool radio) const;
     [[nodiscard]] Branch tree() const;
     void stepRows(std::vector<WizardRow> &out, bool everything) const;
+    void labelRows(std::vector<WizardRow> &out, bool everything) const;
+    [[nodiscard]] std::string startupHome() const;
+    void startupRows(std::vector<WizardRow> &out, int depth, const std::string &parent, bool everything) const;
     void branchRows(std::vector<WizardRow> &out, const Branch &branch, int depth, bool everything) const;
     void leafRows(std::vector<WizardRow> &out, const Branch &branch, int depth) const;
 

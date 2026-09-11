@@ -85,6 +85,8 @@ const char *kindOf(const WizardRow &r)
     case WizardRow::Kind::radio:  return "radio";
     case WizardRow::Kind::media:  return "media";
     case WizardRow::Kind::system: return "system";
+    case WizardRow::Kind::field:  return "field";
+    case WizardRow::Kind::line:   return "line";
     case WizardRow::Kind::bundle: break;
     }
     return "bundle";
@@ -110,7 +112,8 @@ std::string rowsJson(const DiskWizard &w)
              + ",\"title\":" + str(r.title) + ",\"parent\":" + str(r.parent) + ",\"mark\":\"" + mark(r) + "\""
              + ",\"radio\":" + (r.radio ? "true" : "false") + ",\"available\":" + (r.available ? "true" : "false")
              + ",\"why\":" + str(r.why) + ",\"requiredBy\":" + str(r.requiredBy) + ",\"blocks\":" + std::to_string(r.blocks)
-             + ",\"open\":" + (r.open ? "true" : "false") + ",\"summary\":" + str(r.summary) + "}";
+             + ",\"open\":" + (r.open ? "true" : "false") + ",\"summary\":" + str(r.summary)
+             + ",\"native\":" + (r.native ? "true" : "false") + ",\"value\":" + str(r.value) + "}";
     }
     return out + "]";
 }
@@ -188,13 +191,11 @@ EMSCRIPTEN_KEEPALIVE const char *wiz_toggle(const char *key)
     return gText.c_str();
 }
 
-EMSCRIPTEN_KEEPALIVE void wiz_set_startup(const char *text) { if (gSession) gSession->wizard->setStartup(lines(text)); }
-
-EMSCRIPTEN_KEEPALIVE void wiz_set_volume_id(const char *id)
+/* A field's text - the volume id, a START.COM line: "" when taken, else why not. */
+EMSCRIPTEN_KEEPALIVE const char *wiz_set_field(const char *key, const char *value)
 {
-    if (!gSession) return;
-    const std::string s = id ? id : "";
-    gSession->wizard->setVolumeId(s.empty() ? std::nullopt : std::optional<std::string>(s.substr(0, 12)));
+    gText = gSession ? gSession->wizard->setField(key ? key : "", value ? value : "") : std::string("no collection");
+    return gText.c_str();
 }
 
 /* The files a plan or a build of the current choice reads, as a JSON list of

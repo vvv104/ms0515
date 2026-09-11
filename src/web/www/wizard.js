@@ -28,8 +28,7 @@ export class DiskComposer {
       setSystem: c("wiz_set_system", "string", ["string"]),
       fold: c("wiz_fold", null, ["string"]),
       toggle: c("wiz_toggle", "string", ["string"]),
-      setStartup: c("wiz_set_startup", null, ["string"]),
-      setVolumeId: c("wiz_set_volume_id", null, ["string"]),
+      setField: c("wiz_set_field", "string", ["string", "string"]),
       needed: c("wiz_needed", "string", []),
       plan: c("wiz_plan", "string", []),
       build: c("wiz_build", "number", ["string"]),
@@ -69,17 +68,11 @@ export class DiskComposer {
           <div class="wiz-details"></div>
         </div>
         <div class="wiz-plan"></div>
-        <details class="wiz-more">
-          <summary>More: startup lines, volume id, saved choices</summary>
-          <label>START.COM lines after the system's and the bundles' (one a line)
-            <textarea class="wiz-startup" rows="2" spellcheck="false"></textarea></label>
-          <label>Volume id <input class="wiz-volid" maxlength="12" spellcheck="false"></label>
-          <div class="wiz-row"><button class="wiz-savechoice">Save choice</button>
-            <button class="wiz-openchoice">Open choice…</button>
-            <input class="wiz-file" type="file" accept=".toml,text/plain" hidden></div>
-        </details>
         <div class="wiz-foot">
           <span class="wiz-msg"></span>
+          <button class="wiz-savechoice">Save choice</button>
+          <button class="wiz-openchoice">Open choice…</button>
+          <input class="wiz-file" type="file" accept=".toml,text/plain" hidden>
           <button class="wiz-download">Download .dsk</button>
           <button class="wiz-boot">Boot it</button>
         </div>
@@ -88,8 +81,6 @@ export class DiskComposer {
     this.dlg = dlg;
     const q = (s) => dlg.querySelector(s);
     q(".wiz-close").onclick = () => dlg.close();
-    q(".wiz-startup").onchange = (e) => { this.api.setStartup(e.target.value); this.changed(); };
-    q(".wiz-volid").onchange = (e) => { this.api.setVolumeId(e.target.value.toUpperCase()); this.changed(); };
     q(".wiz-savechoice").onclick = () => this.saveChoice();
     q(".wiz-openchoice").onclick = () => q(".wiz-file").click();
     q(".wiz-file").onchange = (e) => this.openChoice(e.target.files[0]);
@@ -114,9 +105,7 @@ export class DiskComposer {
   render() {
     const s = this.state = JSON.parse(this.api.state());
     const q = (sel) => this.dlg.querySelector(sel);
-    q(".wiz-startup").value = s.startup.join("\n");
     q(".wiz-savechoice").disabled = !s.ready;
-    q(".wiz-volid").value = s.volumeId;
     this.renderList();
     this.renderDetails();
   }
@@ -136,18 +125,40 @@ export class DiskComposer {
         continue;
       }
       if (r.kind === "radio") { radioName = r.key; out.push(`<div class="wiz-radio" ${pad(r)}>one of: ${esc(r.title)}</div>`); continue; }
+      if (r.kind === "line") {
+        out.push(`<div class="wiz-line" ${pad(r)}><span class="t">${esc(r.title)}</span><span class="n">${esc(r.requiredBy)}</span></div>`);
+        continue;
+      }
+      if (r.kind === "field") {
+        const volume = r.key === "#volume-id";
+        out.push(`<label class="wiz-field" ${pad(r)}>${r.title ? `<span>${esc(r.title)}</span>` : ""}` +
+                 `<input id="wiz-f${esc(r.key.replace(/[^a-z0-9]/gi, "-"))}" data-key="${esc(r.key)}" value="${esc(r.value)}"` +
+                 ` placeholder="${esc(r.summary)}" spellcheck="false" autocomplete="off"${volume ? ` maxlength="12" class="vol"` : ""}></label>`);
+        continue;
+      }
       const on = r.mark !== "off";
       const name = r.kind === "bundle" ? `wiz-${esc(radioName)}` : `wiz-${r.kind}`;
       const locked = r.mark === "system" || !r.available ? " disabled" : "";
       const input = r.radio ? `<input type="radio" name="${name}"${on ? " checked" : ""}${locked}>`
                             : `<input type="checkbox"${on ? " checked" : ""}${locked}>`;
-      const note = r.mark === "system" ? "system" : r.mark === "added" ? `for ${esc(r.requiredBy.split(/ - | \(/)[0])}` : r.available ? "" : esc(r.why);
+      const note = r.native ? "native" : r.mark === "system" ? "system" : r.mark === "added" ? `for ${esc(r.requiredBy.split(/ - | \(/)[0])}` : r.available ? "" : esc(r.why);
       const cur = this.current?.kind === r.kind && this.current?.key === r.key ? "cur" : "";
       const cls = ["wiz-item", r.mark, r.available ? "" : "na", cur].join(" ");
       out.push(`<div class="${cls}" data-kind="${r.kind}" data-key="${esc(r.key)}" ${pad(r)} title="${esc(r.available ? r.title : r.why)}">${input}` +
                `<span class="t">${esc(r.title)}</span><span class="b">${r.kind === "bundle" ? r.blocks : ""}</span><span class="n">${note}</span></div>`);
     }
     list.innerHTML = out.join("");
+    list.querySelectorAll(".wiz-field input").forEach((input) => {
+      input.onkeydown = (e) => { if (e.key === "Enter") input.blur(); if (e.key === "Escape") { e.preventDefault(); input.value = this.state.rows.find((r) => r.key === input.dataset.key)?.value ?? ""; input.blur(); } };
+      input.onchange = () => {
+        const key = input.dataset.key;
+        const why = this.api.setField(key, input.value);
+        // A START.COM line kept: the next new line is where typing goes on.
+        const n = key.startsWith("#startup:") ? Number(key.slice(9)) + 1 : -1;
+        this.changed(why);
+        if (n > 0 && !why) this.dlg.querySelector(`.wiz-field input[data-key="#startup:${n}"]`)?.focus();
+      };
+    });
     list.querySelectorAll(".wiz-group").forEach((g) => g.onclick = () => {
       const row = this.state.rows.find((r) => r.kind === "group" && r.key === g.dataset.group);
       if (row && !row.available) { this.msg(row.why, true); return; }

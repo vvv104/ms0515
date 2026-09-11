@@ -121,7 +121,7 @@
             width: min(64em, 96vw); height: min(46em, 92vh); max-width: none; max-height: none; }
   #wizdlg::backdrop { background: rgba(0,0,0,.6); }
   .wiz { display: flex; flex-direction: column; height: 100%; }
-  .wiz-head, .wiz-foot, .wiz-row { display: flex; flex-wrap: wrap; gap: .5em; align-items: center; padding: .5em .7em; }
+  .wiz-head, .wiz-foot { display: flex; flex-wrap: wrap; gap: .5em; align-items: center; padding: .5em .7em; }
   .wiz-head { background: #242424; border-bottom: 1px solid #333; }
   .wiz-body { flex: 1; display: flex; min-height: 0; }
   .wiz-list { flex: 1; overflow: auto; padding: .3em 0; }
@@ -146,9 +146,14 @@
   .wiz-bar { flex: 1; height: .7em; background: #333; border-radius: 3px; overflow: hidden; }
   .wiz-bar i { display: block; height: 100%; background: #3a8; }
   .wiz-bar.full i { background: #c44; }
-  .wiz-more { padding: .3em .7em; border-top: 1px solid #333; }
-  .wiz-more label { display: flex; flex-direction: column; gap: .2em; margin: .3em 0; }
-  .wiz-more textarea, .wiz-more input { font: inherit; background: #111; color: #eee; border: 1px solid #444; border-radius: 4px; padding: .2em .4em; }
+  .wiz-line { display: flex; gap: .6em; padding-block: .15em; padding-right: .7em; font-family: ui-monospace, Consolas, monospace; color: #bbb; }
+  .wiz-line .t { flex: 1; }
+  .wiz-line .n { color: #888; font-family: system-ui, sans-serif; font-size: .9em; }
+  .wiz-field { display: flex; align-items: center; gap: .6em; padding-block: .15em; padding-right: .7em; }
+  .wiz-field input { flex: 1; max-width: 28em; font: inherit; font-family: ui-monospace, Consolas, monospace; background: #111; color: #eee;
+                     border: 1px solid #444; border-radius: 4px; padding: .15em .4em; }
+  .wiz-field input.vol { flex: 0 0 auto; width: 13ch; text-transform: uppercase; }
+  .wiz-field input:focus { border-color: #3a8; outline: none; }
   .wiz-foot { border-top: 1px solid #333; }
   .wiz-msg { flex: 1; color: #aaa; }
   .dim { color: #888; }

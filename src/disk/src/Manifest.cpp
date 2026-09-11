@@ -116,6 +116,7 @@ ManifestSystem readSystem(const std::string &key, const toml::table &t)
             s.dependsOnByMedia[media(word, where)] = strings(*table, word, where + ".requires_by_media");
         }
     }
+    s.prefer = strings(t, "prefer", where);
     if (t.contains("startup")) s.startup = strings(t, "startup", where);
     if (const auto *arr = t["reserved"].as_array()) {
         for (const auto &e : *arr) {
@@ -250,9 +251,18 @@ void crossCheck(const Manifest &m)
     for (const auto &s : m.systems) {
         for (const auto &need : s.dependsOn)
             if (!satisfiable(need)) fail("system." + s.key + " requires " + need + ", which no bundle is or provides");
-        for (const auto &[md, needs] : s.dependsOnByMedia)
+        std::vector<std::string> all = s.dependsOn;
+        for (const auto &[md, needs] : s.dependsOnByMedia) {
             for (const auto &need : needs)
                 if (!satisfiable(need)) fail("system." + s.key + " requires " + need + ", which no bundle is or provides");
+            all.insert(all.end(), needs.begin(), needs.end());
+        }
+        for (const auto &pref : s.prefer) {
+            const auto *o = m.bundle(pref);
+            if (!o) fail("system." + s.key + " prefers " + pref + ", which is not there");
+            if (std::none_of(all.begin(), all.end(), [&](const auto &need) { return satisfies(*o, need); }))
+                fail("system." + s.key + " prefers " + pref + ", which satisfies none of what it requires");
+        }
     }
     checkDependencies(m);
     for (const auto &p : m.presets) {
@@ -471,6 +481,7 @@ Resolution resolveBundles(const Manifest &m, const std::string &system, Media me
         ManifestBundle own;
         own.title = sys->title;
         own.dependsOn = sys->dependsOn;
+        own.prefer = sys->prefer;
         if (const auto it = sys->dependsOnByMedia.find(media); it != sys->dependsOnByMedia.end())
             own.dependsOn.insert(own.dependsOn.end(), it->second.begin(), it->second.end());
         for (const auto &need : own.dependsOn) {

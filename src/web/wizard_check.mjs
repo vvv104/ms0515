@@ -19,6 +19,7 @@ const api = {
   setMedia: c("wiz_set_media", "string", ["string"]),
   setSystem: c("wiz_set_system", "string", ["string"]),
   fold: c("wiz_fold", null, ["string"]),
+  setField: c("wiz_set_field", "string", ["string", "string"]),
   toggle: c("wiz_toggle", "string", ["string"]),
   needed: c("wiz_needed", "string", []),
   plan: c("wiz_plan", "string", []),
@@ -125,6 +126,16 @@ const plan = JSON.parse(api.plan());
 if (!plan.ok || plan.volumes.length !== 1 || plan.volumes[0].name !== "DZ0:") fail("the plan: " + JSON.stringify(plan));
 if (plan.startup[0] !== "SET TT QUIET") fail("the startup: " + plan.startup);
 if (!JSON.parse(api.details("dir2")).files.includes("DIR.SAV")) fail("the details");
+
+// The label and START.COM: fields in the list, START.COM at the end of System.
+if (api.setField("#volume-id", "check") !== "") fail("wiz_set_field volume id");
+if (api.setField("#startup:0", "DIR") !== "") fail("wiz_set_field startup");
+state = JSON.parse(api.state());
+if (row("#volume-id", "field")?.value !== "CHECK") fail("the volume id field: " + JSON.stringify(row("#volume-id", "field")));
+if (row("SET TT QUIET", "line")?.requiredBy !== "OSA") fail("the system's START.COM line");
+if (row("#startup:0", "field")?.value !== "DIR" || !row("#startup:1", "field")) fail("the START.COM fields");
+if (!JSON.parse(api.plan()).startup.includes("DIR")) fail("the plan's START.COM misses the typed line");
+api.setField("#startup:0", "");
 
 const saved = api.save();
 if (!/collection\s*=\s*"check-1"/.test(saved) || !/"dir2"/.test(saved)) fail("the saved choice:\n" + saved);
