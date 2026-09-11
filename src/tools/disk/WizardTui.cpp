@@ -115,6 +115,13 @@ std::vector<WizardRow> WizardTui::visibleRows() const
     return wizard_.rows();
 }
 
+int WizardTui::firstOf(const std::function<bool(const WizardRow &)> &pred) const
+{
+    const auto rows = visibleRows();
+    const auto it = std::find_if(rows.begin(), rows.end(), pred);
+    return it == rows.end() ? cursor_ : static_cast<int>(it - rows.begin());
+}
+
 int WizardTui::indexOf(const std::string &key, WizardRow::Kind kind) const
 {
     const auto rows = visibleRows();
@@ -129,8 +136,9 @@ void WizardTui::moveCursor(int delta)
     cursor_ = std::clamp(cursor_ + delta, 0, std::max(0, n - 1));
 }
 
-/* Space or Enter on a row.  A step taken moves the cursor on to the next:
- * from the diskette to the system, from the system to the first group. */
+/* Space or Enter on a row.  A step taken moves the cursor on to the next,
+ * the step itself left open: from the diskette to the first system that goes
+ * on it, from the system to the first group. */
 void WizardTui::activate(const WizardRow &r)
 {
     switch (r.kind) {
@@ -143,14 +151,15 @@ void WizardTui::activate(const WizardRow &r)
         status_ = wizard_.setMedia(*parseMedia(r.key));
         if (status_.empty() && !wizard_.notices().empty()) status_ = wizard_.notices().front();
         changed();
-        if (!wizard_.ready()) cursor_ = std::max(0, indexOf(kSystemGroup, WizardRow::Kind::group));
+        if (!wizard_.ready()) cursor_ = firstOf([](const WizardRow &x) { return x.kind == WizardRow::Kind::system && x.available; });
         return;
     case WizardRow::Kind::system: {
         const bool first = !wizard_.ready();
         status_ = wizard_.setSystem(r.key);
         if (status_.empty() && !wizard_.notices().empty()) status_ = wizard_.notices().front();
         changed();
-        if (first && wizard_.ready()) cursor_ = indexOf(kSystemGroup, WizardRow::Kind::group) + 1;
+        if (first && wizard_.ready())
+            cursor_ = firstOf([](const WizardRow &x) { return x.kind == WizardRow::Kind::group && x.key.front() != '#'; });
         return;
     }
     case WizardRow::Kind::bundle:

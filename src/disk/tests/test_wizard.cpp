@@ -278,9 +278,9 @@ TEST_CASE("the steps: the diskette first, then the system, then the rest") {
 
     REQUIRE(w.setMedia(Media::dv).empty());
     rows = w.rows();
-    CHECK_FALSE(row(rows, "#diskette", WizardRow::Kind::group)->open);   /* done: folded, the next opened */
+    CHECK(row(rows, "#diskette", WizardRow::Kind::group)->open);          /* what is chosen stays in sight */
     CHECK(row(rows, "#diskette", WizardRow::Kind::group)->summary == "dv - one DV volume, 800 KB");
-    CHECK(row(rows, "dv", WizardRow::Kind::media) == nullptr);
+    CHECK(row(rows, "dv", WizardRow::Kind::media)->mark == WizardRow::Mark::on);
     CHECK(row(rows, "#system", WizardRow::Kind::group)->available);
     CHECK(row(rows, "#system", WizardRow::Kind::group)->open);
     CHECK(row(rows, "omega", WizardRow::Kind::system)->available);
@@ -293,8 +293,9 @@ TEST_CASE("the steps: the diskette first, then the system, then the rest") {
     CHECK(w.setSystem("omega").empty());
     CHECK(w.ready());
     rows = w.rows();
-    CHECK_FALSE(row(rows, "#system", WizardRow::Kind::group)->open);
+    CHECK(row(rows, "#system", WizardRow::Kind::group)->open);
     CHECK(row(rows, "#system", WizardRow::Kind::group)->summary == "OMEGA");
+    CHECK(row(rows, "omega", WizardRow::Kind::system)->mark == WizardRow::Mark::on);
     CHECK(row(rows, "Development", WizardRow::Kind::group)->available);
     CHECK_FALSE(row(rows, "Development", WizardRow::Kind::group)->open);
     CHECK(row(rows, "pascal") == nullptr);                          /* folded */

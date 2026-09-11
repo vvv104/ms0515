@@ -160,9 +160,18 @@ export class DiskComposer {
       this.current = { kind, key };
       const row = this.state.rows.find((r) => r.kind === kind && r.key === key);
       if (row && !row.available) { this.renderList(); this.renderDetails(); this.msg(row.why, true); return; }
+      const wasReady = this.state.ready;
       const why = kind === "media" ? this.api.setMedia(key) : kind === "system" ? this.api.setSystem(key) : this.api.toggle(key);
       this.changed(why);
+      // A step taken: what was chosen stays open, the list moves on to the next.
+      if (kind === "media" && !this.state.ready) this.scrollTo('.wiz-group[data-group="#system"]');
+      if (kind === "system" && !wasReady && this.state.ready) this.scrollTo('.wiz-group:not([data-group^="#"])');
     });
+  }
+
+  scrollTo(selector) {
+    const el = this.dlg.querySelector(`.wiz-list ${selector}`);
+    if (el) el.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
 
   renderDetails() {

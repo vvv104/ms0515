@@ -194,10 +194,7 @@ void DiskWizard::dropWhatDoesNotFit()
 std::string DiskWizard::setMedia(Media media)
 {
     notices_.clear();
-    if (!media_) {                                   /* the first step done: on to the next */
-        open_.erase(kDisketteGroup);
-        open_.insert(kSystemGroup);
-    }
+    if (!media_) open_.insert(kSystemGroup);         /* the first step done: the next opens */
     media_ = media;
     sel_.media = media;
     if (const auto *sys = m_.system(sel_.system)) {
@@ -220,7 +217,6 @@ std::string DiskWizard::setSystem(const std::string &key)
     if (!media_) return "choose the diskette first";
     if (auto why = systemRefusal(*sys); !why.empty()) return sys->title + " goes " + why;
     notices_.clear();
-    if (sel_.system.empty()) open_.erase(kSystemGroup);
     sel_.system = key;
     dropWhatDoesNotFit();
     return "";

@@ -163,16 +163,16 @@ TEST_CASE("the wizard's screen: the diskette first, then the system, then the gr
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::Character(" "));
     s = shown(tui);
-    CHECK(s.find("\xE2\x96\xB8 Diskette") != std::string::npos);      /* done: folded, saying what */
-    CHECK(s.find("dz - two sides, 800 KB") != std::string::npos);
+    CHECK(s.find("\xE2\x96\xBE Diskette") != std::string::npos);      /* chosen: still open, and saying what */
+    CHECK(s.find("(\xE2\x80\xA2) dz - two sides, 800 KB") != std::string::npos);
     CHECK(s.find("\xE2\x96\xBE Operating system") != std::string::npos);
     CHECK(s.find("( ) OMEGA") != std::string::npos);
     CHECK(s.find("choose the system first") != std::string::npos);
 
-    press(tui, ftxui::Event::ArrowDown);                      /* the cursor went on to the next step */
-    press(tui, ftxui::Event::Character(" "));
+    press(tui, ftxui::Event::Character(" "));                 /* the cursor went on to the next step's first */
     REQUIRE(tui.model().ready());
     s = shown(tui);
+    CHECK(s.find("(\xE2\x80\xA2) OMEGA") != std::string::npos);     /* still in sight */
     CHECK(s.find("\xE2\x96\xB8 Development") != std::string::npos);
     CHECK(s.find("[ ] Pascal") == std::string::npos);
     CHECK(s.find("DZ0:") != std::string::npos);
