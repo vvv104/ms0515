@@ -53,8 +53,11 @@ struct ManifestBundle {
      * (TOML `requires`). */
     std::vector<std::string>  dependsOn;
     /* Of the alternatives a need has, the ones to take first - the build
-     * that sat next to this one on the original disks. */
+     * that sat next to this one on the original disks.  TOML `prefer` is a
+     * list, or a table by system ({ mihin = [...], default = [...] }): the
+     * list is the default, the table's entries override it per system. */
     std::vector<std::string>  prefer;
+    std::map<std::string, std::vector<std::string>> preferBySystem;
 };
 
 struct ManifestPreset {

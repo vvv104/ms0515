@@ -414,6 +414,26 @@ TEST_CASE("alternatives: one of them, the preferred unless chosen or picked, nev
     CHECK_FALSE(r.ok);                                       /* a pick that is not for this system */
 }
 
+TEST_CASE("a preference per system: what sat next to it on that system's original disks") {
+    const std::string text = replaced(replaced(replaced(kDeps,
+        "prefer   = [\"macro-vvv\"]", "prefer   = { mihin = [\"macro-mihin\"], default = [\"macro-vvv\"] }"),
+        "systems  = [\"mihin\"]\nfiles    = [\"dev/mihin/MACRO.SAV\"]", "files    = [\"dev/mihin/MACRO.SAV\"]"),
+        "systems  = [\"omega\", \"omega2\"]\nfiles    = [\"dev/vvv/LINK.SAV\"]", "files    = [\"dev/vvv/LINK.SAV\"]");
+    const Manifest m = parseManifest(text);
+    CHECK(m.bundle("pascal")->prefer == std::vector<std::string>{"macro-vvv"});
+    CHECK(m.bundle("pascal")->preferBySystem.at("mihin") == std::vector<std::string>{"macro-mihin"});
+    auto macroOf = [&](const char *system) {
+        const Resolution r = resolveBundles(m, system, Media::dz, {"pascal"});
+        REQUIRE_MESSAGE(r.ok, r.problem);
+        for (const auto &b : r.bundles) if (b.rfind("macro-", 0) == 0) return b;
+        return std::string();
+    };
+    CHECK(macroOf("mihin") == "macro-mihin");
+    CHECK(macroOf("omega2") == "macro-vvv");
+    CHECK_THROWS_AS((void)parseManifest(replaced(text, "mihin = [\"macro-mihin\"]", "mihin = [\"sysmac\"]")), std::runtime_error);
+    CHECK_THROWS_AS((void)parseManifest(replaced(text, "mihin = [\"macro-mihin\"]", "pdp = [\"macro-mihin\"]")), std::runtime_error);
+}
+
 TEST_CASE("a need nothing on this system satisfies refuses what needs it, saying which") {
     const Manifest m = parseManifest(kDeps);
     const Resolution r = resolveBundles(m, "mihin", Media::dz, {"pascal-graphics"});

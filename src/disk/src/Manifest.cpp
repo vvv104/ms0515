@@ -142,7 +142,17 @@ ManifestBundle readBundle(const std::string &key, const toml::table &t)
     b.group = str(t, "group", where, false);
     b.provides = strings(t, "provides", where);
     b.dependsOn = strings(t, "requires", where);
-    b.prefer = strings(t, "prefer", where);
+    if (const auto *table = t["prefer"].as_table()) {
+        for (const auto &[k, v] : *table) {
+            (void)v;
+            const std::string system(k.str());
+            auto list = strings(*table, system, where + ".prefer");
+            if (system == "default") b.prefer = std::move(list);
+            else b.preferBySystem[system] = std::move(list);
+        }
+    } else {
+        b.prefer = strings(t, "prefer", where);
+    }
     checkDate(b.date, where);
     const std::string volume = str(t, "volume", where, false);
     if (volume == "any") b.place = Place::any;
@@ -187,11 +197,18 @@ void checkDependencies(const Manifest &m)
         for (const auto &need : b.dependsOn)
             if (std::none_of(m.bundles.begin(), m.bundles.end(), [&](const auto &o) { return satisfies(o, need); }))
                 fail("bundle." + b.key + " requires " + need + ", which no bundle is or provides");
-        for (const auto &pref : b.prefer) {
-            const auto *o = m.bundle(pref);
-            if (!o) fail("bundle." + b.key + " prefers " + pref + ", which is not there");
-            if (std::none_of(b.dependsOn.begin(), b.dependsOn.end(), [&](const auto &need) { return satisfies(*o, need); }))
-                fail("bundle." + b.key + " prefers " + pref + ", which satisfies none of what it requires");
+        auto checkPrefs = [&](const std::vector<std::string> &prefs) {
+            for (const auto &pref : prefs) {
+                const auto *o = m.bundle(pref);
+                if (!o) fail("bundle." + b.key + " prefers " + pref + ", which is not there");
+                if (std::none_of(b.dependsOn.begin(), b.dependsOn.end(), [&](const auto &need) { return satisfies(*o, need); }))
+                    fail("bundle." + b.key + " prefers " + pref + ", which satisfies none of what it requires");
+            }
+        };
+        checkPrefs(b.prefer);
+        for (const auto &[system, prefs] : b.preferBySystem) {
+            if (!m.system(system)) fail("bundle." + b.key + " has a preference for system " + system + ", which is not there");
+            checkPrefs(prefs);
         }
     }
     std::map<const ManifestBundle *, int> state;          /* 1 on the path, 2 done */
@@ -373,7 +390,8 @@ struct Resolver {
             r.problem = it->second + " is no choice for " + need + " on this system";
             return nullptr;
         }
-        for (const auto &pref : who.prefer)
+        const auto bySystem = who.preferBySystem.find(system);
+        for (const auto &pref : bySystem != who.preferBySystem.end() ? bySystem->second : who.prefer)
             for (const auto *c : cands) if (c->key == pref) return c;
         return cands.front();
     }
