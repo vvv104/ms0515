@@ -155,13 +155,15 @@
   .wiz-field input.vol { flex: 0 0 auto; width: 13ch; text-transform: uppercase; }
   .wiz-field input:focus { border-color: #3a8; outline: none; }
   .wiz-field span { min-width: 7.5em; }
+  .wiz-drop { padding: 0 .45em; }
   .wiz-foot { border-top: 1px solid #333; }
   .wiz-msg { flex: 1; color: #aaa; }
   .dim { color: #888; }
   .bad, .wiz-msg.bad { color: #f77; }
   @media (max-width: 40em) {
     #wizdlg { width: 100vw; height: 100vh; border-radius: 0; }
-    .wiz-details { display: none; }
+    .wiz-body { flex-direction: column; }
+    .wiz-details { width: auto; max-height: 6.5em; border-left: none; border-top: 1px solid #333; }
     .wiz-item .n { width: 7em; }
   }
 #ver { align-self: center; color: #7d93a8; font-size: 12px; margin-right: 4px; }

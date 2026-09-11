@@ -117,6 +117,8 @@ export class DiskComposer {
     const out = [];
     let radioName = "";
     const pad = (r) => `style="padding-left:${0.7 + 1.2 * r.depth}em"`;
+    const systemTitle = this.state.rows.find((r) => r.kind === "system" && r.mark !== "off")?.title
+                     ?? this.state.rows.find((r) => r.key === "#system")?.summary;
     for (const r of this.state.rows) {
       if (r.kind === "group") {
         const note = r.available ? r.summary : r.why;
@@ -126,19 +128,24 @@ export class DiskComposer {
       }
       if (r.kind === "radio") { radioName = r.key; out.push(`<div class="wiz-radio" ${pad(r)}>one of: ${esc(r.title)}</div>`); continue; }
       if (r.kind === "line") {
-        out.push(`<div class="wiz-line" ${pad(r)}><span class="t">${esc(r.title)}</span><span class="n">${esc(r.requiredBy)}</span></div>`);
+        const from = r.requiredBy === systemTitle ? "the system's" : `from ${r.requiredBy.split(/ - | \(/)[0]}`;
+        out.push(`<div class="wiz-line" ${pad(r)}><span class="t">${esc(r.title)}</span><span class="n">${esc(from)}</span></div>`);
         continue;
       }
       if (r.kind === "field") {
         const volume = r.parent === "#label";
+        const own = r.key.startsWith("#startup:") && r.value !== "";
         out.push(`<label class="wiz-field" ${pad(r)}>${r.title ? `<span>${esc(r.title)}</span>` : ""}` +
-                 `<input id="wiz-f${esc(r.key.replace(/[^a-z0-9]/gi, "-"))}" data-key="${esc(r.key)}" value="${esc(r.value)}"` +
-                 ` placeholder="${esc(r.summary)}" spellcheck="false" autocomplete="off"${volume ? ` maxlength="12" class="vol"` : ""}></label>`);
+                 `<input id="wiz-f${esc(r.key.replace(/[^a-z0-9]/gi, "-"))}" data-key="${esc(r.key)}" data-parent="${esc(r.parent)}"` +
+                 ` value="${esc(r.value)}" placeholder="${esc(r.summary)}" spellcheck="false" autocomplete="off"` +
+                 `${volume ? ` maxlength="12" class="vol"` : ""}>` +
+                 `${own ? `<button class="small wiz-drop" data-key="${esc(r.key)}" title="take the line out">&times;</button>` : ""}</label>`);
         continue;
       }
       const on = r.mark !== "off";
       const name = r.kind === "bundle" ? `wiz-${esc(radioName)}` : `wiz-${r.kind}`;
-      const locked = r.mark === "system" || !r.available ? " disabled" : "";
+      // A radio button stays live when it is the system's: picking another replaces it.
+      const locked = (r.mark === "system" && !r.radio) || !r.available ? " disabled" : "";
       const input = r.radio ? `<input type="radio" name="${name}"${on ? " checked" : ""}${locked}>`
                             : `<input type="checkbox"${on ? " checked" : ""}${locked}>`;
       const note = r.native ? "native" : r.mark === "system" ? "system" : r.mark === "added" ? `for ${esc(r.requiredBy.split(/ - | \(/)[0])}` : r.available ? "" : esc(r.why);
@@ -148,16 +155,28 @@ export class DiskComposer {
                `<span class="t">${esc(r.title)}</span><span class="b">${r.kind === "bundle" ? r.blocks : ""}</span><span class="n">${note}</span></div>`);
     }
     list.innerHTML = out.join("");
+    // A field: Enter keeps it and goes on to the next field of its block (a
+    // START.COM line emptied is gone, and the next one comes up to its place),
+    // Esc puts back what was there, x takes a START.COM line out.
+    const fieldsOf = (parent) => [...this.dlg.querySelectorAll(`.wiz-field input[data-parent="${parent}"]`)];
+    const keep = (input, goOn) => {
+      const { key, parent } = input.dataset;
+      const at = fieldsOf(parent).indexOf(input);
+      const emptied = key.startsWith("#startup:") && input.value.trim() === "";
+      const why = this.api.setField(key, input.value);
+      this.changed(why);
+      if (goOn && !why) fieldsOf(parent)[emptied ? at : at + 1]?.focus();
+    };
     list.querySelectorAll(".wiz-field input").forEach((input) => {
-      input.onkeydown = (e) => { if (e.key === "Enter") input.blur(); if (e.key === "Escape") { e.preventDefault(); input.value = this.state.rows.find((r) => r.key === input.dataset.key)?.value ?? ""; input.blur(); } };
-      input.onchange = () => {
-        const key = input.dataset.key;
-        const why = this.api.setField(key, input.value);
-        // A START.COM line kept: the next new line is where typing goes on.
-        const n = key.startsWith("#startup:") ? Number(key.slice(9)) + 1 : -1;
-        this.changed(why);
-        if (n > 0 && !why) this.dlg.querySelector(`.wiz-field input[data-key="#startup:${n}"]`)?.focus();
+      input.onkeydown = (e) => {
+        if (e.key === "Enter") { e.preventDefault(); input.dataset.kept = "1"; keep(input, true); }
+        if (e.key === "Escape") { e.preventDefault(); input.value = this.state.rows.find((r) => r.key === input.dataset.key)?.value ?? ""; input.blur(); }
       };
+      input.onchange = () => { if (!input.dataset.kept) keep(input, false); };
+    });
+    list.querySelectorAll(".wiz-drop").forEach((b) => b.onclick = (e) => {
+      e.preventDefault();
+      this.changed(this.api.setField(b.dataset.key, ""));
     });
     list.querySelectorAll(".wiz-group").forEach((g) => g.onclick = () => {
       const row = this.state.rows.find((r) => r.kind === "group" && r.key === g.dataset.group);
@@ -171,11 +190,12 @@ export class DiskComposer {
       this.current = { kind, key };
       const row = this.state.rows.find((r) => r.kind === kind && r.key === key);
       if (row && !row.available) { this.renderList(); this.renderDetails(); this.msg(row.why, true); return; }
+      if (row?.radio && row.mark !== "off") { this.renderList(); this.renderDetails(); return; }   // picked already
       const wasReady = this.state.ready;
       const why = kind === "media" ? this.api.setMedia(key) : kind === "system" ? this.api.setSystem(key) : this.api.toggle(key);
       this.changed(why);
       // A step taken: what was chosen stays open, the list moves on to the next.
-      if (kind === "media" && !this.state.ready) this.scrollTo('.wiz-group[data-group="#system"]');
+      if (kind === "media") this.scrollTo('.wiz-group[data-group="#label"]');
       if (kind === "system" && !wasReady && this.state.ready) this.scrollTo('.wiz-group:not([data-group^="#"])');
     });
   }
