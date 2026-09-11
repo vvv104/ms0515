@@ -1,8 +1,9 @@
 /*
- * Compose.cpp - a whole bootable diskette from an exemplar and groups of
- * files.  The plan is the build: every group is put for real on a scratch
- * copy, so the answer to "does it fit" is RT-11's own - blocks, directory
- * entries, the first empty area that takes it.
+ * Compose.cpp - a whole bootable diskette made from scratch: SWAP and the
+ * monitor from the exemplar, the groups, the startup file, the bootstrap,
+ * the protected blocks.  The plan is the build: every group is put for real
+ * on a scratch copy, so the answer to "does it fit" is RT-11's own - blocks,
+ * directory entries, the first empty area that takes it.
  */
 
 #include "ms0515/disk/Compose.hpp"
@@ -109,53 +110,46 @@ Source sourceOf(const std::vector<uint8_t> &system)
     return {std::move(*vol), monitor, startup};
 }
 
-/* A fresh diskette holding the exemplar's kit, its startup file replaced
- * when lines are given, and the bootstrap of the new media. */
-std::vector<uint8_t> rebuilt(const ComposeRecipe &r, const Source &src, const Shape &s)
+/* A formatted blank holding what only the exemplar has: SWAP.SYS and the
+ * monitor, with their dates and protection. */
+std::vector<uint8_t> base(const Source &src, const Shape &s)
 {
     auto img = blankImage(s.ds);
     initVolume(img, 0, s.ds, {}, s.boot);
     if (s.volumes == 2) initVolume(img, 1, s.ds);
-    bool startupPut = false;
-    for (const auto &e : src.volume.directory.permanentFiles()) {
-        PutOptions o{e.date, (e.status & kStatusProtected) != 0};
-        if (e.name == src.startup && r.startup) {
-            putFile(img, 0, s.ds, e.name, startupBytes(*r.startup), o, s.boot);
-            startupPut = true;
-        } else {
-            putFile(img, 0, s.ds, e.name, src.volume.readFile(e.name), o, s.boot);
-        }
+    const std::string names[] = {"SWAP.SYS", src.monitor + ".SYS"};
+    for (const auto &name : names) {
+        const auto *e = src.volume.directory.find(name);
+        if (!e) throw std::runtime_error("the system image has no " + name);
+        putFile(img, 0, s.ds, name, src.volume.readFile(name), PutOptions{e->date, (e->status & kStatusProtected) != 0}, s.boot);
     }
-    if (r.startup && !startupPut) putFile(img, 0, s.ds, src.startup, startupBytes(*r.startup), {}, s.boot);
+    return img;
+}
+
+/* The startup file, the bootstrap for the media and the protected blocks:
+ * what makes the volume a system once the groups are on it. */
+void finish(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src, const Shape &s)
+{
+    const auto *e = src.volume.directory.find(src.startup);
+    const PutOptions o{e ? e->date : uint16_t{0}, false};
+    if (r.startup) putFile(img, 0, s.ds, src.startup, startupBytes(*r.startup), o, s.boot);
+    else if (e) putFile(img, 0, s.ds, src.startup, src.volume.readFile(src.startup), o, s.boot);
+
+    const char *handler = s.boot == Vol::dv ? "DV.SYS" : "DZ.SYS";
+    if (!openAt(img, s, 0)->directory.find(handler))
+        throw std::runtime_error(std::string("the disk cannot boot: ") + handler + " is not among its files");
     writeBoot(img, 0, s.ds, src.monitor, s.boot);
-    return img;
-}
 
-/* The exemplar itself, only its startup file made anew when asked. */
-std::vector<uint8_t> kept(const ComposeRecipe &r, const Source &src, const Shape &s)
-{
-    if (mediaOf(r.system) != r.media)
-        throw std::runtime_error("this system is kept as it is, so only its own media can be made");
-    auto img = r.system;
-    if (r.startup) {
-        PutOptions o;
-        if (const auto *e = src.volume.directory.find(src.startup)) {
-            o.date = e->date;
-            removeFile(img, 0, s.ds, src.startup, s.boot);
-        }
-        putFile(img, 0, s.ds, src.startup, startupBytes(*r.startup), o, s.boot);
+    const bool srcDs = r.system.size() == kDoubleSize;
+    for (const auto &b : r.reserved) {
+        const auto vol = openAt(img, s, b.side);
+        if (vol && vol->hasDirectory)
+            for (const auto &f : vol->directory.permanentFiles())
+                if (b.lbn >= f.startBlock && b.lbn < f.startBlock + f.length)
+                    throw std::runtime_error(f.name + " would overwrite a reserved block of the system (its copy protection)");
+        std::memcpy(img.data() + lbnToByte(b.lbn, b.side, s.ds, Vol::floppy),
+                    r.system.data() + lbnToByte(b.lbn, b.side, srcDs, Vol::floppy), kBlock);
     }
-    return img;
-}
-
-bool reservedIntact(const ComposeRecipe &r, const std::vector<uint8_t> &img)
-{
-    if (r.rebuild) return true;
-    const bool ds = r.system.size() == kDoubleSize;
-    return std::all_of(r.reserved.begin(), r.reserved.end(), [&](const ReservedBlock &b) {
-        const auto at = lbnToByte(b.lbn, b.side, ds, Vol::floppy);
-        return std::memcmp(img.data() + at, r.system.data() + at, kBlock) == 0;
-    });
 }
 
 /* Put one group on one volume of a scratch copy; "" when it went, else why
@@ -174,7 +168,12 @@ std::string tryGroup(std::vector<uint8_t> &img, const ComposeRecipe &r, const Sh
     } catch (const std::exception &e) {
         return std::string("does not fit (") + e.what() + ")";
     }
-    if (!reservedIntact(r, scratch)) return "would overwrite a reserved block of the system (its copy protection)";
+    for (const auto &b : r.reserved) {
+        if (b.side != volume) continue;
+        for (const auto &f : openAt(scratch, s, volume)->directory.permanentFiles())
+            if (b.lbn >= f.startBlock && b.lbn < f.startBlock + f.length)
+                return "would overwrite a reserved block of the system (its copy protection)";
+    }
     img = std::move(scratch);
     return "";
 }
@@ -192,11 +191,10 @@ std::vector<uint8_t> compose(const ComposeRecipe &r, ComposePlan &plan)
 {
     const Shape s = shapeOf(r.media);
     std::vector<uint8_t> img;
+    std::optional<Source> src;
     try {
-        const Source src = sourceOf(r.system);
-        if (r.media == Media::dv && !src.volume.directory.find("DV.SYS"))
-            throw std::runtime_error("the system has no DV.SYS, so it cannot boot a DV disk");
-        img = r.rebuild ? rebuilt(r, src, s) : kept(r, src, s);
+        src = sourceOf(r.system);
+        img = base(*src, s);
         label(img, s, 0, r.volumeId, r.owner);
         if (s.volumes == 2) label(img, s, 1, r.secondVolumeId, r.secondOwner);
     } catch (const std::exception &e) {
@@ -215,6 +213,13 @@ std::vector<uint8_t> compose(const ComposeRecipe &r, ComposePlan &plan)
         if (p.volume >= 0) p.problem.clear();
         else if (plan.problem.empty()) plan.problem = g.title + ": " + p.problem;
         plan.groups.push_back(std::move(p));
+    }
+    if (plan.problem.empty()) {
+        try {
+            finish(img, r, *src, s);
+        } catch (const std::exception &e) {
+            plan.problem = e.what();
+        }
     }
     for (int v = 0; v < s.volumes; ++v) plan.freeBlocks.push_back(freeBlocks(img, s, v));
     plan.ok = plan.problem.empty();

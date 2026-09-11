@@ -31,9 +31,10 @@ int usage()
         "       ms0515-disk compose --repo DIR --preset KEY <out.dsk> [--plan]\n"
         "       ms0515-disk compose --repo DIR --all <outdir> [--plan]\n"
         "       ms0515-disk compose --repo DIR --system KEY --media ss|dz|dv [--add B1,B2...]\n"
-        "                           [--startup LINE]... [--volume-id ID] <out.dsk> [--plan]\n"
+        "                           [--pick NAME=BUNDLE]... [--startup LINE]... [--volume-id ID] <out.dsk> [--plan]\n"
         "  DIR is a local copy of the software collection (disks.toml at its root).\n"
-        "  --plan prints where everything would go and writes nothing.\n",
+        "  --plan prints where everything would go and writes nothing.  What a bundle requires\n"
+        "  comes with it; --pick chooses among alternatives (--pick macro11=macro-omega).\n",
         stderr);
     return 2;
 }
@@ -71,14 +72,27 @@ void list(const Manifest &m)
     for (const auto &s : m.systems) {
         std::string media;
         for (const auto x : s.media) media += std::string(media.empty() ? "" : ",") + mediaWord(x);
-        std::printf("  %-10s %-6s %s%s\n", s.key.c_str(), media.c_str(), s.title.c_str(), s.rebuild ? "" : " (kept as it is)");
+        std::string parts;
+        for (const auto &need : s.dependsOn) parts += std::string(parts.empty() ? " requires " : ",") + need;
+        std::printf("  %-10s %-9s %s%s\n", s.key.c_str(), media.c_str(), s.title.c_str(), parts.c_str());
     }
     std::puts("bundles:");
+    auto joined = [](const std::vector<std::string> &v) {
+        std::string out;
+        for (const auto &x : v) out += std::string(out.empty() ? "" : ",") + x;
+        return out;
+    };
+    std::string group = "\x01";
     for (const auto &b : m.bundles) {
-        std::string only;
-        for (const auto &s : b.systems) only += std::string(only.empty() ? " [" : ",") + s;
-        if (!only.empty()) only += "]";
-        std::printf("  %-14s %s%s\n", b.key.c_str(), b.title.c_str(), only.c_str());
+        if (b.group != group) {
+            group = b.group;
+            if (!group.empty()) std::printf(" %s\n", group.c_str());
+        }
+        std::string notes;
+        if (!b.systems.empty()) notes += " [" + joined(b.systems) + "]";
+        if (!b.provides.empty()) notes += " provides " + joined(b.provides);
+        if (!b.dependsOn.empty()) notes += " requires " + joined(b.dependsOn);
+        std::printf("  %-14s %s%s\n", b.key.c_str(), b.title.c_str(), notes.c_str());
     }
     std::puts("presets:");
     for (const auto &p : m.presets)
@@ -114,6 +128,8 @@ int build(const Manifest &m, const Selection &s, const Repository &repo, const f
         const ComposeRecipe recipe = recipeFor(m, s, repo);
         const ComposePlan plan = planDisk(recipe);
         std::printf("%s (%s, %s)\n", out.generic_string().c_str(), s.system.c_str(), mediaWord(s.media));
+        for (const auto &[added, forWhom] : resolveBundles(m, s.system, s.media, s.bundles, s.picks).addedFor)
+            std::printf("  + %s, required by %s\n", m.bundle(added)->title.c_str(), m.bundle(forWhom)->title.c_str());
         printPlan(plan);
         if (!plan.ok) { std::fprintf(stderr, "error: %s\n", plan.problem.c_str()); return 1; }
         if (planOnly) return 0;
@@ -130,7 +146,7 @@ int build(const Manifest &m, const Selection &s, const Repository &repo, const f
 
 struct Args {
     std::string repo, preset, system, media, volumeId, out, all;
-    std::vector<std::string> add, startup;
+    std::vector<std::string> add, startup, picks;
     bool listOnly = false, planOnly = false, startupGiven = false;
 };
 
@@ -148,6 +164,7 @@ std::optional<Args> parseArgs(int argc, char **argv)
         else if (s == "--add" && more) { for (auto &b : splitList(argv[++i])) a.add.push_back(b); }
         else if (s == "--startup" && more) { a.startup.emplace_back(argv[++i]); a.startupGiven = true; }
         else if (s == "--volume-id" && more) a.volumeId = argv[++i];
+        else if (s == "--pick" && more) a.picks.emplace_back(argv[++i]);
         else if (s == "--list") a.listOnly = true;
         else if (s == "--plan") a.planOnly = true;
         else if (a.out.empty() && !s.starts_with("--")) a.out = std::string(s);
@@ -189,9 +206,17 @@ int composeCommand(int argc, char **argv)
     }
     const auto media = parseMedia(a->media);
     if (a->system.empty() || !media) return usage();
-    Selection s{a->system, *media, a->add, std::nullopt, std::nullopt};
+    Selection s;
+    s.system = a->system;
+    s.media = *media;
+    s.bundles = a->add;
     if (a->startupGiven) s.startup = a->startup;
     if (!a->volumeId.empty()) s.volumeId = a->volumeId;
+    for (const auto &pick : a->picks) {
+        const auto eq = pick.find('=');
+        if (eq == std::string::npos || eq == 0 || eq + 1 == pick.size()) return usage();
+        s.picks[pick.substr(0, eq)] = pick.substr(eq + 1);
+    }
     return build(m, s, repo, a->out, a->planOnly);
 }
 
