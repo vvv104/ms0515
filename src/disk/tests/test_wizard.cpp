@@ -383,6 +383,18 @@ TEST_CASE("the system's utilities: its own build marked native and on, another b
     CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::system);
 }
 
+TEST_CASE("a bundle ticked that the system comes to require is the system's - locked - and ticked again when it no longer is") {
+    const Manifest m = parseManifest(kManifest);
+    DiskWizard w(m, "omega", Media::dz);
+    REQUIRE(w.toggle("dv").empty());
+    CHECK(row(w.rows(true), "dv")->mark == WizardRow::Mark::on);
+    REQUIRE(w.setMedia(Media::dv).empty());
+    CHECK(row(w.rows(true), "dv")->mark == WizardRow::Mark::system);
+    CHECK_FALSE(w.toggle("dv").empty());                            /* the system's rule: it cannot go */
+    REQUIRE(w.setMedia(Media::dz).empty());
+    CHECK(row(w.rows(true), "dv")->mark == WizardRow::Mark::on);
+}
+
 TEST_CASE("the label after the diskette, START.COM at the end of the system's group: fields to edit") {
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m);

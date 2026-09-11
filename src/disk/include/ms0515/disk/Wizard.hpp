@@ -171,6 +171,7 @@ private:
     std::optional<Media> media_;
     Selection sel_;
     Resolution res_;
+    Resolution own_;                                 /* the system's parts alone */
     std::vector<std::string> notices_;
     std::set<std::string> open_;
 };

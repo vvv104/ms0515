@@ -148,14 +148,16 @@ DiskWizard::DiskWizard(const Manifest &manifest, std::string system, Media media
 
 void DiskWizard::resolve()
 {
-    if (!ready()) { res_ = {}; return; }
+    if (!ready()) { res_ = {}; own_ = {}; return; }
     res_ = resolveBundles(m_, sel_.system, sel_.media, sel_.bundles, sel_.picks);
+    own_ = resolveBundles(m_, sel_.system, sel_.media, {}, sel_.picks);
 }
 
+/* What the system requires on this media: its, even ticked by hand before
+ * (DV.SYS ticked on dz, then the disk made dv). */
 bool DiskWizard::isSystemPart(const std::string &key) const
 {
-    if (!contains(res_.bundles, key) || contains(sel_.bundles, key)) return false;
-    return std::none_of(res_.addedFor.begin(), res_.addedFor.end(), [&](const auto &a) { return a.first == key; });
+    return contains(own_.bundles, key) && contains(res_.bundles, key);
 }
 
 std::string DiskWizard::systemRefusal(const ManifestSystem &s) const

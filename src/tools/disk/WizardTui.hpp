@@ -55,14 +55,13 @@ private:
     void moveCursor(int delta);
     [[nodiscard]] std::vector<disk::WizardRow> visibleRows() const;
     [[nodiscard]] int indexOf(const std::string &key, disk::WizardRow::Kind kind) const;
-    /* The first row shown that `pred` takes; none: where the cursor is. */
-    [[nodiscard]] int firstOf(const std::function<bool(const disk::WizardRow &)> &pred) const;
+
     void activate(const disk::WizardRow &row);
     void startAsk(Ask ask, std::string value);
     void finishAsk();
     bool onAskEvent(const ftxui::Event &event);
     void startEdit(const disk::WizardRow &row, std::string text);
-    void nextField(const std::string &key, bool blank);
+    void advance(const std::string &key, disk::WizardRow::Kind kind);
     bool onEditEvent(const ftxui::Event &event);
     bool onListEvent(const ftxui::Event &event);
     void findNext(const std::string &text);
