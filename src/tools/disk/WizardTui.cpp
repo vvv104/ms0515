@@ -143,24 +143,19 @@ void WizardTui::activate(const WizardRow &r)
     case WizardRow::Kind::field:
         startEdit(r, r.value);
         return;
-    case WizardRow::Kind::media: {
-        const bool first = !wizard_.media();
+    case WizardRow::Kind::media:
         status_ = wizard_.setMedia(*parseMedia(r.key));
         if (status_.empty() && !wizard_.notices().empty()) status_ = wizard_.notices().front();
         changed();
-        if (first) cursor_ = indexOf(kVolumeIdField, WizardRow::Kind::field);
-        else if (!wizard_.ready()) cursor_ = firstOf([](const WizardRow &x) { return x.kind == WizardRow::Kind::system && x.available; });
+        cursor_ = indexOf(kVolumeIdField, WizardRow::Kind::field);
         return;
-    }
-    case WizardRow::Kind::system: {
-        const bool first = !wizard_.ready();
+    case WizardRow::Kind::system:
         status_ = wizard_.setSystem(r.key);
         if (status_.empty() && !wizard_.notices().empty()) status_ = wizard_.notices().front();
         changed();
-        if (first && wizard_.ready())
+        if (wizard_.ready() && wizard_.system() == r.key)
             cursor_ = firstOf([](const WizardRow &x) { return x.kind == WizardRow::Kind::group && x.key.front() != '#'; });
         return;
-    }
     case WizardRow::Kind::bundle:
         status_ = wizard_.toggle(r.key);
         changed();
@@ -305,6 +300,7 @@ bool WizardTui::onEditEvent(const Event &e)
         return true;
     }
     if (e == Event::Backspace) { if (!edit_.empty()) edit_.pop_back(); return true; }
+    if (e == Event::Delete) { edit_.clear(); return true; }
     if (e.is_character()) edit_ += e.character();
     return true;
 }
@@ -322,6 +318,11 @@ bool WizardTui::onListEvent(const Event &e)
     const auto &r = rows[static_cast<std::size_t>(cursor_)];
     if (e == Event::Character(" ") || e == Event::Return) { activate(r); return true; }
     if (r.kind == WizardRow::Kind::field && e.is_character()) { startEdit(r, r.value + e.character()); return true; }
+    if (r.kind == WizardRow::Kind::field && e == Event::Delete) {   /* the box emptied: a START.COM line goes */
+        status_ = wizard_.setField(r.key, "");
+        changed();
+        return true;
+    }
     return false;
 }
 
@@ -370,7 +371,7 @@ Element WizardTui::renderList(int rows)
             line = text(indent + "one of: " + r.title) | kGroup;
         } else if (r.kind == WizardRow::Kind::field) {
             const bool typing = editing_ && editKey_ == r.key;
-            const std::size_t width = r.key == kVolumeIdField ? 12 : kLineWidth;
+            const std::size_t width = r.parent == kLabelGroup ? 12 : kLineWidth;
             std::string shownText = typing ? edit_ + "_" : r.value;
             if (shownText.size() > width) shownText = shownText.substr(shownText.size() - width);
             shownText.resize(width, ' ');
@@ -468,8 +469,8 @@ Element WizardTui::renderBottom() const
         {Ask::find, "Find: "}};
     if (ask_ != Ask::none) line = hbox({text(prompts.at(ask_)), text(input_) | kCursor, filler()});
     else line = hbox({text(status_), filler()});
-    const Element hint = hbox({text(editing_ ? "Enter: keep    Esc: drop    Up, Down: keep and move"
-                                             : "Space, Enter: choose, open or close a group, edit a field    / find"), filler()});
+    const Element hint = hbox({text(editing_ ? "Enter: keep    Esc: drop    Del: empty    Up, Down: keep and move"
+                                             : "Space, Enter: choose, open or close a group, edit a field    Del: empty a field    / find"), filler()});
     Elements keys;
     for (const auto &[num, name] : kKeys) keys.push_back(hbox({text(num) | kKeyNum, text(name) | kBar | flex}) | flex);
     return vbox({line, hint, hbox(keys)});

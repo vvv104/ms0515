@@ -280,6 +280,26 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     CHECK(s.find("[R PAS1") != std::string::npos);
     CHECK(s.find("1 line") != std::string::npos);
     CHECK(s.find("7Startup") == std::string::npos);            /* no keys of their own any more */
+
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);
+    press(tui, ftxui::Event::Delete);                         /* Del on a line takes it out */
+    CHECK_FALSE(tui.model().selection().startup.has_value());
+
+    choose(tui, "dv - one DV");                               /* another diskette: on to its label again */
+    press(tui, ftxui::Event::Delete);                         /* MYDISK out; typing adds to what is there */
+    type(tui, "DVDISK");
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().volumeId == "DVDISK");
+    press(tui, ftxui::Event::ArrowUp);
+    press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::Delete);                         /* Del in an edit empties the box */
+    type(tui, "NEW");
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().volumeId == "NEW");
+    const std::string labels = shown(tui);
+    CHECK(labels.find("[NEW         ]") != std::string::npos);  /* every label box twelve wide */
+    CHECK(labels.find("[VVV         ]") != std::string::npos);
 }
 
 TEST_CASE("a system that does not go on the diskette is greyed; another diskette later drops it") {
