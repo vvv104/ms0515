@@ -84,6 +84,15 @@ TEST_CASE("mediaOf tells the three diskettes apart") {
     CHECK(mediaOf(exemplar(Media::dv)) == Media::dv);
     CHECK_FALSE(mediaOf(blankImage(true)).has_value());
     CHECK_FALSE(mediaOf(std::vector<uint8_t>(1000)).has_value());
+
+    /* A single side whose home block does not point at its directory (older
+     * tools wrote it so) is still one volume: a side has no other reading. */
+    auto old = exemplar(Media::ss);
+    const auto home = lbnToByte(1, 0, false, Vol::floppy);
+    old[home + 0x1D4] = 0;
+    old[home + 0x1D5] = 0;
+    CHECK(mediaOf(old) == Media::ss);
+    CHECK_FALSE(mediaOf(blankImage(false)).has_value());
 }
 
 TEST_CASE("every media from every exemplar: SWAP and the monitor from it, the parts given, and it boots") {

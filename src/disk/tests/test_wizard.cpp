@@ -106,6 +106,13 @@ std::vector<std::string> headings(const std::vector<WizardRow> &rows)
     return out;
 }
 
+std::string replaced(std::string s, const std::string &from, const std::string &to)
+{
+    const auto at = s.find(from);
+    REQUIRE(at != std::string::npos);
+    return s.replace(at, from.size(), to);
+}
+
 bool mentions(const std::vector<std::string> &notices, const std::string &what)
 {
     return std::any_of(notices.begin(), notices.end(), [&](const std::string &n) { return n.find(what) != std::string::npos; });
@@ -134,6 +141,19 @@ TEST_CASE("rows: the groups in the file's order, the system's parts marked, the 
     CHECK(buttons == std::vector<std::string>{"macro-vvv", "macro-mihin", "macro-omega"});   /* together */
     CHECK_FALSE(row(rows, "sysmac")->radio);
     CHECK_FALSE(row(rows, "link-vvv")->radio);                      /* one build: a checkbox */
+
+    DiskWizard mihin(m, "mihin", Media::dz);                        /* two MACROs visible there: still a group */
+    CHECK(row(mihin.rows(), "macro11", WizardRow::Kind::radio) != nullptr);
+}
+
+TEST_CASE("alternatives of which this system shows only one are a plain line, not a radio group") {
+    const Manifest m = parseManifest(replaced(kManifest, "title    = \"MACRO (Mihin)\"",
+                                              "title    = \"MACRO (Mihin)\"\nsystems  = [\"omega\"]"));
+    DiskWizard w(m, "mihin", Media::dz);
+    const auto rows = w.rows();
+    CHECK(row(rows, "macro11", WizardRow::Kind::radio) == nullptr);
+    REQUIRE(row(rows, "macro-vvv"));
+    CHECK_FALSE(row(rows, "macro-vvv")->radio);
 }
 
 TEST_CASE("a choice brings its needs, each saying for whom; the preferred alternative is the one on") {

@@ -82,7 +82,7 @@ private:
     std::vector<std::string> startupLines_;
 
     Focus                   focus_ = Focus::list;
-    std::set<std::string>   folded_;
+    std::set<std::string>   folded_{"System"};   /* the system's own parts: rarely the point */
     int                     cursor_ = 0;
     int                     top_ = 0;
     Ask                     ask_ = Ask::none;

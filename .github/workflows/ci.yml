@@ -162,6 +162,12 @@ jobs:
       - name: Smoke test (Node)
         run: node src/web/smoke.mjs src/build/emscripten-release/web/dist
 
+      # The disk wizard's module API: a collection made of the OSA test
+      # fixture, the rows and a radio group, a plan, a saved choice, and a
+      # composed disk booting in the module.
+      - name: Disk wizard check (Node)
+        run: node src/web/wizard_check.mjs src/build/emscripten-release/web/dist
+
       # The page's archive writer (the commander's downloads, the bug
       # report): the zip read back and inflated under Node.
       - name: Zip check (Node)

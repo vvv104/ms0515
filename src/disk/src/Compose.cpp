@@ -231,8 +231,12 @@ std::vector<uint8_t> compose(const ComposeRecipe &r, ComposePlan &plan)
 std::optional<Media> mediaOf(const std::vector<uint8_t> &image)
 {
     const auto specs = detectVolumes(image);
-    if (image.size() == kSideSize)
-        return specs.size() == 1 ? std::optional<Media>(Media::ss) : std::nullopt;
+    if (image.size() == kSideSize) {
+        /* A side has one reading: a directory there, pointed at or not
+         * (older tools left the home block's pointer empty). */
+        const auto side = openImage(image, 0);
+        return specs.size() == 1 || (side && side->hasDirectory) ? std::optional<Media>(Media::ss) : std::nullopt;
+    }
     if (image.size() != kDoubleSize) return std::nullopt;
     for (const auto &v : specs) if (v.vol == Vol::dv) return Media::dv;
     for (const auto &v : specs) if (v.vol == Vol::floppy && v.side == 0) return Media::dz;

@@ -256,7 +256,14 @@ std::vector<WizardRow> DiskWizard::rows() const
         out.push_back(heading(WizardRow::Kind::group, 0, group, group.empty() ? std::string("Other") : group));
         for (const auto &b : m_.bundles) {
             if (!visible(b) || b.group != group) continue;
-            const auto names = alternativesOf(b);
+            /* A radio group only where this system shows two builds or more:
+             * one build alone is a plain line. */
+            auto names = alternativesOf(b);
+            std::erase_if(names, [&](const std::string &name) {
+                return std::count_if(m_.bundles.begin(), m_.bundles.end(), [&](const ManifestBundle &o) {
+                    return visible(o) && std::find(o.provides.begin(), o.provides.end(), name) != o.provides.end();
+                }) < 2;
+            });
             if (names.empty()) { bundleRow(b, 1, false); continue; }
             if (radiosDone.count(names.front())) continue;
             radiosDone.insert(names.front());

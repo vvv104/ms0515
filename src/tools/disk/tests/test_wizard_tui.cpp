@@ -135,6 +135,8 @@ TEST_CASE("the wizard's screen: the system's part locked, the alternatives a rad
     const Manifest m = parseManifest(kManifest);
     const Repository repo = repository();
     tools::WizardTui tui(m, repo, scratch());
+    CHECK(shown(tui).find("[#] DZ.SYS") == std::string::npos);    /* the System group starts folded */
+    press(tui, ftxui::Event::Return);                         /* the cursor is on its heading */
     const std::string s = shown(tui);
     CHECK(s.find("System: < OMEGA >") != std::string::npos);
     CHECK(s.find("[#] DZ.SYS - floppy") != std::string::npos);

@@ -6,8 +6,8 @@
 # serves as is.  Only configured when the Emscripten toolchain is active.
 # ─────────────────────────────────────────────────────────────────────────────
 
-add_executable(ms0515_web src/ms0515_web.cpp)
-target_link_libraries(ms0515_web PRIVATE ms0515_lib ms0515_disk)
+add_executable(ms0515_web src/ms0515_web.cpp src/wizard_web.cpp)
+target_link_libraries(ms0515_web PRIVATE ms0515_lib ms0515_disk ms0515_disk_manifest)
 
 set(WEB_DIST "${CMAKE_BINARY_DIR}/web/dist")
 
@@ -46,7 +46,7 @@ foreach(f index.html app.js)
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/stamp.cmake"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${CMAKE_CURRENT_SOURCE_DIR}/stamp.cmake")
 endforeach()
-foreach(f keys.js joystick.js softkeys.js fm.js edit.js zip.js bugreport.js audio-worklet.js)
+foreach(f keys.js joystick.js softkeys.js fm.js edit.js zip.js bugreport.js audio-worklet.js wizard.js)
     list(APPEND WEB_COPIES "${WEB_DIST}/${f}")
     add_custom_command(OUTPUT "${WEB_DIST}/${f}"
         COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${WEB_DIST}/${f}"

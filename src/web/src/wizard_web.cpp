@@ -1,0 +1,285 @@
+/*
+ * wizard_web.cpp - the browser's disk wizard: DiskWizard and the composer
+ * behind flat C entry points, JSON out.
+ *
+ * The page hands over the collection's disks.toml and the list of its files
+ * with their sizes (index.json); the files themselves it fetches into the
+ * module's file system under /software/ when wiz_needed() names them, so a
+ * plan or a build reads only what the choice uses.  The rules are the native
+ * wizard's, compiled from the same sources.
+ */
+#include <emscripten.h>
+
+#include <ms0515/disk/Compose.hpp>
+#include <ms0515/disk/Manifest.hpp>
+#include <ms0515/disk/Wizard.hpp>
+
+#include <fstream>
+#include <iterator>
+#include <map>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <vector>
+
+using namespace ms0515::disk;
+
+namespace {
+
+const std::string kRoot = "/software/";
+
+struct Session {
+    Manifest                    manifest;
+    Repository                  repo;
+    std::map<std::string, long> sizes;
+    std::unique_ptr<DiskWizard> wizard;
+};
+
+std::unique_ptr<Session> gSession;
+std::string gError;
+std::string gText;
+
+std::string esc(const std::string &s)
+{
+    std::string out;
+    for (const char c : s) {
+        if (c == '"' || c == '\\') out += '\\';
+        if (static_cast<unsigned char>(c) < 0x20) { out += ' '; continue; }
+        out += c;
+    }
+    return out;
+}
+
+std::string str(const std::string &s) { return "\"" + esc(s) + "\""; }
+
+std::string strings(const std::vector<std::string> &v)
+{
+    std::string out = "[";
+    for (std::size_t i = 0; i < v.size(); ++i) out += (i ? "," : "") + str(v[i]);
+    return out + "]";
+}
+
+std::vector<std::string> lines(const char *text)
+{
+    std::vector<std::string> out;
+    std::stringstream in(text ? text : "");
+    for (std::string l; std::getline(in, l);) if (!l.empty()) out.push_back(l);
+    return out;
+}
+
+int blocksOf(const Session &s, const ManifestBundle &b)
+{
+    long bytes = 0;
+    try {
+        for (const auto &p : bundlePaths(b, s.repo))
+            if (const auto it = s.sizes.find(p); it != s.sizes.end()) bytes += (it->second + 511) / 512 * 512;
+    } catch (const std::exception &) {
+    }
+    return static_cast<int>(bytes / 512);
+}
+
+const char *mark(const WizardRow &r)
+{
+    switch (r.mark) {
+    case WizardRow::Mark::on:     return "on";
+    case WizardRow::Mark::added:  return "added";
+    case WizardRow::Mark::system: return "system";
+    case WizardRow::Mark::off:    break;
+    }
+    return "off";
+}
+
+std::string rowsJson(const DiskWizard &w)
+{
+    std::string out = "[";
+    for (const auto &r : w.rows()) {
+        if (out.size() > 1) out += ",";
+        const char *kind = r.kind == WizardRow::Kind::group ? "group" : r.kind == WizardRow::Kind::radio ? "radio" : "bundle";
+        out += std::string("{\"kind\":\"") + kind + "\",\"depth\":" + std::to_string(r.depth) + ",\"key\":" + str(r.key)
+             + ",\"title\":" + str(r.title) + ",\"mark\":\"" + mark(r) + "\",\"radio\":" + (r.radio ? "true" : "false")
+             + ",\"available\":" + (r.available ? "true" : "false") + ",\"why\":" + str(r.why)
+             + ",\"requiredBy\":" + str(r.requiredBy) + ",\"blocks\":" + std::to_string(r.blocks) + "}";
+    }
+    return out + "]";
+}
+
+}  /* namespace */
+
+extern "C" {
+
+/* Start over a collection: disks.toml's text, its files' paths and sizes one
+ * a line each, in the same order.  0 with wiz_error() when the file is not
+ * right. */
+EMSCRIPTEN_KEEPALIVE int wiz_open(const char *manifest, const char *paths, const char *sizes)
+{
+    try {
+        auto s = std::make_unique<Session>();
+        s->manifest = parseManifest(manifest);
+        const auto p = lines(paths), z = lines(sizes);
+        for (std::size_t i = 0; i < p.size(); ++i) {
+            s->repo.paths.push_back(p[i]);
+            s->sizes[p[i]] = i < z.size() ? std::stol(z[i]) : 0;
+        }
+        s->repo.read = [](const std::string &path) -> std::optional<std::vector<uint8_t>> {
+            std::ifstream f(kRoot + path, std::ios::binary);
+            if (!f) return std::nullopt;
+            return std::vector<uint8_t>(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        };
+        if (s->manifest.systems.empty()) { gError = "disks.toml names no system"; return 0; }
+        const auto &first = s->manifest.systems.front();
+        Session *raw = s.get();
+        s->wizard = std::make_unique<DiskWizard>(s->manifest, first.key, first.media.front(),
+                                                 [raw](const ManifestBundle &b) { return blocksOf(*raw, b); });
+        gSession = std::move(s);
+        return 1;
+    } catch (const std::exception &e) {
+        gError = e.what();
+        return 0;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char *wiz_error(void) { return gError.c_str(); }
+
+/* Everything the page draws: the systems, the choice, the rows, the notices. */
+EMSCRIPTEN_KEEPALIVE const char *wiz_state(void)
+{
+    if (!gSession) return "{}";
+    const DiskWizard &w = *gSession->wizard;
+    std::string systems = "[";
+    for (const auto &s : gSession->manifest.systems) {
+        std::vector<std::string> media;
+        for (const auto m : s.media) media.push_back(mediaWord(m));
+        systems += std::string(systems.size() > 1 ? "," : "") + "{\"key\":" + str(s.key) + ",\"title\":" + str(s.title)
+                 + ",\"media\":" + strings(media) + "}";
+    }
+    systems += "]";
+    const auto &sel = w.selection();
+    gText = "{\"version\":" + str(gSession->manifest.version) + ",\"systems\":" + systems
+          + ",\"system\":" + str(sel.system) + ",\"media\":" + str(mediaWord(sel.media))
+          + ",\"startup\":" + strings(sel.startup.value_or(std::vector<std::string>{}))
+          + ",\"volumeId\":" + str(sel.volumeId.value_or("")) + ",\"notices\":" + strings(w.notices())
+          + ",\"rows\":" + rowsJson(w) + "}";
+    return gText.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void wiz_set_system(const char *key) { if (gSession) gSession->wizard->setSystem(key); }
+
+EMSCRIPTEN_KEEPALIVE void wiz_set_media(const char *word)
+{
+    if (!gSession) return;
+    if (const auto m = parseMedia(word)) gSession->wizard->setMedia(*m);
+}
+
+/* Space on a row: "" when taken, else why not. */
+EMSCRIPTEN_KEEPALIVE const char *wiz_toggle(const char *key)
+{
+    gText = gSession ? gSession->wizard->toggle(key) : std::string("no collection");
+    return gText.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void wiz_set_startup(const char *text) { if (gSession) gSession->wizard->setStartup(lines(text)); }
+
+EMSCRIPTEN_KEEPALIVE void wiz_set_volume_id(const char *id)
+{
+    if (!gSession) return;
+    const std::string s = id ? id : "";
+    gSession->wizard->setVolumeId(s.empty() ? std::nullopt : std::optional<std::string>(s.substr(0, 12)));
+}
+
+/* The files a plan or a build of the current choice reads, as a JSON list of
+ * paths: the system's image and every file of every bundle it installs. */
+EMSCRIPTEN_KEEPALIVE const char *wiz_needed(void)
+{
+    if (!gSession) return "[]";
+    const DiskWizard &w = *gSession->wizard;
+    std::vector<std::string> paths;
+    if (const auto *sys = gSession->manifest.system(w.selection().system)) paths.push_back(sys->image);
+    for (const auto &key : w.resolution().bundles) {
+        try {
+            for (const auto &p : bundlePaths(*gSession->manifest.bundle(key), gSession->repo)) paths.push_back(p);
+        } catch (const std::exception &) {
+        }
+    }
+    gText = strings(paths);
+    return gText.c_str();
+}
+
+/* The plan of the current choice, its files fetched: {ok, problem, volumes:
+ * [{name, used, capacity, free}], startup: [lines]}. */
+EMSCRIPTEN_KEEPALIVE const char *wiz_plan(void)
+{
+    if (!gSession) return "{}";
+    const DiskWizard &w = *gSession->wizard;
+    try {
+        const ComposeRecipe r = recipeFor(gSession->manifest, w.selection(), gSession->repo);
+        const ComposePlan plan = planDisk(r);
+        const int capacity = r.media == Media::dv ? 1586 : 786;
+        std::string volumes = "[";
+        for (std::size_t v = 0; v < plan.freeBlocks.size(); ++v) {
+            const std::string name = r.media == Media::dv ? "DV0:" : v == 0 ? "DZ0:" : "DZ2:";
+            volumes += std::string(v ? "," : "") + "{\"name\":" + str(name) + ",\"used\":" + std::to_string(capacity - plan.freeBlocks[v])
+                     + ",\"capacity\":" + std::to_string(capacity) + ",\"free\":" + std::to_string(plan.freeBlocks[v]) + "}";
+        }
+        gText = std::string("{\"ok\":") + (plan.ok ? "true" : "false") + ",\"problem\":" + str(plan.problem)
+              + ",\"volumes\":" + volumes + "],\"startup\":" + strings(r.startup.value_or(std::vector<std::string>{})) + "}";
+    } catch (const std::exception &e) {
+        gText = "{\"ok\":false,\"problem\":" + str(e.what()) + ",\"volumes\":[],\"startup\":[]}";
+    }
+    return gText.c_str();
+}
+
+/* The disk, written to `out` in the module's file system.  0 with
+ * wiz_error() when it cannot be built. */
+EMSCRIPTEN_KEEPALIVE int wiz_build(const char *out)
+{
+    if (!gSession) { gError = "no collection"; return 0; }
+    try {
+        const auto image = composeDisk(recipeFor(gSession->manifest, gSession->wizard->selection(), gSession->repo));
+        std::ofstream f(out, std::ios::binary);
+        f.write(reinterpret_cast<const char *>(image.data()), static_cast<std::streamsize>(image.size()));
+        return f ? 1 : (gError = "cannot write the image", 0);
+    } catch (const std::exception &e) {
+        gError = e.what();
+        return 0;
+    }
+}
+
+/* The choice as its own file (TOML), and one read back: 0 with wiz_error()
+ * when the text is no such file; what it names that this collection lacks
+ * comes as notices in wiz_state(). */
+EMSCRIPTEN_KEEPALIVE const char *wiz_save(void)
+{
+    gText = gSession ? selectionToml(gSession->wizard->saved()) : std::string();
+    return gText.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int wiz_load(const char *text)
+{
+    if (!gSession) { gError = "no collection"; return 0; }
+    try {
+        gSession->wizard->load(parseSelection(text));
+        return 1;
+    } catch (const std::exception &e) {
+        gError = e.what();
+        return 0;
+    }
+}
+
+/* A bundle's details: {title, group, provides, requires, startup, files, blocks}. */
+EMSCRIPTEN_KEEPALIVE const char *wiz_details(const char *key)
+{
+    const auto *b = gSession ? gSession->manifest.bundle(key) : nullptr;
+    if (!b) return "{}";
+    std::vector<std::string> files;
+    try {
+        for (const auto &p : bundlePaths(*b, gSession->repo)) files.push_back(p.substr(p.rfind('/') + 1));
+    } catch (const std::exception &e) {
+        files.push_back(e.what());
+    }
+    gText = "{\"title\":" + str(b->title) + ",\"group\":" + str(b->group) + ",\"provides\":" + strings(b->provides)
+          + ",\"requires\":" + strings(b->dependsOn) + ",\"startup\":" + strings(b->startup) + ",\"files\":" + strings(files)
+          + ",\"blocks\":" + std::to_string(blocksOf(*gSession, *b)) + "}";
+    return gText.c_str();
+}
+
+}  /* extern "C" */
