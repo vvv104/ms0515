@@ -595,3 +595,33 @@ byte-identical to the repaired body through the volume's own directory.
 
 Noted in passing: `omega-games.dsk` carries a third loader, one byte
 different from the collection's `SABOT2.SAV` (0x297: 002 vs 000).
+
+
+## NOT OURS: SABOT2 draws half a guard at the foot of a ladder
+
+goodboy, the same forum thread (2026-09-10), with a bug report and the
+fix already in hand: on one screen a guard by the ladder shows as half a
+figure or a doubled one, an error of the original that the port carried
+over, cured by one data byte - `017 005 001 000 000` to
+`017 205 001 000 000`.
+
+**What the bytes are.**  They close the game's actor table (osa body:
+0o33543..0o36037, 101 records of 12 bytes).  Two records at its end put
+two guards on the same screen with the same patrol bounds and almost the
+same starting point, and byte +9 of both is 005.  Bit 7 of that byte is
+the facing, and every other pair sharing a screen has it set in one of
+the two (007 / 207, 010 / 214).  Facing the same way, these two walk in
+step, one on top of the other, and the two sprites merge into the broken
+figure of the report.
+
+**Verified** from goodboy's snapshot with `ms0515-cli --state`: the same
+400 frames with the bit set in RAM show the second guard turn and patrol
+apart; without it, a fragment of a figure on the ladder.
+
+**Repaired** alongside the first repair: one byte, 0o36034 in the osa
+body and 0o36132 in the omega one (the two builds' actor tables are
+byte-identical at different addresses), in the collection's
+`software/games/sabot2/fixed/` and in place inside
+`src/assets/disks/osa.dsk` (0x25c1c) and
+`src/assets/disks/omega-games.dsk` (0x36a5a).  Both images read the file
+back byte-identical to the repaired body.
