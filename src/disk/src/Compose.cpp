@@ -117,7 +117,8 @@ std::vector<uint8_t> base(const Source &src, const Shape &s)
     auto img = blankImage(s.ds);
     initVolume(img, 0, s.ds, {}, s.boot);
     if (s.volumes == 2) initVolume(img, 1, s.ds);
-    for (const std::string name : {std::string("SWAP.SYS"), src.monitor + ".SYS"}) {
+    const std::string names[] = {"SWAP.SYS", src.monitor + ".SYS"};
+    for (const auto &name : names) {
         const auto *e = src.volume.directory.find(name);
         if (!e) throw std::runtime_error("the system image has no " + name);
         putFile(img, 0, s.ds, name, src.volume.readFile(name), PutOptions{e->date, (e->status & kStatusProtected) != 0}, s.boot);
