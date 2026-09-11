@@ -102,8 +102,8 @@ Repository repository()
 
 std::string shown(tools::WizardTui &tui)
 {
-    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(110), ftxui::Dimension::Fixed(30));
-    ftxui::Render(screen, tui.render(110, 30));
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(100), ftxui::Dimension::Fixed(40));
+    ftxui::Render(screen, tui.render(100, 40));
     return screen.ToString();
 }
 
@@ -224,6 +224,8 @@ TEST_CASE("Space on Pascal brings the preferred MACRO; picking the other swaps t
     choose(tui, "Pascal");
     std::string s = shown(tui);
     CHECK(s.find("1 chosen, 1 added") != std::string::npos);    /* the group says it */
+    CHECK(s.find("Development 8") != std::string::npos);        /* and the plan its blocks: PAS1 5, MACRO 3 */
+    CHECK(s.find("START.COM  SET") == std::string::npos);
     CHECK(s.find("[x] Pascal") != std::string::npos);
     CHECK(s.find("(\xE2\x80\xA2) MACRO build A") != std::string::npos);
     CHECK(s.find("for Pascal") != std::string::npos);

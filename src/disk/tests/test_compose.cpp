@@ -190,6 +190,28 @@ TEST_CASE("a group that may go anywhere goes to the second volume when the boot 
     CHECK(volume(img, Media::dz, 0)->directory.find("TINY.SAV") != nullptr);
 }
 
+TEST_CASE("the boot volume taken by what may go anywhere, and a group that must boot short of room: those move to the second volume") {
+    ComposeRecipe r = recipe(Media::dz, Media::dz);
+    const auto plan0 = planDisk(r);
+    REQUIRE(plan0.ok);
+    const int bootFree = plan0.freeBlocks[0];
+
+    r.groups.push_back({"docs", Place::any, {file("DOCS.TXT", bootFree - 4, 0x31)}});
+    r.groups.push_back({"handler", Place::boot, {file("NL.SYS", 8, 0x32)}});
+    const auto plan = planDisk(r);
+    REQUIRE_MESSAGE(plan.ok, plan.problem);
+    REQUIRE(plan.groups.size() == 3);
+    CHECK(plan.groups[1].title == "docs");                    /* the recipe's order kept in the plan */
+    CHECK(plan.groups[1].volume == 1);
+    CHECK(plan.groups[2].volume == 0);
+    const auto img = composeDisk(r);
+    CHECK(volume(img, Media::dz, 0)->directory.find("NL.SYS") != nullptr);
+    CHECK(volume(img, Media::dz, 1)->directory.find("DOCS.TXT") != nullptr);
+
+    r.groups.push_back({"too much", Place::boot, {file("HUGE.SAV", bootFree, 0x33)}});
+    CHECK_FALSE(planDisk(r).ok);                              /* what must boot and does not fit, still refused */
+}
+
 TEST_CASE("what cannot be built says why, and the plan still shows what fitted") {
     ComposeRecipe r = recipe(Media::dv, Media::ss);
     const int bootFree = planDisk(r).freeBlocks.at(0);

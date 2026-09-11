@@ -229,7 +229,7 @@ export class DiskComposer {
                `<span>${v.used} / ${v.capacity}, ${v.free} free</span></div>`;
       }).join("");
       this.dlg.querySelector(".wiz-plan").innerHTML = bars +
-        `<div class="wiz-startline"><span class="dim">START.COM</span> ${esc(p.startup.join(" · "))}</div>` +
+        `<div class="wiz-startline"><span class="dim">blocks</span> ${esc(p.groups.map((g) => `${g.name} ${g.blocks}`).join("   "))}</div>` +
         (p.ok ? "" : `<div class="bad">${esc(p.problem)}</div>`);
       this.dlg.querySelector(".wiz-boot").disabled = !p.ok;
       this.dlg.querySelector(".wiz-download").disabled = !p.ok;

@@ -4,10 +4,12 @@
  * One screen: on the left one list walked in steps - the diskette, the
  * operating system on it, then the bundles in their groups, a tree folded
  * until opened - and at its end the buttons: save the choice, open one,
- * build the disk, quit, each with its window; the details of the row under
- * the cursor on the right; the plan - how full each volume would be, the
- * startup file - below.  render() and onEvent() are all a host needs, so the
- * screen is exercised by the tests as it is by the terminal.
+ * build the disk, quit, each with its window; under it, the width of the
+ * screen, the details of the row under the cursor and the plan - how full
+ * each volume would be, and how many blocks each group takes.  Nothing side
+ * by side: the screen stays readable in a terminal of 120 columns or less.
+ * render() and onEvent() are all a host needs, so the screen is exercised by
+ * the tests as it is by the terminal.
  */
 
 #ifndef MS0515_TOOLS_DISK_WIZARD_TUI_HPP
@@ -92,7 +94,6 @@ private:
     disk::DiskWizard        wizard_;
     std::optional<disk::ComposePlan> plan_;
     std::string             planProblem_;
-    std::vector<std::string> startupLines_;
 
     std::optional<FileDialog> files_;             /* the window of save, open or build */
     Button                  filesFor_ = Button::save;

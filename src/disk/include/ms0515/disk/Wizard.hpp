@@ -138,6 +138,9 @@ public:
     /* The rows to draw: those of closed groups left out, unless `everything`
      * (what a search looks through).  A locked group has no rows either way. */
     [[nodiscard]] std::vector<WizardRow> rows(bool everything = false) const;
+    /* The blocks of what goes on the disk by the top group it sits in -
+     * "System", "Games" - in the order the groups first come. */
+    [[nodiscard]] std::vector<std::pair<std::string, int>> blocksByGroup() const;
 
     /* What the last change of system or media took away. */
     [[nodiscard]] const std::vector<std::string> &notices() const noexcept { return notices_; }

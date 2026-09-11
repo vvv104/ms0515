@@ -97,12 +97,9 @@ void WizardTui::changed()
 {
     plan_.reset();
     planProblem_.clear();
-    startupLines_.clear();
     if (wizard_.ready()) try {
-        const ComposeRecipe recipe = recipeFor(manifest_, wizard_.selection(), repo_);
-        plan_ = planDisk(recipe);
+        plan_ = planDisk(recipeFor(manifest_, wizard_.selection(), repo_));
         if (!plan_->ok) planProblem_ = plan_->problem;
-        startupLines_ = recipe.startup.value_or(std::vector<std::string>{});
     } catch (const std::exception &e) {
         planProblem_ = e.what();
     }
@@ -480,63 +477,77 @@ Element WizardTui::renderList(int rows)
     return vbox(lines);
 }
 
+/* What the row under the cursor is, in a few lines. */
 Element WizardTui::renderDetails() const
 {
     const auto list = visibleRows();
     const auto n = static_cast<int>(list.size());
     if (cursor_ >= n) {
         const auto &b = kButtons[cursor_ - n];
-        return vbox({paragraph(b.label), text(""), paragraph(b.about)});
+        return vbox({text(b.label), text(b.about)});
     }
     const auto &r = list[static_cast<std::size_t>(cursor_)];
     const auto *b = manifest_.bundle(r.key);
+    Elements out;
     if (r.kind != WizardRow::Kind::bundle || !b) {
         const std::string title = r.kind == WizardRow::Kind::radio ? "one of: " + r.title
                                 : r.kind == WizardRow::Kind::field && r.title.empty() ? std::string("a line of START.COM")
                                 : r.title;
-        Elements out = {paragraph(title), text("")};
-        if (!r.summary.empty()) out.push_back(paragraph(r.summary));
-        if (r.kind == WizardRow::Kind::line) out.push_back(paragraph("from " + r.requiredBy));
-        if (r.kind == WizardRow::Kind::field) out.push_back(paragraph("Type to change it; Enter keeps, Esc drops."));
+        out.push_back(text(title));
+        if (!r.summary.empty()) out.push_back(text(r.summary));
+        if (r.kind == WizardRow::Kind::line) out.push_back(text("from " + r.requiredBy));
+        if (r.kind == WizardRow::Kind::field) out.push_back(text("Type to change it; Enter keeps, Esc drops, Del empties."));
         if (!r.available) out.push_back(paragraph(r.why) | kBad);
         return vbox(out);
     }
-    Elements out = {paragraph(b->title), text("")};
     auto joined = [](const std::vector<std::string> &v) { std::string s; for (const auto &x : v) s += (s.empty() ? "" : " ") + x; return s; };
-    if (!b->provides.empty()) out.push_back(paragraph("provides " + joined(b->provides)));
-    if (!b->dependsOn.empty()) out.push_back(paragraph("requires " + joined(b->dependsOn)));
-    if (!b->startup.empty()) out.push_back(paragraph("startup  " + joined(b->startup)));
+    out.push_back(text(b->title));
+    std::string about;
+    if (!b->provides.empty()) about += "provides " + joined(b->provides) + "    ";
+    if (!b->dependsOn.empty()) about += "requires " + joined(b->dependsOn) + "    ";
+    if (!b->startup.empty()) about += "startup " + joined(b->startup);
+    if (!about.empty()) out.push_back(text(about));
     try {
         std::string files;
         for (const auto &p : bundlePaths(*b, repo_)) files += (files.empty() ? "" : " ") + p.substr(p.rfind('/') + 1);
-        out.push_back(paragraph("files    " + files));
+        out.push_back(paragraph(std::to_string(r.blocks) + " blocks: " + files));
     } catch (const std::exception &e) {
         out.push_back(paragraph(e.what()) | kBad);
     }
-    out.push_back(text(std::to_string(r.blocks) + " blocks"));
+    if (r.mark == WizardRow::Mark::added) out.push_back(text("required by " + r.requiredBy));
     if (!r.available) out.push_back(paragraph(r.why) | kBad);
-    if (r.mark == WizardRow::Mark::added) out.push_back(paragraph("required by " + r.requiredBy));
     return vbox(out);
 }
 
+/* How full each volume would be, and the blocks by group - the system's own
+ * (SWAP, the monitor, the directory) counted with the group of its parts. */
 Element WizardTui::renderPlan(int width) const
 {
     if (!wizard_.ready()) return text("Choose the diskette, then the operating system.");
     Elements lines;
+    int used = 0;
     if (plan_) {
         const int capacity = capacityOf(*wizard_.media());
         for (std::size_t v = 0; v < plan_->freeBlocks.size(); ++v) {
-            const int used = capacity - plan_->freeBlocks[v];
+            const int taken = capacity - plan_->freeBlocks[v];
+            used += taken;
             const std::string name = wizard_.media() == Media::dv ? "DV0:" : v == 0 ? "DZ0:" : "DZ2:";
-            const float fill = std::clamp(static_cast<float>(used) / static_cast<float>(capacity), 0.0f, 1.0f);
-            lines.push_back(hbox({text(name + " " + std::to_string(used) + " / " + std::to_string(capacity) + " "),
+            const float fill = std::clamp(static_cast<float>(taken) / static_cast<float>(capacity), 0.0f, 1.0f);
+            lines.push_back(hbox({text(name + " " + std::to_string(taken) + " / " + std::to_string(capacity) + " "),
                                   gauge(fill) | size(WIDTH, EQUAL, std::max(10, width / 2)),
                                   text("  " + std::to_string(plan_->freeBlocks[v]) + " free")}));
         }
     }
-    std::string startup;
-    for (const auto &l : startupLines_) startup += (startup.empty() ? "" : " \xC2\xB7 ") + l;
-    lines.push_back(text("START.COM  " + startup));
+    auto groups = wizard_.blocksByGroup();
+    int bundles = 0;
+    for (const auto &g : groups) bundles += g.second;
+    if (plan_ && plan_->ok && used > bundles) {
+        if (groups.empty()) groups.emplace_back("System", 0);
+        groups.front().second += used - bundles;
+    }
+    std::string summary;
+    for (const auto &[name, blocks] : groups) summary += (summary.empty() ? "" : "   ") + name + " " + std::to_string(blocks);
+    lines.push_back(text("blocks: " + summary));
     if (!planProblem_.empty()) lines.push_back(paragraph(planProblem_) | kBad);
     return vbox(lines);
 }
@@ -564,12 +575,14 @@ Element WizardTui::renderWindow(int width, int height) const
 
 Element WizardTui::render(int width, int height)
 {
-    const int planLines = wizard_.ready() ? 2 + (plan_ ? static_cast<int>(plan_->freeBlocks.size()) : 0) + (planProblem_.empty() ? 0 : 1) : 1;
-    const int listRows = std::max(3, height - 1 - 2 - planLines - 2 - 2);
-    const int detailsWidth = std::clamp(width / 3, 24, 44);
-    Element body = hbox({window(text(" Bundles "), renderList(listRows)) | flex,
-                         window(text(" Details "), renderDetails()) | size(WIDTH, EQUAL, detailsWidth)});
-    Element screen = vbox({renderTop(), body | flex, window(text(" Plan "), renderPlan(width)), renderBottom()}) | kPanel;
+    const int planLines = wizard_.ready() ? 1 + (plan_ ? static_cast<int>(plan_->freeBlocks.size()) : 0) + (planProblem_.empty() ? 0 : 2) : 1;
+    const int detailsLines = 4;
+    const int listRows = std::max(3, height - 1 - 2 - (detailsLines + 2) - (planLines + 2) - 2);
+    Element screen = vbox({renderTop(),
+                           window(text(" Bundles "), renderList(listRows)) | flex,
+                           window(text(" Details "), renderDetails() | size(HEIGHT, EQUAL, detailsLines)),
+                           window(text(" Plan "), renderPlan(width)),
+                           renderBottom()}) | kPanel;
     if (files_ || quitting_ || !message_.empty()) screen = dbox({screen, renderWindow(width, height)});
     return screen;
 }

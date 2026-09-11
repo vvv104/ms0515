@@ -161,6 +161,14 @@ TEST_CASE("rows: the groups in the file's order, the system's parts marked, the 
     CHECK(row(mihin.rows(true), "macro11", WizardRow::Kind::radio) != nullptr);
 }
 
+TEST_CASE("the blocks of what goes on the disk, by the top group it sits in") {
+    const Manifest m = parseManifest(kManifest);
+    DiskWizard w(m, "omega", Media::dz, [](const ManifestBundle &b) { return static_cast<int>(b.title.size()); });
+    REQUIRE(w.toggle("pascal").empty());
+    using Groups = std::vector<std::pair<std::string, int>>;
+    CHECK(w.blocksByGroup() == Groups{{"System", 6 + 12}, {"Development", 10 + 14 + 13 + 6}});
+}
+
 TEST_CASE("alternatives of which this system shows only one are a plain line, not a radio group") {
     const Manifest m = parseManifest(replaced(kManifest, "title    = \"MACRO (Mihin)\"",
                                               "title    = \"MACRO (Mihin)\"\nsystems  = [\"omega\"]"));

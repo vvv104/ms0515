@@ -125,6 +125,7 @@ if (needed.includes("u/DIR.SAV")) fail("wiz_needed names the DIR not chosen");
 const plan = JSON.parse(api.plan());
 if (!plan.ok || plan.volumes.length !== 1 || plan.volumes[0].name !== "DZ0:") fail("the plan: " + JSON.stringify(plan));
 if (plan.startup[0] !== "SET TT QUIET") fail("the startup: " + plan.startup);
+if (plan.groups.reduce((n, g) => n + g.blocks, 0) !== plan.volumes[0].used) fail("the blocks by group: " + JSON.stringify(plan.groups));
 if (!JSON.parse(api.details("dir2")).files.includes("DIR.SAV")) fail("the details");
 
 // The label and START.COM: fields in the list, START.COM at the end of System.

@@ -217,26 +217,40 @@ EMSCRIPTEN_KEEPALIVE const char *wiz_needed(void)
 }
 
 /* The plan of the current choice, its files fetched: {ok, problem, volumes:
- * [{name, used, capacity, free}], startup: [lines]}. */
+ * [{name, used, capacity, free}], startup: [lines], groups: [{name, blocks}]}
+ * - the blocks by top group, the system's own counted with its parts'. */
 EMSCRIPTEN_KEEPALIVE const char *wiz_plan(void)
 {
     if (!gSession) return "{}";
     const DiskWizard &w = *gSession->wizard;
-    if (!w.ready()) return "{\"ok\":false,\"problem\":\"\",\"volumes\":[],\"startup\":[]}";
+    if (!w.ready()) return "{\"ok\":false,\"problem\":\"\",\"volumes\":[],\"startup\":[],\"groups\":[]}";
     try {
         const ComposeRecipe r = recipeFor(gSession->manifest, w.selection(), gSession->repo);
         const ComposePlan plan = planDisk(r);
         const int capacity = r.media == Media::dv ? 1586 : 786;
         std::string volumes = "[";
+        int used = 0;
         for (std::size_t v = 0; v < plan.freeBlocks.size(); ++v) {
+            used += capacity - plan.freeBlocks[v];
             const std::string name = r.media == Media::dv ? "DV0:" : v == 0 ? "DZ0:" : "DZ2:";
             volumes += std::string(v ? "," : "") + "{\"name\":" + str(name) + ",\"used\":" + std::to_string(capacity - plan.freeBlocks[v])
                      + ",\"capacity\":" + std::to_string(capacity) + ",\"free\":" + std::to_string(plan.freeBlocks[v]) + "}";
         }
+        auto groups = w.blocksByGroup();
+        int bundles = 0;
+        for (const auto &g : groups) bundles += g.second;
+        if (plan.ok && used > bundles) {
+            if (groups.empty()) groups.emplace_back("System", 0);
+            groups.front().second += used - bundles;
+        }
+        std::string byGroup = "[";
+        for (const auto &[name, blocks] : groups)
+            byGroup += std::string(byGroup.size() > 1 ? "," : "") + "{\"name\":" + str(name) + ",\"blocks\":" + std::to_string(blocks) + "}";
         gText = std::string("{\"ok\":") + (plan.ok ? "true" : "false") + ",\"problem\":" + str(plan.problem)
-              + ",\"volumes\":" + volumes + "],\"startup\":" + strings(r.startup.value_or(std::vector<std::string>{})) + "}";
+              + ",\"volumes\":" + volumes + "],\"startup\":" + strings(r.startup.value_or(std::vector<std::string>{}))
+              + ",\"groups\":" + byGroup + "]}";
     } catch (const std::exception &e) {
-        gText = "{\"ok\":false,\"problem\":" + str(e.what()) + ",\"volumes\":[],\"startup\":[]}";
+        gText = "{\"ok\":false,\"problem\":" + str(e.what()) + ",\"volumes\":[],\"startup\":[],\"groups\":[]}";
     }
     return gText.c_str();
 }

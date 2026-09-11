@@ -612,6 +612,19 @@ void DiskWizard::load(const SavedSelection &saved)
     openWhatIsChosen();
 }
 
+std::vector<std::pair<std::string, int>> DiskWizard::blocksByGroup() const
+{
+    std::vector<std::pair<std::string, int>> out;
+    for (const auto &key : res_.bundles) {
+        const auto *b = m_.bundle(key);
+        const std::string top = groupPath(b->group).front();
+        const int n = blocksOf_ ? blocksOf_(*b) : 0;
+        const auto it = std::find_if(out.begin(), out.end(), [&](const auto &g) { return g.first == top; });
+        if (it == out.end()) out.emplace_back(top, n); else it->second += n;
+    }
+    return out;
+}
+
 /* A choice read from a file: the diskette and the system open, the label
  * when one is typed, and the way down to every bundle chosen or brought
  * along, to a build other than the system's own, to its START.COM lines. */
