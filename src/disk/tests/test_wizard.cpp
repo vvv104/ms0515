@@ -194,6 +194,8 @@ TEST_CASE("a radio button: picked, it replaces the other; needed, it cannot be c
     CHECK(row(rows, "macro-mihin")->mark == WizardRow::Mark::off);
     CHECK(w.toggle("macro-omega").empty());                         /* a MACRO on its own */
     CHECK(row(w.rows(), "macro-omega")->mark == WizardRow::Mark::on);
+    CHECK(row(w.rows(), "macro-vvv")->available);                   /* the others stay pickable: they replace it */
+    CHECK(row(w.rows(), "macro-vvv")->why.empty());
     CHECK(w.toggle("macro-vvv").empty());                           /* another replaces it */
     rows = w.rows();
     CHECK(row(rows, "macro-vvv")->mark == WizardRow::Mark::on);

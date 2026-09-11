@@ -237,10 +237,18 @@ std::vector<WizardRow> DiskWizard::rows() const
         } else {
             r.why = bundleRefusal(m_, b, sel_.system, sel_.media);
             if (r.why.empty()) {
+                /* As toggle() would take it: picking an alternative puts the
+                 * one chosen before out. */
                 auto chosen = sel_.bundles;
-                chosen.push_back(b.key);
                 auto picks = sel_.picks;
-                for (const auto &name : alternativesOf(b)) picks[name] = b.key;
+                for (const auto &name : alternativesOf(b)) {
+                    std::erase_if(chosen, [&](const std::string &other) {
+                        const auto *o = m_.bundle(other);
+                        return o && std::find(o->provides.begin(), o->provides.end(), name) != o->provides.end();
+                    });
+                    picks[name] = b.key;
+                }
+                chosen.push_back(b.key);
                 const Resolution trial = resolveBundles(m_, sel_.system, sel_.media, chosen, picks);
                 if (!trial.ok) r.why = trial.problem;
             }
