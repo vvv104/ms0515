@@ -341,6 +341,7 @@ Manifest parseManifest(std::string_view text)
     if (root["format"].value<int64_t>() != 1) fail("format is not 1 - this reads format 1 only");
     Manifest m;
     if (root.contains("owner")) m.owner = str(root, "owner", "the file", true);
+    if (root.contains("version")) m.version = str(root, "version", "the file", true);
     /* toml++ keeps a table's keys sorted; the file's order is the source's. */
     auto inOrder = [](const toml::table &t) {
         std::vector<std::pair<std::string, const toml::table *>> out;

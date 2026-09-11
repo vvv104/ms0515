@@ -28,6 +28,7 @@ find_package(tomlplusplus REQUIRED)
 
 add_library(ms0515_disk_manifest STATIC
     src/Manifest.cpp
+    src/Wizard.cpp
 )
 
 target_link_libraries(ms0515_disk_manifest

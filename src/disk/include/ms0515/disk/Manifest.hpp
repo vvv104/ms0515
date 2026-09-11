@@ -78,6 +78,7 @@ struct ManifestPreset {
 };
 
 struct Manifest {
+    std::string                 version;       /* of the collection's disks, "" none */
     std::optional<std::string>  owner;         /* the owner written on every volume */
     std::vector<ManifestSystem> systems;       /* in the file's order */
     std::vector<ManifestBundle> bundles;
