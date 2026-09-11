@@ -27,14 +27,18 @@
 ; Nothing is assumed about the monitor's whereabouts now.  Everything
 ; the loader needs is either inside its own image - which RT-11
 ; guarantees is the program's - or in the EXTENDED banks, which the
-; monitor cannot see at all: the dispatcher picks primary or extended
-; per 8 KB bank, so extended bank 3 (060000..077777) and bank 5
-; (0120000..0137777) can be ours while the code in bank 0 and the
-; destinations in banks 0, 1, 2 and 4 stay primary.  The game's regions
-; occupy no part of banks 3 and 5, which is what makes them free.
+; monitor cannot see at all.  The dispatcher picks primary or extended
+; per 8 KB bank, so an extended bank can be ours while the code in bank
+; 0 and the region being expanded home stay primary.  Three uses:
+;
+;       extended bank 3 (060000..077777)      the scratch: packed bytes
+;                                             and the picture, first
+;       extended banks 4..6 (0100000..0157777) the GST, where the game
+;                                             reads it
+;       extended bank 2 (040000..057777)      the last region, expanded
 ;
 ; The last region covers 01000, where this runs, so it goes last: it is
-; expanded into extended bank 5, and a copier planted in the free bytes
+; expanded into extended bank 2, and a copier planted in the free bytes
 ; between the vectors and 01000 - part of no region, and primary in
 ; every mapping - moves it down and enters the game.
 ;-------------------------------------------------------------------
@@ -154,7 +158,7 @@ START:  MOV     #STACK,SP
         MOV     (SP)+,R4
 5$:     SOB     R5,3$
 
-        ; The last region: read it aside and expand it into extended bank 5,
+        ; The last region: read it aside and expand it into extended bank 2,
         ; out of the way of the copy that follows.
         MOV     KENT,R0
         MOV     (R0)+,EADR
@@ -387,7 +391,7 @@ PIC:    TST     R3
 19$:    RTS     PC
 
         ; The copier, moved to LOWST and run there: R3 = words.  It brings
-        ; the last region down out of extended bank 5 and enters the game.
+        ; the last region down out of extended bank 2 and enters the game.
         ; Nothing here is PC-relative, and low memory is primary whatever
         ; the dispatcher says, so it survives its own bank switches.
 COPY:   MOV     #DEXT2,@#DISPAT
