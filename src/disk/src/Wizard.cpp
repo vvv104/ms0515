@@ -53,6 +53,23 @@ WizardRow heading(WizardRow::Kind kind, int depth, const std::string &key, const
     return r;
 }
 
+/* "Development / Pascal" -> {"Development", "Pascal"}; no name: "Other". */
+std::vector<std::string> groupPath(const std::string &group)
+{
+    std::vector<std::string> out;
+    std::size_t at = 0;
+    for (;;) {
+        const auto cut = group.find('/', at);
+        std::string part = group.substr(at, cut == std::string::npos ? std::string::npos : cut - at);
+        const auto first = part.find_first_not_of(' '), last = part.find_last_not_of(' ');
+        if (first != std::string::npos) out.push_back(part.substr(first, last - first + 1));
+        if (cut == std::string::npos) break;
+        at = cut + 1;
+    }
+    if (out.empty()) out.emplace_back("Other");
+    return out;
+}
+
 [[noreturn]] void fail(const std::string &what) { throw std::runtime_error("selection: " + what); }
 
 std::vector<std::string> strings(const toml::table &t, std::string_view key)
@@ -74,26 +91,48 @@ std::vector<std::string> strings(const toml::table &t, std::string_view key)
 
 /* ---- the model ------------------------------------------------------------ */
 
-DiskWizard::DiskWizard(const Manifest &manifest, std::string system, Media media,
-                       std::function<int(const ManifestBundle &)> blocksOf)
-    : m_(manifest), blocksOf_(std::move(blocksOf))
+const char *mediaTitle(Media m)
 {
-    sel_.system = std::move(system);
-    sel_.media = media;
-    const auto offered = mediaOffered();
-    if (!offered.empty() && std::find(offered.begin(), offered.end(), media) == offered.end())
-        sel_.media = offered.front();
-    resolve();
+    switch (m) {
+    case Media::ss: return "ss - one side, 400 KB";
+    case Media::dz: return "dz - two sides, 800 KB";
+    case Media::dv: return "dv - one DV volume, 800 KB";
+    }
+    return "";
 }
 
-std::vector<Media> DiskWizard::mediaOffered() const
+/* A group of bundles and the groups under it, as disks.toml's "A / B" names
+ * make them. */
+struct DiskWizard::Branch {
+    std::string key;
+    std::string title;
+    std::vector<const ManifestBundle *> bundles;
+    std::vector<Branch> children;
+};
+
+DiskWizard::DiskWizard(const Manifest &manifest, std::function<int(const ManifestBundle &)> blocksOf)
+    : m_(manifest), blocksOf_(std::move(blocksOf)), open_{kDisketteGroup}
 {
-    const auto *sys = m_.system(sel_.system);
-    return sys ? sys->media : std::vector<Media>{};
+}
+
+DiskWizard::DiskWizard(const Manifest &manifest, std::string system, Media media,
+                       std::function<int(const ManifestBundle &)> blocksOf)
+    : m_(manifest), blocksOf_(std::move(blocksOf)), media_(media)
+{
+    if (const auto *sys = m_.system(system)) {
+        sel_.system = std::move(system);
+        if (!sys->media.empty() && std::find(sys->media.begin(), sys->media.end(), media) == sys->media.end())
+            media_ = sys->media.front();
+    } else {
+        open_.insert(kSystemGroup);
+    }
+    sel_.media = *media_;
+    resolve();
 }
 
 void DiskWizard::resolve()
 {
+    if (!ready()) { res_ = {}; return; }
     res_ = resolveBundles(m_, sel_.system, sel_.media, sel_.bundles, sel_.picks);
 }
 
@@ -101,6 +140,15 @@ bool DiskWizard::isSystemPart(const std::string &key) const
 {
     if (!contains(res_.bundles, key) || contains(sel_.bundles, key)) return false;
     return std::none_of(res_.addedFor.begin(), res_.addedFor.end(), [&](const auto &a) { return a.first == key; });
+}
+
+std::string DiskWizard::systemRefusal(const ManifestSystem &s) const
+{
+    if (!media_) return "choose the diskette first";
+    if (std::find(s.media.begin(), s.media.end(), *media_) != s.media.end()) return "";
+    std::string words;
+    for (const auto m : s.media) words += (words.empty() ? "" : ", ") + std::string(mediaWord(m));
+    return "only on " + words;
 }
 
 std::vector<std::string> DiskWizard::alternativesOf(const ManifestBundle &b) const
@@ -143,30 +191,46 @@ void DiskWizard::dropWhatDoesNotFit()
     }
 }
 
-void DiskWizard::setSystem(const std::string &key)
+std::string DiskWizard::setMedia(Media media)
 {
     notices_.clear();
-    if (!m_.system(key)) return;
-    sel_.system = key;
-    const auto offered = mediaOffered();
-    if (std::find(offered.begin(), offered.end(), sel_.media) == offered.end() && !offered.empty())
-        sel_.media = offered.front();
-    dropWhatDoesNotFit();
+    if (!media_) {                                   /* the first step done: on to the next */
+        open_.erase(kDisketteGroup);
+        open_.insert(kSystemGroup);
+    }
+    media_ = media;
+    sel_.media = media;
+    if (const auto *sys = m_.system(sel_.system)) {
+        if (auto why = systemRefusal(*sys); !why.empty()) {
+            notices_.push_back(sys->title + " dropped: it goes " + why);
+            sel_.system.clear();
+            open_.insert(kSystemGroup);
+            resolve();
+        } else {
+            dropWhatDoesNotFit();
+        }
+    }
+    return "";
 }
 
-void DiskWizard::setMedia(Media media)
+std::string DiskWizard::setSystem(const std::string &key)
 {
+    const auto *sys = m_.system(key);
+    if (!sys) return "no system " + key;
+    if (!media_) return "choose the diskette first";
+    if (auto why = systemRefusal(*sys); !why.empty()) return sys->title + " goes " + why;
     notices_.clear();
-    const auto offered = mediaOffered();
-    if (std::find(offered.begin(), offered.end(), media) == offered.end()) return;
-    sel_.media = media;
+    if (sel_.system.empty()) open_.erase(kSystemGroup);
+    sel_.system = key;
     dropWhatDoesNotFit();
+    return "";
 }
 
 std::string DiskWizard::toggle(const std::string &key)
 {
     const auto *b = m_.bundle(key);
     if (!b) return "no bundle " + key;
+    if (!ready()) return "choose the diskette and the system first";
     if (isSystemPart(key)) return b->title + " is part of the system";
     if (auto why = bundleRefusal(m_, *b, sel_.system, sel_.media); !why.empty()) return why;
 
@@ -208,6 +272,18 @@ std::string DiskWizard::toggle(const std::string &key)
     return "";
 }
 
+void DiskWizard::toggleFold(const std::string &groupKey)
+{
+    if (!open_.erase(groupKey)) open_.insert(groupKey);
+}
+
+void DiskWizard::reveal(const std::string &groupKey)
+{
+    for (auto at = groupKey.find(" / "); at != std::string::npos; at = groupKey.find(" / ", at + 3))
+        open_.insert(groupKey.substr(0, at));
+    open_.insert(groupKey);
+}
+
 void DiskWizard::setStartup(std::vector<std::string> lines)
 {
     if (lines.empty()) sel_.startup.reset(); else sel_.startup = std::move(lines);
@@ -215,72 +291,166 @@ void DiskWizard::setStartup(std::vector<std::string> lines)
 
 void DiskWizard::setVolumeId(std::optional<std::string> id) { sel_.volumeId = std::move(id); }
 
-std::vector<WizardRow> DiskWizard::rows() const
-{
-    std::vector<WizardRow> out;
-    auto visible = [&](const ManifestBundle &b) { return b.systems.empty() || contains(b.systems, sel_.system); };
-    auto bundleRow = [&](const ManifestBundle &b, int depth, bool radio) {
-        WizardRow r;
-        r.kind = WizardRow::Kind::bundle;
-        r.depth = depth;
-        r.key = b.key;
-        r.title = b.title;
-        r.radio = radio;
-        r.blocks = blocksOf_ ? blocksOf_(b) : 0;
-        if (isSystemPart(b.key)) {
-            r.mark = WizardRow::Mark::system;
-        } else if (contains(sel_.bundles, b.key)) {
-            r.mark = WizardRow::Mark::on;
-        } else if (contains(res_.bundles, b.key)) {
-            r.mark = WizardRow::Mark::added;
-            for (const auto &[added, forWhom] : res_.addedFor) if (added == b.key) r.requiredBy = m_.bundle(forWhom)->title;
-        } else {
-            r.why = bundleRefusal(m_, b, sel_.system, sel_.media);
-            if (r.why.empty()) {
-                /* As toggle() would take it: picking an alternative puts the
-                 * one chosen before out. */
-                auto chosen = sel_.bundles;
-                auto picks = sel_.picks;
-                for (const auto &name : alternativesOf(b)) {
-                    std::erase_if(chosen, [&](const std::string &other) {
-                        const auto *o = m_.bundle(other);
-                        return o && std::find(o->provides.begin(), o->provides.end(), name) != o->provides.end();
-                    });
-                    picks[name] = b.key;
-                }
-                chosen.push_back(b.key);
-                const Resolution trial = resolveBundles(m_, sel_.system, sel_.media, chosen, picks);
-                if (!trial.ok) r.why = trial.problem;
-            }
-            r.available = r.why.empty();
-        }
-        out.push_back(std::move(r));
-    };
+/* ---- the rows ------------------------------------------------------------- */
 
-    std::vector<std::string> groups;
-    for (const auto &b : m_.bundles) if (visible(b) && !contains(groups, b.group)) groups.push_back(b.group);
-    std::set<std::string> radiosDone;
-    for (const auto &group : groups) {
-        out.push_back(heading(WizardRow::Kind::group, 0, group, group.empty() ? std::string("Other") : group));
-        for (const auto &b : m_.bundles) {
-            if (!visible(b) || b.group != group) continue;
-            /* A radio group only where this system shows two builds or more:
-             * one build alone is a plain line. */
-            auto names = alternativesOf(b);
-            std::erase_if(names, [&](const std::string &name) {
-                return std::count_if(m_.bundles.begin(), m_.bundles.end(), [&](const ManifestBundle &o) {
-                    return visible(o) && std::find(o.provides.begin(), o.provides.end(), name) != o.provides.end();
-                }) < 2;
-            });
-            if (names.empty()) { bundleRow(b, 1, false); continue; }
-            if (radiosDone.count(names.front())) continue;
-            radiosDone.insert(names.front());
-            out.push_back(heading(WizardRow::Kind::radio, 1, names.front(), names.front()));
-            for (const auto &o : m_.bundles)
-                if (visible(o) && std::find(o.provides.begin(), o.provides.end(), names.front()) != o.provides.end())
-                    bundleRow(o, 2, true);
+WizardRow::Mark DiskWizard::markOf(const ManifestBundle &b) const
+{
+    if (isSystemPart(b.key)) return WizardRow::Mark::system;
+    if (contains(sel_.bundles, b.key)) return WizardRow::Mark::on;
+    if (contains(res_.bundles, b.key)) return WizardRow::Mark::added;
+    return WizardRow::Mark::off;
+}
+
+WizardRow DiskWizard::bundleRow(const ManifestBundle &b, int depth, bool radio) const
+{
+    WizardRow r = heading(WizardRow::Kind::bundle, depth, b.key, b.title);
+    r.radio = radio;
+    r.blocks = blocksOf_ ? blocksOf_(b) : 0;
+    r.mark = markOf(b);
+    if (r.mark == WizardRow::Mark::added) {
+        for (const auto &[added, forWhom] : res_.addedFor) if (added == b.key) r.requiredBy = m_.bundle(forWhom)->title;
+    } else if (r.mark == WizardRow::Mark::off) {
+        r.why = bundleRefusal(m_, b, sel_.system, sel_.media);
+        if (r.why.empty()) {
+            /* As toggle() would take it: picking an alternative puts the
+             * one chosen before out. */
+            auto chosen = sel_.bundles;
+            auto picks = sel_.picks;
+            for (const auto &name : alternativesOf(b)) {
+                std::erase_if(chosen, [&](const std::string &other) {
+                    const auto *o = m_.bundle(other);
+                    return o && std::find(o->provides.begin(), o->provides.end(), name) != o->provides.end();
+                });
+                picks[name] = b.key;
+            }
+            chosen.push_back(b.key);
+            const Resolution trial = resolveBundles(m_, sel_.system, sel_.media, chosen, picks);
+            if (!trial.ok) r.why = trial.problem;
+        }
+        r.available = r.why.empty();
+    }
+    return r;
+}
+
+/* The first two steps: the diskette, then the system on it. */
+void DiskWizard::stepRows(std::vector<WizardRow> &out, bool everything) const
+{
+    WizardRow diskette = heading(WizardRow::Kind::group, 0, kDisketteGroup, "Diskette");
+    diskette.open = everything || open_.count(kDisketteGroup) != 0;
+    if (media_) diskette.summary = mediaTitle(*media_);
+    out.push_back(diskette);
+    if (diskette.open) {
+        for (const auto m : {Media::ss, Media::dz, Media::dv}) {
+            WizardRow r = heading(WizardRow::Kind::media, 1, mediaWord(m), mediaTitle(m));
+            r.parent = kDisketteGroup;
+            r.radio = true;
+            r.mark = media_ == m ? WizardRow::Mark::on : WizardRow::Mark::off;
+            out.push_back(std::move(r));
         }
     }
+    WizardRow os = heading(WizardRow::Kind::group, 0, kSystemGroup, "Operating system");
+    os.available = media_.has_value();
+    if (!os.available) os.why = "choose the diskette first";
+    os.open = os.available && (everything || open_.count(kSystemGroup) != 0);
+    if (const auto *sys = m_.system(sel_.system)) os.summary = sys->title;
+    out.push_back(os);
+    if (!os.open) return;
+    for (const auto &s : m_.systems) {
+        WizardRow r = heading(WizardRow::Kind::system, 1, s.key, s.title);
+        r.parent = kSystemGroup;
+        r.radio = true;
+        r.mark = s.key == sel_.system ? WizardRow::Mark::on : WizardRow::Mark::off;
+        r.why = systemRefusal(s);
+        r.available = r.why.empty();
+        out.push_back(std::move(r));
+    }
+}
+
+DiskWizard::Branch DiskWizard::tree() const
+{
+    Branch root;
+    for (const auto &b : m_.bundles) {
+        if (ready() && !b.systems.empty() && !contains(b.systems, sel_.system)) continue;
+        Branch *at = &root;
+        std::string key;
+        for (const auto &part : groupPath(b.group)) {
+            key += (key.empty() ? "" : " / ") + part;
+            auto it = std::find_if(at->children.begin(), at->children.end(), [&](const Branch &c) { return c.title == part; });
+            if (it == at->children.end()) {
+                at->children.push_back({key, part, {}, {}});
+                it = at->children.end() - 1;
+            }
+            at = &*it;
+        }
+        at->bundles.push_back(&b);
+    }
+    return root;
+}
+
+void DiskWizard::branchRows(std::vector<WizardRow> &out, const Branch &branch, int depth, bool everything) const
+{
+    WizardRow g = heading(WizardRow::Kind::group, depth, branch.key, branch.title);
+    if (const auto cut = branch.key.rfind(" / "); cut != std::string::npos) g.parent = branch.key.substr(0, cut);
+    if (!ready()) {
+        g.available = false;
+        g.why = "choose the system first";
+        out.push_back(std::move(g));
+        return;
+    }
+    int on = 0, added = 0;
+    auto count = [&](const Branch &b, const auto &self) -> void {
+        for (const auto *bundle : b.bundles) {
+            const auto mark = markOf(*bundle);
+            if (mark == WizardRow::Mark::on) ++on;
+            if (mark == WizardRow::Mark::added) ++added;
+        }
+        for (const auto &c : b.children) self(c, self);
+    };
+    count(branch, count);
+    if (on) g.summary = std::to_string(on) + " chosen";
+    if (added) g.summary += (g.summary.empty() ? "" : ", ") + std::to_string(added) + " added";
+    g.open = everything || open_.count(branch.key) != 0;
+    out.push_back(g);
+    if (!g.open) return;
+    leafRows(out, branch, depth + 1);
+    for (const auto &c : branch.children) branchRows(out, c, depth + 1, everything);
+}
+
+/* A group's own bundles; the alternatives among them a radio group - where
+ * it shows two builds or more, one build alone being a plain line. */
+void DiskWizard::leafRows(std::vector<WizardRow> &out, const Branch &branch, int depth) const
+{
+    auto providers = [&](const std::string &name) {
+        std::vector<const ManifestBundle *> v;
+        for (const auto *o : branch.bundles)
+            if (std::find(o->provides.begin(), o->provides.end(), name) != o->provides.end()) v.push_back(o);
+        return v;
+    };
+    std::set<std::string> radiosDone;
+    for (const auto *b : branch.bundles) {
+        auto names = alternativesOf(*b);
+        std::erase_if(names, [&](const std::string &name) { return providers(name).size() < 2; });
+        if (names.empty()) {
+            out.push_back(bundleRow(*b, depth, false));
+            out.back().parent = branch.key;
+            continue;
+        }
+        if (!radiosDone.insert(names.front()).second) continue;
+        WizardRow r = heading(WizardRow::Kind::radio, depth, names.front(), names.front());
+        r.parent = branch.key;
+        out.push_back(std::move(r));
+        for (const auto *o : providers(names.front())) {
+            out.push_back(bundleRow(*o, depth + 1, true));
+            out.back().parent = branch.key;
+        }
+    }
+}
+
+std::vector<WizardRow> DiskWizard::rows(bool everything) const
+{
+    std::vector<WizardRow> out;
+    stepRows(out, everything);
+    for (const auto &top : tree().children) branchRows(out, top, 0, everything);
     return out;
 }
 
@@ -291,10 +461,16 @@ void DiskWizard::load(const SavedSelection &saved)
     if (!saved.collection.empty() && !m_.version.empty() && saved.collection != m_.version)
         notices_.push_back("made over collection " + saved.collection + ", this is " + m_.version +
                            ": its rules may have changed");
-    if (m_.system(s.system)) sel_.system = s.system;
-    else notices_.push_back("system " + s.system + " is not in this collection");
-    const auto offered = mediaOffered();
-    sel_.media = std::find(offered.begin(), offered.end(), s.media) != offered.end() || offered.empty() ? s.media : offered.front();
+    media_ = s.media;
+    sel_.system.clear();
+    if (const auto *sys = m_.system(s.system)) {
+        sel_.system = s.system;
+        if (!sys->media.empty() && std::find(sys->media.begin(), sys->media.end(), s.media) == sys->media.end())
+            media_ = sys->media.front();
+    } else {
+        notices_.push_back("system " + s.system + " is not in this collection");
+    }
+    sel_.media = *media_;
     sel_.bundles.clear();
     for (const auto &key : s.bundles) {
         if (m_.bundle(key)) sel_.bundles.push_back(key);
@@ -304,7 +480,9 @@ void DiskWizard::load(const SavedSelection &saved)
     for (const auto &[name, key] : s.picks) if (m_.bundle(key)) sel_.picks[name] = key;
     sel_.startup = s.startup;
     sel_.volumeId = s.volumeId;
-    dropWhatDoesNotFit();
+    open_.clear();
+    if (sel_.system.empty()) open_.insert(kSystemGroup);
+    if (ready()) dropWhatDoesNotFit(); else resolve();
 }
 
 SavedSelection DiskWizard::saved() const

@@ -15,18 +15,23 @@
 
 #include <functional>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace ms0515::disk {
 
-/* One line of the wizard's list. */
+/* One line of the wizard's list.  The list is a tree walked in steps: the
+ * diskette, then the operating system on it, then the groups of bundles -
+ * "Games / Pac-Man" a branch "Pac-Man" under "Games". */
 struct WizardRow {
     enum class Kind : uint8_t {
-        group,      /* a heading: "Development / Pascal" */
+        group,      /* a branch: "Diskette", "Operating system", "Development", "Pascal" */
         radio,      /* the heading of alternatives: one of them, or none */
         bundle,     /* a checkbox, or a radio button under a radio heading */
+        media,      /* a radio button under "Diskette" */
+        system,     /* a radio button under "Operating system" */
     };
     enum class Mark : uint8_t {
         off,        /* [ ]  / ( ) */
@@ -36,15 +41,25 @@ struct WizardRow {
     };
     Kind        kind = Kind::bundle;
     int         depth = 0;
-    std::string key;           /* the bundle's key; the provided name of a radio heading */
+    std::string key;           /* the bundle's, the system's, the media word; a group's path; a radio heading's name */
     std::string title;
+    std::string parent;        /* the key of the group it sits in */
     Mark        mark = Mark::off;
-    bool        radio = false; /* a button of the radio heading above it */
+    bool        radio = false; /* drawn as a radio button */
     bool        available = true;
     std::string why;           /* when not available: the reason */
     std::string requiredBy;    /* for Mark::added: the title of what needs it */
     int         blocks = 0;
+    bool        open = false;  /* a group: its rows follow */
+    std::string summary;       /* a group: the diskette or the system chosen, "2 chosen, 1 added" */
 };
+
+/* The keys of the two first steps' groups; a bundle group's key is its path. */
+inline constexpr const char *kDisketteGroup = "#diskette";
+inline constexpr const char *kSystemGroup = "#system";
+
+/* "dz - two sides, 800 KB" */
+[[nodiscard]] const char *mediaTitle(Media m);
 
 /* A choice saved to its own file, tied to the version of the collection's
  * disks.toml it was made over:
@@ -66,31 +81,45 @@ struct SavedSelection {
 class DiskWizard {
 public:
     /* `blocksOf` measures a bundle for the rows (the files' blocks); none:
-     * the rows show 0. */
+     * the rows show 0.  Nothing chosen yet: the diskette is the first step. */
+    explicit DiskWizard(const Manifest &manifest, std::function<int(const ManifestBundle &)> blocksOf = {});
+    /* Both first steps taken: a system and the media (the system's first
+     * media when it does not go on this one). */
     DiskWizard(const Manifest &manifest, std::string system, Media media,
                std::function<int(const ManifestBundle &)> blocksOf = {});
 
     [[nodiscard]] const Manifest &manifest() const noexcept { return m_; }
 
-    /* The system and the media.  A choice that no longer fits is dropped,
-     * and notices() says what went. */
-    void setSystem(const std::string &key);
-    void setMedia(Media media);
+    /* The diskette: always taken.  A system that does not go on it is dropped,
+     * and with the system any bundle that no longer fits - notices() says what
+     * went.  Returns "" (the form of the other actions). */
+    std::string setMedia(Media media);
+    /* The system: "" when taken, else why not (no diskette yet, one it does
+     * not go on) - and nothing changed. */
+    std::string setSystem(const std::string &key);
     [[nodiscard]] const std::string &system() const noexcept { return sel_.system; }
-    [[nodiscard]] Media media() const noexcept { return sel_.media; }
-    [[nodiscard]] std::vector<Media> mediaOffered() const;
+    [[nodiscard]] std::optional<Media> media() const noexcept { return media_; }
+    /* Both chosen: the bundles, a plan and a build are open. */
+    [[nodiscard]] bool ready() const noexcept { return media_.has_value() && !sel_.system.empty(); }
 
     /* Space on a row: a checkbox turns on or off, a radio button is picked
      * (or, picked already and needed by nothing, cleared).  Returns "" when
      * the action was taken, else why not - and nothing changed. */
     std::string toggle(const std::string &bundleKey);
 
+    /* A group opened or closed; reveal() opens the way down to a group, as a
+     * search landing inside it needs. */
+    void toggleFold(const std::string &groupKey);
+    void reveal(const std::string &groupKey);
+
     void setStartup(std::vector<std::string> lines);
     void setVolumeId(std::optional<std::string> id);
 
     [[nodiscard]] const Selection &selection() const noexcept { return sel_; }
     [[nodiscard]] const Resolution &resolution() const noexcept { return res_; }
-    [[nodiscard]] std::vector<WizardRow> rows() const;
+    /* The rows to draw: those of closed groups left out, unless `everything`
+     * (what a search looks through).  A locked group has no rows either way. */
+    [[nodiscard]] std::vector<WizardRow> rows(bool everything = false) const;
 
     /* What the last change of system or media took away. */
     [[nodiscard]] const std::vector<std::string> &notices() const noexcept { return notices_; }
@@ -102,16 +131,27 @@ public:
     [[nodiscard]] SavedSelection saved() const;
 
 private:
+    struct Branch;
+
     void resolve();
     void dropWhatDoesNotFit();
     [[nodiscard]] std::vector<std::string> alternativesOf(const ManifestBundle &b) const;
     [[nodiscard]] bool isSystemPart(const std::string &key) const;
+    [[nodiscard]] std::string systemRefusal(const ManifestSystem &s) const;
+    [[nodiscard]] WizardRow::Mark markOf(const ManifestBundle &b) const;
+    [[nodiscard]] WizardRow bundleRow(const ManifestBundle &b, int depth, bool radio) const;
+    [[nodiscard]] Branch tree() const;
+    void stepRows(std::vector<WizardRow> &out, bool everything) const;
+    void branchRows(std::vector<WizardRow> &out, const Branch &branch, int depth, bool everything) const;
+    void leafRows(std::vector<WizardRow> &out, const Branch &branch, int depth) const;
 
     const Manifest &m_;
     std::function<int(const ManifestBundle &)> blocksOf_;
+    std::optional<Media> media_;
     Selection sel_;
     Resolution res_;
     std::vector<std::string> notices_;
+    std::set<std::string> open_;
 };
 
 } /* namespace ms0515::disk */

@@ -121,6 +121,21 @@ void downTo(tools::WizardTui &tui, const std::string &title)
     press(tui, ftxui::Event::Return);
 }
 
+/* Find a row and press Space on it. */
+void choose(tools::WizardTui &tui, const std::string &title)
+{
+    downTo(tui, title);
+    press(tui, ftxui::Event::Character(" "));
+}
+
+/* The first two steps: a two-sided diskette, OMEGA on it. */
+void ready(tools::WizardTui &tui)
+{
+    choose(tui, "dz - two sides");
+    choose(tui, "OMEGA");
+    REQUIRE(tui.model().ready());
+}
+
 fs::path scratch()
 {
     const fs::path dir = fs::temp_directory_path() / "ms0515-wizard-tui";
@@ -131,29 +146,55 @@ fs::path scratch()
 
 }  /* namespace */
 
-TEST_CASE("the wizard's screen: the system's part locked, the alternatives a radio group, the plan") {
+TEST_CASE("the wizard's screen: the diskette first, then the system, then the groups, folded") {
     const Manifest m = parseManifest(kManifest);
     const Repository repo = repository();
     tools::WizardTui tui(m, repo, scratch());
-    CHECK(shown(tui).find("[#] DZ.SYS") == std::string::npos);    /* the System group starts folded */
-    press(tui, ftxui::Event::Return);                         /* the cursor is on its heading */
-    const std::string s = shown(tui);
-    CHECK(s.find("System: < OMEGA >") != std::string::npos);
-    CHECK(s.find("[#] DZ.SYS - floppy") != std::string::npos);
+    std::string s = shown(tui);
+    CHECK(s.find("\xE2\x96\xBE Diskette") != std::string::npos);
+    CHECK(s.find("( ) ss - one side, 400 KB") != std::string::npos);
+    CHECK(s.find("\xE2\x96\xB8 Operating system") != std::string::npos);
+    CHECK(s.find("choose the diskette first") != std::string::npos);
+    CHECK(s.find("Space") != std::string::npos);                  /* the keys are always said */
+    press(tui, ftxui::Event::F5);
+    CHECK(tui.status() == "choose the diskette and the system first");
+
+    press(tui, ftxui::Event::ArrowDown);                      /* from the heading down to dz */
+    press(tui, ftxui::Event::ArrowDown);
+    press(tui, ftxui::Event::Character(" "));
+    s = shown(tui);
+    CHECK(s.find("\xE2\x96\xB8 Diskette") != std::string::npos);      /* done: folded, saying what */
+    CHECK(s.find("dz - two sides, 800 KB") != std::string::npos);
+    CHECK(s.find("\xE2\x96\xBE Operating system") != std::string::npos);
+    CHECK(s.find("( ) OMEGA") != std::string::npos);
+    CHECK(s.find("choose the system first") != std::string::npos);
+
+    press(tui, ftxui::Event::ArrowDown);                      /* the cursor went on to the next step */
+    press(tui, ftxui::Event::Character(" "));
+    REQUIRE(tui.model().ready());
+    s = shown(tui);
+    CHECK(s.find("\xE2\x96\xB8 Development") != std::string::npos);
+    CHECK(s.find("[ ] Pascal") == std::string::npos);
+    CHECK(s.find("DZ0:") != std::string::npos);
+    CHECK(s.find("DZ2:") != std::string::npos);
+
+    press(tui, ftxui::Event::Return);                         /* and on to the first group */
+    CHECK(shown(tui).find("[#] DZ.SYS - floppy") != std::string::npos);
+    downTo(tui, "Pascal");
+    s = shown(tui);
     CHECK(s.find("one of: macro11") != std::string::npos);
     CHECK(s.find("( ) MACRO build A") != std::string::npos);
     CHECK(s.find("[ ] Pascal") != std::string::npos);
-    CHECK(s.find("DZ0:") != std::string::npos);
-    CHECK(s.find("DZ2:") != std::string::npos);
 }
 
 TEST_CASE("Space on Pascal brings the preferred MACRO; picking the other swaps them") {
     const Manifest m = parseManifest(kManifest);
     const Repository repo = repository();
     tools::WizardTui tui(m, repo, scratch());
-    downTo(tui, "Pascal");
-    press(tui, ftxui::Event::Character(" "));
+    ready(tui);
+    choose(tui, "Pascal");
     std::string s = shown(tui);
+    CHECK(s.find("1 chosen, 1 added") != std::string::npos);    /* the group says it */
     CHECK(s.find("[x] Pascal") != std::string::npos);
     CHECK(s.find("(\xE2\x80\xA2) MACRO build A") != std::string::npos);
     CHECK(s.find("for Pascal") != std::string::npos);
@@ -173,8 +214,8 @@ TEST_CASE("F2 saves the choice, F3 opens it again, F5 builds a disk that boots")
     const Repository repo = repository();
     const fs::path dir = scratch();
     tools::WizardTui tui(m, repo, dir);
-    downTo(tui, "Pascal");
-    press(tui, ftxui::Event::Character(" "));
+    ready(tui);
+    choose(tui, "Pascal");
 
     press(tui, ftxui::Event::F2);
     press(tui, ftxui::Event::Return);                         /* the default name */
@@ -188,6 +229,7 @@ TEST_CASE("F2 saves the choice, F3 opens it again, F5 builds a disk that boots")
 
     tools::WizardTui other(m, repo, dir);
     press(other, ftxui::Event::F3);
+    type(other, "omega-dz.toml");                             /* nothing chosen yet: no name to offer */
     press(other, ftxui::Event::Return);
     CHECK(other.model().selection().bundles == std::vector<std::string>{"pascal"});
 
@@ -203,13 +245,23 @@ TEST_CASE("F2 saves the choice, F3 opens it again, F5 builds a disk that boots")
     CHECK(other.quit());
 }
 
-TEST_CASE("Tab to the media and an arrow changes it, the plan following") {
+TEST_CASE("a system that does not go on the diskette is greyed; another diskette later drops it") {
     const Manifest m = parseManifest(kManifest);
     const Repository repo = repository();
     tools::WizardTui tui(m, repo, scratch());
-    press(tui, ftxui::Event::Tab);
-    press(tui, ftxui::Event::Tab);
-    press(tui, ftxui::Event::ArrowRight);
+    choose(tui, "ss - one side");
+    CHECK(shown(tui).find("only on dz, dv") != std::string::npos);
+    choose(tui, "OMEGA");
+    CHECK(tui.status() == "OMEGA goes only on dz, dv");
+    CHECK_FALSE(tui.model().ready());
+
+    choose(tui, "dv - one DV");
+    choose(tui, "OMEGA");
     CHECK(tui.model().media() == Media::dv);
     CHECK(shown(tui).find("DV0:") != std::string::npos);
+
+    choose(tui, "ss - one side");
+    CHECK(tui.model().system().empty());
+    CHECK(tui.status().find("OMEGA dropped") != std::string::npos);
+    CHECK(shown(tui).find("choose the system first") != std::string::npos);
 }

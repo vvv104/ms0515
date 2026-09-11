@@ -188,9 +188,11 @@ tool that read and write images directly, without running the machine.
   disk, what a system requires and what a bundle requires (`requires` /
   `provides` / `prefer`: dependencies and alternatives, one of each on a
   disk).  Files come through a `Repository`, a local copy or a web fetch.
-  `DiskWizard` (`Wizard.hpp`) is both wizards' model - the rows, the marks
-  and the reasons, toggle / system / media - and a choice saves to its own
-  TOML file tied to the collection's `version`.
+  `DiskWizard` (`Wizard.hpp`) is both wizards' model - one list walked in
+  steps (the diskette, then the system that goes on it, then the bundle
+  groups as a folded tree, "A / B" a branch under "A", each saying how many
+  are chosen), the marks and the reasons, what is open - and a choice saves
+  to its own TOML file tied to the collection's `version`.
 - Binary `ms0515-disk` (`src/tools/disk/`) — `create / init / put / rm /
   squeeze / protect / unprotect / setdate / get / dir / boot / system /
   split / merge / compose` (`compose --repo DIR`: the wizard (FTXUI, `WizardTui`; `--open CHOICE`),

@@ -14,8 +14,7 @@ export class DiskComposer {
     this.d = deps;
     this.api = null;
     this.fetched = new Set();
-    this.folded = new Set(["System"]);   // the system's own parts: there, but rarely the point
-    this.current = "";
+    this.current = null;                 // {kind, key} of the row last tapped
     this.dlg = null;
   }
 
@@ -25,8 +24,9 @@ export class DiskComposer {
       open: c("wiz_open", "number", ["string", "string", "string"]),
       error: c("wiz_error", "string", []),
       state: c("wiz_state", "string", []),
-      setSystem: c("wiz_set_system", null, ["string"]),
-      setMedia: c("wiz_set_media", null, ["string"]),
+      setMedia: c("wiz_set_media", "string", ["string"]),
+      setSystem: c("wiz_set_system", "string", ["string"]),
+      fold: c("wiz_fold", null, ["string"]),
       toggle: c("wiz_toggle", "string", ["string"]),
       setStartup: c("wiz_set_startup", null, ["string"]),
       setVolumeId: c("wiz_set_volume_id", null, ["string"]),
@@ -61,8 +61,6 @@ export class DiskComposer {
       <div class="wiz">
         <div class="wiz-head">
           <b>Compose a disk</b>
-          <label>System <select class="wiz-system"></select></label>
-          <label>Media <select class="wiz-media"></select></label>
           <span class="spacer"></span>
           <button class="small wiz-close" title="close">&times;</button>
         </div>
@@ -90,8 +88,6 @@ export class DiskComposer {
     this.dlg = dlg;
     const q = (s) => dlg.querySelector(s);
     q(".wiz-close").onclick = () => dlg.close();
-    q(".wiz-system").onchange = (e) => { this.api.setSystem(e.target.value); this.changed(); };
-    q(".wiz-media").onchange = (e) => { this.api.setMedia(e.target.value); this.changed(); };
     q(".wiz-startup").onchange = (e) => { this.api.setStartup(e.target.value); this.changed(); };
     q(".wiz-volid").onchange = (e) => { this.api.setVolumeId(e.target.value.toUpperCase()); this.changed(); };
     q(".wiz-savechoice").onclick = () => this.saveChoice();
@@ -118,57 +114,65 @@ export class DiskComposer {
   render() {
     const s = this.state = JSON.parse(this.api.state());
     const q = (sel) => this.dlg.querySelector(sel);
-    q(".wiz-system").innerHTML = s.systems.map((x) => `<option value="${esc(x.key)}"${x.key === s.system ? " selected" : ""}>${esc(x.title)}</option>`).join("");
-    const sys = s.systems.find((x) => x.key === s.system);
-    const label = { ss: "ss - one side, 400 KB", dz: "dz - two sides, 800 KB", dv: "dv - one DV volume, 800 KB" };
-    q(".wiz-media").innerHTML = (sys?.media ?? []).map((m) => `<option value="${m}"${m === s.media ? " selected" : ""}>${label[m]}</option>`).join("");
     q(".wiz-startup").value = s.startup.join("\n");
+    q(".wiz-savechoice").disabled = !s.ready;
     q(".wiz-volid").value = s.volumeId;
     this.renderList();
     this.renderDetails();
   }
 
+  // One tree: the diskette, the system on it, then the groups of bundles.
+  // What is folded is the module's: the rows here are the ones to show.
   renderList() {
     const list = this.dlg.querySelector(".wiz-list");
     const out = [];
-    let hidden = false, radioName = "";
+    let radioName = "";
+    const pad = (r) => `style="padding-left:${0.7 + 1.2 * r.depth}em"`;
     for (const r of this.state.rows) {
       if (r.kind === "group") {
-        hidden = this.folded.has(r.key);
-        out.push(`<div class="wiz-group" data-group="${esc(r.key)}">${hidden ? "&#9656;" : "&#9662;"} ${esc(r.title)}</div>`);
+        const note = r.available ? r.summary : r.why;
+        out.push(`<div class="wiz-group${r.available ? "" : " na"}" data-group="${esc(r.key)}" ${pad(r)}>` +
+                 `<span class="t">${r.open ? "&#9662;" : "&#9656;"} ${esc(r.title)}</span><span class="s">${esc(note)}</span></div>`);
         continue;
       }
-      if (hidden) continue;
-      if (r.kind === "radio") { radioName = r.key; out.push(`<div class="wiz-radio">one of: ${esc(r.title)}</div>`); continue; }
+      if (r.kind === "radio") { radioName = r.key; out.push(`<div class="wiz-radio" ${pad(r)}>one of: ${esc(r.title)}</div>`); continue; }
       const on = r.mark !== "off";
-      const input = r.radio
-        ? `<input type="radio" name="wiz-${esc(radioName)}"${on ? " checked" : ""}${r.mark === "system" || !r.available ? " disabled" : ""}>`
-        : `<input type="checkbox"${on ? " checked" : ""}${r.mark === "system" || !r.available ? " disabled" : ""}>`;
+      const name = r.kind === "bundle" ? `wiz-${esc(radioName)}` : `wiz-${r.kind}`;
+      const locked = r.mark === "system" || !r.available ? " disabled" : "";
+      const input = r.radio ? `<input type="radio" name="${name}"${on ? " checked" : ""}${locked}>`
+                            : `<input type="checkbox"${on ? " checked" : ""}${locked}>`;
       const note = r.mark === "system" ? "system" : r.mark === "added" ? `for ${esc(r.requiredBy.split(/ - | \(/)[0])}` : r.available ? "" : esc(r.why);
-      const cls = ["wiz-item", `d${r.depth}`, r.mark, r.available ? "" : "na", r.key === this.current ? "cur" : ""].join(" ");
-      out.push(`<div class="${cls}" data-key="${esc(r.key)}" title="${esc(r.available ? r.title : r.why)}">${input}` +
-               `<span class="t">${esc(r.title)}</span><span class="b">${r.blocks}</span><span class="n">${note}</span></div>`);
+      const cur = this.current?.kind === r.kind && this.current?.key === r.key ? "cur" : "";
+      const cls = ["wiz-item", r.mark, r.available ? "" : "na", cur].join(" ");
+      out.push(`<div class="${cls}" data-kind="${r.kind}" data-key="${esc(r.key)}" ${pad(r)} title="${esc(r.available ? r.title : r.why)}">${input}` +
+               `<span class="t">${esc(r.title)}</span><span class="b">${r.kind === "bundle" ? r.blocks : ""}</span><span class="n">${note}</span></div>`);
     }
     list.innerHTML = out.join("");
     list.querySelectorAll(".wiz-group").forEach((g) => g.onclick = () => {
-      const k = g.dataset.group;
-      if (!this.folded.delete(k)) this.folded.add(k);
-      this.renderList();
+      const row = this.state.rows.find((r) => r.kind === "group" && r.key === g.dataset.group);
+      if (row && !row.available) { this.msg(row.why, true); return; }
+      this.api.fold(g.dataset.group);
+      this.render();
     });
     list.querySelectorAll(".wiz-item").forEach((it) => it.onclick = (e) => {
       e.preventDefault();
-      this.current = it.dataset.key;
-      const row = this.state.rows.find((r) => r.kind === "bundle" && r.key === this.current);
+      const { kind, key } = it.dataset;
+      this.current = { kind, key };
+      const row = this.state.rows.find((r) => r.kind === kind && r.key === key);
       if (row && !row.available) { this.renderList(); this.renderDetails(); this.msg(row.why, true); return; }
-      const why = this.api.toggle(this.current);
+      const why = kind === "media" ? this.api.setMedia(key) : kind === "system" ? this.api.setSystem(key) : this.api.toggle(key);
       this.changed(why);
     });
   }
 
   renderDetails() {
     const box = this.dlg.querySelector(".wiz-details");
-    if (!this.current) { box.innerHTML = `<p class="dim">Tap a line: it is ticked or unticked, and its details show here.</p>`; return; }
-    const d = JSON.parse(this.api.details(this.current));
+    if (this.current?.kind !== "bundle") {
+      box.innerHTML = `<p class="dim">${this.state.ready ? "Tap a line: it is ticked or unticked, and its details show here."
+                                                       : "Choose the diskette first, then the operating system on it."}</p>`;
+      return;
+    }
+    const d = JSON.parse(this.api.details(this.current.key));
     const line = (k, v) => v && v.length ? `<div><span class="dim">${k}</span> ${esc(Array.isArray(v) ? v.join(" ") : v)}</div>` : "";
     box.innerHTML = `<div class="wiz-dtitle">${esc(d.title)}</div>${line("group", d.group)}${line("provides", d.provides)}` +
                     `${line("requires", d.requires)}${line("startup", d.startup)}${line("files", d.files)}<div>${d.blocks} blocks</div>`;
@@ -190,6 +194,12 @@ export class DiskComposer {
 
   replan() {
     const token = this.planToken = (this.planToken ?? 0) + 1;
+    if (!this.state.ready) {
+      this.dlg.querySelector(".wiz-plan").innerHTML = `<div class="dim">Choose the diskette, then the operating system.</div>`;
+      this.dlg.querySelector(".wiz-boot").disabled = true;
+      this.dlg.querySelector(".wiz-download").disabled = true;
+      return;
+    }
     this.fetchNeeded().then(() => {
       if (token !== this.planToken) return;
       const p = JSON.parse(this.api.plan());

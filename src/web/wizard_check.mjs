@@ -16,8 +16,9 @@ const api = {
   open: c("wiz_open", "number", ["string", "string", "string"]),
   error: c("wiz_error", "string", []),
   state: c("wiz_state", "string", []),
-  setSystem: c("wiz_set_system", null, ["string"]),
-  setMedia: c("wiz_set_media", null, ["string"]),
+  setMedia: c("wiz_set_media", "string", ["string"]),
+  setSystem: c("wiz_set_system", "string", ["string"]),
+  fold: c("wiz_fold", null, ["string"]),
   toggle: c("wiz_toggle", "string", ["string"]),
   needed: c("wiz_needed", "string", []),
   plan: c("wiz_plan", "string", []),
@@ -87,8 +88,22 @@ files    = ["u2/DIR.SAV"]
 if (!api.open(manifest, Object.keys(files).join("\n"), Object.values(files).join("\n"))) fail("wiz_open: " + api.error());
 
 let state = JSON.parse(api.state());
-const row = (key) => state.rows.find((r) => r.key === key && r.kind === "bundle");
-if (state.version !== "check-1" || state.system !== "osa" || state.media !== "ss") fail("the state: " + JSON.stringify(state).slice(0, 200));
+const row = (key, kind = "bundle") => state.rows.find((r) => r.key === key && r.kind === kind);
+// The steps: the diskette, then the system on it, then the groups - folded.
+if (state.version !== "check-1" || state.ready || state.system !== "" || state.media !== "") fail("the state: " + JSON.stringify(state).slice(0, 200));
+if (!row("#diskette", "group").open || !row("ss", "media")) fail("the diskette is not the first step");
+if (row("#system", "group").available) fail("the system is open before the diskette");
+if (api.setSystem("osa") !== "choose the diskette first") fail("a system chosen before the diskette");
+if (api.setMedia("dv") !== "") fail("wiz_set_media");
+state = JSON.parse(api.state());
+if (row("osa", "system").available || row("osa", "system").why !== "only on ss, dz") fail("OSA offered on dv: " + JSON.stringify(row("osa", "system")));
+if (api.setMedia("ss") !== "" || api.setSystem("osa") !== "") fail("the first two steps");
+state = JSON.parse(api.state());
+if (!state.ready || state.system !== "osa" || state.media !== "ss") fail("the state: " + JSON.stringify(state).slice(0, 200));
+if (row("#system", "group").summary !== "OSA" || row("dz")) fail("the steps did not fold");
+api.fold("System");
+api.fold("Utilities");
+state = JSON.parse(api.state());
 if (row("dz").mark !== "system") fail("DZ.SYS is not the system's");
 if (!state.rows.some((r) => r.kind === "radio" && r.key === "dir")) fail("no radio group for dir");
 if (!(row("dir").radio && row("dir2").radio)) fail("the DIRs are not radio buttons");
@@ -97,6 +112,7 @@ if (row("dz").blocks < 1) fail("no block count");
 if (api.toggle("dir") !== "") fail("toggle dir");
 if (api.toggle("dir2") !== "") fail("toggle dir2");
 state = JSON.parse(api.state());
+if (row("Utilities", "group").summary !== "1 chosen") fail("the group's count: " + row("Utilities", "group").summary);
 if (row("dir").mark !== "off" || row("dir2").mark !== "on") fail("the radio did not switch: " + row("dir").mark + " " + row("dir2").mark);
 if (api.toggle("dz") === "") fail("the system's part was taken away");
 
@@ -114,6 +130,7 @@ const saved = api.save();
 if (!/collection\s*=\s*"check-1"/.test(saved) || !/"dir2"/.test(saved)) fail("the saved choice:\n" + saved);
 api.toggle("dir2");
 if (!api.load(saved)) fail("wiz_load: " + api.error());
+api.fold("Utilities");                                  // a loaded choice starts folded
 state = JSON.parse(api.state());
 if (row("dir2").mark !== "on") fail("the loaded choice");
 

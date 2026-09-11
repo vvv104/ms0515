@@ -125,9 +125,9 @@ TEST_SUITE("Wizard") {
 TEST_CASE("rows: the groups in the file's order, the system's parts marked, the alternatives a radio group") {
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m, "omega", Media::dz, [](const ManifestBundle &b) { return static_cast<int>(b.title.size()); });
-    const auto rows = w.rows();
-    CHECK(headings(rows) == std::vector<std::string>{"System", "Development / Assembler", "Development / Linker",
-                                                     "Development / Pascal", "Games"});
+    const auto rows = w.rows(true);
+    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Operating system", "System", "Development",
+                                                     "Assembler", "Linker", "Pascal", "Games"});
     REQUIRE(row(rows, "dz"));
     CHECK(row(rows, "dz")->mark == WizardRow::Mark::system);
     CHECK(row(rows, "dz")->blocks == 6);
@@ -143,14 +143,14 @@ TEST_CASE("rows: the groups in the file's order, the system's parts marked, the 
     CHECK_FALSE(row(rows, "link-vvv")->radio);                      /* one build: a checkbox */
 
     DiskWizard mihin(m, "mihin", Media::dz);                        /* two MACROs visible there: still a group */
-    CHECK(row(mihin.rows(), "macro11", WizardRow::Kind::radio) != nullptr);
+    CHECK(row(mihin.rows(true), "macro11", WizardRow::Kind::radio) != nullptr);
 }
 
 TEST_CASE("alternatives of which this system shows only one are a plain line, not a radio group") {
     const Manifest m = parseManifest(replaced(kManifest, "title    = \"MACRO (Mihin)\"",
                                               "title    = \"MACRO (Mihin)\"\nsystems  = [\"omega\"]"));
     DiskWizard w(m, "mihin", Media::dz);
-    const auto rows = w.rows();
+    const auto rows = w.rows(true);
     CHECK(row(rows, "macro11", WizardRow::Kind::radio) == nullptr);
     REQUIRE(row(rows, "macro-vvv"));
     CHECK_FALSE(row(rows, "macro-vvv")->radio);
@@ -160,7 +160,7 @@ TEST_CASE("a choice brings its needs, each saying for whom; the preferred altern
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m, "omega", Media::dz);
     CHECK(w.toggle("pascal").empty());
-    const auto rows = w.rows();
+    const auto rows = w.rows(true);
     CHECK(row(rows, "pascal")->mark == WizardRow::Mark::on);
     CHECK(row(rows, "macro-vvv")->mark == WizardRow::Mark::added);
     CHECK(row(rows, "macro-vvv")->requiredBy == "Pascal");
@@ -179,7 +179,7 @@ TEST_CASE("a radio button: picked, it replaces the other; needed, it cannot be c
     DiskWizard w(m, "omega", Media::dz);
     REQUIRE(w.toggle("pascal").empty());
     CHECK(w.toggle("macro-mihin").empty());
-    auto rows = w.rows();
+    auto rows = w.rows(true);
     CHECK(row(rows, "macro-mihin")->mark != WizardRow::Mark::off);
     CHECK(row(rows, "macro-vvv")->mark == WizardRow::Mark::off);
     CHECK(w.selection().picks.at("macro11") == "macro-mihin");
@@ -190,25 +190,25 @@ TEST_CASE("a radio button: picked, it replaces the other; needed, it cannot be c
     CHECK_FALSE(w.toggle("macro-mihin").empty());                   /* Pascal needs one */
 
     REQUIRE(w.toggle("pascal").empty());                            /* Pascal gone: nothing needs MACRO */
-    rows = w.rows();
+    rows = w.rows(true);
     CHECK(row(rows, "macro-mihin")->mark == WizardRow::Mark::off);
     CHECK(w.toggle("macro-omega").empty());                         /* a MACRO on its own */
-    CHECK(row(w.rows(), "macro-omega")->mark == WizardRow::Mark::on);
-    CHECK(row(w.rows(), "macro-vvv")->available);                   /* the others stay pickable: they replace it */
-    CHECK(row(w.rows(), "macro-vvv")->why.empty());
+    CHECK(row(w.rows(true), "macro-omega")->mark == WizardRow::Mark::on);
+    CHECK(row(w.rows(true), "macro-vvv")->available);                   /* the others stay pickable: they replace it */
+    CHECK(row(w.rows(true), "macro-vvv")->why.empty());
     CHECK(w.toggle("macro-vvv").empty());                           /* another replaces it */
-    rows = w.rows();
+    rows = w.rows(true);
     CHECK(row(rows, "macro-vvv")->mark == WizardRow::Mark::on);
     CHECK(row(rows, "macro-omega")->mark == WizardRow::Mark::off);
     CHECK(w.toggle("macro-vvv").empty());                           /* and clears */
-    CHECK(row(w.rows(), "macro-vvv")->mark == WizardRow::Mark::off);
+    CHECK(row(w.rows(true), "macro-vvv")->mark == WizardRow::Mark::off);
     CHECK(w.resolution().bundles == std::vector<std::string>{"dz"});
 }
 
 TEST_CASE("what cannot be taken is greyed out with the reason, and toggling it says the same") {
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m, "omega", Media::dv);
-    const auto rows = w.rows();
+    const auto rows = w.rows(true);
     CHECK(row(rows, "dv")->mark == WizardRow::Mark::system);        /* a DV disk needs it */
     const auto *sab = row(rows, "sabot2");
     REQUIRE(sab);
@@ -223,19 +223,124 @@ TEST_CASE("another system or media drops what no longer fits, and says so") {
     DiskWizard w(m, "omega", Media::dz);
     REQUIRE(w.toggle("sabot2").empty());
     REQUIRE(w.toggle("pascal").empty());
-    w.setMedia(Media::dv);
+    CHECK(w.setMedia(Media::dv).empty());
     CHECK(w.selection().bundles == std::vector<std::string>{"pascal"});
     CHECK(mentions(w.notices(), "Saboteur 2"));
 
-    w.setSystem("mihin");                                           /* no DV there, no LINK for Pascal */
-    CHECK(w.media() == Media::ss);
+    CHECK(w.setSystem("mihin") == "OS-16SJ goes only on ss, dz");  /* the diskette comes first */
+    CHECK(w.system() == "omega");
+    REQUIRE(w.setMedia(Media::ss).empty());
+    CHECK(w.setSystem("mihin").empty());                            /* no LINK there for Pascal */
     CHECK(w.selection().bundles.empty());
     CHECK(mentions(w.notices(), "Pascal"));
-    CHECK(w.mediaOffered() == std::vector<Media>{Media::ss, Media::dz});
-    const auto rows = w.rows();
+    auto rows = w.rows(true);
     CHECK(row(rows, "macro-omega") == nullptr);                     /* another system's build: not shown */
     CHECK(row(rows, "dv") == nullptr);
     CHECK_FALSE(row(rows, "pascal")->available);                     /* shown, with why */
+
+    REQUIRE(w.toggle("sabot2").empty());
+    CHECK(w.setMedia(Media::dv).empty());                           /* the system does not go on it: it goes */
+    CHECK(mentions(w.notices(), "OS-16SJ"));
+    CHECK(w.system().empty());
+    CHECK_FALSE(w.ready());
+    rows = w.rows();
+    CHECK(row(rows, "#system", WizardRow::Kind::group)->open);      /* to choose again */
+    CHECK_FALSE(row(rows, "Games", WizardRow::Kind::group)->available);
+    REQUIRE(w.setSystem("omega").empty());
+    CHECK(mentions(w.notices(), "Saboteur 2"));                     /* kept until a system judged it */
+    CHECK(w.selection().bundles.empty());
+}
+
+TEST_CASE("the steps: the diskette first, then the system, then the rest") {
+    const Manifest m = parseManifest(kManifest);
+    DiskWizard w(m);
+    CHECK_FALSE(w.ready());
+    CHECK_FALSE(w.media().has_value());
+    auto rows = w.rows();
+    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Operating system", "System", "Development", "Games"});
+    const auto *diskette = row(rows, "#diskette", WizardRow::Kind::group);
+    REQUIRE(diskette);
+    CHECK(diskette->open);
+    REQUIRE(row(rows, "ss", WizardRow::Kind::media));
+    CHECK(row(rows, "ss", WizardRow::Kind::media)->title == "ss - one side, 400 KB");
+    CHECK(row(rows, "dv", WizardRow::Kind::media)->radio);
+    CHECK(row(rows, "dv", WizardRow::Kind::media)->mark == WizardRow::Mark::off);
+    const auto *os = row(rows, "#system", WizardRow::Kind::group);
+    REQUIRE(os);
+    CHECK_FALSE(os->available);
+    CHECK(os->why == "choose the diskette first");
+    CHECK(row(rows, "omega", WizardRow::Kind::system) == nullptr);
+    CHECK_FALSE(row(rows, "Development", WizardRow::Kind::group)->available);
+    CHECK(row(rows, "Development", WizardRow::Kind::group)->why == "choose the system first");
+    CHECK(row(rows, "pascal") == nullptr);
+    CHECK_FALSE(w.toggle("pascal").empty());
+    CHECK(w.setSystem("omega") == "choose the diskette first");
+
+    REQUIRE(w.setMedia(Media::dv).empty());
+    rows = w.rows();
+    CHECK_FALSE(row(rows, "#diskette", WizardRow::Kind::group)->open);   /* done: folded, the next opened */
+    CHECK(row(rows, "#diskette", WizardRow::Kind::group)->summary == "dv - one DV volume, 800 KB");
+    CHECK(row(rows, "dv", WizardRow::Kind::media) == nullptr);
+    CHECK(row(rows, "#system", WizardRow::Kind::group)->available);
+    CHECK(row(rows, "#system", WizardRow::Kind::group)->open);
+    CHECK(row(rows, "omega", WizardRow::Kind::system)->available);
+    const auto *mihin = row(rows, "mihin", WizardRow::Kind::system);
+    REQUIRE(mihin);
+    CHECK_FALSE(mihin->available);
+    CHECK(mihin->why == "only on ss, dz");
+    CHECK_FALSE(row(rows, "Games", WizardRow::Kind::group)->available);
+
+    CHECK(w.setSystem("omega").empty());
+    CHECK(w.ready());
+    rows = w.rows();
+    CHECK_FALSE(row(rows, "#system", WizardRow::Kind::group)->open);
+    CHECK(row(rows, "#system", WizardRow::Kind::group)->summary == "OMEGA");
+    CHECK(row(rows, "Development", WizardRow::Kind::group)->available);
+    CHECK_FALSE(row(rows, "Development", WizardRow::Kind::group)->open);
+    CHECK(row(rows, "pascal") == nullptr);                          /* folded */
+    CHECK(w.toggle("pascal").empty());                              /* but there */
+}
+
+TEST_CASE("the groups are a tree, folded, each saying how many are chosen") {
+    const Manifest m = parseManifest(kManifest);
+    DiskWizard w(m, "omega", Media::dz);
+    REQUIRE(w.toggle("pascal").empty());
+    auto rows = w.rows();
+    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Operating system", "System", "Development", "Games"});
+    CHECK(row(rows, "#diskette", WizardRow::Kind::group)->summary == "dz - two sides, 800 KB");
+    CHECK(row(rows, "Development", WizardRow::Kind::group)->summary == "1 chosen, 3 added");
+    CHECK(row(rows, "Games", WizardRow::Kind::group)->summary.empty());
+
+    w.toggleFold("Development");
+    rows = w.rows();
+    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Operating system", "System", "Development",
+                                                     "Assembler", "Linker", "Pascal", "Games"});
+    const auto *assembler = row(rows, "Development / Assembler", WizardRow::Kind::group);
+    REQUIRE(assembler);
+    CHECK(assembler->depth == 1);
+    CHECK_FALSE(assembler->open);
+    CHECK(assembler->summary == "2 added");
+    CHECK(row(rows, "pascal") == nullptr);
+
+    w.toggleFold("Development / Pascal");
+    REQUIRE(row(w.rows(), "pascal"));
+    CHECK(row(w.rows(), "pascal")->depth == 2);
+    CHECK(row(w.rows(), "pascal")->parent == "Development / Pascal");
+
+    w.toggleFold("Development");                                    /* the branch folds whole */
+    CHECK(row(w.rows(), "pascal") == nullptr);
+    w.reveal("Development / Assembler");                            /* what find does: the way down opened */
+    rows = w.rows();
+    REQUIRE(row(rows, "macro-vvv"));
+    CHECK(row(rows, "macro-vvv")->depth == 3);                      /* under its radio heading */
+    CHECK(row(rows, "macro11", WizardRow::Kind::radio)->depth == 2);
+    CHECK(row(rows, "pascal")->depth == 2);                         /* opened before, open again */
+
+    const SavedSelection saved = w.saved();
+    DiskWizard other(m);
+    other.load(saved);
+    CHECK(other.ready());
+    CHECK(headings(other.rows()) == std::vector<std::string>{"Diskette", "Operating system", "System", "Development", "Games"});
 }
 
 TEST_CASE("the saved choice: its own file, tied to the collection's version") {

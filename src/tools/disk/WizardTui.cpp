@@ -50,6 +50,8 @@ std::vector<std::string> splitLines(const std::string &s)
 }
 
 const int kNoteWidth = 22;
+const int kSideWidth = 5 + 2 + kNoteWidth;   /* a group's summary sits where its rows' blocks and notes do */
+const char *const kNotReady = "choose the diskette and the system first";
 
 /* What a note has room for: a title up to its " - " or " (" - "Pascal",
  * "MACRO V05.04". */
@@ -76,9 +78,7 @@ std::string mark(const WizardRow &r)
 
 WizardTui::WizardTui(const Manifest &manifest, const Repository &repo, std::filesystem::path workDir)
     : manifest_(manifest), repo_(repo), workDir_(std::move(workDir)),
-      wizard_(manifest, manifest.systems.empty() ? std::string() : manifest.systems.front().key,
-              manifest.systems.empty() ? Media::ss : manifest.systems.front().media.front(),
-              [this](const ManifestBundle &b) {
+      wizard_(manifest, [this](const ManifestBundle &b) {
                   if (const auto it = blocks_.find(b.key); it != blocks_.end()) return it->second;
                   int n = 0;
                   try {
@@ -97,7 +97,8 @@ void WizardTui::changed()
 {
     plan_.reset();
     planProblem_.clear();
-    try {
+    startupLines_.clear();
+    if (wizard_.ready()) try {
         const ComposeRecipe recipe = recipeFor(manifest_, wizard_.selection(), repo_);
         plan_ = planDisk(recipe);
         if (!plan_->ok) planProblem_ = plan_->problem;
@@ -111,17 +112,15 @@ void WizardTui::changed()
 
 std::vector<WizardRow> WizardTui::visibleRows() const
 {
-    std::vector<WizardRow> out;
-    bool hidden = false;
-    for (auto &r : wizard_.rows()) {
-        if (r.kind == WizardRow::Kind::group) {
-            hidden = folded_.count(r.key) != 0;
-            out.push_back(std::move(r));
-        } else if (!hidden) {
-            out.push_back(std::move(r));
-        }
-    }
-    return out;
+    return wizard_.rows();
+}
+
+int WizardTui::indexOf(const std::string &key, WizardRow::Kind kind) const
+{
+    const auto rows = visibleRows();
+    for (std::size_t i = 0; i < rows.size(); ++i)
+        if (rows[i].key == key && rows[i].kind == kind) return static_cast<int>(i);
+    return -1;
 }
 
 void WizardTui::moveCursor(int delta)
@@ -130,37 +129,40 @@ void WizardTui::moveCursor(int delta)
     cursor_ = std::clamp(cursor_ + delta, 0, std::max(0, n - 1));
 }
 
-void WizardTui::toggleFold(const std::string &group)
+/* Space or Enter on a row.  A step taken moves the cursor on to the next:
+ * from the diskette to the system, from the system to the first group. */
+void WizardTui::activate(const WizardRow &r)
 {
-    if (!folded_.erase(group)) folded_.insert(group);
-}
-
-void WizardTui::stepSystem(int delta)
-{
-    const auto &systems = manifest_.systems;
-    auto it = std::find_if(systems.begin(), systems.end(), [&](const ManifestSystem &s) { return s.key == wizard_.system(); });
-    int at = it == systems.end() ? 0 : static_cast<int>(it - systems.begin());
-    at = (at + delta + static_cast<int>(systems.size())) % static_cast<int>(systems.size());
-    wizard_.setSystem(systems[static_cast<std::size_t>(at)].key);
-    status_ = wizard_.notices().empty() ? std::string() : wizard_.notices().front();
-    changed();
-}
-
-void WizardTui::stepMedia(int delta)
-{
-    const auto offered = wizard_.mediaOffered();
-    if (offered.empty()) return;
-    auto it = std::find(offered.begin(), offered.end(), wizard_.media());
-    int at = it == offered.end() ? 0 : static_cast<int>(it - offered.begin());
-    at = (at + delta + static_cast<int>(offered.size())) % static_cast<int>(offered.size());
-    wizard_.setMedia(offered[static_cast<std::size_t>(at)]);
-    status_ = wizard_.notices().empty() ? std::string() : wizard_.notices().front();
-    changed();
+    switch (r.kind) {
+    case WizardRow::Kind::group:
+        if (r.available) wizard_.toggleFold(r.key); else status_ = r.why;
+        return;
+    case WizardRow::Kind::radio:
+        return;
+    case WizardRow::Kind::media:
+        status_ = wizard_.setMedia(*parseMedia(r.key));
+        if (status_.empty() && !wizard_.notices().empty()) status_ = wizard_.notices().front();
+        changed();
+        if (!wizard_.ready()) cursor_ = std::max(0, indexOf(kSystemGroup, WizardRow::Kind::group));
+        return;
+    case WizardRow::Kind::system: {
+        const bool first = !wizard_.ready();
+        status_ = wizard_.setSystem(r.key);
+        if (status_.empty() && !wizard_.notices().empty()) status_ = wizard_.notices().front();
+        changed();
+        if (first && wizard_.ready()) cursor_ = indexOf(kSystemGroup, WizardRow::Kind::group) + 1;
+        return;
+    }
+    case WizardRow::Kind::bundle:
+        status_ = wizard_.toggle(r.key);
+        changed();
+        return;
+    }
 }
 
 std::string WizardTui::defaultName(const char *ext) const
 {
-    return wizard_.system() + "-" + mediaWord(wizard_.media()) + ext;
+    return wizard_.ready() ? wizard_.system() + "-" + mediaWord(*wizard_.media()) + ext : std::string("disk") + ext;
 }
 
 void WizardTui::startAsk(Ask ask, std::string value)
@@ -171,6 +173,7 @@ void WizardTui::startAsk(Ask ask, std::string value)
 
 void WizardTui::save(const std::filesystem::path &path)
 {
+    if (!wizard_.ready()) { status_ = kNotReady; return; }
     std::ofstream f(workDir_ / path, std::ios::binary);
     f << selectionToml(wizard_.saved());
     status_ = f ? "saved " + path.generic_string() : "cannot write " + path.generic_string();
@@ -196,6 +199,7 @@ void WizardTui::open(const SavedSelection &saved)
 
 void WizardTui::build(const std::filesystem::path &path)
 {
+    if (!wizard_.ready()) { status_ = kNotReady; return; }
     try {
         const auto image = composeDisk(recipeFor(manifest_, wizard_.selection(), repo_));
         std::ofstream f(workDir_ / path, std::ios::binary);
@@ -210,13 +214,22 @@ void WizardTui::findNext(const std::string &text)
 {
     if (text.empty()) return;
     auto lower = [](std::string s) { for (auto &c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return s; };
-    folded_.clear();
-    const auto rows = visibleRows();
-    const auto needle = lower(text);
+    const auto shownRows = visibleRows();
+    const auto rows = wizard_.rows(true);                     /* the closed groups' rows too */
     const int n = static_cast<int>(rows.size());
+    int from = 0;
+    if (!shownRows.empty()) {
+        const auto &here = shownRows[static_cast<std::size_t>(cursor_)];
+        for (int i = 0; i < n; ++i)
+            if (rows[static_cast<std::size_t>(i)].key == here.key && rows[static_cast<std::size_t>(i)].kind == here.kind) from = i;
+    }
+    const auto needle = lower(text);
     for (int step = 1; step <= n; ++step) {
-        const int i = (cursor_ + step) % n;
-        if (lower(rows[static_cast<std::size_t>(i)].title).find(needle) != std::string::npos) { cursor_ = i; return; }
+        const auto &r = rows[static_cast<std::size_t>((from + step) % n)];
+        if (lower(r.title).find(needle) == std::string::npos) continue;
+        if (!r.parent.empty()) wizard_.reveal(r.parent);
+        cursor_ = std::max(0, indexOf(r.key, r.kind));
+        return;
     }
     status_ = "no \"" + text + "\"";
 }
@@ -256,12 +269,7 @@ bool WizardTui::onListEvent(const Event &e)
     if (e == Event::End)       { cursor_ = std::max(0, static_cast<int>(rows.size()) - 1); return true; }
     if (rows.empty()) return false;
     const auto &r = rows[static_cast<std::size_t>(cursor_)];
-    if (e == Event::Return && r.kind == WizardRow::Kind::group) { toggleFold(r.key); return true; }
-    if ((e == Event::Character(" ") || e == Event::Return) && r.kind == WizardRow::Kind::bundle) {
-        status_ = wizard_.toggle(r.key);
-        changed();
-        return true;
-    }
+    if (e == Event::Character(" ") || e == Event::Return) { activate(r); return true; }
     return false;
 }
 
@@ -269,9 +277,15 @@ bool WizardTui::onEvent(const Event &e)
 {
     if (ask_ != Ask::none) return onAskEvent(e);
     if (e == Event::F10) { quit_ = true; return true; }
-    if (e == Event::F2) { startAsk(Ask::save, defaultName(".toml")); return true; }
-    if (e == Event::F3) { startAsk(Ask::open, defaultName(".toml")); return true; }
-    if (e == Event::F5) { startAsk(Ask::build, defaultName(".dsk")); return true; }
+    if (e == Event::F2) {
+        if (wizard_.ready()) startAsk(Ask::save, defaultName(".toml")); else status_ = kNotReady;
+        return true;
+    }
+    if (e == Event::F3) { startAsk(Ask::open, wizard_.ready() ? defaultName(".toml") : std::string()); return true; }
+    if (e == Event::F5) {
+        if (wizard_.ready()) startAsk(Ask::build, defaultName(".dsk")); else status_ = kNotReady;
+        return true;
+    }
     if (e == Event::F7) {
         const auto &s = wizard_.selection().startup;
         std::string v;
@@ -281,17 +295,6 @@ bool WizardTui::onEvent(const Event &e)
     }
     if (e == Event::F8) { startAsk(Ask::label, wizard_.selection().volumeId.value_or("")); return true; }
     if (e == Event::Character("/")) { startAsk(Ask::find, ""); return true; }
-    if (e == Event::Tab) { focus_ = focus_ == Focus::system ? Focus::media : focus_ == Focus::media ? Focus::list : Focus::system; return true; }
-    if (e == Event::TabReverse) { focus_ = focus_ == Focus::list ? Focus::media : focus_ == Focus::media ? Focus::system : Focus::list; return true; }
-    if (focus_ != Focus::list) {
-        if (e == Event::ArrowLeft || e == Event::ArrowRight) {
-            const int d = e == Event::ArrowLeft ? -1 : 1;
-            if (focus_ == Focus::system) stepSystem(d); else stepMedia(d);
-            return true;
-        }
-        if (e == Event::ArrowDown || e == Event::Return) { focus_ = Focus::list; return true; }
-        return false;
-    }
     return onListEvent(e);
 }
 
@@ -299,12 +302,8 @@ bool WizardTui::onEvent(const Event &e)
 
 Element WizardTui::renderTop() const
 {
-    const auto *sys = manifest_.system(wizard_.system());
-    Element system = text("< " + std::string(sys ? sys->title : "?") + " >");
-    Element media = text(std::string("< ") + mediaWord(wizard_.media()) + " >");
-    if (focus_ == Focus::system) system = system | kCursor;
-    if (focus_ == Focus::media) media = media | kCursor;
-    return hbox({text(" MS-0515 disk composer   System: "), system, text("   Media: "), media, filler()}) | kBar;
+    const std::string version = manifest_.version.empty() ? std::string() : "collection " + manifest_.version + " ";
+    return hbox({text(" MS-0515 disk composer"), filler(), text(version)}) | kBar;
 }
 
 Element WizardTui::renderList(int rows)
@@ -316,22 +315,27 @@ Element WizardTui::renderList(int rows)
     for (int i = top_; i < std::min(static_cast<int>(list.size()), top_ + rows); ++i) {
         const auto &r = list[static_cast<std::size_t>(i)];
         Element line;
+        const std::string indent(static_cast<std::size_t>(r.depth * 2), ' ');
         if (r.kind == WizardRow::Kind::group) {
-            line = text((folded_.count(r.key) ? "\xE2\x96\xB8 " : "\xE2\x96\xBE ") + r.title) | kGroup;
+            const std::string arrow = r.open ? "\xE2\x96\xBE " : "\xE2\x96\xB8 ";
+            line = hbox({text(indent + arrow + r.title) | flex,
+                         text(r.available ? r.summary : r.why) | size(WIDTH, EQUAL, kSideWidth)});
+            line = line | (r.available ? kGroup : kGrey);
         } else if (r.kind == WizardRow::Kind::radio) {
-            line = text("  one of: " + r.title) | kGroup;
+            line = text(indent + "one of: " + r.title) | kGroup;
         } else {
             std::string note = r.mark == WizardRow::Mark::system ? "system"
                              : r.mark == WizardRow::Mark::added ? "for " + shortTitle(r.requiredBy)
                              : r.available ? std::string() : r.why;
-            Element row = hbox({text(std::string(static_cast<std::size_t>(r.depth * 2), ' ') + mark(r) + " " + r.title) | flex,
-                                hbox({filler(), text(std::to_string(r.blocks))}) | size(WIDTH, EQUAL, 5),
+            const bool bundle = r.kind == WizardRow::Kind::bundle;
+            Element row = hbox({text(indent + mark(r) + " " + r.title) | flex,
+                                hbox({filler(), text(bundle ? std::to_string(r.blocks) : std::string())}) | size(WIDTH, EQUAL, 5),
                                 text("  "), text(note) | size(WIDTH, EQUAL, kNoteWidth)});
             if (!r.available) row = row | kGrey;
             else if (r.mark == WizardRow::Mark::added) row = row | kAdded;
             line = row;
         }
-        if (i == cursor_ && focus_ == Focus::list) line = line | kCursor;
+        if (i == cursor_) line = line | kCursor;
         lines.push_back(line);
     }
     return vbox(lines);
@@ -343,7 +347,12 @@ Element WizardTui::renderDetails() const
     if (list.empty()) return text("");
     const auto &r = list[static_cast<std::size_t>(cursor_)];
     const auto *b = manifest_.bundle(r.key);
-    if (r.kind != WizardRow::Kind::bundle || !b) return paragraph(r.title);
+    if (r.kind != WizardRow::Kind::bundle || !b) {
+        Elements out = {paragraph(r.kind == WizardRow::Kind::radio ? "one of: " + r.title : r.title), text("")};
+        if (!r.summary.empty()) out.push_back(paragraph(r.summary));
+        if (!r.available) out.push_back(paragraph(r.why) | kBad);
+        return vbox(out);
+    }
     Elements out = {paragraph(b->title), text("")};
     auto joined = [](const std::vector<std::string> &v) { std::string s; for (const auto &x : v) s += (s.empty() ? "" : " ") + x; return s; };
     if (!b->provides.empty()) out.push_back(paragraph("provides " + joined(b->provides)));
@@ -364,9 +373,10 @@ Element WizardTui::renderDetails() const
 
 Element WizardTui::renderPlan(int width) const
 {
+    if (!wizard_.ready()) return text("Choose the diskette, then the operating system.");
     Elements lines;
     if (plan_) {
-        const int capacity = capacityOf(wizard_.media());
+        const int capacity = capacityOf(*wizard_.media());
         for (std::size_t v = 0; v < plan_->freeBlocks.size(); ++v) {
             const int used = capacity - plan_->freeBlocks[v];
             const std::string name = wizard_.media() == Media::dv ? "DV0:" : v == 0 ? "DZ0:" : "DZ2:";
@@ -390,16 +400,17 @@ Element WizardTui::renderBottom() const
         {Ask::save, "Save the choice to: "}, {Ask::open, "Open a choice: "}, {Ask::build, "Build the disk to: "},
         {Ask::startup, "START.COM lines after the system's (; between): "}, {Ask::label, "Volume id: "}, {Ask::find, "Find: "}};
     if (ask_ != Ask::none) line = hbox({text(prompts.at(ask_)), text(input_) | kCursor, filler()});
-    else line = hbox({text(status_.empty() ? "Space toggle  Enter fold  Tab system/media  / find" : status_), filler()});
+    else line = hbox({text(status_), filler()});
+    const Element hint = hbox({text("Space, Enter: choose, open or close a group    / find    Esc: cancel a prompt"), filler()});
     Elements keys;
     for (const auto &[num, name] : kKeys) keys.push_back(hbox({text(num) | kKeyNum, text(name) | kBar | flex}) | flex);
-    return vbox({line, hbox(keys)});
+    return vbox({line, hint, hbox(keys)});
 }
 
 Element WizardTui::render(int width, int height)
 {
-    const int planLines = 2 + (plan_ ? static_cast<int>(plan_->freeBlocks.size()) : 0) + (planProblem_.empty() ? 0 : 1);
-    const int listRows = std::max(3, height - 1 - 2 - planLines - 2 - 2);
+    const int planLines = wizard_.ready() ? 2 + (plan_ ? static_cast<int>(plan_->freeBlocks.size()) : 0) + (planProblem_.empty() ? 0 : 1) : 1;
+    const int listRows = std::max(3, height - 1 - 2 - planLines - 2 - 3);
     const int detailsWidth = std::clamp(width / 3, 24, 44);
     Element body = hbox({window(text(" Bundles "), renderList(listRows)) | flex,
                          window(text(" Details "), renderDetails()) | size(WIDTH, EQUAL, detailsWidth)});

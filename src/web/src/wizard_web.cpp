@@ -78,6 +78,18 @@ int blocksOf(const Session &s, const ManifestBundle &b)
     return static_cast<int>(bytes / 512);
 }
 
+const char *kindOf(const WizardRow &r)
+{
+    switch (r.kind) {
+    case WizardRow::Kind::group:  return "group";
+    case WizardRow::Kind::radio:  return "radio";
+    case WizardRow::Kind::media:  return "media";
+    case WizardRow::Kind::system: return "system";
+    case WizardRow::Kind::bundle: break;
+    }
+    return "bundle";
+}
+
 const char *mark(const WizardRow &r)
 {
     switch (r.mark) {
@@ -94,11 +106,11 @@ std::string rowsJson(const DiskWizard &w)
     std::string out = "[";
     for (const auto &r : w.rows()) {
         if (out.size() > 1) out += ",";
-        const char *kind = r.kind == WizardRow::Kind::group ? "group" : r.kind == WizardRow::Kind::radio ? "radio" : "bundle";
-        out += std::string("{\"kind\":\"") + kind + "\",\"depth\":" + std::to_string(r.depth) + ",\"key\":" + str(r.key)
-             + ",\"title\":" + str(r.title) + ",\"mark\":\"" + mark(r) + "\",\"radio\":" + (r.radio ? "true" : "false")
-             + ",\"available\":" + (r.available ? "true" : "false") + ",\"why\":" + str(r.why)
-             + ",\"requiredBy\":" + str(r.requiredBy) + ",\"blocks\":" + std::to_string(r.blocks) + "}";
+        out += std::string("{\"kind\":\"") + kindOf(r) + "\",\"depth\":" + std::to_string(r.depth) + ",\"key\":" + str(r.key)
+             + ",\"title\":" + str(r.title) + ",\"parent\":" + str(r.parent) + ",\"mark\":\"" + mark(r) + "\""
+             + ",\"radio\":" + (r.radio ? "true" : "false") + ",\"available\":" + (r.available ? "true" : "false")
+             + ",\"why\":" + str(r.why) + ",\"requiredBy\":" + str(r.requiredBy) + ",\"blocks\":" + std::to_string(r.blocks)
+             + ",\"open\":" + (r.open ? "true" : "false") + ",\"summary\":" + str(r.summary) + "}";
     }
     return out + "]";
 }
@@ -126,10 +138,8 @@ EMSCRIPTEN_KEEPALIVE int wiz_open(const char *manifest, const char *paths, const
             return std::vector<uint8_t>(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
         };
         if (s->manifest.systems.empty()) { gError = "disks.toml names no system"; return 0; }
-        const auto &first = s->manifest.systems.front();
         Session *raw = s.get();
-        s->wizard = std::make_unique<DiskWizard>(s->manifest, first.key, first.media.front(),
-                                                 [raw](const ManifestBundle &b) { return blocksOf(*raw, b); });
+        s->wizard = std::make_unique<DiskWizard>(s->manifest, [raw](const ManifestBundle &b) { return blocksOf(*raw, b); });
         gSession = std::move(s);
         return 1;
     } catch (const std::exception &e) {
@@ -140,35 +150,36 @@ EMSCRIPTEN_KEEPALIVE int wiz_open(const char *manifest, const char *paths, const
 
 EMSCRIPTEN_KEEPALIVE const char *wiz_error(void) { return gError.c_str(); }
 
-/* Everything the page draws: the systems, the choice, the rows, the notices. */
+/* Everything the page draws: the choice, the rows to show, the notices. */
 EMSCRIPTEN_KEEPALIVE const char *wiz_state(void)
 {
     if (!gSession) return "{}";
     const DiskWizard &w = *gSession->wizard;
-    std::string systems = "[";
-    for (const auto &s : gSession->manifest.systems) {
-        std::vector<std::string> media;
-        for (const auto m : s.media) media.push_back(mediaWord(m));
-        systems += std::string(systems.size() > 1 ? "," : "") + "{\"key\":" + str(s.key) + ",\"title\":" + str(s.title)
-                 + ",\"media\":" + strings(media) + "}";
-    }
-    systems += "]";
     const auto &sel = w.selection();
-    gText = "{\"version\":" + str(gSession->manifest.version) + ",\"systems\":" + systems
-          + ",\"system\":" + str(sel.system) + ",\"media\":" + str(mediaWord(sel.media))
+    gText = "{\"version\":" + str(gSession->manifest.version) + ",\"ready\":" + (w.ready() ? "true" : "false")
+          + ",\"system\":" + str(sel.system) + ",\"media\":" + str(w.media() ? mediaWord(*w.media()) : "")
           + ",\"startup\":" + strings(sel.startup.value_or(std::vector<std::string>{}))
           + ",\"volumeId\":" + str(sel.volumeId.value_or("")) + ",\"notices\":" + strings(w.notices())
           + ",\"rows\":" + rowsJson(w) + "}";
     return gText.c_str();
 }
 
-EMSCRIPTEN_KEEPALIVE void wiz_set_system(const char *key) { if (gSession) gSession->wizard->setSystem(key); }
-
-EMSCRIPTEN_KEEPALIVE void wiz_set_media(const char *word)
+/* The first two steps, each "" when taken, else why not. */
+EMSCRIPTEN_KEEPALIVE const char *wiz_set_media(const char *word)
 {
-    if (!gSession) return;
-    if (const auto m = parseMedia(word)) gSession->wizard->setMedia(*m);
+    const auto m = parseMedia(word ? word : "");
+    gText = !gSession ? std::string("no collection") : !m ? std::string("no media ") + (word ? word : "") : gSession->wizard->setMedia(*m);
+    return gText.c_str();
 }
+
+EMSCRIPTEN_KEEPALIVE const char *wiz_set_system(const char *key)
+{
+    gText = gSession ? gSession->wizard->setSystem(key) : std::string("no collection");
+    return gText.c_str();
+}
+
+/* A group opened or closed. */
+EMSCRIPTEN_KEEPALIVE void wiz_fold(const char *key) { if (gSession) gSession->wizard->toggleFold(key); }
 
 /* Space on a row: "" when taken, else why not. */
 EMSCRIPTEN_KEEPALIVE const char *wiz_toggle(const char *key)
@@ -190,7 +201,7 @@ EMSCRIPTEN_KEEPALIVE void wiz_set_volume_id(const char *id)
  * paths: the system's image and every file of every bundle it installs. */
 EMSCRIPTEN_KEEPALIVE const char *wiz_needed(void)
 {
-    if (!gSession) return "[]";
+    if (!gSession || !gSession->wizard->ready()) return "[]";
     const DiskWizard &w = *gSession->wizard;
     std::vector<std::string> paths;
     if (const auto *sys = gSession->manifest.system(w.selection().system)) paths.push_back(sys->image);
@@ -210,6 +221,7 @@ EMSCRIPTEN_KEEPALIVE const char *wiz_plan(void)
 {
     if (!gSession) return "{}";
     const DiskWizard &w = *gSession->wizard;
+    if (!w.ready()) return "{\"ok\":false,\"problem\":\"\",\"volumes\":[],\"startup\":[]}";
     try {
         const ComposeRecipe r = recipeFor(gSession->manifest, w.selection(), gSession->repo);
         const ComposePlan plan = planDisk(r);
@@ -233,6 +245,7 @@ EMSCRIPTEN_KEEPALIVE const char *wiz_plan(void)
 EMSCRIPTEN_KEEPALIVE int wiz_build(const char *out)
 {
     if (!gSession) { gError = "no collection"; return 0; }
+    if (!gSession->wizard->ready()) { gError = "choose the diskette and the system first"; return 0; }
     try {
         const auto image = composeDisk(recipeFor(gSession->manifest, gSession->wizard->selection(), gSession->repo));
         std::ofstream f(out, std::ios::binary);

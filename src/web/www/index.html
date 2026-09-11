@@ -123,15 +123,17 @@
   .wiz { display: flex; flex-direction: column; height: 100%; }
   .wiz-head, .wiz-foot, .wiz-row { display: flex; flex-wrap: wrap; gap: .5em; align-items: center; padding: .5em .7em; }
   .wiz-head { background: #242424; border-bottom: 1px solid #333; }
-  .wiz-head select { max-width: 60vw; }
   .wiz-body { flex: 1; display: flex; min-height: 0; }
   .wiz-list { flex: 1; overflow: auto; padding: .3em 0; }
   .wiz-details { width: 17em; overflow: auto; padding: .5em .7em; border-left: 1px solid #333; font-size: .92em; }
   .wiz-dtitle { color: #fff; margin-bottom: .4em; }
-  .wiz-group { padding: .35em .7em; color: #fd6; cursor: pointer; user-select: none; }
-  .wiz-radio { padding: .1em 1.9em; color: #b9a45a; font-size: .9em; }
-  .wiz-item { display: flex; align-items: center; gap: .45em; padding: .2em .7em .2em 1.6em; cursor: pointer; }
-  .wiz-item.d2 { padding-left: 2.8em; }
+  .wiz-group { display: flex; gap: .6em; padding: .35em .7em; color: #fd6; cursor: pointer; user-select: none; }
+  .wiz-group .t { flex: 1; }
+  .wiz-group .s { color: #b9a45a; font-size: .9em; text-align: right; }
+  .wiz-group.na { color: #777; cursor: default; }
+  .wiz-group.na .s { color: #666; }
+  .wiz-radio { padding-block: .1em; color: #b9a45a; font-size: .9em; }
+  .wiz-item { display: flex; align-items: center; gap: .45em; padding-block: .2em; padding-right: .7em; cursor: pointer; }
   .wiz-item:hover, .wiz-item.cur { background: #2b3440; }
   .wiz-item .t { flex: 1; }
   .wiz-item .b { color: #888; min-width: 3em; text-align: right; font-variant-numeric: tabular-nums; }

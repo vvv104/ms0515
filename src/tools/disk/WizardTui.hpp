@@ -1,9 +1,10 @@
 /*
  * WizardTui.hpp - the native disk wizard: DiskWizard drawn with FTXUI.
  *
- * One screen: the system and the media on top, the bundles in their groups
- * on the left, the details of the one under the cursor on the right, the
- * plan - how full each volume would be, the startup file - below, the keys
+ * One screen: on the left one list walked in steps - the diskette, the
+ * operating system on it, then the bundles in their groups, a tree folded
+ * until opened; the details of the row under the cursor on the right; the
+ * plan - how full each volume would be, the startup file - below; the keys
  * at the bottom.  render() and onEvent() are all a host needs, so the screen
  * is exercised by the tests as it is by the terminal.
  */
@@ -22,7 +23,6 @@
 #include <functional>
 #include <map>
 #include <optional>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -47,15 +47,13 @@ public:
     [[nodiscard]] const std::string &status() const noexcept { return status_; }
 
 private:
-    enum class Focus { system, media, list };
     enum class Ask { none, save, open, build, startup, label, find };
 
     void changed();
     void moveCursor(int delta);
     [[nodiscard]] std::vector<disk::WizardRow> visibleRows() const;
-    void toggleFold(const std::string &group);
-    void stepSystem(int delta);
-    void stepMedia(int delta);
+    [[nodiscard]] int indexOf(const std::string &key, disk::WizardRow::Kind kind) const;
+    void activate(const disk::WizardRow &row);
     void startAsk(Ask ask, std::string value);
     void finishAsk();
     bool onAskEvent(const ftxui::Event &event);
@@ -81,8 +79,6 @@ private:
     std::string             planProblem_;
     std::vector<std::string> startupLines_;
 
-    Focus                   focus_ = Focus::list;
-    std::set<std::string>   folded_{"System"};   /* the system's own parts: rarely the point */
     int                     cursor_ = 0;
     int                     top_ = 0;
     Ask                     ask_ = Ask::none;
