@@ -12,6 +12,7 @@ add_library(ms0515_disk STATIC
     src/Directory.cpp
     src/Image.cpp
     src/Build.cpp
+    src/Compose.cpp
 )
 
 target_include_directories(ms0515_disk
