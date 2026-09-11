@@ -100,9 +100,23 @@ const toml::table &section(const toml::table &root, std::string_view key)
 ManifestSystem readSystem(const std::string &key, const toml::table &t)
 {
     const std::string where = "system." + key;
-    ManifestSystem s{key, str(t, "title", where, true), str(t, "image", where, true),
-                     medias(t, "media", where), t["rebuild"].value_or(true), {}};
+    ManifestSystem s;
+    s.key = key;
+    s.title = str(t, "title", where, true);
+    s.image = str(t, "image", where, true);
+    s.media = medias(t, "media", where);
     if (s.media.empty()) fail(where + " boots from no media");
+    s.dependsOn = strings(t, "requires", where);
+    if (t.contains("requires_by_media")) {
+        const auto *table = t["requires_by_media"].as_table();
+        if (!table) fail(where + ": requires_by_media is { media = [...] }");
+        for (const auto &[k, v] : *table) {
+            (void)v;
+            const std::string word(k.str());
+            s.dependsOnByMedia[media(word, where)] = strings(*table, word, where + ".requires_by_media");
+        }
+    }
+    if (t.contains("startup")) s.startup = strings(t, "startup", where);
     if (const auto *arr = t["reserved"].as_array()) {
         for (const auto &e : *arr) {
             const auto *b = e.as_table();
@@ -153,6 +167,7 @@ ManifestBundle readBundle(const std::string &key, const toml::table &t)
     } else {
         b.prefer = strings(t, "prefer", where);
     }
+    b.startup = strings(t, "startup", where);
     checkDate(b.date, where);
     const std::string volume = str(t, "volume", where, false);
     if (volume == "any") b.place = Place::any;
@@ -229,6 +244,16 @@ void crossCheck(const Manifest &m)
     for (const auto &b : m.bundles)
         for (const auto &s : b.systems)
             if (!m.system(s)) fail("bundle." + b.key + " is for system " + s + ", which is not there");
+    auto satisfiable = [&](const std::string &need) {
+        return std::any_of(m.bundles.begin(), m.bundles.end(), [&](const auto &o) { return satisfies(o, need); });
+    };
+    for (const auto &s : m.systems) {
+        for (const auto &need : s.dependsOn)
+            if (!satisfiable(need)) fail("system." + s.key + " requires " + need + ", which no bundle is or provides");
+        for (const auto &[md, needs] : s.dependsOnByMedia)
+            for (const auto &need : needs)
+                if (!satisfiable(need)) fail("system." + s.key + " requires " + need + ", which no bundle is or provides");
+    }
     checkDependencies(m);
     for (const auto &p : m.presets) {
         const auto *sys = m.system(p.system);
@@ -439,6 +464,19 @@ Resolution resolveBundles(const Manifest &m, const std::string &system, Media me
         if (!b) { w.r.problem = "no bundle " + key; return w.r; }
         if (auto why = bundleRefusal(m, *b, system, media); !why.empty()) { w.r.problem = why; return w.r; }
     }
+    if (const auto *sys = m.system(system)) {
+        /* The system's own parts first, as if a bundle of the system's name
+         * required them. */
+        ManifestBundle own;
+        own.title = sys->title;
+        own.dependsOn = sys->dependsOn;
+        if (const auto it = sys->dependsOnByMedia.find(media); it != sys->dependsOnByMedia.end())
+            own.dependsOn.insert(own.dependsOn.end(), it->second.begin(), it->second.end());
+        for (const auto &need : own.dependsOn) {
+            const auto *p = w.provider(own, need);
+            if (!p || !w.visit(*p, "")) return w.r;
+        }
+    }
     for (const auto &key : chosen)
         if (!w.visit(*m.bundle(key), "")) return w.r;
     /* A bundle chosen outright is not "added for" anyone, even when a
@@ -496,10 +534,15 @@ ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository 
     };
     ComposeRecipe r;
     r.system = read(sys->image);
-    r.rebuild = sys->rebuild;
     r.reserved = sys->reserved;
     r.media = s.media;
-    r.startup = s.startup;
+    std::vector<std::string> startup = sys->startup.value_or(std::vector<std::string>{});
+    for (const auto *b : chosen) startup.insert(startup.end(), b->startup.begin(), b->startup.end());
+    if (s.startup) startup.insert(startup.end(), s.startup->begin(), s.startup->end());
+    std::vector<std::string> once;
+    for (const auto &line : startup)
+        if (std::find(once.begin(), once.end(), line) == once.end()) once.push_back(line);
+    if (sys->startup || !once.empty()) r.startup = once;
     r.volumeId = s.volumeId;
     r.owner = m.owner;
     if (s.media == Media::dz) r.secondOwner = m.owner;

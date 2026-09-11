@@ -1,20 +1,21 @@
 /*
- * Compose.hpp - a whole bootable diskette from a system and groups of files.
+ * Compose.hpp - a whole bootable diskette, made from scratch.
  *
  * The level under the disk wizards: it knows volumes, not manifests.  A
- * recipe names an exemplar system image, the media to build, the groups of
- * files to add and, optionally, a new startup command file; composeDisk()
- * makes the image and planDisk() says, without throwing, where every group
- * would go and what is left - the same answer, because the plan is made by
- * putting the files for real on a scratch copy.
+ * blank of the media is formatted; the exemplar system image gives only
+ * what exists nowhere else - its SWAP.SYS, its monitor and the blocks it
+ * protects; the groups bring everything else, the system's own handlers and
+ * utilities first; then the startup command file and the bootstrap for the
+ * media.  composeDisk() makes the image and planDisk() says, without
+ * throwing, where every group would go and what is left - the same answer,
+ * because the plan is made by putting the files for real on a scratch copy.
  *
  *   ss  400 KB single-sided: one DZ volume
  *   dz  800 KB double-sided: two DZ volumes, side 0 boots
  *   dv  800 KB double-sided: one DV whole-disk volume
  *
- * The system's kit is every file of the exemplar's boot volume, in its
- * directory order, with its dates and protection - the exemplars are
- * curated kits, so nothing is picked out of them.
+ * The disk boots when the groups brought the boot device's handler - DZ.SYS
+ * for a floppy volume, DV.SYS for a DV one; without it the recipe is refused.
  */
 
 #ifndef MS0515_DISK_COMPOSE_HPP
@@ -49,8 +50,8 @@ struct ComposeGroup {
     std::vector<ComposeFile> files;
 };
 
-/* A block that must come out of the composition as it went in: a copy
- * protection kept in sectors the file system counts as free. */
+/* A block copied from the exemplar as it is - a copy protection kept in
+ * sectors the file system counts as free - that no file may take. */
 struct ReservedBlock {
     int side = 0;
     int lbn  = 0;
@@ -58,12 +59,9 @@ struct ReservedBlock {
 
 struct ComposeRecipe {
     std::vector<uint8_t> system;       /* the exemplar image, whole */
-    /* true: a fresh diskette, the exemplar's kit copied onto it.  false: the
-     * exemplar itself is the base and the media must be its own. */
-    bool                 rebuild = true;
     Media                media = Media::ss;
     std::vector<ComposeGroup> groups;  /* placed in this order */
-    /* The startup command file's lines; nullopt keeps the exemplar's. */
+    /* The startup command file's lines; nullopt copies the exemplar's. */
     std::optional<std::vector<std::string>> startup;
     /* Home-block labels, 12 characters at most; nullopt leaves what is
      * there - INIT's own on a fresh volume, the exemplar's on a kept one. */

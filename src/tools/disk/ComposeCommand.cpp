@@ -72,7 +72,9 @@ void list(const Manifest &m)
     for (const auto &s : m.systems) {
         std::string media;
         for (const auto x : s.media) media += std::string(media.empty() ? "" : ",") + mediaWord(x);
-        std::printf("  %-10s %-6s %s%s\n", s.key.c_str(), media.c_str(), s.title.c_str(), s.rebuild ? "" : " (kept as it is)");
+        std::string parts;
+        for (const auto &need : s.dependsOn) parts += std::string(parts.empty() ? " requires " : ",") + need;
+        std::printf("  %-10s %-9s %s%s\n", s.key.c_str(), media.c_str(), s.title.c_str(), parts.c_str());
     }
     std::puts("bundles:");
     auto joined = [](const std::vector<std::string> &v) {

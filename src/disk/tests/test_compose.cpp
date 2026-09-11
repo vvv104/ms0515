@@ -1,7 +1,8 @@
 /*
- * test_compose.cpp - whole diskettes from an exemplar and groups of files:
- * the kit as the exemplar has it, the groups where the rules put them, the
- * bootstrap for the media, and the plan agreeing with what gets built.
+ * test_compose.cpp - whole diskettes made from scratch: the exemplar gives
+ * only its SWAP.SYS, its monitor and the blocks it protects; everything else
+ * comes as groups of files; then the startup file and the bootstrap for the
+ * media.  The plan agrees with what gets built.
  */
 
 #include <doctest/doctest.h>
@@ -48,6 +49,31 @@ std::string homeField(const std::vector<uint8_t> &img, Media m, int side, int of
     return std::string(reinterpret_cast<const char *>(img.data()) + at + off, 12);
 }
 
+/* The system's parts as the manifest would bring them: files read off the
+ * exemplar here, the way the collection holds the same bytes loose. */
+ComposeGroup parts(const std::vector<uint8_t> &exemplarImage, Media from, std::vector<std::string> wanted)
+{
+    const auto src = volume(exemplarImage, from);
+    ComposeGroup g{"system", Place::boot, {}};
+    for (const auto &name : wanted) {
+        const auto *e = src->directory.find(name);
+        REQUIRE_MESSAGE(e, name);
+        g.files.push_back({name, src->readFile(name), e->date, (e->status & kStatusProtected) != 0});
+    }
+    return g;
+}
+
+ComposeRecipe recipe(Media from, Media to)
+{
+    ComposeRecipe r;
+    r.system = exemplar(from);
+    r.media = to;
+    std::vector<std::string> wanted{"DZ.SYS", "TT.SYS", "PIP.SAV"};
+    if (to == Media::dv) wanted.insert(wanted.begin(), "DV.SYS");
+    r.groups = {parts(r.system, from, wanted)};
+    return r;
+}
+
 }  /* namespace */
 
 TEST_SUITE("Compose") {
@@ -60,25 +86,22 @@ TEST_CASE("mediaOf tells the three diskettes apart") {
     CHECK_FALSE(mediaOf(std::vector<uint8_t>(1000)).has_value());
 }
 
-TEST_CASE("every media from every exemplar: the kit as it was, then the groups, and it boots") {
+TEST_CASE("every media from every exemplar: SWAP and the monitor from it, the parts given, and it boots") {
     for (const Media from : {Media::ss, Media::dz, Media::dv})
     for (const Media to : {Media::ss, Media::dz, Media::dv}) {
         CAPTURE(static_cast<int>(from)); CAPTURE(static_cast<int>(to));
-        const auto sys = exemplar(from);
-        ComposeRecipe r;
-        r.system = sys;
-        r.media = to;
-        r.groups = {{"games", Place::boot, {file("BIRDS.SAV", 4, 0x11), file("BIRDS.DAT", 2, 0x12)}}};
+        ComposeRecipe r = recipe(from, to);
+        r.groups.push_back({"games", Place::boot, {file("BIRDS.SAV", 4, 0x11), file("BIRDS.DAT", 2, 0x12)}});
         const auto img = composeDisk(r);
         REQUIRE(mediaOf(img) == to);
 
-        const auto src = volume(sys, from), got = volume(img, to);
+        const auto src = volume(r.system, from), got = volume(img, to);
         REQUIRE(got);
-        auto want = kKit;
-        want.push_back("BIRDS.SAV");
-        want.push_back("BIRDS.DAT");
-        CHECK(names(*got) == want);
-        for (const auto &name : kKit) {
+        std::vector<std::string> want{"SWAP.SYS", "RT11SJ.SYS"};
+        if (to == Media::dv) want.push_back("DV.SYS");
+        for (const char *n : {"DZ.SYS", "TT.SYS", "PIP.SAV", "BIRDS.SAV", "BIRDS.DAT", "START.COM"}) want.push_back(n);
+        CHECK(names(*got) == want);                          /* SL.SYS is on the exemplar and not taken */
+        for (const char *name : {"SWAP.SYS", "RT11SJ.SYS", "DZ.SYS", "START.COM"}) {
             CAPTURE(name);
             const auto *a = src->directory.find(name), *b = got->directory.find(name);
             REQUIRE(b);
@@ -87,7 +110,6 @@ TEST_CASE("every media from every exemplar: the kit as it was, then the groups, 
             CHECK(got->readFile(name) == src->readFile(name));
         }
         CHECK(got->readFile("BIRDS.SAV") == std::vector<uint8_t>(4 * kBlock, 0x11));
-        CHECK(got->directory.find("BIRDS.SAV")->date == encodeDate(1991, 11, 5));
         CHECK(bootedMonitor(img, 0, to != Media::ss, bootVol(to)) == "RT11SJ");
         if (to == Media::dz) {
             REQUIRE(volume(img, to, 1));
@@ -96,27 +118,36 @@ TEST_CASE("every media from every exemplar: the kit as it was, then the groups, 
     }
 }
 
-TEST_CASE("the startup file: the exemplar's kept, or made of the lines given") {
-    ComposeRecipe r;
-    r.system = exemplar(Media::dv);
-    r.media = Media::ss;
+TEST_CASE("the startup file: the exemplar's copied, or made of the lines given") {
+    ComposeRecipe r = recipe(Media::dv, Media::ss);
     auto kept = volume(composeDisk(r), Media::ss)->readFile("START.COM");
     CHECK(std::string(kept.begin(), kept.begin() + 25) == "SET TT QUIET\r\nSET SL ON\r\n");
 
     r.startup = std::vector<std::string>{"SET TT QUIET", "LOAD VM:", "R ROSA3"};
-    const auto img = composeDisk(r);
-    const auto im = volume(img, Media::ss);
+    const auto im = volume(composeDisk(r), Media::ss);
     const auto made = im->readFile("START.COM");
     CHECK(std::string(made.begin(), made.begin() + 33) == "SET TT QUIET\r\nLOAD VM:\r\nR ROSA3\r\n");
     CHECK(made[33] == 0);
-    CHECK(names(*im) == kKit);                                /* in its place, not appended */
     CHECK((im->directory.find("START.COM")->status & kStatusProtected) == 0);
 }
 
-TEST_CASE("labels: the boot volume's and the second's") {
-    ComposeRecipe r;
-    r.system = exemplar(Media::dv);
+TEST_CASE("a disk that could not boot is refused: the handler of its boot device is missing") {
+    ComposeRecipe r = recipe(Media::dv, Media::dv);
+    r.groups = {parts(r.system, Media::dv, {"DZ.SYS", "TT.SYS"})};      /* no DV.SYS for a DV disk */
+    auto plan = planDisk(r);
+    CHECK_FALSE(plan.ok);
+    CHECK(plan.problem.find("DV.SYS") != std::string::npos);
+
     r.media = Media::dz;
+    CHECK(planDisk(r).ok);                                              /* a DZ disk needs only DZ.SYS */
+    r.groups = {parts(r.system, Media::dv, {"TT.SYS"})};
+    plan = planDisk(r);
+    CHECK_FALSE(plan.ok);
+    CHECK(plan.problem.find("DZ.SYS") != std::string::npos);
+}
+
+TEST_CASE("labels: the boot volume's and the second's") {
+    ComposeRecipe r = recipe(Media::dv, Media::dz);
     r.volumeId = "GAMES";
     r.owner = "MS0515 EMU";
     r.secondVolumeId = "TEXT GAMES";
@@ -127,27 +158,22 @@ TEST_CASE("labels: the boot volume's and the second's") {
 }
 
 TEST_CASE("a group that may go anywhere goes to the second volume when the boot one is full, whole") {
-    ComposeRecipe r;
-    r.system = exemplar(Media::dz);
-    r.media = Media::dz;
+    ComposeRecipe r = recipe(Media::dz, Media::dz);
     const auto plan0 = planDisk(r);
     REQUIRE(plan0.ok);
     REQUIRE(plan0.freeBlocks.size() == 2);
     const int bootFree = plan0.freeBlocks[0];
 
-    r.groups = {
-        {"big", Place::boot, {file("BIG.SAV", bootFree - 3, 0x21)}},
-        {"pair", Place::any, {file("ONE.SAV", 2, 0x22), file("TWO.DAT", 2, 0x23)}},   /* the first would fit */
-        {"small", Place::any, {file("TINY.SAV", 3, 0x24)}},                          /* this one fits */
-    };
+    r.groups.push_back({"big", Place::boot, {file("BIG.SAV", bootFree - 2, 0x21)}});
+    r.groups.push_back({"pair", Place::any, {file("ONE.SAV", 2, 0x22), file("TWO.DAT", 2, 0x23)}});
+    r.groups.push_back({"small", Place::any, {file("TINY.SAV", 2, 0x24)}});
     const auto plan = planDisk(r);
-    REQUIRE(plan.ok);
-    REQUIRE(plan.groups.size() == 3);
-    CHECK(plan.groups[0].volume == 0);
-    CHECK(plan.groups[1].volume == 1);
-    CHECK(plan.groups[1].blocks == 4);
-    CHECK(plan.groups[2].volume == 0);
-    CHECK(plan.freeBlocks[0] == 0);
+    REQUIRE_MESSAGE(plan.ok, plan.problem);
+    REQUIRE(plan.groups.size() == 4);
+    CHECK(plan.groups[1].volume == 0);
+    CHECK(plan.groups[2].volume == 1);
+    CHECK(plan.groups[2].blocks == 4);
+    CHECK(plan.groups[3].volume == 0);
     CHECK(plan.freeBlocks[1] == plan0.freeBlocks[1] - 4);
 
     const auto img = composeDisk(r);
@@ -156,41 +182,32 @@ TEST_CASE("a group that may go anywhere goes to the second volume when the boot 
 }
 
 TEST_CASE("what cannot be built says why, and the plan still shows what fitted") {
-    ComposeRecipe r;
-    r.system = exemplar(Media::dv);
-    r.media = Media::ss;
+    ComposeRecipe r = recipe(Media::dv, Media::ss);
     const int bootFree = planDisk(r).freeBlocks.at(0);
 
     SUBCASE("a boot group too big for the boot volume") {
-        r.groups = {{"ok", Place::boot, {file("A.SAV", 2, 1)}},
-                    {"Saboteur 2", Place::boot, {file("SABOT2.DAT", bootFree, 2)}}};
+        r.groups.push_back({"ok", Place::boot, {file("A.SAV", 2, 1)}});
+        r.groups.push_back({"Saboteur 2", Place::boot, {file("SABOT2.DAT", bootFree, 2)}});
         const auto plan = planDisk(r);
         CHECK_FALSE(plan.ok);
         CHECK(plan.problem.find("Saboteur 2") != std::string::npos);
-        CHECK(plan.groups[0].volume == 0);
-        CHECK(plan.groups[1].volume == -1);
-        CHECK_FALSE(plan.groups[1].problem.empty());
+        CHECK(plan.groups[1].volume == 0);
+        CHECK(plan.groups[2].volume == -1);
+        CHECK_FALSE(plan.groups[2].problem.empty());
         CHECK_THROWS_WITH_AS((void)composeDisk(r), doctest::Contains("Saboteur 2"), std::runtime_error);
     }
     SUBCASE("an any group with no second volume to go to") {
-        r.groups = {{"docs", Place::any, {file("DOC.TXT", bootFree + 1, 3)}}};
+        r.groups.push_back({"docs", Place::any, {file("DOC.TXT", bootFree + 1, 3)}});
         CHECK_FALSE(planDisk(r).ok);
     }
     SUBCASE("a name already on the volume") {
-        r.groups = {{"mine", Place::boot, {file("PIP.SAV", 1, 4)}}};
+        r.groups.push_back({"mine", Place::boot, {file("SWAP.SYS", 1, 4)}});
         const auto plan = planDisk(r);
         CHECK_FALSE(plan.ok);
-        CHECK(plan.problem.find("PIP.SAV") != std::string::npos);
+        CHECK(plan.problem.find("SWAP.SYS") != std::string::npos);
     }
     SUBCASE("a name that is no 6.3 name") {
-        r.groups = {{"bad", Place::boot, {file("TOOLONGNAME.SAV", 1, 5)}}};
-        CHECK_FALSE(planDisk(r).ok);
-    }
-    SUBCASE("a DV disk from an exemplar that has no DV.SYS") {
-        auto sys = exemplar(Media::ss);
-        removeFile(sys, 0, false, "DV.SYS");
-        r.system = sys;
-        r.media = Media::dv;
+        r.groups.push_back({"bad", Place::boot, {file("TOOLONGNAME.SAV", 1, 5)}});
         CHECK_FALSE(planDisk(r).ok);
     }
     SUBCASE("an exemplar that does not boot") {
@@ -201,41 +218,29 @@ TEST_CASE("what cannot be built says why, and the plan still shows what fitted")
     }
 }
 
-TEST_CASE("an exemplar kept as it is: its media only, and its reserved blocks untouched") {
-    auto sys = exemplar(Media::dz);
-    const int protLbn = 792;                                   /* free as far as side 1's directory knows */
+TEST_CASE("reserved blocks: copied from the exemplar, and no file may take them") {
+    ComposeRecipe r = recipe(Media::dz, Media::dz);
+    const int protLbn = 792;
     const auto at = lbnToByte(protLbn, 1, true, Vol::floppy);
-    for (std::size_t i = 0; i < kBlock; ++i) sys[at + i] = static_cast<uint8_t>(0x5A ^ i);
-
-    ComposeRecipe r;
-    r.system = sys;
-    r.rebuild = false;
-    r.media = Media::dz;
+    for (std::size_t i = 0; i < kBlock; ++i) r.system[at + i] = static_cast<uint8_t>(0x5A ^ i);
     r.reserved = {{1, protLbn}};
-    r.startup = std::vector<std::string>{"LOAD VM:", "R ROSA3"};
-    r.groups = {{"rosa", Place::boot, {file("ROSA3.SAV", 5, 0x31)}}};
+
     const auto img = composeDisk(r);
     CHECK(std::equal(img.begin() + static_cast<std::ptrdiff_t>(at), img.begin() + static_cast<std::ptrdiff_t>(at + kBlock),
-                     sys.begin() + static_cast<std::ptrdiff_t>(at)));
+                     r.system.begin() + static_cast<std::ptrdiff_t>(at)));
     CHECK(bootedMonitor(img, 0, true) == "RT11SJ");
-    CHECK(volume(img, Media::dz)->directory.find("ROSA3.SAV") != nullptr);
 
     const int sideFree = planDisk(r).freeBlocks.at(1);
     r.groups.push_back({"fills side 1", Place::any, {file("HUGE.DAT", sideFree, 0x32)}});
     const auto plan = planDisk(r);
     CHECK_FALSE(plan.ok);
     CHECK(plan.problem.find("reserved") != std::string::npos);
-
-    r.groups.pop_back();
-    r.media = Media::ss;
-    CHECK_FALSE(planDisk(r).ok);                               /* not its own media */
 }
 
 TEST_CASE("the plan and the build agree: free blocks are what the directory says afterwards") {
-    ComposeRecipe r;
-    r.system = exemplar(Media::dv);
-    r.media = Media::dz;
-    r.groups = {{"a", Place::boot, {file("A.SAV", 7, 1)}}, {"b", Place::any, {file("B.DAT", 9, 2)}}};
+    ComposeRecipe r = recipe(Media::dv, Media::dz);
+    r.groups.push_back({"a", Place::boot, {file("A.SAV", 7, 1)}});
+    r.groups.push_back({"b", Place::any, {file("B.DAT", 9, 2)}});
     const auto plan = planDisk(r);
     const auto img = composeDisk(r);
     for (int side = 0; side < 2; ++side) {

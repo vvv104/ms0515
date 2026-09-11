@@ -23,11 +23,18 @@
 
 namespace ms0515::disk {
 
+/* A system: its exemplar image gives SWAP.SYS, the monitor and the blocks
+ * it protects; everything else on the disk is bundles. */
 struct ManifestSystem {
     std::string                key, title, image;
     std::vector<Media>         media;          /* what the monitor boots from */
-    bool                       rebuild = true;
-    std::vector<ReservedBlock> reserved;
+    std::vector<ReservedBlock> reserved;       /* copied from the image */
+    /* The bundles it cannot work without (TOML `requires`), and those it
+     * needs on one media only (`requires_by_media`: DV.SYS for dv). */
+    std::vector<std::string>   dependsOn;
+    std::map<Media, std::vector<std::string>> dependsOnByMedia;
+    /* The first lines of the startup command file (TOML `startup`). */
+    std::optional<std::vector<std::string>> startup;
 };
 
 struct ManifestFile {
@@ -58,6 +65,8 @@ struct ManifestBundle {
      * list is the default, the table's entries override it per system. */
     std::vector<std::string>  prefer;
     std::map<std::string, std::vector<std::string>> preferBySystem;
+    /* Lines it adds to the startup command file (SET SL ON). */
+    std::vector<std::string>  startup;
 };
 
 struct ManifestPreset {
@@ -90,6 +99,7 @@ struct Selection {
     std::string                             system;
     Media                                   media = Media::ss;
     std::vector<std::string>                bundles;
+    /* Lines after the system's and the bundles' (R ROSA3). */
     std::optional<std::vector<std::string>> startup;
     std::optional<std::string>              volumeId;
     /* The user's choice among alternatives: provided name -> bundle key. */
@@ -103,8 +113,9 @@ struct Selection {
 [[nodiscard]] std::vector<const ManifestBundle *> candidatesFor(const Manifest &m, std::string_view need,
                                                                 const std::string &system, Media media);
 
-/* What a choice installs: the bundles chosen and, through `requires`, what
- * they need - each once, a need before what needs it.  An alternative is
+/* What a choice installs: the system's own bundles first, then the bundles
+ * chosen and, through `requires`, what they need - each once, a need before
+ * what needs it.  An alternative is
  * the one chosen outright, else the user's pick, else the first the
  * needing bundle prefers, else the first in the file; two bundles
  * providing one name never go together. */
@@ -137,7 +148,8 @@ struct Repository {
 [[nodiscard]] std::vector<std::string> bundlePaths(const ManifestBundle &b, const Repository &repo);
 
 /* The recipe for a selection, its needs resolved, the system image and
- * every file read.  Throws std::runtime_error when the selection breaks a
+ * every file read, the startup file made of the system's lines, the chosen
+ * bundles' and the selection's, each line once.  Throws std::runtime_error when the selection breaks a
  * rule or a file cannot be read; whether it FITS is the plan's business
  * (planDisk). */
 [[nodiscard]] ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository &repo);
