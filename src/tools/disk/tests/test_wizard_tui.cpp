@@ -284,8 +284,7 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     CHECK_FALSE(tui.model().selection().startup.has_value());
 
     choose(tui, "dv - one DV");                               /* another diskette: on to its label again */
-    press(tui, ftxui::Event::Delete);                         /* MYDISK out; typing adds to what is there */
-    type(tui, "DVDISK");
+    type(tui, "DVDISK");                                      /* typing on MYDISK starts afresh */
     press(tui, ftxui::Event::Return);
     CHECK(tui.model().selection().volumeId == "DVDISK");
     press(tui, ftxui::Event::ArrowUp);

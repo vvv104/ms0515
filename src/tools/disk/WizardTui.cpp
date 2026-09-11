@@ -324,7 +324,7 @@ bool WizardTui::onListEvent(const Event &e)
     const auto &r = rows[static_cast<std::size_t>(cursor_)];
     if (r.kind == WizardRow::Kind::field && e == Event::Return) { nextField(r.key, false); return true; }
     if (e == Event::Character(" ") || e == Event::Return) { activate(r); return true; }
-    if (r.kind == WizardRow::Kind::field && e.is_character()) { startEdit(r, r.value + e.character()); return true; }
+    if (r.kind == WizardRow::Kind::field && e.is_character()) { startEdit(r, e.character()); return true; }   /* afresh */
     if (r.kind == WizardRow::Kind::field && e == Event::Delete) {   /* the box emptied: a START.COM line goes */
         status_ = wizard_.setField(r.key, "");
         changed();
@@ -382,12 +382,13 @@ Element WizardTui::renderList(int rows)
             std::string shownText = typing ? edit_ + "_" : r.value;
             if (shownText.size() > width) shownText = shownText.substr(shownText.size() - width);
             shownText.resize(width, ' ');
-            Element box = text(shownText);
-            if (typing) box = box | kEdit;
             std::string title = r.title;
             if (!title.empty()) title.resize(std::max<std::size_t>(title.size(), kFieldTitleWidth) + 1, ' ');
-            line = hbox({text(indent + title + "["), box, text("]"), filler(),
-                         text(r.summary) | size(WIDTH, EQUAL, kSideWidth)});
+            /* The row keeps its cursor bar while the box is typed into: the
+             * bar round the box, the box in its own colours. */
+            const Decorator around = i == cursor_ ? kCursor : Decorator(nothing);
+            line = hbox({text(indent + title + "[") | around, text(shownText) | (typing ? kEdit : around),
+                         text("]") | around, filler() | around, text(r.summary) | size(WIDTH, EQUAL, kSideWidth) | around});
         } else if (r.kind == WizardRow::Kind::line) {
             const auto *sys = manifest_.system(wizard_.system());
             const std::string from = sys && r.requiredBy == sys->title ? std::string("the system's") : "from " + shortTitle(r.requiredBy);
@@ -405,7 +406,7 @@ Element WizardTui::renderList(int rows)
             else if (r.mark == WizardRow::Mark::added) row = row | kAdded;
             line = row;
         }
-        if (i == cursor_ && !editing_) line = line | kCursor;
+        if (i == cursor_ && r.kind != WizardRow::Kind::field) line = line | kCursor;
         lines.push_back(line);
     }
     return vbox(lines);
