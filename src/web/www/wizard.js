@@ -130,7 +130,7 @@ export class DiskComposer {
         continue;
       }
       if (r.kind === "field") {
-        const volume = r.key === "#volume-id";
+        const volume = r.parent === "#label";
         out.push(`<label class="wiz-field" ${pad(r)}>${r.title ? `<span>${esc(r.title)}</span>` : ""}` +
                  `<input id="wiz-f${esc(r.key.replace(/[^a-z0-9]/gi, "-"))}" data-key="${esc(r.key)}" value="${esc(r.value)}"` +
                  ` placeholder="${esc(r.summary)}" spellcheck="false" autocomplete="off"${volume ? ` maxlength="12" class="vol"` : ""}></label>`);

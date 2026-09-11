@@ -67,6 +67,9 @@ inline constexpr const char *kStartupGroup = "#startup";
 /* The fields' keys: the volume id; START.COM's own line N ("#startup:N", N
  * one past the last: a new line). */
 inline constexpr const char *kVolumeIdField = "#volume-id";
+inline constexpr const char *kOwnerField = "#owner";
+inline constexpr const char *kSecondVolumeIdField = "#volume-id-2";     /* dz: side 1 */
+inline constexpr const char *kSecondOwnerField = "#owner-2";
 inline constexpr const char *kStartupField = "#startup:";
 
 /* "dz - two sides, 800 KB" */
@@ -125,9 +128,9 @@ public:
 
     void setStartup(std::vector<std::string> lines);
     void setVolumeId(std::optional<std::string> id);
-    /* A field's text, as typed: "" when taken, else why not.  The volume id
-     * keeps twelve characters; a START.COM line emptied goes, one typed into
-     * the new line is added. */
+    /* A field's text, as typed: "" when taken, else why not.  A volume id or
+     * an owner keeps twelve characters, in capitals, and emptied is unset; a
+     * START.COM line emptied goes, one typed into the new line is added. */
     std::string setField(const std::string &key, const std::string &value);
 
     [[nodiscard]] const Selection &selection() const noexcept { return sel_; }

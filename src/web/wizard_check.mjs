@@ -129,6 +129,7 @@ if (!JSON.parse(api.details("dir2")).files.includes("DIR.SAV")) fail("the detail
 
 // The label and START.COM: fields in the list, START.COM at the end of System.
 if (api.setField("#volume-id", "check") !== "") fail("wiz_set_field volume id");
+if (api.setField("#volume-id-2", "two") === "") fail("a second side's label on a one-sided disk");
 if (api.setField("#startup:0", "DIR") !== "") fail("wiz_set_field startup");
 state = JSON.parse(api.state());
 if (row("#volume-id", "field")?.value !== "CHECK") fail("the volume id field: " + JSON.stringify(row("#volume-id", "field")));

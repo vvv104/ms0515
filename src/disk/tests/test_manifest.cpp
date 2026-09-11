@@ -507,6 +507,24 @@ TEST_CASE("a system requires a name: its own build preferred, another one picked
     CHECK_THROWS_AS((void)parseManifest(replaced(text, "prefer = [\"link-vvv\"]", "prefer = [\"link-pdp\"]")), std::runtime_error);
 }
 
+TEST_CASE("the labels: each side's volume id and owner, the second side's on a two-sided disk only") {
+    const Manifest m = parseManifest(kDeps);
+    Selection s = selectionOf(*m.preset("dev"));
+    s.volumeId = "DEV";
+    s.owner = "VVV104";
+    s.secondVolumeId = "TWO";
+    s.secondOwner = "ME";
+    ComposeRecipe r = recipeFor(m, s, depsRepository());
+    CHECK(r.volumeId == "DEV");
+    CHECK(r.owner == "VVV104");
+    CHECK_FALSE(r.secondVolumeId.has_value());                               /* one DV volume */
+    CHECK_FALSE(r.secondOwner.has_value());
+    s.media = Media::dz;
+    r = recipeFor(m, s, depsRepository());
+    CHECK(r.secondVolumeId == "TWO");
+    CHECK(r.secondOwner == "ME");
+}
+
 TEST_CASE("a need nothing on this system satisfies refuses what needs it, saying which") {
     const Manifest m = parseManifest(kDeps);
     const Resolution r = resolveBundles(m, "mihin", Media::dz, {"pascal-graphics"});

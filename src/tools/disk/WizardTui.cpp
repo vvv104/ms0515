@@ -42,6 +42,7 @@ std::optional<std::vector<uint8_t>> readHost(const std::filesystem::path &p)
 const int kNoteWidth = 22;
 const int kSideWidth = 5 + 2 + kNoteWidth;   /* a group's summary sits where its rows' blocks and notes do */
 const int kLineWidth = 30;                   /* a START.COM line's box */
+const std::size_t kFieldTitleWidth = 15;     /* "DZ2: volume id", so the boxes line up */
 const char *const kNotReady = "choose the diskette and the system first";
 
 /* What a note has room for: a title up to its " - " or " (" - "Pascal",
@@ -142,12 +143,15 @@ void WizardTui::activate(const WizardRow &r)
     case WizardRow::Kind::field:
         startEdit(r, r.value);
         return;
-    case WizardRow::Kind::media:
+    case WizardRow::Kind::media: {
+        const bool first = !wizard_.media();
         status_ = wizard_.setMedia(*parseMedia(r.key));
         if (status_.empty() && !wizard_.notices().empty()) status_ = wizard_.notices().front();
         changed();
-        if (!wizard_.ready()) cursor_ = firstOf([](const WizardRow &x) { return x.kind == WizardRow::Kind::system && x.available; });
+        if (first) cursor_ = indexOf(kVolumeIdField, WizardRow::Kind::field);
+        else if (!wizard_.ready()) cursor_ = firstOf([](const WizardRow &x) { return x.kind == WizardRow::Kind::system && x.available; });
         return;
+    }
     case WizardRow::Kind::system: {
         const bool first = !wizard_.ready();
         status_ = wizard_.setSystem(r.key);
@@ -260,6 +264,24 @@ bool WizardTui::onAskEvent(const Event &e)
     return true;
 }
 
+/* After Enter kept a field: on to the next field of its block; past the
+ * label's last, to the first system when none is chosen yet.  A START.COM
+ * line emptied is gone, and the one after it has come up to its place. */
+void WizardTui::nextField(bool blank)
+{
+    const auto rows = visibleRows();
+    const int at = indexOf(editKey_, WizardRow::Kind::field);
+    if (at < 0) return;
+    const std::string prefix = kStartupField;
+    if (blank && editKey_.rfind(prefix, 0) == 0) { cursor_ = at; return; }
+    const auto here = static_cast<std::size_t>(at);
+    if (here + 1 < rows.size() && rows[here + 1].kind == WizardRow::Kind::field && rows[here + 1].parent == rows[here].parent) {
+        cursor_ = at + 1;
+    } else if (rows[here].parent == kLabelGroup && !wizard_.ready()) {
+        cursor_ = firstOf([](const WizardRow &x) { return x.kind == WizardRow::Kind::system && x.available; });
+    }
+}
+
 void WizardTui::startEdit(const WizardRow &row, std::string text)
 {
     editing_ = true;
@@ -274,13 +296,10 @@ bool WizardTui::onEditEvent(const Event &e)
     if (e == Event::Escape) { editing_ = false; return true; }
     if (e == Event::Return || e == Event::ArrowUp || e == Event::ArrowDown) {
         editing_ = false;
+        const bool blank = edit_.find_first_not_of(' ') == std::string::npos;
         status_ = wizard_.setField(editKey_, edit_);
         changed();
-        const std::string prefix = kStartupField;
-        if (e == Event::Return && editKey_.rfind(prefix, 0) == 0 && status_.empty()) {
-            const auto next = prefix + std::to_string(std::stoul(editKey_.substr(prefix.size())) + 1);
-            if (const int at = indexOf(next, WizardRow::Kind::field); at >= 0) cursor_ = at;
-        }
+        if (e == Event::Return && status_.empty()) nextField(blank);
         if (e == Event::ArrowUp) moveCursor(-1);
         if (e == Event::ArrowDown) moveCursor(1);
         return true;
@@ -357,7 +376,9 @@ Element WizardTui::renderList(int rows)
             shownText.resize(width, ' ');
             Element box = text(shownText);
             if (typing) box = box | kEdit;
-            line = hbox({text(indent + (r.title.empty() ? std::string() : r.title + "  ") + "["), box, text("]"), filler(),
+            std::string title = r.title;
+            if (!title.empty()) title.resize(std::max<std::size_t>(title.size(), kFieldTitleWidth) + 1, ' ');
+            line = hbox({text(indent + title + "["), box, text("]"), filler(),
                          text(r.summary) | size(WIDTH, EQUAL, kSideWidth)});
         } else if (r.kind == WizardRow::Kind::line) {
             const auto *sys = manifest_.system(wizard_.system());

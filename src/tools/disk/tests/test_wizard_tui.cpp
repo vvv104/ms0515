@@ -168,8 +168,16 @@ TEST_CASE("the wizard's screen: the diskette first, then the system, then the gr
     CHECK(s.find("\xE2\x96\xBE Operating system") != std::string::npos);
     CHECK(s.find("( ) OMEGA") != std::string::npos);
     CHECK(s.find("choose the system first") != std::string::npos);
+    CHECK(s.find("DZ2: volume id") != std::string::npos);        /* a label for each side */
 
-    press(tui, ftxui::Event::Character(" "));                 /* the cursor went on to the next step's first */
+    type(tui, "GAMES");                                       /* the cursor went on to the label */
+    press(tui, ftxui::Event::Return);                         /* kept: on to the next field */
+    CHECK(tui.model().selection().volumeId == "GAMES");
+    for (int field = 0; field < 3; ++field) {                  /* Enter edits, Enter keeps and moves on */
+        press(tui, ftxui::Event::Return);
+        press(tui, ftxui::Event::Return);
+    }
+    press(tui, ftxui::Event::Character(" "));                 /* past the label: the first system */
     REQUIRE(tui.model().ready());
     s = shown(tui);
     CHECK(s.find("(\xE2\x80\xA2) OMEGA") != std::string::npos);     /* still in sight */
@@ -249,16 +257,18 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     const Manifest m = parseManifest(kManifest);
     const Repository repo = repository();
     tools::WizardTui tui(m, repo, scratch());
-    choose(tui, "dz - two sides");
-    downTo(tui, "Volume id");
+    choose(tui, "dz - two sides");                            /* the cursor goes on to DZ0's volume id */
     press(tui, ftxui::Event::Return);
     type(tui, "MYDISK");
     press(tui, ftxui::Event::Return);
     CHECK(tui.model().selection().volumeId == "MYDISK");
     CHECK(shown(tui).find("[MYDISK") != std::string::npos);
-    type(tui, "X");                                           /* typing on a field starts an edit */
+    type(tui, "X");                                           /* on the owner now: typing starts an edit */
     press(tui, ftxui::Event::Escape);
-    CHECK(tui.model().selection().volumeId == "MYDISK");
+    CHECK_FALSE(tui.model().selection().owner.has_value());
+    type(tui, "VVV");
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().owner == "VVV");
 
     choose(tui, "OMEGA");
     downTo(tui, "START.COM");

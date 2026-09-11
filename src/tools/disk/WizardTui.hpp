@@ -60,6 +60,7 @@ private:
     void finishAsk();
     bool onAskEvent(const ftxui::Event &event);
     void startEdit(const disk::WizardRow &row, std::string text);
+    void nextField(bool blank);
     bool onEditEvent(const ftxui::Event &event);
     bool onListEvent(const ftxui::Event &event);
     void findNext(const std::string &text);

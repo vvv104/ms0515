@@ -556,8 +556,11 @@ ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository 
         if (std::find(once.begin(), once.end(), line) == once.end()) once.push_back(line);
     if (sys->startup || !once.empty()) r.startup = once;
     r.volumeId = s.volumeId;
-    r.owner = m.owner;
-    if (s.media == Media::dz) r.secondOwner = m.owner;
+    r.owner = s.owner ? s.owner : m.owner;
+    if (s.media == Media::dz) {
+        r.secondVolumeId = s.secondVolumeId;
+        r.secondOwner = s.secondOwner ? s.secondOwner : m.owner;
+    }
     for (const auto *b : chosen) {
         std::map<std::string, const ManifestFile *> byPath;
         for (const auto &f : b->files) byPath[f.pattern] = &f;

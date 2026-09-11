@@ -391,16 +391,33 @@ TEST_CASE("the label after the diskette, START.COM at the end of the system's gr
     CHECK_FALSE(row(rows, "#label", WizardRow::Kind::group)->available);
     CHECK(w.setField(kVolumeIdField, "MYDISK") == "choose the diskette first");
 
-    REQUIRE(w.setMedia(Media::dz).empty());
+    REQUIRE(w.setMedia(Media::ss).empty());
     rows = w.rows();
     CHECK(row(rows, "#label", WizardRow::Kind::group)->open);           /* opened with the diskette */
     const auto *id = row(rows, kVolumeIdField, WizardRow::Kind::field);
     REQUIRE(id);
     CHECK(id->title == "Volume id");
     CHECK(id->value.empty());
+    CHECK(row(rows, kOwnerField, WizardRow::Kind::field)->title == "Owner");
+    CHECK(row(rows, kSecondVolumeIdField, WizardRow::Kind::field) == nullptr);   /* one side */
+    CHECK(w.setField(kSecondVolumeIdField, "TEXT") == "only a two-sided diskette has a second side");
+
+    REQUIRE(w.setMedia(Media::dz).empty());
+    rows = w.rows();
+    std::vector<std::string> titles;
+    for (const auto &r : rows) if (r.parent == kLabelGroup) titles.push_back(r.title);
+    CHECK(titles == std::vector<std::string>{"DZ0: volume id", "DZ0: owner", "DZ2: volume id", "DZ2: owner"});
     CHECK(w.setField(kVolumeIdField, "MYDISK").empty());
     CHECK(w.selection().volumeId == "MYDISK");
     CHECK(row(w.rows(), "#label", WizardRow::Kind::group)->summary == "MYDISK");
+    CHECK(w.setField(kOwnerField, "vvv104").empty());
+    CHECK(w.selection().owner == "VVV104");
+    CHECK(w.setField(kSecondVolumeIdField, "text").empty());
+    CHECK(w.setField(kSecondOwnerField, "Me").empty());
+    CHECK(w.selection().secondVolumeId == "TEXT");
+    CHECK(w.selection().secondOwner == "ME");
+    CHECK(row(w.rows(), "#label", WizardRow::Kind::group)->summary == "MYDISK \xC2\xB7 TEXT");
+    CHECK(row(w.rows(), kSecondOwnerField, WizardRow::Kind::field)->value == "ME");
     CHECK(row(w.rows(), kVolumeIdField, WizardRow::Kind::field)->value == "MYDISK");
     CHECK(w.setField(kVolumeIdField, "ABCDEFGHIJKLMNOP").empty());
     CHECK(w.selection().volumeId == "ABCDEFGHIJKL");                    /* RT-11 keeps twelve */
@@ -454,6 +471,9 @@ TEST_CASE("the saved choice: its own file, tied to the collection's version") {
     REQUIRE(w.toggle("macro-omega").empty());
     w.setStartup({"R PAS1"});
     w.setVolumeId(std::string("MYDEV"));
+    REQUIRE(w.setField(kOwnerField, "VVV").empty());
+    REQUIRE(w.setField(kSecondVolumeIdField, "SIDE1").empty());
+    REQUIRE(w.setField(kSecondOwnerField, "ME").empty());
 
     const SavedSelection saved = w.saved();
     CHECK(saved.collection == "2026.09.11-4");
@@ -466,6 +486,9 @@ TEST_CASE("the saved choice: its own file, tied to the collection's version") {
     CHECK(back.selection.picks.at("macro11") == "macro-omega");
     CHECK(back.selection.startup == std::vector<std::string>{"R PAS1"});
     CHECK(back.selection.volumeId == "MYDEV");
+    CHECK(back.selection.owner == "VVV");
+    CHECK(back.selection.secondVolumeId == "SIDE1");
+    CHECK(back.selection.secondOwner == "ME");
 
     DiskWizard again(m, "mihin", Media::ss);
     again.load(back);

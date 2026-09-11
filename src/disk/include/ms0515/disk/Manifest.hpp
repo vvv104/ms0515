@@ -106,7 +106,10 @@ struct Selection {
     std::vector<std::string>                bundles;
     /* Lines after the system's and the bundles' (R ROSA3). */
     std::optional<std::vector<std::string>> startup;
-    std::optional<std::string>              volumeId;
+    /* The labels in the home blocks: the boot volume's, and on a two-sided
+     * dz disk the second side's.  No owner: the collection's `owner`. */
+    std::optional<std::string>              volumeId, owner;
+    std::optional<std::string>              secondVolumeId, secondOwner;
     /* The user's choice among alternatives: provided name -> bundle key. */
     std::map<std::string, std::string>      picks;
 };

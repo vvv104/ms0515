@@ -71,6 +71,21 @@ std::vector<std::string> groupPath(const std::string &group)
     return out;
 }
 
+/* The label's fields: each side's volume id and owner. */
+struct LabelField {
+    const char *key;
+    const char *what;
+    std::optional<std::string> Selection::*member;
+    bool        secondSide;
+};
+
+const LabelField kLabelFields[] = {
+    {kVolumeIdField, "volume id", &Selection::volumeId, false},
+    {kOwnerField, "owner", &Selection::owner, false},
+    {kSecondVolumeIdField, "volume id", &Selection::secondVolumeId, true},
+    {kSecondOwnerField, "owner", &Selection::secondOwner, true},
+};
+
 [[noreturn]] void fail(const std::string &what) { throw std::runtime_error("selection: " + what); }
 
 std::vector<std::string> strings(const toml::table &t, std::string_view key)
@@ -295,11 +310,13 @@ std::string DiskWizard::setField(const std::string &key, const std::string &valu
 {
     const auto first = value.find_first_not_of(' '), last = value.find_last_not_of(' ');
     const std::string text = first == std::string::npos ? std::string() : value.substr(first, last - first + 1);
-    if (key == kVolumeIdField) {
+    for (const auto &f : kLabelFields) {
+        if (key != f.key) continue;
         if (!media_) return "choose the diskette first";
-        std::string id = text.substr(0, 12);
-        for (auto &c : id) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        setVolumeId(id.empty() ? std::nullopt : std::optional<std::string>(id));
+        if (f.secondSide && media_ != Media::dz) return "only a two-sided diskette has a second side";
+        std::string label = text.substr(0, 12);
+        for (auto &c : label) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        sel_.*f.member = label.empty() ? std::nullopt : std::optional<std::string>(label);
         return "";
     }
     const std::string prefix = kStartupField;
@@ -480,14 +497,23 @@ void DiskWizard::labelRows(std::vector<WizardRow> &out, bool everything) const
     label.available = media_.has_value();
     if (!label.available) label.why = "choose the diskette first";
     label.open = label.available && (everything || open_.count(kLabelGroup) != 0);
+    const bool twoSides = media_ == Media::dz;
     label.summary = sel_.volumeId.value_or("");
+    if (twoSides && sel_.secondVolumeId)
+        label.summary += (label.summary.empty() ? "" : " \xC2\xB7 ") + *sel_.secondVolumeId;
     out.push_back(label);
     if (!label.open) return;
-    WizardRow id = heading(WizardRow::Kind::field, 1, kVolumeIdField, "Volume id");
-    id.parent = kLabelGroup;
-    id.value = sel_.volumeId.value_or("");
-    id.summary = "up to 12 characters";
-    out.push_back(std::move(id));
+    for (const auto &f : kLabelFields) {
+        if (f.secondSide && !twoSides) continue;
+        std::string title = f.what;
+        if (twoSides) title = std::string(f.secondSide ? "DZ2: " : "DZ0: ") + f.what;
+        else title[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(title[0])));
+        WizardRow r = heading(WizardRow::Kind::field, 1, f.key, title);
+        r.parent = kLabelGroup;
+        r.value = (sel_.*f.member).value_or("");
+        r.summary = "up to 12 characters";
+        out.push_back(std::move(r));
+    }
 }
 
 /* The top group holding the system's parts - where its startup file shows. */
@@ -575,6 +601,9 @@ void DiskWizard::load(const SavedSelection &saved)
     for (const auto &[name, key] : s.picks) if (m_.bundle(key)) sel_.picks[name] = key;
     sel_.startup = s.startup;
     sel_.volumeId = s.volumeId;
+    sel_.owner = s.owner;
+    sel_.secondVolumeId = s.secondVolumeId;
+    sel_.secondOwner = s.secondOwner;
     open_ = {kStartupGroup};
     if (sel_.system.empty()) open_.insert(kSystemGroup);
     if (ready()) dropWhatDoesNotFit(); else resolve();
@@ -609,6 +638,9 @@ std::string selectionToml(const SavedSelection &saved)
     }
     if (s.startup) t += "startup    = " + list(*s.startup) + "\n";
     if (s.volumeId) t += "volume_id  = " + quoted(*s.volumeId) + "\n";
+    if (s.owner) t += "owner      = " + quoted(*s.owner) + "\n";
+    if (s.secondVolumeId) t += "second_volume_id = " + quoted(*s.secondVolumeId) + "\n";
+    if (s.secondOwner) t += "second_owner     = " + quoted(*s.secondOwner) + "\n";
     return t;
 }
 
@@ -635,6 +667,9 @@ SavedSelection parseSelection(std::string_view text)
             if (const auto key = v.value<std::string>()) out.selection.picks[std::string(k.str())] = *key;
     if (root.contains("startup")) out.selection.startup = strings(root, "startup");
     if (const auto id = root["volume_id"].value<std::string>()) out.selection.volumeId = *id;
+    if (const auto v = root["owner"].value<std::string>()) out.selection.owner = *v;
+    if (const auto v = root["second_volume_id"].value<std::string>()) out.selection.secondVolumeId = *v;
+    if (const auto v = root["second_owner"].value<std::string>()) out.selection.secondOwner = *v;
     return out;
 }
 
