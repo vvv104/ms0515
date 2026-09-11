@@ -15,6 +15,7 @@
 #include "ms0515/disk/Compose.hpp"
 
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -43,6 +44,17 @@ struct ManifestBundle {
     std::vector<std::string>  systems;         /* empty: every system */
     std::string               date;            /* YYYY-MM-DD, "" none */
     bool                      protect = false;
+    /* Where the wizard lists it: "Development / Pascal", "" at the top. */
+    std::string               group;
+    /* Names this bundle satisfies besides its own key.  The bundles that
+     * provide one name are alternatives: one of them goes on a disk. */
+    std::vector<std::string>  provides;
+    /* What it needs installed with it: bundle keys or provided names
+     * (TOML `requires`). */
+    std::vector<std::string>  dependsOn;
+    /* Of the alternatives a need has, the ones to take first - the build
+     * that sat next to this one on the original disks. */
+    std::vector<std::string>  prefer;
 };
 
 struct ManifestPreset {
@@ -66,7 +78,8 @@ struct Manifest {
 
 /* Parse disks.toml.  Throws std::runtime_error naming what is wrong: a TOML
  * syntax error with its line, an unknown media word, a bundle or preset
- * naming what is not there, a date outside 1972..2003. */
+ * naming what is not there, a date outside 1972..2003, a need nothing
+ * provides, a preference that is no alternative of a need, a cycle. */
 [[nodiscard]] Manifest parseManifest(std::string_view text);
 
 /* What the user chose: a preset's choices, or the wizard's. */
@@ -76,9 +89,32 @@ struct Selection {
     std::vector<std::string>                bundles;
     std::optional<std::vector<std::string>> startup;
     std::optional<std::string>              volumeId;
+    /* The user's choice among alternatives: provided name -> bundle key. */
+    std::map<std::string, std::string>      picks;
 };
 
 [[nodiscard]] Selection selectionOf(const ManifestPreset &preset);
+
+/* The bundles that can satisfy `need` on this system and media, in the
+ * file's order: the bundle of that key, or every bundle providing it. */
+[[nodiscard]] std::vector<const ManifestBundle *> candidatesFor(const Manifest &m, std::string_view need,
+                                                                const std::string &system, Media media);
+
+/* What a choice installs: the bundles chosen and, through `requires`, what
+ * they need - each once, a need before what needs it.  An alternative is
+ * the one chosen outright, else the user's pick, else the first the
+ * needing bundle prefers, else the first in the file; two bundles
+ * providing one name never go together. */
+struct Resolution {
+    bool                                             ok = false;
+    std::string                                      problem;
+    std::vector<std::string>                         bundles;
+    std::vector<std::pair<std::string, std::string>> addedFor;   /* (added, for whom) */
+};
+
+[[nodiscard]] Resolution resolveBundles(const Manifest &m, const std::string &system, Media media,
+                                        const std::vector<std::string> &chosen,
+                                        const std::map<std::string, std::string> &picks = {});
 
 /* Why a bundle cannot go with this system and media, "" when it can - what
  * greys a checkbox out. */
@@ -97,9 +133,10 @@ struct Repository {
  * Throws when a path is not in the repository or a glob matches nothing. */
 [[nodiscard]] std::vector<std::string> bundlePaths(const ManifestBundle &b, const Repository &repo);
 
-/* The recipe for a selection, the system image and every file read.
- * Throws std::runtime_error when the selection breaks a rule or a file
- * cannot be read; whether it FITS is the plan's business (planDisk). */
+/* The recipe for a selection, its needs resolved, the system image and
+ * every file read.  Throws std::runtime_error when the selection breaks a
+ * rule or a file cannot be read; whether it FITS is the plan's business
+ * (planDisk). */
 [[nodiscard]] ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository &repo);
 
 [[nodiscard]] std::optional<Media> parseMedia(std::string_view word);

@@ -189,7 +189,10 @@ int composeCommand(int argc, char **argv)
     }
     const auto media = parseMedia(a->media);
     if (a->system.empty() || !media) return usage();
-    Selection s{a->system, *media, a->add, std::nullopt, std::nullopt};
+    Selection s;
+    s.system = a->system;
+    s.media = *media;
+    s.bundles = a->add;
     if (a->startupGiven) s.startup = a->startup;
     if (!a->volumeId.empty()) s.volumeId = a->volumeId;
     return build(m, s, repo, a->out, a->planOnly);

@@ -11,6 +11,7 @@
 
 #include "exemplar_fixture.hpp"
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <optional>
@@ -184,9 +185,15 @@ TEST_CASE("a bundle's paths: in order, globs in name order and RT-11 names only"
     CHECK(bundlePaths(*m.bundle("pacman"), repo) == std::vector<std::string>{"games/pacman/LABRN.DAT", "games/pacman/SP13.SAV"});
     CHECK(bundlePaths(*m.bundle("sabot2"), repo) == std::vector<std::string>{"games/sabot2/SABOT2.SAV", "games/sabot2/SABOT2.DAT"});
 
-    ManifestBundle missing{"x", "X", {{"games/NOPE.SAV", {}, {}}}, Place::boot, {}, {}, "", false};
+    ManifestBundle missing;
+    missing.key = "x";
+    missing.title = "X";
+    missing.files = {{"games/NOPE.SAV", {}, {}}};
     CHECK_THROWS_WITH_AS((void)bundlePaths(missing, repo), doctest::Contains("games/NOPE.SAV"), std::runtime_error);
-    ManifestBundle empty{"y", "Y", {{"games/tetris/*", {}, {}}}, Place::boot, {}, {}, "", false};
+    ManifestBundle empty;
+    empty.key = "y";
+    empty.title = "Y";
+    empty.files = {{"games/tetris/*", {}, {}}};
     CHECK_THROWS_AS((void)bundlePaths(empty, repo), std::runtime_error);
 }
 
@@ -235,14 +242,206 @@ TEST_CASE("a kept system's recipe carries its reserved blocks and the startup") 
 TEST_CASE("a selection that breaks a rule is refused before anything is read") {
     const Manifest m = parseManifest(kToml);
     const auto repo = repository();
-    Selection s{"osa", Media::dv, {"sabot2"}, std::nullopt, std::nullopt};
-    CHECK_THROWS_WITH_AS((void)recipeFor(m, s, repo), doctest::Contains("Saboteur 2"), std::runtime_error);
-    s = {"rodionov", Media::ss, {}, std::nullopt, std::nullopt};
-    CHECK_THROWS_AS((void)recipeFor(m, s, repo), std::runtime_error);
-    s = {"mihin", Media::ss, {}, std::nullopt, std::nullopt};
-    CHECK_THROWS_AS((void)recipeFor(m, s, repo), std::runtime_error);
-    s = {"osa", Media::ss, {"tetris"}, std::nullopt, std::nullopt};
-    CHECK_THROWS_AS((void)recipeFor(m, s, repo), std::runtime_error);
+    auto selection = [](const char *system, Media media, std::vector<std::string> bundles) {
+        Selection s;
+        s.system = system;
+        s.media = media;
+        s.bundles = std::move(bundles);
+        return s;
+    };
+    CHECK_THROWS_WITH_AS((void)recipeFor(m, selection("osa", Media::dv, {"sabot2"}), repo),
+                         doctest::Contains("Saboteur 2"), std::runtime_error);
+    CHECK_THROWS_AS((void)recipeFor(m, selection("rodionov", Media::ss, {}), repo), std::runtime_error);
+    CHECK_THROWS_AS((void)recipeFor(m, selection("mihin", Media::ss, {}), repo), std::runtime_error);
+    CHECK_THROWS_AS((void)recipeFor(m, selection("osa", Media::ss, {"tetris"}), repo), std::runtime_error);
+}
+
+namespace {
+
+const char kDeps[] = R"toml(
+format = 1
+
+[system.omega]
+title = "OMEGA"
+image = "systems/omega.dsk"
+media = ["ss", "dz", "dv"]
+
+[system.omega2]
+title = "OMEGA vvv104"
+image = "systems/omega.dsk"
+media = ["ss", "dz", "dv"]
+
+[system.mihin]
+title = "OS-16SJ"
+image = "systems/omega.dsk"
+media = ["ss", "dz"]
+
+[bundle.sysmac]
+title = "SYSMAC.SML"
+group = "Development / Libraries"
+files = ["dev/SYSMAC.SML"]
+
+[bundle.macro-omega]
+title    = "MACRO-11 (OMEGA build)"
+group    = "Development / Assembler"
+provides = ["macro11"]
+systems  = ["omega"]
+requires = ["sysmac"]
+files    = ["dev/omega/MACRO.SAV"]
+
+[bundle.macro-vvv]
+title    = "MACRO-11 (vvv104 build)"
+provides = ["macro11"]
+systems  = ["omega", "omega2"]
+requires = ["sysmac"]
+files    = ["dev/vvv/MACRO.SAV"]
+
+[bundle.macro-mihin]
+title    = "MACRO-11 (Mihin build)"
+provides = ["macro11"]
+systems  = ["mihin"]
+files    = ["dev/mihin/MACRO.SAV"]
+
+[bundle.link-vvv]
+title    = "LINK (vvv104 build)"
+provides = ["link"]
+systems  = ["omega", "omega2"]
+files    = ["dev/vvv/LINK.SAV"]
+
+[bundle.pascal]
+title    = "Pascal"
+requires = ["macro11", "link"]
+prefer   = ["macro-vvv"]
+files    = ["dev/PAS1.SAV"]
+
+[bundle.pascal-graphics]
+title    = "Pascal graphics"
+requires = ["pascal"]
+files    = ["dev/PASGRF.OBJ"]
+
+[preset.dev]
+title   = "Development"
+system  = "omega2"
+media   = "dv"
+bundles = ["pascal-graphics"]
+)toml";
+
+Repository depsRepository()
+{
+    auto files = std::make_shared<std::map<std::string, std::vector<uint8_t>>>();
+    (*files)["systems/omega.dsk"] = exemplar(Media::dv);
+    for (const char *p : {"dev/SYSMAC.SML", "dev/omega/MACRO.SAV", "dev/vvv/MACRO.SAV", "dev/mihin/MACRO.SAV",
+                          "dev/vvv/LINK.SAV", "dev/PAS1.SAV", "dev/PASGRF.OBJ"})
+        (*files)[p] = blocks(2, 7);
+    Repository repo;
+    for (const auto &kv : *files) repo.paths.push_back(kv.first);
+    repo.read = [files](const std::string &p) -> std::optional<std::vector<uint8_t>> {
+        const auto it = files->find(p);
+        if (it == files->end()) return std::nullopt;
+        return it->second;
+    };
+    return repo;
+}
+
+}  /* namespace */
+
+TEST_CASE("dependencies: read with their groups, what they provide and prefer") {
+    const Manifest m = parseManifest(kDeps);
+    const auto *p = m.bundle("pascal");
+    REQUIRE(p);
+    CHECK(p->dependsOn == std::vector<std::string>{"macro11", "link"});
+    CHECK(p->prefer == std::vector<std::string>{"macro-vvv"});
+    CHECK(m.bundle("macro-omega")->provides == std::vector<std::string>{"macro11"});
+    CHECK(m.bundle("macro-omega")->group == "Development / Assembler");
+    CHECK(m.bundle("macro-vvv")->group.empty());
+}
+
+TEST_CASE("dependencies: what disks.toml must not say about them") {
+    const std::string good = kDeps;
+    auto refused = [](const std::string &text, const char *why) {
+        CAPTURE(why);
+        CHECK_THROWS_AS((void)parseManifest(text), std::runtime_error);
+    };
+    refused(replaced(good, "requires = [\"pascal\"]", "requires = [\"cobol\"]"), "a need nothing provides");
+    refused(replaced(good, "prefer   = [\"macro-vvv\"]", "prefer   = [\"macro-pdp\"]"), "a preference that is no bundle");
+    refused(replaced(good, "prefer   = [\"macro-vvv\"]", "prefer   = [\"sysmac\"]"), "a preference that provides none of the needs");
+    refused(replaced(good, "title = \"SYSMAC.SML\"", "title = \"SYSMAC.SML\"\nrequires = [\"pascal\"]"), "a cycle through a provided name");
+}
+
+TEST_CASE("dependencies: the chosen and what they need, a need before what needs it, each once") {
+    const Manifest m = parseManifest(kDeps);
+    const Resolution r = resolveBundles(m, "omega2", Media::dv, {"pascal-graphics"});
+    REQUIRE_MESSAGE(r.ok, r.problem);
+    CHECK(r.bundles == std::vector<std::string>{"sysmac", "macro-vvv", "link-vvv", "pascal", "pascal-graphics"});
+    CHECK(r.addedFor.size() == 4);
+    CHECK(std::find(r.addedFor.begin(), r.addedFor.end(), std::pair<std::string, std::string>{"pascal", "pascal-graphics"}) != r.addedFor.end());
+    CHECK(std::find(r.addedFor.begin(), r.addedFor.end(), std::pair<std::string, std::string>{"macro-vvv", "pascal"}) != r.addedFor.end());
+
+    const Resolution again = resolveBundles(m, "omega2", Media::dv, {"pascal", "pascal-graphics", "sysmac"});
+    REQUIRE(again.ok);
+    CHECK(again.bundles.size() == 5);                        /* chosen twice over: still once each */
+}
+
+TEST_CASE("alternatives: one of them, the preferred unless chosen or picked, never two") {
+    const Manifest m = parseManifest(kDeps);
+    CHECK(candidatesFor(m, "macro11", "omega", Media::dv).size() == 2);
+    CHECK(candidatesFor(m, "macro11", "omega2", Media::dv).size() == 1);
+    CHECK(candidatesFor(m, "macro11", "omega", Media::dv)[0]->key == "macro-omega");   /* file order */
+
+    auto macroOf = [](const Resolution &r) {
+        for (const auto &b : r.bundles) if (b.rfind("macro-", 0) == 0) return b;
+        return std::string();
+    };
+    Resolution r = resolveBundles(m, "omega", Media::dv, {"pascal"});
+    REQUIRE(r.ok);
+    CHECK(macroOf(r) == "macro-vvv");                        /* the preference, over the file order */
+
+    r = resolveBundles(m, "omega", Media::dv, {"pascal"}, {{"macro11", "macro-omega"}});
+    REQUIRE(r.ok);
+    CHECK(macroOf(r) == "macro-omega");                      /* the user's pick */
+
+    r = resolveBundles(m, "omega", Media::dv, {"macro-omega", "pascal"});
+    REQUIRE(r.ok);
+    CHECK(macroOf(r) == "macro-omega");                      /* chosen outright */
+    CHECK(std::count_if(r.bundles.begin(), r.bundles.end(), [](const std::string &b) { return b.rfind("macro-", 0) == 0; }) == 1);
+
+    r = resolveBundles(m, "omega", Media::dv, {"macro-omega", "macro-vvv"});
+    CHECK_FALSE(r.ok);                                       /* two MACROs */
+    CHECK(r.problem.find("MACRO-11 (OMEGA build)") != std::string::npos);
+    CHECK(r.problem.find("MACRO-11 (vvv104 build)") != std::string::npos);
+
+    r = resolveBundles(m, "omega", Media::dv, {"pascal"}, {{"macro11", "macro-mihin"}});
+    CHECK_FALSE(r.ok);                                       /* a pick that is not for this system */
+}
+
+TEST_CASE("a need nothing on this system satisfies refuses what needs it, saying which") {
+    const Manifest m = parseManifest(kDeps);
+    const Resolution r = resolveBundles(m, "mihin", Media::dz, {"pascal-graphics"});
+    CHECK_FALSE(r.ok);
+    CHECK(r.problem.find("Pascal") != std::string::npos);
+    CHECK(r.problem.find("link") != std::string::npos);
+    CHECK_FALSE(resolveBundles(m, "omega", Media::dv, {"nothing"}).ok);
+    CHECK_FALSE(resolveBundles(m, "mihin", Media::dz, {"macro-vvv"}).ok);   /* not for this system */
+}
+
+TEST_CASE("a recipe installs the needs too, before what needs them") {
+    const Manifest m = parseManifest(kDeps);
+    const ComposeRecipe r = recipeFor(m, selectionOf(*m.preset("dev")), depsRepository());
+    std::vector<std::string> titles;
+    for (const auto &g : r.groups) titles.push_back(g.title);
+    CHECK(titles == std::vector<std::string>{"SYSMAC.SML", "MACRO-11 (vvv104 build)", "LINK (vvv104 build)", "Pascal", "Pascal graphics"});
+    CHECK(planDisk(r).ok);
+
+    Selection s = selectionOf(*m.preset("dev"));
+    s.system = "omega";
+    s.picks = {{"macro11", "macro-omega"}};
+    const ComposeRecipe picked = recipeFor(m, s, depsRepository());
+    CHECK(picked.groups[1].title == "MACRO-11 (OMEGA build)");
+
+    s.system = "mihin";
+    s.media = Media::dz;
+    s.picks.clear();
+    CHECK_THROWS_AS((void)recipeFor(m, s, depsRepository()), std::runtime_error);
 }
 
 TEST_CASE("media words") {
