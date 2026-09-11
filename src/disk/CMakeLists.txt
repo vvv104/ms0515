@@ -21,6 +21,20 @@ target_include_directories(ms0515_disk
 
 target_link_libraries(ms0515_disk PRIVATE fmt::fmt)
 
+# The manifest of the software collection's disks (disks.toml) and the
+# recipes a choice over it makes - apart from ms0515_disk so that reading
+# images never pulls in a TOML parser.
+find_package(tomlplusplus REQUIRED)
+
+add_library(ms0515_disk_manifest STATIC
+    src/Manifest.cpp
+)
+
+target_link_libraries(ms0515_disk_manifest
+    PUBLIC ms0515_disk
+    PRIVATE tomlplusplus::tomlplusplus
+)
+
 if(MS0515_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
