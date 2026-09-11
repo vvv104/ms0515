@@ -18,6 +18,7 @@ import { Joystick } from "./joystick.js?v=@STAMP@";
 import { SoftKeyboard, isTouchDevice } from "./softkeys.js?v=@STAMP@";
 import { Commander } from "./fm.js?v=@STAMP@";
 import * as bugreport from "./bugreport.js?v=@STAMP@";
+import { DiskComposer } from "./wizard.js?v=@STAMP@";
 
 // The floppy images offered: the software collection's released disks, as
 // its index.json lists them - title, media (a two-sided image takes both
@@ -28,9 +29,10 @@ const DISK_SITE = new URL(new URLSearchParams(location.search).get("disks")
                           ?? "https://vvv104.github.io/ms0515-software/", location.href);
 let DISKS = [];                       // { name, sides, title, hint, url }
 let SHIPPED = new Map();              // name -> the entry above
+let DISK_INDEX = null;                // the collection's index.json: the wizard composes from its files
 async function loadDiskList() {
   try {
-    const index = JSON.parse(new TextDecoder().decode(await fetchBytes(new URL("index.json", DISK_SITE))));
+    const index = DISK_INDEX = JSON.parse(new TextDecoder().decode(await fetchBytes(new URL("index.json", DISK_SITE))));
     DISKS = index.presets.map((p) => ({
       name: p.image.split("/").pop(), sides: p.media === "ss" ? 1 : 2,
       title: p.title, hint: p.hint ?? "", url: new URL(p.image, DISK_SITE).href,
@@ -345,8 +347,29 @@ function fdRow(unit) {
   const name = slots.fd[unit];
   row.append(select("fd", name, (v) => mountFd(unit, v)));
   row.append(button("Open…", () => pickFile((n) => mountFd(unit, n).catch(fail)), "a .dsk from your computer"));
+  if (DISK_INDEX && unit === unitOf(0, 0))
+    row.append(button("Compose…", () => composeDisk(), "a disk of your own choosing from the software collection"));
   if (name) row.append(...imageButtons(name));
   return row;
+}
+
+// ── the disk wizard: a system and bundles of the collection, composed in
+// the module (wizard.js / src/wizard_web.cpp); the disk lands among the
+// user's own images, in drive A, and boots.
+let composer = null;
+function composeDisk() {
+  document.querySelectorAll("details.dev[open]").forEach((d) => d.removeAttribute("open"));
+  composer ??= new DiskComposer({
+    M, site: DISK_SITE, index: DISK_INDEX, fetchBytes,
+    onDisk: async (name, bytes) => {
+      for (let unit = 0; unit < 4; ++unit) if (slots.fd[unit] === name) unmountFd(unit);
+      if (slots.hd === name) await mountHd("");
+      await addOwn(name, bytes);
+      await mountFd(unitOf(0, 0), name);
+      await boot();
+    },
+  });
+  composer.open().catch(fail);
 }
 
 // ── the commander: the files of the mounted images, in place of the screen ─

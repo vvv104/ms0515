@@ -12,6 +12,7 @@
 #include "ms0515/disk/Image.hpp"
 
 #include <algorithm>
+#include <numeric>
 #include <cstring>
 #include <stdexcept>
 
@@ -185,6 +186,33 @@ int groupBlocks(const ComposeGroup &g)
     return n;
 }
 
+/* Groups put on a copy of the image in one order: the placements in the
+ * recipe's order, and the first thing that did not fit. */
+struct Placing {
+    std::vector<uint8_t>        img;
+    std::vector<GroupPlacement> groups;
+    std::string                 problem;
+};
+
+Placing place(const std::vector<uint8_t> &base, const ComposeRecipe &r, const Shape &s,
+              const std::vector<std::size_t> &order)
+{
+    Placing out{base, std::vector<GroupPlacement>(r.groups.size()), ""};
+    for (const auto i : order) {
+        const auto &g = r.groups[i];
+        GroupPlacement p{g.title, -1, groupBlocks(g), ""};
+        const int last = g.place == Place::any ? s.volumes - 1 : 0;
+        for (int v = 0; v <= last && p.volume < 0; ++v) {
+            const std::string why = tryGroup(out.img, r, s, g, v);
+            if (why.empty()) p.volume = v; else p.problem = why;
+        }
+        if (p.volume >= 0) p.problem.clear();
+        else if (out.problem.empty()) out.problem = g.title + ": " + p.problem;
+        out.groups[i] = std::move(p);
+    }
+    return out;
+}
+
 /* The composition and its plan together: planDisk keeps the plan,
  * composeDisk the image. */
 std::vector<uint8_t> compose(const ComposeRecipe &r, ComposePlan &plan)
@@ -203,17 +231,21 @@ std::vector<uint8_t> compose(const ComposeRecipe &r, ComposePlan &plan)
         return {};
     }
 
-    for (const auto &g : r.groups) {
-        GroupPlacement p{g.title, -1, groupBlocks(g), ""};
-        const int last = g.place == Place::any ? s.volumes - 1 : 0;
-        for (int v = 0; v <= last && p.volume < 0; ++v) {
-            const std::string why = tryGroup(img, r, s, g, v);
-            if (why.empty()) p.volume = v; else p.problem = why;
-        }
-        if (p.volume >= 0) p.problem.clear();
-        else if (plan.problem.empty()) plan.problem = g.title + ": " + p.problem;
-        plan.groups.push_back(std::move(p));
+    std::vector<std::size_t> order(r.groups.size());
+    std::iota(order.begin(), order.end(), std::size_t{0});
+    Placing placed = place(img, r, s, order);
+    /* Short of room while what may go anywhere took some of the boot
+     * volume: what must boot first, the rest after, on either volume. */
+    const bool movable = s.volumes == 2 &&
+        std::any_of(r.groups.begin(), r.groups.end(), [](const ComposeGroup &g) { return g.place == Place::any; });
+    if (!placed.problem.empty() && movable) {
+        std::stable_partition(order.begin(), order.end(), [&](std::size_t i) { return r.groups[i].place == Place::boot; });
+        Placing again = place(img, r, s, order);
+        if (again.problem.empty()) placed = std::move(again);
     }
+    img = std::move(placed.img);
+    plan.groups = std::move(placed.groups);
+    plan.problem = placed.problem;
     if (plan.problem.empty()) {
         try {
             finish(img, r, *src, s);
@@ -231,8 +263,12 @@ std::vector<uint8_t> compose(const ComposeRecipe &r, ComposePlan &plan)
 std::optional<Media> mediaOf(const std::vector<uint8_t> &image)
 {
     const auto specs = detectVolumes(image);
-    if (image.size() == kSideSize)
-        return specs.size() == 1 ? std::optional<Media>(Media::ss) : std::nullopt;
+    if (image.size() == kSideSize) {
+        /* A side has one reading: a directory there, pointed at or not
+         * (older tools left the home block's pointer empty). */
+        const auto side = openImage(image, 0);
+        return specs.size() == 1 || (side && side->hasDirectory) ? std::optional<Media>(Media::ss) : std::nullopt;
+    }
     if (image.size() != kDoubleSize) return std::nullopt;
     for (const auto &v : specs) if (v.vol == Vol::dv) return Media::dv;
     for (const auto &v : specs) if (v.vol == Vol::floppy && v.side == 0) return Media::dz;

@@ -15,6 +15,7 @@ add_executable(ms0515_disk_tests
     test_build.cpp
     test_compose.cpp
     test_manifest.cpp
+    test_wizard.cpp
 )
 
 # FolderVolume tests create scratch folders under the build tree.

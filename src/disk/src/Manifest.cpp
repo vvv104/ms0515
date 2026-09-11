@@ -116,6 +116,7 @@ ManifestSystem readSystem(const std::string &key, const toml::table &t)
             s.dependsOnByMedia[media(word, where)] = strings(*table, word, where + ".requires_by_media");
         }
     }
+    s.prefer = strings(t, "prefer", where);
     if (t.contains("startup")) s.startup = strings(t, "startup", where);
     if (const auto *arr = t["reserved"].as_array()) {
         for (const auto &e : *arr) {
@@ -250,9 +251,18 @@ void crossCheck(const Manifest &m)
     for (const auto &s : m.systems) {
         for (const auto &need : s.dependsOn)
             if (!satisfiable(need)) fail("system." + s.key + " requires " + need + ", which no bundle is or provides");
-        for (const auto &[md, needs] : s.dependsOnByMedia)
+        std::vector<std::string> all = s.dependsOn;
+        for (const auto &[md, needs] : s.dependsOnByMedia) {
             for (const auto &need : needs)
                 if (!satisfiable(need)) fail("system." + s.key + " requires " + need + ", which no bundle is or provides");
+            all.insert(all.end(), needs.begin(), needs.end());
+        }
+        for (const auto &pref : s.prefer) {
+            const auto *o = m.bundle(pref);
+            if (!o) fail("system." + s.key + " prefers " + pref + ", which is not there");
+            if (std::none_of(all.begin(), all.end(), [&](const auto &need) { return satisfies(*o, need); }))
+                fail("system." + s.key + " prefers " + pref + ", which satisfies none of what it requires");
+        }
     }
     checkDependencies(m);
     for (const auto &p : m.presets) {
@@ -341,6 +351,7 @@ Manifest parseManifest(std::string_view text)
     if (root["format"].value<int64_t>() != 1) fail("format is not 1 - this reads format 1 only");
     Manifest m;
     if (root.contains("owner")) m.owner = str(root, "owner", "the file", true);
+    if (root.contains("version")) m.version = str(root, "version", "the file", true);
     /* toml++ keeps a table's keys sorted; the file's order is the source's. */
     auto inOrder = [](const toml::table &t) {
         std::vector<std::pair<std::string, const toml::table *>> out;
@@ -470,6 +481,7 @@ Resolution resolveBundles(const Manifest &m, const std::string &system, Media me
         ManifestBundle own;
         own.title = sys->title;
         own.dependsOn = sys->dependsOn;
+        own.prefer = sys->prefer;
         if (const auto it = sys->dependsOnByMedia.find(media); it != sys->dependsOnByMedia.end())
             own.dependsOn.insert(own.dependsOn.end(), it->second.begin(), it->second.end());
         for (const auto &need : own.dependsOn) {
@@ -544,8 +556,11 @@ ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository 
         if (std::find(once.begin(), once.end(), line) == once.end()) once.push_back(line);
     if (sys->startup || !once.empty()) r.startup = once;
     r.volumeId = s.volumeId;
-    r.owner = m.owner;
-    if (s.media == Media::dz) r.secondOwner = m.owner;
+    r.owner = s.owner ? s.owner : m.owner;
+    if (s.media == Media::dz) {
+        r.secondVolumeId = s.secondVolumeId;
+        r.secondOwner = s.secondOwner ? s.secondOwner : m.owner;
+    }
     for (const auto *b : chosen) {
         std::map<std::string, const ManifestFile *> byPath;
         for (const auto &f : b->files) byPath[f.pattern] = &f;

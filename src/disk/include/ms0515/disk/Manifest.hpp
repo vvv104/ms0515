@@ -33,6 +33,10 @@ struct ManifestSystem {
      * needs on one media only (`requires_by_media`: DV.SYS for dv). */
     std::vector<std::string>   dependsOn;
     std::map<Media, std::vector<std::string>> dependsOnByMedia;
+    /* Where it requires a name ("dir") that several builds provide: its own
+     * build, the one on its original disks (TOML `prefer`).  Another can be
+     * picked in its place. */
+    std::vector<std::string>   prefer;
     /* The first lines of the startup command file (TOML `startup`). */
     std::optional<std::vector<std::string>> startup;
 };
@@ -78,6 +82,7 @@ struct ManifestPreset {
 };
 
 struct Manifest {
+    std::string                 version;       /* of the collection's disks, "" none */
     std::optional<std::string>  owner;         /* the owner written on every volume */
     std::vector<ManifestSystem> systems;       /* in the file's order */
     std::vector<ManifestBundle> bundles;
@@ -101,7 +106,10 @@ struct Selection {
     std::vector<std::string>                bundles;
     /* Lines after the system's and the bundles' (R ROSA3). */
     std::optional<std::vector<std::string>> startup;
-    std::optional<std::string>              volumeId;
+    /* The labels in the home blocks: the boot volume's, and on a two-sided
+     * dz disk the second side's.  No owner: the collection's `owner`. */
+    std::optional<std::string>              volumeId, owner;
+    std::optional<std::string>              secondVolumeId, secondOwner;
     /* The user's choice among alternatives: provided name -> bundle key. */
     std::map<std::string, std::string>      picks;
 };

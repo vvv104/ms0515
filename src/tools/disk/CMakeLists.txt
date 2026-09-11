@@ -3,6 +3,18 @@
 # ms0515_disk library.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# The native disk wizard's screen, apart so that the tests drive it.
+find_package(ftxui REQUIRED)
+
+add_library(ms0515_disk_wizard_ui STATIC
+    WizardTui.cpp
+    FileDialog.cpp
+)
+
+target_link_libraries(ms0515_disk_wizard_ui
+    PUBLIC ms0515_disk_manifest ftxui::component ftxui::dom ftxui::screen
+)
+
 add_executable(ms0515-disk
     main.cpp
     ComposeCommand.cpp
@@ -11,8 +23,13 @@ add_executable(ms0515-disk
 target_link_libraries(ms0515-disk
     PRIVATE ms0515_disk
     PRIVATE ms0515_disk_manifest
+    PRIVATE ms0515_disk_wizard_ui
     PRIVATE ms0515_win7compat
 )
+
+if(MS0515_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
 
 # ── Package output ──────────────────────────────────────────────────────────
 # Drop the .exe next to ms0515.exe / ms0515-cli.exe so the release archive

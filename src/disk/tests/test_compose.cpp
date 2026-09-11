@@ -84,6 +84,15 @@ TEST_CASE("mediaOf tells the three diskettes apart") {
     CHECK(mediaOf(exemplar(Media::dv)) == Media::dv);
     CHECK_FALSE(mediaOf(blankImage(true)).has_value());
     CHECK_FALSE(mediaOf(std::vector<uint8_t>(1000)).has_value());
+
+    /* A single side whose home block does not point at its directory (older
+     * tools wrote it so) is still one volume: a side has no other reading. */
+    auto old = exemplar(Media::ss);
+    const auto home = lbnToByte(1, 0, false, Vol::floppy);
+    old[home + 0x1D4] = 0;
+    old[home + 0x1D5] = 0;
+    CHECK(mediaOf(old) == Media::ss);
+    CHECK_FALSE(mediaOf(blankImage(false)).has_value());
 }
 
 TEST_CASE("every media from every exemplar: SWAP and the monitor from it, the parts given, and it boots") {
@@ -179,6 +188,28 @@ TEST_CASE("a group that may go anywhere goes to the second volume when the boot 
     const auto img = composeDisk(r);
     CHECK(names(*volume(img, Media::dz, 1)) == std::vector<std::string>{"ONE.SAV", "TWO.DAT"});
     CHECK(volume(img, Media::dz, 0)->directory.find("TINY.SAV") != nullptr);
+}
+
+TEST_CASE("the boot volume taken by what may go anywhere, and a group that must boot short of room: those move to the second volume") {
+    ComposeRecipe r = recipe(Media::dz, Media::dz);
+    const auto plan0 = planDisk(r);
+    REQUIRE(plan0.ok);
+    const int bootFree = plan0.freeBlocks[0];
+
+    r.groups.push_back({"docs", Place::any, {file("DOCS.TXT", bootFree - 4, 0x31)}});
+    r.groups.push_back({"handler", Place::boot, {file("NL.SYS", 8, 0x32)}});
+    const auto plan = planDisk(r);
+    REQUIRE_MESSAGE(plan.ok, plan.problem);
+    REQUIRE(plan.groups.size() == 3);
+    CHECK(plan.groups[1].title == "docs");                    /* the recipe's order kept in the plan */
+    CHECK(plan.groups[1].volume == 1);
+    CHECK(plan.groups[2].volume == 0);
+    const auto img = composeDisk(r);
+    CHECK(volume(img, Media::dz, 0)->directory.find("NL.SYS") != nullptr);
+    CHECK(volume(img, Media::dz, 1)->directory.find("DOCS.TXT") != nullptr);
+
+    r.groups.push_back({"too much", Place::boot, {file("HUGE.SAV", bootFree, 0x33)}});
+    CHECK_FALSE(planDisk(r).ok);                              /* what must boot and does not fit, still refused */
 }
 
 TEST_CASE("what cannot be built says why, and the plan still shows what fitted") {
