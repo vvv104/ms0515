@@ -176,14 +176,18 @@ tool that read and write images directly, without running the machine.
   for byte against RT-11 on every kit shipped: LBN 0 from the volume's
   DZ.SYS at the offset its `.DRBOT` header names, LBN 2..5 the monitor's
   blocks 1..4 with the device and monitor names in RAD50), `Compose` (a
-  whole bootable ss / dz / dv diskette from an exemplar system image and
-  groups of files; `planDisk` says where every group goes by putting it
-  for real on a scratch copy, so what fits is what RT-11 would take).
+  whole bootable ss / dz / dv diskette made from scratch: the exemplar
+  system image gives only SWAP.SYS, the monitor and its protected blocks,
+  groups of files bring the rest, then the startup file and the bootstrap
+  for the media; `planDisk` says where every group goes by putting it for
+  real on a scratch copy, so what fits is what RT-11 would take).
 - Lib `ms0515_disk_manifest` (`src/disk/src/Manifest.cpp`, toml++) — reads
   the software collection's `disks.toml` (systems, bundles, presets) and
   holds the rules both disk wizards share: which bundles a system and a
   media allow, how globs expand, what a file is named and dated on the
-  disk.  Files come through a `Repository`, a local copy or a web fetch.
+  disk, what a system requires and what a bundle requires (`requires` /
+  `provides` / `prefer`: dependencies and alternatives, one of each on a
+  disk).  Files come through a `Repository`, a local copy or a web fetch.
 - Binary `ms0515-disk` (`src/tools/disk/`) — `create / init / put / rm /
   squeeze / protect / unprotect / setdate / get / dir / boot / system /
   split / merge / compose` (`compose --repo DIR`: `--list`, `--preset KEY`,
