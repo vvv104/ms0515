@@ -43,6 +43,9 @@ class Ms0515Recipe(ConanFile):
         # with a C++20 standard library — the system compiler of older macOS
         # has no <format>.  Needed by every build, the browser one included.
         self.requires("fmt/11.2.0")
+        # disks.toml, the software collection's description of its disks, read
+        # by the disk composer - the native tool and the browser build alike.
+        self.requires("tomlplusplus/3.4.0")
 
         # The browser build (os=Emscripten, profiles/emscripten) compiles the
         # core and the lib only: no SDL / ImGui, no host tests.

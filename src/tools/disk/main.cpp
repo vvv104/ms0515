@@ -13,6 +13,7 @@
  *                                           write the directory date in place
  *   get    <image> [--side N] [--out D] [pat]...  extract files (like PIP, out)
  *   dir    <image> [--side N]               list the directory
+ *   compose --repo DIR ...                  a bootable disk from disks.toml
  *
  * The geometry follows from the image size (409600 = single-sided, 819200 =
  * double-sided) and matches the emulator FDC.  Wildcards use '*' only.
@@ -20,6 +21,8 @@
  * Format-level operations only.  Heuristic multi-source recovery lives in
  * Python under disk_recovery/, on top of these primitives.
  */
+
+#include "ComposeCommand.hpp"
 
 #include <ms0515/disk/Build.hpp>
 #include <ms0515/disk/Image.hpp>
@@ -71,6 +74,10 @@ int usage()
         "                                        target must be initialised\n"
         "  split  <ds.dsk> <side0.dsk> <side1.dsk>   split an 800 KB DS into two 400 KB SS\n"
         "  merge  <side0.dsk> <side1.dsk> <ds.dsk>   merge two 400 KB SS into an 800 KB DS\n"
+        "  compose --repo DIR (--list | --preset KEY <out> | --all <dir> |\n"
+        "          --system KEY --media ss|dz|dv [--add B1,B2] [--startup LINE]... <out>) [--plan]\n"
+        "                                        a bootable disk from the software collection's\n"
+        "                                        disks.toml\n"
         "\n"
         "  Image kind follows the size: 409600 B single-sided, 819200 B double-\n"
         "  sided (--side picks a side, default 0 = lower/boot).  Wildcards: '*'.\n"
@@ -593,6 +600,8 @@ int main(int argc, char **argv)
 {
     if (argc < 2) return usage();
     const std::string cmd = argv[1];
+
+    if (cmd == "compose") return ms0515::tools::composeCommand(argc, argv);
 
     if (cmd == "create") {
         std::string out; bool ds = false; Vol vol = Vol::floppy; long blocks = 0;
