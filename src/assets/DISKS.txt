@@ -1,0 +1,34 @@
+MS-0515 emulator - where the disks are
+
+The emulator ships no diskettes of its own.  The disks come from the
+software collection, which releases them on their own schedule:
+
+  https://github.com/vvv104/ms0515-software/releases
+
+Download ms0515-disks-<date>.zip (or a single .dsk) and boot one:
+
+  ms0515 --disk0 games.dsk
+
+  games.dsk     OSA 1.0 with its games: Saboteur 2, The Way Of The
+                Exploding Fist, Pac-Man and others; the text games are
+                on the second side (R DZ2:KING)
+  devel.dsk     the Omega development kit: MACRO-11, Pascal, FORTRAN,
+                BASIC, KED
+  rodionov.dsk  Rodionov's RT15SJ, straight into ROSA Commander
+  mihin.dsk     Mihin's OS-16SJ with his formatter and utilities
+
+The collection also has five bare exemplar systems in its systems/
+folder, one per monitor build.
+
+A disk of your own: ms0515-disk, beside this file, composes any
+combination of a system and bundles of software from a copy of the
+collection (git clone https://github.com/vvv104/ms0515-software):
+
+  ms0515-disk compose --repo ms0515-software --list
+  ms0515-disk compose --repo ms0515-software --system omega --media dv --add pascal,basico my.dsk
+
+--plan shows where everything would go without writing a disk.
+
+The browser build loads the same disks by itself:
+
+  https://vvv104.github.io/ms0515/

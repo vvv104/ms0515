@@ -37,7 +37,7 @@ using namespace ms0515::disk;
 
 namespace {
 
-const std::string kDisks = std::string{ASSETS_DIR} + "/disks";
+const std::string kDisks = std::string{TESTS_DIR} + "/disks/originals";
 const std::string kRomA  = std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom";
 const std::string kRomB  = std::string{ASSETS_DIR} + "/rom/ms0515-romb.rom";
 
@@ -101,8 +101,8 @@ bool bootsToPrompt(const std::string &rom, const std::vector<uint8_t> &image, in
 TEST_CASE("writeBoot reproduces the boot blocks RT-11's COPY/BOOT wrote on the shipped disks") {
     struct Disk { const char *file; bool ds; const char *monitor; };
     const Disk disks[] = {
-        {"osa.dsk", false, "MON8SJ"}, {"vvv.dsk", false, "RT11SJ"}, {"omega-games.dsk", false, "RT11SJ"},
-        {"omega-lang.dsk", false, "RT11SJ"}, {"mihin.dsk", false, "RT11SJ"}, {"rodionov.dsk", true, "RT15SJ"},
+        {"test_osa_games.dsk", false, "MON8SJ"}, {"test_vvv_system.dsk", false, "RT11SJ"}, {"test_omega_games.dsk", false, "RT11SJ"},
+        {"test_omega_lang.dsk", false, "RT11SJ"}, {"test_mihin_work.dsk", false, "RT11SJ"}, {"test_rodionov_rosa.dsk", true, "RT15SJ"},
     };
     for (const auto &d : disks) {
         SUBCASE(d.file) {
@@ -123,7 +123,7 @@ TEST_CASE("writeBoot reproduces the boot blocks RT-11's COPY/BOOT wrote on the s
 
 TEST_CASE("a system volume the library makes boots, and makes another that boots") {
     struct System { const char *file; const char *rom; const char *monitor; const char *startup; };
-    const System systems[] = {{"vvv.dsk", "a", "RT11SJ", "STARTS.COM"}, {"osa.dsk", "a", "MON8SJ", "ST.COM"}, {"mihin.dsk", "b", "RT11SJ", "STARTS.COM"}};
+    const System systems[] = {{"test_vvv_system.dsk", "a", "RT11SJ", "STARTS.COM"}, {"test_osa_games.dsk", "a", "MON8SJ", "ST.COM"}, {"test_mihin_work.dsk", "b", "RT11SJ", "STARTS.COM"}};
     for (const auto &s : systems) {
         SUBCASE(s.file) {
             const auto system = readAll(kDisks + "/" + s.file);

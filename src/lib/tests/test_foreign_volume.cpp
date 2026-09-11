@@ -39,7 +39,7 @@ using namespace ms0515::disk;
 
 namespace {
 
-const std::string kDisks = std::string{ASSETS_DIR} + "/disks";
+const std::string kDisks = std::string{TESTS_DIR} + "/disks/originals";
 const std::string kRomA  = std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom";
 
 std::vector<uint8_t> readAll(const std::string &path)
@@ -141,9 +141,9 @@ TEST_CASE("the OS reads a DV/MZ volume the library made, through its own handler
 
     /* The system disk: vvv's RT-11 with the omega kit's DV/MZ handlers —
      * one sysgen family, the handlers install at boot. */
-    const auto omega = openImage(readAll(kDisks + "/omega-lang.dsk"));
+    const auto omega = openImage(readAll(kDisks + "/test_omega_lang.dsk"));
     REQUIRE(omega);
-    auto system = readAll(kDisks + "/vvv.dsk");
+    auto system = readAll(kDisks + "/test_vvv_system.dsk");
     REQUIRE(system.size() == kSideSize);
     for (const char *handler : {"DV.SYS", "MZ.SYS"}) {
         const auto bytes = omega->readFile(handler);
@@ -206,9 +206,9 @@ TEST_CASE("a DV system volume the library makes boots the machine")
 
     /* The source: vvv's system floppy with the omega kit's DV.SYS put on
      * it - systemKit adds the target's own handler to the kit. */
-    const auto omega = openImage(readAll(kDisks + "/omega-lang.dsk"));
+    const auto omega = openImage(readAll(kDisks + "/test_omega_lang.dsk"));
     REQUIRE(omega);
-    auto system = readAll(kDisks + "/vvv.dsk");
+    auto system = readAll(kDisks + "/test_vvv_system.dsk");
     putFile(system, 0, false, "DV.SYS", omega->readFile("DV.SYS"));
 
     auto target = blankImage(true);

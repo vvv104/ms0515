@@ -1,7 +1,7 @@
 /*
  * test_joystick.cpp - the joystick as SABOT2 sees it.
  *
- * The 1991 SABOT2 on omega-games.dsk reads the MS7007 port B (0177542) in
+ * The 1991 SABOT2 on the original omega-games disk (test_omega_games.dsk) reads the MS7007 port B (0177542) in
  * its "J KEMPSTON" mode - MOV @#177542,R0 / COM R0 / BIC #177740,R0 - and
  * keeps the lines held in a byte at 041460.  Boot the disk, start the game
  * with the joystick option, and that byte must follow the lines we hold:
@@ -39,7 +39,7 @@ void startSabot2WithJoystick(ms0515::Emulator &emu)
 {
     using K = ms0515::Key;
     REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
-    REQUIRE(emu.mountDisk(0, std::string{ASSETS_DIR} + "/disks/omega-games.dsk"));
+    REQUIRE(emu.mountDisk(0, std::string{TESTS_DIR} + "/disks/originals/test_omega_games.dsk"));
     emu.reset();
     run(emu, 400);
     for (K k : {K::Digit2, K::Digit2, K::MinusEq, K::Digit0, K::Digit8, K::MinusEq, K::Digit9, K::Digit2, K::Return})

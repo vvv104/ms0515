@@ -28,7 +28,6 @@ The site lands in `build/emscripten-release/web/dist/`:
 ms0515.js, ms0515.wasm   the module (MODULARIZE, createMs0515())
 index.html, app.js, keys.js
 rom/                     ms0515-roma.rom, ms0515-romb.rom
-disks/                   the demo disks from assets/disks
 ```
 
 Serve the folder as is (`python -m http.server` in it, or GitHub Pages);
@@ -88,7 +87,13 @@ unmounted on the running machine from the drive's panel in the toolbar,
 which also carries the drive's activity lamp.  The mounts and the list of
 own images persist in localStorage, the image bytes in IndexedDB.
 
-`?disk=osa.dsk&disk1=...&hd=...&rom=a` picks the images for drive A,
+The disks offered are the software collection's released ones, listed by
+its `index.json` and fetched from its Pages
+(<https://vvv104.github.io/ms0515-software/>); `?disks=URL` takes the list
+from elsewhere - the CI serves `src/` and points it at `web/test-disks/`, a
+test fixture, so the checks do not depend on the network.
+
+`?disk=games.dsk&disk1=...&hd=...&rom=a` picks the images for drive A,
 drive B, the HD and the ROM (over the remembered mounts); `autostart=0`
 waits for the Boot button; `type=R%20FIST` (with `delay=` ms, 3000) types
 a command for the monitor after the boot (`window.__ms.type()` does the

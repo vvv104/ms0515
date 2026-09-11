@@ -79,8 +79,10 @@ jobs:
         run: |
           NAME=ms0515-${{ github.ref_name }}-${{ matrix.platform }}
 
-          # Strip runtime-generated files that shouldn't ship
+          # Strip runtime-generated files that shouldn't ship, and any disk
+          # a local build left: the disks come from the software collection.
           rm -f package/ms0515.yaml
+          rm -rf package/assets/disks
 
           if [ "${{ runner.os }}" = "Windows" ]; then
             (cd package && 7z a -tzip "../${NAME}.zip" .)

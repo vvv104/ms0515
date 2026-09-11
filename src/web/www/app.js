@@ -19,27 +19,27 @@ import { SoftKeyboard, isTouchDevice } from "./softkeys.js?v=@STAMP@";
 import { Commander } from "./fm.js?v=@STAMP@";
 import * as bugreport from "./bugreport.js?v=@STAMP@";
 
-// The floppy images the site ships (dist/disks/, from assets/disks) and
-// their sides (a two-sided image takes both sides of its drive).
-const DISKS = [
-  { name: "osa.dsk",         sides: 1, title: "[OSA] Games" },
-  { name: "omega-games.dsk", sides: 1, title: "[OMEGA] Games" },
-  { name: "omega-lang.dsk",  sides: 1, title: "[OMEGA] Development" },
-  { name: "mihin.dsk",       sides: 1, title: "[MIHIN] Tools" },
-  { name: "rodionov.dsk",    sides: 2, title: "[RODIONOV] Programs" },
-  { name: "vvv.dsk",         sides: 1, title: "[VVV] Empty OS with HD.SYS" },
-];
-const SHIPPED = new Map(DISKS.map((d) => [d.name, d.title]));
-
-// What to do first on each shipped disk, for the status line after a boot.
-const HINTS = {
-  "osa.dsk":         ". is the OS prompt: DIR lists the files, R FIST runs the game",
-  "omega-games.dsk": "the date as dd-mm-yy (22-08-92), Enter at the start file; then DIR lists the files, R NAME runs a .SAV",
-  "omega-lang.dsk":  ". is the OS prompt: DIR lists the files; PAS1, MACRO, LINK, FORTRA, BASICO compile, KED edits",
-  "mihin.dsk":       "Enter twice (the silent date and time prompts); then DIR lists the files",
-  "rodionov.dsk":    "Enter at the date prompt, then ROSA Commander: the arrows move, Enter runs a file",
-  "vvv.dsk":         "Enter twice (the silent date and time prompts); DIR lists the files; INIT HD: makes a mounted HD image a volume",
-};
+// The floppy images offered: the software collection's released disks, as
+// its index.json lists them - title, media (a two-sided image takes both
+// sides of its drive) and what to do first after a boot.  They are fetched
+// from the collection's Pages, which sit beside this site; `disks=URL`
+// points elsewhere (a local copy, the CI's fixture).
+const DISK_SITE = new URL(new URLSearchParams(location.search).get("disks")
+                          ?? "https://vvv104.github.io/ms0515-software/", location.href);
+let DISKS = [];                       // { name, sides, title, hint, url }
+let SHIPPED = new Map();              // name -> the entry above
+async function loadDiskList() {
+  try {
+    const index = JSON.parse(new TextDecoder().decode(await fetchBytes(new URL("index.json", DISK_SITE))));
+    DISKS = index.presets.map((p) => ({
+      name: p.image.split("/").pop(), sides: p.media === "ss" ? 1 : 2,
+      title: p.title, hint: p.hint ?? "", url: new URL(p.image, DISK_SITE).href,
+    }));
+  } catch (e) {
+    say(`no disk list from ${DISK_SITE.href}: ${e?.message ?? e} - Open… takes an image from your computer`);
+  }
+  SHIPPED = new Map(DISKS.map((d) => [d.name, d]));
+}
 const sidesLabel = (n) => n === 2 ? "two-sided" : "one-sided";
 const ROMS = { a: "rom/ms0515-roma.rom", b: "rom/ms0515-romb.rom" };
 const SS_SIZE = 409600, DS_SIZE = 2 * SS_SIZE;
@@ -132,7 +132,7 @@ function saveMounts() {
 }
 function loadMounts() {
   const q = new URLSearchParams(location.search);
-  let m = { rom: "a", fd: ["osa.dsk", "", "", ""], hd: "" };
+  let m = { rom: "a", fd: [DISKS[0]?.name ?? "", "", "", ""], hd: "" };
   try { m = { ...m, ...JSON.parse(localStorage.getItem("ms0515.mounts") ?? "{}") }; } catch {}
   if (q.get("rom")) m.rom = q.get("rom");
   if (q.has("disk")) m.fd[0] = q.get("disk");
@@ -147,7 +147,7 @@ async function imageBytes(name) {
   const local = await dbGet(name);
   if (local) return local;
   if (!SHIPPED.has(name)) throw new Error(`${name}: no such image`);
-  return fetchBytes("disks/" + name);
+  return fetchBytes(SHIPPED.get(name).url);
 }
 
 // Into the module's file system, once (fresh = replace what is there).
@@ -472,7 +472,7 @@ function hdRows() {
     await mountHd(name);
     hint(`${name} is the HD now: Boot, then INIT HD: in the guest makes it a volume`);
   }, "a zero-filled image; the guest initialises it"));
-  const hint = el("div", "hint", "RT-11 installs HD.SYS at boot: mount, then Boot (vvv.dsk has the handler)");
+  const hint = el("div", "hint", "RT-11 installs HD.SYS at boot: mount, then Boot (the development disk has the handler)");
   return [row, make, hint];
 }
 
@@ -511,7 +511,7 @@ async function boot() {
   saveMounts();
   const disk = slots.fd[unitOf(0, 0)];
   if (!disk) hint("nothing in drive A: open its panel, pick an image, Boot again");
-  else hint(HINTS[disk] ?? "the machine boots from drive A side 0");
+  else hint(SHIPPED.get(disk)?.hint || "the machine boots from drive A side 0");
   canvas.focus();
   start();
 }
@@ -971,10 +971,16 @@ async function main() {
   h = api.create();
   api.history(h, HISTORY_EVENTS);   // the machine's own trail, for a bug report
 
+  await loadDiskList();
   const m = loadMounts();
   $("rom").value = m.rom;
   bindControls();
   renderDevices();
+  // A remembered image that is neither offered any more nor the user's own
+  // (the disks the site used to carry) gives way to the first one offered.
+  const known = async (name) => SHIPPED.has(name) || own.has(name) || !!(await dbGet(name));
+  for (let unit = 0; unit < 4; ++unit)
+    if (m.fd[unit] && !(await known(m.fd[unit]))) m.fd[unit] = unit === 0 ? DISKS[0]?.name ?? "" : "";
   for (let unit = 0; unit < 4; ++unit)
     if (m.fd[unit]) await mountFd(unit, m.fd[unit]).catch(fail);
   if (m.hd) await mountHd(m.hd).catch(fail);

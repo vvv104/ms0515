@@ -1,0 +1,14 @@
+{
+ "format": 1,
+ "note": "The CI's stand-in for the software collection's index.json: the browser check serves src/ and opens the page with ?disks=/web/test-disks/, so it runs on a test fixture instead of the network.",
+ "presets": [
+  {
+   "key": "osa",
+   "title": "OSA (test fixture)",
+   "system": "osa",
+   "media": "ss",
+   "image": "../../lib/tests/disks/originals/test_osa_games.dsk",
+   "hint": ". is the OS prompt: DIR lists the files"
+  }
+ ]
+}
