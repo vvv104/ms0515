@@ -5,9 +5,10 @@
 // screen; then have the page type DIR and expect the listing (more text);
 // last, have it pack a bug report and check what went into it.
 // Needs a Chromium-family browser started with --remote-debugging-port
-// (see the CI job) and a server for dist/.
+// (see the CI job) and a server for src/, so that the page can take its disk
+// list from web/test-disks/ (a test fixture) instead of the collection's Pages.
 //
-//   node src/web/browser_check.mjs http://localhost:8515/ [ws port]
+//   node src/web/browser_check.mjs "http://localhost:8515/build/emscripten-release/web/dist/?disks=/web/test-disks/" [ws port]
 const url = process.argv[2] ?? "http://localhost:8515/";
 const port = process.argv[3] ?? "9222";
 
@@ -102,8 +103,8 @@ const entry = (name) => bug.entries.find((e) => e.name === name);
 if (bug.magic !== "PK") throw new Error("the bug report is not a zip");
 if (!(entry("state.ms0515")?.size > 100000)) throw new Error("the bug report carries no snapshot");
 if (!(entry("rom.bin")?.size > 0 && entry("screen.png")?.size > 0)) throw new Error("the bug report carries no ROM or picture");
-if (entry("disks/osa.dsk")?.size !== 409600) throw new Error("the bug report carries no mounted image");
-if (bug.report.note !== "browser check" || bug.report.mounts.fd[0]?.name !== "osa.dsk")
+if (entry("disks/test_osa_games.dsk")?.size !== 409600) throw new Error("the bug report carries no mounted image");
+if (bug.report.note !== "browser check" || bug.report.mounts.fd[0]?.name !== "test_osa_games.dsk")
   throw new Error("the bug report's json does not describe the machine");
 
 // SHOT_SIZE=1920x1080 takes the screenshot at that viewport (a layout check).

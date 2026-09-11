@@ -156,7 +156,7 @@
   (409600 bytes) contain only the boot side and trip the protection;
   the genuine track-interleaved double-sided dump (819200 bytes)
   carries the protection payload on side 1 and boots cleanly.  Shipped
-  in the repo as `src/assets/disks/rodionov.dsk`.
+  in the repo as `src/lib/tests/disks/originals/test_rodionov_rosa.dsk`.
 - **Status**: solved.  Mounted via `--disk0 path/to/065_full.dsk`, the
   disk boots into ROSA Commander with no visual artefacts and reaches
   the RT-11 date prompt normally.
@@ -383,7 +383,7 @@ side so the protection's sector read returns real bytes.
 - **Side effect**: tracks 2-8 of `mihin.dsk` end up overwritten with
   zeros — about 26 KB of damage out of a 410 KB image.  The OS-level
   loader subsequently fails to boot from this corrupted image until
-  the disk is restored from `src/assets/disks/mihin.dsk` (or a backup).
+  the disk is restored from `src/lib/tests/disks/originals/test_mihin_work.dsk` (or a backup).
 - **What we know**:
   - Our `write_sector()` only runs when the CPU has issued `WRITE_SECTOR`
     (cmd 0xA0/0xB0) — the FDC cannot write to disk on its own, so the
@@ -396,7 +396,7 @@ side so the protection's sector read returns real bytes.
   it may flush uninitialised (zero-filled) buffer pages back to disk,
   corrupting unrelated tracks.
 - **Mitigations**:
-  - Restore `package/assets/disks/mihin.dsk` from `src/assets/disks/`
+  - Restore the image from `src/lib/tests/disks/originals/test_mihin_work.dsk`
     after an incident (`cp` or `Copy-Item`).
   - Consider adding a "read-only mount by default" frontend setting,
     or a "snapshot the disk on mount" feature that keeps the original
@@ -466,7 +466,7 @@ cycle-accuracy audit of the core.
 A synthetic single-sided rebuild of vvv's disk1 crashed into ODT at
 026454 when its startup file ran BLACK.SAV, and this was briefly recorded
 as an open core question.  The real restored disk
-(`src/assets/disks/vvv/disk1.dsk`) runs the *same* BLACK build (17c2870)
+(`src/lib/tests/disks/originals/test_vvv_work1.dsk`) runs the *same* BLACK build (17c2870)
 from the same startup line and boots clean through to DATIME - so the
 anomaly belonged to the synthetic rebuild's configuration (a different
 DZ build, single-sided mount), not to the emulator.  Kept here as a
@@ -587,8 +587,9 @@ for.  Verified on both builds from the states that crash: the room draws
 whole and the game plays on.  The patched bodies live in the software
 collection under `software/games/sabot2/fixed/`, with the untouched
 originals beside them, and the repair is applied in place inside the
-asset images that carry the game - `src/assets/disks/osa.dsk` (0x25492)
-and `src/assets/disks/omega-games.dsk` (0x354d0).  The body is stored
+images that carry the game - `test_osa_games.dsk` (0x25492) and
+`test_omega_games.dsk` (0x354d0), the original disks kept as test fixtures
+in `src/lib/tests/disks/originals/`.  The body is stored
 block by block, so the 512-byte block holding the loop appears verbatim
 in an image: find it and patch the six bytes, and the file reads back
 byte-identical to the repaired body through the volume's own directory.
@@ -622,6 +623,6 @@ apart; without it, a fragment of a figure on the ladder.
 body and 0o36132 in the omega one (the two builds' actor tables are
 byte-identical at different addresses), in the collection's
 `software/games/sabot2/fixed/` and in place inside
-`src/assets/disks/osa.dsk` (0x25c1c) and
-`src/assets/disks/omega-games.dsk` (0x36a5a).  Both images read the file
+`test_osa_games.dsk` (0x25c1c) and `test_omega_games.dsk` (0x36a5a) in
+`src/lib/tests/disks/originals/`.  Both images read the file
 back byte-identical to the repaired body.

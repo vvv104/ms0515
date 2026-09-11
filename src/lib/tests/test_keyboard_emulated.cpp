@@ -19,9 +19,8 @@
  *
  * Reference disks: `tests/disks/test_osa.dsk` and
  * `tests/disks/test_omega.dsk` — both boot straight to the dot
- * prompt with echo enabled.  These trimmed-OS images live under the
- * tests tree (rather than src/assets/disks/) because they're for
- * test fixtures, not for end-user runtime.
+ * prompt with echo enabled.  These trimmed-OS images are test
+ * fixtures; the emulator ships no disks of its own.
  */
 
 #include <doctest/doctest.h>

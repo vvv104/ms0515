@@ -95,7 +95,9 @@ src/                — emulator source code and build files
   cli/              — text-mode binary (main.cpp, StdioBridge, Koi8)
   frontend/         — SDL2 + ImGui application
   frontend/tests/   — placeholder for future frontend tests
-  assets/           — runtime resources (ROM files, keyboard layout, disk images)
+  assets/           — runtime resources (ROM files, keyboard layout, DISKS.txt) - no disks: they come
+                      from the ms0515-software releases; the original disks the tests need live in
+                      lib/tests/disks/originals/ as test_*.dsk
 package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.exe, ms0515.yaml, assets/
 rt11_devel/         — RT-11 guest programs: toolset/ (build.py: MACRO/LINK inside the emulator),
                       projects/<name>/ (sources, generators, README) and projects/<name>/tests/

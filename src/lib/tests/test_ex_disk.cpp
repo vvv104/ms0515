@@ -1,7 +1,7 @@
 /*
  * test_ex_disk.cpp — high-level regression for the EX RAM-disk driver.
  *
- * Boots assets/disks/disk2.dsk (RT-11 + EX.SYS) under ROM-B, drives
+ * Boots an RT-11 + EX.SYS image under ROM-B, drives
  * past the date/time/startup-command prompts with three Enters, then
  * runs `INIT EX:` / `Y` / `DIR EX:` and verifies the directory comes
  * back as an empty RT-11 volume.  Catches regressions in the T-11
@@ -9,10 +9,10 @@
  * counter on the EX board double-ticks every MOVB and `DIR EX:`
  * surfaces `?DIR-F-Invalid directory`.
  *
- * Test fixture lives in `src/assets/disks/` instead of the usual
- * `lib/tests/disks/` tree: disk2.dsk is the shipped EX-capable image
- * end-users get, the test rides on top of it through a TempDisk copy
- * so the original stays pristine.
+ * The fixture belongs in `lib/tests/disks/originals/` beside the other
+ * original disks, as test_ex_ram.dsk; none of them carries EX.SYS today,
+ * so the check skips until one is put there.  It rides on the image
+ * through a TempDisk copy so the original stays pristine.
  */
 
 #include <doctest/doctest.h>
@@ -42,7 +42,7 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr const char *kRomB  = ASSETS_DIR "/rom/ms0515-romb.rom";
-constexpr const char *kDisk  = ASSETS_DIR "/disks/disk2.dsk";
+constexpr const char *kDisk  = TESTS_DIR "/disks/originals/test_ex_ram.dsk";
 
 static void stepFrames(ms0515::Emulator &emu, ms0515::VramMirror &mirror, int n)
 {
@@ -127,12 +127,12 @@ TEST_SUITE("ExDisk") {
 TEST_CASE("INIT EX: / DIR EX: round-trip through the K555IE19 counter") {
     REQUIRE(fs::exists(kRomB));
 
-    /* The disk2.dsk fixture is an EX-capable RT-11 image; without it
+    /* The test_ex_ram.dsk fixture is an EX-capable RT-11 image; without it
      * this end-to-end check has nothing to drive.  The unit-level
      * DATIO tests in test_board.cpp still cover the bus-cycle
      * mechanics — those run on every build. */
     if (!fs::exists(kDisk)) {
-        MESSAGE("disk2.dsk not present in assets/disks/ — skipping the "
+        MESSAGE("test_ex_ram.dsk not present in lib/tests/disks/originals/ — skipping the "
                 "end-to-end EX RAM-disk regression.  Drop a bootable "
                 "RT-11+EX image at " << std::string{kDisk}
                 << " to enable it.");

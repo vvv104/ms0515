@@ -23,7 +23,7 @@ T-11), produced in the late 1980s.
 - Paravirtual hard disk (HD:) — mounts a backing image of any size for
   use with the RT-11 HD.SYS driver (`--hd <path>`; shares bus addresses
   with the unused serial port, so the two are mutually exclusive).
-  `assets/disks/vvv.dsk` is a bootable RT-11 with HD.SYS ready to use
+  The software collection's development disk (`devel.dsk`) carries HD.SYS
 - Folder-backed devices — mount a host FOLDER as a floppy or the HD:
   via a plain-text `.rtfs` descriptor: files map to RT-11 files both
   ways (external edits visible inside, guest writes materialize host
@@ -48,8 +48,12 @@ T-11), produced in the late 1980s.
   enough to put a fault back on the developer's screen
 - Guest programs built with the real RT-11 toolchain inside the emulator
   (`rt11_devel/`): a faithful MACRO-11 port of *The Way of the Exploding
-  Fist* (`rt11_devel/projects/fist/`), playable from `assets/disks/osa.dsk`
-  with `R FIST`
+  Fist* (`rt11_devel/projects/fist/`), on the collection's games disk
+  (`R FIST`)
+- No disks of its own: the bootable diskettes come from the software
+  collection's releases (<https://github.com/vvv104/ms0515-software/releases>),
+  the browser build loads them from its Pages, and `ms0515-disk compose`
+  builds any other combination from a copy of the collection
 
 ## Repository structure
 

@@ -1,7 +1,7 @@
 # ── ms0515_web ───────────────────────────────────────────────────────────────
 # The browser front-end: the lib layer compiled with Emscripten behind a flat
 # C API (src/ms0515_web.cpp), the page that drives it (www/), and the assets
-# it ships with (ROMs, the demo disks) - assembled into dist/, a static
+# it ships with (the ROMs) - assembled into dist/, a static
 # folder any web host (GitHub Pages) or a local `python -m http.server`
 # serves as is.  Only configured when the Emscripten toolchain is active.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -33,9 +33,9 @@ target_link_options(ms0515_web PRIVATE
     "-sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,HEAP8,HEAPU8,HEAP16,HEAPU16,HEAP32,HEAPU32,UTF8ToString,stringToUTF8,lengthBytesUTF8"
 )
 
-# The page and the assets next to the module.
+# The page and the assets next to the module.  No disks: the page loads
+# them from the software collection's Pages (see DISK_SITE in app.js).
 set(WEB_ASSETS_DIR "${CMAKE_SOURCE_DIR}/assets")
-set(WEB_DISKS osa.dsk omega-games.dsk omega-lang.dsk mihin.dsk rodionov.dsk vvv.dsk)
 set(WEB_COPIES)
 # index.html and app.js carry a build stamp in their script URLs (cache
 # busting); the rest is copied as is.
@@ -57,11 +57,5 @@ foreach(f ms0515-roma.rom ms0515-romb.rom)
     add_custom_command(OUTPUT "${WEB_DIST}/rom/${f}"
         COMMAND ${CMAKE_COMMAND} -E copy "${WEB_ASSETS_DIR}/rom/${f}" "${WEB_DIST}/rom/${f}"
         DEPENDS "${WEB_ASSETS_DIR}/rom/${f}")
-endforeach()
-foreach(f ${WEB_DISKS})
-    list(APPEND WEB_COPIES "${WEB_DIST}/disks/${f}")
-    add_custom_command(OUTPUT "${WEB_DIST}/disks/${f}"
-        COMMAND ${CMAKE_COMMAND} -E copy "${WEB_ASSETS_DIR}/disks/${f}" "${WEB_DIST}/disks/${f}"
-        DEPENDS "${WEB_ASSETS_DIR}/disks/${f}")
 endforeach()
 add_custom_target(ms0515_web_dist ALL DEPENDS ms0515_web ${WEB_COPIES})

@@ -840,7 +840,7 @@ TEST_CASE("DIAG: Rodionov OSA-B real boot — screen vs Terminal mirror"
     namespace fs = std::filesystem;
     ms0515::Emulator emu;
     REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
-    ms0515_test::TempDisk td{std::string{ASSETS_DIR} + "/disks/rodionov.dsk"};
+    ms0515_test::TempDisk td{std::string{TESTS_DIR} + "/disks/originals/test_rodionov_rosa.dsk"};
     REQUIRE(emu.mountDisk(0, td.path().string()));
     std::error_code ec;
     if (auto sz = fs::file_size(td.path(), ec); !ec && sz == 2 * 409600u)

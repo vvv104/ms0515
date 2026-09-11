@@ -8,9 +8,9 @@
  * ROMs are discovered from ASSETS_DIR/rom (.rom files); disks from
  * TESTS_DIR/disks (.dsk files).  Adding a new ROM or test-fixture
  * disk to the corresponding directory automatically creates new
- * test cases.  src/assets/disks/ is reserved for the original-OS
- * images shipped to end users and is intentionally not exercised
- * by the suite.
+ * test cases.  The original disks in TESTS_DIR/disks/originals/ are
+ * not picked up: they want their own prompts answered and are
+ * exercised by the tests written for them.
  *
  * These are integration tests that exercise the entire stack:
  * CPU → memory → board → timer → keyboard → FDC.
@@ -47,11 +47,9 @@ TEST_SUITE("Boot") {
 /* ── Asset discovery ────────────────────────────────────────────────────── */
 
 /* ROMs come from the release-side assets tree (where they ride along
- * to end users); disk fixtures come from the tests tree.  The boot
- * suite never touches src/assets/disks/ — that directory is reserved
- * for the original-OS images that ship in the package, and we
- * exercise the emulator against the trimmed-OS test_*.dsk fixtures
- * instead. */
+ * to end users); disk fixtures come from the tests tree - the
+ * trimmed-OS test_*.dsk at its top, not the original disks in its
+ * originals/ subfolder (the discovery does not descend). */
 static const std::string kRomDir    = std::string{ASSETS_DIR} + "/rom";
 static const std::string kDiskDir   = std::string{TESTS_DIR}  + "/disks";
 

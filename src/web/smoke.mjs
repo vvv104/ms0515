@@ -1,14 +1,18 @@
-// smoke.mjs — the browser module under Node: boot the OSA disk, run three
+// smoke.mjs — the browser module under Node: boot an OSA disk, run three
 // seconds, expect a picture.  The same oracle the native tests use (a
 // blank / trapped screen is a few hundred non-background pixels; RT-11's
 // date prompt on the ROM's boot screen is thousands).
 //
-//   node src/web/smoke.mjs <dist dir>
+//   node src/web/smoke.mjs <dist dir> [disk image]
+//
+// The disk defaults to the original OSA test fixture: the site carries no
+// disks of its own.
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const dist = process.argv[2] ?? "build/emscripten-release/web/dist";
+const disk = process.argv[3] ?? join(dirname(fileURLToPath(import.meta.url)), "../lib/tests/disks/originals/test_osa_games.dsk");
 const { default: createMs0515 } = await import(pathToFileURL(join(dist, "ms0515.js")).href);
 const M = await createMs0515();
 const api = {
@@ -28,7 +32,7 @@ const api = {
 
 M.FS.writeFile("/rom.bin", readFileSync(join(dist, "rom/ms0515-roma.rom")));
 M.FS.mkdirTree("/disks");
-M.FS.writeFile("/disks/osa.dsk", readFileSync(join(dist, "disks/osa.dsk")));
+M.FS.writeFile("/disks/osa.dsk", readFileSync(disk));
 
 const h = api.create();
 if (!api.loadRom(h, "/rom.bin")) throw new Error("ROM load failed");
