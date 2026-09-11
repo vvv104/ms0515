@@ -259,22 +259,28 @@ bool WizardTui::onAskEvent(const Event &e)
     return true;
 }
 
-/* After Enter kept a field: on to the next field of its block; past the
- * label's last, to the first system when none is chosen yet.  A START.COM
- * line emptied is gone, and the one after it has come up to its place. */
-void WizardTui::nextField(bool blank)
+std::string WizardTui::cursorKey() const
 {
     const auto rows = visibleRows();
-    const int at = indexOf(editKey_, WizardRow::Kind::field);
+    return rows.empty() ? std::string() : rows[static_cast<std::size_t>(cursor_)].key;
+}
+
+/* After Enter on a field, kept or walked past: on to the next row; past the
+ * label's last field, to the first system that goes on the diskette.  A
+ * START.COM line emptied is gone, and the one after it has come up to its
+ * place. */
+void WizardTui::nextField(const std::string &key, bool blank)
+{
+    const auto rows = visibleRows();
+    const int at = indexOf(key, WizardRow::Kind::field);
     if (at < 0) return;
     const std::string prefix = kStartupField;
-    if (blank && editKey_.rfind(prefix, 0) == 0) { cursor_ = at; return; }
+    if (blank && key.rfind(prefix, 0) == 0) { cursor_ = at; return; }
     const auto here = static_cast<std::size_t>(at);
-    if (here + 1 < rows.size() && rows[here + 1].kind == WizardRow::Kind::field && rows[here + 1].parent == rows[here].parent) {
-        cursor_ = at + 1;
-    } else if (rows[here].parent == kLabelGroup && !wizard_.ready()) {
-        cursor_ = firstOf([](const WizardRow &x) { return x.kind == WizardRow::Kind::system && x.available; });
-    }
+    const bool lastOfLabel = rows[here].parent == kLabelGroup &&
+                             (here + 1 == rows.size() || rows[here + 1].parent != kLabelGroup);
+    if (lastOfLabel) cursor_ = firstOf([](const WizardRow &x) { return x.kind == WizardRow::Kind::system && x.available; });
+    else moveCursor(1);
 }
 
 void WizardTui::startEdit(const WizardRow &row, std::string text)
@@ -284,8 +290,8 @@ void WizardTui::startEdit(const WizardRow &row, std::string text)
     edit_ = std::move(text);
 }
 
-/* Typing into a field: Enter keeps the text (and goes on to the next new
- * START.COM line), an arrow keeps it and moves, Esc drops it. */
+/* Typing into a field: Enter keeps the text and goes on, an arrow keeps it
+ * and moves, Del empties the box, Esc drops the edit. */
 bool WizardTui::onEditEvent(const Event &e)
 {
     if (e == Event::Escape) { editing_ = false; return true; }
@@ -294,7 +300,7 @@ bool WizardTui::onEditEvent(const Event &e)
         const bool blank = edit_.find_first_not_of(' ') == std::string::npos;
         status_ = wizard_.setField(editKey_, edit_);
         changed();
-        if (e == Event::Return && status_.empty()) nextField(blank);
+        if (e == Event::Return && status_.empty()) nextField(editKey_, blank);
         if (e == Event::ArrowUp) moveCursor(-1);
         if (e == Event::ArrowDown) moveCursor(1);
         return true;
@@ -316,6 +322,7 @@ bool WizardTui::onListEvent(const Event &e)
     if (e == Event::End)       { cursor_ = std::max(0, static_cast<int>(rows.size()) - 1); return true; }
     if (rows.empty()) return false;
     const auto &r = rows[static_cast<std::size_t>(cursor_)];
+    if (r.kind == WizardRow::Kind::field && e == Event::Return) { nextField(r.key, false); return true; }
     if (e == Event::Character(" ") || e == Event::Return) { activate(r); return true; }
     if (r.kind == WizardRow::Kind::field && e.is_character()) { startEdit(r, r.value + e.character()); return true; }
     if (r.kind == WizardRow::Kind::field && e == Event::Delete) {   /* the box emptied: a START.COM line goes */
@@ -470,7 +477,7 @@ Element WizardTui::renderBottom() const
     if (ask_ != Ask::none) line = hbox({text(prompts.at(ask_)), text(input_) | kCursor, filler()});
     else line = hbox({text(status_), filler()});
     const Element hint = hbox({text(editing_ ? "Enter: keep    Esc: drop    Del: empty    Up, Down: keep and move"
-                                             : "Space, Enter: choose, open or close a group, edit a field    Del: empty a field    / find"), filler()});
+                                             : "Space, Enter: choose, open or close a group    a field: type to edit, Enter past it, Del empties    / find"), filler()});
     Elements keys;
     for (const auto &[num, name] : kKeys) keys.push_back(hbox({text(num) | kKeyNum, text(name) | kBar | flex}) | flex);
     return vbox({line, hint, hbox(keys)});

@@ -173,10 +173,8 @@ TEST_CASE("the wizard's screen: the diskette first, then the system, then the gr
     type(tui, "GAMES");                                       /* the cursor went on to the label */
     press(tui, ftxui::Event::Return);                         /* kept: on to the next field */
     CHECK(tui.model().selection().volumeId == "GAMES");
-    for (int field = 0; field < 3; ++field) {                  /* Enter edits, Enter keeps and moves on */
+    for (int field = 0; field < 3; ++field)                    /* Enter on a field goes past it as it is */
         press(tui, ftxui::Event::Return);
-        press(tui, ftxui::Event::Return);
-    }
     press(tui, ftxui::Event::Character(" "));                 /* past the label: the first system */
     REQUIRE(tui.model().ready());
     s = shown(tui);
@@ -258,7 +256,6 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     const Repository repo = repository();
     tools::WizardTui tui(m, repo, scratch());
     choose(tui, "dz - two sides");                            /* the cursor goes on to DZ0's volume id */
-    press(tui, ftxui::Event::Return);
     type(tui, "MYDISK");
     press(tui, ftxui::Event::Return);
     CHECK(tui.model().selection().volumeId == "MYDISK");
@@ -292,7 +289,7 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     press(tui, ftxui::Event::Return);
     CHECK(tui.model().selection().volumeId == "DVDISK");
     press(tui, ftxui::Event::ArrowUp);
-    press(tui, ftxui::Event::Return);
+    type(tui, "X");
     press(tui, ftxui::Event::Delete);                         /* Del in an edit empties the box */
     type(tui, "NEW");
     press(tui, ftxui::Event::Return);
@@ -300,6 +297,30 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     const std::string labels = shown(tui);
     CHECK(labels.find("[NEW         ]") != std::string::npos);  /* every label box twelve wide */
     CHECK(labels.find("[VVV         ]") != std::string::npos);
+}
+
+TEST_CASE("Enter walks the label field by field, on to the systems - whichever diskette, however often") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    choose(tui, "dz - two sides");
+    CHECK(tui.cursorKey() == kVolumeIdField);
+    for (const char *key : {kOwnerField, kSecondVolumeIdField, kSecondOwnerField, "omega"}) {
+        press(tui, ftxui::Event::Return);
+        CHECK(tui.cursorKey() == key);
+    }
+    press(tui, ftxui::Event::Character(" "));
+    REQUIRE(tui.model().ready());
+    choose(tui, "dv - one DV");                               /* two fields now, a system chosen */
+    CHECK(tui.cursorKey() == kVolumeIdField);
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.cursorKey() == kOwnerField);
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.cursorKey() == "omega");
+    choose(tui, "dz - two sides");
+    for (int field = 0; field < 4; ++field) press(tui, ftxui::Event::Return);
+    CHECK(tui.cursorKey() == "omega");
+    CHECK_FALSE(tui.model().selection().volumeId.has_value());  /* walked past, nothing typed */
 }
 
 TEST_CASE("a system that does not go on the diskette is greyed; another diskette later drops it") {

@@ -45,6 +45,8 @@ public:
 
     [[nodiscard]] const disk::DiskWizard &model() const noexcept { return wizard_; }
     [[nodiscard]] const std::string &status() const noexcept { return status_; }
+    /* The key of the row under the cursor. */
+    [[nodiscard]] std::string cursorKey() const;
 
 private:
     enum class Ask { none, save, open, build, find };
@@ -60,7 +62,7 @@ private:
     void finishAsk();
     bool onAskEvent(const ftxui::Event &event);
     void startEdit(const disk::WizardRow &row, std::string text);
-    void nextField(bool blank);
+    void nextField(const std::string &key, bool blank);
     bool onEditEvent(const ftxui::Event &event);
     bool onListEvent(const ftxui::Event &event);
     void findNext(const std::string &text);
