@@ -144,7 +144,8 @@ public:
 
     /* A saved choice, over this manifest: names it no longer knows are
      * skipped, and a collection version other than this manifest's is
-     * reported - both in notices(). */
+     * reported - both in notices().  The branches holding what it chose
+     * open; the rest stay folded. */
     void load(const SavedSelection &saved);
     [[nodiscard]] SavedSelection saved() const;
 
@@ -161,6 +162,7 @@ private:
     [[nodiscard]] Branch tree() const;
     void stepRows(std::vector<WizardRow> &out, bool everything) const;
     void labelRows(std::vector<WizardRow> &out, bool everything) const;
+    void openWhatIsChosen();
     [[nodiscard]] std::string startupHome() const;
     void startupRows(std::vector<WizardRow> &out, int depth, const std::string &parent, bool everything) const;
     void branchRows(std::vector<WizardRow> &out, const Branch &branch, int depth, bool everything) const;

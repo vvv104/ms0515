@@ -609,6 +609,31 @@ void DiskWizard::load(const SavedSelection &saved)
     open_ = {kStartupGroup};
     if (sel_.system.empty()) open_.insert(kSystemGroup);
     if (ready()) dropWhatDoesNotFit(); else resolve();
+    openWhatIsChosen();
+}
+
+/* A choice read from a file: the diskette and the system open, the label
+ * when one is typed, and the way down to every bundle chosen or brought
+ * along, to a build other than the system's own, to its START.COM lines. */
+void DiskWizard::openWhatIsChosen()
+{
+    open_.insert(kDisketteGroup);
+    if (sel_.volumeId || sel_.owner || sel_.secondVolumeId || sel_.secondOwner) open_.insert(kLabelGroup);
+    if (!ready()) return;
+    open_.insert(kSystemGroup);
+    const auto *sys = m_.system(sel_.system);
+    auto pathOf = [](const ManifestBundle &b) {
+        std::string key;
+        for (const auto &part : groupPath(b.group)) key += (key.empty() ? "" : " / ") + part;
+        return key;
+    };
+    for (const auto &key : res_.bundles) {
+        const auto *b = m_.bundle(key);
+        const auto mark = markOf(*b);
+        const bool foreign = mark == WizardRow::Mark::system && !alternativesOf(*b).empty() && !contains(sys->prefer, key);
+        if (mark == WizardRow::Mark::on || mark == WizardRow::Mark::added || foreign) reveal(pathOf(*b));
+    }
+    if (sel_.startup) if (const auto home = startupHome(); !home.empty()) reveal(home);
 }
 
 SavedSelection DiskWizard::saved() const

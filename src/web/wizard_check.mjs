@@ -142,7 +142,7 @@ const saved = api.save();
 if (!/collection\s*=\s*"check-1"/.test(saved) || !/"dir2"/.test(saved)) fail("the saved choice:\n" + saved);
 api.toggle("dir2");
 if (!api.load(saved)) fail("wiz_load: " + api.error());
-api.fold("Utilities");                                  // a loaded choice starts folded
+// a loaded choice opens where it chose something
 state = JSON.parse(api.state());
 if (row("dir2").mark !== "on") fail("the loaded choice");
 

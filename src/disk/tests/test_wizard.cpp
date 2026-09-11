@@ -356,7 +356,25 @@ TEST_CASE("the groups are a tree, folded, each saying how many are chosen") {
     DiskWizard other(m);
     other.load(saved);
     CHECK(other.ready());
-    CHECK(headings(other.rows()) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "Development", "Games"});
+    rows = other.rows();                                            /* opened: where something is chosen */
+    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "Development",
+                                                     "Assembler", "Linker", "Pascal", "Games"});
+    CHECK(row(rows, "#diskette", WizardRow::Kind::group)->open);
+    CHECK(row(rows, "#system", WizardRow::Kind::group)->open);
+    CHECK_FALSE(row(rows, "#label", WizardRow::Kind::group)->open);   /* no label typed */
+    CHECK_FALSE(row(rows, "System", WizardRow::Kind::group)->open);   /* only the system's own there */
+    CHECK(row(rows, "Development / Pascal", WizardRow::Kind::group)->open);
+    CHECK(row(rows, "Development / Assembler", WizardRow::Kind::group)->open);   /* what came along too */
+    CHECK_FALSE(row(rows, "Games", WizardRow::Kind::group)->open);
+
+    SavedSelection more = saved;
+    more.selection.volumeId = "DEV";
+    more.selection.picks["dir"] = "dir-omega";                      /* not the native DIR */
+    DiskWizard third(m);
+    third.load(more);
+    rows = third.rows();
+    CHECK(row(rows, "#label", WizardRow::Kind::group)->open);
+    CHECK(row(rows, "System", WizardRow::Kind::group)->open);
 }
 
 TEST_CASE("the system's utilities: its own build marked native and on, another build can take its place") {
