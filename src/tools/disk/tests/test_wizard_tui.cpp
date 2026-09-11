@@ -1,0 +1,213 @@
+/*
+ * test_wizard_tui.cpp - the native disk wizard's screen, driven by events and
+ * read back from a rendered screen: the marks, a toggle, a radio pick, the
+ * files F2 saves, F3 opens and F5 builds.
+ */
+
+#include <doctest/doctest.h>
+
+#include "../WizardTui.hpp"
+
+#include <ms0515/disk/Build.hpp>
+
+#include <ftxui/screen/screen.hpp>
+
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <memory>
+#include <string>
+
+using namespace ms0515;
+using namespace ms0515::disk;
+namespace fs = std::filesystem;
+
+namespace {
+
+const char kManifest[] = R"toml(
+format  = 1
+version = "test-1"
+
+[system.omega]
+title    = "OMEGA"
+image    = "systems/omega.dsk"
+media    = ["dz", "dv"]
+requires = ["dz"]
+
+[bundle.dz]
+title = "DZ.SYS - floppy"
+group = "System"
+files = ["h/DZ.SYS"]
+
+[bundle.macro-a]
+title    = "MACRO build A"
+group    = "Development"
+provides = ["macro11"]
+files    = ["d/a/MACRO.SAV"]
+
+[bundle.macro-b]
+title    = "MACRO build B"
+group    = "Development"
+provides = ["macro11"]
+files    = ["d/b/MACRO.SAV"]
+
+[bundle.pascal]
+title    = "Pascal"
+group    = "Development"
+requires = ["macro11"]
+prefer   = ["macro-a"]
+files    = ["d/PAS1.SAV"]
+)toml";
+
+/* A bootable little exemplar: SWAP, a monitor, and the DZ.SYS the
+ * repository serves loose. */
+std::vector<uint8_t> handler()
+{
+    std::vector<uint8_t> h(3 * kBlock, 0);
+    h[062] = 0x00; h[063] = 0x02; h[064] = 0x00; h[065] = 0x02; h[066] = 0x60;
+    return h;
+}
+
+std::vector<uint8_t> exemplar()
+{
+    auto img = blankImage(true);
+    initVolume(img, 0, true, {}, Vol::dv);
+    std::vector<uint8_t> mon(6 * kBlock, 1);
+    std::fill(mon.begin() + 4 * kBlock, mon.begin() + 5 * kBlock, uint8_t{0});
+    putFile(img, 0, true, "SWAP.SYS", std::vector<uint8_t>(kBlock, 2), {}, Vol::dv);
+    putFile(img, 0, true, "RT11SJ.SYS", mon, {}, Vol::dv);
+    putFile(img, 0, true, "DZ.SYS", handler(), {}, Vol::dv);
+    putFile(img, 0, true, "DV.SYS", handler(), {}, Vol::dv);
+    writeBoot(img, 0, true, "RT11SJ", Vol::dv);
+    return img;
+}
+
+Repository repository()
+{
+    auto files = std::make_shared<std::map<std::string, std::vector<uint8_t>>>();
+    (*files)["systems/omega.dsk"] = exemplar();
+    (*files)["h/DZ.SYS"] = handler();
+    (*files)["d/a/MACRO.SAV"] = std::vector<uint8_t>(3 * kBlock, 3);
+    (*files)["d/b/MACRO.SAV"] = std::vector<uint8_t>(4 * kBlock, 4);
+    (*files)["d/PAS1.SAV"] = std::vector<uint8_t>(5 * kBlock, 5);
+    Repository repo;
+    for (const auto &kv : *files) repo.paths.push_back(kv.first);
+    repo.read = [files](const std::string &p) -> std::optional<std::vector<uint8_t>> {
+        const auto it = files->find(p);
+        if (it == files->end()) return std::nullopt;
+        return it->second;
+    };
+    return repo;
+}
+
+std::string shown(tools::WizardTui &tui)
+{
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(110), ftxui::Dimension::Fixed(30));
+    ftxui::Render(screen, tui.render(110, 30));
+    return screen.ToString();
+}
+
+void press(tools::WizardTui &tui, const ftxui::Event &e) { CHECK(tui.onEvent(e)); }
+
+void type(tools::WizardTui &tui, const std::string &text)
+{
+    for (const char c : text) press(tui, ftxui::Event::Character(c));
+}
+
+void downTo(tools::WizardTui &tui, const std::string &title)
+{
+    press(tui, ftxui::Event::Character("/"));
+    type(tui, title);
+    press(tui, ftxui::Event::Return);
+}
+
+fs::path scratch()
+{
+    const fs::path dir = fs::temp_directory_path() / "ms0515-wizard-tui";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    return dir;
+}
+
+}  /* namespace */
+
+TEST_CASE("the wizard's screen: the system's part locked, the alternatives a radio group, the plan") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    const std::string s = shown(tui);
+    CHECK(s.find("System: < OMEGA >") != std::string::npos);
+    CHECK(s.find("[#] DZ.SYS - floppy") != std::string::npos);
+    CHECK(s.find("one of: macro11") != std::string::npos);
+    CHECK(s.find("( ) MACRO build A") != std::string::npos);
+    CHECK(s.find("[ ] Pascal") != std::string::npos);
+    CHECK(s.find("DZ0:") != std::string::npos);
+    CHECK(s.find("DZ2:") != std::string::npos);
+}
+
+TEST_CASE("Space on Pascal brings the preferred MACRO; picking the other swaps them") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    downTo(tui, "Pascal");
+    press(tui, ftxui::Event::Character(" "));
+    std::string s = shown(tui);
+    CHECK(s.find("[x] Pascal") != std::string::npos);
+    CHECK(s.find("(\xE2\x80\xA2) MACRO build A") != std::string::npos);
+    CHECK(s.find("for Pascal") != std::string::npos);
+
+    downTo(tui, "MACRO build B");
+    press(tui, ftxui::Event::Character(" "));
+    s = shown(tui);
+    CHECK(s.find("( ) MACRO build A") != std::string::npos);
+    CHECK(s.find("(\xE2\x80\xA2) MACRO build B") != std::string::npos);
+
+    press(tui, ftxui::Event::Character(" "));                 /* Pascal needs one: it stays */
+    CHECK(tui.status().find("required by Pascal") != std::string::npos);
+}
+
+TEST_CASE("F2 saves the choice, F3 opens it again, F5 builds a disk that boots") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    const fs::path dir = scratch();
+    tools::WizardTui tui(m, repo, dir);
+    downTo(tui, "Pascal");
+    press(tui, ftxui::Event::Character(" "));
+
+    press(tui, ftxui::Event::F2);
+    press(tui, ftxui::Event::Return);                         /* the default name */
+    REQUIRE(fs::exists(dir / "omega-dz.toml"));
+    const SavedSelection saved = [&] {
+        std::ifstream f(dir / "omega-dz.toml");
+        return parseSelection(std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()));
+    }();
+    CHECK(saved.collection == "test-1");
+    CHECK(saved.selection.bundles == std::vector<std::string>{"pascal"});
+
+    tools::WizardTui other(m, repo, dir);
+    press(other, ftxui::Event::F3);
+    press(other, ftxui::Event::Return);
+    CHECK(other.model().selection().bundles == std::vector<std::string>{"pascal"});
+
+    press(other, ftxui::Event::F5);
+    press(other, ftxui::Event::Return);
+    REQUIRE(fs::exists(dir / "omega-dz.dsk"));
+    CHECK(fs::file_size(dir / "omega-dz.dsk") == 819200);
+    std::ifstream f(dir / "omega-dz.dsk", std::ios::binary);
+    const std::vector<uint8_t> image(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>{});
+    CHECK(bootedMonitor(image, 0, true) == "RT11SJ");
+
+    press(other, ftxui::Event::F10);
+    CHECK(other.quit());
+}
+
+TEST_CASE("Tab to the media and an arrow changes it, the plan following") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    press(tui, ftxui::Event::Tab);
+    press(tui, ftxui::Event::Tab);
+    press(tui, ftxui::Event::ArrowRight);
+    CHECK(tui.model().media() == Media::dv);
+    CHECK(shown(tui).find("DV0:") != std::string::npos);
+}
