@@ -444,18 +444,19 @@ void DiskWizard::branchRows(std::vector<WizardRow> &out, const Branch &branch, i
         out.push_back(std::move(g));
         return;
     }
-    int on = 0, added = 0;
+    /* What of it goes on the disk - chosen, brought along or the system's -
+     * and the blocks that takes. */
+    int items = 0, blocks = 0;
     auto count = [&](const Branch &b, const auto &self) -> void {
         for (const auto *bundle : b.bundles) {
-            const auto mark = markOf(*bundle);
-            if (mark == WizardRow::Mark::on) ++on;
-            if (mark == WizardRow::Mark::added) ++added;
+            if (markOf(*bundle) == WizardRow::Mark::off) continue;
+            ++items;
+            blocks += blocksOf_ ? blocksOf_(*bundle) : 0;
         }
         for (const auto &c : b.children) self(c, self);
     };
     count(branch, count);
-    if (on) g.summary = std::to_string(on) + " chosen";
-    if (added) g.summary += (g.summary.empty() ? "" : ", ") + std::to_string(added) + " added";
+    if (items) g.summary = std::to_string(items) + " selected, " + std::to_string(blocks) + " blocks";
     g.open = everything || open_.count(branch.key) != 0;
     out.push_back(g);
     if (!g.open) return;

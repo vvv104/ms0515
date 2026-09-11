@@ -56,7 +56,7 @@ struct WizardRow {
     std::string value;         /* a field: its text */
     int         blocks = 0;
     bool        open = false;  /* a group: its rows follow */
-    std::string summary;       /* a group: the diskette or the system chosen, "2 chosen, 1 added"; a field: a hint */
+    std::string summary;       /* a group: the diskette or the system chosen, "4 selected, 135 blocks"; a field: a hint */
 };
 
 /* The keys of the two first steps' groups; a bundle group's key is its path. */

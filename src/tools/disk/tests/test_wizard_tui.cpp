@@ -223,7 +223,7 @@ TEST_CASE("Space on Pascal brings the preferred MACRO; picking the other swaps t
     ready(tui);
     choose(tui, "Pascal");
     std::string s = shown(tui);
-    CHECK(s.find("1 chosen, 1 added") != std::string::npos);    /* the group says it */
+    CHECK(s.find("2 selected, 8 blocks") != std::string::npos); /* the group says it */
     CHECK(s.find("Development 8") != std::string::npos);        /* and the plan its blocks: PAS1 5, MACRO 3 */
     CHECK(s.find("START.COM  SET") == std::string::npos);
     CHECK(s.find("[x] Pascal") != std::string::npos);

@@ -113,7 +113,7 @@ if (row("dz").blocks < 1) fail("no block count");
 if (api.toggle("dir") !== "") fail("toggle dir");
 if (api.toggle("dir2") !== "") fail("toggle dir2");
 state = JSON.parse(api.state());
-if (row("Utilities", "group").summary !== "1 chosen") fail("the group's count: " + row("Utilities", "group").summary);
+if (!/^1 selected, [1-9]\d* blocks$/.test(row("Utilities", "group").summary)) fail("the group's count: " + row("Utilities", "group").summary);
 if (row("dir").mark !== "off" || row("dir2").mark !== "on") fail("the radio did not switch: " + row("dir").mark + " " + row("dir2").mark);
 if (api.toggle("dz") === "") fail("the system's part was taken away");
 

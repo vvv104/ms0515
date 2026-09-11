@@ -167,6 +167,7 @@ TEST_CASE("the blocks of what goes on the disk, by the top group it sits in") {
     REQUIRE(w.toggle("pascal").empty());
     using Groups = std::vector<std::pair<std::string, int>>;
     CHECK(w.blocksByGroup() == Groups{{"System", 6 + 12}, {"Development", 10 + 14 + 13 + 6}});
+    CHECK(row(w.rows(), "Development", WizardRow::Kind::group)->summary == "4 selected, 43 blocks");
 }
 
 TEST_CASE("alternatives of which this system shows only one are a plain line, not a radio group") {
@@ -332,7 +333,8 @@ TEST_CASE("the groups are a tree, folded, each saying how many are chosen") {
     auto rows = w.rows();
     CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "Development", "Games"});
     CHECK(row(rows, "#diskette", WizardRow::Kind::group)->summary == "dz - two sides, 800 KB");
-    CHECK(row(rows, "Development", WizardRow::Kind::group)->summary == "1 chosen, 3 added");
+    CHECK(row(rows, "Development", WizardRow::Kind::group)->summary == "4 selected, 0 blocks");   /* chosen or brought along */
+    CHECK(row(rows, "System", WizardRow::Kind::group)->summary == "2 selected, 0 blocks");        /* the system's too */
     CHECK(row(rows, "Games", WizardRow::Kind::group)->summary.empty());
 
     w.toggleFold("Development");
@@ -343,7 +345,7 @@ TEST_CASE("the groups are a tree, folded, each saying how many are chosen") {
     REQUIRE(assembler);
     CHECK(assembler->depth == 1);
     CHECK_FALSE(assembler->open);
-    CHECK(assembler->summary == "2 added");
+    CHECK(assembler->summary == "2 selected, 0 blocks");
     CHECK(row(rows, "pascal") == nullptr);
 
     w.toggleFold("Development / Pascal");
