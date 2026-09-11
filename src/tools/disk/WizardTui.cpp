@@ -22,13 +22,22 @@ const Decorator kGroup   = color(Color::YellowLight);
 const Decorator kAdded   = color(Color::GreenLight);
 const Decorator kGrey    = color(Color::GrayDark);
 const Decorator kBar     = bgcolor(Color::Cyan) | color(Color::Black);
-const Decorator kKeyNum  = bgcolor(Color::Black) | color(Color::White);
 const Decorator kBad     = color(Color::RedLight);
 const Decorator kEdit    = bgcolor(Color::Black) | color(Color::White);
 
-const std::vector<std::pair<const char *, const char *>> kKeys = {
-    {" 2", "Save"}, {" 3", "Open"}, {" 5", "Build"}, {"10", "Quit"},
+/* The buttons at the end of the list. */
+struct ButtonInfo {
+    const char *key;
+    const char *label;
+    const char *about;
 };
+const ButtonInfo kButtons[] = {
+    {"#save", "Save the choice", "Write what is chosen to a file of its own, to open or build from later."},
+    {"#open", "Open a choice", "Read a choice saved before."},
+    {"#build", "Build the disk", "Compose the disk image as chosen."},
+    {"#quit", "Quit", "Leave the composer."},
+};
+const int kButtonCount = 4;
 
 int capacityOf(Media m) { return m == Media::dv ? 1586 : 786; }
 
@@ -43,7 +52,6 @@ const int kNoteWidth = 22;
 const int kSideWidth = 5 + 2 + kNoteWidth;   /* a group's summary sits where its rows' blocks and notes do */
 const int kLineWidth = 30;                   /* a START.COM line's box */
 const std::size_t kFieldTitleWidth = 15;     /* "DZ2: volume id", so the boxes line up */
-const char *const kNotReady = "choose the diskette and the system first";
 
 /* What a note has room for: a title up to its " - " or " (" - "Pascal",
  * "MACRO V05.04". */
@@ -99,7 +107,7 @@ void WizardTui::changed()
         planProblem_ = e.what();
     }
     const auto rows = visibleRows();
-    cursor_ = std::clamp(cursor_, 0, std::max(0, static_cast<int>(rows.size()) - 1));
+    cursor_ = std::clamp(cursor_, 0, static_cast<int>(rows.size()) + kButtonCount - 1);
 }
 
 std::vector<WizardRow> WizardTui::visibleRows() const
@@ -117,8 +125,56 @@ int WizardTui::indexOf(const std::string &key, WizardRow::Kind kind) const
 
 void WizardTui::moveCursor(int delta)
 {
-    const int n = static_cast<int>(visibleRows().size());
-    cursor_ = std::clamp(cursor_ + delta, 0, std::max(0, n - 1));
+    const int n = static_cast<int>(visibleRows().size()) + kButtonCount;
+    cursor_ = std::clamp(cursor_ + delta, 0, n - 1);
+}
+
+/* A button: its window opened. */
+void WizardTui::pressButton(Button button)
+{
+    const bool needsChoice = button == Button::save || button == Button::build;
+    if (needsChoice && !wizard_.ready()) { message_ = "Choose the diskette and the system first."; return; }
+    filesFor_ = button;
+    switch (button) {
+    case Button::save:  files_.emplace("Save the choice", FileDialog::Mode::write, workDir_, ".toml", defaultName(".toml")); break;
+    case Button::open:  files_.emplace("Open a choice", FileDialog::Mode::open, workDir_, ".toml"); break;
+    case Button::build: files_.emplace("Build the disk", FileDialog::Mode::write, workDir_, ".dsk", defaultName(".dsk")); break;
+    case Button::quit:  quitting_ = true; break;
+    }
+}
+
+void WizardTui::finishFile(const std::filesystem::path &path)
+{
+    switch (filesFor_) {
+    case Button::save:  save(path); break;
+    case Button::open:  openFile(path); break;
+    case Button::build: build(path); break;
+    case Button::quit:  break;
+    }
+}
+
+/* A window open takes the keys: the file window its own, the question and
+ * the message Enter or Esc. */
+bool WizardTui::onWindowEvent(const Event &e)
+{
+    if (!message_.empty()) {
+        if (e == Event::Return || e == Event::Escape || e == Event::Character(" ")) message_.clear();
+        return true;
+    }
+    if (quitting_) {
+        if (e == Event::Return || e == Event::Character("y") || e == Event::Character("Y")) quit_ = true;
+        if (e == Event::Return || e == Event::Escape || e.is_character()) quitting_ = false;
+        return true;
+    }
+    const auto result = files_->onEvent(e);
+    if (result == FileDialog::Result::cancelled) files_.reset();
+    if (result == FileDialog::Result::accepted) {
+        const auto path = files_->path();
+        workDir_ = files_->dir();
+        files_.reset();
+        finishFile(path);
+    }
+    return true;
 }
 
 /* Space on a row: a choice made, the cursor left where it is. */
@@ -164,21 +220,21 @@ void WizardTui::startAsk(Ask ask, std::string value)
 
 void WizardTui::save(const std::filesystem::path &path)
 {
-    if (!wizard_.ready()) { status_ = kNotReady; return; }
-    std::ofstream f(workDir_ / path, std::ios::binary);
+    if (!wizard_.ready()) { message_ = "Choose the diskette and the system first."; return; }
+    std::ofstream f(path, std::ios::binary);
     f << selectionToml(wizard_.saved());
-    status_ = f ? "saved " + path.generic_string() : "cannot write " + path.generic_string();
+    if (f) status_ = "saved " + path.filename().string(); else message_ = "Cannot write " + path.string() + ".";
 }
 
 void WizardTui::openFile(const std::filesystem::path &path)
 {
-    const auto bytes = readHost(workDir_ / path);
-    if (!bytes) { status_ = "cannot read " + path.generic_string(); return; }
+    const auto bytes = readHost(path);
+    if (!bytes) { message_ = "Cannot read " + path.string() + "."; return; }
     try {
         open(parseSelection(std::string(bytes->begin(), bytes->end())));
-        status_ = wizard_.notices().empty() ? "opened " + path.generic_string() : wizard_.notices().front();
+        status_ = wizard_.notices().empty() ? "opened " + path.filename().string() : wizard_.notices().front();
     } catch (const std::exception &e) {
-        status_ = e.what();
+        message_ = path.filename().string() + ": " + e.what();
     }
 }
 
@@ -190,14 +246,14 @@ void WizardTui::open(const SavedSelection &saved)
 
 void WizardTui::build(const std::filesystem::path &path)
 {
-    if (!wizard_.ready()) { status_ = kNotReady; return; }
+    if (!wizard_.ready()) { message_ = "Choose the diskette and the system first."; return; }
     try {
         const auto image = composeDisk(recipeFor(manifest_, wizard_.selection(), repo_));
-        std::ofstream f(workDir_ / path, std::ios::binary);
+        std::ofstream f(path, std::ios::binary);
         f.write(reinterpret_cast<const char *>(image.data()), static_cast<std::streamsize>(image.size()));
-        status_ = f ? "built " + path.generic_string() : "cannot write " + path.generic_string();
+        if (f) status_ = "built " + path.filename().string(); else message_ = "Cannot write " + path.string() + ".";
     } catch (const std::exception &e) {
-        status_ = e.what();
+        message_ = e.what();
     }
 }
 
@@ -209,7 +265,7 @@ void WizardTui::findNext(const std::string &text)
     const auto rows = wizard_.rows(true);                     /* the closed groups' rows too */
     const int n = static_cast<int>(rows.size());
     int from = 0;
-    if (!shownRows.empty()) {
+    if (cursor_ < static_cast<int>(shownRows.size())) {
         const auto &here = shownRows[static_cast<std::size_t>(cursor_)];
         for (int i = 0; i < n; ++i)
             if (rows[static_cast<std::size_t>(i)].key == here.key && rows[static_cast<std::size_t>(i)].kind == here.kind) from = i;
@@ -230,9 +286,6 @@ void WizardTui::finishAsk()
     const Ask ask = ask_;
     ask_ = Ask::none;
     switch (ask) {
-    case Ask::save:    if (!input_.empty()) save(input_); break;
-    case Ask::open:    if (!input_.empty()) openFile(input_); break;
-    case Ask::build:   if (!input_.empty()) build(input_); break;
     case Ask::find:    findNext(input_); break;
     case Ask::none:    break;
     }
@@ -250,7 +303,8 @@ bool WizardTui::onAskEvent(const Event &e)
 std::string WizardTui::cursorKey() const
 {
     const auto rows = visibleRows();
-    return rows.empty() ? std::string() : rows[static_cast<std::size_t>(cursor_)].key;
+    const auto n = static_cast<int>(rows.size());
+    return cursor_ < n ? rows[static_cast<std::size_t>(cursor_)].key : std::string(kButtons[cursor_ - n].key);
 }
 
 /* After Enter's choice: on to the next thing to choose - past the rest of a
@@ -314,8 +368,12 @@ bool WizardTui::onListEvent(const Event &e)
     if (e == Event::PageUp)    { moveCursor(-10); return true; }
     if (e == Event::PageDown)  { moveCursor(10); return true; }
     if (e == Event::Home)      { cursor_ = 0; return true; }
-    if (e == Event::End)       { cursor_ = std::max(0, static_cast<int>(rows.size()) - 1); return true; }
-    if (rows.empty()) return false;
+    if (e == Event::End)       { cursor_ = static_cast<int>(rows.size()) + kButtonCount - 1; return true; }
+    if (cursor_ >= static_cast<int>(rows.size())) {             /* a button */
+        if (e != Event::Character(" ") && e != Event::Return) return false;
+        pressButton(static_cast<Button>(cursor_ - static_cast<int>(rows.size())));
+        return true;
+    }
     const auto &r = rows[static_cast<std::size_t>(cursor_)];
     if (e == Event::Character(" ")) { activate(r); return true; }
     if (e == Event::Return) {                                  /* choose, and go on */
@@ -339,18 +397,10 @@ bool WizardTui::onListEvent(const Event &e)
 
 bool WizardTui::onEvent(const Event &e)
 {
+    if (files_ || quitting_ || !message_.empty()) return onWindowEvent(e);
     if (ask_ != Ask::none) return onAskEvent(e);
     if (editing_) return onEditEvent(e);
-    if (e == Event::F10) { quit_ = true; return true; }
-    if (e == Event::F2) {
-        if (wizard_.ready()) startAsk(Ask::save, defaultName(".toml")); else status_ = kNotReady;
-        return true;
-    }
-    if (e == Event::F3) { startAsk(Ask::open, wizard_.ready() ? defaultName(".toml") : std::string()); return true; }
-    if (e == Event::F5) {
-        if (wizard_.ready()) startAsk(Ask::build, defaultName(".dsk")); else status_ = kNotReady;
-        return true;
-    }
+    if (e == Event::Escape || e == Event::F10) { pressButton(Button::quit); return true; }
     if (e == Event::Character("/")) { startAsk(Ask::find, ""); return true; }
     return onListEvent(e);
 }
@@ -363,55 +413,69 @@ Element WizardTui::renderTop() const
     return hbox({text(" MS-0515 disk composer"), filler(), text(version)}) | kBar;
 }
 
+Element WizardTui::rowLine(const WizardRow &r, bool here) const
+{
+    Element line;
+    const std::string indent(static_cast<std::size_t>(r.depth * 2), ' ');
+    if (r.kind == WizardRow::Kind::group) {
+        const std::string arrow = r.open ? "\xE2\x96\xBE " : "\xE2\x96\xB8 ";
+        line = hbox({text(indent + arrow + r.title) | flex,
+                     text(r.available ? r.summary : r.why) | size(WIDTH, EQUAL, kSideWidth)});
+        line = line | (r.available ? kGroup : kGrey);
+    } else if (r.kind == WizardRow::Kind::radio) {
+        line = text(indent + "one of: " + r.title) | kGroup;
+    } else if (r.kind == WizardRow::Kind::field) {
+        const bool typing = editing_ && editKey_ == r.key;
+        const std::size_t width = r.parent == kLabelGroup ? 12 : kLineWidth;
+        std::string shownText = typing ? edit_ + "_" : r.value;
+        if (shownText.size() > width) shownText = shownText.substr(shownText.size() - width);
+        shownText.resize(width, ' ');
+        std::string title = r.title;
+        if (!title.empty()) title.resize(std::max<std::size_t>(title.size(), kFieldTitleWidth) + 1, ' ');
+        /* The row keeps its cursor bar while the box is typed into: the
+         * bar round the box, the box in its own colours. */
+        const Decorator around = here ? kCursor : Decorator(nothing);
+        line = hbox({text(indent + title + "[") | around, text(shownText) | (typing ? kEdit : around),
+                     text("]") | around, filler() | around, text(r.summary) | size(WIDTH, EQUAL, kSideWidth) | around});
+    } else if (r.kind == WizardRow::Kind::line) {
+        const auto *sys = manifest_.system(wizard_.system());
+        const std::string from = sys && r.requiredBy == sys->title ? std::string("the system's") : "from " + shortTitle(r.requiredBy);
+        line = hbox({text(indent + r.title) | flex, text(from) | size(WIDTH, EQUAL, kSideWidth)});
+    } else {
+        std::string note = r.native ? "native"
+                         : r.mark == WizardRow::Mark::system ? "system"
+                         : r.mark == WizardRow::Mark::added ? "for " + shortTitle(r.requiredBy)
+                         : r.available ? std::string() : r.why;
+        const bool bundle = r.kind == WizardRow::Kind::bundle;
+        Element row = hbox({text(indent + mark(r) + " " + r.title) | flex,
+                            hbox({filler(), text(bundle ? std::to_string(r.blocks) : std::string())}) | size(WIDTH, EQUAL, 5),
+                            text("  "), text(note) | size(WIDTH, EQUAL, kNoteWidth)});
+        if (!r.available) row = row | kGrey;
+        else if (r.mark == WizardRow::Mark::added) row = row | kAdded;
+        line = row;
+    }
+    if (here && r.kind != WizardRow::Kind::field) line = line | kCursor;
+    return line;
+}
+
+/* The rows, a blank line, the buttons - scrolled to keep the cursor in sight. */
 Element WizardTui::renderList(int rows)
 {
     const auto list = visibleRows();
-    if (cursor_ < top_) top_ = cursor_;
-    if (cursor_ >= top_ + rows) top_ = cursor_ - rows + 1;
+    const int n = static_cast<int>(list.size());
+    const int total = n + 1 + kButtonCount;
+    const int cursorLine = cursor_ < n ? cursor_ : cursor_ + 1;
+    if (cursorLine < top_) top_ = cursorLine;
+    if (cursorLine >= top_ + rows) top_ = cursorLine - rows + 1;
+    top_ = std::clamp(top_, 0, std::max(0, total - 1));
     Elements lines;
-    for (int i = top_; i < std::min(static_cast<int>(list.size()), top_ + rows); ++i) {
-        const auto &r = list[static_cast<std::size_t>(i)];
-        Element line;
-        const std::string indent(static_cast<std::size_t>(r.depth * 2), ' ');
-        if (r.kind == WizardRow::Kind::group) {
-            const std::string arrow = r.open ? "\xE2\x96\xBE " : "\xE2\x96\xB8 ";
-            line = hbox({text(indent + arrow + r.title) | flex,
-                         text(r.available ? r.summary : r.why) | size(WIDTH, EQUAL, kSideWidth)});
-            line = line | (r.available ? kGroup : kGrey);
-        } else if (r.kind == WizardRow::Kind::radio) {
-            line = text(indent + "one of: " + r.title) | kGroup;
-        } else if (r.kind == WizardRow::Kind::field) {
-            const bool typing = editing_ && editKey_ == r.key;
-            const std::size_t width = r.parent == kLabelGroup ? 12 : kLineWidth;
-            std::string shownText = typing ? edit_ + "_" : r.value;
-            if (shownText.size() > width) shownText = shownText.substr(shownText.size() - width);
-            shownText.resize(width, ' ');
-            std::string title = r.title;
-            if (!title.empty()) title.resize(std::max<std::size_t>(title.size(), kFieldTitleWidth) + 1, ' ');
-            /* The row keeps its cursor bar while the box is typed into: the
-             * bar round the box, the box in its own colours. */
-            const Decorator around = i == cursor_ ? kCursor : Decorator(nothing);
-            line = hbox({text(indent + title + "[") | around, text(shownText) | (typing ? kEdit : around),
-                         text("]") | around, filler() | around, text(r.summary) | size(WIDTH, EQUAL, kSideWidth) | around});
-        } else if (r.kind == WizardRow::Kind::line) {
-            const auto *sys = manifest_.system(wizard_.system());
-            const std::string from = sys && r.requiredBy == sys->title ? std::string("the system's") : "from " + shortTitle(r.requiredBy);
-            line = hbox({text(indent + r.title) | flex, text(from) | size(WIDTH, EQUAL, kSideWidth)});
-        } else {
-            std::string note = r.native ? "native"
-                             : r.mark == WizardRow::Mark::system ? "system"
-                             : r.mark == WizardRow::Mark::added ? "for " + shortTitle(r.requiredBy)
-                             : r.available ? std::string() : r.why;
-            const bool bundle = r.kind == WizardRow::Kind::bundle;
-            Element row = hbox({text(indent + mark(r) + " " + r.title) | flex,
-                                hbox({filler(), text(bundle ? std::to_string(r.blocks) : std::string())}) | size(WIDTH, EQUAL, 5),
-                                text("  "), text(note) | size(WIDTH, EQUAL, kNoteWidth)});
-            if (!r.available) row = row | kGrey;
-            else if (r.mark == WizardRow::Mark::added) row = row | kAdded;
-            line = row;
-        }
-        if (i == cursor_ && r.kind != WizardRow::Kind::field) line = line | kCursor;
-        lines.push_back(line);
+    for (int i = top_; i < std::min(total, top_ + rows); ++i) {
+        if (i < n) { lines.push_back(rowLine(list[static_cast<std::size_t>(i)], i == cursor_)); continue; }
+        if (i == n) { lines.push_back(text("")); continue; }
+        const int button = i - n - 1;
+        Element b = text(std::string("  [ ") + kButtons[button].label + " ]");
+        if (cursor_ == n + button) b = b | kCursor;
+        lines.push_back(hbox({b, filler()}));
     }
     return vbox(lines);
 }
@@ -419,7 +483,11 @@ Element WizardTui::renderList(int rows)
 Element WizardTui::renderDetails() const
 {
     const auto list = visibleRows();
-    if (list.empty()) return text("");
+    const auto n = static_cast<int>(list.size());
+    if (cursor_ >= n) {
+        const auto &b = kButtons[cursor_ - n];
+        return vbox({paragraph(b.label), text(""), paragraph(b.about)});
+    }
     const auto &r = list[static_cast<std::size_t>(cursor_)];
     const auto *b = manifest_.bundle(r.key);
     if (r.kind != WizardRow::Kind::bundle || !b) {
@@ -476,26 +544,34 @@ Element WizardTui::renderPlan(int width) const
 Element WizardTui::renderBottom() const
 {
     Element line;
-    static const std::map<Ask, const char *> prompts = {
-        {Ask::save, "Save the choice to: "}, {Ask::open, "Open a choice: "}, {Ask::build, "Build the disk to: "},
-        {Ask::find, "Find: "}};
-    if (ask_ != Ask::none) line = hbox({text(prompts.at(ask_)), text(input_) | kCursor, filler()});
+    if (ask_ != Ask::none) line = hbox({text("Find: "), text(input_) | kCursor, filler()});
     else line = hbox({text(status_), filler()});
     const Element hint = hbox({text(editing_ ? "Enter: keep    Esc: drop    Del: empty    Up, Down: keep and move"
                                              : "Space: choose    Enter: choose and go on    a field: type to edit, Del empties    / find"), filler()});
-    Elements keys;
-    for (const auto &[num, name] : kKeys) keys.push_back(hbox({text(num) | kKeyNum, text(name) | kBar | flex}) | flex);
-    return vbox({line, hint, hbox(keys)});
+    return vbox({line, hint});
+}
+
+/* The window over the screen: a file's, the question to quit, a message. */
+Element WizardTui::renderWindow(int width, int height) const
+{
+    if (files_) return files_->render(width, height);
+    const bool quit = quitting_;
+    const std::string title = quit ? " Quit " : " Message ";
+    Element body = paragraph(quit ? std::string("Leave the composer?") : message_);
+    Element keys = text(quit ? "Enter: quit    Esc: stay" : "Enter: close");
+    return framed(window(text(title), vbox({body, text(""), keys})) | size(WIDTH, EQUAL, std::clamp(width - 8, 30, 60)));
 }
 
 Element WizardTui::render(int width, int height)
 {
     const int planLines = wizard_.ready() ? 2 + (plan_ ? static_cast<int>(plan_->freeBlocks.size()) : 0) + (planProblem_.empty() ? 0 : 1) : 1;
-    const int listRows = std::max(3, height - 1 - 2 - planLines - 2 - 3);
+    const int listRows = std::max(3, height - 1 - 2 - planLines - 2 - 2);
     const int detailsWidth = std::clamp(width / 3, 24, 44);
     Element body = hbox({window(text(" Bundles "), renderList(listRows)) | flex,
                          window(text(" Details "), renderDetails()) | size(WIDTH, EQUAL, detailsWidth)});
-    return vbox({renderTop(), body | flex, window(text(" Plan "), renderPlan(width)), renderBottom()}) | kPanel;
+    Element screen = vbox({renderTop(), body | flex, window(text(" Plan "), renderPlan(width)), renderBottom()}) | kPanel;
+    if (files_ || quitting_ || !message_.empty()) screen = dbox({screen, renderWindow(width, height)});
+    return screen;
 }
 
 } /* namespace ms0515::tools */

@@ -135,6 +135,15 @@ void enter(tools::WizardTui &tui, const std::string &title)
     press(tui, ftxui::Event::Return);
 }
 
+/* Down to a button at the end of the list, and Enter on it. */
+void pushButton(tools::WizardTui &tui, const std::string &key)
+{
+    press(tui, ftxui::Event::End);
+    for (int i = 0; i < 4 && tui.cursorKey() != key; ++i) press(tui, ftxui::Event::ArrowUp);
+    REQUIRE(tui.cursorKey() == key);
+    press(tui, ftxui::Event::Return);
+}
+
 /* The first two steps: a two-sided diskette, OMEGA on it. */
 void ready(tools::WizardTui &tui)
 {
@@ -163,8 +172,10 @@ TEST_CASE("the wizard's screen: the diskette first, then the system, then the gr
     CHECK(s.find("\xE2\x96\xB8 Operating system") != std::string::npos);
     CHECK(s.find("choose the diskette first") != std::string::npos);
     CHECK(s.find("Space") != std::string::npos);                  /* the keys are always said */
-    press(tui, ftxui::Event::F5);
-    CHECK(tui.status() == "choose the diskette and the system first");
+    pushButton(tui, "#build");
+    CHECK(shown(tui).find("Choose the diskette and the system first.") != std::string::npos);
+    press(tui, ftxui::Event::Return);                         /* the message closed */
+    press(tui, ftxui::Event::Home);
 
     press(tui, ftxui::Event::ArrowDown);                      /* from the heading down to dz */
     press(tui, ftxui::Event::ArrowDown);
@@ -227,16 +238,21 @@ TEST_CASE("Space on Pascal brings the preferred MACRO; picking the other swaps t
     CHECK(tui.status().find("required by Pascal") != std::string::npos);
 }
 
-TEST_CASE("F2 saves the choice, F3 opens it again, F5 builds a disk that boots") {
+TEST_CASE("the buttons at the end of the list: save, open and build in a file window, and quit") {
     const Manifest m = parseManifest(kManifest);
     const Repository repo = repository();
     const fs::path dir = scratch();
     tools::WizardTui tui(m, repo, dir);
     ready(tui);
     choose(tui, "Pascal");
+    press(tui, ftxui::Event::End);                            /* the buttons close the list */
+    std::string s = shown(tui);
+    CHECK(s.find("[ Build the disk ]") != std::string::npos);
+    CHECK(s.find("2Save") == std::string::npos);              /* no key bar */
 
-    press(tui, ftxui::Event::F2);
-    press(tui, ftxui::Event::Return);                         /* the default name */
+    pushButton(tui, "#save");
+    CHECK(shown(tui).find(" Save the choice ") != std::string::npos);
+    press(tui, ftxui::Event::Return);                         /* the name offered */
     REQUIRE(fs::exists(dir / "omega-dz.toml"));
     const SavedSelection saved = [&] {
         std::ifstream f(dir / "omega-dz.toml");
@@ -246,20 +262,29 @@ TEST_CASE("F2 saves the choice, F3 opens it again, F5 builds a disk that boots")
     CHECK(saved.selection.bundles == std::vector<std::string>{"pascal"});
 
     tools::WizardTui other(m, repo, dir);
-    press(other, ftxui::Event::F3);
-    type(other, "omega-dz.toml");                             /* nothing chosen yet: no name to offer */
+    pushButton(other, "#open");
+    CHECK(shown(other).find("omega-dz.toml") != std::string::npos);   /* listed, to pick */
+    press(other, ftxui::Event::ArrowDown);                    /* ../ */
+    press(other, ftxui::Event::ArrowDown);                    /* omega-dz.toml */
     press(other, ftxui::Event::Return);
     CHECK(other.model().selection().bundles == std::vector<std::string>{"pascal"});
 
-    press(other, ftxui::Event::F5);
+    pushButton(other, "#build");
     press(other, ftxui::Event::Return);
     REQUIRE(fs::exists(dir / "omega-dz.dsk"));
     CHECK(fs::file_size(dir / "omega-dz.dsk") == 819200);
     std::ifstream f(dir / "omega-dz.dsk", std::ios::binary);
     const std::vector<uint8_t> image(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>{});
     CHECK(bootedMonitor(image, 0, true) == "RT11SJ");
+    pushButton(other, "#build");
+    press(other, ftxui::Event::Return);
+    CHECK(shown(other).find("replace it?") != std::string::npos);    /* there already: asked */
+    press(other, ftxui::Event::Return);
+    CHECK(other.status() == "built omega-dz.dsk");
 
-    press(other, ftxui::Event::F10);
+    pushButton(other, "#quit");
+    CHECK_FALSE(other.quit());                                /* asked first */
+    press(other, ftxui::Event::Return);
     CHECK(other.quit());
 }
 

@@ -195,7 +195,7 @@ std::optional<SavedSelection> readSelection(const std::string &path)
     }
 }
 
-/* The wizard, full screen, until F10. */
+/* The wizard, full screen, until its Quit. */
 int wizard(const Manifest &m, const Repository &repo, const std::string &open)
 {
     WizardTui tui(m, repo);

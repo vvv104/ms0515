@@ -8,6 +8,7 @@ find_package(ftxui REQUIRED)
 
 add_library(ms0515_disk_wizard_ui STATIC
     WizardTui.cpp
+    FileDialog.cpp
 )
 
 target_link_libraries(ms0515_disk_wizard_ui

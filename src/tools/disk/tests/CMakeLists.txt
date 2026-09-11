@@ -8,6 +8,7 @@ find_package(doctest REQUIRED)
 add_executable(ms0515_disk_tool_tests
     test_main.cpp
     test_wizard_tui.cpp
+    test_file_dialog.cpp
 )
 
 target_link_libraries(ms0515_disk_tool_tests
