@@ -103,7 +103,8 @@ rt11_devel/         — RT-11 guest programs: toolset/ (build.py: MACRO/LINK ins
                       projects/<name>/ (sources, generators, README) and projects/<name>/tests/
                       (the program's own doctest harness on ms0515_lib; pulled in by the emulator's
                       test build via rt11_devel/CMakeLists.txt - game tests never live under src/)
-docs/               — architecture and subsystem documentation
+docs/               — architecture and subsystem documentation; programming.md = the handbook
+                      for programs on the machine (read it before writing MACRO-11 for it)
   kb/              — knowledge base (references, verification, known issues)
 disk_recovery/      — disk-recovery knowledge base + verified-image vault (no build inputs)
 tools/              — misc Python utilities: pdp11 disassembler, Extended-CPC convert, state dump,

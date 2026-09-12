@@ -3,3 +3,4 @@
 # emulator's top-level CMake when tests are enabled; each project owns its
 # own tests/ directory and skips itself when its artifacts are not built.
 add_subdirectory(projects/fist/tests)
+add_subdirectory(projects/manicm/tests)

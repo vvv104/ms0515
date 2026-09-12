@@ -57,6 +57,10 @@ rt11_devel/projects/fist/*.MAC
 !rt11_devel/projects/fist/FLOAD.MAC
 rt11_devel/projects/fist/FIST.SAV
 rt11_devel/projects/fist/FIST.DAT
+# MANICM: the data file is the original's, the image is built
+rt11_devel/projects/manicm/MANICM.DAT
+rt11_devel/projects/manicm/MANICM.SAV
+rt11_devel/projects/manicm/MANICM.MAP
 rt11_devel/projects/fist/FLOAD.SAV
 rt11_devel/projects/fist/*.MAP
 rt11_devel/projects/fist/*.png
