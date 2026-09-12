@@ -136,7 +136,7 @@ HWINIT: MOV     R3,-(SP)
         MTPS    (SP)+
         MOV     #KTIMS,R3       ; no key held
         MOV     #NTIMS,R0
-1$:     CLR     (R3)+
+1$:     MOV     #-1,(R3)+
         SOB     R0,1$
         MOV     (SP)+,R3
         RTS     PC
@@ -233,10 +233,12 @@ PSRC:   .WORD   0
 ; when it comes up (only ALL-UP, 263, once every key is released after a
 ; modifier).  So a key is "held" for KTMR passes after its first code
 ; (the keyboard is silent that long before it repeats) and KTMRR after
-; each repeat, and any code refreshes the keys still held - keys pressed
-; together stay held while any one of them repeats, since the keyboard
-; repeats only the last.  The price: a key let go less than a pass before
-; another is pressed counts as held with it.
+; each repeat, and any code refreshes the keys held at the last pass (a
+; timer at 0 ran out there; -1 is a key let go) - keys pressed together
+; stay held while any one of them repeats, since the keyboard repeats
+; only the last, and a key whose repeat the next key cut short stays
+; held with it.  The price: a key let go less than a pass before another
+; is pressed counts as held with it.
 KBISR:  MOV     R0,-(SP)
         MOV     KBHEAD,R0
         MOVB    @#KBDATA,KBRING(R0)
@@ -260,13 +262,13 @@ KEYS:   MOV     R3,-(SP)
         BNE     4$
         MOV     #KTIMS,R3
         MOV     #NTIMS,R1
-5$:     CLR     (R3)+
+5$:     MOV     #-1,(R3)+
         SOB     R1,5$
         BR      1$
-4$:     MOV     #KTIMS,R3       ; any code: the keys still held stay held
-        MOV     #NTIMS,R1       ;   a pass more
-6$:     TST     (R3)
-        BEQ     7$
+4$:     MOV     #KTIMS,R3       ; any code: the keys held at the last pass
+        MOV     #NTIMS,R1       ;   (0 = the timer ran out there) stay held
+6$:     TST     (R3)            ;   a pass more; -1 is a key let go
+        BMI     7$
         MOV     #KTMRR,(R3)
 7$:     TST     (R3)+
         SOB     R1,6$
@@ -279,27 +281,29 @@ KEYS:   MOV     R3,-(SP)
         BNE     8$
         ASL     R2
         TST     KTIMS(R2)
-        BNE     8$
+        BGT     8$
         MOV     #KTMR,KTIMS(R2)
         BR      8$
-10$:    CLR     R0              ; the timers -> the bits, each counting down:
-        CLR     R1              ;   the first eight the controls, the ten more
-        MOV     #KTIMS,R3       ;   the digits
-        MOV     #1,R4
+10$:    CLR     R0              ; the timers -> the bits, each counting down
+        CLR     R1              ;   to 0 (held this pass, the last) and on to
+        MOV     #KTIMS,R3       ;   -1 (let go): the first eight the controls,
+        MOV     #1,R4           ;   the ten more the digits
         MOV     #8.,R2
 21$:    TST     (R3)
-        BEQ     22$
-        DEC     (R3)
+        BMI     22$
+        BEQ     25$
         BIS     R4,R0
+25$:    DEC     (R3)
 22$:    TST     (R3)+
         ASL     R4
         SOB     R2,21$
         MOV     #1,R4
         MOV     #10.,R2
 23$:    TST     (R3)
-        BEQ     24$
-        DEC     (R3)
+        BMI     24$
+        BEQ     26$
         BIS     R4,R1
+26$:    DEC     (R3)
 24$:    TST     (R3)+
         ASL     R4
         SOB     R2,23$

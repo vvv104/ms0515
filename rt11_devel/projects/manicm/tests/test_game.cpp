@@ -100,3 +100,22 @@ TEST_CASE("manicm: 6031769, then 6 with a cavern number teleports")
     g.settle(30);
     CHECK(g.peek8("CAVNUM") == 7);                 // Miner Willy meets the Kong Beast
 }
+
+TEST_CASE("manicm: P, then SPACE while P's repeat is still to come, jumps to the right")
+{
+    if (!manicm::built()) { MESSAGE("MANICM not built - skipped"); return; }
+    ManicmGame g("manicm_diag");
+    g.startGame();
+    const int x0 = willyColumn(g);
+    g.emu.keyPress(Key::P, true);
+    g.settle(8);                                   // 160 ms: P has repeated once, SPACE cuts
+    g.emu.keyPress(Key::Space, true);              //   the next repeat short - P must stay held
+    bool jumped = false;
+    for (int i = 0; i < 20 && !jumped; ++i) { g.step(); jumped = g.peek8("AIRBRN") == 1; }
+    CHECK(jumped);
+    g.emu.keyPress(Key::P, false);
+    g.emu.keyPress(Key::Space, false);
+    g.settle(120);                                 // a jump is 18 passes
+    CHECK(g.peek8("AIRBRN") == 0);
+    CHECK(willyColumn(g) > x0);                    // a jump to the right, not straight up
+}
