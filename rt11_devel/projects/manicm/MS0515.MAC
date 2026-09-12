@@ -1,0 +1,512 @@
+        .TITLE  MS0515
+        .SBTTL  The MS-0515 under MANICM
+;-----------------------------------------------------------------------
+; MS0515.MAC - everything MANICM asks of the machine it runs on.
+;
+; The game in MANICM.MAC knows a ZX Spectrum's display file, a keyboard
+; with a few named keys, a one-bit speaker and a clock.  This file gives
+; it those on the Elektronika MS-0515; to run the game on another PDP-11
+; (a DVK, say) rewrite this file and leave MANICM.MAC alone.  Each is
+; assembled on its own and the two linked: MACRO MANICM, MACRO MS0515,
+; LINK MANICM,MS0515.
+;
+; The interface - every routine keeps R3, R4 and R5 and may use R0-R2:
+;
+;   HWINIT  take the machine: the game's screen mode, a black border,
+;           the speaker quiet.  Once, at the start.
+;   HWEXIT  give it back the way HWINIT found it.  Once, before .EXIT.
+;   BORDER  R0 = the border colour, 0..7 in the Spectrum's order (bit 0
+;           blue, bit 1 red, bit 2 green).
+;   PRESNT  show the display file: R0 = the first of the cell rows (0..23)
+;           that changed, R1 = how many, R2 = where their pixels are -
+;           SCREEN, or a buffer laid out like it (the game shows its
+;           screen buffer straight, sparing itself the copy).  SCREEN
+;           (6144 bytes) and ATTRS (768 bytes) in MANICM.MAC are
+;           the Spectrum's display file and attribute file, laid out as
+;           the Spectrum lays them out, and the game draws into them
+;           exactly as the original drew into the Spectrum's.
+;   KEYS    read the keys.  Returns R0 = the controls, a bit each:
+;           1 left, 2 right, 4 jump, 10 ENTER (the joystick's fire sets
+;           it too, as the original's did), 20 the music toggle keys,
+;           40 the pause keys, 100 quit (SHIFT with SPACE), 200 any key
+;           at all; R1 = the digit keys, bit 0 for '1' up to bit 9 for
+;           '0'.  Call it once per pass of the game's main loop.
+;   BEEP    a note the way the original's effects make one, toggling the
+;           speaker every half period: R0 = the pitch as the original's
+;           DJNZ count B (1..255), the half period being 13 x B T-states;
+;           R1 = the number of half periods (1..256, 0 counts as 256).
+;   NOTE1   one note of the in-game tune, the 34898 loop: R0 = the pitch
+;           E; the note lasts 3 x 256 turns of the loop.
+;   TUNE2   one note of the theme tune, the 37624 loop: two voices, one
+;           counter each, the speaker toggled when either runs out.  R0 =
+;           the first voice D, R1 = the second E, R2 = the duration C
+;           (256 turns of the loop each).
+;   DELAY   wait R0 turns of the original's DJNZ loop, 13 T-states each
+;           (R0 up to 40000).
+;   PACE    wait for the next pass of the game: the original's main loop
+;           took about a twelfth of a second; this holds a pass to PPASS
+;           frames of the 50 Hz screen.
+;
+; The Spectrum's T-state is 1/3.5 us; this processor runs at 7.5 MHz and
+; a turn of a SOB loop takes 18 of its clocks, so a T-state is 0.119 of a
+; turn and a DJNZ turn of 13 T-states is 1.55 turns.  The delays below
+; are computed from that, and the note loops are padded to the
+; original's turn.  Another machine gets its own figures.
+;-----------------------------------------------------------------------
+        .GLOBL  HWINIT,HWEXIT,BORDER,PRESNT,KEYS,BEEP,NOTE1,TUNE2,DELAY,PACE
+        .GLOBL  SCREEN,ATTRS
+        .GLOBL  FRAMES,LASTP,KBHEAD,KBTAIL   ; for the tests
+
+; The KR1807VM1 has no EIS, and nor do the DVK's processors: shifts by a
+; count are these, a plain shift a step.
+        .MACRO  ASLN    R,N
+        .REPT   N
+        ASL     R
+        .ENDR
+        .ENDM
+        .MACRO  ASRN    R,N
+        .REPT   N
+        ASR     R
+        .ENDR
+        .ENDM
+
+; --- the machine ------------------------------------------------------
+SYSC   = 177604         ; system register C: 0-2 border (GRB), 3 = 640x200,
+                        ;   5-6 the speaker line, 7 the timer gate
+DISPAT = 177400         ; memory dispatcher: 0-6 banks primary, 7 VRAM window
+                        ;   on, 9 timer interrupt on, 10-11 the window's place
+DSPROM = 2177           ; as the ROM leaves it: banks primary, window at 040000
+                        ;   (off), the frame interrupt off - RT-11 turns it on
+                        ;   only while it waits for the disk
+DSPOFF = 3177           ; ours: the same with the frame interrupt on
+DSPON  = 7377           ; ours with the VRAM window on, at 100000..137777
+VRAM   = 100000         ; the window: 40 words a row, 200 rows
+LSTRID = 80.            ; bytes between VRAM rows
+LMARG  = 8.             ; the Spectrum's 256 pixels centred in 320: 4 words
+TMARG  = 4.             ; and its 192 rows in 200: 4 rows down
+KBDATA = 177440         ; the keyboard USART's received byte
+KBVEC  = 130            ; its interrupt vector
+FRVEC  = 100            ; the frame interrupt's vector, 50 Hz
+JOYPRT = 177542         ; the joystick: bits 0 right, 1 left, 3 up, 4 fire, low = pressed
+SPKBIT = 100            ; the speaker line in register C
+BLUBIT = 1              ; the border's blue bit, which the original's OUT flips too
+
+; --- timing -----------------------------------------------------------
+PPASS  = 4              ; frames a main-loop pass takes, 50 Hz - every other
+                        ;   pass one more: 90 ms, the original's 312315 T-states
+KTMR   = 3              ; passes a key stays "held" after its last code
+
+; --- HWINIT / HWEXIT / BORDER -----------------------------------------
+; Register C is write-only, so a shadow of it, RCSHAD, is kept.
+HWINIT: MOV     R3,-(SP)
+        MOV     @#KBVEC,KBSAVE  ; the keyboard's interrupt vector is ours while
+        MOV     @#KBVEC+2,KBSAVE+2      ;   the game runs: RT-11's handler would
+        MOV     #KBISR,@#KBVEC  ;   take the bytes otherwise
+        MOV     #340,@#KBVEC+2
+        CLR     KBHEAD
+        CLR     KBTAIL
+        MOV     @#FRVEC,FRSAVE  ; the frame interrupt counts for us
+        MOV     @#FRVEC+2,FRSAVE+2
+        MOV     #FRISR,@#FRVEC
+        MOV     #340,@#FRVEC+2
+        CLR     FRAMES
+        CLR     LASTP
+        MOV     #DSPOFF,@#DISPAT        ; and it is on from here
+        MOVB    #40,RCSHAD      ; 320x200 colour, black border, speaker low
+        MOVB    RCSHAD,@#SYSC
+        MFPS    -(SP)           ; the screen black: the console's text was there
+        MTPS    #340
+        MOV     #DSPON,@#DISPAT
+        MOV     #VRAM,R0
+        MOV     #8000.,R1
+2$:     CLR     (R0)+
+        SOB     R1,2$
+        MOV     #DSPOFF,@#DISPAT
+        MTPS    (SP)+
+        MOV     #KTIMS,R3       ; no key held
+        MOV     #NTIMS,R0
+1$:     CLR     (R3)+
+        SOB     R0,1$
+        MOV     (SP)+,R3
+        RTS     PC
+
+HWEXIT: MOVB    #10,@#SYSC      ; the console's 640x200 mode, black border, quiet
+        MOV     KBSAVE,@#KBVEC  ; the keyboard back to RT-11
+        MOV     KBSAVE+2,@#KBVEC+2
+        MOV     #DSPROM,@#DISPAT        ; the frame interrupt off, as found
+        MOV     FRSAVE,@#FRVEC  ;   and its vector back
+        MOV     FRSAVE+2,@#FRVEC+2
+        RTS     PC
+
+BORDER: MOVB    RCSHAD,R1
+        BIC     #177770,R1
+        BIC     #177770,R0
+        BIS     R0,R1
+        MOVB    R1,RCSHAD
+        MOVB    R1,@#SYSC
+        RTS     PC
+
+; --- PRESNT: the display file onto the screen -------------------------
+; A VRAM word is the attribute byte over the pixel byte, so a row of the
+; Spectrum's screen goes over with a word per byte; the attribute row is
+; turned into words once for the eight pixel rows it covers.  The window
+; is open for the copy only: RT-11 is behind it, so no monitor call while
+; it is (the frame and keyboard interrupts are served here, below it).
+PRESNT: MOV     R3,-(SP)
+        MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        MOV     R0,R4           ; R4 = the cell row, 0..23
+        MOV     R1,PROWS        ; the rows to go
+        MOV     R2,PSRC         ; the pixels
+        BNE     19$
+        JMP     59$
+19$:    MOV     #DSPON,@#DISPAT ; interrupts stay on: their service is here,
+                                ;   below the window, as are the vectors
+20$:    MOV     R4,R0           ; the attribute row -> ATTW as words
+        ASLN    R0,5
+        ADD     #ATTRS,R0
+        MOV     #ATTW,R1
+        MOV     #32.,R2
+21$:    CLR     R3
+        BISB    (R0)+,R3
+        SWAB    R3
+        MOV     R3,(R1)+
+        SOB     R2,21$
+        CLR     R5              ; R5 = the pixel row within the cell row, 0..7
+30$:    MOV     R4,R1           ; source: SCREEN + (row/8)*2048 + pixel*256 + (row%8)*32
+        BIC     #^C30,R1        ;   (row & 24) * 256 is the first
+        SWAB    R1
+        MOV     R5,R0
+        SWAB    R0
+        ADD     R0,R1
+        MOV     R4,R0
+        BIC     #^C7,R0
+        ASLN    R0,5
+        ADD     R0,R1
+        ADD     PSRC,R1
+        MOV     R4,R2           ; destination: VRAM + (TMARG + y)*80 + LMARG
+        ASLN    R2,3
+        ADD     R5,R2
+        ADD     #TMARG,R2
+        MOV     R2,R0
+        ASLN    R2,4            ; y*80 = y*64 + y*16
+        ASLN    R0,6
+        ADD     R0,R2
+        ADD     #VRAM+LMARG,R2
+        MOV     #ATTW,R0
+        .REPT   32.
+        MOV     (R0)+,R3
+        BISB    (R1)+,R3
+        MOV     R3,(R2)+
+        .ENDR
+        INC     R5
+        CMP     R5,#8.
+        BHIS    31$
+        JMP     30$
+31$:    INC     R4
+        DEC     PROWS
+        BEQ     50$
+        JMP     20$
+50$:    MOV     #DSPOFF,@#DISPAT
+59$:    MOV     (SP)+,R5
+        MOV     (SP)+,R4
+        MOV     (SP)+,R3
+        RTS     PC
+PROWS:  .WORD   0
+PSRC:   .WORD   0
+
+; --- KEYS: the MS7004 keyboard and the joystick -----------------------
+; The keyboard's bytes arrive by interrupt: KBISR queues them in a ring
+; of sixteen, KEYS takes them out.  The MS7004 sends a code when a key
+; goes down and repeats it while the key stays down, but sends nothing
+; when it comes up (only ALL-UP, 263, once every key is released after a
+; modifier).  So a key is "held" for KTMR passes after its last code, and
+; any code refreshes the keys still held - keys pressed together stay
+; held while any one of them repeats, since the keyboard repeats only
+; the last.  The price: a key let go less than KTMR passes before another
+; is pressed counts as held with it.
+KBISR:  MOV     R0,-(SP)
+        MOV     KBHEAD,R0
+        MOVB    @#KBDATA,KBRING(R0)
+        INC     R0
+        BIC     #^C17,R0
+        MOV     R0,KBHEAD
+        MOV     (SP)+,R0
+        RTI
+
+KEYS:   MOV     R3,-(SP)
+        MOV     R4,-(SP)
+1$:     MOV     KBTAIL,R1       ; the next byte queued, if any
+        CMP     R1,KBHEAD
+        BEQ     10$
+        MOVB    KBRING(R1),R0
+        BIC     #177400,R0
+        INC     R1
+        BIC     #^C17,R1
+        MOV     R1,KBTAIL
+        CMP     R0,#263         ; ALL-UP: nothing is held
+        BNE     4$
+        MOV     #KTIMS,R3
+        MOV     #NTIMS,R1
+5$:     CLR     (R3)+
+        SOB     R1,5$
+        BR      1$
+4$:     MOV     #KTIMS,R3       ; any code: the keys still held stay held
+        MOV     #NTIMS,R1
+6$:     TST     (R3)
+        BEQ     7$
+        MOV     #KTMR,(R3)
+7$:     TST     (R3)+
+        SOB     R1,6$
+        MOV     #KTAB,R3        ; the key's own timers
+8$:     MOVB    (R3)+,R1
+        BEQ     1$
+        BIC     #177400,R1
+        MOVB    (R3)+,R2
+        CMPB    R1,R0
+        BNE     8$
+        ASL     R2
+        MOV     #KTMR,KTIMS(R2)
+        BR      8$
+10$:    CLR     R0              ; the timers -> the bits, each counting down:
+        CLR     R1              ;   the first eight the controls, the ten more
+        MOV     #KTIMS,R3       ;   the digits
+        MOV     #1,R4
+        MOV     #8.,R2
+21$:    TST     (R3)
+        BEQ     22$
+        DEC     (R3)
+        BIS     R4,R0
+22$:    TST     (R3)+
+        ASL     R4
+        SOB     R2,21$
+        MOV     #1,R4
+        MOV     #10.,R2
+23$:    TST     (R3)
+        BEQ     24$
+        DEC     (R3)
+        BIS     R4,R1
+24$:    TST     (R3)+
+        ASL     R4
+        SOB     R2,23$
+        BIT     #300,R0         ; SHIFT with SPACE: quit; either alone: jump
+        BEQ     13$
+        CMP     R0,#300
+        BLO     14$
+        BIC     #300,R0
+        BIS     #100,R0
+        BR      13$
+14$:    BIC     #300,R0
+        BIS     #4,R0
+13$:    MOV     @#JOYPRT,R2     ; the joystick: left, right, up or fire
+        COM     R2
+        BIT     #2,R2
+        BEQ     15$
+        BIS     #1,R0
+15$:    BIT     #1,R2
+        BEQ     16$
+        BIS     #2,R0
+16$:    BIT     #10,R2          ; up: jump
+        BEQ     161$
+        BIS     #4,R0
+161$:   BIT     #20,R2          ; fire: jump, and ENTER as the original's Kempston fire
+        BEQ     17$
+        BIS     #14,R0
+17$:    TST     R0              ; bit 7: anything at all
+        BNE     18$
+        TST     R1
+        BEQ     19$
+18$:    BIS     #200,R0
+19$:    MOV     (SP)+,R4
+        MOV     (SP)+,R3
+        RTS     PC
+
+; The keys: (scancode, timer) pairs, 0 ends the table.  A key may serve
+; several timers.  Timers 0..7 are the controls (left, right, jump,
+; ENTER, music, pause, SHIFT, SPACE), 8..17 the digits '1'..'0'.
+KTAB:   .BYTE   342,0, 314,0, 303,0, 327,0, 336,0     ; O U Q E T: left
+        .BYTE   325,0, 247,0, 231,0                   ; 5, the left arrow, keypad 4
+        .BYTE   330,1, 331,1, 307,1, 315,1, 335,1     ; P I Y W R: right
+        .BYTE   345,1, 250,1, 233,1                   ; 8, the right arrow, keypad 6
+        .BYTE   360,2, 343,2, 306,2, 362,2            ; Z X C V: jump
+        .BYTE   350,2, 334,2, 323,2                   ; B N M
+        .BYTE   357,2, 340,2, 252,2, 236,2, 232,2     ; 0 7, the up arrow, keypad 8 and 5
+        .BYTE   275,3, 225,3                          ; ENTER, keypad ENTER
+        .BYTE   366,4, 301,4, 321,4, 347,4, 275,4     ; H J K L ENTER: the music
+        .BYTE   322,5, 316,5, 354,5, 302,5, 341,5     ; A S D F G: pause
+        .BYTE   256,6                                 ; SHIFT
+        .BYTE   324,7                                 ; SPACE
+        .BYTE   300,8., 305,9., 313,10., 320,11., 325,12.     ; 1 2 3 4 5
+        .BYTE   333,13., 340,14., 345,15., 352,16., 357,17.   ; 6 7 8 9 0
+        .BYTE   0
+        .EVEN
+NTIMS  = 18.
+KTIMS:  .BLKW   NTIMS
+KBRING: .BLKB   16.
+KBHEAD: .WORD   0
+KBTAIL: .WORD   0
+KBSAVE: .BLKW   2
+ATTW:   .BLKW   32.
+RCSHAD: .BYTE   0
+        .EVEN
+
+; --- the speaker ------------------------------------------------------
+; The speaker is register C bit 6, driven straight as the original drove
+; port 254 bit 4 (the timer gate, bit 7, stays off so the line is the
+; program's).  The original's OUT flipped the border's blue bit with it,
+; and the border flickered to the beat; so does this one.
+;
+; The loops below are timed by the KR1807VM1's own figures - a fetch, an
+; operand, a register write; core/src/cpu_ops.c has the tables, and
+; core/tests/test_cpu_timing.cpp pins them - against the original's
+; T-states at 2.14 clocks each: DEC and a branch 12 clocks, MOV #n,R 18,
+; SOB 18, NOP 18, MOV R,R 12, the toggle (MOVB, XOR, MOVB, MOVB) 93.
+SPKTOG: MOVB    RCSHAD,R2
+        BIC     #177400,R2
+        MOV     #SPKBIT+BLUBIT,R1
+        XOR     R1,R2
+        MOVB    R2,RCSHAD
+        MOVB    R2,@#SYSC
+        RTS     PC
+
+; BEEP: R0 = B, R1 = half periods.  The original's half period is 13 B +
+; 41 T-states: B turns of DJNZ and the toggle.  Here it is N turns of a
+; SOB (18 clocks) and the toggle through SPKTOG (213 clocks with the
+; call and the count), so N = 1.55 B - 7: B + B/2 + B/16 - 7, one at least.
+BEEP:   MOV     R3,-(SP)
+        MOV     R4,-(SP)
+        MOV     R0,R3
+        BIC     #177400,R3
+        BNE     1$
+        MOV     #256.,R3
+1$:     MOV     R3,R4
+        ASR     R4
+        ADD     R4,R3
+        ASRN    R4,3
+        ADD     R4,R3
+        SUB     #7,R3
+        BGT     11$
+        MOV     #1,R3
+11$:    MOV     R1,R4
+        BIC     #177400,R4
+        BNE     2$
+        MOV     #256.,R4
+2$:     MOV     R3,R1
+3$:     SOB     R1,3$
+        JSR     PC,SPKTOG
+        SOB     R4,2$
+        MOV     (SP)+,R4
+        MOV     (SP)+,R3
+        RTS     PC
+
+; NOTE1: R0 = E.  768 turns of: count E down, toggle when it runs out.
+; The original's turn is 40 T-states (86 clocks): DEC, BNE, SOB and three
+; instructions of padding make 84.  The turn that toggles skips the
+; padding and toggles inline, 147 clocks to the original's 105.
+NOTE1:  MOV     R3,-(SP)
+        MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        MOV     R0,R3
+        BIC     #177400,R3
+        BNE     1$
+        MOV     #256.,R3
+1$:     MOV     R3,R4           ; R4 = the pitch counter
+        MOV     #SPKBIT+BLUBIT,R1
+        MOV     #768.,R5
+2$:     DEC     R4
+        BNE     3$
+        MOV     R3,R4
+        MOVB    RCSHAD,R2
+        XOR     R1,R2
+        MOVB    R2,RCSHAD
+        MOVB    R2,@#SYSC
+        SOB     R5,2$
+        BR      4$
+3$:     NOP
+        MOV     R0,R0
+        MOV     R0,R0
+        SOB     R5,2$
+4$:     MOV     (SP)+,R5
+        MOV     (SP)+,R4
+        MOV     (SP)+,R3
+        RTS     PC
+
+; TUNE2: R0 = D, R1 = E, R2 = C.  C x 256 turns of: count both down,
+; toggle for each that runs out and reload it.  The original's turn is
+; 56 T-states (120 clocks): two DECs, two branches, SOB and three NOPs.
+TUNE2:  MOV     R3,-(SP)
+        MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        MOV     R0,TD
+        BIC     #177400,TD
+        BNE     1$
+        MOV     #256.,TD
+1$:     MOV     R1,TE
+        BIC     #177400,TE
+        BNE     2$
+        MOV     #256.,TE
+2$:     MOV     TD,R3           ; R3, R4 = the two counters
+        MOV     TE,R4
+        MOV     R2,R5
+        BIC     #177400,R5
+        BNE     3$
+        MOV     #256.,R5
+3$:     MOV     #256.,R2
+        MOV     #SPKBIT+BLUBIT,R1
+4$:     DEC     R3
+        BNE     5$
+        MOV     TD,R3
+        MOVB    RCSHAD,R0
+        XOR     R1,R0
+        MOVB    R0,RCSHAD
+        MOVB    R0,@#SYSC
+5$:     DEC     R4
+        BNE     6$
+        MOV     TE,R4
+        MOVB    RCSHAD,R0
+        XOR     R1,R0
+        MOVB    R0,RCSHAD
+        MOVB    R0,@#SYSC
+6$:     NOP
+        NOP
+        NOP
+        SOB     R2,4$
+        SOB     R5,3$
+        MOV     (SP)+,R5
+        MOV     (SP)+,R4
+        MOV     (SP)+,R3
+        RTS     PC
+TD:     .WORD   0
+TE:     .WORD   0
+
+; DELAY: R0 turns of 13 T-states = R0 x 1.55 turns of a SOB.
+DELAY:  MOV     R0,R1
+        ASR     R1
+        ADD     R1,R0
+        ASRN    R1,3
+        ADD     R1,R0
+        BEQ     2$
+1$:     SOB     R0,1$
+2$:     RTS     PC
+
+; --- PACE: the clock ---------------------------------------------------
+; FRISR counts the frames, 50 a second; a pass ends PPASS frames after
+; the last one ended.  (RT-11 has no clock of its own on this machine:
+; the disk handler takes the vector while it waits, and gives it back.)
+FRISR:  INC     FRAMES
+        RTI
+PACE:   MOV     #PPASS,R1
+        ADD     PTOG,R1
+1$:     MOV     FRAMES,R0
+        SUB     LASTP,R0
+        CMP     R0,R1
+        BLO     1$
+        MOV     FRAMES,LASTP
+        MOV     #1,R0
+        XOR     R0,PTOG
+        RTS     PC
+FRAMES: .WORD   0
+LASTP:  .WORD   0
+PTOG:   .WORD   0
+FRSAVE: .BLKW   2
+        .END

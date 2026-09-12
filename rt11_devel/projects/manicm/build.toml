@@ -1,0 +1,9 @@
+[project]
+name      = "MANICM"
+language  = "macro11"
+pre_build = "source/gen_data.py"        # MANICM.DAT from the original's snapshot
+sources   = ["MANICM.MAC", "MS0515.MAC"]
+outputs   = ["MANICM.SAV", "MANICM.MAP"]   # the map names the state for the tests
+
+[build]
+commands  = ["MACRO MANICM", "MACRO MS0515", "LINK/MAP:MANICM MANICM,MS0515"]

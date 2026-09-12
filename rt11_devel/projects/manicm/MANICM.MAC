@@ -1,0 +1,1825 @@
+        .TITLE  MANICM
+        .SBTTL  Manic Miner - the game
+;-----------------------------------------------------------------------
+; MANICM.MAC - Manic Miner (Matthew Smith, Bug-Byte 1983) on a PDP-11
+; under RT-11.
+;
+; A port of the ZX Spectrum original, routine for routine, after Richard
+; Dymond's SkoolKit disassembly (skoolkit.ca/disassemblies/manic_miner):
+; every routine here carries the address of the one it re-expresses, and
+; its comments say what the disassembly says of it.  The game's own data -
+; the twenty caverns, the sprites, the two tunes, the title screen and
+; the character set - is not in this file: MANICM.DAT holds it, exactly
+; the bytes the original holds (source/gen_data.py says what is where),
+; and the game reads it at run time, a cavern at a time.
+;
+; Nothing of the machine is here.  The screen, the keys, the speaker and
+; the clock are the routines of MS0515.MAC, described at its top; that
+; file is what changes for another PDP-11.  The game keeps a Spectrum's
+; display file and draws into it as the original did; PRESNT shows it.
+;
+; Memory.  The original works in 16384..32767: the display file, then
+; its attribute and screen buffers, then the cavern in play.  This port
+; keeps that block whole, moved down by SHIFT bytes to DFILE, so every
+; address the cavern data carries is the original's less SHIFT, and every
+; trick the original plays on address bytes (INC H, AND 7) still holds -
+; SHIFT is a multiple of 2048.  The code and the small tables sit below,
+; from 1000; the memory from the image's end to the block's is claimed
+; with .SETTOP.  What the original keeps at 32768..33279 - the cavern's
+; definition, its guardians and Willy himself - is GBUF here, read from
+; the file when a cavern begins.
+;
+; Registers: R0-R2 carry arguments and results; a routine may use any
+; register unless it says otherwise.  Bytes of the original's state are
+; bytes here; MOVB sign-extends into a register, so a value used as a
+; number or an address is masked (BIC #177400) first.
+;-----------------------------------------------------------------------
+        .MCALL  .LOOKUP,.SETTOP,.PRINT,.EXIT
+        .GLOBL  MANICM,SCREEN,ATTRS
+        .GLOBL  CAVNUM,LIVES,MODE,CHEATC,SCORE,HISCOR,GBUF,WILLYA,WILLYY,AIRBRN
+                                ; the state, named in the link map for the tests
+        .GLOBL  HWINIT,HWEXIT,BORDER,PRESNT,KEYS,BEEP,NOTE1,TUNE2,DELAY,PACE
+
+; The KR1807VM1 has no EIS, and nor do the DVK's processors: shifts by a
+; count are these, a plain shift a step.
+        .MACRO  ASLN    R,N
+        .REPT   N
+        ASL     R
+        .ENDR
+        .ENDM
+        .MACRO  ASRN    R,N
+        .REPT   N
+        ASR     R
+        .ENDR
+        .ENDM
+
+; --- the Spectrum's 16384..32767, moved down ---------------------------
+DFILE  = 30000                  ; where 16384 is
+SHIFT  = 16384.-DFILE           ; 4096: the original's addresses, less this
+SCREEN = DFILE                  ; 16384 the display file, 6144 bytes
+ATTRS  = DFILE+6144.            ; 22528 the attribute file, 768 bytes
+ABUF1  = 23552.-SHIFT           ; 23552 attribute buffer: cavern + sprites
+ABUF2  = 24064.-SHIFT           ; 24064 attribute buffer: the empty cavern
+SBUF1  = 24576.-SHIFT           ; 24576 screen buffer: cavern + sprites
+SBUF2  = 28672.-SHIFT           ; 28672 screen buffer: the empty cavern
+MEMTOP = SBUF2+4096.            ; the block's end: what .SETTOP asks for
+
+; --- MANICM.DAT: its blocks --------------------------------------------
+DMISC  = 0                      ; Willy's sprites, the tables and texts (2)
+DTUNES = 2                      ; the two tunes (1)
+DTITLA = 3                      ; the title screen's attributes, 40448 (1)
+DTITLE = 4                      ; the title screen graphic, 40960 (8)
+DCAVRN = 12.                    ; cavern n at DCAVRN + 2n (2 each)
+DFONT  = 52.                    ; the character set, 15616 (2)
+
+; --- the display file's places the game prints at ---------------------
+; (row, column) of the Spectrum's 24 x 32 cells, as the original names them
+TWILLY = SCREEN+2109.           ; 18493 Willy on the title screen, (9,29)
+TMESSG = SCREEN+4192.           ; 20576 the scrolling message, (19,0)
+CNAME  = SCREEN+4096.           ; 20480 the cavern's name, (16,0)
+CAIR   = SCREEN+4128.           ; 20512 'AIR', (17,0)
+CAIRBR = SCREEN+4644.           ; 20*256+36 the air bar's first pixel row: cell (17,4), row 2
+CSCORE = SCREEN+4192.           ; 20576 'High Score ...  Score ...', (19,0)
+CHISC  = SCREEN+4203.           ; 20587 the high score's digits, (19,11)
+CSCDIG = SCREEN+4218.           ; 20602 the score's digits, (19,26)
+CLIVES = SCREEN+4256.           ; 20640 the first of the lives, (21,0)
+GWILLY = SCREEN+2191.           ; 18575 Willy on the plinth, (12,15)
+GPLINT = SCREEN+2255.           ; 18639 the plinth, (14,15)
+GGAME  = SCREEN+202.            ; 16586 'Game', (6,10)
+GOVER  = SCREEN+210.            ; 16594 'Over', (6,18)
+EWILLY = SCREEN+83.             ; 16467 Willy above ground, (2,19)
+ESWORD = SCREEN+179.            ; 16563 the swordfish over the portal, (5,19)
+PIANOA = ATTRS+480.             ; 23008 the piano's first key, (15,0)
+
+
+; --- the start ----------------------------------------------------------
+MANICM: .SETTOP #MEMTOP         ; the memory up to the block's end
+        CMP     R0,#MEMTOP
+        BHIS    1$
+        .PRINT  #NOMEM
+        .EXIT
+1$:     .LOOKUP #LKAREA,#0,#DATNAM
+        BCC     2$
+        .PRINT  #NODAT
+        .EXIT
+2$:     MOV     #DMISC,R0       ; Willy, the tables, the texts
+        MOV     #MISC,R1
+        MOV     #512.,R2
+        JSR     PC,RDBLK
+        MOV     #DTUNES,R0      ; the tunes
+        MOV     #TUNES,R1
+        MOV     #256.,R2
+        JSR     PC,RDBLK
+        MOV     #DFONT,R0       ; the character set
+        MOV     #FONT,R1
+        MOV     #384.,R2
+        JSR     PC,RDBLK
+        MOV     #DCAVRN+5,R0    ; the boot, the plinth and the swordfish: 32 bytes
+        MOV     #BOOT,R1        ;   after the vertical guardians of caverns 2, 1
+        JSR     PC,RDSPR        ;   and 0 (47840, 46816, 45792)
+        MOV     #DCAVRN+3,R0
+        MOV     #PLINTH,R1
+        JSR     PC,RDSPR
+        MOV     #DCAVRN+1,R0
+        MOV     #SWORD,R1
+        JSR     PC,RDSPR
+        JSR     PC,MKLOOK       ; the screen buffer address of every pixel row
+        MOV     #HISCOR,R1      ; the high score, 000000
+        MOV     #6,R2
+3$:     MOVB    #'0,(R1)+
+        SOB     R2,3$
+        JSR     PC,HWINIT
+        JMP     TITLE
+
+; RDSPR: the 32 bytes at 32992 of the cavern whose definition is block
+; R0, to R1.
+RDSPR:  MOV     R1,-(SP)
+        MOV     #GBUF,R1
+        MOV     #256.,R2
+        JSR     PC,RDBLK
+        MOV     #GBUF+224.,R0
+        MOV     (SP)+,R1
+        MOV     #16.,R2
+1$:     MOV     (R0)+,(R1)+
+        SOB     R2,1$
+        RTS     PC
+
+; MKLOOK: the table at 33536 - the address in the screen buffer of pixel
+; row y (0..127), a word each: SBUF1 + 2048 (y / 64) + 256 (y mod 8) +
+; 32 ((y / 8) mod 8).  The original holds it as data; it is arithmetic.
+MKLOOK: CLR     R0
+        MOV     #LOOKUP,R1
+1$:     MOV     R0,R2
+        BIC     #^C300,R2
+        ASLN    R2,5
+        MOV     R0,R3
+        BIC     #^C7,R3
+        SWAB    R3
+        ADD     R3,R2
+        MOV     R0,R3
+        BIC     #^C70,R3
+        ASL     R3
+        ASL     R3
+        ADD     R3,R2
+        ADD     #SBUF1,R2
+        MOV     R2,(R1)+
+        INC     R0
+        CMP     R0,#128.
+        BLO     1$
+        RTS     PC
+
+; RDBLK: R2 words from block R0 of MANICM.DAT to R1.
+RDBLK:  MOV     R0,RDAREA+2
+        MOV     R1,RDAREA+4
+        MOV     R2,RDAREA+6
+        MOV     #RDAREA,R0
+        EMT     375
+        BCS     RDERR
+        RTS     PC
+RDERR:  JSR     PC,HWEXIT
+        .PRINT  #RDFAIL
+        .EXIT
+RDAREA: .BYTE   0,10            ; channel 0, .READW
+        .WORD   0,0,0,0         ; block, buffer, words, wait
+LKAREA: .BLKW   3
+DATNAM: .RAD50  /DK /
+        .RAD50  /MANICM/
+        .RAD50  /DAT/
+NOMEM:  .ASCIZ  /?MANICM-F-Not enough memory/
+NODAT:  .ASCIZ  /?MANICM-F-No DK:MANICM.DAT/
+RDFAIL: .ASCIZ  /?MANICM-F-Read error on MANICM.DAT/
+        .EVEN
+
+; RELOC: the addresses the cavern definition carries - Willy's cell, the
+; conveyor's first tile, the portal's, each item's, each horizontal
+; guardian's - are the original's; they lose SHIFT.
+RELOC:  SUB     #SHIFT,WILLYA
+        SUB     #SHIFT,CONVA
+        SUB     #SHIFT,PORTAA
+        SUB     #SHIFT,PORTAS
+        MOV     #ITEMTB,R1      ; the items: the cell's high byte, the screen high byte
+        MOV     #5,R2
+1$:     CMPB    (R1),#377
+        BEQ     2$
+        MOV     R1,R0
+        ADD     #2,R0
+        JSR     PC,RELB
+        INC     R0
+        JSR     PC,RELB
+        ADD     #5,R1
+        SOB     R2,1$
+2$:     MOV     #HGTAB,R1       ; the horizontal guardians: the same two bytes
+        MOV     #4,R2
+3$:     CMPB    (R1),#377
+        BEQ     4$
+        MOV     R1,R0
+        ADD     #2,R0
+        JSR     PC,RELB
+        INC     R0
+        JSR     PC,RELB
+        ADD     #7,R1
+        SOB     R2,3$
+4$:     RTS     PC
+RELB:   MOVB    (R0),-(SP)      ; a high byte, less SHIFT's pages
+        SUB     #SHIFT/256.,(SP)
+        MOVB    (SP)+,(R0)
+        RTS     PC
+
+; The way out to RT-11, which the original had no need of.
+EXIT:   JSR     PC,HWEXIT
+        .EXIT
+
+; --- 34252: the title screen and the theme tune ---------------------------
+TITLE:  CLRB    CAVNUM          ; the first cavern
+        CLRB    MODE            ; not the demo
+        CLRB    NOTEIX
+        CLRB    FLASH
+        MOVB    #2,LIVES
+        BISB    #1,MUSICF       ; the keypress flag: the music keys count as held
+        MOV     #SCREEN,R1      ; clear the display file
+        MOV     #3072.,R2
+1$:     CLR     (R1)+
+        SOB     R2,1$
+        MOV     #DTITLE,R0      ; the title graphic into the top two-thirds
+        MOV     #SCREEN,R1
+        MOV     #2048.,R2
+        JSR     PC,RDBLK
+        MOV     #WILLY+64.,R1   ; Willy at (9,29), frame 2
+        MOV     #TWILLY,R2
+        CLR     R0
+        JSR     PC,DRAWSP
+        MOV     #DCAVRN+38.,R0  ; the top third's attributes: the Final
+        MOV     #ABUF2,R1       ;   Barrier's first 256 (64512)
+        MOV     #256.,R2
+        JSR     PC,RDBLK
+        MOV     #ABUF2,R0
+        MOV     #ATTRS,R1
+        MOV     #128.,R2
+2$:     MOV     (R0)+,(R1)+
+        SOB     R2,2$
+        MOV     #DTITLA,R0      ; the bottom two-thirds' attributes (40448)
+        MOV     #ATTRS+256.,R1
+        MOV     #256.,R2
+        JSR     PC,RDBLK
+        CLR     R0              ; the whole screen
+        MOV     #24.,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+        MOV     #BLUEDN,R3      ; the theme tune; ENTER or fire starts the game
+        JSR     PC,TUNE
+        CMP     R0,#2           ; SHIFT with SPACE here leaves for RT-11: the
+        BNE     21$             ;   port's one addition
+        JMP     EXIT
+21$:    TST     R0
+        BNE     STARTG
+        CLRB    EUGY            ; the message index, in 32988 as the original
+3$:     MOVB    EUGY,R0         ; 32 characters of the message at (19,0)
+        BIC     #177400,R0
+        MOV     R0,R3
+        ADD     #MESSAG,R3
+        MOV     #32.,R1
+        MOV     #TMESSG,R2
+        JSR     PC,PRINT
+        MOVB    EUGY,R0         ; Willy's frame from bits 1-2 of the index
+        BIC     #^C6,R0
+        ASLN    R0,5
+        ADD     #WILLY,R0
+        MOV     R0,R1
+        MOV     #TWILLY,R2
+        CLR     R0
+        JSR     PC,DRAWSP
+        MOV     #9.,R0          ; Willy's rows and the message's
+        MOV     #2,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+        MOV     #19.,R0
+        MOV     #1,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+        MOV     #25600.,R0      ; about 0.1 s
+        JSR     PC,DELAY
+        JSR     PC,KEYS         ; ENTER starts the game
+        BIT     #10,R0
+        BNE     STARTG
+        BIT     #100,R0
+        BEQ     31$
+        JMP     EXIT
+31$:    INCB    EUGY
+        CMPB    EUGY,#224.
+        BNE     3$
+        MOVB    #64.,MODE       ; the message is through: the demo
+        ; falls into STARTG - nothing may come between
+
+; --- 34436: start the game (or the demo) -------------------------------
+STARTG: MOV     #SCOREA,R1      ; the score, 000000
+        MOV     #10.,R2
+1$:     MOVB    #'0,(R1)+
+        SOB     R2,1$
+; 34449: into a cavern - the first, the next, the same again after a life
+; lost, or the one teleported to.
+NEWSHT: MOVB    CAVNUM,R0       ; its attributes into ABUF2, its definition
+        BIC     #177400,R0      ;   into GBUF
+        ASL     R0
+        ADD     #DCAVRN,R0
+        MOV     R0,-(SP)
+        MOV     #ABUF2,R1
+        MOV     #256.,R2
+        JSR     PC,RDBLK
+        MOV     (SP)+,R0
+        INC     R0
+        MOV     #GBUF,R1
+        MOV     #256.,R2
+        JSR     PC,RDBLK
+        JSR     PC,RELOC
+        JSR     PC,DRAWCV       ; the empty cavern into SBUF2
+        MOV     #SCREEN+4096.,R1        ; clear the bottom third
+        MOV     #1024.,R2
+2$:     CLR     (R1)+
+        SOB     R2,2$
+        MOV     #CVNAME,R3      ; the cavern's name at (16,0)
+        MOV     #32.,R1
+        MOV     #CNAME,R2
+        JSR     PC,PRINT
+        MOV     #AIRTXT,R3      ; 'AIR' at (17,0)
+        MOV     #3,R1
+        MOV     #CAIR,R2
+        JSR     PC,PRINT
+        MOV     #CAIRBR,R2      ; the air bar: AIR - 35 cells of 255 in four
+        MOV     #4,R3           ;   pixel rows from (17,4)
+3$:     MOVB    AIR,R1
+        BIC     #177400,R1
+        SUB     #35.,R1
+        MOV     R2,R0
+4$:     MOVB    #377,(R0)+
+        SOB     R1,4$
+        ADD     #256.,R2
+        SOB     R3,3$
+        MOV     #SCORLN,R3      ; 'High Score 000000   Score 000000' at (19,0)
+        MOV     #32.,R1
+        MOV     #CSCORE,R2
+        JSR     PC,PRINT
+        MOVB    BORDC,R0        ; the cavern's border
+        JSR     PC,BORDER
+        TSTB    MODE
+        BEQ     LOOP
+        MOVB    #64.,MODE       ; the demo: 64 passes a cavern
+        ; falls into LOOP - nothing may come between
+
+
+; --- 34574: the main loop ------------------------------------------------
+LOOP:   MOVB    LIVES,R3        ; the lives, a Willy each at the bottom, walking
+        BIC     #177400,R3      ;   to the music
+        MOV     #CLIVES,R2
+        TST     R3
+        BEQ     2$
+1$:     MOVB    NOTEIX,R1
+        ASLN    R1,3
+        BIC     #^C140,R1
+        ADD     #WILLY,R1
+        CLR     R0
+        JSR     PC,DRAWSP
+        ADD     #2,R2
+        SOB     R3,1$
+2$:     CMPB    CHEATC,#7       ; the boot beside them once 6031769 is in
+        BNE     3$
+        MOV     #BOOT,R1
+        CLR     R0
+        JSR     PC,DRAWSP
+3$:     MOV     #ABUF2,R0       ; the empty cavern into the working buffers
+        MOV     #ABUF1,R1
+        MOV     #256.,R2
+4$:     MOV     (R0)+,(R1)+
+        SOB     R2,4$
+        MOV     #SBUF2,R0
+        MOV     #SBUF1,R1
+        MOV     #2048.,R2
+5$:     MOV     (R0)+,(R1)+
+        SOB     R2,5$
+        JSR     PC,MOVEHG       ; the horizontal guardians move
+        TSTB    MODE            ; Willy moves, unless it is the demo
+        BNE     6$
+        JSR     PC,MOVEW1
+6$:     TSTB    MODE
+        BNE     7$
+        JSR     PC,WILATT       ; his cells' attributes, and Willy drawn
+7$:     JSR     PC,DRAWHG       ; the horizontal guardians drawn
+        JSR     PC,CONVEY       ; the conveyor moves
+        JSR     PC,ITEMS        ; the items drawn, the one touched collected
+        CMPB    CAVNUM,#4       ; Eugene's Lair
+        BNE     8$
+        JSR     PC,EUGENE
+8$:     CMPB    CAVNUM,#13.     ; Skylab Landing Bay
+        BNE     9$
+        JMP     SKYLAB
+9$:     CMPB    CAVNUM,#8.      ; Wacky Amoebatrons and beyond: vertical guardians
+        BLO     10$
+        JSR     PC,VGUARD
+10$:    CMPB    CAVNUM,#7       ; Miner Willy meets the Kong Beast
+        BNE     11$
+        JSR     PC,KONG
+11$:    CMPB    CAVNUM,#11.     ; Return of the Alien Kong Beast
+        BNE     12$
+        JSR     PC,KONG
+12$:    CMPB    CAVNUM,#18.     ; Solar Power Generator
+        BNE     LOOP2
+        JSR     PC,BEAM
+; 34719: the portal
+LOOP2:  JSR     PC,PORTAL
+; 34722: the buffers onto the screen
+LOOP3:  TSTB    FLASH           ; the screen flashing (an extra life)
+        BEQ     15$
+        DECB    FLASH
+        MOVB    FLASH,R0
+        ASLN    R0,3
+        BIC     #^C70,R0
+        MOV     #ABUF1,R2
+        MOV     #512.,R3
+14$:    MOVB    R0,(R2)+
+        SOB     R3,14$
+15$:    MOV     #ABUF1,R0       ; the attribute buffer into the attribute file
+        MOV     #ATTRS,R1
+        MOV     #256.,R2
+16$:    MOV     (R0)+,(R1)+
+        SOB     R2,16$
+        MOV     #SCORE,R3       ; the score at (19,26), the high score at (19,11)
+        MOV     #6,R1
+        MOV     #CSCDIG,R2
+        JSR     PC,PRINT
+        MOV     #HISCOR,R3
+        MOV     #6,R1
+        MOV     #CHISC,R2
+        JSR     PC,PRINT
+        CLR     R0              ; the cavern, from the screen buffer itself:
+        MOV     #16.,R1         ;   the original copied it to the display file
+        MOV     #SBUF1,R2       ;   first (34722), which is all that copy was for
+        JSR     PC,PRESNT
+        MOV     #16.,R0         ; its name, the air, the score
+        MOV     #4,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+        MOV     #21.,R0         ; and the lives
+        MOV     #1,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+        JSR     PC,AIRDEC       ; the air runs down; none left ends the life
+        TST     R0
+        BNE     17$
+        JMP     MANDED
+17$:    JSR     PC,KEYS         ; the keys, once a pass
+        MOV     R0,KEYW
+        MOV     R1,DIGW
+        BIT     #100,R0         ; SHIFT with SPACE: the title screen
+        BEQ     18$
+        JMP     TITLE
+18$:    BIT     #40,R0          ; A to G: paused until another key
+        BEQ     20$
+19$:    JSR     PC,KEYS
+        BIC     #^C177,R0
+        BIC     #40,R0
+        BNE     20$
+        TST     R1
+        BEQ     19$
+20$:    CMPB    AIRBRN,#377     ; a fatal accident
+        BNE     21$
+        JMP     MANDED
+21$:    BIT     #20,KEYW        ; H to ENTER: the music on or off, once a press
+        BEQ     22$
+        BITB    #1,MUSICF
+        BNE     23$
+        MOVB    MUSICF,R0
+        MOV     #3,R1
+        XOR     R1,R0
+        MOVB    R0,MUSICF
+        BR      23$
+22$:    BICB    #1,MUSICF
+23$:    BITB    #2,MUSICF       ; a note of the in-game tune
+        BNE     24$
+        INCB    NOTEIX
+        MOVB    NOTEIX,R0
+        BIC     #^C176,R0
+        ASR     R0
+        MOVB    MTKING(R0),R0
+        JSR     PC,NOTE1
+24$:    MOVB    MODE,R0         ; the demo: the next cavern in its time (the
+        BEQ     26$             ;   count is left at 1, so MANDED knows it is
+        DEC     R0              ;   the demo), the title screen at any key
+        BNE     25$
+        JMP     MANDED
+25$:    MOVB    R0,MODE
+        BIT     #200,KEYW
+        BEQ     26$
+        JMP     TITLE
+26$:    BIT     #40,DIGW        ; 6 with a cavern's number on 1-5: teleport,
+        BEQ     CKCHT           ;   once 6031769 is in
+        CMPB    CHEATC,#7
+        BNE     CKCHT
+        MOV     DIGW,R0
+        BIC     #^C37,R0
+        CMP     R0,#20.
+        BHIS    CKCHT
+        MOVB    R0,CAVNUM
+        JMP     NEWSHT
+; 34984: the 6031769 keys, one at a time, as the table has them - a
+; reading of keys 1-5 and of 6-0, a bit per key, reset when pressed
+CKCHT:  CMPB    CHEATC,#7
+        BEQ     LOOPND
+        MOVB    CHEATC,R0
+        BIC     #177400,R0
+        ASL     R0
+        ADD     #CHEATT+2,R0
+        MOV     R0,R3
+        MOV     DIGW,R1
+        BIC     #^C37,R1
+        COM     R1
+        BIC     #^C37,R1
+        CMPB    R1,(R3)         ; the next key of the sequence?
+        BEQ     27$
+        CMP     R1,#37          ; none of 1-5 pressed: nothing to say
+        BEQ     LOOPND
+        CMPB    R1,-2(R3)       ; the previous one still down: nothing either
+        BEQ     LOOPND
+        CLRB    CHEATC          ; a wrong key: from the start
+        BR      LOOPND
+27$:    JSR     PC,KEY60        ; the reading of keys 6-0
+        CMPB    R1,1(R3)
+        BEQ     28$
+        CMP     R1,#37
+        BEQ     LOOPND
+        CMPB    R1,-1(R3)
+        BEQ     LOOPND
+        CLRB    CHEATC
+        BR      LOOPND
+28$:    INCB    CHEATC
+LOOPND: JSR     PC,PACE         ; the original's pace
+        JMP     LOOP
+; KEY60: the Spectrum's reading of its 6-7-8-9-0 half-row, in R1: a bit
+; a key, '0' the lowest, reset when the key is down.  (KEYS gives the
+; digits '1'..'0' as bits 0..9, so the 1-5 reading is the low five
+; complemented, and this one the next five reversed.)
+KEY60:  MOV     DIGW,R0
+        CLR     R1
+        BIT     #40,R0          ; 6
+        BEQ     1$
+        BIS     #20,R1
+1$:     BIT     #100,R0         ; 7
+        BEQ     2$
+        BIS     #10,R1
+2$:     BIT     #200,R0         ; 8
+        BEQ     3$
+        BIS     #4,R1
+3$:     BIT     #400,R0         ; 9
+        BEQ     4$
+        BIS     #2,R1
+4$:     BIT     #1000,R0        ; 0
+        BEQ     5$
+        BIS     #1,R1
+5$:     COM     R1
+        BIC     #^C37,R1
+        RTS     PC
+
+; --- 35071: the air is out, or Willy has died, or the demo moves on ------
+MANDED: TSTB    MODE
+        BEQ     1$
+        JMP     NXTCAV
+1$:     MOV     #71.,R3         ; INK 7 PAPER 0 BRIGHT, the ink going down to 0,
+2$:     MOV     #ATTRS,R1       ;   over the top two-thirds, a note each
+        MOV     #512.,R2
+3$:     MOVB    R3,(R1)+
+        SOB     R2,3$
+        CLR     R0              ; the cavern
+        MOV     #16.,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+        MOV     R3,R0           ; the pitch 63 - 8 x ink
+        COM     R0
+        BIC     #^C7,R0
+        ASLN    R0,3
+        BIS     #7,R0
+        MOV     R3,R1           ; the length 8 + 32 x ink
+        BIC     #^C7,R1
+        ASLN    R1,5
+        ADD     #8.,R1
+        JSR     PC,BEEP
+        DEC     R3
+        CMP     R3,#63.
+        BNE     2$
+        TSTB    LIVES
+        BNE     4$
+        JMP     ENDGAM
+4$:     DECB    LIVES
+        JMP     NEWSHT
+
+; --- 35140: game over ------------------------------------------------------
+ENDGAM: MOV     #HISCOR,R1      ; a new high score?
+        MOV     #SCORE,R2
+        MOV     #6,R3
+1$:     CMPB    (R2),(R1)
+        BLO     3$
+        BHI     2$
+        INC     R1
+        INC     R2
+        SOB     R3,1$
+        BR      3$
+2$:     MOV     #SCORE,R0
+        MOV     #HISCOR,R1
+        MOV     #3,R2
+21$:    MOV     (R0)+,(R1)+
+        SOB     R2,21$
+3$:     MOV     #SCREEN,R1      ; clear the top two-thirds
+        MOV     #2048.,R2
+4$:     CLR     (R1)+
+        SOB     R2,4$
+        CLRB    EUGY            ; the boot's height, in 32988 as the original
+        MOV     #WILLY+64.,R1   ; Willy on the plinth
+        MOV     #GWILLY,R2
+        CLR     R0
+        JSR     PC,DRAWSP
+        MOV     #PLINTH,R1
+        MOV     #GPLINT,R2
+        CLR     R0
+        JSR     PC,DRAWSP
+5$:     MOVB    EUGY,R0         ; the boot comes down onto him: drawn without
+        BIC     #177400,R0      ;   erasing, so the leg stretches
+        MOV     LOOKUP(R0),R2
+        SUB     #SBUF1-SCREEN,R2
+        ADD     #15.,R2
+        MOV     #BOOT,R1
+        CLR     R0
+        JSR     PC,DRAWSP
+        MOVB    EUGY,R0         ; a note rising with it
+        COM     R0
+        BIC     #177400,R0
+        MOV     #64.,R1
+        JSR     PC,BEEP
+        MOVB    EUGY,R0         ; the paper cycling 0..3, ink 7 bright
+        BIC     #^C14,R0
+        ASL     R0
+        BIS     #71.,R0
+        MOV     #ATTRS,R1
+        MOV     #512.,R2
+6$:     MOVB    R0,(R1)+
+        SOB     R2,6$
+        CLR     R0
+        MOV     #16.,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+        MOVB    EUGY,R0
+        ADD     #4,R0
+        MOVB    R0,EUGY
+        CMPB    R0,#196.
+        BNE     5$
+        MOV     #GAMETX,R3      ; 'Game' 'Over'
+        MOV     #4,R1
+        MOV     #GGAME,R2
+        JSR     PC,PRINT
+        MOV     #OVERTX,R3
+        MOV     #4,R1
+        MOV     #GOVER,R2
+        JSR     PC,PRINT
+        MOV     #6,R4           ; glistening: 6 x 256 steps of a millisecond,
+7$:     MOV     #256.,R3        ;   the eight letters' inks cycling
+8$:     MOV     #256.,R0
+        JSR     PC,DELAY
+        MOV     R3,R0
+        MOV     #GOCELL,R1
+        MOV     #8.,R2
+9$:     BIC     #^C7,R0
+        BIS     #100,R0
+        MOVB    R0,@(R1)+
+        INC     R0
+        SOB     R2,9$
+        BIT     #7,R3           ; shown every eighth step
+        BNE     10$
+        MOV     #6,R0           ; the message's row
+        MOV     #1,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+10$:    SOB     R3,8$
+        SOB     R4,7$
+        JMP     TITLE
+GOCELL: .WORD   ATTRS+202.,ATTRS+203.,ATTRS+204.,ATTRS+205.
+        .WORD   ATTRS+210.,ATTRS+211.,ATTRS+212.,ATTRS+213.
+
+; --- 35388: the air runs down.  R0 = 0 when none is left -----------------
+AIRDEC: MOVB    CLOCK,R0        ; the clock, 4 a pass; one air unit a wrap
+        SUB     #4,R0
+        MOVB    R0,CLOCK
+        CMPB    R0,#252.
+        BNE     1$
+        CMPB    AIR,#36.        ; 36 is none
+        BNE     2$
+        CLR     R0
+        RTS     PC
+2$:     DECB    AIR
+        MOVB    CLOCK,R0
+1$:     BIC     #^C340,R0       ; the bar's last cell: clock / 32 pixels of it
+        ASRN    R0,5
+        CLR     R1
+        TST     R0
+        BEQ     4$
+3$:     ASR     R1
+        BIS     #200,R1
+        SOB     R0,3$
+4$:     MOVB    AIR,R2
+        BIC     #177400,R2
+        ADD     #CAIRBR-36.,R2
+        MOVB    R1,(R2)
+        MOVB    R1,256.(R2)
+        MOVB    R1,512.(R2)
+        MOVB    R1,768.(R2)
+        MOV     #1,R0
+        RTS     PC
+
+; --- 35445: the empty cavern drawn into SBUF2 ---------------------------
+; Each cell's attribute in ABUF2 names its tile: the first byte of the
+; eight tile definitions (an attribute, then eight rows) that matches -
+; searched byte by byte, rows included, as the original's CPIR does.
+DRAWCV: MOV     #ABUF2,R3
+        MOV     #SBUF2,R4
+        JSR     PC,1$
+        MOV     #SBUF2+2048.,R4
+        JSR     PC,1$
+        CMPB    CAVNUM,#19.     ; The Final Barrier: the title graphic's top
+        BNE     9$              ;   third over the cavern's
+        MOV     #DTITLE,R0
+        MOV     #SBUF2,R1
+        MOV     #1024.,R2
+        JSR     PC,RDBLK
+9$:     RTS     PC
+1$:     CLR     R5              ; 256 cells of a half
+2$:     MOVB    (R3)+,R0
+        MOV     #TILES,R1
+        MOV     #72.,R2
+3$:     CMPB    (R1)+,R0
+        BEQ     4$
+        SOB     R2,3$
+4$:     MOV     R4,R2
+        ADD     R5,R2
+        MOV     #8.,R0
+5$:     MOVB    (R1)+,(R2)
+        ADD     #256.,R2
+        SOB     R0,5$
+        INC     R5
+        CMP     R5,#256.
+        BLO     2$
+        RTS     PC
+
+; --- 35515: Willy in the air - jumping or falling --------------------------
+MOVEW1: CMPB    AIRBRN,#1
+        BNE     M1CHK
+        MOVB    JUMPC,R0        ; the jump: -8..8 on his y, even
+        BIC     #1,R0
+        SUB     #8.,R0
+        MOVB    WILLYY,R1
+        ADD     R0,R1
+        MOVB    R1,WILLYY
+        JSR     PC,WADDR
+        MOVB    WALL,R0         ; his head in a wall?
+        CMPB    R0,(R1)
+        BEQ     10$
+        CMPB    R0,1(R1)
+        BNE     11$
+10$:    JMP     M1WALL
+11$:    INCB    JUMPC
+        MOVB    JUMPC,R0        ; the jump's note, up then down
+        SUB     #8.,R0
+        BPL     1$
+        NEG     R0
+1$:     INC     R0
+        ASLN    R0,3
+        MOV     #32.,R1
+        JSR     PC,BEEP
+        CMPB    JUMPC,#18.      ; the end of the jump
+        BNE     12$
+        JMP     M1END
+12$:    CMPB    JUMPC,#16.      ; a cell above where he started: a floor?
+        BEQ     M1CHK
+        CMPB    JUMPC,#13.      ; two cells above: the same
+        BEQ     M1CHK
+        JMP     M2MOVE
+; 35600: on the floor, or falling, or at 13 or 16 of a jump
+M1CHK:  MOVB    WILLYY,R0
+        BIT     #17,R0          ; between rows: nothing under him to stand on
+        BNE     M1AIR
+        MOV     WILLYA,R1       ; the cells under his feet
+        ADD     #64.,R1
+        CMPB    CRUMBT,(R1)
+        BNE     2$
+        JSR     PC,CRUMBL
+2$:     CMPB    NASTY1,(R1)
+        BEQ     M1AIR
+        CMPB    NASTY2,(R1)
+        BEQ     M1AIR
+        INC     R1
+        CMPB    CRUMBT,(R1)
+        BNE     3$
+        JSR     PC,CRUMBL
+3$:     CMPB    NASTY1,(R1)
+        BEQ     M1AIR
+        CMPB    NASTY2,(R1)
+        BEQ     M1AIR
+        CMPB    BGTILE,(R1)     ; both empty: he falls; else he stands
+        BEQ     4$
+        DEC     R1
+        JMP     MOVEW2
+4$:     DEC     R1
+        CMPB    BGTILE,(R1)
+        BEQ     M1AIR
+        JMP     MOVEW2
+; 35665: falling, or about to
+M1AIR:  CMPB    AIRBRN,#1
+        BNE     5$
+        JMP     M2MOVE
+5$:     BICB    #2,WDIR         ; not walking
+        MOVB    AIRBRN,R0
+        BIC     #177400,R0
+        BNE     6$
+        MOVB    #2,AIRBRN       ; he starts falling
+        RTS     PC
+6$:     INC     R0              ; he falls on: the count, and its note
+        MOVB    R0,AIRBRN
+        MOV     R0,R2
+        ASLN    R0,4
+        ASRN    R2,4
+        BIS     R2,R0
+        BIC     #177400,R0
+        MOV     #32.,R1
+        JSR     PC,BEEP
+        MOVB    WILLYY,R0       ; four pixels down
+        ADD     #8.,R0
+        MOVB    R0,WILLYY
+; 35714: Willy's cell in the attribute buffer from his y: WILLYA, in R1
+WADDR:  MOVB    WILLYY,R1
+        BIC     #^C360,R1
+        ASL     R1
+        MOV     WILLYA,R0
+        BIC     #^C37,R0
+        BIS     R0,R1
+        ADD     #ABUF1,R1
+        MOV     R1,WILLYA
+        RTS     PC
+; 35734: the jump is over; he falls unless something is under him
+M1END:  MOVB    #6,AIRBRN
+        RTS     PC
+; 35746: his head hit a wall: just under it, and falling
+M1WALL: MOVB    WILLYY,R0
+        ADD     #16.,R0
+        BIC     #^C360,R0
+        MOVB    R0,WILLYY
+        JSR     PC,WADDR
+        MOVB    #2,AIRBRN
+        BICB    #2,WDIR
+        RTS     PC
+
+; --- 35770: a crumbling floor tile crumbles.  R1 = its cell in ABUF1, kept
+CRUMBL: MOV     R1,-(SP)
+        MOV     R1,R2           ; the tile's bottom pixel row in SBUF2
+        SUB     #ABUF1,R2
+        MOV     R2,R0
+        BIC     #^C400,R0
+        ASLN    R0,3
+        BIC     #^C377,R2
+        ADD     R0,R2
+        ADD     #SBUF2+1792.,R2
+        MOV     #7,R0           ; every row takes the one above
+1$:     MOVB    -256.(R2),(R2)
+        SUB     #256.,R2
+        SOB     R0,1$
+        CLRB    (R2)            ; the top row clears
+        TSTB    1792.(R2)       ; the bottom one still there?
+        BNE     2$
+        MOVB    BGTILE,512.(R1) ; gone: background, in the empty cavern's buffer
+2$:     MOV     (SP)+,R1
+        RTS     PC
+
+; --- 35805: Willy on his feet: the keys, the conveyor, a step ------------
+; R1 = the left cell under him
+MOVEW2: CMPB    AIRBRN,#12.     ; landed from too high
+        BLO     1$
+        JMP     KILLW2
+1$:     CLRB    AIRBRN
+        CLR     R2              ; the conveyor under him: 1 pushes left, 2 right
+        MOVB    CONVT,R0
+        CMPB    R0,(R1)
+        BEQ     2$
+        CMPB    R0,1(R1)
+        BNE     3$
+2$:     MOVB    CONVD,R2
+        INC     R2
+3$:     CLR     R0              ; 4 = moved or moving left, 10 = right
+        BIT     #1,KEYW
+        BNE     4$
+        CMP     R2,#1
+        BNE     5$
+4$:     BIS     #4,R0
+5$:     BIT     #2,KEYW
+        BNE     6$
+        CMP     R2,#2
+        BNE     7$
+6$:     BIS     #10,R0
+7$:     MOVB    WDIR,R1         ; the new direction and movement, from the table
+        BIC     #177400,R1
+        ADD     R0,R1
+        MOVB    LRTAB(R1),WDIR
+        BIT     #4,KEYW         ; a jump key: the jump begins
+        BEQ     M2MOVE
+        CLRB    JUMPC
+        MOVB    #1,AIRBRN
+; 35971: the step
+M2MOVE: BITB    #2,WDIR
+        BEQ     9$
+        BITB    #1,WDIR
+        BEQ     M2RGT
+        TSTB    WFRAME          ; left: the frames down to 0, then a cell
+        BEQ     10$
+        DECB    WFRAME
+        RTS     PC
+10$:    MOV     WILLYA,R1       ; a wall at (x-1, y+1), (x-1, y+2), (x-1, y)?
+        ADD     #31.,R1
+        MOVB    WALL,R0
+        CMPB    R0,(R1)
+        BEQ     9$
+        BITB    #17,WILLYY
+        BEQ     11$
+        CMPB    R0,32.(R1)
+        BEQ     9$
+11$:    SUB     #32.,R1
+        CMPB    R0,(R1)
+        BEQ     9$
+        MOV     R1,WILLYA
+        MOVB    #3,WFRAME
+9$:     RTS     PC
+M2RGT:  CMPB    WFRAME,#3       ; right: the frames up to 3, then a cell
+        BEQ     12$
+        INCB    WFRAME
+        RTS     PC
+12$:    MOV     WILLYA,R1       ; a wall at (x+2, y+1), (x+2, y+2), (x+2, y)?
+        ADD     #34.,R1
+        MOVB    WALL,R0
+        CMPB    R0,(R1)
+        BEQ     19$
+        BITB    #17,WILLYY
+        BEQ     13$
+        CMPB    R0,32.(R1)
+        BEQ     19$
+13$:    SUB     #32.,R1
+        CMPB    R0,(R1)
+        BEQ     19$
+        DEC     R1
+        MOV     R1,WILLYA
+        CLRB    WFRAME
+19$:    RTS     PC
+
+; --- 36101: Willy dies.  The returns dropped are the original's ----------
+KILLW:  TST     (SP)+           ; from CELATT, under WILATT
+KILLW2: TST     (SP)+           ; from a routine the loop called
+KILLW3: MOVB    #377,AIRBRN     ; from SKYLAB, which the loop jumped to
+        JMP     LOOP3
+
+; --- 36111: the horizontal guardians move -----------------------------------
+; Seven bytes each: the attribute (bit 7: slow, every other pass), the
+; cell's low and high bytes, the screen cell's high byte, the frame, and
+; the low bytes of the leftmost and rightmost cells; 255 ends the table.
+MOVEHG: MOV     #HGTAB,R1
+1$:     MOVB    (R1),R0
+        CMPB    R0,#377
+        BEQ     9$
+        TSTB    R0
+        BEQ     8$
+        MOVB    CLOCK,R2        ; a slow one moves when bit 2 of the clock is off
+        BIC     #^C4,R2
+        ASLN    R2,5
+        BITB    R2,R0
+        BNE     8$
+        MOVB    4(R1),R0        ; the frame: 3 and 4 are the ends of a cell
+        CMPB    R0,#3
+        BEQ     3$
+        CMPB    R0,#4
+        BEQ     5$
+        BHI     2$
+        INCB    4(R1)
+        BR      8$
+2$:     DECB    4(R1)
+        BR      8$
+3$:     MOVB    1(R1),R0        ; at the rightmost cell: turn, else on
+        CMPB    R0,6(R1)
+        BNE     4$
+        MOVB    #7,4(R1)
+        BR      8$
+4$:     CLRB    4(R1)
+        INCB    1(R1)
+        BR      8$
+5$:     MOVB    1(R1),R0        ; at the leftmost cell: turn, else on
+        CMPB    R0,5(R1)
+        BNE     6$
+        CLRB    4(R1)
+        BR      8$
+6$:     MOVB    #7,4(R1)
+        DECB    1(R1)
+8$:     ADD     #7,R1
+        BR      1$
+9$:     RTS     PC
+
+; --- 36211: the light beam of Solar Power Generator -------------------------
+BEAM:   MOV     #ABUF1+23.,R1   ; from (0,23), downwards
+        MOV     #32.,R2
+1$:     CMPB    FLOOR,(R1)      ; a floor or a wall stops it
+        BEQ     9$
+        CMPB    WALL,(R1)
+        BEQ     9$
+        CMPB    #39.,(R1)       ; Willy (INK 7 PAPER 4): four units of air
+        BNE     2$
+        MOV     R1,-(SP)
+        MOV     R2,-(SP)
+        JSR     PC,AIRDEC
+        JSR     PC,AIRDEC
+        JSR     PC,AIRDEC
+        JSR     PC,AIRDEC
+        MOV     (SP)+,R2
+        MOV     (SP)+,R1
+        BR      3$
+2$:     CMPB    BGTILE,(R1)     ; a guardian bends it: down becomes left
+        BEQ     3$
+        CMP     R2,#32.
+        BNE     21$
+        MOV     #-1,R2
+        BR      3$
+21$:    MOV     #32.,R2
+3$:     MOVB    #119.,(R1)      ; INK 7 PAPER 6 BRIGHT
+        ADD     R2,R1
+        BR      1$
+9$:     RTS     PC
+
+; --- 36266: the horizontal guardians drawn ---------------------------------
+DRAWHG: MOV     #HGTAB,R3
+1$:     MOVB    (R3),R0
+        CMPB    R0,#377
+        BEQ     9$
+        TSTB    R0
+        BEQ     8$
+        MOVB    1(R3),R1        ; its four cells take its attribute, unflashing
+        BIC     #177400,R1
+        MOVB    2(R3),R2
+        SWAB    R2
+        BIC     #377,R2
+        BIS     R2,R1
+        BIC     #^C177,R0
+        MOVB    R0,(R1)
+        MOVB    R0,1(R1)
+        MOVB    R0,32.(R1)
+        MOVB    R0,33.(R1)
+        MOVB    4(R3),R1        ; the sprite: the frame, from the second four
+        ASLN    R1,5           ;   in most caverns after the seventh
+        BIC     #^C340,R1
+        MOVB    CAVNUM,R0
+        CMPB    R0,#7
+        BLO     2$
+        CMPB    R0,#9.
+        BEQ     2$
+        CMPB    R0,#15.
+        BEQ     2$
+        BIS     #200,R1
+2$:     ADD     #GGFX,R1
+        MOVB    1(R3),R2        ; its screen cell
+        BIC     #177400,R2
+        MOVB    3(R3),R0
+        SWAB    R0
+        BIC     #377,R0
+        BIS     R0,R2
+        MOV     #1,R0           ; drawn over Willy: touching him kills
+        JSR     PC,DRAWSP
+        TST     R0
+        BEQ     8$
+        JMP     KILLW2
+8$:     ADD     #7,R3
+        BR      1$
+9$:     RTS     PC
+
+; --- 36344: Eugene, in Eugene's Lair ---------------------------------------
+EUGENE: TSTB    LASTIT          ; up while items remain and he is going up
+        BEQ     1$
+        TSTB    EUGDIR
+        BEQ     1$
+        MOVB    EUGY,R0
+        DEC     R0
+        BEQ     2$
+        MOVB    R0,EUGY
+        BR      3$
+1$:     MOVB    EUGY,R0         ; down to the portal
+        INC     R0
+        CMPB    R0,#88.
+        BEQ     2$
+        MOVB    R0,EUGY
+        BR      3$
+2$:     MOVB    EUGDIR,R0       ; the end of his path: turn
+        MOV     #1,R1
+        XOR     R1,R0
+        MOVB    R0,EUGDIR
+3$:     MOVB    EUGY,R0         ; drawn at column 15, his sprite at 32992
+        BIC     #^C177,R0
+        ASL     R0
+        MOV     LOOKUP(R0),R2
+        ADD     #15.,R2
+        MOV     #GBUF+224.,R1
+        MOV     #1,R0
+        JSR     PC,DRAWSP
+        TST     R0
+        BEQ     4$
+        JMP     KILLW2
+4$:     MOVB    EUGY,R1         ; his cells: white, or cycling once the items
+        BIC     #^C170,R1       ;   are gone
+        ASL     R1
+        ASL     R1
+        ADD     #ABUF1+15.,R1
+        TSTB    LASTIT
+        BEQ     5$
+        MOV     #7,R0
+        BR      SETATT
+5$:     MOVB    CLOCK,R0
+        ASRN    R0,2
+        BIC     #^C7,R0
+; 36447: the six cells of a sprite at R1 in ABUF1 take the background's
+; paper with R0 - an ink, or a whole attribute
+SETATT: MOVB    R0,(R1)
+        MOVB    BGTILE,R0
+        BIC     #^C370,R0
+        BISB    (R1),R0
+        MOVB    R0,(R1)
+        MOVB    R0,1(R1)
+        MOVB    R0,32.(R1)
+        MOVB    R0,33.(R1)
+        MOVB    R0,64.(R1)
+        MOVB    R0,65.(R1)
+        RTS     PC
+
+; --- 36469: the Skylabs of Skylab Landing Bay --------------------------------
+; The vertical guardian table: the attribute, the frame, the pixel y, the
+; column, the step, the top and the bottom - a Skylab's bottom is its
+; crash site, its top where it starts again, eight columns on.
+SKYLAB: MOV     #VGTAB,R3
+1$:     CMPB    (R3),#377
+        BNE     2$
+        JMP     LOOP2
+2$:     MOVB    2(R3),R0        ; coming down, or breaking up where it landed
+        CMPB    R0,6(R3)
+        BHIS    3$
+        MOVB    4(R3),R1
+        ADD     R1,R0
+        MOVB    R0,2(R3)
+        BR      4$
+3$:     INCB    1(R3)
+        CMPB    1(R3),#8.
+        BNE     4$
+        MOVB    5(R3),2(R3)
+        MOVB    3(R3),R0
+        ADD     #8.,R0
+        BIC     #^C37,R0
+        MOVB    R0,3(R3)
+        CLRB    1(R3)
+4$:     MOVB    2(R3),R0        ; drawn; touching Willy kills
+        BIC     #177400,R0
+        ASL     R0
+        MOV     LOOKUP(R0),R2
+        MOVB    3(R3),R0
+        BIC     #177400,R0
+        ADD     R0,R2
+        MOVB    1(R3),R1
+        ASLN    R1,5
+        BIC     #^C340,R1
+        ADD     #GGFX,R1
+        MOV     #1,R0
+        JSR     PC,DRAWSP
+        TST     R0
+        BEQ     5$
+        JMP     KILLW3
+5$:     MOVB    2(R3),R1        ; its cells
+        BIC     #^C170,R1
+        ASL     R1
+        ASL     R1
+        MOVB    3(R3),R0
+        BIC     #177400,R0
+        BIS     R0,R1
+        ADD     #ABUF1,R1
+        MOVB    (R3),R0
+        JSR     PC,SETATT
+        ADD     #7,R3
+        BR      1$
+
+; --- 36593: the vertical guardians ---------------------------------------------
+VGUARD: MOV     #VGTAB,R3
+1$:     CMPB    (R3),#377
+        BEQ     9$
+        INCB    1(R3)           ; the frame, 0..3
+        BICB    #4,1(R3)
+        MOVB    2(R3),R0        ; up or down by its step, turning at the ends
+        MOVB    4(R3),R1
+        ADD     R1,R0
+        BIC     #177400,R0
+        CMPB    R0,5(R3)
+        BLO     2$
+        CMPB    R0,6(R3)
+        BHIS    2$
+        MOVB    R0,2(R3)
+        BR      3$
+2$:     NEGB    4(R3)
+3$:     MOVB    2(R3),R0        ; drawn; touching Willy kills
+        BIC     #^C177,R0
+        ASL     R0
+        MOV     LOOKUP(R0),R2
+        MOVB    3(R3),R0
+        BIC     #177400,R0
+        BIS     R0,R2
+        MOVB    1(R3),R1
+        ASLN    R1,5
+        BIC     #^C340,R1
+        ADD     #GGFX,R1
+        MOV     #1,R0
+        JSR     PC,DRAWSP
+        TST     R0
+        BEQ     4$
+        JMP     KILLW2
+4$:     MOVB    2(R3),R1        ; its cells
+        BIC     #^C170,R1
+        ASL     R1
+        ASL     R1
+        MOVB    3(R3),R0
+        BIC     #177400,R0
+        BIS     R0,R1
+        ADD     #ABUF1,R1
+        MOVB    (R3),R0
+        JSR     PC,SETATT
+        ADD     #7,R3
+        BR      1$
+9$:     RTS     PC
+
+; --- 36707: the items drawn, and the one Willy touches collected ------------
+; Five bytes each: the attribute (0 once collected), the cell's low and
+; high bytes, the screen cell's high byte, one spare; 255 ends the table.
+ITEMS:  CLRB    LASTIT
+        MOV     #ITEMTB,R3
+1$:     MOVB    (R3),R0
+        CMPB    R0,#377
+        BEQ     8$
+        TSTB    R0
+        BEQ     7$
+        MOVB    1(R3),R2        ; its cell: white ink there is Willy
+        BIC     #177400,R2
+        MOVB    2(R3),R1
+        SWAB    R1
+        BIC     #377,R1
+        BIS     R1,R2
+        MOVB    (R2),R1
+        BIC     #^C7,R1
+        CMP     R1,#7
+        BNE     2$
+        MOV     #SCORE+3,R1     ; collected: 100 points
+        JSR     PC,ADDSCR
+        CLRB    (R3)
+        BR      7$
+2$:     BIC     #^C370,R0       ; its ink cycles 3, 4, 5, 6
+        BIS     #3,R0
+        MOVB    (R3),R1
+        BIC     #^C3,R1
+        ADD     R1,R0
+        MOVB    R0,(R3)
+        MOVB    R0,(R2)
+        MOVB    R0,LASTIT
+        MOVB    3(R3),R1        ; drawn into the screen buffer
+        SWAB    R1
+        BIC     #377,R1
+        BIC     #177400,R2
+        BIS     R1,R2
+        MOV     #ITEMG,R1
+        MOV     #8.,R0
+        JSR     PC,DRAWRW
+7$:     ADD     #5,R3
+        BR      1$
+8$:     TSTB    LASTIT          ; none left: the portal flashes
+        BNE     9$
+        BISB    #200,PORTAT
+9$:     RTS     PC
+
+; --- 36805: the portal drawn, or Willy through it ---------------------------
+PORTAL: MOV     PORTAA,R1
+        CMP     WILLYA,R1
+        BNE     1$
+        BITB    #200,PORTAT
+        BEQ     1$
+        TST     (SP)+
+        JMP     NXTCAV
+1$:     MOVB    PORTAT,R0
+        MOVB    R0,(R1)
+        MOVB    R0,1(R1)
+        MOVB    R0,32.(R1)
+        MOVB    R0,33.(R1)
+        MOV     #PORTG,R1
+        MOV     PORTAS,R2
+        CLR     R0
+        ; falls into DRAWSP
+
+; --- 36852: a sprite drawn ------------------------------------------------
+; R0 = 0 to overwrite, 1 to blend and tell of a collision; R1 = the 32
+; bytes of the sprite; R2 = the top-left cell in a screen buffer or the
+; display file.  Returns R0 = 0, or 1 when a set bit met a set bit - the
+; sprite then only partly drawn, as the original leaves it.  R1-R3 kept.
+DRAWSP: MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        MOV     R1,-(SP)
+        MOV     R2,-(SP)
+        MOV     R0,R4
+        MOV     #16.,R5
+1$:     TST     R4
+        BEQ     2$
+        BITB    (R1),(R2)
+        BNE     8$
+        BISB    (R1),(R2)
+        BR      3$
+2$:     MOVB    (R1),(R2)
+3$:     INC     R1
+        TST     R4
+        BEQ     4$
+        BITB    (R1),1(R2)
+        BNE     8$
+        BISB    (R1),1(R2)
+        BR      5$
+4$:     MOVB    (R1),1(R2)
+5$:     INC     R1
+        ADD     #256.,R2        ; the next pixel row; the next cell row after
+        BIT     #3400,R2        ;   eight; the next third after eight of those
+        BNE     6$
+        SUB     #2048.,R2
+        ADD     #32.,R2         ; the low byte on its own, as the original's L:
+        BIT     #340,R2         ;   past the third's last cell row it wraps to
+        BNE     6$              ;   the first, and the high byte goes up a third
+        ADD     #2048.-256.,R2
+6$:     SOB     R5,1$
+        CLR     R0
+        BR      9$
+8$:     MOV     #1,R0
+9$:     MOV     (SP)+,R2
+        MOV     (SP)+,R1
+        MOV     (SP)+,R5
+        MOV     (SP)+,R4
+        RTS     PC
+
+; DRAWRW: R0 rows of a graphic at R1 into pixel rows from R2 (the tail of
+; the original's character printer, 37589, which the items use too).
+DRAWRW: MOVB    (R1)+,(R2)
+        ADD     #256.,R2
+        SOB     R0,DRAWRW
+        RTS     PC
+
+; --- 36904: the next cavern ---------------------------------------------------
+NXTCAV: MOVB    CAVNUM,R0
+        INC     R0
+        CMPB    R0,#20.
+        BNE     5$
+        TSTB    MODE            ; the demo and the cheat go round again
+        BNE     4$
+        CMPB    CHEATC,#7
+        BEQ     4$
+        MOV     #WILLY+96.,R1   ; out of the mine: Willy above the portal,
+        MOV     #EWILLY,R2      ;   the swordfish over it
+        CLR     R0
+        JSR     PC,DRAWSP
+        MOV     #SWORD,R1
+        MOV     #ESWORD,R2
+        CLR     R0
+        JSR     PC,DRAWSP
+        MOVB    #47.,ATTRS+83.
+        MOVB    #47.,ATTRS+84.
+        MOVB    #39.,ATTRS+115.
+        MOVB    #39.,ATTRS+116.
+        MOVB    #69.,ATTRS+179.
+        MOVB    #69.,ATTRS+180.
+        MOVB    #70.,ATTRS+211.
+        MOVB    #71.,ATTRS+212.
+        CLRB    ATTRS+243.
+        CLRB    ATTRS+244.
+        MOV     #2,R0           ; Willy, the swordfish, the portal
+        MOV     #6,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+        MOV     #50.,R3         ; the celebration: 50 x 256 half periods of
+1$:     MOV     #256.,R4        ;   C + 3D, C and D counting down
+2$:     MOV     R3,R0
+        ASL     R0
+        ADD     R3,R0
+        ADD     R4,R0
+        BIC     #177400,R0
+        MOV     #1,R1
+        JSR     PC,BEEP
+        SOB     R4,2$
+        SOB     R3,1$
+4$:     CLR     R0              ; Central Cavern again
+5$:     MOVB    R0,CAVNUM
+        MOV     #63.,R3         ; the cavern's colours cycle, 63 down to 1
+6$:     MOV     #ATTRS,R1
+        MOV     #512.,R2
+7$:     MOVB    R3,(R1)+
+        SOB     R2,7$
+        MOV     #1024.,R0
+        JSR     PC,DELAY
+        BIT     #3,R3
+        BNE     8$
+        CLR     R0
+        MOV     #16.,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+8$:     DEC     R3
+        BNE     6$
+        TSTB    MODE
+        BEQ     9$
+        JMP     NEWSHT
+9$:     CLR     R4              ; the air left becomes points, a note each
+10$:    JSR     PC,AIRDEC
+        TST     R0
+        BNE     11$
+        JMP     NEWSHT
+11$:    MOV     #SCORE+5,R1
+        JSR     PC,ADDSCR
+        MOV     #SCORE,R3
+        MOV     #6,R1
+        MOV     #CSCDIG,R2
+        JSR     PC,PRINT
+        INC     R4
+        BIT     #17,R4
+        BNE     12$
+        MOV     #17.,R0         ; the air bar and the score
+        MOV     #3,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+12$:    MOVB    AIR,R0
+        COM     R0
+        BIC     #^C77,R0
+        ASL     R0
+        MOV     #8.,R1
+        JSR     PC,BEEP
+        BR      10$
+
+; --- 37098: a digit of the score up.  R1 = the digit -----------------------
+; The 10000s digit rolling over is an extra life and a flash.
+ADDSCR: CMPB    (R1),#'9
+        BEQ     1$
+        INCB    (R1)
+        RTS     PC
+1$:     MOVB    #'0,(R1)
+        DEC     R1
+        CMP     R1,#SCORE+1
+        BNE     ADDSCR
+        MOVB    #8.,FLASH
+        INCB    LIVES
+        BR      ADDSCR
+
+; --- 37125: the conveyor moves -----------------------------------------------
+; Its first and third pixel rows rotate, in SBUF2, along its length.
+CONVEY: MOV     CONVA,R1
+        MOVB    CONVL,R3
+        BIC     #177400,R3
+        BNE     1$
+        MOV     #256.,R3
+1$:     MOVB    (R1),R0
+        MOVB    512.(R1),R2
+        TSTB    CONVD
+        BNE     2$
+        JSR     PC,ROTL8        ; left: the first row left, the third right
+        JSR     PC,ROTL8
+        MOV     R0,-(SP)
+        MOV     R2,R0
+        JSR     PC,ROTR8
+        JSR     PC,ROTR8
+        MOV     R0,R2
+        MOV     (SP)+,R0
+        BR      3$
+2$:     JSR     PC,ROTR8        ; right: the other way
+        JSR     PC,ROTR8
+        MOV     R0,-(SP)
+        MOV     R2,R0
+        JSR     PC,ROTL8
+        JSR     PC,ROTL8
+        MOV     R0,R2
+        MOV     (SP)+,R0
+3$:     MOVB    R0,(R1)
+        MOVB    R2,512.(R1)
+        INC     R1
+        SOB     R3,3$
+        RTS     PC
+ROTL8:  BIC     #177400,R0      ; a byte in R0 rotated left
+        ASL     R0
+        BIT     #400,R0
+        BEQ     1$
+        BIS     #1,R0
+1$:     BIC     #177400,R0
+        RTS     PC
+ROTR8:  BIC     #177400,R0      ; and right
+        BIT     #1,R0
+        BEQ     1$
+        BIS     #400,R0
+1$:     ASR     R0
+        RTS     PC
+
+; --- 37173: the Kong Beast --------------------------------------------------
+KONG:   MOV     #ABUF1+6,R1     ; the left switch at (0,6)
+        JSR     PC,SWITCH
+        CMPB    EUGDIR,#2       ; dead already
+        BNE     1$
+        RTS     PC
+1$:     CMPB    SBUF2+1286.,#16.        ; the switch's sixth row: not flipped
+        BNE     2$
+        JMP     KONGL
+2$:     TSTB    ABUF2+369.      ; flipped: the wall at (11,17) opens, a row a pass
+        BEQ     6$
+        MOV     #SBUF2+3953.,R1
+3$:     TSTB    (R1)
+        BNE     5$
+        SUB     #256.,R1
+        CMP     R1,#SBUF2+3953.-2048.
+        BNE     3$
+        MOVB    BGTILE,ABUF2+369.       ; all gone: background at (11,17) and
+        MOVB    BGTILE,ABUF2+401.       ;   (12,17), the guardian's path longer
+        MOVB    #114.,HGTAB+13.
+        BR      6$
+5$:     CLRB    (R1)            ; a row, and its mirror in the tile below
+        MOV     R1,R0
+        BIC     #^C3400,R0
+        MOV     #3400,R2
+        XOR     R2,R0
+        ADD     #SBUF2+2048.+145.,R0
+        CLRB    (R0)
+6$:     MOV     #ABUF1+18.,R1   ; the right switch at (0,18): flipped now,
+        JSR     PC,SWITCH       ;   the Kong Beast falls
+        TST     R0
+        BNE     7$
+        CLRB    EUGY
+        MOVB    #1,EUGDIR
+        MOVB    BGTILE,ABUF2+79.
+        MOVB    BGTILE,ABUF2+80.
+        MOV     #SBUF2+79.,R1
+        MOV     #8.,R0
+61$:    CLRB    (R1)
+        CLRB    1(R1)
+        ADD     #256.,R1
+        SOB     R0,61$
+7$:     TSTB    EUGDIR
+        BNE     8$
+        JMP     KONGL
+8$:     MOVB    EUGY,R0         ; falling: into the portal at 100
+        CMPB    R0,#100.
+        BNE     9$
+        MOVB    #2,EUGDIR
+        RTS     PC
+9$:     ADD     #4,R0
+        MOVB    R0,EUGY
+        BIC     #177400,R0
+        MOV     #16.,R1
+        JSR     PC,BEEP
+        MOVB    EUGY,R0         ; drawn at column 15, 100 points a pass
+        BIC     #177400,R0
+        ASL     R0
+        MOV     LOOKUP(R0),R2
+        ADD     #15.,R2
+        MOVB    CLOCK,R1
+        BIC     #^C40,R1
+        BIS     #100,R1
+        ADD     #GGFX,R1
+        CLR     R0
+        JSR     PC,DRAWSP
+        MOV     #SCORE+3,R1
+        JSR     PC,ADDSCR
+        MOVB    EUGY,R1         ; yellow
+        BIC     #^C170,R1
+        ASL     R1
+        ASL     R1
+        ADD     #ABUF1+15.,R1
+        MOV     #6,R0
+        JMP     SETATT
+; 37369: on his ledge at (0,15), swapping his two frames
+KONGL:  MOVB    CLOCK,R1
+        BIC     #^C40,R1
+        ADD     #GGFX,R1
+        MOV     #SBUF1+15.,R2
+        MOV     #1,R0
+        JSR     PC,DRAWSP
+        TST     R0
+        BEQ     1$
+        JMP     KILLW2
+1$:     MOVB    #68.,ABUF1+47.  ; INK 4 PAPER 0 BRIGHT
+        MOVB    #68.,ABUF1+48.
+        MOVB    #68.,ABUF1+15.
+        MOVB    #68.,ABUF1+16.
+        RTS     PC
+
+; --- 37403: a switch flipped if Willy is at it.  R1 = its cell; R0 = 0 if so
+SWITCH: MOV     WILLYA,R0       ; Willy's cell, or the one to its right
+        INC     R0
+        BIC     #1,R0
+        CMP     R0,R1
+        BNE     9$
+        MOV     R1,R2           ; its sixth row in SBUF2 still the tile's?
+        SUB     #ABUF1,R2
+        ADD     #SBUF2+1280.,R2
+        CMPB    EXTRA+6,(R2)
+        BNE     9$
+        MOVB    #8.,(R2)        ; flipped
+        MOVB    #6,256.(R2)
+        MOVB    #6,512.(R2)
+        CLR     R0
+        RTS     PC
+9$:     MOV     #1,R0
+        RTS     PC
+
+; --- 37434: Willy's cells in ABUF1, and Willy drawn -----------------------
+WILATT: MOV     WILLYA,R1
+        MOV     #15.,R2         ; the top two rows always take white ink
+        JSR     PC,CELATT
+        INC     R1
+        JSR     PC,CELATT
+        ADD     #31.,R1
+        JSR     PC,CELATT
+        INC     R1
+        JSR     PC,CELATT
+        MOVB    WILLYY,R2       ; the third only when he reaches into it
+        ADD     #31.,R1
+        JSR     PC,CELATT
+        INC     R1
+        JSR     PC,CELATT
+; 37503: Willy into the screen buffer
+WILDRW: MOVB    WILLYY,R0       ; the table entry of his top pixel row
+        BIC     #177400,R0
+        ADD     #LOOKUP,R0
+        MOV     R0,R3
+        MOVB    WDIR,R1         ; the sprite: 128 on facing left, 32 a frame
+        BIC     #^C1,R1
+        ASLN    R1,7
+        MOVB    WFRAME,R0
+        BIC     #^C3,R0
+        ASLN    R0,5
+        BIS     R0,R1
+        ADD     #WILLY,R1
+        MOV     WILLYA,R2       ; his column
+        BIC     #^C37,R2
+        MOV     #16.,R0
+1$:     MOV     (R3)+,R4
+        BIS     R2,R4
+        BISB    (R1)+,(R4)
+        BISB    (R1)+,1(R4)
+        SOB     R0,1$
+        RTS     PC
+; 37471: one cell of his: white ink on background (R2 & 15 permitting), a
+; nasty kills
+CELATT: CMPB    BGTILE,(R1)
+        BNE     1$
+        BIT     #17,R2
+        BEQ     1$
+        MOVB    BGTILE,R0
+        BIS     #7,R0
+        MOVB    R0,(R1)
+1$:     CMPB    NASTY1,(R1)
+        BEQ     2$
+        CMPB    NASTY2,(R1)
+        BEQ     2$
+        RTS     PC
+2$:     JMP     KILLW
+
+; --- 37562: a message printed.  R3 = the text, R1 = its length, R2 = where
+PRINT:  MOVB    (R3)+,R0
+        JSR     PC,PRCHAR
+        INC     R2
+        SOB     R1,PRINT
+        RTS     PC
+; 37579: one character, from the character set
+PRCHAR: MOV     R1,-(SP)
+        MOV     R2,-(SP)
+        BIC     #177400,R0
+        SUB     #32.,R0
+        ASLN    R0,3
+        ADD     #FONT,R0
+        MOV     R0,R1
+        MOV     #8.,R0
+        JSR     PC,DRAWRW
+        MOV     (SP)+,R2
+        MOV     (SP)+,R1
+        RTS     PC
+
+; --- 37596: the theme tune.  R3 = its data; R0 = 1 when ENTER cut it
+; short, 2 when SHIFT with SPACE did
+; Three bytes a note: the length, and the two voices' counts; 255 ends it.
+; A note lights its two piano keys red and cyan, and puts them back white.
+TUNE:   MOVB    (R3),R0
+        CMPB    R0,#377
+        BNE     1$
+        CLR     R0
+        RTS     PC
+1$:     MOVB    1(R3),R0
+        JSR     PC,PIANO
+        MOVB    #80.,(R1)
+        MOVB    2(R3),R0
+        JSR     PC,PIANO
+        MOVB    #40.,(R1)
+        MOV     #15.,R0         ; the piano's keys
+        MOV     #1,R1
+        MOV     #SCREEN,R2
+        JSR     PC,PRESNT
+        MOVB    1(R3),R0
+        MOVB    2(R3),R1
+        MOVB    (R3),R2
+        JSR     PC,TUNE2
+        JSR     PC,KEYS
+        BIT     #100,R0         ; SHIFT with SPACE: 2, to leave
+        BEQ     11$
+        MOV     #2,R0
+        RTS     PC
+11$:    BIT     #10,R0
+        BEQ     2$
+        MOV     #1,R0
+        RTS     PC
+2$:     MOVB    1(R3),R0
+        JSR     PC,PIANO
+        MOVB    #56.,(R1)
+        MOVB    2(R3),R0
+        JSR     PC,PIANO
+        MOVB    #56.,(R1)
+        ADD     #3,R3
+        BR      TUNE
+; 37675: the piano key of a voice's count R0: its attribute cell in R1
+PIANO:  BIC     #177400,R0
+        SUB     #8.,R0
+        ASRN    R0,3
+        COM     R0
+        BIC     #^C37,R0
+        ADD     #PIANOA,R0
+        MOV     R0,R1
+        RTS     PC
+
+; --- the state ---------------------------------------------------------------
+CAVNUM: .BYTE   0               ; 33799 the cavern, 0..19
+LIVES:  .BYTE   0               ; 33879
+FLASH:  .BYTE   0               ; 33880 the screen flash counter
+MODE:   .BYTE   0               ; 33882 0 the game; else the demo, passes left
+NOTEIX: .BYTE   0               ; 33883 the in-game tune's note
+MUSICF: .BYTE   0               ; 33884 bit 0 a music key held, bit 1 music off
+CHEATC: .BYTE   0               ; 33885 keys of 6031769 in so far
+        .EVEN
+KEYW:   .WORD   0               ; the keys this pass
+DIGW:   .WORD   0               ; the digit keys this pass
+HISCOR: .BLKB   6               ; 33823
+SCOREA: .BLKB   10.             ; 33829: four the original never uses, then
+SCORE  = SCOREA+4               ; 33833 the six digits of the score
+
+; --- the cavern in play: its definition, as at 32768..33279 ------------------
+GBUF:   .BLKB   512.
+CVNAME = GBUF                   ; 32768 the name, 32 characters
+TILES  = GBUF+32.               ; 32800 eight tiles: an attribute, eight rows
+BGTILE = TILES                  ; 32800 background
+FLOOR  = TILES+9.               ; 32809 floor
+CRUMBT = TILES+18.              ; 32818 crumbling floor
+WALL   = TILES+27.              ; 32827 wall
+CONVT  = TILES+36.              ; 32836 conveyor
+NASTY1 = TILES+45.              ; 32845 nasty
+NASTY2 = TILES+54.              ; 32854 nasty
+EXTRA  = TILES+63.              ; 32863 the spare tile: a switch in the Kong caverns
+WILLYY = GBUF+104.              ; 32872 Willy's y, in half pixels
+WFRAME = GBUF+105.              ; 32873 his frame, 0..3
+WDIR   = GBUF+106.              ; 32874 bit 0 facing left, bit 1 walking
+AIRBRN = GBUF+107.              ; 32875 0 on his feet, 1 jumping, 2.. falling, 255 dead
+WILLYA = GBUF+108.              ; 32876 his top-left cell in ABUF1
+JUMPC  = GBUF+110.              ; 32878 the jump's count, 0..18
+CONVD  = GBUF+111.              ; 32879 the conveyor's direction, 0 left 1 right
+CONVA  = GBUF+112.              ; 32880 its first tile in SBUF2
+CONVL  = GBUF+114.              ; 32882 its length
+BORDC  = GBUF+115.              ; 32883 the border colour
+LASTIT = GBUF+116.              ; 32884 the attribute of the last item drawn
+ITEMTB = GBUF+117.              ; 32885 the items, five bytes each
+PORTAT = GBUF+143.              ; 32911 the portal's attribute, bit 7 flashing
+PORTG  = GBUF+144.              ; 32912 its graphic
+PORTAA = GBUF+176.              ; 32944 its cell in ABUF1
+PORTAS = GBUF+178.              ; 32946 its cell in SBUF1
+ITEMG  = GBUF+180.              ; 32948 the item graphic
+AIR    = GBUF+188.              ; 32956 the air, 36 is none
+CLOCK  = GBUF+189.              ; 32957 the clock
+HGTAB  = GBUF+190.              ; 32958 the horizontal guardians, seven bytes each
+EUGDIR = GBUF+219.              ; 32987 Eugene's direction; the Kong Beast's state
+EUGY   = GBUF+220.              ; 32988 Eugene's or the Kong Beast's pixel y
+VGTAB  = GBUF+221.              ; 32989 the vertical guardians, seven bytes each
+GGFX   = GBUF+256.              ; 33024 the guardian graphics, eight of 32 bytes
+
+; --- the rest of the file's data -------------------------------------------
+LOOKUP: .BLKW   128.            ; 33536 the screen buffer address of a pixel row
+MISC:   .BLKB   1024.           ; blocks 0-1 of MANICM.DAT:
+WILLY  = MISC                   ; 33280 Willy's eight frames, 32 bytes each
+LRTAB  = MISC+256.              ; 33800 the left-right movement table
+AIRTXT = MISC+272.              ; 33816 'AIR'
+SCORLN = MISC+276.              ; 33839 'High Score 000000   Score 000000'
+GAMETX = MISC+308.              ; 33871 'Game'
+OVERTX = MISC+312.              ; 33875 'Over'
+CHEATT = MISC+316.              ; 33886 the 6031769 table
+MESSAG = MISC+512.              ; 40192 the title screen's message
+TUNES:  .BLKB   512.            ; block 2:
+BLUEDN = TUNES                  ; 33902 The Blue Danube
+MTKING = TUNES+286.             ; 34188 In the Hall of the Mountain King
+FONT:   .BLKB   768.            ; blocks 52-53: the character set
+BOOT:   .BLKB   32.             ; 47840 the boot (in The Menagerie's data)
+PLINTH: .BLKB   32.             ; 46816 the plinth (in The Cold Room's)
+SWORD:  .BLKB   32.             ; 45792 the swordfish (in Central Cavern's)
+
+        .END    MANICM
