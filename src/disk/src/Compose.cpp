@@ -90,6 +90,42 @@ void label(std::vector<uint8_t> &img, const Shape &s, int volume,
                 volumeKind(s, volume));
 }
 
+/* A physical sector of a diskette: the FDC's track, side and 0-based
+ * sector, from its byte offset in a raw image. */
+struct Sector {
+    int track, side, sector;
+};
+
+Sector sectorOf(std::size_t byte, bool ds)
+{
+    const std::size_t cyl = ds ? 2 * kTrackSize : kTrackSize;
+    const std::size_t rem = byte % cyl;
+    return {static_cast<int>(byte / cyl), static_cast<int>(rem / kTrackSize),
+            static_cast<int>(rem % kTrackSize / kBlock)};
+}
+
+/* Where a reserved block goes on the media being made: the byte of the
+ * same physical sector, and the volume and block the file system there
+ * knows it as. */
+struct Spot {
+    std::size_t byte;
+    int         volume;
+    int         lbn;
+};
+
+Spot spotOf(const ReservedBlock &b, bool srcDs, const Shape &s)
+{
+    const Sector ph = sectorOf(lbnToByte(b.lbn, b.side, srcDs, Vol::floppy), srcDs);
+    if (ph.side && !s.ds)
+        throw std::runtime_error("a protected block of the system lies on the second side, which a single-sided disk has not");
+    const std::size_t byte = static_cast<std::size_t>(ph.track) * (s.ds ? 2 * kTrackSize : kTrackSize)
+                           + static_cast<std::size_t>(ph.side) * kTrackSize
+                           + static_cast<std::size_t>(ph.sector) * kBlock;
+    if (s.boot == Vol::dv)
+        return {byte, 0, (static_cast<int>(byte / kBlock) - kDvRotate + kDsBlocks) % kDsBlocks};
+    return {byte, ph.side, lbnFromPhys(ph.track, ph.sector + 1)};
+}
+
 /* The exemplar's boot volume and the monitor it boots. */
 struct Source {
     Image       volume;
@@ -112,12 +148,23 @@ Source sourceOf(const std::vector<uint8_t> &system)
 }
 
 /* A formatted blank holding what only the exemplar has: SWAP.SYS and the
- * monitor, with their dates and protection. */
-std::vector<uint8_t> base(const Source &src, const Shape &s)
+ * monitor, with their dates and protection; the free space of each volume
+ * ends before the first block the system protects there. */
+std::vector<uint8_t> base(const Source &src, const Shape &s, const ComposeRecipe &r)
 {
     auto img = blankImage(s.ds);
     initVolume(img, 0, s.ds, {}, s.boot);
     if (s.volumes == 2) initVolume(img, 1, s.ds);
+    const bool srcDs = r.system.size() == kDoubleSize;
+    std::vector<std::optional<int>> fence(static_cast<std::size_t>(s.volumes));
+    for (const auto &b : r.reserved) {
+        const Spot at = spotOf(b, srcDs, s);
+        auto &f = fence[static_cast<std::size_t>(at.volume)];
+        if (!f || at.lbn < *f) f = at.lbn;
+    }
+    for (int v = 0; v < s.volumes; ++v)
+        if (fence[static_cast<std::size_t>(v)])
+            endFreeSpaceAt(img, v, s.ds, *fence[static_cast<std::size_t>(v)], volumeKind(s, v));
     const std::string names[] = {"SWAP.SYS", src.monitor + ".SYS"};
     for (const auto &name : names) {
         const auto *e = src.volume.directory.find(name);
@@ -143,20 +190,19 @@ void finish(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src
 
     const bool srcDs = r.system.size() == kDoubleSize;
     for (const auto &b : r.reserved) {
-        const auto vol = openAt(img, s, b.side);
+        const Spot at = spotOf(b, srcDs, s);
+        const auto vol = openAt(img, s, at.volume);
         if (vol && vol->hasDirectory)
             for (const auto &f : vol->directory.permanentFiles())
-                if (b.lbn >= f.startBlock && b.lbn < f.startBlock + f.length)
+                if (at.lbn >= f.startBlock && at.lbn < f.startBlock + f.length)
                     throw std::runtime_error(f.name + " would overwrite a reserved block of the system (its copy protection)");
-        std::memcpy(img.data() + lbnToByte(b.lbn, b.side, s.ds, Vol::floppy),
-                    r.system.data() + lbnToByte(b.lbn, b.side, srcDs, Vol::floppy), kBlock);
+        std::memcpy(img.data() + at.byte, r.system.data() + lbnToByte(b.lbn, b.side, srcDs, Vol::floppy), kBlock);
     }
 }
 
 /* Put one group on one volume of a scratch copy; "" when it went, else why
  * it did not. */
-std::string tryGroup(std::vector<uint8_t> &img, const ComposeRecipe &r, const Shape &s,
-                     const ComposeGroup &g, int volume)
+std::string tryGroup(std::vector<uint8_t> &img, const Shape &s, const ComposeGroup &g, int volume)
 {
     auto scratch = img;
     try {
@@ -168,12 +214,6 @@ std::string tryGroup(std::vector<uint8_t> &img, const ComposeRecipe &r, const Sh
         }
     } catch (const std::exception &e) {
         return std::string("does not fit (") + e.what() + ")";
-    }
-    for (const auto &b : r.reserved) {
-        if (b.side != volume) continue;
-        for (const auto &f : openAt(scratch, s, volume)->directory.permanentFiles())
-            if (b.lbn >= f.startBlock && b.lbn < f.startBlock + f.length)
-                return "would overwrite a reserved block of the system (its copy protection)";
     }
     img = std::move(scratch);
     return "";
@@ -203,7 +243,7 @@ Placing place(const std::vector<uint8_t> &base, const ComposeRecipe &r, const Sh
         GroupPlacement p{g.title, -1, groupBlocks(g), ""};
         const int last = g.place == Place::any ? s.volumes - 1 : 0;
         for (int v = 0; v <= last && p.volume < 0; ++v) {
-            const std::string why = tryGroup(out.img, r, s, g, v);
+            const std::string why = tryGroup(out.img, s, g, v);
             if (why.empty()) p.volume = v; else p.problem = why;
         }
         if (p.volume >= 0) p.problem.clear();
@@ -222,7 +262,7 @@ std::vector<uint8_t> compose(const ComposeRecipe &r, ComposePlan &plan)
     std::optional<Source> src;
     try {
         src = sourceOf(r.system);
-        img = base(*src, s);
+        img = base(*src, s, r);
         label(img, s, 0, r.volumeId, r.owner);
         if (s.volumes == 2) label(img, s, 1, r.secondVolumeId, r.secondOwner);
     } catch (const std::exception &e) {

@@ -128,6 +128,16 @@ void squeeze(std::vector<uint8_t> &image, int side, bool ds, Vol vol = Vol::flop
 void removeFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, Vol vol = Vol::floppy);
 
+/* Take the blocks from `lbn` to the volume's end out of its free space, the
+ * way a copy protection kept in free sectors needs (Rodionov's, on physical
+ * track 0 of side 1: the last blocks of a DZ side, the last but few of a DV
+ * volume): the trailing empty entry is shortened to end at `lbn`, so the OS
+ * never allocates past it.  A no-op when the free space ends there already.
+ * Throws if the blocks from `lbn` on are not all of the trailing empty entry
+ * - a file lies there, or `lbn` is past the volume. */
+void endFreeSpaceAt(std::vector<uint8_t> &image, int side, bool ds, int lbn,
+                    Vol vol = Vol::floppy);
+
 /* Rename a permanent file in place (the entry's RAD50 words); the new name
  * must be a valid 6.3 name not already on the volume.  Throws on either. */
 void renameFile(std::vector<uint8_t> &image, int side, bool ds,

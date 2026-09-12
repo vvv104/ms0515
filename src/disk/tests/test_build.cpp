@@ -587,6 +587,35 @@ TEST_CASE("squeeze errors") {
     }
 }
 
+TEST_CASE("endFreeSpaceAt shortens the trailing empty entry, and refuses what is not free at the end") {
+    auto img = blankImage(false);
+    initVolume(img, 0, false);
+    putFile(img, 0, false, "A.DAT", pattern(3 * kBlock, 1));
+    auto lastEmpty = [](const std::vector<uint8_t> &image) {
+        const auto es = openImage(image, 0)->directory.entries;
+        const auto it = std::find_if(es.rbegin(), es.rend(), [](const DirEntry &e) { return e.isEmpty(); });
+        REQUIRE(it != es.rend());
+        return *it;
+    };
+    const auto before = lastEmpty(img);
+    CHECK(before.startBlock + before.length == kSsBlocks);
+
+    endFreeSpaceAt(img, 0, false, 792);
+    const auto after = lastEmpty(img);
+    CHECK(after.startBlock == before.startBlock);
+    CHECK(after.startBlock + after.length == 792);
+    CHECK(openImage(img, 0)->directory.find("A.DAT") != nullptr);
+
+    /* A file that would reach past the fence does not fit; one that stops at it does. */
+    CHECK_THROWS_AS(putFile(img, 0, false, "B.DAT", pattern(static_cast<std::size_t>(after.length + 1) * kBlock, 2)),
+                    std::runtime_error);
+    putFile(img, 0, false, "B.DAT", pattern(static_cast<std::size_t>(after.length) * kBlock, 2));
+
+    /* Nothing free at the end any more: a block in a file is refused, and so is one past the volume. */
+    CHECK_THROWS_AS(endFreeSpaceAt(img, 0, false, 790), std::runtime_error);
+    CHECK_THROWS_AS(endFreeSpaceAt(img, 0, false, 900), std::runtime_error);
+}
+
 TEST_CASE("removeFile errors") {
     auto image = makeVolume(false, 0, diverseFiles());
 

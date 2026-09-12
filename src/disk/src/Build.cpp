@@ -418,6 +418,44 @@ void removeFile(std::vector<uint8_t> &image, int side, bool ds,
     std::memcpy(image.data() + segOff1, seg.data() + kBlock, kBlock);
 }
 
+void endFreeSpaceAt(std::vector<uint8_t> &image, int side, bool ds, int lbn, Vol vol)
+{
+    requireValidSize(image, ds, vol);
+    auto off = [&](int b) { return lbnToByte(b, side, ds, vol); };
+
+    /* The last segment of the chain: the trailing empty entry is there. */
+    const int dirLbn = directoryLbn(image, side, ds, vol);
+    int segLbn = dirLbn;
+    std::vector<uint8_t> seg(2 * kBlock);
+    for (int guard = 0; guard < 32; ++guard) {
+        std::memcpy(seg.data(),          image.data() + off(segLbn),     kBlock);
+        std::memcpy(seg.data() + kBlock, image.data() + off(segLbn + 1), kBlock);
+        const uint16_t next = getw(&seg[2]);
+        if (next == 0) break;
+        segLbn = dirLbn + 2 * (static_cast<int>(next) - 1);
+    }
+    const uint16_t extra = getw(&seg[6]);
+    if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
+    const std::size_t entrySize = 14 + extra;
+
+    int cur = getw(&seg[8]);
+    std::size_t p = 10, lastP = 0;
+    int lastStart = 0;
+    while (p + entrySize <= seg.size()) {
+        const uint16_t status = getw(&seg[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        lastP = p;
+        lastStart = cur;
+        cur += getw(&seg[p + 8]);
+        p += entrySize;
+    }
+    if (lastP == 0 || !(getw(&seg[lastP]) & kStatusEmpty) || lbn < lastStart || lbn > cur)
+        throw std::runtime_error("block " + std::to_string(lbn) + " is not in the free space at the volume's end");
+    putw(&seg[lastP + 8], static_cast<uint16_t>(lbn - lastStart));
+    std::memcpy(image.data() + off(segLbn),     seg.data(),          kBlock);
+    std::memcpy(image.data() + off(segLbn + 1), seg.data() + kBlock, kBlock);
+}
+
 void renameFile(std::vector<uint8_t> &image, int side, bool ds,
                 const std::string &name, const std::string &newName,
                 Vol vol)

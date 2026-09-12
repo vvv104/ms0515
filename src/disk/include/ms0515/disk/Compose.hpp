@@ -51,7 +51,10 @@ struct ComposeGroup {
 };
 
 /* A block copied from the exemplar as it is - a copy protection kept in
- * sectors the file system counts as free - that no file may take. */
+ * sectors the file system counts as free - named as the exemplar's media
+ * has it: a side and its DZ block number.  It goes to the same physical
+ * sector of the disk made, whatever the media, and that volume's free space
+ * ends before it, so no file takes it - not the composer's, not the OS's. */
 struct ReservedBlock {
     int side = 0;
     int lbn  = 0;
