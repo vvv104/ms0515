@@ -85,7 +85,11 @@ DSPON  = 7377           ; ours with the VRAM window on, at 100000..137777
 VRAM   = 100000         ; the window: 40 words a row, 200 rows
 LSTRID = 80.            ; bytes between VRAM rows
 LMARG  = 8.             ; the Spectrum's 256 pixels centred in 320: 4 words
-TMARG  = 4.             ; and its 192 rows in 200: 4 rows down
+TMARG  = 12.            ; and its picture centred in 200 rows: the game
+                        ;   draws nothing below cell row 21 (the lives), so
+                        ;   176 rows sit 12 down and cell rows 22-23 fall
+                        ;   past the bottom edge (still inside the 16 KB
+                        ;   window: row 203 ends at 16320)
 KBDATA = 177440         ; the keyboard USART's received byte, and a byte to
 KBSTAT = 177442         ;   send it; status bit 0 = ready to send
 KBVEC  = 130            ; its interrupt vector
