@@ -140,6 +140,15 @@ TEST_CASE("the startup file: the exemplar's copied, or made of the lines given")
     CHECK((im->directory.find("START.COM")->status & kStatusProtected) == 0);
 }
 
+TEST_CASE("the startup file is KOI-8R: a Russian month typed in UTF-8 reaches the monitor as its own letters") {
+    ComposeRecipe r = recipe(Media::dv, Media::ss);
+    r.startup = std::vector<std::string>{"DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99"};   /* АПР */
+    const auto made = volume(composeDisk(r), Media::ss)->readFile("START.COM");
+    const std::vector<uint8_t> want{'D', 'A', 'T', 'E', ' ', '0', '1', '-', 0xE1, 0xF0, 0xF2, '-', '9', '9', '\r', '\n'};
+    CHECK(std::vector<uint8_t>(made.begin(), made.begin() + 16) == want);
+    CHECK(made[16] == 0);
+}
+
 TEST_CASE("a disk that could not boot is refused: the handler of its boot device is missing") {
     ComposeRecipe r = recipe(Media::dv, Media::dv);
     r.groups = {parts(r.system, Media::dv, {"DZ.SYS", "TT.SYS"})};      /* no DV.SYS for a DV disk */

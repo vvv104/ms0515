@@ -337,6 +337,34 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     CHECK(labels.find("[VVV         ]") != std::string::npos);
 }
 
+TEST_CASE("a field takes Russian letters as letters: Backspace takes one, the box holds its width in letters") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    enter(tui, "dz - two sides");
+    press(tui, ftxui::Event::Return);                         /* past the volume id */
+    press(tui, ftxui::Event::Return);                         /* and the owner */
+    choose(tui, "OMEGA");
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);
+    type(tui, "DATE 01-");
+    for (const char *letter : {"\xD0\x90", "\xD0\x9F", "\xD0\xA0", "\xD0\x95"})   /* АПРЕ */
+        press(tui, ftxui::Event::Character(std::string(letter)));
+    press(tui, ftxui::Event::Backspace);                      /* the Е goes, whole */
+    type(tui, "-99");
+    CHECK(shown(tui).find("DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99_") != std::string::npos);   /* the box, being typed into */
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99"});
+
+    downTo(tui, "START.COM");                                 /* a line of thirty letters shows thirty */
+    press(tui, ftxui::Event::ArrowDown);
+    press(tui, ftxui::Event::ArrowDown);
+    std::string thirty;
+    for (int i = 0; i < 30; ++i) { press(tui, ftxui::Event::Character(std::string("\xD0\xAF"))); thirty += "\xD0\xAF"; }   /* Я */
+    CHECK(shown(tui).find(thirty.substr(2) + "_") != std::string::npos);       /* the last 29 and the cursor, not 14 */
+    press(tui, ftxui::Event::Escape);
+}
+
 TEST_CASE("Enter walks the label field by field, on to the systems - whichever diskette, however often") {
     const Manifest m = parseManifest(kManifest);
     const Repository repo = repository();
