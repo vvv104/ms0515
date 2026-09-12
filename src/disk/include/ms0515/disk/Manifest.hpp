@@ -78,6 +78,7 @@ struct ManifestPreset {
     Media                                   media = Media::ss;
     std::vector<std::string>                bundles;
     std::optional<std::vector<std::string>> startup;
+    std::optional<std::vector<std::string>> banner;      /* lines shown as the disk starts */
     std::optional<std::string>              volumeId;
 };
 
@@ -106,6 +107,10 @@ struct Selection {
     std::vector<std::string>                bundles;
     /* Lines after the system's and the bundles' (R ROSA3). */
     std::optional<std::vector<std::string>> startup;
+    /* Lines shown as the disk starts: BANNER.TXT on the boot volume, typed
+     * by START.COM - where a `TYPE BANNER.TXT` line of `startup` puts it,
+     * else after every other line. */
+    std::optional<std::vector<std::string>> banner;
     /* The labels in the home blocks: the boot volume's, and on a two-sided
      * dz disk the second side's.  No owner: the collection's `owner`. */
     std::optional<std::string>              volumeId, owner;

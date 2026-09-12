@@ -66,6 +66,9 @@ struct ComposeRecipe {
     std::vector<ComposeGroup> groups;  /* placed in this order */
     /* The startup command file's lines; nullopt copies the exemplar's. */
     std::optional<std::vector<std::string>> startup;
+    /* Lines of a BANNER.TXT on the boot volume, and a TYPE BANNER.TXT in
+     * the startup file where its lines have one, else at their end. */
+    std::optional<std::vector<std::string>> banner;
     /* Home-block labels, 12 characters at most; nullopt leaves what is
      * there - INIT's own on a fresh volume, the exemplar's on a kept one. */
     std::optional<std::string> volumeId, owner;               /* the boot volume */

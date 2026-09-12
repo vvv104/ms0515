@@ -603,6 +603,7 @@ void DiskWizard::load(const SavedSelection &saved)
     sel_.picks.clear();
     for (const auto &[name, key] : s.picks) if (m_.bundle(key)) sel_.picks[name] = key;
     sel_.startup = s.startup;
+    sel_.banner = s.banner;
     sel_.volumeId = s.volumeId;
     sel_.owner = s.owner;
     sel_.secondVolumeId = s.secondVolumeId;
@@ -678,6 +679,7 @@ std::string selectionToml(const SavedSelection &saved)
         t += " }\n";
     }
     if (s.startup) t += "startup    = " + list(*s.startup) + "\n";
+    if (s.banner) t += "banner     = " + list(*s.banner) + "\n";
     if (s.volumeId) t += "volume_id  = " + quoted(*s.volumeId) + "\n";
     if (s.owner) t += "owner      = " + quoted(*s.owner) + "\n";
     if (s.secondVolumeId) t += "second_volume_id = " + quoted(*s.secondVolumeId) + "\n";
@@ -707,6 +709,7 @@ SavedSelection parseSelection(std::string_view text)
         for (const auto &[k, v] : *picks)
             if (const auto key = v.value<std::string>()) out.selection.picks[std::string(k.str())] = *key;
     if (root.contains("startup")) out.selection.startup = strings(root, "startup");
+    if (root.contains("banner")) out.selection.banner = strings(root, "banner");
     if (const auto id = root["volume_id"].value<std::string>()) out.selection.volumeId = *id;
     if (const auto v = root["owner"].value<std::string>()) out.selection.owner = *v;
     if (const auto v = root["second_volume_id"].value<std::string>()) out.selection.secondVolumeId = *v;

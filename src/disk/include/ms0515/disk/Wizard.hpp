@@ -77,9 +77,12 @@ inline constexpr const char *kStartupField = "#startup:";
 
 /* A choice saved to its own file, tied to the version of the collection's
  * disks.toml it was made over:
- *   format = 1, collection, system, media, bundles, picks, startup, volume_id
+ *   format = 1, collection, system, media, bundles, picks, startup, banner,
+ *   volume_id, owner, second_volume_id, second_owner
  * Only the person's decisions: the system's parts and the dependencies are
- * derived again, by the rules of the collection that reads it. */
+ * derived again, by the rules of the collection that reads it.  `banner`
+ * has no field in the wizard: written into the file by hand, it is the
+ * lines of a BANNER.TXT that START.COM types as the disk starts. */
 struct SavedSelection {
     std::string collection;    /* disks.toml's version; "" unknown */
     Selection   selection;

@@ -85,6 +85,7 @@ system    = "osa"
 media     = "dz"
 volume_id = "GAMES"
 bundles   = ["sabot2", "pacman", "docs"]
+banner    = ["Type a game to run it"]
 
 [preset.rodionov]
 title   = "Rodionov"
@@ -235,6 +236,7 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
     CHECK(r.owner == "MS0515 EMU");
     CHECK(r.secondOwner == "MS0515 EMU");
     CHECK(r.startup == std::vector<std::string>{"SET TT QUIET"});
+    CHECK(r.banner == std::vector<std::string>{"Type a game to run it"});
     REQUIRE(r.groups.size() == 5);
     CHECK(r.groups[0].title == "DZ.SYS");                      /* the system's own parts first */
     CHECK(r.groups[1].title == "TT.SYS");

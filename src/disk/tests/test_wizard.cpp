@@ -515,10 +515,12 @@ TEST_CASE("the saved choice: its own file, tied to the collection's version") {
     REQUIRE(w.setField(kSecondVolumeIdField, "SIDE1").empty());
     REQUIRE(w.setField(kSecondOwnerField, "ME").empty());
 
-    const SavedSelection saved = w.saved();
+    SavedSelection saved = w.saved();
     CHECK(saved.collection == "2026.09.11-4");
+    saved.selection.banner = std::vector<std::string>{"Type a game to run it", "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B"};   /* no field of its own: the file's */
     const std::string text = selectionToml(saved);
     const SavedSelection back = parseSelection(text);
+    CHECK(back.selection.banner == saved.selection.banner);
     CHECK(back.collection == "2026.09.11-4");
     CHECK(back.selection.system == "omega");
     CHECK(back.selection.media == Media::dz);
@@ -534,6 +536,7 @@ TEST_CASE("the saved choice: its own file, tied to the collection's version") {
     again.load(back);
     CHECK(again.resolution().bundles == w.resolution().bundles);
     CHECK(again.notices().empty());
+    CHECK(again.saved().selection.banner == saved.selection.banner);
 
     SavedSelection old = back;
     old.collection = "2026.01.01";

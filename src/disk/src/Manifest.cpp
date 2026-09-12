@@ -186,6 +186,7 @@ ManifestPreset readPreset(const std::string &key, const toml::table &t)
                      media(str(t, "media", where, true), where), strings(t, "bundles", where),
                      std::nullopt, std::nullopt};
     if (t.contains("startup")) p.startup = strings(t, "startup", where);
+    if (t.contains("banner")) p.banner = strings(t, "banner", where);
     if (t.contains("volume_id")) p.volumeId = str(t, "volume_id", where, true);
     return p;
 }
@@ -379,6 +380,7 @@ Selection selectionOf(const ManifestPreset &preset)
     s.media = preset.media;
     s.bundles = preset.bundles;
     s.startup = preset.startup;
+    s.banner = preset.banner;
     s.volumeId = preset.volumeId;
     return s;
 }
@@ -555,6 +557,7 @@ ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository 
     for (const auto &line : startup)
         if (std::find(once.begin(), once.end(), line) == once.end()) once.push_back(line);
     if (sys->startup || !once.empty()) r.startup = once;
+    r.banner = s.banner;
     r.volumeId = s.volumeId;
     r.owner = s.owner ? s.owner : m.owner;
     if (s.media == Media::dz) {
