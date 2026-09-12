@@ -85,3 +85,40 @@ Low.  Our current model is correct against real hardware at the
 OS-visible level; this would be a quality-of-emulation improvement,
 not a bug fix.  Worth doing when there is appetite for a
 self-contained subsystem rewrite.
+
+## The MS7004's auto-repeat code is 0xB4, not the key's scancode
+
+### What the firmware does
+
+Alex's disassembly of the MS7004 firmware (the 8035 listing, see the
+forum thread in `docs/kb`) shows the auto-repeat path at `L_2B0`
+sending the code **0xB4 (0o264)** to the host on every repeat - the
+LK201's "metronome" code - and never the key's own scancode again.
+The model in `core/src/ms7004.c` re-sends the key's scancode instead
+(`SC_REPEAT` is defined and unused).  Verified 2026-09-12 while working
+out MANICM's key handling; the same listing shows the release code 0xB3
+comes only from the three register keys (СУ, both ВР, `L_200`..`L_231`),
+the full host command set is A1/23 sound, 99/1B/9F click, A7 bell,
+89/8B data on/off, E1/D9/E3 auto-repeat, AB/FD/D3 probes, 11/13 LEDs -
+no per-division modes and no repeat-rate setting, so a program cannot
+ask for key-up codes or a faster repeat (the 0x99 "game mode" switch
+in the model is our own heuristic; the firmware only turns the click
+off).
+
+### Why it matters
+
+The three Spectrum ports (SABOT2's loader-side handling, FIST's
+`KSCAN`, MANICM's `KEYS`) survive either way - to them a repeat is "a
+code arrived" - but a program that reads the repeats as the key's own
+code (any program that types text with the console driver, and our own
+tests that press keys through the model) sees something a real machine
+never sends.  The console ROM's keyboard routine must interpret 0xB4
+as "the last key again" for auto-repeat to work at all on the iron;
+check the ROM disassembly before changing the model, and add a core
+test that pins the sequence: scancode, then 0xB4 every period.
+
+### Priority
+
+Low, but do it before anyone tunes a program's key handling on the
+repeat codes.  Folds into the firmware-emulation item above if that
+ever happens.
