@@ -682,7 +682,8 @@ ENDGAM: MOV     #HISCOR,R1      ; a new high score?
         MOV     #GOVER,R2
         JSR     PC,PRINT
         MOV     #6,R4           ; glistening: 6 x 256 steps of a millisecond,
-7$:     MOV     #256.,R3        ;   the eight letters' inks cycling
+        MOV     #7,R5           ;   the eight letters' inks cycling
+7$:     MOV     #256.,R3
 8$:     MOV     #256.,R0
         JSR     PC,DELAY
         MOV     R3,R0
@@ -693,11 +694,12 @@ ENDGAM: MOV     #HISCOR,R1      ; a new high score?
         MOVB    R0,@(R1)+
         INC     R0
         SOB     R2,9$
-        BIT     #7,R3           ; shown every eighth step
-        BNE     10$
-        MOV     #6,R0           ; the message's row
-        MOV     #1,R1
-        MOV     #SCREEN,R2
+        DEC     R5              ; shown every seventh step: eight letters
+        BNE     10$             ;   through eight inks, one of them black at
+        MOV     #7,R5           ;   any step - every eighth step would show
+        MOV     #6,R0           ;   the same letter black every time (the G
+        MOV     #1,R1           ;   never seen); seven lets the black one
+        MOV     #SCREEN,R2      ;   go round, the original's flicker
         JSR     PC,PRESNT
 10$:    SOB     R3,8$
         SOB     R4,7$

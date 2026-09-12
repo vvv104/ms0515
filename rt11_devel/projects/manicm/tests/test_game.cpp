@@ -5,6 +5,7 @@
  * Every test skips when the game is not built.
  */
 #include "ManicmGame.hpp"
+#include <set>
 
 using manicm::ManicmGame;
 using ms0515::Key;
@@ -168,4 +169,28 @@ TEST_CASE("manicm: a key let go while the cavern changes does not act in the new
     int jumps = 0;
     for (int i = 0; i < 60; ++i) { g.step(); if (g.peek8("AIRBRN") == 1) { ++jumps; break; } }
     CHECK(jumps == 0);                             // the stale SPACE did not jump him
+}
+
+TEST_CASE("manicm: Game Over glistens through every ink, the G included")
+{
+    if (!manicm::built()) { MESSAGE("MANICM not built - skipped"); return; }
+    ManicmGame g("manicm_over");
+    g.startGame();
+    auto &ram = g.board().mem.ram;
+    ram[g.sym("LIVES")] = 0;                       // the last life,
+    ram[g.sym("GBUF") + 188] = 37;                 //   its air almost gone
+    ram[g.sym("GBUF") + 189] = 4;
+    /* The VRAM word of a cell of row 6: attribute over pixels, the picture 12 rows down and 8 bytes in. */
+    auto attr = [&](int col) { return g.board().mem.vram[(12 + 6 * 8 + 3) * 80 + 8 + col * 2 + 1]; };
+    auto ink  = [&](int col) {
+        for (int l = 0; l < 8; ++l) if (g.board().mem.vram[(12 + 6 * 8 + l) * 80 + 8 + col * 2]) return true;
+        return false;
+    };
+    bool over = false;                             // "Game Over" up: the a of Game at (6,11)
+    for (int i = 0; i < 600 && !over; ++i) { g.step(); over = ink(11); }
+    REQUIRE(over);
+    CHECK(ink(10));                                // the G is printed
+    std::set<int> inksOfG;
+    for (int i = 0; i < 80; ++i) { g.step(); inksOfG.insert(attr(10) & 7); }
+    CHECK(inksOfG.size() > 1);                     // and shown in more than one ink - not black every time
 }
