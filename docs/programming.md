@@ -133,7 +133,15 @@ program needs of it:
   still running when any code arrives (the keyboard repeats only the last
   key).  Both ports use the same model (`KSCAN` in FIST, `KEYS` in
   MANICM); its price is a key released just before another is pressed
-  counting as held with it.
+  counting as held with it.  Two timers make it feel right: a key's first
+  code must hold it through the keyboard's silence before the repeats
+  (MANICM: 3 passes of 90 ms), a repeat need hold it only a pass, so a
+  released key stops within a pass.  Tell the keyboard 231 (keyclick
+  off) at start, as FIST has from its first day and MANICM learned only
+  when its keys felt sticky: the firmware takes it as "a game runs" and
+  the core switches to the game repeat preset (125 ms, then 50); a real MS7004
+  waits 500 ms before repeating, so a port to the iron lengthens the
+  first hold.
 - Scancodes the ports use (octal): 1..0 = 300 305 313 320 325 333 340 345
   352 357; Q W E R T Y U I O P = 303 315 327 335 336 307 314 331 342 330;
   A S D F G H J K L = 322 316 354 302 341 366 301 321 347; Z X C V B N M

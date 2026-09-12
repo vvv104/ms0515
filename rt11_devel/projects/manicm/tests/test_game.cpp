@@ -50,6 +50,20 @@ TEST_CASE("manicm: P walks Willy right, SPACE makes him jump")
     CHECK(willyColumn(g) >= x1);
 }
 
+TEST_CASE("manicm: a key let go stops Willy within a pass or two")
+{
+    if (!manicm::built()) { MESSAGE("MANICM not built - skipped"); return; }
+    ManicmGame g("manicm_letgo");
+    g.startGame();
+    g.emu.keyPress(Key::P, true);
+    g.settle(60);                                  // walking right, the key repeating
+    g.emu.keyPress(Key::P, false);
+    g.settle(12);                                  // two passes: the hold timers run out
+    const int x = willyColumn(g);
+    g.settle(40);
+    CHECK(willyColumn(g) == x);                    // and he stood still from there
+}
+
 TEST_CASE("manicm: the demo runs through the caverns")
 {
     if (!manicm::built()) { MESSAGE("MANICM not built - skipped"); return; }

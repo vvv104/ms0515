@@ -86,7 +86,8 @@ VRAM   = 100000         ; the window: 40 words a row, 200 rows
 LSTRID = 80.            ; bytes between VRAM rows
 LMARG  = 8.             ; the Spectrum's 256 pixels centred in 320: 4 words
 TMARG  = 4.             ; and its 192 rows in 200: 4 rows down
-KBDATA = 177440         ; the keyboard USART's received byte
+KBDATA = 177440         ; the keyboard USART's received byte, and a byte to
+KBSTAT = 177442         ;   send it; status bit 0 = ready to send
 KBVEC  = 130            ; its interrupt vector
 FRVEC  = 100            ; the frame interrupt's vector, 50 Hz
 JOYPRT = 177542         ; the joystick: bits 0 right, 1 left, 3 up, 4 fire, low = pressed
@@ -96,7 +97,11 @@ BLUBIT = 1              ; the border's blue bit, which the original's OUT flips 
 ; --- timing -----------------------------------------------------------
 PPASS  = 4              ; frames a main-loop pass takes, 50 Hz - every other
                         ;   pass one more: 90 ms, the original's 312315 T-states
-KTMR   = 3              ; passes a key stays "held" after its last code
+KTMR   = 3              ; passes a key stays "held" after its first code:
+                        ;   the keyboard's silence before it repeats (125 ms
+                        ;   in the emulator's game mode, 250 typing; a real
+                        ;   MS7004 waits 500 - KTMR 6 there)
+KTMRR  = 1              ; passes after a repeat, which come every 30-50 ms
 
 ; --- HWINIT / HWEXIT / BORDER -----------------------------------------
 ; Register C is write-only, so a shadow of it, RCSHAD, is kept.
@@ -107,6 +112,10 @@ HWINIT: MOV     R3,-(SP)
         MOV     #340,@#KBVEC+2
         CLR     KBHEAD
         CLR     KBTAIL
+3$:     MOVB    @#KBSTAT,R3     ; the keyboard told 231, keyclick off: the
+        BITB    #1,R3           ;   firmware takes it as "a game runs" and
+        BEQ     3$              ;   repeats keys sooner (as FIST does)
+        MOVB    #231,@#KBDATA
         MOV     @#FRVEC,FRSAVE  ; the frame interrupt counts for us
         MOV     @#FRVEC+2,FRSAVE+2
         MOV     #FRISR,@#FRVEC
@@ -222,11 +231,12 @@ PSRC:   .WORD   0
 ; of sixteen, KEYS takes them out.  The MS7004 sends a code when a key
 ; goes down and repeats it while the key stays down, but sends nothing
 ; when it comes up (only ALL-UP, 263, once every key is released after a
-; modifier).  So a key is "held" for KTMR passes after its last code, and
-; any code refreshes the keys still held - keys pressed together stay
-; held while any one of them repeats, since the keyboard repeats only
-; the last.  The price: a key let go less than KTMR passes before another
-; is pressed counts as held with it.
+; modifier).  So a key is "held" for KTMR passes after its first code
+; (the keyboard is silent that long before it repeats) and KTMRR after
+; each repeat, and any code refreshes the keys still held - keys pressed
+; together stay held while any one of them repeats, since the keyboard
+; repeats only the last.  The price: a key let go less than a pass before
+; another is pressed counts as held with it.
 KBISR:  MOV     R0,-(SP)
         MOV     KBHEAD,R0
         MOVB    @#KBDATA,KBRING(R0)
@@ -254,20 +264,22 @@ KEYS:   MOV     R3,-(SP)
         SOB     R1,5$
         BR      1$
 4$:     MOV     #KTIMS,R3       ; any code: the keys still held stay held
-        MOV     #NTIMS,R1
+        MOV     #NTIMS,R1       ;   a pass more
 6$:     TST     (R3)
         BEQ     7$
-        MOV     #KTMR,(R3)
+        MOV     #KTMRR,(R3)
 7$:     TST     (R3)+
         SOB     R1,6$
-        MOV     #KTAB,R3        ; the key's own timers
-8$:     MOVB    (R3)+,R1
+        MOV     #KTAB,R3        ; the key's own timer: a first code holds it
+8$:     MOVB    (R3)+,R1        ;   through the keyboard's silence
         BEQ     1$
         BIC     #177400,R1
         MOVB    (R3)+,R2
         CMPB    R1,R0
         BNE     8$
         ASL     R2
+        TST     KTIMS(R2)
+        BNE     8$
         MOV     #KTMR,KTIMS(R2)
         BR      8$
 10$:    CLR     R0              ; the timers -> the bits, each counting down:
