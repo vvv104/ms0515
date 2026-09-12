@@ -176,7 +176,10 @@ program needs of it:
 - **The Spectrum's picture fits bit for bit.**  Its attribute byte (FLASH
   BRIGHT PAPER INK) is the MS-0515's attribute byte in the same order,
   its pixel byte the same (bit 7 leftmost); 256x192 sits centred in
-  320x200 with 4 words to the left and 4 rows above.  Presenting a
+  320x200 with 4 words to the left and 4 rows above - or centre what
+  the game actually draws: MANICM never touches cell rows 22-23, so it
+  sits 12 rows down and lets those two fall past the edge (a row of the
+  16 KB window is 80 bytes; row 203 is the last that fits).  Presenting a
   Spectrum display file costs a word per byte: the attribute row turned
   into words once per eight pixel rows, then `MOV (R0)+,R3 / BISB
   (R1)+,R3 / MOV R3,(R2)+` per byte, about 57 clocks - 4 KB in 31 ms.
