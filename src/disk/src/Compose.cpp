@@ -68,11 +68,46 @@ int freeBlocks(const std::vector<uint8_t> &img, const Shape &s, int volume)
     return n;
 }
 
+/* The machine's text is KOI-8R (RFC 1489): the console types it, the
+ * monitor reads its command files in it.  The manifest and the wizard are
+ * UTF-8, so what they put on the disk is converted here: ASCII as it is,
+ * the Cyrillic letters and Ё to their KOI-8R bytes, anything else '?'. */
+std::vector<uint8_t> koi8(const std::string &utf8)
+{
+    /* KOI-8R 0xC0..0xFF: the lowercase letters, then the uppercase, in
+     * the set's own order (ю а б ц д е ф г х и й к л м н о п я р с т у ж в
+     * ь ы з ш э щ ч ъ). */
+    static constexpr char32_t kLower[32] = {
+        0x44E, 0x430, 0x431, 0x446, 0x434, 0x435, 0x444, 0x433, 0x445, 0x438, 0x439, 0x43A, 0x43B, 0x43C, 0x43D, 0x43E,
+        0x43F, 0x44F, 0x440, 0x441, 0x442, 0x443, 0x436, 0x432, 0x44C, 0x44B, 0x437, 0x448, 0x44D, 0x449, 0x447, 0x44A};
+    auto byteOf = [](char32_t cp) -> uint8_t {
+        if (cp < 0x80) return static_cast<uint8_t>(cp);
+        if (cp == 0x451) return 0xA3;                       /* ё */
+        if (cp == 0x401) return 0xB3;                       /* Ё */
+        for (int i = 0; i < 32; ++i) {
+            if (cp == kLower[i]) return static_cast<uint8_t>(0xC0 + i);
+            if (cp == kLower[i] - 0x20) return static_cast<uint8_t>(0xE0 + i);
+        }
+        return '?';
+    };
+    std::vector<uint8_t> out;
+    for (std::size_t i = 0; i < utf8.size();) {
+        const auto b = static_cast<uint8_t>(utf8[i]);
+        int more = b < 0x80 ? 0 : b < 0xE0 ? 1 : b < 0xF0 ? 2 : 3;
+        char32_t cp = more == 0 ? b : more == 1 ? (b & 0x1F) : more == 2 ? (b & 0x0F) : (b & 0x07);
+        ++i;
+        for (; more > 0 && i < utf8.size(); --more, ++i) cp = (cp << 6) | (static_cast<uint8_t>(utf8[i]) & 0x3F);
+        out.push_back(byteOf(cp));
+    }
+    return out;
+}
+
 std::vector<uint8_t> startupBytes(const std::vector<std::string> &lines)
 {
     std::vector<uint8_t> out;
     for (const auto &l : lines) {
-        out.insert(out.end(), l.begin(), l.end());
+        const auto bytes = koi8(l);
+        out.insert(out.end(), bytes.begin(), bytes.end());
         out.push_back('\r');
         out.push_back('\n');
     }
@@ -86,7 +121,8 @@ void label(std::vector<uint8_t> &img, const Shape &s, int volume,
     const std::size_t home = lbnToByte(1, volume, s.ds, volumeKind(s, volume));
     auto field = [&](std::size_t off) { return std::string(reinterpret_cast<const char *>(img.data()) + home + off, 12); };
     auto trim = [](std::string v) { while (!v.empty() && v.back() == ' ') v.pop_back(); return v; };
-    setVolumeId(img, volume, s.ds, id ? *id : trim(field(0x1D8)), owner ? *owner : trim(field(0x1E4)),
+    auto machine = [](const std::string &utf8) { const auto b = koi8(utf8); return std::string(b.begin(), b.end()); };
+    setVolumeId(img, volume, s.ds, id ? machine(*id) : trim(field(0x1D8)), owner ? machine(*owner) : trim(field(0x1E4)),
                 volumeKind(s, volume));
 }
 

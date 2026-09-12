@@ -51,6 +51,34 @@ std::optional<std::vector<uint8_t>> readHost(const std::filesystem::path &p)
 const int kNoteWidth = 22;
 const int kSideWidth = 5 + 2 + kNoteWidth;   /* a group's summary sits where its rows' blocks and notes do */
 const int kLineWidth = 30;                   /* a START.COM line's box */
+
+/* The text typed is UTF-8 and a Russian letter is two bytes of it: the
+ * fields count letters, not bytes, so that Backspace takes a whole letter
+ * and a box holds its width in letters. */
+bool continuation(char c) { return (static_cast<unsigned char>(c) & 0xC0) == 0x80; }
+
+std::size_t letters(const std::string &s)
+{
+    std::size_t n = 0;
+    for (const char c : s) if (!continuation(c)) ++n;
+    return n;
+}
+
+void popLetter(std::string &s)
+{
+    while (!s.empty() && continuation(s.back())) s.pop_back();
+    if (!s.empty()) s.pop_back();
+}
+
+std::string lastLetters(const std::string &s, std::size_t n)
+{
+    std::size_t i = s.size();
+    for (std::size_t seen = 0; i > 0 && seen < n;) {
+        --i;
+        if (!continuation(s[i])) ++seen;
+    }
+    return s.substr(i);
+}
 const std::size_t kFieldTitleWidth = 15;     /* "DZ2: volume id", so the boxes line up */
 
 /* What a note has room for: a title up to its " - " or " (" - "Pascal",
@@ -292,7 +320,7 @@ bool WizardTui::onAskEvent(const Event &e)
 {
     if (e == Event::Escape) { ask_ = Ask::none; return true; }
     if (e == Event::Return) { finishAsk(); return true; }
-    if (e == Event::Backspace) { if (!input_.empty()) input_.pop_back(); return true; }
+    if (e == Event::Backspace) { popLetter(input_); return true; }
     if (e.is_character()) { input_ += e.character(); return true; }
     return true;
 }
@@ -351,7 +379,7 @@ bool WizardTui::onEditEvent(const Event &e)
         if (e == Event::ArrowDown) moveCursor(1);
         return true;
     }
-    if (e == Event::Backspace) { if (!edit_.empty()) edit_.pop_back(); return true; }
+    if (e == Event::Backspace) { popLetter(edit_); return true; }
     if (e == Event::Delete) { edit_.clear(); return true; }
     if (e.is_character()) edit_ += e.character();
     return true;
@@ -425,8 +453,8 @@ Element WizardTui::rowLine(const WizardRow &r, bool here) const
         const bool typing = editing_ && editKey_ == r.key;
         const std::size_t width = r.parent == kLabelGroup ? 12 : kLineWidth;
         std::string shownText = typing ? edit_ + "_" : r.value;
-        if (shownText.size() > width) shownText = shownText.substr(shownText.size() - width);
-        shownText.resize(width, ' ');
+        if (letters(shownText) > width) shownText = lastLetters(shownText, width);
+        shownText.append(width - letters(shownText), ' ');
         std::string title = r.title;
         if (!title.empty()) title.resize(std::max<std::size_t>(title.size(), kFieldTitleWidth) + 1, ' ');
         /* The row keeps its cursor bar while the box is typed into: the
