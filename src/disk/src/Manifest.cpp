@@ -185,7 +185,7 @@ ManifestPreset readPreset(const std::string &key, const toml::table &t)
     const std::string where = "preset." + key;
     ManifestPreset p{key, str(t, "title", where, true), str(t, "system", where, true),
                      media(str(t, "media", where, true), where), strings(t, "bundles", where),
-                     std::nullopt, std::nullopt};
+                     std::nullopt, std::nullopt, std::nullopt};
     if (t.contains("startup")) p.startup = strings(t, "startup", where);
     if (t.contains("banner")) p.banner = strings(t, "banner", where);
     if (t.contains("volume_id")) p.volumeId = str(t, "volume_id", where, true);
