@@ -249,23 +249,60 @@ TEST_CASE("what cannot be built says why, and the plan still shows what fitted")
     }
 }
 
-TEST_CASE("reserved blocks: copied from the exemplar, and no file may take them") {
-    ComposeRecipe r = recipe(Media::dz, Media::dz);
-    const int protLbn = 792;
-    const auto at = lbnToByte(protLbn, 1, true, Vol::floppy);
-    for (std::size_t i = 0; i < kBlock; ++i) r.system[at + i] = static_cast<uint8_t>(0x5A ^ i);
-    r.reserved = {{1, protLbn}};
+/* The last empty entry of a volume's directory: where its free space ends. */
+const DirEntry &freeTail(const Image &im)
+{
+    const auto &es = im.directory.entries;
+    const auto it = std::find_if(es.rbegin(), es.rend(), [](const DirEntry &e) { return e.isEmpty(); });
+    REQUIRE(it != es.rend());
+    return *it;
+}
 
-    const auto img = composeDisk(r);
-    CHECK(std::equal(img.begin() + static_cast<std::ptrdiff_t>(at), img.begin() + static_cast<std::ptrdiff_t>(at + kBlock),
-                     r.system.begin() + static_cast<std::ptrdiff_t>(at)));
-    CHECK(bootedMonitor(img, 0, true) == "RT11SJ");
+TEST_CASE("reserved blocks: the exemplar's sectors on the same sectors of a dz or a dv disk, fenced off from the free space") {
+    const int protLbn = 792;                                   /* side 1, physical track 0: Rodionov's */
+    const auto at = lbnToByte(protLbn, 1, true, Vol::floppy);  /* the same bytes on either media */
+    for (const Media to : {Media::dz, Media::dv}) {
+        CAPTURE(static_cast<int>(to));
+        ComposeRecipe r = recipe(Media::dz, to);
+        for (std::size_t i = 0; i < kBlock; ++i) r.system[at + i] = static_cast<uint8_t>(0x5A ^ i);
+        r.reserved = {{1, protLbn}};
 
-    const int sideFree = planDisk(r).freeBlocks.at(1);
-    r.groups.push_back({"fills side 1", Place::any, {file("HUGE.DAT", sideFree, 0x32)}});
+        const auto img = composeDisk(r);
+        CHECK(std::equal(img.begin() + static_cast<std::ptrdiff_t>(at), img.begin() + static_cast<std::ptrdiff_t>(at + kBlock),
+                         r.system.begin() + static_cast<std::ptrdiff_t>(at)));
+        CHECK(bootedMonitor(img, 0, true, bootVol(to)) == "RT11SJ");
+
+        /* The volume's free space ends at the block: the last DZ blocks of
+         * side 1, or DV block 1592 - the same sector, cylinder 0 being the
+         * DV volume's last twenty blocks. */
+        const int fenced = to == Media::dz ? protLbn : 1592;
+        const int v = to == Media::dz ? 1 : 0;
+        const auto vol = volume(img, to, v);
+        REQUIRE(vol);
+        const auto &tail = freeTail(*vol);
+        CHECK(tail.startBlock + tail.length == fenced);
+        for (const auto &f : vol->directory.permanentFiles()) CHECK(f.startBlock + f.length <= fenced);
+
+        /* What is left takes the volume up to the block, and not past it:
+         * one block more and either the group has no room, or START.COM
+         * after it has none. */
+        const int free = planDisk(r).freeBlocks.at(static_cast<std::size_t>(v));
+        r.groups.push_back({"fills the volume", Place::any, {file("HUGE.DAT", free, 0x32)}});
+        CHECK(planDisk(r).ok);
+        r.groups.back().files[0] = file("HUGE.DAT", free + 1, 0x32);
+        const auto plan = planDisk(r);
+        CHECK_FALSE(plan.ok);
+        CHECK((plan.problem.find("does not fit") != std::string::npos ||
+               plan.problem.find("no free area") != std::string::npos));
+    }
+}
+
+TEST_CASE("a reserved block on the second side has no place on a single-sided disk") {
+    ComposeRecipe r = recipe(Media::dz, Media::ss);
+    r.reserved = {{1, 792}};
     const auto plan = planDisk(r);
     CHECK_FALSE(plan.ok);
-    CHECK(plan.problem.find("reserved") != std::string::npos);
+    CHECK(plan.problem.find("second side") != std::string::npos);
 }
 
 TEST_CASE("the plan and the build agree: free blocks are what the directory says afterwards") {
