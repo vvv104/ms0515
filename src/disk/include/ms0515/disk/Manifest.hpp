@@ -37,6 +37,10 @@ struct ManifestSystem {
      * build, the one on its original disks (TOML `prefer`).  Another can be
      * picked in its place. */
     std::vector<std::string>   prefer;
+    /* Names ticked along with the system and left to the person to untick
+     * (TOML `suggests`): the utilities its disks carried - DIR, DUP, PIP -
+     * which a games disk can do without.  `prefer` picks among builds. */
+    std::vector<std::string>   suggests;
     /* The first lines of the startup command file (TOML `startup`). */
     std::optional<std::vector<std::string>> startup;
 };
@@ -119,7 +123,15 @@ struct Selection {
     std::map<std::string, std::string>      picks;
 };
 
-[[nodiscard]] Selection selectionOf(const ManifestPreset &preset);
+/* A preset's choices, the system's suggestions ticked after them. */
+[[nodiscard]] Selection selectionOf(const Manifest &m, const ManifestPreset &preset);
+
+/* The bundles a system's suggestions add to `chosen` on this media: for
+ * each name none of the chosen satisfies, the build the system prefers
+ * among those that do, else the first; a name nothing provides here adds
+ * nothing. */
+[[nodiscard]] std::vector<std::string> suggestedBundles(const Manifest &m, const ManifestSystem &sys, Media media,
+                                                        const std::vector<std::string> &chosen);
 
 /* The bundles that can satisfy `need` on this system and media, in the
  * file's order: the bundle of that key, or every bundle providing it. */

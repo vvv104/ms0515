@@ -143,6 +143,7 @@ DiskWizard::DiskWizard(const Manifest &manifest, std::string system, Media media
         open_.insert(kSystemGroup);
     }
     sel_.media = *media_;
+    suggest();
     resolve();
 }
 
@@ -239,8 +240,16 @@ std::string DiskWizard::setSystem(const std::string &key)
     if (auto why = systemRefusal(*sys); !why.empty()) return sys->title + " goes " + why;
     notices_.clear();
     sel_.system = key;
+    suggest();
     dropWhatDoesNotFit();
     return "";
+}
+
+void DiskWizard::suggest()
+{
+    const auto *sys = m_.system(sel_.system);
+    if (!sys || !media_) return;
+    for (const auto &key : suggestedBundles(m_, *sys, *media_, sel_.bundles)) sel_.bundles.push_back(key);
 }
 
 std::string DiskWizard::toggle(const std::string &key)

@@ -117,6 +117,7 @@ ManifestSystem readSystem(const std::string &key, const toml::table &t)
         }
     }
     s.prefer = strings(t, "prefer", where);
+    s.suggests = strings(t, "suggests", where);
     if (t.contains("startup")) s.startup = strings(t, "startup", where);
     if (const auto *arr = t["reserved"].as_array()) {
         for (const auto &e : *arr) {
@@ -258,11 +259,14 @@ void crossCheck(const Manifest &m)
                 if (!satisfiable(need)) fail("system." + s.key + " requires " + need + ", which no bundle is or provides");
             all.insert(all.end(), needs.begin(), needs.end());
         }
+        for (const auto &need : s.suggests)
+            if (!satisfiable(need)) fail("system." + s.key + " suggests " + need + ", which no bundle is or provides");
+        all.insert(all.end(), s.suggests.begin(), s.suggests.end());
         for (const auto &pref : s.prefer) {
             const auto *o = m.bundle(pref);
             if (!o) fail("system." + s.key + " prefers " + pref + ", which is not there");
             if (std::none_of(all.begin(), all.end(), [&](const auto &need) { return satisfies(*o, need); }))
-                fail("system." + s.key + " prefers " + pref + ", which satisfies none of what it requires");
+                fail("system." + s.key + " prefers " + pref + ", which satisfies none of what it requires or suggests");
         }
     }
     checkDependencies(m);
@@ -373,16 +377,43 @@ Manifest parseManifest(std::string_view text)
     return m;
 }
 
-Selection selectionOf(const ManifestPreset &preset)
+Selection selectionOf(const Manifest &m, const ManifestPreset &preset)
 {
     Selection s;
     s.system = preset.system;
     s.media = preset.media;
     s.bundles = preset.bundles;
+    if (const auto *sys = m.system(preset.system))
+        for (const auto &key : suggestedBundles(m, *sys, preset.media, s.bundles)) s.bundles.push_back(key);
     s.startup = preset.startup;
     s.banner = preset.banner;
     s.volumeId = preset.volumeId;
     return s;
+}
+
+std::vector<std::string> suggestedBundles(const Manifest &m, const ManifestSystem &sys, Media media,
+                                          const std::vector<std::string> &chosen)
+{
+    std::vector<std::string> out;
+    auto satisfied = [&](const std::string &need) {
+        for (const auto &list : {chosen, out})
+            for (const auto &key : list)
+                if (const auto *b = m.bundle(key); b && satisfies(*b, need)) return true;
+        return false;
+    };
+    for (const auto &need : sys.suggests) {
+        if (satisfied(need)) continue;
+        const auto cands = candidatesFor(m, need, sys.key, media);
+        if (cands.empty()) continue;
+        const ManifestBundle *pick = cands.front();
+        for (const auto &pref : sys.prefer)
+            if (const auto it = std::find_if(cands.begin(), cands.end(), [&](const auto *c) { return c->key == pref; }); it != cands.end()) {
+                pick = *it;
+                break;
+            }
+        out.push_back(pick->key);
+    }
+    return out;
 }
 
 std::vector<const ManifestBundle *> candidatesFor(const Manifest &m, std::string_view need,

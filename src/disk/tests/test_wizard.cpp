@@ -34,6 +34,8 @@ title    = "OS-16SJ"
 image    = "systems/mihin.dsk"
 media    = ["ss", "dz"]
 requires = ["dz"]
+suggests = ["dir"]
+prefer   = ["dir-vvv"]
 
 [bundle.dz]
 title = "DZ.SYS"
@@ -255,7 +257,7 @@ TEST_CASE("another system or media drops what no longer fits, and says so") {
     CHECK(w.system() == "omega");
     REQUIRE(w.setMedia(Media::ss).empty());
     CHECK(w.setSystem("mihin").empty());                            /* no LINK there for Pascal */
-    CHECK(w.selection().bundles.empty());
+    CHECK(w.selection().bundles == std::vector<std::string>{"dir-vvv"});   /* Pascal gone, OS-16SJ's DIR suggested */
     CHECK(mentions(w.notices(), "Pascal"));
     auto rows = w.rows(true);
     CHECK(row(rows, "macro-omega") == nullptr);                     /* another system's build: not shown */
@@ -272,7 +274,7 @@ TEST_CASE("another system or media drops what no longer fits, and says so") {
     CHECK_FALSE(row(rows, "Games", WizardRow::Kind::group)->available);
     REQUIRE(w.setSystem("omega").empty());
     CHECK(mentions(w.notices(), "Saboteur 2"));                     /* kept until a system judged it */
-    CHECK(w.selection().bundles.empty());
+    CHECK(w.selection().bundles == std::vector<std::string>{"dir-vvv"});   /* once suggested, a choice like any */
 }
 
 TEST_CASE("the steps: the diskette first, then the system, then the rest") {
@@ -409,6 +411,33 @@ TEST_CASE("the system's utilities: its own build marked native and on, another b
     CHECK_FALSE(w.toggle("dir-omega").empty());                     /* the system needs one */
     CHECK(w.toggle("dir-vvv").empty());
     CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::system);
+}
+
+TEST_CASE("a system's suggestions come ticked with it, by its preference, and can be unticked like any bundle") {
+    const Manifest m = parseManifest(kManifest);
+    DiskWizard w(m, "mihin", Media::ss);
+    CHECK(w.selection().bundles == std::vector<std::string>{"dir-vvv"});
+    auto rows = w.rows(true);
+    CHECK(row(rows, "dir-vvv")->mark == WizardRow::Mark::on);          /* on, not the system's: it can go */
+    CHECK(w.toggle("dir-vvv").empty());
+    CHECK(w.selection().bundles.empty());
+    CHECK(w.resolution().ok);
+    CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::off);
+
+    REQUIRE(w.setSystem("omega").empty());                              /* OMEGA requires dir: the system's */
+    CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::system);
+    REQUIRE(w.setSystem("mihin").empty());                              /* back: suggested again */
+    CHECK(w.selection().bundles == std::vector<std::string>{"dir-vvv"});
+
+    CHECK(w.toggle("dir-omega").empty());                               /* another build in its place */
+    CHECK(w.selection().bundles == std::vector<std::string>{"dir-omega"});
+    REQUIRE(w.setSystem("mihin").empty());                              /* the name satisfied: no second DIR */
+    CHECK(w.selection().bundles == std::vector<std::string>{"dir-omega"});
+
+    DiskWizard fresh(m);                                                /* chosen step by step: the same */
+    REQUIRE(fresh.setMedia(Media::ss).empty());
+    REQUIRE(fresh.setSystem("mihin").empty());
+    CHECK(fresh.selection().bundles == std::vector<std::string>{"dir-vvv"});
 }
 
 TEST_CASE("a bundle ticked that the system comes to require is the system's - locked - and ticked again when it no longer is") {

@@ -160,6 +160,7 @@ private:
 
     void resolve();
     void dropWhatDoesNotFit();
+    void suggest();                /* the system's suggestions ticked */
     [[nodiscard]] std::vector<std::string> alternativesOf(const ManifestBundle &b) const;
     [[nodiscard]] bool isSystemPart(const std::string &key) const;
     [[nodiscard]] std::string systemRefusal(const ManifestSystem &s) const;

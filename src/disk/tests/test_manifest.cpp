@@ -34,6 +34,7 @@ image = "systems/osa.dsk"
 media = ["ss", "dz", "dv"]
 requires = ["dz", "tt"]
 requires_by_media = { dv = ["dv"] }
+suggests = ["dup"]
 startup = ["SET TT QUIET"]
 
 [system.rodionov]
@@ -79,6 +80,11 @@ title   = "SL.SYS"
 startup = ["SET SL ON"]
 files   = ["handlers/SL.SYS"]
 
+[bundle.dup]
+title    = "DUP"
+provides = ["dup"]
+files    = ["handlers/DUP.SAV"]
+
 [preset.games]
 title     = "OSA: games"
 system    = "osa"
@@ -113,6 +119,7 @@ Repository repository()
     const auto kit = openVolume(exemplar(Media::dv), Vol::dv);
     for (const char *name : {"DZ.SYS", "TT.SYS", "DV.SYS", "SL.SYS"})
         (*files)[std::string("handlers/") + name] = kit->readFile(name);
+    (*files)["handlers/DUP.SAV"] = blocks(4, 7);
     Repository repo;
     for (const auto &kv : *files) repo.paths.push_back(kv.first);
     repo.read = [files](const std::string &p) -> std::optional<std::vector<uint8_t>> {
@@ -150,7 +157,7 @@ TEST_CASE("disks.toml read: systems, bundles and presets as written, in order") 
     CHECK(rod->reserved[1].side == 1);
     CHECK(rod->reserved[1].lbn == 799);
 
-    REQUIRE(m.bundles.size() == 7);
+    REQUIRE(m.bundles.size() == 8);
     CHECK(m.bundle("sl")->startup == std::vector<std::string>{"SET SL ON"});
     CHECK(m.bundles[0].key == "sabot2");
     CHECK(m.bundles[0].needs == std::vector<Media>{Media::ss, Media::dz});
@@ -195,6 +202,7 @@ TEST_CASE("what disks.toml must not say") {
     refused(replaced(good, "volume  = \"any\"", "volume  = \"side1\""), "a volume word that is none");
     refused(replaced(good, "image = \"systems/osa.dsk\"\n", ""), "a system with no image");
     refused(replaced(good, "requires = [\"dz\", \"tt\"]\nrequires_by_media", "requires = [\"dz\", \"xx\"]\nrequires_by_media"), "a system requiring what nothing provides");
+    refused(replaced(good, "suggests = [\"dup\"]", "suggests = [\"xx\"]"), "a system suggesting what nothing provides");
     refused(replaced(good, "{ dv = [\"dv\"] }", "{ hd = [\"dv\"] }"), "a media word that is none, by media");
 }
 
@@ -229,7 +237,7 @@ TEST_CASE("a bundle's paths: in order, globs in name order and RT-11 names only"
 TEST_CASE("a preset's recipe: the system read, every file named, dated and placed") {
     const Manifest m = parseManifest(kToml);
     const auto repo = repository();
-    const ComposeRecipe r = recipeFor(m, selectionOf(*m.preset("games")), repo);
+    const ComposeRecipe r = recipeFor(m, selectionOf(m, *m.preset("games")), repo);
     CHECK(r.system == *repo.read("systems/osa.dsk"));
     CHECK(r.media == Media::dz);
     CHECK(r.volumeId == "GAMES");
@@ -237,7 +245,8 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
     CHECK(r.secondOwner == "MS0515 EMU");
     CHECK(r.startup == std::vector<std::string>{"SET TT QUIET"});
     CHECK(r.banner == std::vector<std::string>{"Type a game to run it"});
-    REQUIRE(r.groups.size() == 5);
+    REQUIRE(r.groups.size() == 6);                             /* and DUP, the system's suggestion, last */
+    CHECK(r.groups[5].title == "DUP");
     CHECK(r.groups[0].title == "DZ.SYS");                      /* the system's own parts first */
     CHECK(r.groups[1].title == "TT.SYS");
     const auto &sab = r.groups[2];
@@ -262,7 +271,7 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
     CHECK(bootedMonitor(img, 0, true) == "RT11SJ");
     CHECK(boot->directory.find("SL.SYS") == nullptr);          /* on the exemplar, not chosen */
 
-    Selection dv = selectionOf(*m.preset("games"));
+    Selection dv = selectionOf(m, *m.preset("games"));
     dv.media = Media::dv;
     dv.bundles = {"docs"};
     const ComposeRecipe onDv = recipeFor(m, dv, repo);
@@ -270,9 +279,22 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
     CHECK(bootedMonitor(composeDisk(onDv), 0, true, Vol::dv) == "RT11SJ");
 }
 
+TEST_CASE("a system's suggestions: ticked for a preset, by its preference, unless the preset chose among them - never required") {
+    const Manifest m = parseManifest(kToml);
+    CHECK(m.system("osa")->suggests == std::vector<std::string>{"dup"});
+    CHECK(m.system("rodionov")->suggests.empty());
+    Selection games = selectionOf(m, *m.preset("games"));
+    CHECK(games.bundles == std::vector<std::string>{"sabot2", "pacman", "docs", "dup"});
+    /* Without it the disk still resolves: a suggestion is no requirement. */
+    CHECK(resolveBundles(m, "osa", Media::dz, {"sabot2"}, {}).ok);
+    CHECK(suggestedBundles(m, *m.system("osa"), Media::dz, {}) == std::vector<std::string>{"dup"});
+    CHECK(suggestedBundles(m, *m.system("osa"), Media::dz, {"dup"}).empty());
+    CHECK(suggestedBundles(m, *m.system("rodionov"), Media::dz, {}).empty());
+}
+
 TEST_CASE("a system's recipe: its reserved blocks, and a startup of the system's, the bundles' and the selection's lines") {
     const Manifest m = parseManifest(kToml);
-    const ComposeRecipe r = recipeFor(m, selectionOf(*m.preset("rodionov")), repository());
+    const ComposeRecipe r = recipeFor(m, selectionOf(m, *m.preset("rodionov")), repository());
     CHECK(r.reserved.size() == 2);
     CHECK(r.startup == std::vector<std::string>{"SET TT QUIET", "SET SL ON", "LOAD VM:", "R ROSA3"});   /* SET SL ON once */
     CHECK(planDisk(r).ok);
@@ -511,7 +533,7 @@ TEST_CASE("a system requires a name: its own build preferred, another one picked
 
 TEST_CASE("the labels: each side's volume id and owner, the second side's on a two-sided disk only") {
     const Manifest m = parseManifest(kDeps);
-    Selection s = selectionOf(*m.preset("dev"));
+    Selection s = selectionOf(m, *m.preset("dev"));
     s.volumeId = "DEV";
     s.owner = "VVV104";
     s.secondVolumeId = "TWO";
@@ -539,13 +561,13 @@ TEST_CASE("a need nothing on this system satisfies refuses what needs it, saying
 
 TEST_CASE("a recipe installs the needs too, before what needs them") {
     const Manifest m = parseManifest(kDeps);
-    const ComposeRecipe r = recipeFor(m, selectionOf(*m.preset("dev")), depsRepository());
+    const ComposeRecipe r = recipeFor(m, selectionOf(m, *m.preset("dev")), depsRepository());
     std::vector<std::string> titles;
     for (const auto &g : r.groups) titles.push_back(g.title);
     CHECK(titles == std::vector<std::string>{"DZ.SYS", "DV.SYS", "SYSMAC.SML", "MACRO-11 (vvv104 build)", "LINK (vvv104 build)", "Pascal", "Pascal graphics"});
     CHECK(planDisk(r).ok);
 
-    Selection s = selectionOf(*m.preset("dev"));
+    Selection s = selectionOf(m, *m.preset("dev"));
     s.system = "omega";
     s.picks = {{"macro11", "macro-omega"}};
     const ComposeRecipe picked = recipeFor(m, s, depsRepository());
