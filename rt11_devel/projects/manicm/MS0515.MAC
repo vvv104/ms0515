@@ -467,16 +467,15 @@ TUNE2:  MOV     R3,-(SP)
         BIC     #177400,R0
 3$:     DEC     R3              ; the first voice
         BNE     4$
-        MOV     TD,R3           ; it ran out: reload and toggle,
+        MOV     TD,R3           ; it ran out: reload and flip,
         XOR     R1,R0
-        MOVB    R0,(R5)
+        DEC     R4              ;   the second voice checked on the way:
+        BNE     7$              ;   both at once flip twice and write once,
+        MOV     TE,R4           ;   as the original's two XORs met one OUT
+        XOR     R1,R0           ;   (a rest is a note of 0,0: nothing to hear)
+7$:     MOVB    R0,(R5)
         MOV     R0,R0           ;   the original's 21 T-states
         MOV     R0,R0
-        DEC     R4              ;   and the second voice on the way
-        BNE     6$
-        MOV     TE,R4
-        XOR     R1,R0
-        MOVB    R0,(R5)
         BR      6$
 4$:     DEC     R4              ; the second voice
         BNE     5$
