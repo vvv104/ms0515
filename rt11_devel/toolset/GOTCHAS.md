@@ -1,7 +1,10 @@
 # RT-11 / MACRO-11 build gotchas
 
 Hard-won notes for building things inside the emulator with this toolset.
-Read before debugging a mysterious build failure.
+Read before debugging a mysterious build failure.  What the program itself
+has to know about the machine - the processor, RT-11's memory, the
+dispatcher and the interrupts, the keyboard, the screen, the speaker,
+MACRO-11's traps - is `docs/programming.md`, the handbook.
 
 ## MACRO-11 source must be pure ASCII (the em-dash trap)
 

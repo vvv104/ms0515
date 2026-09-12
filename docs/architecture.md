@@ -287,6 +287,7 @@ is kept out of these primitives — its knowledge base lives in `disk_recovery/`
 - [floppy.md](hardware/floppy.md) — FDC commands, disk geometry, image format
 - [filesystem.md](hardware/filesystem.md) — RT-11 disk layout, sector interleave
 - [ramdisk.md](hardware/ramdisk.md) — 512 KB RAM disk expansion board
+- [programming.md](programming.md) — the handbook: what a program running on the machine under RT-11 has to know, from the ports
 
 ## Key Sources
 
