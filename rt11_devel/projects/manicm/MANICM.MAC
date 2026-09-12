@@ -38,7 +38,8 @@
         .GLOBL  MANICM,SCREEN,ATTRS
         .GLOBL  CAVNUM,LIVES,MODE,CHEATC,SCORE,HISCOR,GBUF,WILLYA,WILLYY,AIRBRN
                                 ; the state, named in the link map for the tests
-        .GLOBL  HWINIT,HWEXIT,BORDER,PRESNT,KEYS,BEEP,NOTE1,TUNE2,TUNE2W,DELAY,PACE
+        .GLOBL  HWINIT,HWEXIT,BORDER,PRESNT,KEYS,KFLUSH,BEEP,NOTE1,TUNE2,TUNE2W
+        .GLOBL  DELAY,PACE
 
 ; The KR1807VM1 has no EIS, and nor do the DVK's processors: shifts by a
 ; count are these, a plain shift a step.
@@ -361,6 +362,9 @@ NEWSHT: MOVB    CAVNUM,R0       ; its attributes into ABUF2, its definition
         JSR     PC,PRINT
         MOVB    BORDC,R0        ; the cavern's border
         JSR     PC,BORDER
+        JSR     PC,KFLUSH       ; the port's: a key let go while the cavern
+        CLR     KEYW            ;   was drawn is not held into it, nor the
+        CLR     DIGW            ;   last pass's reading of the keys
         TSTB    MODE
         BEQ     LOOP
         MOVB    #64.,MODE       ; the demo: 64 passes a cavern

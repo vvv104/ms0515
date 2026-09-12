@@ -142,7 +142,11 @@ program needs of it:
   through a silence, they are never heard from again while the newer one
   is down) and which must be up (those pressed after it - or they would
   be the one repeating; this is how a tapped SPACE ends while the arrow
-  goes on).  Tell the keyboard 231 (keyclick
+  goes on).  And when the game stops reading keys for a while (a death
+  sequence, a cavern drawn anew) the codes queue up: flush the queue,
+  the hold timers and the last pass's reading as the new scene starts,
+  or a key let go a second ago acts in it (MANICM's `KFLUSH`).  Tell
+  the keyboard 231 (keyclick
   off) at start, as FIST has from its first day and MANICM learned only
   when its keys felt sticky: the firmware takes it as "a game runs" and
   the core switches to the game repeat preset (125 ms, then 50); a real MS7004

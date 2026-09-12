@@ -140,3 +140,32 @@ TEST_CASE("manicm: P, then SPACE while P's repeat is still to come, jumps to the
     CHECK(g.peek8("AIRBRN") == 0);
     CHECK(willyColumn(g) > x0);                    // a jump to the right, not straight up
 }
+
+TEST_CASE("manicm: a key let go while the cavern changes does not act in the new one")
+{
+    if (!manicm::built()) { MESSAGE("MANICM not built - skipped"); return; }
+    ManicmGame g("manicm_chg");
+    g.startGame();
+    for (Key k : {Key::Digit6, Key::Digit0, Key::Digit3, Key::Digit1, Key::Digit7, Key::Digit6, Key::Digit9}) {
+        g.keyTap(k, 6);
+        g.settle(20);
+    }
+    REQUIRE(g.peek8("CHEATC") == 7);
+    g.emu.keyPress(Key::Space, true);              // jumping on the spot
+    g.settle(20);
+    g.emu.keyPress(Key::Digit1, true);             // 6 with 1: The Cold Room
+    g.settle(2);
+    g.emu.keyPress(Key::Digit6, true);
+    bool changed = false;
+    for (int i = 0; i < 40 && !changed; ++i) { g.step(); changed = g.peek8("CAVNUM") == 1; }
+    REQUIRE(changed);
+    g.emu.keyPress(Key::Space, false);             // everything let go while it loads
+    g.emu.keyPress(Key::Digit1, false);
+    g.emu.keyPress(Key::Digit6, false);
+    bool onFeet = false;                           // the new cavern loaded: Willy on his feet
+    for (int i = 0; i < 60 && !onFeet; ++i) { g.step(); onFeet = g.peek8("AIRBRN") == 0; }
+    REQUIRE(onFeet);
+    int jumps = 0;
+    for (int i = 0; i < 60; ++i) { g.step(); if (g.peek8("AIRBRN") == 1) { ++jumps; break; } }
+    CHECK(jumps == 0);                             // the stale SPACE did not jump him
+}

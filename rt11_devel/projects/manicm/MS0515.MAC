@@ -31,6 +31,12 @@
 ;           40 the pause keys, 100 quit (SHIFT with SPACE), 200 any key
 ;           at all; R1 = the digit keys, bit 0 for '1' up to bit 9 for
 ;           '0'.  Call it once per pass of the game's main loop.
+;   KFLUSH  forget the keys: nothing pressed before this moment is held.
+;           The game calls it as a cavern starts - a key let go while
+;           Willy died and the cavern was drawn again (KEYS does not run
+;           then, and the keyboard's codes queue up) must not move him
+;           in his next life.  A key still down shows up again with its
+;           next repeat.
 ;   BEEP    a note the way the original's effects make one, toggling the
 ;           speaker every half period: R0 = the pitch as the original's
 ;           DJNZ count B (1..255), the half period being 13 x B T-states;
@@ -55,7 +61,8 @@
 ; are computed from that, and the note loops are padded to the
 ; original's turn.  Another machine gets its own figures.
 ;-----------------------------------------------------------------------
-        .GLOBL  HWINIT,HWEXIT,BORDER,PRESNT,KEYS,BEEP,NOTE1,TUNE2,TUNE2W,DELAY,PACE
+        .GLOBL  HWINIT,HWEXIT,BORDER,PRESNT,KEYS,KFLUSH,BEEP,NOTE1,TUNE2,TUNE2W
+        .GLOBL  DELAY,PACE
         .GLOBL  SCREEN,ATTRS
         .GLOBL  FRAMES,LASTP,KBHEAD,KBTAIL   ; for the tests
 
@@ -138,11 +145,21 @@ HWINIT: MOV     R3,-(SP)
         SOB     R1,2$
         MOV     #DSPOFF,@#DISPAT
         MTPS    (SP)+
-        MOV     #KTIMS,R3       ; no key held
+        CLR     PRESSN
+        MOV     (SP)+,R3
+        JSR     PC,KFLUSH       ; no key held
+        RTS     PC
+
+KFLUSH: MOV     R3,-(SP)
+        MFPS    -(SP)           ; the queue emptied with KBISR held off
+        MTPS    #340
+        CLR     KBHEAD
+        CLR     KBTAIL
+        MTPS    (SP)+
+        MOV     #KTIMS,R3       ; every key let go
         MOV     #NTIMS,R0
 1$:     MOV     #-1,(R3)+
         SOB     R0,1$
-        CLR     PRESSN
         MOV     (SP)+,R3
         RTS     PC
 
