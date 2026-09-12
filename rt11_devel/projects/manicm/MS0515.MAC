@@ -41,6 +41,8 @@
 ;           counter each, the speaker toggled when either runs out.  R0 =
 ;           the first voice D, R1 = the second E, R2 = the duration C
 ;           (256 turns of the loop each).
+;   TUNE2W  the same note as written: the two pitches themselves, each
+;           voice a pulse train on the one bit (see there for why).
 ;   DELAY   wait R0 turns of the original's DJNZ loop, 13 T-states each
 ;           (R0 up to 40000).
 ;   PACE    wait for the next pass of the game: the original's main loop
@@ -53,7 +55,7 @@
 ; are computed from that, and the note loops are padded to the
 ; original's turn.  Another machine gets its own figures.
 ;-----------------------------------------------------------------------
-        .GLOBL  HWINIT,HWEXIT,BORDER,PRESNT,KEYS,BEEP,NOTE1,TUNE2,DELAY,PACE
+        .GLOBL  HWINIT,HWEXIT,BORDER,PRESNT,KEYS,BEEP,NOTE1,TUNE2,TUNE2W,DELAY,PACE
         .GLOBL  SCREEN,ATTRS
         .GLOBL  FRAMES,LASTP,KBHEAD,KBTAIL   ; for the tests
 
@@ -437,17 +439,80 @@ NOTE1:  MOV     R3,-(SP)
         MOV     (SP)+,R3
         RTS     PC
 
-; TUNE2: R0 = D, R1 = E, R2 = C.  C x 256 turns of 120 clocks, the
-; original's 56 T-states, so the notes last as long as they did.
+; TUNE2: R0 = D, R1 = E, R2 = C.  C x 256 turns of: count both down,
+; toggle for each that runs out and reload it.  The original's turn is
+; 56 T-states (120 clocks): two DECs, two branches, SOB and three NOPs.
+; Its turn that toggles is 21 T-states longer (a reload, XOR, a branch
+; not taken); the one here skips the padding and takes 162 clocks, 42
+; more, the same 21 T-states.  A voice's turn that toggles checks the
+; other voice on its way, so that both paths cost the same.  The count
+; is one 16-bit SOB: C x 256, and C = 0 counts 65536 as B = 0 counted
+; 256 in the original.
+TUNE2:  MOV     R3,-(SP)
+        MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        MOV     R0,TD
+        BIC     #177400,TD
+        BNE     1$
+        MOV     #256.,TD
+1$:     MOV     R1,TE
+        BIC     #177400,TE
+        BNE     2$
+        MOV     #256.,TE
+2$:     MOV     TD,R3           ; R3, R4 = the two counters
+        MOV     TE,R4
+        SWAB    R2              ; R2 = C x 256 turns
+        BIC     #377,R2
+        MOV     #SPKBIT+BLUBIT,R1
+        MOV     #SYSC,R5
+        MOVB    RCSHAD,R0       ; register C's value rides in R0
+        BIC     #177400,R0
+3$:     DEC     R3              ; the first voice
+        BNE     4$
+        MOV     TD,R3           ; it ran out: reload and flip,
+        XOR     R1,R0
+        DEC     R4              ;   the second voice checked on the way:
+        BNE     7$              ;   both at once flip twice and write once,
+        MOV     TE,R4           ;   as the original's two XORs met one OUT
+        XOR     R1,R0           ;   (a rest is a note of 0,0: nothing to hear)
+7$:     MOVB    R0,(R5)
+        MOV     R0,R0           ;   the original's 21 T-states
+        MOV     R0,R0
+        BR      6$
+4$:     DEC     R4              ; the second voice
+        BNE     5$
+        MOV     TE,R4
+        XOR     R1,R0
+        MOVB    R0,(R5)
+        MOV     R0,R0
+        MOV     R0,R0
+        BR      6$
+5$:     NOP                     ; neither: the padding
+        NOP
+        NOP
+6$:     SOB     R2,3$
+        MOVB    R0,RCSHAD
+        MOV     (SP)+,R5
+        MOV     (SP)+,R4
+        MOV     (SP)+,R3
+        RTS     PC
+TD:     .WORD   0
+TE:     .WORD   0
+
+; TUNE2W: the same note as written.  R0 = D, R1 = E, R2 = C, the same
+; C x 256 turns of 120 clocks, so the notes last as long as they did.
 ;
-; The pitches are played differently, on purpose.  The original XORed
-; both voices into the one speaker bit, and a speaker cannot add two
-; square waves that way: it sounds their sum and their difference - the
-; melody an octave up with the beat of the pair breathing through it,
-; the bass pairs as a rumble.  That is how the Spectrum played it, and
-; the owner of this port wanted the tune the table spells: the two
-; pitches themselves.  So each voice is a pulse once a period of 2 x D
-; turns, and the line is high while either pulse is on.
+; The pitches are played differently, on purpose.  TUNE2 above XORs both
+; voices into the one speaker bit as the original did, and a speaker
+; cannot add two square waves that way: it sounds their sum and their
+; difference - the melody an octave up with the beat of the pair
+; breathing through it, the bass pairs as a rumble.  That is how the
+; Spectrum played it (Matthew Smith's 1983 routine was the first attempt
+; at two voices on the beeper; Zombie Zombie found the pulse-width way a
+; year later - K. McAlpine, "The Sound of 1-bit", G|A|M|E 2015).  The
+; game plays the theme this way and as the table spells it, turn and turn
+; about: the two pitches themselves.  Each voice is a pulse once a period
+; of 2 x D turns, and the line is high while either pulse is on.
 ; Two pulse trains on one bit carry both fundamentals.  A voice of 0
 ; (the original's 256, which cancelled against the other) is silent: a
 ; rest is a rest.  A pulse lasts a quarter of its period, which keeps
@@ -458,7 +523,7 @@ NOTE1:  MOV     R3,-(SP)
 ; one turn are served in that turn.  R0 and R1 hold the line as each
 ; voice wants it, so that a pulse ending writes the other voice's state.
 
-TUNE2:  MOV     R3,-(SP)
+TUNE2W: MOV     R3,-(SP)
         MOV     R4,-(SP)
         MOV     R5,-(SP)
         SWAB    R2              ; R2 = C x 256 turns (C = 0: 65536)

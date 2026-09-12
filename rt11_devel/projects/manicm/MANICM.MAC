@@ -38,7 +38,7 @@
         .GLOBL  MANICM,SCREEN,ATTRS
         .GLOBL  CAVNUM,LIVES,MODE,CHEATC,SCORE,HISCOR,GBUF,WILLYA,WILLYY,AIRBRN
                                 ; the state, named in the link map for the tests
-        .GLOBL  HWINIT,HWEXIT,BORDER,PRESNT,KEYS,BEEP,NOTE1,TUNE2,DELAY,PACE
+        .GLOBL  HWINIT,HWEXIT,BORDER,PRESNT,KEYS,BEEP,NOTE1,TUNE2,TUNE2W,DELAY,PACE
 
 ; The KR1807VM1 has no EIS, and nor do the DVK's processors: shifts by a
 ; count are these, a plain shift a step.
@@ -267,6 +267,7 @@ TITLE:  CLRB    CAVNUM          ; the first cavern
         JSR     PC,PRESNT
         MOV     #BLUEDN,R3      ; the theme tune; ENTER or fire starts the game
         JSR     PC,TUNE
+        INCB    HEARD           ; the next time the other way
         CMP     R0,#2           ; SHIFT with SPACE here leaves for RT-11: the
         BNE     21$             ;   port's one addition
         JMP     EXIT
@@ -1723,8 +1724,12 @@ TUNE:   MOVB    (R3),R0
         MOVB    1(R3),R0
         MOVB    2(R3),R1
         MOVB    (R3),R2
-        JSR     PC,TUNE2
-        JSR     PC,KEYS
+        BITB    #1,HEARD        ; as the Spectrum played it and as written,
+        BEQ     12$             ;   turn and turn about (MS0515.MAC says why)
+        JSR     PC,TUNE2W
+        BR      13$
+12$:    JSR     PC,TUNE2
+13$:    JSR     PC,KEYS
         BIT     #100,R0         ; SHIFT with SPACE: 2, to leave
         BEQ     11$
         MOV     #2,R0
@@ -1759,6 +1764,7 @@ MODE:   .BYTE   0               ; 33882 0 the game; else the demo, passes left
 NOTEIX: .BYTE   0               ; 33883 the in-game tune's note
 MUSICF: .BYTE   0               ; 33884 bit 0 a music key held, bit 1 music off
 CHEATC: .BYTE   0               ; 33885 keys of 6031769 in so far
+HEARD:  .BYTE   0               ; the port's: times the theme has played
         .EVEN
 KEYW:   .WORD   0               ; the keys this pass
 DIGW:   .WORD   0               ; the digit keys this pass

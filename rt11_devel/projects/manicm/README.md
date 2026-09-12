@@ -95,13 +95,18 @@ from the screen buffer, saving the copy the original made.
 port 254 - every effect and the in-game tune are the original's loops with
 their delays converted from T-states to this processor's clocks
 (`MS0515.MAC` says how, and the core's timing tables are the source).  The
-theme is the one deliberate departure: the original XORed its two voices
+theme has one deliberate departure.  The original XORed its two voices
 into the one speaker bit, which sounds their sum and difference rather
-than the two pitches (the melody an octave up with the pair's beat
-breathing through it, the bass pairs as a rumble - a recording of a real
-Spectrum confirms it), and this port plays the two pitches the tune table
-spells instead, each voice a pulse train a quarter of its period wide on
-the same bit.  Same notes, same timing, the tune as written.
+than the two pitches: the melody an octave up with the pair's beat
+breathing through it, the bass pairs as a rumble.  A recording of a real
+Spectrum confirms that is how it played; Matthew Smith's routine was the
+first attempt at two voices on the beeper, and the way to do it properly
+(pulse-width modulation, Zombie Zombie, 1984) came a year later - see
+Kenneth McAlpine, *The Sound of 1-bit*, G|A|M|E 2015.  So the port plays
+the theme both ways, turn and turn about each time the title comes up: as
+the Spectrum did it first, then as written - the two pitches the tune
+table spells, each voice a pulse train a quarter of its period wide on
+the same bit (`TUNE2` and `TUNE2W` in `MS0515.MAC`).
 
 **Pace.**  The original's main loop takes 312315 T-states, 89 ms; `PACE`
 holds a pass to that on the 50 Hz frame interrupt, which the port owns
