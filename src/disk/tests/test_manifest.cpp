@@ -290,6 +290,11 @@ TEST_CASE("a system's suggestions: ticked for a preset, by its preference, unles
     CHECK(suggestedBundles(m, *m.system("osa"), Media::dz, {}) == std::vector<std::string>{"dup"});
     CHECK(suggestedBundles(m, *m.system("osa"), Media::dz, {"dup"}).empty());
     CHECK(suggestedBundles(m, *m.system("rodionov"), Media::dz, {}).empty());
+    /* A suggestion by key, and another build providing the same name in its place. */
+    Manifest byKey = parseManifest(replaced(kToml, "suggests = [\"dup\"]", "suggests = [\"dup\"]\nprefer = []"));
+    CHECK(suggestedBundles(byKey, *byKey.system("osa"), Media::dz, {}) == std::vector<std::string>{"dup"});
+    Manifest two = parseManifest(std::string(kToml) + "\n[bundle.dup2]\ntitle = \"DUP too\"\nprovides = [\"dup\"]\nfiles = [\"handlers/DUP.SAV\"]\n");
+    CHECK(suggestedBundles(two, *two.system("osa"), Media::dz, {"dup2"}).empty());
 }
 
 TEST_CASE("a system's recipe: its reserved blocks, and a startup of the system's, the bundles' and the selection's lines") {

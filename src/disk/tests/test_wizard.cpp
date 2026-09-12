@@ -34,8 +34,7 @@ title    = "OS-16SJ"
 image    = "systems/mihin.dsk"
 media    = ["ss", "dz"]
 requires = ["dz"]
-suggests = ["dir"]
-prefer   = ["dir-vvv"]
+suggests = ["dir-vvv"]
 
 [bundle.dz]
 title = "DZ.SYS"
@@ -413,7 +412,7 @@ TEST_CASE("the system's utilities: its own build marked native and on, another b
     CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::system);
 }
 
-TEST_CASE("a system's suggestions come ticked with it, by its preference, and can be unticked like any bundle") {
+TEST_CASE("a system's suggestions come ticked with it - its own builds - and can be unticked like any bundle") {
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m, "mihin", Media::ss);
     CHECK(w.selection().bundles == std::vector<std::string>{"dir-vvv"});

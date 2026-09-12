@@ -395,10 +395,20 @@ std::vector<std::string> suggestedBundles(const Manifest &m, const ManifestSyste
                                           const std::vector<std::string> &chosen)
 {
     std::vector<std::string> out;
+    /* Satisfied by a chosen bundle that is or provides the name - or, the
+     * name being a bundle's key, one that provides what that bundle
+     * provides: another build of DIR in the suggested one's place. */
     auto satisfied = [&](const std::string &need) {
+        const auto *asBundle = m.bundle(need);
         for (const auto &list : {chosen, out})
-            for (const auto &key : list)
-                if (const auto *b = m.bundle(key); b && satisfies(*b, need)) return true;
+            for (const auto &key : list) {
+                const auto *b = m.bundle(key);
+                if (!b) continue;
+                if (satisfies(*b, need)) return true;
+                if (asBundle)
+                    for (const auto &name : asBundle->provides)
+                        if (satisfies(*b, name)) return true;
+            }
         return false;
     };
     for (const auto &need : sys.suggests) {
