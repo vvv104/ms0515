@@ -136,7 +136,13 @@ program needs of it:
   counting as held with it.  Two timers make it feel right: a key's first
   code must hold it through the keyboard's silence before the repeats
   (MANICM: 3 passes of 90 ms), a repeat need hold it only a pass, so a
-  released key stops within a pass.  Tell the keyboard 231 (keyclick
+  released key stops within a pass.  And remember the order of the
+  presses: the keyboard repeats only the newest key down, so a code says
+  which keys may still be down (those pressed before it: hold them
+  through a silence, they are never heard from again while the newer one
+  is down) and which must be up (those pressed after it - or they would
+  be the one repeating; this is how a tapped SPACE ends while the arrow
+  goes on).  Tell the keyboard 231 (keyclick
   off) at start, as FIST has from its first day and MANICM learned only
   when its keys felt sticky: the firmware takes it as "a game runs" and
   the core switches to the game repeat preset (125 ms, then 50); a real MS7004

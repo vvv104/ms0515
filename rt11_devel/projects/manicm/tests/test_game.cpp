@@ -64,6 +64,26 @@ TEST_CASE("manicm: a key let go stops Willy within a pass or two")
     CHECK(willyColumn(g) == x);                    // and he stood still from there
 }
 
+TEST_CASE("manicm: SPACE tapped while P is held jumps once, not again on landing")
+{
+    if (!manicm::built()) { MESSAGE("MANICM not built - skipped"); return; }
+    ManicmGame g("manicm_tap");
+    g.startGame();
+    g.emu.keyPress(Key::P, true);
+    g.settle(30);                                  // walking right
+    g.keyTap(Key::Space, 6);                       // a tap: P keeps repeating after it
+    bool jumped = false;
+    for (int i = 0; i < 20 && !jumped; ++i) { g.step(); jumped = g.peek8("AIRBRN") == 1; }
+    REQUIRE(jumped);
+    bool landed = false;
+    for (int i = 0; i < 120 && !landed; ++i) { g.step(); landed = g.peek8("AIRBRN") == 0; }
+    REQUIRE(landed);
+    int jumpsAfter = 0;
+    for (int i = 0; i < 60; ++i) { g.step(); if (g.peek8("AIRBRN") == 1) { ++jumpsAfter; break; } }
+    g.emu.keyPress(Key::P, false);
+    CHECK(jumpsAfter == 0);                        // SPACE was let go: no second jump
+}
+
 TEST_CASE("manicm: the demo runs through the caverns")
 {
     if (!manicm::built()) { MESSAGE("MANICM not built - skipped"); return; }
@@ -88,10 +108,11 @@ TEST_CASE("manicm: 6031769, then 6 with a cavern number teleports")
         g.settle(20);                              // the key let go before the next
     }
     CHECK(g.peek8("CHEATC") == 7);
-    g.emu.keyPress(Key::Digit6, true);             // 6 with 1 + 2 + 4: cavern 7
-    g.emu.keyPress(Key::Digit1, true);
-    g.emu.keyPress(Key::Digit2, true);
-    g.emu.keyPress(Key::Digit3, true);
+    g.emu.keyPress(Key::Digit1, true);             // 1 + 2 + 4 = cavern 7, then 6 with them
+    g.emu.keyPress(Key::Digit2, true);             //   (the codes come 2 ms apart down the
+    g.emu.keyPress(Key::Digit3, true);             //   line: a pass must not fall between)
+    g.settle(2);
+    g.emu.keyPress(Key::Digit6, true);
     g.settle(12);
     g.emu.keyPress(Key::Digit6, false);
     g.emu.keyPress(Key::Digit1, false);

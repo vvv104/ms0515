@@ -138,6 +138,7 @@ HWINIT: MOV     R3,-(SP)
         MOV     #NTIMS,R0
 1$:     MOV     #-1,(R3)+
         SOB     R0,1$
+        CLR     PRESSN
         MOV     (SP)+,R3
         RTS     PC
 
@@ -233,12 +234,18 @@ PSRC:   .WORD   0
 ; when it comes up (only ALL-UP, 263, once every key is released after a
 ; modifier).  So a key is "held" for KTMR passes after its first code
 ; (the keyboard is silent that long before it repeats) and KTMRR after
-; each repeat, and any code refreshes the keys held at the last pass (a
-; timer at 0 ran out there; -1 is a key let go) - keys pressed together
-; stay held while any one of them repeats, since the keyboard repeats
-; only the last, and a key whose repeat the next key cut short stays
-; held with it.  The price: a key let go less than a pass before another
-; is pressed counts as held with it.
+; each repeat.  The keyboard repeats only the newest key down, so a code
+; says more than its key: a key pressed before it may still be down and
+; is never heard from again while it is - so it stays held KTMR passes
+; more, the silence the keyboard keeps before it resumes an older key's
+; repeat; a key pressed after it must have been let go, or it would be
+; the one repeating - so SPACE tapped while an arrow is held ends when
+; the arrow repeats again (the core's keyboard resumes the older key's
+; repeat; a real MS7004 may not).  A timer at 0 ran out at the last pass
+; and can still be refreshed; -1 is a key let go.  The price: a key let
+; go less than a pass before another is pressed counts as held with it,
+; and one let go while a newer key repeats is held until that key is
+; let go too, then KTMR passes more.
 KBISR:  MOV     R0,-(SP)
         MOV     KBHEAD,R0
         MOVB    @#KBDATA,KBRING(R0)
@@ -265,25 +272,50 @@ KEYS:   MOV     R3,-(SP)
 5$:     MOV     #-1,(R3)+
         SOB     R1,5$
         BR      1$
-4$:     MOV     #KTIMS,R3       ; any code: the keys held at the last pass
-        MOV     #NTIMS,R1       ;   (0 = the timer ran out there) stay held
-6$:     TST     (R3)            ;   a pass more; -1 is a key let go
-        BMI     7$
-        MOV     #KTMRR,(R3)
-7$:     TST     (R3)+
-        SOB     R1,6$
-        MOV     #KTAB,R3        ; the key's own timer: a first code holds it
-8$:     MOVB    (R3)+,R1        ;   through the keyboard's silence
-        BEQ     1$
+4$:     INC     PRESSN          ; a press, until the code proves a repeat
+        MOV     #-1,R4          ; the key's slot, when it is a key of ours
+        MOV     #KTAB,R3        ;   ('0' is two: a jump key and a digit)
+8$:     MOVB    (R3)+,R1
+        BEQ     40$
         BIC     #177400,R1
         MOVB    (R3)+,R2
         CMPB    R1,R0
         BNE     8$
         ASL     R2
-        TST     KTIMS(R2)
-        BGT     8$
-        MOV     #KTMR,KTIMS(R2)
+        MOV     R2,R4
+        TST     KTIMS(R2)       ; a key let go: its first code; else a repeat
+        BMI     42$
+        MOV     #KTMRR,KTIMS(R2)
         BR      8$
+42$:    MOV     #KTMR,KTIMS(R2) ;   the first holds it through the keyboard's
+        MOV     PRESSN,KSEQ(R2) ;   silence, and it is the newest press
+        BR      8$
+40$:    TST     R4
+        BMI     41$
+        MOV     KSEQ(R4),R0     ; the other keys held at the last pass (0 =
+        MOV     #KTIMS,R3       ;   the timer ran out there; -1 is let go):
+        MOV     #KSEQ,R4        ;   one pressed before this key stays held
+        MOV     #NTIMS,R1       ;   through a silence (the keyboard never
+44$:    TST     (R3)            ;   repeats it, and pauses before it resumes
+        BMI     45$             ;   it), one pressed after it has been let go
+        CMP     (R4),R0         ;   - the keyboard repeats the newest key
+        BEQ     45$             ;   down, so this one is the newest
+        BHI     46$
+        MOV     #KTMR,(R3)
+        BR      45$
+46$:    MOV     #-1,(R3)
+45$:    TST     (R3)+
+        TST     (R4)+
+        SOB     R1,44$
+        BR      1$
+41$:    MOV     #KTIMS,R3       ; a code of no key of ours: the keys held at
+        MOV     #NTIMS,R1       ;   the last pass stay held through a silence
+6$:     TST     (R3)
+        BMI     7$
+        MOV     #KTMR,(R3)
+7$:     TST     (R3)+
+        SOB     R1,6$
+        BR      1$
 10$:    CLR     R0              ; the timers -> the bits, each counting down
         CLR     R1              ;   to 0 (held this pass, the last) and on to
         MOV     #KTIMS,R3       ;   -1 (let go): the first eight the controls,
@@ -360,6 +392,8 @@ KTAB:   .BYTE   342,0, 314,0, 303,0, 327,0, 336,0     ; O U Q E T: left
         .EVEN
 NTIMS  = 18.
 KTIMS:  .BLKW   NTIMS
+KSEQ:   .BLKW   NTIMS           ; the press each key's timer came from
+PRESSN: .WORD   0               ; presses so far
 KBRING: .BLKB   16.
 KBHEAD: .WORD   0
 KBTAIL: .WORD   0
