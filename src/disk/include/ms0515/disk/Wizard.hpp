@@ -75,6 +75,8 @@ inline constexpr const char *kStartupField = "#startup:";
 inline constexpr const char *kBannerField = "#banner:";
 /* The checkbox under BANNER.TXT: clear the screen before the banner. */
 inline constexpr const char *kClearRow = "#clear";
+/* The row under BANNER.TXT that opens the text in a multiline editor. */
+inline constexpr const char *kBannerText = "#banner-text";
 
 /* "dz - two sides, 800 KB" */
 [[nodiscard]] const char *mediaTitle(Media m);

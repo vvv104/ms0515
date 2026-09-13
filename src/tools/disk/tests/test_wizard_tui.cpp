@@ -456,15 +456,16 @@ TEST_CASE("a banner: BANNER.TXT and START.COM counted in the plan; without PIP t
     CHECK(tui.model().selection().clearScreen);
     CHECK(shown(tui).find("[x] Clear the screen first") != std::string::npos);
     press(tui, ftxui::Event::ArrowDown);
-    CHECK(tui.cursorKey() == "#banner:0");
+    CHECK(tui.cursorKey() == kBannerText);                    /* the text row */
+    press(tui, ftxui::Event::Character(" "));                 /* Space opens the multiline editor */
     type(tui, "Type R FIST");
-    press(tui, ftxui::Event::Return);
-    press(tui, ftxui::Event::Return);                         /* the new line opened, empty */
-    type(tui, " ");                                           /* a space alone: a blank line */
-    press(tui, ftxui::Event::Return);
-    CHECK(tui.model().selection().banner == std::vector<std::string>{"Type R FIST", ""});
-    CHECK(shown(tui).find("[a new line") != std::string::npos);
-    CHECK(shown(tui).find("[a new line") == shown(tui).rfind("[a new line"));   /* the blank line is not one */
+    press(tui, ftxui::Event::Return);                        /* a new line */
+    press(tui, ftxui::Event::Return);                        /* another: a blank line between them */
+    type(tui, "and enjoy");
+    CHECK(tui.model().selection().banner == std::vector<std::string>{"Type R FIST", "", "and enjoy"});
+    CHECK(shown(tui).find("Enter: new line") != std::string::npos);    /* the editor is up */
+    press(tui, ftxui::Event::Escape);                        /* done */
+    CHECK(shown(tui).find("Enter: new line") == std::string::npos);
     s = shown(tui);
     CHECK(s.find("DZ0:") != std::string::npos);                /* the plan without the banner, still there */
     CHECK(s.find(" free") != std::string::npos);
