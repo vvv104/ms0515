@@ -103,8 +103,14 @@
   #status { color: #bbb; overflow: hidden; text-overflow: ellipsis; }
   footer summary { cursor: pointer; color: #8ab; }
   /* The help pops up over the screen (fixed: the footer clips its overflow). */
-  footer details div { position: fixed; bottom: 2.2em; left: .75em; width: min(44em, 90vw); white-space: normal; background: #222; border: 1px solid #444;
-                       border-radius: 4px; padding: .5em .75em; color: #ccc; z-index: 5; }
+  footer details div { position: fixed; bottom: 2.2em; left: .75em; width: min(48em, 90vw); max-height: 82vh; overflow: auto; white-space: normal;
+                       background: #222; border: 1px solid #444; border-radius: 4px; padding: .5em .9em .6em; color: #ccc; z-index: 5; line-height: 1.35; }
+  footer details h3 { font-size: 1em; margin: .7em 0 .25em; color: #fff; }
+  footer details h3:first-child { margin-top: .1em; }
+  footer details p { margin: .2em 0 .4em; }
+  footer details ul { margin: 0 0 .3em 1.1em; padding: 0; }
+  footer details li { margin: .2em 0; }
+  footer details b { color: #eee; font-weight: 600; }
   /* The bug report: the button turns red once the CPU has halted, and the
      note is asked in a dialog while the machine stands still. */
   #bug.alert { background: #7a2a2a; border-color: #c66; color: #fff; }
@@ -233,15 +239,47 @@
   <div id="status">loading…</div>
   <details>
     <summary>help</summary>
-    <div>Click the screen to type; RT-11 asks the date and the time at boot, Enter skips both. The keyboard follows the MS7004: the host's letters, digits and symbols make the characters on their caps (РУС mode: positional ЙЦУКЕН); arrows, the numeric keypad, F1–F13; Home/Ins/Del/End/PgUp/PgDn are the editing keys; Left Alt = Compose, Right Alt = РУС/ЛАТ.
-    &#9974; (or F11) puts the picture alone on the whole screen, Esc brings the page back; on a touch device &#9000; raises the system's keyboard (letters, digits, Enter, Backspace - Cyrillic letters switch the machine to РУС).
-    "Joystick: on" makes the arrows and Space the joystick on the MS7007 port (SABOT2: J KEMPSTON), and on a touch screen a stick under a finger on the left of the picture and fire on the right.
-    The drives A, B and HD mount like the desktop emulator's: a 400 KB image is one side, an 800 KB one takes both sides of its drive, the HD takes an image of any size (your own, or a new blank one - INIT HD: in the guest). An 800 KB image whose content is a whole-disk DV: or MZ: volume (the DV/MZ handlers' formats: 1600 blocks, no sides) shows in the panes as DV0:/MZ0: - the content decides, not the size; until an INIT names its kind, an uninitialised two-sided image shows as one entity ("A: name - uninitialised"), and a re-INIT of another kind erases the previous one.
-    "Files" replaces the screen with two panes of the mounted disks' RT-11 directories (a floppy side or the HD each, the unused areas shown) and the ten keys below, as in Midnight Commander (Insert or Shift with the arrows marks files - yellow - and F2 / F5 / F6 / F8 take the marked ones; + and - ask for a pattern of the OS to mark or unmark by - * any string, % one character, an omitted part is *, so *.MAC, TEST, A%B.*, several with commas - the marks adding up, and * inverts them; the disks are named as the system names them, DZ0: .. DZ3: and HD0:, and F5 on one file or F6 RenMove take a DZn:NAME - a copy to the same disk under another name, a rename, or a move to another disk): F1 Upload a file of yours (a 6.3 name of A-Z, 0-9 and $), F2 Download to your computer, F3 View, F4 Edit, F5 Copy to the other pane, F6 Rename, F9 Init the pane's volume (the OS's INITIALIZE: the volume id and the owner, the directory segments - 1..31, 72 files a segment - or the volume id only, the files kept; a two-sided image can instead be initialised as one whole-disk DV: or MZ: volume), F8 Delete, F7 Squeeze, F10 Quit. With Alt held the bar shows the keys' other meanings: Alt+F1 / Alt+F2 open the left / right pane's disk list; Alt+F5 gathers the marked files into a logical disk - a file written to the other pane's disk that the system mounts as a volume (MOUNT LD0: DZn:NAME.DSK, LD.SYS on the system disk; linear, no interleave, the format of PROGS.DSK); Alt+F6 protects the marked files, or unprotects them when every one is protected; Alt+F7 finds files by pattern on every mounted disk and goes to the one picked; Alt+F8 on an unused area undeletes the file it was - the system's DELETE leaves the name (shown after &lt; UNUSED &gt;), the length and the date in the entry, and the data lies there until something is written over the area; the dialog offers the old name, or a free NAME1 when a file of the old name is there now; on an unused area that was no file the key reads Recover and makes the area a file of a name given, whatever lies in it; F3 on an unused area views its bytes. Alt+F9 makes the pane's floppy a system volume of the other pane's disk: its kit (the monitor, SWAP, DZ, TT - the boot refuses to go on without any of them - and PIP, DUP, DIR, RESORC) is copied over and protected, the files marked on the other pane with it, the monitor's startup command file (STARTS.COM, ST.COM... - the monitor names it) made anew with SET TT QUIET alone, and the bootstrap written the way the system's own COPY/BOOT writes it - from the volume's DZ.SYS and monitor file, byte for byte what RT-11 does, no running system needed; the copy boots (mount it in A: and Boot) and can do the same again. Enter on a logical disk enters it as if a directory (the pane headed DZn: disk: NAME, ".." or Backspace back out): its files are viewed, copied in and out, deleted there, the changes written back into the file on its disk (a file that does not fit makes the volume grow by what it needs - a logical disk is a file, and the system takes its size from the file's length); such a place is DZn:NAME.DSK/FILE in the dialogs. A protected file is deleted or moved only after one more Yes / No (Cancel and "the same for the other protected files" when several files are at hand). In the viewer: F1 text / octal / hex, F2 wrap at 80 columns, F3 quit, F4 the encoding (ASCII / KOI-8R / KOI-7 / KOI-7 with the РУС-ЛАТ shifts ^N ^O / CP866), F5 go to a line, F7 search (a byte sequence in hex / octal); in the editor: F2 save, F8 replace / insert. The guest sees a change at its next directory read.
-    Disks you write to stay in this browser (IndexedDB): "Download" saves a copy, "Revert" returns a shipped disk to its original, "Delete" removes one of yours. "Save state" keeps the machine itself there too - its memory and its CPU as they are at that moment - so "Restore" brings it back after a reload, or on another day; it needs the ROM it was saved with, and the images it had mounted (the state names them). One state is kept: saving again replaces it, and "Wipe browser data" drops it with everything else.
-    Something went wrong - the machine stopped, or stopped answering? "Bug report" holds it still, asks what happened and saves one file: the state of the machine (its memory and its CPU as they are), the ROM, the mounted images and the picture - enough to put the fault back on the developer's screen. Nothing is sent anywhere; the file is yours to send. The button turns red by itself once the CPU has halted.
-    A game on <code>games.dsk</code>: type <code>R FIST</code> (or open <code>?disk=games.dsk&amp;type=R%20FIST</code>). The disks are the <a href="https://github.com/vvv104/ms0515-software">software collection</a>'s releases.
-    <p><button id="wipe" class="small" title="drop every image and setting this page keeps in the browser">Wipe browser data</button> — a fresh start: your images, changed disks and mounts are gone.</p></div>
+    <div>
+    <h3>Keys</h3>
+    <ul>
+    <li>Click the screen to type. RT-11 asks the date and the time at boot; Enter skips both.</li>
+    <li>The keyboard is the MS7004: letters, digits and symbols as on the caps (&#1056;&#1059;&#1057; mode: positional &#1049;&#1062;&#1059;&#1050;&#1045;&#1053;); arrows, the keypad, F1&ndash;F13; Home / Ins / Del / End / PgUp / PgDn are the editing keys. Left Alt = Compose, Right Alt = &#1056;&#1059;&#1057;/&#1051;&#1040;&#1058;.</li>
+    <li>&#9974; or F11: the picture alone on the whole screen, Esc brings the page back. On a touch device &#9000; raises the system&#39;s keyboard; its Cyrillic letters switch the machine to &#1056;&#1059;&#1057;.</li>
+    <li><b>Joystick: on</b> makes the arrows and Space the joystick on the MS7007 port (SABOT2: J KEMPSTON); on a touch screen a stick sits under a finger on the left of the picture, fire on the right.</li>
+    </ul>
+    <h3>Drives</h3>
+    <ul>
+    <li>A and B: a 400 KB image is one side, an 800 KB image both sides of its drive. HD takes an image of any size - your own, or a new blank one (<code>INIT HD:</code> in the guest).</li>
+    <li>An 800 KB image holding a whole-disk DV: or MZ: volume (1600 blocks, no sides) shows as DV0: / MZ0: - the content decides, not the size. An uninitialised two-sided image is one entity until an INIT names its kind; a re-INIT of another kind erases the previous one.</li>
+    </ul>
+    <h3>Files</h3>
+    <p>Two panes over the mounted disks&#39; RT-11 directories (a floppy side or the HD each, unused areas shown), the keys below as in Midnight Commander.</p>
+    <ul>
+    <li><b>F1</b> Upload a file of yours (a 6.3 name of A&ndash;Z, 0&ndash;9, $) &middot; <b>F2</b> Download &middot; <b>F3</b> View &middot; <b>F4</b> Edit &middot; <b>F5</b> Copy to the other pane &middot; <b>F6</b> Rename &middot; <b>F7</b> Squeeze &middot; <b>F8</b> Delete &middot; <b>F9</b> Init the volume &middot; <b>F10</b> Quit.</li>
+    <li>Marking: Insert, or Shift with the arrows (yellow); F2 / F5 / F6 / F8 take the marked files. <b>+</b> and <b>&minus;</b> mark or unmark by an OS pattern: <code>*</code> any string, <code>%</code> one character, an omitted part is <code>*</code> (<code>*.MAC</code>, <code>TEST</code>, <code>A%B.*</code>, several with commas); <code>*</code> alone inverts the marks.</li>
+    <li>Disks are named as the system names them, DZ0: .. DZ3: and HD0:. F5 on one file or F6 takes a <code>DZn:NAME</code> - a copy under another name, a rename, or a move to another disk.</li>
+    <li>F9 is the OS&#39;s INITIALIZE: volume id, owner and 1..31 directory segments (72 files each), or the volume id alone with the files kept. A two-sided image can instead become one whole-disk DV: or MZ: volume.</li>
+    <li>With Alt held the bar shows the other meanings. <b>Alt+F1 / F2</b> a pane&#39;s disk list. <b>Alt+F5</b> gathers the marked files into a logical disk - a file the system mounts as a volume (<code>MOUNT LD0: DZn:NAME.DSK</code>, LD.SYS on the system disk; linear, PROGS.DSK&#39;s format). <b>Alt+F6</b> protects the marked files, or unprotects them when every one is protected. <b>Alt+F7</b> finds files by pattern on every disk and goes to the one picked.</li>
+    <li><b>Alt+F8</b> on an unused area undeletes the file it was: the OS&#39;s DELETE leaves the name (shown after &lt; UNUSED &gt;), the length and the date, and the data until something is written over it; the dialog offers the old name, or a free NAME1 when that name is taken. On an area that was no file it reads Recover and makes a file of the name given, whatever lies in it. F3 on an unused area views its bytes.</li>
+    <li><b>Alt+F9</b> makes the pane&#39;s floppy a system volume of the other pane&#39;s disk: the kit (the monitor, SWAP, DZ, TT - the boot refuses to go on without any of them - and PIP, DUP, DIR, RESORC) is copied and protected, the marked files with it, the startup file (STARTS.COM, ST.COM... the monitor names it) made anew with <code>SET TT QUIET</code>, the bootstrap written the way COPY/BOOT writes it, no running system needed. The copy boots (mount it in A: and Boot).</li>
+    <li>Enter on a logical disk enters it like a directory (<code>..</code> or Backspace back out): its files are viewed, copied in and out and deleted there, the changes written back into the file - which grows when a file does not fit. Such a place is <code>DZn:NAME.DSK/FILE</code> in the dialogs.</li>
+    <li>A protected file is deleted or moved only after one more Yes / No (Cancel, or &quot;the same for the other protected files&quot;).</li>
+    <li>Viewer: <b>F1</b> text / octal / hex &middot; <b>F2</b> wrap at 80 &middot; <b>F3</b> quit &middot; <b>F4</b> the encoding (ASCII, KOI-8R, KOI-7, KOI-7 with the ^N ^O shifts, CP866) &middot; <b>F5</b> go to a line &middot; <b>F7</b> search a byte sequence, hex or octal. Editor: <b>F2</b> save, <b>F8</b> replace / insert. The guest sees a change at its next directory read.</li>
+    </ul>
+    <h3>Your data</h3>
+    <ul>
+    <li>Disks you write to stay in this browser (IndexedDB). <b>Download</b> saves a copy, <b>Revert</b> returns a shipped disk to its original, <b>Delete</b> removes one of yours.</li>
+    <li><b>Save state</b> keeps the machine itself - its memory and CPU as they are - so <b>Restore</b> brings it back after a reload, or another day. It needs the ROM it was saved with and the images it had mounted. One state is kept; saving again replaces it.</li>
+    </ul>
+    <h3>Bug report</h3>
+    <ul>
+    <li>The machine stopped, or stopped answering? <b>Bug report</b> holds it still, asks what happened and saves one file: the state, the ROM, the mounted images and the picture - enough to put the fault back on the developer&#39;s screen. Nothing is sent anywhere; the file is yours to send. The button turns red by itself once the CPU has halted.</li>
+    </ul>
+    <h3>Start</h3>
+    <ul>
+    <li>A game on <code>games.dsk</code>: its menu is on the screen at boot - type a name, say <code>FIST</code> (or open <code>?disk=games.dsk&amp;type=FIST</code>). The disks are the <a href="https://github.com/vvv104/ms0515-software">software collection</a>&#39;s releases.</li>
+    </ul>
+    <p><button id="wipe" class="small" title="drop every image and setting this page keeps in the browser">Wipe browser data</button> &mdash; a fresh start: your images, changed disks and mounts are gone.</p></div>
   </details>
 </footer>
 <script>
