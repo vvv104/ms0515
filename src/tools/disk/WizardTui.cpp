@@ -606,13 +606,16 @@ Element WizardTui::rowLine(const WizardRow &r, bool here) const
         std::string title = r.title;
         if (!title.empty()) title.resize(std::max<std::size_t>(title.size(), kFieldTitleWidth) + 1, ' ');
         /* The row keeps its cursor bar while the box is typed into: the
-         * bar round the box, the box in its own colours. */
+         * bar round the box, the box in its own colours.  A label is a
+         * box in brackets; a line of START.COM or BANNER.TXT is text
+         * behind a gutter, so the block reads as one text, not a stack
+         * of fields. */
         const Decorator around = here ? kCursor : Decorator(nothing);
         const Decorator inside = hint && !here ? kGrey : around;
-        Elements parts{text(indent + title + "[") | around};
+        Elements parts{text(indent + (label ? title + "[" : std::string("\xE2\x94\x82 "))) | around};
         if (typing) for (auto &part : editBox(width)) parts.push_back(std::move(part));
         else parts.push_back(text(shownText) | inside);
-        parts.push_back(text("]") | around);
+        if (label) parts.push_back(text("]") | around);
         parts.push_back(filler() | around);
         if (label) parts.push_back(text(r.summary) | size(WIDTH, EQUAL, kSideWidth) | around);
         line = hbox(std::move(parts));

@@ -322,7 +322,7 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     press(tui, ftxui::Event::Escape);                         /* Esc finishes a line block */
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1"});
     const std::string s = shown(tui);
-    CHECK(s.find("[R PAS1") != std::string::npos);
+    CHECK(s.find("\xE2\x94\x82 R PAS1") != std::string::npos);        /* a line behind the gutter, no brackets */
     CHECK(s.find("1 line") != std::string::npos);
     CHECK(s.find("7Startup") == std::string::npos);            /* no keys of their own any more */
     CHECK(s.find("START.COM 1") != std::string::npos);         /* the plan counts the file it makes */
@@ -369,7 +369,7 @@ TEST_CASE("a field takes Russian letters as letters: Backspace takes one, the bo
     downTo(tui, "START.COM");                                 /* a line is as wide as the machine's screen: 80 letters */
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::ArrowDown);
-    CHECK(shown(tui).find("[a new line ") != std::string::npos);              /* the empty box says what it is */
+    CHECK(shown(tui).find("a new line") != std::string::npos);                /* the empty line says what it is */
     std::string forty;
     for (int i = 0; i < 40; ++i) { press(tui, ftxui::Event::Character(std::string("\xD0\xAF"))); forty += "\xD0\xAF"; }   /* Я */
     CHECK(shown(tui).find(forty + "_ ") != std::string::npos);                 /* forty, whole, and room after */
@@ -437,7 +437,7 @@ TEST_CASE("a narrow terminal: the line's box takes what is left inside the frame
     auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(60), ftxui::Dimension::Fixed(40));
     ftxui::Render(screen, tui.render(60, 40));
     const std::string s = screen.ToString();
-    CHECK(s.find("[R FIST" + std::string(46, ' ') + "]") != std::string::npos);   /* 60 - the frame - the indent of 4 - the brackets */
+    CHECK(s.find("\xE2\x94\x82 R FIST" + std::string(46, ' ')) != std::string::npos);   /* 60 - the frame - the indent of 4 - the gutter */
 }
 
 TEST_CASE("a banner: BANNER.TXT and START.COM counted in the plan; without PIP the plan stays and the refusal is under it") {
