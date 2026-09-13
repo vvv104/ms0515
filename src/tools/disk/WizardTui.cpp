@@ -32,8 +32,8 @@ struct ButtonInfo {
     const char *about;
 };
 const ButtonInfo kButtons[] = {
-    {"#save", "Save the choice", "Write what is chosen to a file of its own, to open or build from later."},
     {"#open", "Open a choice", "Read a choice saved before."},
+    {"#save", "Save the choice", "Write what is chosen to a file of its own, to open or build from later."},
     {"#build", "Build the disk", "Compose the disk image as chosen."},
     {"#quit", "Quit", "Leave the composer."},
 };
@@ -383,90 +383,106 @@ void WizardTui::advance(const std::string &key, WizardRow::Kind kind)
 void WizardTui::startEdit(const WizardRow &row, std::string text)
 {
     editing_ = true;
-    editHadText_ = !row.value.empty();
     editKey_ = row.key;
     edit_ = std::move(text);
     editAt_ = lettersOf(edit_).size();
 }
 
-/* BANNER.TXT opened in the multiline editor: its lines copied out to edit,
- * the cursor at the end; an empty banner starts as one empty line. */
-void WizardTui::openBannerEditor()
+/* A field that is a line of START.COM or BANNER.TXT, edited as a text block
+ * (not a single-line label). */
+static bool isLineField(const std::string &key)
 {
-    banLines_ = wizard_.selection().banner.value_or(std::vector<std::string>{});
-    if (banLines_.empty()) banLines_.push_back("");
-    banRow_ = banLines_.size() - 1;
-    banCol_ = lettersOf(banLines_.back()).size();
-    banEdit_ = true;
+    return key.rfind(kStartupField, 0) == 0 || key.rfind(kBannerField, 0) == 0;
 }
 
-/* Write the editor's lines back to the choice: text with any blank lines
- * kept, nothing at all (only empty lines) taken as no banner. */
-void WizardTui::commitBanner()
+/* A line of START.COM or BANNER.TXT, edited in place as one block of text:
+ * the letters walk with Left, Right, Home and End; Enter splits the line, so
+ * a blank line is Enter on an empty spot; Backspace and Del at the ends join
+ * lines; Up and Down step line to line and, at the edges, leave the block;
+ * Esc leaves it.  The whole block is written back each time, so a blank line
+ * it makes is kept. */
+bool WizardTui::onLineEditEvent(const Event &e)
 {
-    const bool anyText = std::any_of(banLines_.begin(), banLines_.end(),
-        [](const std::string &l) { return l.find_first_not_of(' ') != std::string::npos; });
-    wizard_.setBanner(anyText ? banLines_ : std::vector<std::string>{});
-    changed();
-}
+    const bool banner = editKey_.rfind(kBannerField, 0) == 0;
+    const std::string prefix = banner ? std::string(kBannerField) : std::string(kStartupField);
+    std::vector<std::string> lines = (banner ? wizard_.selection().banner : wizard_.selection().startup)
+                                         .value_or(std::vector<std::string>{});
+    std::size_t idx = static_cast<std::size_t>(std::stoul(editKey_.substr(prefix.size())));
+    auto letters = lettersOf(edit_);
+    editAt_ = std::min(editAt_, letters.size());
 
-/* The editor's keys: printable letters go in at the cursor, Enter splits the
- * line (so a blank line is Enter on an empty spot), Backspace and Del take a
- * letter either side and join lines at the ends, the arrows and Home/End
- * walk the text, Esc closes it (the text is kept as it stands). */
-bool WizardTui::onBannerEditEvent(const Event &e)
-{
-    if (e == Event::Escape) { banEdit_ = false; return true; }
-    banRow_ = std::min(banRow_, banLines_.size() - 1);
-    auto cur = lettersOf(banLines_[banRow_]);
-    banCol_ = std::min(banCol_, cur.size());
-    const std::size_t last = banLines_.size() - 1;
+    auto put = [&]() {                             /* the working line into the block */
+        const std::string cur = joined(letters, 0, letters.size());
+        if (idx < lines.size()) lines[idx] = cur;
+        else if (!cur.empty()) lines.push_back(cur);
+    };
+    auto set = [&]() { if (banner) wizard_.setBanner(lines); else wizard_.setStartup(lines); };
+    auto go = [&](std::size_t nidx, std::size_t col) {
+        set();
+        editKey_ = prefix + std::to_string(nidx);
+        edit_ = nidx < lines.size() ? lines[nidx] : std::string();
+        editAt_ = std::min(col, lettersOf(edit_).size());
+        changed();
+        const int at = indexOf(editKey_, WizardRow::Kind::field);
+        if (at >= 0) cursor_ = at;
+    };
+    auto leave = [&](int delta) { put(); set(); editing_ = false; changed(); moveCursor(delta); };
+
+    if (e == Event::Escape)   { put(); set(); editing_ = false; changed(); return true; }
+    if (e == Event::Home)     { editAt_ = 0; return true; }
+    if (e == Event::End)      { editAt_ = letters.size(); return true; }
+    if (e == Event::ArrowUp)   { if (idx > 0) { put(); go(idx - 1, editAt_); } else leave(-1); return true; }
+    if (e == Event::ArrowDown) { put(); if (idx + 1 <= lines.size()) go(idx + 1, editAt_); else leave(1); return true; }
     if (e == Event::ArrowLeft) {
-        if (banCol_ > 0) --banCol_;
-        else if (banRow_ > 0) { --banRow_; banCol_ = lettersOf(banLines_[banRow_]).size(); }
+        if (editAt_ > 0) --editAt_;
+        else if (idx > 0) { put(); go(idx - 1, lettersOf(idx - 1 < lines.size() ? lines[idx - 1] : std::string()).size()); }
         return true;
     }
     if (e == Event::ArrowRight) {
-        if (banCol_ < cur.size()) ++banCol_;
-        else if (banRow_ < last) { ++banRow_; banCol_ = 0; }
+        if (editAt_ < letters.size()) ++editAt_;
+        else { put(); if (idx + 1 <= lines.size()) go(idx + 1, 0); }
         return true;
     }
-    if (e == Event::ArrowUp)   { if (banRow_ > 0) { --banRow_; banCol_ = std::min(banCol_, lettersOf(banLines_[banRow_]).size()); } return true; }
-    if (e == Event::ArrowDown) { if (banRow_ < last) { ++banRow_; banCol_ = std::min(banCol_, lettersOf(banLines_[banRow_]).size()); } return true; }
-    if (e == Event::Home) { banCol_ = 0; return true; }
-    if (e == Event::End)  { banCol_ = cur.size(); return true; }
     if (e == Event::Return) {
-        const std::string tail = joined(cur, banCol_, cur.size());
-        banLines_[banRow_] = joined(cur, 0, banCol_);
-        banLines_.insert(banLines_.begin() + static_cast<std::ptrdiff_t>(banRow_ + 1), tail);
-        ++banRow_; banCol_ = 0;
-        commitBanner();
+        if (idx >= lines.size() && letters.empty()) {      /* the new line, left empty: nothing to add, on we go */
+            set();
+            editing_ = false;
+            changed();
+            advance(editKey_, WizardRow::Kind::field);
+            return true;
+        }
+        if (idx < lines.size()) {
+            lines[idx] = joined(letters, 0, editAt_);
+            lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(idx + 1), joined(letters, editAt_, letters.size()));
+        } else {
+            lines.push_back(joined(letters, 0, letters.size()));   /* typed on the new-line row */
+            lines.push_back(std::string());
+        }
+        go(idx + 1, 0);
         return true;
     }
+    if (e == Event::CtrlU) { if (idx < lines.size()) lines[idx].clear(); else put(); go(idx, 0); return true; }
     if (e == Event::Backspace) {
-        if (banCol_ > 0) { cur.erase(cur.begin() + static_cast<std::ptrdiff_t>(--banCol_)); banLines_[banRow_] = joined(cur, 0, cur.size()); }
-        else if (banRow_ > 0) {
-            banCol_ = lettersOf(banLines_[banRow_ - 1]).size();
-            banLines_[banRow_ - 1] += banLines_[banRow_];
-            banLines_.erase(banLines_.begin() + static_cast<std::ptrdiff_t>(banRow_));
-            --banRow_;
-        } else return true;
-        commitBanner();
+        if (editAt_ > 0) { letters.erase(letters.begin() + static_cast<std::ptrdiff_t>(--editAt_)); edit_ = joined(letters, 0, letters.size()); put(); go(idx, editAt_); }
+        else if (idx > 0) {                              /* join with the line above */
+            put();
+            const std::size_t above = idx - 1;
+            const std::size_t col = lettersOf(lines[above]).size();
+            if (idx < lines.size()) { lines[above] += lines[idx]; lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(idx)); }
+            go(above, col);
+        }
         return true;
     }
     if (e == Event::Delete) {
-        if (banCol_ < cur.size()) { cur.erase(cur.begin() + static_cast<std::ptrdiff_t>(banCol_)); banLines_[banRow_] = joined(cur, 0, cur.size()); }
-        else if (banRow_ < last) {
-            banLines_[banRow_] += banLines_[banRow_ + 1];
-            banLines_.erase(banLines_.begin() + static_cast<std::ptrdiff_t>(banRow_ + 1));
-        } else return true;
-        commitBanner();
+        if (editAt_ < letters.size()) { letters.erase(letters.begin() + static_cast<std::ptrdiff_t>(editAt_)); edit_ = joined(letters, 0, letters.size()); put(); go(idx, editAt_); }
+        else if (idx + 1 < lines.size()) { put(); lines[idx] += lines[idx + 1]; lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(idx + 1)); go(idx, editAt_); }
         return true;
     }
     if (e.is_character()) {
-        cur.insert(cur.begin() + static_cast<std::ptrdiff_t>(banCol_++), e.character());
-        banLines_[banRow_] = joined(cur, 0, cur.size());
-        commitBanner();
+        letters.insert(letters.begin() + static_cast<std::ptrdiff_t>(editAt_++), e.character());
+        edit_ = joined(letters, 0, letters.size());
+        put();
+        go(idx, editAt_);
         return true;
     }
     return true;
@@ -479,18 +495,13 @@ bool WizardTui::onBannerEditEvent(const Event &e)
  * whole text. */
 bool WizardTui::onEditEvent(const Event &e)
 {
+    if (isLineField(editKey_)) return onLineEditEvent(e);
     if (e == Event::Escape) { editing_ = false; return true; }
     if (e == Event::Return || e == Event::ArrowUp || e == Event::ArrowDown) {
         editing_ = false;
-        const bool blank = edit_.find_first_not_of(' ') == std::string::npos;
         status_ = wizard_.setField(editKey_, edit_);
         changed();
-        if (e == Event::Return && status_.empty()) {
-            const bool lines = editKey_.rfind(kStartupField, 0) == 0 || editKey_.rfind(kBannerField, 0) == 0;
-            const int at = indexOf(editKey_, WizardRow::Kind::field);
-            if (blank && lines && editHadText_ && at >= 0) cursor_ = at;   /* a line taken out: the next came up */
-            else advance(editKey_, WizardRow::Kind::field);
-        }
+        if (e == Event::Return && status_.empty()) advance(editKey_, WizardRow::Kind::field);
         if (e == Event::ArrowUp) moveCursor(-1);
         if (e == Event::ArrowDown) moveCursor(1);
         return true;
@@ -530,11 +541,6 @@ bool WizardTui::onListEvent(const Event &e)
         return true;
     }
     const auto &r = rows[static_cast<std::size_t>(cursor_)];
-    if (r.key == kBannerText) {                                 /* opens its own editor, never an inline field */
-        if (e == Event::Character(" ")) { openBannerEditor(); return true; }
-        if (e == Event::Return) { advance(r.key, r.kind); return true; }
-        return false;
-    }
     if (e == Event::Character(" ")) { activate(r); return true; }
     if (r.kind == WizardRow::Kind::field && e == Event::Return) { startEdit(r, r.value); return true; }   /* the text as it is, to edit */
     if (e == Event::Return) {                                  /* choose, and go on */
@@ -560,7 +566,6 @@ bool WizardTui::onEvent(const Event &e)
 {
     if (files_ || quitting_ || !message_.empty()) return onWindowEvent(e);
     if (ask_ != Ask::none) return onAskEvent(e);
-    if (banEdit_) return onBannerEditEvent(e);
     if (editing_) return onEditEvent(e);
     if (e == Event::Escape || e == Event::F10) { pressButton(Button::quit); return true; }
     if (e == Event::Character("/")) { startAsk(Ask::find, ""); return true; }
@@ -611,12 +616,6 @@ Element WizardTui::rowLine(const WizardRow &r, bool here) const
         parts.push_back(filler() | around);
         if (label) parts.push_back(text(r.summary) | size(WIDTH, EQUAL, kSideWidth) | around);
         line = hbox(std::move(parts));
-    } else if (r.key == kBannerText) {
-        std::string preview = r.value.empty() ? std::string("(empty)") : r.value;
-        const std::size_t room = width_ > 40 ? static_cast<std::size_t>(width_ - 30) : 10;
-        if (letters(preview) > room) preview = lastLetters(preview, room);   /* the tail if it is long */
-        line = hbox({text(indent + r.title + "  ") | kGroup, text(preview) | flex,
-                     text(r.summary) | size(WIDTH, EQUAL, kSideWidth)});
     } else if (r.kind == WizardRow::Kind::line) {
         const auto *sys = manifest_.system(wizard_.system());
         const std::string from = sys && r.requiredBy == sys->title ? std::string("the system's") : "from " + shortTitle(r.requiredBy);
@@ -745,7 +744,8 @@ Element WizardTui::renderBottom() const
     Element line;
     if (ask_ != Ask::none) line = hbox({text("Find: "), text(input_) | kCursor, filler()});
     else line = hbox({text(status_), filler()});
-    const char *base = banEdit_ ? "Enter: new line    Esc: done    arrows/Home/End: move    Backspace, Del: a letter out"
+    const bool lineEdit = editing_ && isLineField(editKey_);
+    const char *base = lineEdit ? "Enter: new line    Up/Down: line to line, and out    Esc: done    Left/Right/Home/End: move    Backspace/Del: a letter, or join lines"
                      : editing_ ? "Enter: keep  Esc: drop  Left/Right/Home/End: move  Backspace/Del: a letter out  Ctrl+U: all out  Up/Down: keep and move"
                                 : "Space: choose    Enter: choose and go on    a field: type to edit, Del takes it out    / find";
     const Element hint = hbox({text(base), filler()});
@@ -756,33 +756,11 @@ Element WizardTui::renderBottom() const
 Element WizardTui::renderWindow(int width, int height) const
 {
     if (files_) return files_->render(width, height);
-    if (banEdit_) return renderBannerEditor(width);
     const bool quit = quitting_;
     const std::string title = quit ? " Quit " : " Message ";
     Element body = paragraph(quit ? std::string("Leave the composer?") : message_);
     Element keys = text(quit ? "Enter: quit    Esc: stay" : "Enter: close");
     return framed(window(text(title), vbox({body, text(""), keys})) | size(WIDTH, EQUAL, std::clamp(width - 8, 30, 60)));
-}
-
-/* The BANNER.TXT editor: every line, the cursor's line with its letter shown
- * apart, and the keys under it. */
-Element WizardTui::renderBannerEditor(int width) const
-{
-    const std::size_t box = static_cast<std::size_t>(std::clamp(width - 10, 20, 80));
-    Elements rows;
-    for (std::size_t i = 0; i < banLines_.size(); ++i) {
-        const auto ls = lettersOf(banLines_[i]);
-        if (i != banRow_) { rows.push_back(text(" " + joined(ls, 0, ls.size()))); continue; }
-        const std::size_t at = std::min(banCol_, ls.size());
-        Elements line{text(" " + joined(ls, 0, at))};
-        if (at < ls.size()) { line.push_back(text(ls[at]) | inverted); line.push_back(text(joined(ls, at + 1, ls.size()))); }
-        else line.push_back(text("_") | kEdit);
-        rows.push_back(hbox(std::move(line)));
-    }
-    Element body = vbox(std::move(rows)) | size(WIDTH, GREATER_THAN, static_cast<int>(box));
-    Element keys = text("Enter: new line    Esc: done    arrows/Home/End: move    Backspace, Del: a letter out");
-    return framed(window(text(" BANNER.TXT "), vbox({body, text(""), keys}))
-                  | size(WIDTH, EQUAL, std::clamp(width - 6, 24, static_cast<int>(box) + 6)));
 }
 
 /* The box being typed into: the text round the cursor, the box's width of
@@ -829,7 +807,7 @@ Element WizardTui::render(int width, int height)
                            window(text(" Details "), renderDetails() | size(HEIGHT, EQUAL, detailsLines)),
                            window(text(" Plan "), renderPlan(width)),
                            renderBottom()}) | kPanel;
-    if (files_ || quitting_ || !message_.empty() || banEdit_) screen = dbox({screen, renderWindow(width, height)});
+    if (files_ || quitting_ || !message_.empty()) screen = dbox({screen, renderWindow(width, height)});
     return screen;
 }
 

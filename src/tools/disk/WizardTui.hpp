@@ -55,7 +55,7 @@ public:
 
 private:
     enum class Ask { none, find };
-    enum class Button { save, open, build, quit };
+    enum class Button { open, save, build, quit };   /* the order they sit in, and kButtons[] */
 
     void changed();
     void moveCursor(int delta);
@@ -74,10 +74,7 @@ private:
     void finishAsk();
     bool onAskEvent(const ftxui::Event &event);
     void startEdit(const disk::WizardRow &row, std::string text);
-    void openBannerEditor();
-    void commitBanner();
-    bool onBannerEditEvent(const ftxui::Event &event);
-    [[nodiscard]] ftxui::Element renderBannerEditor(int width) const;
+    bool onLineEditEvent(const ftxui::Event &event);
     void advance(const std::string &key, disk::WizardRow::Kind kind);
     bool onEditEvent(const ftxui::Event &event);
     bool onListEvent(const ftxui::Event &event);
@@ -112,12 +109,8 @@ private:
     Ask                     ask_ = Ask::none;
     std::string             input_;
     bool                    editing_ = false;    /* a field's text being typed */
-    bool                    editHadText_ = false;   /* the field held text when the edit began */
     std::string             editKey_;
     std::string             edit_;
-    bool                    banEdit_ = false;    /* the multiline BANNER.TXT editor is open */
-    std::vector<std::string> banLines_;          /* its text, a line each */
-    std::size_t             banRow_ = 0, banCol_ = 0;   /* the cursor: a line, a letter in it */
     std::size_t             editAt_ = 0;         /* the cursor: a letter's index in edit_, its size at the end */
     std::string             status_;
     bool                    quit_ = false;

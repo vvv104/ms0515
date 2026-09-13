@@ -550,8 +550,9 @@ TEST_CASE("BANNER.TXT after START.COM: the person's lines, fields like START.COM
     CHECK(rows[at + 1].kind == WizardRow::Kind::bundle);                /* the checkbox: clear the screen first */
     CHECK(rows[at + 1].key == kClearRow);
     CHECK(rows[at + 1].mark == WizardRow::Mark::off);
-    CHECK(rows[at + 2].kind == WizardRow::Kind::line);                  /* the text row: opens the editor */
-    CHECK(rows[at + 2].key == kBannerText);
+    CHECK(rows[at + 2].kind == WizardRow::Kind::field);                 /* a line each, like START.COM's */
+    CHECK(rows[at + 2].key == std::string(kBannerField) + "0");
+    CHECK(rows[at + 2].summary == "a new line");
     CHECK(w.toggle(kClearRow).empty());
     CHECK(w.selection().clearScreen);
     rows = w.rows();
@@ -561,12 +562,15 @@ TEST_CASE("BANNER.TXT after START.COM: the person's lines, fields like START.COM
     CHECK(w.toggle(kClearRow).empty());
     CHECK_FALSE(w.selection().clearScreen);
 
-    /* The text is set whole - the editor's job - and blank lines are kept. */
+    /* setField edits one line (empty removes it); the editor writes the block
+     * whole through setBanner, so a blank line it makes is kept. */
+    CHECK(w.setField(std::string(kBannerField) + "0", "Type a game to play it").empty());
     w.setBanner({"Type a game to play it", "", "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B:"});   /* Игры: */
     CHECK(w.selection().banner == std::vector<std::string>{"Type a game to play it", "", "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B:"});
     rows = w.rows();
     CHECK(row(rows, kBannerGroup, WizardRow::Kind::group)->summary == "3 lines");
-    CHECK(row(rows, kBannerText, WizardRow::Kind::line)->value.rfind("Type a game to play it", 0) == 0);
+    CHECK(row(rows, std::string(kBannerField) + "1", WizardRow::Kind::field)->value.empty());   /* the blank line, its own row */
+    CHECK(row(rows, std::string(kBannerField) + "3", WizardRow::Kind::field)->summary == "a new line");
     CHECK(w.saved().selection.banner == w.selection().banner);
     w.setBanner({});                                                     /* emptied: gone */
     CHECK_FALSE(w.selection().banner.has_value());

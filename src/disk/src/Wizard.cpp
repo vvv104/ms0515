@@ -366,22 +366,23 @@ std::string DiskWizard::setField(const std::string &key, const std::string &valu
         sel_.*f.member = label.empty() ? std::nullopt : std::optional<std::string>(label);
         return "";
     }
-    /* The lines of START.COM: line N replaced or, emptied, taken out; the
-     * line past the last, typed into, added.  (BANNER.TXT is edited whole,
-     * by the wizard's text editor, through setBanner - not here, so its
-     * blank lines are kept.) */
-    const std::string prefix = kStartupField;
-    if (key.rfind(prefix, 0) == 0 && key.size() != prefix.size()) {
+    /* One line of START.COM or BANNER.TXT: line N replaced, or emptied
+     * taken out, or - past the last, typed into - added.  This is the
+     * single-line path (a line's Del removes it); the multiline editor
+     * splits and joins lines through setStartup / setBanner, whole, so a
+     * blank line it makes is kept. */
+    for (const auto &[prefix, banner] : {std::pair{std::string(kStartupField), false}, std::pair{std::string(kBannerField), true}}) {
+        if (key.rfind(prefix, 0) != 0 || key.size() == prefix.size()) continue;
         if (!ready()) return "choose the diskette and the system first";
         const auto at = static_cast<std::size_t>(std::stoul(key.substr(prefix.size())));
-        auto lines = sel_.startup.value_or(std::vector<std::string>{});
+        auto lines = (banner ? sel_.banner : sel_.startup).value_or(std::vector<std::string>{});
         if (at < lines.size()) {
             if (text.empty()) lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(at));
             else lines[at] = text;
         } else if (!text.empty()) {
             lines.push_back(text);
         }
-        setStartup(std::move(lines));
+        if (banner) setBanner(std::move(lines)); else setStartup(std::move(lines));
         return "";
     }
     return "no field " + key;
@@ -630,11 +631,12 @@ void DiskWizard::bannerRows(std::vector<WizardRow> &out, int depth, const std::s
     clear.mark = sel_.clearScreen ? WizardRow::Mark::on : WizardRow::Mark::off;
     clear.summary = "BANNER.TXT starts with ESC H ESC J: the console goes home and erases to the end";
     out.push_back(std::move(clear));
-    WizardRow t = heading(WizardRow::Kind::line, depth + 1, kBannerText, "the text");
-    t.parent = kBannerGroup;
-    t.value = own.empty() ? std::string() : own.front() + (own.size() > 1 ? "  ..." : "");
-    t.summary = own.empty() ? "empty: press Space to write it" : "press Space to edit";
-    out.push_back(std::move(t));
+    for (std::size_t i = 0; i <= own.size(); ++i) {
+        WizardRow r = heading(WizardRow::Kind::field, depth + 1, kBannerField + std::to_string(i), "");
+        r.parent = kBannerGroup;
+        if (i < own.size()) r.value = own[i]; else r.summary = "a new line";
+        out.push_back(std::move(r));
+    }
 }
 
 std::vector<WizardRow> DiskWizard::rows(bool everything) const

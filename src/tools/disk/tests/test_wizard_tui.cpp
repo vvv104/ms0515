@@ -319,7 +319,7 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     downTo(tui, "START.COM");
     press(tui, ftxui::Event::ArrowDown);                      /* the new line under the heading */
     type(tui, "R PAS1");
-    press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::Escape);                         /* Esc finishes a line block */
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1"});
     const std::string s = shown(tui);
     CHECK(s.find("[R PAS1") != std::string::npos);
@@ -363,7 +363,7 @@ TEST_CASE("a field takes Russian letters as letters: Backspace takes one, the bo
     press(tui, ftxui::Event::Backspace);                      /* the Е goes, whole */
     type(tui, "-99");
     CHECK(shown(tui).find("DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99_") != std::string::npos);   /* the box, being typed into */
-    press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::Escape);
     CHECK(tui.model().selection().startup == std::vector<std::string>{"DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99"});
 
     downTo(tui, "START.COM");                                 /* a line is as wide as the machine's screen: 80 letters */
@@ -405,10 +405,9 @@ TEST_CASE("the cursor moves inside a field: Left, Right, Home, End; letters go i
     press(tui, ftxui::Event::Backspace);                      /* the T */
     type(tui, "T");
     CHECK(shown(tui).find("R FIST_") != std::string::npos);
-    press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::Escape);                         /* Esc finishes the block, the cursor stays on the line */
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R FIST"});
 
-    press(tui, ftxui::Event::ArrowUp);
     press(tui, ftxui::Event::Return);                         /* R FIST opened, the cursor at its end */
     press(tui, ftxui::Event::ArrowLeft);
     press(tui, ftxui::Event::ArrowLeft);
@@ -422,7 +421,7 @@ TEST_CASE("the cursor moves inside a field: Left, Right, Home, End; letters go i
     press(tui, ftxui::Event::Backspace);                      /* Р goes, whole */
     press(tui, ftxui::Event::ArrowLeft);                      /* over И, whole */
     press(tui, ftxui::Event::Delete);                         /* И goes, whole */
-    press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::Escape);
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R \xD0\x9F" "FIST"});
 }
 
@@ -455,16 +454,15 @@ TEST_CASE("a banner: BANNER.TXT and START.COM counted in the plan; without PIP t
     press(tui, ftxui::Event::Character(" "));
     CHECK(tui.model().selection().clearScreen);
     CHECK(shown(tui).find("[x] Clear the screen first") != std::string::npos);
-    press(tui, ftxui::Event::ArrowDown);
-    CHECK(tui.cursorKey() == kBannerText);                    /* the text row */
-    press(tui, ftxui::Event::Character(" "));                 /* Space opens the multiline editor */
-    type(tui, "Type R FIST");
-    press(tui, ftxui::Event::Return);                        /* a new line */
+    press(tui, ftxui::Event::ArrowDown);                     /* the first line, edited in place */
+    CHECK(tui.cursorKey() == std::string(kBannerField) + "0");
+    type(tui, "Type R FIST");                                /* typing starts the edit */
+    CHECK(shown(tui).find("Enter: new line") != std::string::npos);    /* a line block, being edited */
+    press(tui, ftxui::Event::Return);                        /* Enter makes a new line */
     press(tui, ftxui::Event::Return);                        /* another: a blank line between them */
     type(tui, "and enjoy");
     CHECK(tui.model().selection().banner == std::vector<std::string>{"Type R FIST", "", "and enjoy"});
-    CHECK(shown(tui).find("Enter: new line") != std::string::npos);    /* the editor is up */
-    press(tui, ftxui::Event::Escape);                        /* done */
+    press(tui, ftxui::Event::Escape);                        /* done editing */
     CHECK(shown(tui).find("Enter: new line") == std::string::npos);
     s = shown(tui);
     CHECK(s.find("DZ0:") != std::string::npos);                /* the plan without the banner, still there */
@@ -527,20 +525,32 @@ TEST_CASE("Enter on a field opens it with the text it holds; a line emptied goes
     downTo(tui, "START.COM");
     press(tui, ftxui::Event::ArrowDown);                      /* the new line */
     type(tui, "R PAS1");
-    press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::Escape);                         /* Esc finishes the block */
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1"});
-    CHECK(tui.cursorKey() == std::string(kStartupField) + "1");   /* on the next new line */
-    press(tui, ftxui::Event::Return);                         /* opened empty, kept empty: on to the next row */
-    press(tui, ftxui::Event::Return);
-    CHECK(tui.cursorKey() != std::string(kStartupField) + "1");
+
     downTo(tui, "START.COM");
     press(tui, ftxui::Event::ArrowDown);
-    press(tui, ftxui::Event::Return);                         /* R PAS1 opened */
+    press(tui, ftxui::Event::Return);                         /* R PAS1 opened, its own text there */
     CHECK(shown(tui).find("R PAS1_") != std::string::npos);
-    press(tui, ftxui::Event::CtrlU);                          /* emptied */
-    press(tui, ftxui::Event::Return);
-    CHECK_FALSE(tui.model().selection().startup.has_value());
-    CHECK(tui.cursorKey() == std::string(kStartupField) + "0");   /* the line went; the new line came up */
+    press(tui, ftxui::Event::Return);                         /* Enter at its end: a line after it */
+    type(tui, "R FIST");
+    press(tui, ftxui::Event::Escape);
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1", "R FIST"});
+
+    downTo(tui, "START.COM");                                 /* the new line, left empty, is passed */
+    press(tui, ftxui::Event::ArrowDown);
+    press(tui, ftxui::Event::ArrowDown);
+    press(tui, ftxui::Event::ArrowDown);
+    CHECK(tui.cursorKey() == std::string(kStartupField) + "2");
+    press(tui, ftxui::Event::Return);                         /* opened empty */
+    press(tui, ftxui::Event::Return);                         /* kept empty: on to the next row */
+    CHECK(tui.cursorKey() != std::string(kStartupField) + "2");
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1", "R FIST"});
+
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);
+    press(tui, ftxui::Event::Delete);                         /* Del on a line takes it out */
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R FIST"});
 }
 
 TEST_CASE("Enter goes on through everything to the end of the list, and stays there") {
