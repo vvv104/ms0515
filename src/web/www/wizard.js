@@ -164,7 +164,7 @@ export class DiskComposer {
       const cur = this.current?.kind === r.kind && this.current?.key === r.key ? "cur" : "";
       const cls = ["wiz-item", r.mark, r.available ? "" : "na", cur].join(" ");
       out.push(`<div class="${cls}" data-kind="${r.kind}" data-key="${esc(r.key)}" ${pad(r)} title="${esc(r.available ? r.title : r.why)}">${input}` +
-               `<span class="t">${esc(r.title)}</span><span class="b">${r.kind === "bundle" ? r.blocks : ""}</span><span class="n">${note}</span></div>`);
+               `<span class="t">${esc(r.title)}</span><span class="b">${r.kind === "bundle" && !r.key.startsWith("#") ? r.blocks : ""}</span><span class="n">${note}</span></div>`);
     }
     list.innerHTML = out.join("");
     // A field: Enter keeps it and goes on to the next field of its block,
@@ -227,6 +227,11 @@ export class DiskComposer {
     if (this.current?.kind !== "bundle") {
       box.innerHTML = `<p class="dim">${this.state.ready ? "Tap a line: it is ticked or unticked, and its details show here."
                                                        : "Choose the diskette first, then the operating system on it."}</p>`;
+      return;
+    }
+    if (this.current.key.startsWith("#")) {          // the wizard's own checkbox: its hint
+      const r = this.state.rows.find((x) => x.kind === "bundle" && x.key === this.current.key);
+      box.innerHTML = `<div class="wiz-dtitle">${esc(r?.title ?? "")}</div><div>${esc(r?.summary ?? "")}</div>`;
       return;
     }
     const d = JSON.parse(this.api.details(this.current.key));
