@@ -57,6 +57,12 @@ group    = "Development"
 requires = ["macro11"]
 prefer   = ["macro-a"]
 files    = ["d/PAS1.SAV"]
+
+[bundle.pip]
+title    = "PIP"
+group    = "Utilities"
+provides = ["pip"]
+files    = ["u/PIP.SAV"]
 )toml";
 
 /* A bootable little exemplar: SWAP, a monitor, and the DZ.SYS the
@@ -90,6 +96,7 @@ Repository repository()
     (*files)["d/a/MACRO.SAV"] = std::vector<uint8_t>(3 * kBlock, 3);
     (*files)["d/b/MACRO.SAV"] = std::vector<uint8_t>(4 * kBlock, 4);
     (*files)["d/PAS1.SAV"] = std::vector<uint8_t>(5 * kBlock, 5);
+    (*files)["u/PIP.SAV"] = std::vector<uint8_t>(2 * kBlock, 6);
     Repository repo;
     for (const auto &kv : *files) repo.paths.push_back(kv.first);
     repo.read = [files](const std::string &p) -> std::optional<std::vector<uint8_t>> {
@@ -318,6 +325,7 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     CHECK(s.find("[R PAS1") != std::string::npos);
     CHECK(s.find("1 line") != std::string::npos);
     CHECK(s.find("7Startup") == std::string::npos);            /* no keys of their own any more */
+    CHECK(s.find("START.COM 1") != std::string::npos);         /* the plan counts the file it makes */
 
     downTo(tui, "START.COM");
     press(tui, ftxui::Event::ArrowDown);
@@ -358,13 +366,61 @@ TEST_CASE("a field takes Russian letters as letters: Backspace takes one, the bo
     press(tui, ftxui::Event::Return);
     CHECK(tui.model().selection().startup == std::vector<std::string>{"DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99"});
 
-    downTo(tui, "START.COM");                                 /* a line of thirty letters shows thirty */
+    downTo(tui, "START.COM");                                 /* a line is as wide as the machine's screen: 80 letters */
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::ArrowDown);
-    std::string thirty;
-    for (int i = 0; i < 30; ++i) { press(tui, ftxui::Event::Character(std::string("\xD0\xAF"))); thirty += "\xD0\xAF"; }   /* Я */
-    CHECK(shown(tui).find(thirty.substr(2) + "_") != std::string::npos);       /* the last 29 and the cursor, not 14 */
+    CHECK(shown(tui).find("[a new line ") != std::string::npos);              /* the empty box says what it is */
+    std::string forty;
+    for (int i = 0; i < 40; ++i) { press(tui, ftxui::Event::Character(std::string("\xD0\xAF"))); forty += "\xD0\xAF"; }   /* Я */
+    CHECK(shown(tui).find(forty + "_ ") != std::string::npos);                 /* forty, whole, and room after */
+    std::string eighty = forty;
+    for (int i = 0; i < 40; ++i) { press(tui, ftxui::Event::Character(std::string("\xD0\xAF"))); eighty += "\xD0\xAF"; }
+    CHECK(shown(tui).find(eighty.substr(2) + "_") != std::string::npos);       /* the last 79 and the cursor, not 39 */
+    CHECK(shown(tui).find(eighty.substr(2) + "_ ") == std::string::npos);      /* the box full to its edge */
     press(tui, ftxui::Event::Escape);
+}
+
+TEST_CASE("a narrow terminal: the line's box takes what is left inside the frame after the indent and the brackets") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    ready(tui);
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);
+    type(tui, "R FIST");
+    press(tui, ftxui::Event::Return);
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(60), ftxui::Dimension::Fixed(40));
+    ftxui::Render(screen, tui.render(60, 40));
+    const std::string s = screen.ToString();
+    CHECK(s.find("[R FIST" + std::string(46, ' ') + "]") != std::string::npos);   /* 60 - the frame - the indent of 4 - the brackets */
+}
+
+TEST_CASE("a banner: BANNER.TXT and START.COM counted in the plan; without PIP the plan stays and the refusal is under it") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    ready(tui);
+    std::string s = shown(tui);
+    CHECK(s.find("START.COM 1") == std::string::npos);         /* no lines typed: no file made */
+    REQUIRE(s.find(" free") != std::string::npos);
+
+    enter(tui, "BANNER.TXT");                                 /* opened, and on its first line */
+    CHECK(tui.cursorKey() == "#banner:0");
+    type(tui, "Type R FIST");
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().banner == std::vector<std::string>{"Type R FIST"});
+    s = shown(tui);
+    CHECK(s.find("DZ0:") != std::string::npos);                /* the plan without the banner, still there */
+    CHECK(s.find(" free") != std::string::npos);
+    CHECK(s.find("a banner needs PIP") != std::string::npos);  /* and why it is not in it */
+    CHECK(s.find("BANNER.TXT 1") == std::string::npos);
+
+    choose(tui, "PIP");
+    s = shown(tui);
+    CHECK(s.find("a banner needs PIP") == std::string::npos);
+    CHECK(s.find("Utilities 2") != std::string::npos);
+    CHECK(s.find("START.COM 1") != std::string::npos);         /* TYPE BANNER.TXT, made for it */
+    CHECK(s.find("BANNER.TXT 1") != std::string::npos);
 }
 
 TEST_CASE("Enter walks the label field by field, on to the systems - whichever diskette, however often") {

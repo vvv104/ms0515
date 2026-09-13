@@ -50,7 +50,7 @@ std::optional<std::vector<uint8_t>> readHost(const std::filesystem::path &p)
 
 const int kNoteWidth = 22;
 const int kSideWidth = 5 + 2 + kNoteWidth;   /* a group's summary sits where its rows' blocks and notes do */
-const int kLineWidth = 30;                   /* a START.COM line's box */
+const int kLineWidth = 80;                   /* a START.COM or BANNER.TXT line's box: the machine's screen is 80 columns */
 
 /* The text typed is UTF-8 and a Russian letter is two bytes of it: the
  * fields count letters, not bytes, so that Backspace takes a whole letter
@@ -130,6 +130,15 @@ void WizardTui::changed()
         if (!plan_->ok) planProblem_ = plan_->problem;
     } catch (const std::exception &e) {
         planProblem_ = e.what();
+        /* A banner refused (no PIP to type it): the plan without it, so
+         * the volumes stay in sight under the reason. */
+        disk::Selection without = wizard_.selection();
+        if (without.banner) try {
+            without.banner.reset();
+            plan_ = planDisk(recipeFor(manifest_, without, repo_));
+        } catch (const std::exception &) {
+            plan_.reset();
+        }
     }
     const auto rows = visibleRows();
     cursor_ = std::clamp(cursor_, 0, static_cast<int>(rows.size()) + kButtonCount - 1);
@@ -453,8 +462,14 @@ Element WizardTui::rowLine(const WizardRow &r, bool here) const
         line = text(indent + "one of: " + r.title) | kGroup;
     } else if (r.kind == WizardRow::Kind::field) {
         const bool typing = editing_ && editKey_ == r.key;
-        const std::size_t width = r.parent == kLabelGroup ? 12 : kLineWidth;
+        const bool label = r.parent == kLabelGroup;
+        const std::size_t width = label ? 12 : lineBoxWidth(r.depth);
         std::string shownText = typing ? edit_ + "_" : r.value;
+        /* A label's note sits at the side of its short box; a line's box
+         * has the row, so its note - "a new line" - sits in the box, grey,
+         * until something is typed there. */
+        const bool hint = !label && !typing && shownText.empty();
+        if (hint) shownText = r.summary;
         if (letters(shownText) > width) shownText = lastLetters(shownText, width);
         shownText.append(width - letters(shownText), ' ');
         std::string title = r.title;
@@ -462,8 +477,10 @@ Element WizardTui::rowLine(const WizardRow &r, bool here) const
         /* The row keeps its cursor bar while the box is typed into: the
          * bar round the box, the box in its own colours. */
         const Decorator around = here ? kCursor : Decorator(nothing);
-        line = hbox({text(indent + title + "[") | around, text(shownText) | (typing ? kEdit : around),
-                     text("]") | around, filler() | around, text(r.summary) | size(WIDTH, EQUAL, kSideWidth) | around});
+        const Decorator inside = typing ? kEdit : hint && !here ? kGrey : around;
+        Elements parts{text(indent + title + "[") | around, text(shownText) | inside, text("]") | around, filler() | around};
+        if (label) parts.push_back(text(r.summary) | size(WIDTH, EQUAL, kSideWidth) | around);
+        line = hbox(std::move(parts));
     } else if (r.kind == WizardRow::Kind::line) {
         const auto *sys = manifest_.system(wizard_.system());
         const std::string from = sys && r.requiredBy == sys->title ? std::string("the system's") : "from " + shortTitle(r.requiredBy);
@@ -571,6 +588,11 @@ Element WizardTui::renderPlan(int width) const
     auto groups = wizard_.blocksByGroup();
     int bundles = 0;
     for (const auto &g : groups) bundles += g.second;
+    if (plan_) for (const auto &f : plan_->files) {                /* START.COM, BANNER.TXT: a line each */
+        if (f.volume < 0) continue;
+        groups.emplace_back(f.title, f.blocks);
+        bundles += f.blocks;
+    }
     if (plan_ && plan_->ok && used > bundles) {
         if (groups.empty()) groups.emplace_back("System", 0);
         groups.front().second += used - bundles;
@@ -603,8 +625,17 @@ Element WizardTui::renderWindow(int width, int height) const
     return framed(window(text(title), vbox({body, text(""), keys})) | size(WIDTH, EQUAL, std::clamp(width - 8, 30, 60)));
 }
 
+/* A line's box: the machine's 80 columns when the terminal has them, what
+ * is left inside the list's frame after the indent and the brackets when
+ * it has not. */
+std::size_t WizardTui::lineBoxWidth(int depth) const
+{
+    return static_cast<std::size_t>(std::clamp(width_ - 2 - depth * 2 - 2, 12, kLineWidth));
+}
+
 Element WizardTui::render(int width, int height)
 {
+    width_ = width;
     const int planLines = wizard_.ready() ? 1 + (plan_ ? static_cast<int>(plan_->freeBlocks.size()) : 0) + (planProblem_.empty() ? 0 : 2) : 1;
     const int detailsLines = 4;
     const int listRows = std::max(3, height - 1 - 2 - (detailsLines + 2) - (planLines + 2) - 2);

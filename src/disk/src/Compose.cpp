@@ -210,21 +210,38 @@ std::vector<uint8_t> base(const Source &src, const Shape &s, const ComposeRecipe
     return img;
 }
 
+/* One file put on the boot volume by the composition itself, and its line
+ * in the plan; one that does not fit stops the composition. */
+void putOwn(std::vector<uint8_t> &img, const Shape &s, const std::string &name, const std::vector<uint8_t> &data,
+            const PutOptions &o, std::vector<GroupPlacement> &files)
+{
+    GroupPlacement p{name, 0, static_cast<int>((data.size() + kBlock - 1) / kBlock), ""};
+    try {
+        putFile(img, 0, s.ds, name, data, o, s.boot);
+    } catch (const std::exception &e) {
+        p.volume = -1;
+        p.problem = e.what();
+    }
+    files.push_back(p);
+    if (p.volume < 0) throw std::runtime_error(p.problem);
+}
+
 /* The startup file, the bootstrap for the media and the protected blocks:
  * what makes the volume a system once the groups are on it. */
-void finish(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src, const Shape &s)
+void finish(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src, const Shape &s,
+            std::vector<GroupPlacement> &files)
 {
     const auto *e = src.volume.directory.find(src.startup);
     const PutOptions o{e ? e->date : uint16_t{0}, false};
     std::optional<std::vector<std::string>> startup = r.startup;
     if (r.banner) {
-        putFile(img, 0, s.ds, "BANNER.TXT", startupBytes(*r.banner), o, s.boot);
         const std::string type = "TYPE BANNER.TXT";
         if (!startup) startup = std::vector<std::string>{};
         if (std::find(startup->begin(), startup->end(), type) == startup->end()) startup->push_back(type);
     }
-    if (startup) putFile(img, 0, s.ds, src.startup, startupBytes(*startup), o, s.boot);
-    else if (e) putFile(img, 0, s.ds, src.startup, src.volume.readFile(src.startup), o, s.boot);
+    if (startup) putOwn(img, s, src.startup, startupBytes(*startup), o, files);
+    else if (e) putOwn(img, s, src.startup, src.volume.readFile(src.startup), o, files);
+    if (r.banner) putOwn(img, s, "BANNER.TXT", startupBytes(*r.banner), o, files);
 
     const char *handler = s.boot == Vol::dv ? "DV.SYS" : "DZ.SYS";
     if (!openAt(img, s, 0)->directory.find(handler))
@@ -331,7 +348,7 @@ std::vector<uint8_t> compose(const ComposeRecipe &r, ComposePlan &plan)
     plan.problem = placed.problem;
     if (plan.problem.empty()) {
         try {
-            finish(img, r, *src, s);
+            finish(img, r, *src, s, plan.files);
         } catch (const std::exception &e) {
             plan.problem = e.what();
         }

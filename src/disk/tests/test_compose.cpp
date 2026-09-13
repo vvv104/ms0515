@@ -161,6 +161,39 @@ TEST_CASE("a banner: BANNER.TXT on the boot volume in KOI-8R, and START.COM type
     CHECK(com[36] == 0);
 }
 
+TEST_CASE("the plan names what finish put on the boot volume - the startup file, the banner - with their blocks") {
+    ComposeRecipe r = recipe(Media::dv, Media::ss);
+    auto plan = planDisk(r);
+    REQUIRE(plan.ok);
+    REQUIRE(plan.files.size() == 1);                                    /* the exemplar's START.COM, copied */
+    CHECK(plan.files[0].title == "START.COM");
+    CHECK(plan.files[0].volume == 0);
+    CHECK(plan.files[0].blocks == 1);
+
+    r.startup = std::vector<std::string>{"SET TT QUIET"};
+    r.banner = std::vector<std::string>(200, "MANIC MINER");                /* 2600 bytes: six blocks */
+    const int bootFree = plan.freeBlocks.at(0);
+    plan = planDisk(r);
+    REQUIRE(plan.ok);
+    REQUIRE(plan.files.size() == 2);
+    CHECK(plan.files[0].title == "START.COM");
+    CHECK(plan.files[0].blocks == 1);
+    CHECK(plan.files[1].title == "BANNER.TXT");
+    CHECK(plan.files[1].volume == 0);
+    CHECK(plan.files[1].blocks == 6);
+    CHECK(plan.freeBlocks.at(0) == bootFree - 6);
+
+    r.groups.push_back({"big", Place::boot, {file("BIG.DAT", bootFree - 3, 7)}});   /* room for START.COM, not the banner */
+    plan = planDisk(r);
+    CHECK_FALSE(plan.ok);
+    CHECK(plan.problem.find("BANNER.TXT") != std::string::npos);
+    REQUIRE(plan.files.size() == 2);
+    CHECK(plan.files[0].volume == 0);
+    CHECK(plan.files[1].volume == -1);
+    CHECK(plan.files[1].blocks == 6);
+    CHECK_FALSE(plan.files[1].problem.empty());
+}
+
 TEST_CASE("the startup file is KOI-8R: a Russian month typed in UTF-8 reaches the monitor as its own letters") {
     ComposeRecipe r = recipe(Media::dv, Media::ss);
     r.startup = std::vector<std::string>{"DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99"};   /* АПР */
