@@ -140,6 +140,27 @@ TEST_CASE("the startup file: the exemplar's copied, or made of the lines given")
     CHECK((im->directory.find("START.COM")->status & kStatusProtected) == 0);
 }
 
+TEST_CASE("a banner: BANNER.TXT on the boot volume in KOI-8R, and START.COM types it - where the lines say, else last") {
+    ComposeRecipe r = recipe(Media::dv, Media::ss);
+    r.startup = std::vector<std::string>{"SET TT QUIET"};
+    r.banner = std::vector<std::string>{"Type a game: R FIST", "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B"};   /* Игры */
+    auto im = volume(composeDisk(r), Media::ss);
+    const auto txt = im->readFile("BANNER.TXT");
+    const std::vector<uint8_t> want{'T', 'y', 'p', 'e', ' ', 'a', ' ', 'g', 'a', 'm', 'e', ':', ' ', 'R', ' ', 'F', 'I', 'S', 'T', '\r', '\n',
+                                    0xE9, 0xC7, 0xD2, 0xD9, '\r', '\n'};
+    CHECK(std::vector<uint8_t>(txt.begin(), txt.begin() + 27) == want);
+    CHECK(txt[27] == 0);
+    auto com = im->readFile("START.COM");
+    CHECK(std::string(com.begin(), com.begin() + 31) == "SET TT QUIET\r\nTYPE BANNER.TXT\r\n");
+    CHECK(com[31] == 0);
+
+    r.startup = std::vector<std::string>{"SET TT QUIET", "TYPE BANNER.TXT", "DIR"};   /* placed by hand: left there */
+    im = volume(composeDisk(r), Media::ss);
+    com = im->readFile("START.COM");
+    CHECK(std::string(com.begin(), com.begin() + 36) == "SET TT QUIET\r\nTYPE BANNER.TXT\r\nDIR\r\n");
+    CHECK(com[36] == 0);
+}
+
 TEST_CASE("the startup file is KOI-8R: a Russian month typed in UTF-8 reaches the monitor as its own letters") {
     ComposeRecipe r = recipe(Media::dv, Media::ss);
     r.startup = std::vector<std::string>{"DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99"};   /* АПР */

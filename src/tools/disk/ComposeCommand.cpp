@@ -268,7 +268,7 @@ int composeCommand(int argc, char **argv)
         if (!a->planOnly) fs::create_directories(a->all);
         int failed = 0;
         for (const auto &p : m.presets)
-            failed += build(m, selectionOf(p), repo, fs::path(a->all) / (p.key + ".dsk"), a->planOnly) != 0;
+            failed += build(m, selectionOf(m, p), repo, fs::path(a->all) / (p.key + ".dsk"), a->planOnly) != 0;
         return failed ? 1 : 0;
     }
     if (a->out.empty()) return usage();
@@ -276,7 +276,7 @@ int composeCommand(int argc, char **argv)
     if (!a->preset.empty()) {
         const auto *p = m.preset(a->preset);
         if (!p) { std::fprintf(stderr, "error: no preset %s in disks.toml\n", a->preset.c_str()); return 1; }
-        return build(m, selectionOf(*p), repo, a->out, a->planOnly);
+        return build(m, selectionOf(m, *p), repo, a->out, a->planOnly);
     }
     const auto s = selectionOfArgs(*a);
     if (!s) return usage();
