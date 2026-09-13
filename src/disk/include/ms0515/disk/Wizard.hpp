@@ -73,13 +73,15 @@ inline constexpr const char *kSecondVolumeIdField = "#volume-id-2";     /* dz: s
 inline constexpr const char *kSecondOwnerField = "#owner-2";
 inline constexpr const char *kStartupField = "#startup:";
 inline constexpr const char *kBannerField = "#banner:";
+/* The checkbox under BANNER.TXT: clear the screen before the banner. */
+inline constexpr const char *kClearRow = "#clear";
 
 /* "dz - two sides, 800 KB" */
 [[nodiscard]] const char *mediaTitle(Media m);
 
 /* A choice saved to its own file, tied to the version of the collection's
  * disks.toml it was made over:
- *   format = 1, collection, system, media, bundles, picks, startup, banner,
+ *   format = 1, collection, system, media, bundles, picks, startup, banner, clear_screen,
  *   volume_id, owner, second_volume_id, second_owner
  * Only the person's decisions: the system's parts and the dependencies are
  * derived again, by the rules of the collection that reads it.  `banner`
@@ -132,6 +134,7 @@ public:
 
     void setStartup(std::vector<std::string> lines);
     void setBanner(std::vector<std::string> lines);
+    void setClearScreen(bool on) { sel_.clearScreen = on; }
     void setVolumeId(std::optional<std::string> id);
     /* A field's text, as typed: "" when taken, else why not.  A volume id or
      * an owner keeps twelve characters, in capitals, and emptied is unset; a

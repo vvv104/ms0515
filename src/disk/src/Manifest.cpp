@@ -4,6 +4,7 @@
  */
 
 #include "ms0515/disk/Manifest.hpp"
+#include "Internal.hpp"
 
 #include "ms0515/disk/Build.hpp"
 
@@ -33,6 +34,9 @@ std::string str(const toml::table &t, std::string_view key, const std::string &w
     return *v;
 }
 
+/* A preset's lines: one multiline string, or the list of strings. */
+std::vector<std::string> lines(const toml::table &t, std::string_view key, const std::string &where);
+
 std::vector<std::string> strings(const toml::table &t, std::string_view key, const std::string &where)
 {
     std::vector<std::string> out;
@@ -46,6 +50,13 @@ std::vector<std::string> strings(const toml::table &t, std::string_view key, con
         out.push_back(*v);
     }
     return out;
+}
+
+std::vector<std::string> lines(const toml::table &t, std::string_view key, const std::string &where)
+{
+    const auto *node = t.get(key);
+    if (node && node->is_string()) return internal::splitLines(node->value<std::string>().value_or(std::string()));
+    return strings(t, key, where);
 }
 
 Media media(const std::string &word, const std::string &where)
@@ -185,9 +196,10 @@ ManifestPreset readPreset(const std::string &key, const toml::table &t)
     const std::string where = "preset." + key;
     ManifestPreset p{key, str(t, "title", where, true), str(t, "system", where, true),
                      media(str(t, "media", where, true), where), strings(t, "bundles", where),
-                     std::nullopt, std::nullopt, std::nullopt};
-    if (t.contains("startup")) p.startup = strings(t, "startup", where);
-    if (t.contains("banner")) p.banner = strings(t, "banner", where);
+                     std::nullopt, std::nullopt, std::nullopt, false};
+    if (t.contains("startup")) p.startup = lines(t, "startup", where);
+    if (t.contains("banner")) p.banner = lines(t, "banner", where);
+    if (t.contains("clear_screen")) p.clearScreen = t["clear_screen"].value<bool>().value_or(false);
     if (t.contains("volume_id")) p.volumeId = str(t, "volume_id", where, true);
     return p;
 }
@@ -377,16 +389,15 @@ Manifest parseManifest(std::string_view text)
     return m;
 }
 
-Selection selectionOf(const Manifest &m, const ManifestPreset &preset)
+Selection selectionOf(const ManifestPreset &preset)
 {
     Selection s;
     s.system = preset.system;
     s.media = preset.media;
-    s.bundles = preset.bundles;
-    if (const auto *sys = m.system(preset.system))
-        for (const auto &key : suggestedBundles(m, *sys, preset.media, s.bundles)) s.bundles.push_back(key);
+    s.bundles = preset.bundles;                     /* exactly what it names: a system's suggestions are the wizard's to tick */
     s.startup = preset.startup;
     s.banner = preset.banner;
+    s.clearScreen = preset.clearScreen;
     s.volumeId = preset.volumeId;
     return s;
 }
@@ -583,7 +594,7 @@ ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository 
     for (const auto &key : resolution.bundles) chosen.push_back(m.bundle(key));
     /* TYPE is PIP's on these monitors: without it the banner is an error
      * at boot and the rest of START.COM goes unread. */
-    if (s.banner && std::none_of(chosen.begin(), chosen.end(), [](const auto *b) { return satisfies(*b, "pip"); }))
+    if ((s.banner || s.clearScreen) && std::none_of(chosen.begin(), chosen.end(), [](const auto *b) { return satisfies(*b, "pip"); }))
         throw std::runtime_error("a banner needs PIP on the disk - TYPE is its - and no bundle chosen provides pip");
 
     auto read = [&](const std::string &path) {
@@ -603,6 +614,7 @@ ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository 
         if (std::find(once.begin(), once.end(), line) == once.end()) once.push_back(line);
     if (sys->startup || !once.empty()) r.startup = once;
     r.banner = s.banner;
+    r.clearScreen = s.clearScreen;
     r.volumeId = s.volumeId;
     r.owner = s.owner ? s.owner : m.owner;
     if (s.media == Media::dz) {

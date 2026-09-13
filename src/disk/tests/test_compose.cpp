@@ -159,6 +159,56 @@ TEST_CASE("a banner: BANNER.TXT on the boot volume in KOI-8R, and START.COM type
     com = im->readFile("START.COM");
     CHECK(std::string(com.begin(), com.begin() + 36) == "SET TT QUIET\r\nTYPE BANNER.TXT\r\nDIR\r\n");
     CHECK(com[36] == 0);
+
+    /* Clearing the screen: ESC H ESC J - home, erase to the end - before the
+     * lines; a BANNER.TXT of that alone when there are none. */
+    r.clearScreen = true;
+    im = volume(composeDisk(r), Media::ss);
+    auto cleared = im->readFile("BANNER.TXT");
+    const std::vector<uint8_t> esc{0x1B, 'H', 0x1B, 'J'};
+    CHECK(std::vector<uint8_t>(cleared.begin(), cleared.begin() + 4) == esc);
+    CHECK(std::vector<uint8_t>(cleared.begin() + 4, cleared.begin() + 31) == want);
+    r.banner.reset();
+    r.startup = std::vector<std::string>{"SET TT QUIET"};
+    im = volume(composeDisk(r), Media::ss);
+    cleared = im->readFile("BANNER.TXT");
+    CHECK(std::vector<uint8_t>(cleared.begin(), cleared.begin() + 4) == esc);
+    CHECK(cleared[4] == 0);
+    com = im->readFile("START.COM");
+    CHECK(std::string(com.begin(), com.begin() + 31) == "SET TT QUIET\r\nTYPE BANNER.TXT\r\n");
+}
+
+TEST_CASE("the plan names what finish put on the boot volume - the startup file, the banner - with their blocks") {
+    ComposeRecipe r = recipe(Media::dv, Media::ss);
+    auto plan = planDisk(r);
+    REQUIRE(plan.ok);
+    REQUIRE(plan.files.size() == 1);                                    /* the exemplar's START.COM, copied */
+    CHECK(plan.files[0].title == "START.COM");
+    CHECK(plan.files[0].volume == 0);
+    CHECK(plan.files[0].blocks == 1);
+
+    r.startup = std::vector<std::string>{"SET TT QUIET"};
+    r.banner = std::vector<std::string>(200, "MANIC MINER");                /* 2600 bytes: six blocks */
+    const int bootFree = plan.freeBlocks.at(0);
+    plan = planDisk(r);
+    REQUIRE(plan.ok);
+    REQUIRE(plan.files.size() == 2);
+    CHECK(plan.files[0].title == "START.COM");
+    CHECK(plan.files[0].blocks == 1);
+    CHECK(plan.files[1].title == "BANNER.TXT");
+    CHECK(plan.files[1].volume == 0);
+    CHECK(plan.files[1].blocks == 6);
+    CHECK(plan.freeBlocks.at(0) == bootFree - 6);
+
+    r.groups.push_back({"big", Place::boot, {file("BIG.DAT", bootFree - 3, 7)}});   /* room for START.COM, not the banner */
+    plan = planDisk(r);
+    CHECK_FALSE(plan.ok);
+    CHECK(plan.problem.find("BANNER.TXT") != std::string::npos);
+    REQUIRE(plan.files.size() == 2);
+    CHECK(plan.files[0].volume == 0);
+    CHECK(plan.files[1].volume == -1);
+    CHECK(plan.files[1].blocks == 6);
+    CHECK_FALSE(plan.files[1].problem.empty());
 }
 
 TEST_CASE("the startup file is KOI-8R: a Russian month typed in UTF-8 reaches the monitor as its own letters") {

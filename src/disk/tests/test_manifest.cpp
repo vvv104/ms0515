@@ -97,6 +97,7 @@ media     = "dz"
 volume_id = "GAMES"
 bundles   = ["sabot2", "pacman", "docs", "pip"]
 banner    = ["Type a game to run it"]
+clear_screen = true
 
 [preset.rodionov]
 title   = "Rodionov"
@@ -146,6 +147,18 @@ std::string replaced(std::string s, const std::string &from, const std::string &
 }  /* namespace */
 
 TEST_SUITE("Manifest") {
+
+TEST_CASE("a preset may give START.COM and BANNER.TXT as one multiline string each, blank lines kept") {
+    std::string text = kToml;
+    text += "\n[preset.ml]\ntitle = \"ML\"\nsystem = \"osa\"\nmedia = \"dz\"\nbundles = [\"pip\"]\n"
+            "startup = '''\nDATSET 01-04-92\nTYPE BANNER.TXT'''\n"
+            "banner = '''\nType a game:\n\n  FIST  karate'''\n";
+    const Manifest m = parseManifest(text);
+    const auto *p = m.preset("ml");
+    REQUIRE(p);
+    CHECK(p->startup == std::vector<std::string>{"DATSET 01-04-92", "TYPE BANNER.TXT"});
+    CHECK(p->banner == std::vector<std::string>{"Type a game:", "", "  FIST  karate"});
+}
 
 TEST_CASE("disks.toml read: systems, bundles and presets as written, in order") {
     const Manifest m = parseManifest(kToml);
@@ -243,7 +256,7 @@ TEST_CASE("a bundle's paths: in order, globs in name order and RT-11 names only"
 TEST_CASE("a preset's recipe: the system read, every file named, dated and placed") {
     const Manifest m = parseManifest(kToml);
     const auto repo = repository();
-    const ComposeRecipe r = recipeFor(m, selectionOf(m, *m.preset("games")), repo);
+    const ComposeRecipe r = recipeFor(m, selectionOf(*m.preset("games")), repo);
     CHECK(r.system == *repo.read("systems/osa.dsk"));
     CHECK(r.media == Media::dz);
     CHECK(r.volumeId == "GAMES");
@@ -251,9 +264,9 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
     CHECK(r.secondOwner == "MS0515 EMU");
     CHECK(r.startup == std::vector<std::string>{"SET TT QUIET"});
     CHECK(r.banner == std::vector<std::string>{"Type a game to run it"});
-    REQUIRE(r.groups.size() == 7);                             /* PIP for the banner, and DUP, the system's suggestion, last */
+    CHECK(r.clearScreen);
+    REQUIRE(r.groups.size() == 6);                             /* PIP for the banner last; DUP, the system's suggestion, is not named: not there */
     CHECK(r.groups[5].title == "PIP");
-    CHECK(r.groups[6].title == "DUP");
     CHECK(r.groups[0].title == "DZ.SYS");                      /* the system's own parts first */
     CHECK(r.groups[1].title == "TT.SYS");
     const auto &sab = r.groups[2];
@@ -278,26 +291,29 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
     CHECK(bootedMonitor(img, 0, true) == "RT11SJ");
     CHECK(boot->directory.find("SL.SYS") == nullptr);          /* on the exemplar, not chosen */
 
-    Selection dv = selectionOf(m, *m.preset("games"));
+    Selection dv = selectionOf(*m.preset("games"));
     dv.media = Media::dv;
     dv.bundles = {"docs"};
     dv.banner.reset();                                         /* no PIP among these: no banner */
+    dv.clearScreen = false;
     const ComposeRecipe onDv = recipeFor(m, dv, repo);
     CHECK(onDv.groups[2].title == "DV.SYS");                   /* the media's own requirement */
     CHECK(bootedMonitor(composeDisk(onDv), 0, true, Vol::dv) == "RT11SJ");
 }
 
-TEST_CASE("a system's suggestions: ticked for a preset, by its preference, unless the preset chose among them - never required") {
+TEST_CASE("a system's suggestions are the wizard's to tick, never a preset's: a preset is exactly what it names") {
     const Manifest m = parseManifest(kToml);
     CHECK(m.system("osa")->suggests == std::vector<std::string>{"dup"});
     CHECK(m.system("rodionov")->suggests.empty());
-    Selection games = selectionOf(m, *m.preset("games"));
-    CHECK(games.bundles == std::vector<std::string>{"sabot2", "pacman", "docs", "pip", "dup"});
+    Selection games = selectionOf(*m.preset("games"));
+    CHECK(games.bundles == std::vector<std::string>{"sabot2", "pacman", "docs", "pip"});   /* no DUP: a 51-block DUP would not fit a games disk */
     /* A banner without PIP on the disk is refused: TYPE is PIP's. */
     Selection noPip = games;
     std::erase(noPip.bundles, "pip");
     CHECK_THROWS_WITH_AS((void)recipeFor(m, noPip, repository()), doctest::Contains("banner needs PIP"), std::runtime_error);
-    noPip.banner.reset();
+    noPip.banner.reset();                                      /* clearing the screen is a BANNER.TXT too */
+    CHECK_THROWS_WITH_AS((void)recipeFor(m, noPip, repository()), doctest::Contains("banner needs PIP"), std::runtime_error);
+    noPip.clearScreen = false;
     CHECK_NOTHROW((void)recipeFor(m, noPip, repository()));
     /* Without it the disk still resolves: a suggestion is no requirement. */
     CHECK(resolveBundles(m, "osa", Media::dz, {"sabot2"}, {}).ok);
@@ -313,7 +329,7 @@ TEST_CASE("a system's suggestions: ticked for a preset, by its preference, unles
 
 TEST_CASE("a system's recipe: its reserved blocks, and a startup of the system's, the bundles' and the selection's lines") {
     const Manifest m = parseManifest(kToml);
-    const ComposeRecipe r = recipeFor(m, selectionOf(m, *m.preset("rodionov")), repository());
+    const ComposeRecipe r = recipeFor(m, selectionOf(*m.preset("rodionov")), repository());
     CHECK(r.reserved.size() == 2);
     CHECK(r.startup == std::vector<std::string>{"SET TT QUIET", "SET SL ON", "LOAD VM:", "R ROSA3"});   /* SET SL ON once */
     CHECK(planDisk(r).ok);
@@ -552,7 +568,7 @@ TEST_CASE("a system requires a name: its own build preferred, another one picked
 
 TEST_CASE("the labels: each side's volume id and owner, the second side's on a two-sided disk only") {
     const Manifest m = parseManifest(kDeps);
-    Selection s = selectionOf(m, *m.preset("dev"));
+    Selection s = selectionOf(*m.preset("dev"));
     s.volumeId = "DEV";
     s.owner = "VVV104";
     s.secondVolumeId = "TWO";
@@ -580,13 +596,13 @@ TEST_CASE("a need nothing on this system satisfies refuses what needs it, saying
 
 TEST_CASE("a recipe installs the needs too, before what needs them") {
     const Manifest m = parseManifest(kDeps);
-    const ComposeRecipe r = recipeFor(m, selectionOf(m, *m.preset("dev")), depsRepository());
+    const ComposeRecipe r = recipeFor(m, selectionOf(*m.preset("dev")), depsRepository());
     std::vector<std::string> titles;
     for (const auto &g : r.groups) titles.push_back(g.title);
     CHECK(titles == std::vector<std::string>{"DZ.SYS", "DV.SYS", "SYSMAC.SML", "MACRO-11 (vvv104 build)", "LINK (vvv104 build)", "Pascal", "Pascal graphics"});
     CHECK(planDisk(r).ok);
 
-    Selection s = selectionOf(m, *m.preset("dev"));
+    Selection s = selectionOf(*m.preset("dev"));
     s.system = "omega";
     s.picks = {{"macro11", "macro-omega"}};
     const ComposeRecipe picked = recipeFor(m, s, depsRepository());

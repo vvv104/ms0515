@@ -57,6 +57,12 @@ group    = "Development"
 requires = ["macro11"]
 prefer   = ["macro-a"]
 files    = ["d/PAS1.SAV"]
+
+[bundle.pip]
+title    = "PIP"
+group    = "Utilities"
+provides = ["pip"]
+files    = ["u/PIP.SAV"]
 )toml";
 
 /* A bootable little exemplar: SWAP, a monitor, and the DZ.SYS the
@@ -90,6 +96,7 @@ Repository repository()
     (*files)["d/a/MACRO.SAV"] = std::vector<uint8_t>(3 * kBlock, 3);
     (*files)["d/b/MACRO.SAV"] = std::vector<uint8_t>(4 * kBlock, 4);
     (*files)["d/PAS1.SAV"] = std::vector<uint8_t>(5 * kBlock, 5);
+    (*files)["u/PIP.SAV"] = std::vector<uint8_t>(2 * kBlock, 6);
     Repository repo;
     for (const auto &kv : *files) repo.paths.push_back(kv.first);
     repo.read = [files](const std::string &p) -> std::optional<std::vector<uint8_t>> {
@@ -312,12 +319,13 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     downTo(tui, "START.COM");
     press(tui, ftxui::Event::ArrowDown);                      /* the new line under the heading */
     type(tui, "R PAS1");
-    press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::Escape);                         /* Esc finishes a line block */
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1"});
     const std::string s = shown(tui);
-    CHECK(s.find("[R PAS1") != std::string::npos);
+    CHECK(s.find("\xE2\x94\x82 R PAS1") != std::string::npos);        /* a line behind the gutter, no brackets */
     CHECK(s.find("1 line") != std::string::npos);
     CHECK(s.find("7Startup") == std::string::npos);            /* no keys of their own any more */
+    CHECK(s.find("START.COM 1") != std::string::npos);         /* the plan counts the file it makes */
 
     downTo(tui, "START.COM");
     press(tui, ftxui::Event::ArrowDown);
@@ -330,7 +338,7 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     CHECK(tui.model().selection().volumeId == "DVDISK");
     press(tui, ftxui::Event::ArrowUp);
     type(tui, "X");
-    press(tui, ftxui::Event::Delete);                         /* Del in an edit empties the box */
+    press(tui, ftxui::Event::CtrlU);                          /* Ctrl+U in an edit empties the box */
     type(tui, "NEW");
     press(tui, ftxui::Event::Return);
     CHECK(tui.model().selection().volumeId == "NEW");
@@ -355,16 +363,119 @@ TEST_CASE("a field takes Russian letters as letters: Backspace takes one, the bo
     press(tui, ftxui::Event::Backspace);                      /* the Е goes, whole */
     type(tui, "-99");
     CHECK(shown(tui).find("DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99_") != std::string::npos);   /* the box, being typed into */
-    press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::Escape);
     CHECK(tui.model().selection().startup == std::vector<std::string>{"DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99"});
 
-    downTo(tui, "START.COM");                                 /* a line of thirty letters shows thirty */
+    downTo(tui, "START.COM");                                 /* a line is as wide as the machine's screen: 80 letters */
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::ArrowDown);
-    std::string thirty;
-    for (int i = 0; i < 30; ++i) { press(tui, ftxui::Event::Character(std::string("\xD0\xAF"))); thirty += "\xD0\xAF"; }   /* Я */
-    CHECK(shown(tui).find(thirty.substr(2) + "_") != std::string::npos);       /* the last 29 and the cursor, not 14 */
+    CHECK(shown(tui).find("a new line") != std::string::npos);                /* the empty line says what it is */
+    std::string forty;
+    for (int i = 0; i < 40; ++i) { press(tui, ftxui::Event::Character(std::string("\xD0\xAF"))); forty += "\xD0\xAF"; }   /* Я */
+    CHECK(shown(tui).find(forty + "_ ") != std::string::npos);                 /* forty, whole, and room after */
+    std::string eighty = forty;
+    for (int i = 0; i < 40; ++i) { press(tui, ftxui::Event::Character(std::string("\xD0\xAF"))); eighty += "\xD0\xAF"; }
+    CHECK(shown(tui).find(eighty.substr(2) + "_") != std::string::npos);       /* the last 79 and the cursor, not 39 */
+    CHECK(shown(tui).find(eighty.substr(2) + "_ ") == std::string::npos);      /* the box full to its edge */
+    press(tui, ftxui::Event::Home);                                            /* the cursor on the first letter: the box scrolls back */
+    CHECK(shown(tui).find(eighty.substr(2) + "_") == std::string::npos);
+    CHECK(shown(tui).find(eighty.substr(2)) != std::string::npos);            /* letters 2..80 after the one under the cursor */
     press(tui, ftxui::Event::Escape);
+}
+
+TEST_CASE("the cursor moves inside a field: Left, Right, Home, End; letters go in at it, Backspace and Del take one out on either side") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    ready(tui);
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);
+    type(tui, "R FSTX");
+    press(tui, ftxui::Event::ArrowLeft);                      /* before the X */
+    press(tui, ftxui::Event::Delete);                         /* the X, under the cursor, goes */
+    press(tui, ftxui::Event::ArrowLeft);
+    press(tui, ftxui::Event::ArrowLeft);                      /* before the S */
+    type(tui, "I");                                           /* R FIST */
+    press(tui, ftxui::Event::Home);
+    press(tui, ftxui::Event::Backspace);                      /* nothing before the cursor: nothing happens */
+    type(tui, "!");                                           /* !R FIST, the cursor after the ! */
+    press(tui, ftxui::Event::Backspace);                      /* the ! before the cursor goes; the R stays */
+    press(tui, ftxui::Event::End);
+    press(tui, ftxui::Event::Delete);                         /* nothing under the cursor at the end */
+    press(tui, ftxui::Event::Backspace);                      /* the T */
+    type(tui, "T");
+    CHECK(shown(tui).find("R FIST_") != std::string::npos);
+    press(tui, ftxui::Event::Escape);                         /* Esc finishes the block, the cursor stays on the line */
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R FIST"});
+
+    press(tui, ftxui::Event::Return);                         /* R FIST opened, the cursor at its end */
+    press(tui, ftxui::Event::ArrowLeft);
+    press(tui, ftxui::Event::ArrowLeft);
+    press(tui, ftxui::Event::ArrowLeft);
+    press(tui, ftxui::Event::ArrowLeft);                      /* before the F: the letter under the cursor is shown apart */
+    CHECK(shown(tui).find("IST") != std::string::npos);
+    CHECK(shown(tui).find("FIST") == std::string::npos);
+    press(tui, ftxui::Event::Character(std::string("\xD0\x9F")));   /* П */
+    press(tui, ftxui::Event::Character(std::string("\xD0\x98")));   /* И */
+    press(tui, ftxui::Event::Character(std::string("\xD0\xA0")));   /* Р */
+    press(tui, ftxui::Event::Backspace);                      /* Р goes, whole */
+    press(tui, ftxui::Event::ArrowLeft);                      /* over И, whole */
+    press(tui, ftxui::Event::Delete);                         /* И goes, whole */
+    press(tui, ftxui::Event::Escape);
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R \xD0\x9F" "FIST"});
+}
+
+TEST_CASE("a narrow terminal: the line's box takes what is left inside the frame after the indent and the brackets") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    ready(tui);
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);
+    type(tui, "R FIST");
+    press(tui, ftxui::Event::Return);
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(60), ftxui::Dimension::Fixed(40));
+    ftxui::Render(screen, tui.render(60, 40));
+    const std::string s = screen.ToString();
+    CHECK(s.find("\xE2\x94\x82 R FIST" + std::string(46, ' ')) != std::string::npos);   /* 60 - the frame - the indent of 4 - the gutter */
+}
+
+TEST_CASE("a banner: BANNER.TXT and START.COM counted in the plan; without PIP the plan stays and the refusal is under it") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    ready(tui);
+    std::string s = shown(tui);
+    CHECK(s.find("START.COM 1") == std::string::npos);         /* no lines typed: no file made */
+    REQUIRE(s.find(" free") != std::string::npos);
+
+    enter(tui, "BANNER.TXT");                                 /* opened, and on its checkbox */
+    CHECK(tui.cursorKey() == kClearRow);
+    press(tui, ftxui::Event::Character(" "));
+    CHECK(tui.model().selection().clearScreen);
+    CHECK(shown(tui).find("[x] Clear the screen first") != std::string::npos);
+    press(tui, ftxui::Event::ArrowDown);                     /* the first line, edited in place */
+    CHECK(tui.cursorKey() == std::string(kBannerField) + "0");
+    type(tui, "Type R FIST");                                /* typing starts the edit */
+    CHECK(shown(tui).find("Enter: new line") != std::string::npos);    /* a line block, being edited */
+    press(tui, ftxui::Event::Return);                        /* Enter makes a new line */
+    press(tui, ftxui::Event::Return);                        /* another: a blank line between them */
+    type(tui, "and enjoy");
+    CHECK(tui.model().selection().banner == std::vector<std::string>{"Type R FIST", "", "and enjoy"});
+    press(tui, ftxui::Event::Escape);                        /* done editing */
+    CHECK(shown(tui).find("Enter: new line") == std::string::npos);
+    s = shown(tui);
+    CHECK(s.find("DZ0:") != std::string::npos);                /* the plan without the banner, still there */
+    CHECK(s.find(" free") != std::string::npos);
+    CHECK(s.find("a banner needs PIP") != std::string::npos);  /* and why it is not in it */
+    CHECK(s.find("BANNER.TXT 1") == std::string::npos);
+
+    choose(tui, "PIP");
+    s = shown(tui);
+    CHECK(s.find("a banner needs PIP") == std::string::npos);
+    CHECK(s.find("Utilities 2") != std::string::npos);
+    CHECK(s.find("START.COM 1") != std::string::npos);         /* TYPE BANNER.TXT, made for it */
+    CHECK(s.find("BANNER.TXT 1") != std::string::npos);
 }
 
 TEST_CASE("Enter walks the label field by field, on to the systems - whichever diskette, however often") {
@@ -414,20 +525,32 @@ TEST_CASE("Enter on a field opens it with the text it holds; a line emptied goes
     downTo(tui, "START.COM");
     press(tui, ftxui::Event::ArrowDown);                      /* the new line */
     type(tui, "R PAS1");
-    press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::Escape);                         /* Esc finishes the block */
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1"});
-    CHECK(tui.cursorKey() == std::string(kStartupField) + "1");   /* on the next new line */
-    press(tui, ftxui::Event::Return);                         /* opened empty, kept empty: on to the next row */
-    press(tui, ftxui::Event::Return);
-    CHECK(tui.cursorKey() != std::string(kStartupField) + "1");
+
     downTo(tui, "START.COM");
     press(tui, ftxui::Event::ArrowDown);
-    press(tui, ftxui::Event::Return);                         /* R PAS1 opened */
+    press(tui, ftxui::Event::Return);                         /* R PAS1 opened, its own text there */
     CHECK(shown(tui).find("R PAS1_") != std::string::npos);
-    press(tui, ftxui::Event::Delete);                         /* emptied */
-    press(tui, ftxui::Event::Return);
-    CHECK_FALSE(tui.model().selection().startup.has_value());
-    CHECK(tui.cursorKey() == std::string(kStartupField) + "0");   /* the line went; the new line came up */
+    press(tui, ftxui::Event::Return);                         /* Enter at its end: a line after it */
+    type(tui, "R FIST");
+    press(tui, ftxui::Event::Escape);
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1", "R FIST"});
+
+    downTo(tui, "START.COM");                                 /* the new line, left empty, is passed */
+    press(tui, ftxui::Event::ArrowDown);
+    press(tui, ftxui::Event::ArrowDown);
+    press(tui, ftxui::Event::ArrowDown);
+    CHECK(tui.cursorKey() == std::string(kStartupField) + "2");
+    press(tui, ftxui::Event::Return);                         /* opened empty */
+    press(tui, ftxui::Event::Return);                         /* kept empty: on to the next row */
+    CHECK(tui.cursorKey() != std::string(kStartupField) + "2");
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1", "R FIST"});
+
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);
+    press(tui, ftxui::Event::Delete);                         /* Del on a line takes it out */
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R FIST"});
 }
 
 TEST_CASE("Enter goes on through everything to the end of the list, and stays there") {

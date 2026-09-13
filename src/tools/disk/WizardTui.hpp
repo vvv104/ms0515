@@ -55,7 +55,7 @@ public:
 
 private:
     enum class Ask { none, find };
-    enum class Button { save, open, build, quit };
+    enum class Button { open, save, build, quit };   /* the order they sit in, and kButtons[] */
 
     void changed();
     void moveCursor(int delta);
@@ -68,10 +68,13 @@ private:
     bool onWindowEvent(const ftxui::Event &event);
     void finishFile(const std::filesystem::path &path);
     [[nodiscard]] ftxui::Element rowLine(const disk::WizardRow &row, bool here) const;
+    [[nodiscard]] std::size_t lineBoxWidth(int depth) const;
+    [[nodiscard]] ftxui::Elements editBox(std::size_t width) const;
     [[nodiscard]] ftxui::Element renderWindow(int width, int height) const;
     void finishAsk();
     bool onAskEvent(const ftxui::Event &event);
     void startEdit(const disk::WizardRow &row, std::string text);
+    bool onLineEditEvent(const ftxui::Event &event);
     void advance(const std::string &key, disk::WizardRow::Kind kind);
     bool onEditEvent(const ftxui::Event &event);
     bool onListEvent(const ftxui::Event &event);
@@ -100,14 +103,15 @@ private:
     std::string             message_;             /* a window saying what went wrong */
     bool                    quitting_ = false;    /* "leave the composer?" asked */
 
+    int                     width_ = 120;         /* the screen's, as last rendered: the boxes fit it */
     int                     cursor_ = 0;          /* a row; past the rows, a button */
     int                     top_ = 0;
     Ask                     ask_ = Ask::none;
     std::string             input_;
     bool                    editing_ = false;    /* a field's text being typed */
-    bool                    editHadText_ = false;   /* the field held text when the edit began */
     std::string             editKey_;
     std::string             edit_;
+    std::size_t             editAt_ = 0;         /* the cursor: a letter's index in edit_, its size at the end */
     std::string             status_;
     bool                    quit_ = false;
 };

@@ -116,15 +116,20 @@ std::string padded(const std::string &s, std::size_t width)
     return chars >= width ? s : s + std::string(width - chars, ' ');
 }
 
+void printPlacement(const GroupPlacement &g)
+{
+    const std::string title = padded(g.title, 40);
+    if (g.volume >= 0)
+        std::printf("  %s %4d blocks  %s\n", title.c_str(), g.blocks, g.volume == 0 ? "boot volume" : "second volume");
+    else
+        std::printf("  %s %4d blocks  NOT PLACED: %s\n", title.c_str(), g.blocks, g.problem.c_str());
+}
+
+/* The groups, then the files the composition makes itself: START.COM, BANNER.TXT. */
 void printPlan(const ComposePlan &plan)
 {
-    for (const auto &g : plan.groups) {
-        const std::string title = padded(g.title, 40);
-        if (g.volume >= 0)
-            std::printf("  %s %4d blocks  %s\n", title.c_str(), g.blocks, g.volume == 0 ? "boot volume" : "second volume");
-        else
-            std::printf("  %s %4d blocks  NOT PLACED: %s\n", title.c_str(), g.blocks, g.problem.c_str());
-    }
+    for (const auto &g : plan.groups) printPlacement(g);
+    for (const auto &f : plan.files) printPlacement(f);
     for (std::size_t v = 0; v < plan.freeBlocks.size(); ++v)
         std::printf("  free on the %s volume: %d blocks\n", v == 0 ? "boot" : "second", plan.freeBlocks[v]);
 }
@@ -268,7 +273,7 @@ int composeCommand(int argc, char **argv)
         if (!a->planOnly) fs::create_directories(a->all);
         int failed = 0;
         for (const auto &p : m.presets)
-            failed += build(m, selectionOf(m, p), repo, fs::path(a->all) / (p.key + ".dsk"), a->planOnly) != 0;
+            failed += build(m, selectionOf(p), repo, fs::path(a->all) / (p.key + ".dsk"), a->planOnly) != 0;
         return failed ? 1 : 0;
     }
     if (a->out.empty()) return usage();
@@ -276,7 +281,7 @@ int composeCommand(int argc, char **argv)
     if (!a->preset.empty()) {
         const auto *p = m.preset(a->preset);
         if (!p) { std::fprintf(stderr, "error: no preset %s in disks.toml\n", a->preset.c_str()); return 1; }
-        return build(m, selectionOf(m, *p), repo, a->out, a->planOnly);
+        return build(m, selectionOf(*p), repo, a->out, a->planOnly);
     }
     const auto s = selectionOfArgs(*a);
     if (!s) return usage();
