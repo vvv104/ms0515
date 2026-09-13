@@ -4,6 +4,7 @@
  */
 
 #include "ms0515/disk/Manifest.hpp"
+#include "Internal.hpp"
 
 #include "ms0515/disk/Build.hpp"
 
@@ -33,6 +34,9 @@ std::string str(const toml::table &t, std::string_view key, const std::string &w
     return *v;
 }
 
+/* A preset's lines: one multiline string, or the list of strings. */
+std::vector<std::string> lines(const toml::table &t, std::string_view key, const std::string &where);
+
 std::vector<std::string> strings(const toml::table &t, std::string_view key, const std::string &where)
 {
     std::vector<std::string> out;
@@ -46,6 +50,13 @@ std::vector<std::string> strings(const toml::table &t, std::string_view key, con
         out.push_back(*v);
     }
     return out;
+}
+
+std::vector<std::string> lines(const toml::table &t, std::string_view key, const std::string &where)
+{
+    const auto *node = t.get(key);
+    if (node && node->is_string()) return internal::splitLines(node->value<std::string>().value_or(std::string()));
+    return strings(t, key, where);
 }
 
 Media media(const std::string &word, const std::string &where)
@@ -186,8 +197,8 @@ ManifestPreset readPreset(const std::string &key, const toml::table &t)
     ManifestPreset p{key, str(t, "title", where, true), str(t, "system", where, true),
                      media(str(t, "media", where, true), where), strings(t, "bundles", where),
                      std::nullopt, std::nullopt, std::nullopt, false};
-    if (t.contains("startup")) p.startup = strings(t, "startup", where);
-    if (t.contains("banner")) p.banner = strings(t, "banner", where);
+    if (t.contains("startup")) p.startup = lines(t, "startup", where);
+    if (t.contains("banner")) p.banner = lines(t, "banner", where);
     if (t.contains("clear_screen")) p.clearScreen = t["clear_screen"].value<bool>().value_or(false);
     if (t.contains("volume_id")) p.volumeId = str(t, "volume_id", where, true);
     return p;

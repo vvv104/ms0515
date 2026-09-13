@@ -17,6 +17,22 @@
 
 namespace ms0515::disk::internal {
 
+/* The lines of a text split on newline, a trailing CR (a file saved on
+ * Windows) dropped from each: how a TOML multiline string becomes the
+ * lines of START.COM or BANNER.TXT. */
+inline std::vector<std::string> splitLines(const std::string &s)
+{
+    std::vector<std::string> out;
+    std::string line;
+    for (const char c : s) {
+        if (c == '\n') { if (!line.empty() && line.back() == '\r') line.pop_back(); out.push_back(line); line.clear(); }
+        else line += c;
+    }
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    out.push_back(line);
+    return out;
+}
+
 inline constexpr char kRad50[] =
     " ABCDEFGHIJKLMNOPQRSTUVWXYZ$.?0123456789";
 

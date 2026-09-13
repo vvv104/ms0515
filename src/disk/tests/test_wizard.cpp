@@ -576,6 +576,14 @@ TEST_CASE("BANNER.TXT after START.COM: the person's lines, fields like START.COM
     CHECK_FALSE(w.selection().banner.has_value());
 }
 
+TEST_CASE("a saved choice written by the older tool - lists, not multiline strings - still reads") {
+    const SavedSelection back = parseSelection(
+        "format = 1\nsystem = \"omega\"\nmedia = \"dz\"\nbundles = [\"pascal\"]\n"
+        "startup = [\"SET TT QUIET\", \"R PAS1\"]\nbanner = [\"Type a game\", \"\"]\n");
+    CHECK(back.selection.startup == std::vector<std::string>{"SET TT QUIET", "R PAS1"});
+    CHECK(back.selection.banner == std::vector<std::string>{"Type a game", ""});
+}
+
 TEST_CASE("the saved choice: its own file, tied to the collection's version") {
     const Manifest m = parseManifest(kManifest);
     CHECK(m.version == "2026.09.11-4");
@@ -595,6 +603,8 @@ TEST_CASE("the saved choice: its own file, tied to the collection's version") {
     const std::string text = selectionToml(saved);
     CHECK(text.find("clear_screen = true") != std::string::npos);
     CHECK(text.find("banner     = [") == std::string::npos);                 /* one multiline string, not a list */
+    CHECK(text.find("startup    = [") == std::string::npos);                /* START.COM the same way */
+    CHECK(text.find("R PAS1'''") != std::string::npos);
     CHECK(text.find("Type a game to run it\n") != std::string::npos);          /* a real line break in the file */
     const SavedSelection back = parseSelection(text);
     CHECK(back.selection.banner == saved.selection.banner);   /* the blank line kept through the round trip */

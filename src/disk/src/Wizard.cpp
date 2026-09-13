@@ -3,6 +3,7 @@
  */
 
 #include "ms0515/disk/Wizard.hpp"
+#include "Internal.hpp"
 
 #include <toml++/toml.hpp>
 
@@ -37,9 +38,10 @@ std::string list(const std::vector<std::string> &v)
     return out + "]";
 }
 
-/* A banner is written as one TOML multiline literal string, so its line
- * breaks - blank lines and all - are honest in the file.  The array form
- * is the fall-back when the text holds the triple quote a literal cannot. */
+/* START.COM and BANNER.TXT are each written as one TOML multiline literal
+ * string, so their line breaks - blank lines and all - are honest in the
+ * file.  The list form is the fall-back when the text holds the triple
+ * quote a literal cannot, and is what the older tool wrote. */
 std::string multiline(const std::vector<std::string> &v)
 {
     std::string joined;
@@ -48,20 +50,6 @@ std::string multiline(const std::vector<std::string> &v)
     return "'''\n" + joined + "'''";
 }
 
-/* The lines of a string split on newline; a trailing CR (a file saved on
- * Windows) dropped from each. */
-std::vector<std::string> splitLines(const std::string &s)
-{
-    std::vector<std::string> out;
-    std::string line;
-    for (const char c : s) {
-        if (c == '\n') { if (!line.empty() && line.back() == '\r') line.pop_back(); out.push_back(line); line.clear(); }
-        else line += c;
-    }
-    if (!line.empty() && line.back() == '\r') line.pop_back();
-    out.push_back(line);
-    return out;
-}
 
 bool bareKey(const std::string &k)
 {
@@ -127,6 +115,21 @@ std::vector<std::string> strings(const toml::table &t, std::string_view key)
         out.push_back(*v);
     }
     return out;
+}
+
+/* A key holding lines: one multiline string (split on newline), or the
+ * older list of strings; nullopt when the key is absent or the string
+ * empty. */
+std::optional<std::vector<std::string>> lines(const toml::table &root, std::string_view key)
+{
+    const auto *node = root.get(key);
+    if (!node) return std::nullopt;
+    if (node->is_string()) {
+        const std::string v = node->value<std::string>().value_or(std::string());
+        if (v.empty()) return std::nullopt;
+        return internal::splitLines(v);
+    }
+    return strings(root, key);
 }
 
 }  /* namespace */
@@ -763,7 +766,7 @@ std::string selectionToml(const SavedSelection &saved)
         }
         t += " }\n";
     }
-    if (s.startup) t += "startup    = " + list(*s.startup) + "\n";
+    if (s.startup) t += "startup    = " + multiline(*s.startup) + "\n";
     if (s.banner) t += "banner     = " + multiline(*s.banner) + "\n";
     if (s.clearScreen) t += "clear_screen = true\n";
     if (s.volumeId) t += "volume_id  = " + quoted(*s.volumeId) + "\n";
@@ -794,15 +797,8 @@ SavedSelection parseSelection(std::string_view text)
     if (const auto *picks = root["picks"].as_table())
         for (const auto &[k, v] : *picks)
             if (const auto key = v.value<std::string>()) out.selection.picks[std::string(k.str())] = *key;
-    if (root.contains("startup")) out.selection.startup = strings(root, "startup");
-    if (const auto *node = root.get("banner")) {
-        if (node->is_string()) {
-            const std::string v = node->value<std::string>().value_or(std::string());
-            if (!v.empty()) out.selection.banner = splitLines(v);
-        } else {
-            out.selection.banner = strings(root, "banner");   /* the older array form */
-        }
-    }
+    out.selection.startup = lines(root, "startup");
+    out.selection.banner  = lines(root, "banner");
     if (const auto v = root["clear_screen"].value<bool>()) out.selection.clearScreen = *v;
     if (const auto id = root["volume_id"].value<std::string>()) out.selection.volumeId = *id;
     if (const auto v = root["owner"].value<std::string>()) out.selection.owner = *v;

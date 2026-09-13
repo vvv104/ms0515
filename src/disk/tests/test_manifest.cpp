@@ -148,6 +148,18 @@ std::string replaced(std::string s, const std::string &from, const std::string &
 
 TEST_SUITE("Manifest") {
 
+TEST_CASE("a preset may give START.COM and BANNER.TXT as one multiline string each, blank lines kept") {
+    std::string text = kToml;
+    text += "\n[preset.ml]\ntitle = \"ML\"\nsystem = \"osa\"\nmedia = \"dz\"\nbundles = [\"pip\"]\n"
+            "startup = '''\nDATSET 01-04-92\nTYPE BANNER.TXT'''\n"
+            "banner = '''\nType a game:\n\n  FIST  karate'''\n";
+    const Manifest m = parseManifest(text);
+    const auto *p = m.preset("ml");
+    REQUIRE(p);
+    CHECK(p->startup == std::vector<std::string>{"DATSET 01-04-92", "TYPE BANNER.TXT"});
+    CHECK(p->banner == std::vector<std::string>{"Type a game:", "", "  FIST  karate"});
+}
+
 TEST_CASE("disks.toml read: systems, bundles and presets as written, in order") {
     const Manifest m = parseManifest(kToml);
     CHECK(m.owner == "MS0515 EMU");
