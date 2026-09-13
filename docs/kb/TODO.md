@@ -95,7 +95,8 @@ forum thread in `docs/kb`) shows the auto-repeat path at `L_2B0`
 sending the code **0xB4 (0o264)** to the host on every repeat - the
 LK201's "metronome" code - and never the key's own scancode again.
 The model in `core/src/ms7004.c` re-sends the key's scancode instead
-(`SC_REPEAT` is defined and unused).  Verified 2026-09-12 while working
+(`SC_REPEAT` is defined as 0254 - not even the firmware's 0264 - and
+unused).  Verified 2026-09-12 while working
 out MANICM's key handling; the same listing shows the release code 0xB3
 comes only from the three register keys (СУ, both ВР, `L_200`..`L_231`),
 the full host command set is A1/23 sound, 99/1B/9F click, A7 bell,

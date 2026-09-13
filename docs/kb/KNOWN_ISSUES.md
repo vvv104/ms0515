@@ -1,71 +1,54 @@
 # Known Issues
 
-## ROM-A + Omega — boot stalls in ROM tape autoloader (unresolved)
+## ROM-A + the vvv104 Omega - the monitor's timer hook lands in the ROM's tape loader (unresolved)
 
-- **ROM**: `ms0515-roma.rom` (dumped from the original developer's
-  NS4 board)
-- **Disk**: `test_omega.dsk` (and any Omega image, e.g. `omega-lang.dsk`)
-- **Symptom**: Boot freezes ~7 emulated seconds in.  CPU spins inside
-  ROM at 0o162530, in the inner-spin loop of the cassette-tape
-  autoloader at 0o162504.  The loop polls Reg B bit 7 (CSIN) waiting
-  for transitions that never arrive when no cassette is connected.
-
-- **How we get there**: Omega's resident timer ISR (RT-11 SJ kernel,
-  RT11SJ.SYS file offset 0x685c → RAM 0o146210) calls `@#160014`
-  every 16 frames unconditionally.  In ROM-A this resolves via a
-  `JMP X(PC)` table to 0o162360, the cassette autoloader.  In ROM-B
-  the same address holds an unrelated floppy service entry, which is
-  why ROM-B + Omega has always worked.
-
-- **The puzzle**: the developer's machine boots Omega cleanly without
-  a cassette plugged in.  The mechanism that lets the routine exit
-  on real hardware is not yet known.  Investigated and rejected:
-
-  - `Reg B bit 7 = constant 0 / 1`: deadlocks the inner spin
-    (162522…162536) because samples on either side of the spin
-    return identical values.
-  - `Reg B bit 7 ← Reg A bit 6` (cassette-out leakage loopback): the
-    routine never writes Reg A, so bit 7 stays at the value it had
-    on entry — same deadlock.
-  - `Reg B bit 7 ← Reg C bit 0` loopback (Reg C bit 0 nominally
-    drives blue-border, the routine toggles it as inter-bit clock):
-    breaks the inner spin but produces an alternating 0xAA/0x55
-    pattern that never forms sync byte 0o346 in the outer hunt.
-  - LFSR pseudo-noise on bit 7 (modelling RF pickup on a floating
-    comparator): the routine eventually hits sync, but the
-    `0o162564: SOB R1, 162564` delay loop dominates per-iteration
-    cost; in our cycle model one routine call burns more cycles
-    than Omega's 16-frame ISR window provides, so the kernel falls
-    behind permanently.
-  - Synthesised stub-tape feeding R0_call1 = 0o162650 so the loader
-    JMPs onto an in-ROM `RETURN`: clean RTS, but the loader's
-    `MOV R0, @#157704` along the way overwrites a kernel-state
-    word and individual keyboard tests then echo wrong characters.
-
-- **Most likely real-hardware explanations** (unverifiable — the
-  original machine no longer powers up):
-
-  1. Reg B bit 7 has a deterministic source we don't model
-     (e.g. a clock-divider tap).
-  2. K1801VM1 cycle counts differ from our model enough that one
-     routine invocation finishes inside the 16-frame ISR window.
-  3. Board-revision-specific analog leakage from CASS to CSIN.
-  4. The dumped ROM is bit-perfect but a different revision was in
-     the machine when Omega was authored.
-
-- **What would resolve this**: bring a working NS4 board back online
-  and probe CSIN with no cassette; or get the full schematic of the
-  cassette interface; or implement `.wav` cassette playback in
-  `cassette.c` and replay the tape data the autoloader expects.
-
-- **Test impact**:
-  - `test_boot.cpp` lists `(ms0515-roma.rom, test_omega.dsk)` in
-    `kKnownBad`, demoting the boot assertions to `WARN` so the suite
-    stays green.
-  - `test_keyboard_emulated.cpp` omits the ROM-A + Omega entry from
-    `kConfigs` (precedent: ROM-B + RT-15SJ is also omitted for the
-    same reason — boot does not reach a prompt under that ROM).
-    Omega is still exercised under ROM-B, the supported config.
+- **ROM**: `ms0515-roma.rom` - the dump that circulates with ms0515btl and
+  EmuStudio (sha256 `5c3dfcee…`); the owner's machine was dumped by other
+  hands and the file handed back, so whether this image is that board's
+  is not certain.
+- **Monitors**: the vvv104 build of ОМЕГА SJ(S) V05.04 - the collection's
+  `omega2.dsk` and the test fixture `test_omega.dsk` (one byte apart).
+  The other Omega, `omega.dsk` (the 059 build), boots on ROM-A: its
+  timer service has no hook at all.
+- **Symptom**: ~0.3 s after the monitor starts, the border turns magenta
+  and the machine is dead - keyboard included.
+- **What happens** (re-read 2026-09-13): the monitor's timer service
+  (vector 100, PSW 0341 - priority 7; the timer request is the frame
+  strobe, enabled by dispatcher bit 9, which the monitor sets itself at
+  `100070`) counts ticks and every sixteenth does `CALL @#160014` with
+  no test of which ROM it runs on.  `160014` is a slot of the ROM's
+  entry table.  In ROM-B it leads to `163440`, the cursor blink (two
+  VRAM bytes complemented when `@#157760` bit 7 is set) - that is what
+  the monitor wants.  In ROM-A the same slot is `JMP 162360`, the
+  cassette loader the console's `L` command runs.  The other slots
+  (`160000..160024`) mean the same in both ROMs; this one differs.
+- **The loader has no way out without a tape**: `162504` waits for the
+  CSIN level (Reg B bit 7) to change - a constant level spins forever;
+  any signal makes it hunt for the sync byte `346`/`031`, then read a
+  garbage load address and length, write words at `(R4)+` until
+  `R4 == R5`, and jump through `@#157704`.  Noise, a square wave, a
+  loopback: every one ends in either the spin or a wrecked memory, at
+  priority 7.  So the vvv104 monitor cannot run on a machine with this
+  ROM-A as dumped - yet the owner's disks with it ran on his machine,
+  which was dumped as this ROM-A, and he half remembers the cursor
+  blinking.  One of those facts is wrong and we cannot tell which; left
+  open (2026-09-13).
+- **What would resolve it**: the ROM read again from the board itself,
+  or the board powered up with the vvv104 disk; or a second dump of an
+  NS4 ROM from any machine that ran these disks.
+- **What the emulator ships**: `src/assets/rom/ms0515-roma.rom` is
+  **not the dump**: one byte at `160014` is `000207` (`RTS PC`) instead
+  of `000167` (`JMP 162360`), patched on 2026-04-21 (commit `b97c30c`,
+  "avoid hang on absent tape") and kept when the emulator-side stub in
+  `rom_patches.c` was dropped on 2026-05-02 (`78f6093`).  That byte is
+  why ROM-A + Omega boots here at all: the hook returns at once, the
+  cursor does not blink, everything else is the ROM as dumped.  The
+  original is `ms0515_data/docs/ms0515-roma.rom`; with it the fixture
+  and `omega2.dsk` show the magenta screen, `omega.dsk` boots.
+- **Test impact**: `test_boot.cpp` keeps `(ms0515-roma.rom,
+  test_omega.dsk)` in `kKnownBad` and `test_keyboard_emulated.cpp` keeps
+  the pair out of `kConfigs`, so the hardware question is not papered
+  over by the patched byte; both comments say so.
 
 ## Mihin (OS-16SJ) — РУС/ЛАТ key prints `^N`/`^O`, locks input on exit
 
@@ -375,36 +358,28 @@ side so the protection's sector read returns real bytes.
   2. Auto-pause and offer a mount dialog.
   3. Investigate the ROM string table for an unused error message.
 
-## `type STARTS.COM` in Mihin OS-16SJ corrupts the disk image
+## RESOLVED: `TYPE STARTS.COM` in Mihin OS-16SJ halted the machine and wrote over the disk
 
-- **Reproduction**: Boot Mihin OS, run `TYPE STARTS.COM` (a binary `.COM`
-  file).  System prints a few bytes then halts at PC=`0o144032` (zero
-  memory) after RTI from `0o151240` pops a corrupted stack frame.
-- **Side effect**: tracks 2-8 of `mihin.dsk` end up overwritten with
-  zeros — about 26 KB of damage out of a 410 KB image.  The OS-level
-  loader subsequently fails to boot from this corrupted image until
-  the disk is restored from `src/lib/tests/disks/originals/test_mihin_work.dsk` (or a backup).
-- **What we know**:
-  - Our `write_sector()` only runs when the CPU has issued `WRITE_SECTOR`
-    (cmd 0xA0/0xB0) — the FDC cannot write to disk on its own, so the
-    writes did originate from OS code.
-  - Event ring captures ~300 byte writes at PC=`0o157060` (the OS write
-    loop), but the WRITE_SECTOR command bytes themselves were already
-    rotated out of the ring by the time the snapshot triggered.
-- **Likely cause** (unverified): OS-16SJ's TYPE command opens the file
-  read-write and flushes dirty buffer pages on close; on a binary file
-  it may flush uninitialised (zero-filled) buffer pages back to disk,
-  corrupting unrelated tracks.
-- **Mitigations**:
-  - Restore the image from `src/lib/tests/disks/originals/test_mihin_work.dsk`
-    after an incident (`cp` or `Copy-Item`).
-  - Consider adding a "read-only mount by default" frontend setting,
-    or a "snapshot the disk on mount" feature that keeps the original
-    pristine.
-- **Investigation hint**: re-run with `history_size: 262144` and
-  *no* read/write watchpoints in the yaml — this preserves earlier
-  events long enough to catch the actual `WRITE_SECTOR` command issued
-  by the OS before the data-write storm rotates them out.
+- **As recorded** (spring 2026): `TYPE STARTS.COM` printed a few bytes,
+  then halted at PC=`0o144032` after an RTI from `0o151240` popped a
+  corrupted stack frame, and tracks 2-8 of the image came back zeroed -
+  the OS's own write loop at `0o157060` had run amok.  The file was
+  taken for a binary and OS-16SJ's TYPE for flushing dirty buffers over
+  unrelated tracks.
+- **What it was**: the monitor interrupt re-entering the terminal
+  service once per character (dispatcher bit 8 taken for an enable that
+  fires on any transition - see the long-`TYPE` entry below).  A `TYPE`
+  long enough ran the stack down through the vector page; what the
+  wreckage did next depended on the monitor - `?MON-F-Stack overflow` on
+  Omega, a silent stop on OSA, and here a halt with the disk written
+  over on the way down.  `STARTS.COM` is four lines of text (`set tt
+  quiet`, `set error none`, `ini/noq vm:`, `set sl on`), not a binary.
+- **Verified 2026-09-13** with the bit-8 fix in: `TYPE STARTS.COM` on a
+  copy of `test_mihin_work.dsk` under ROM-A and under ROM-B types the
+  four lines and returns to the prompt; the copy is byte-identical to
+  the original afterwards (`sha256` equal, 0 bytes differ).
+- The mitigation stands on its own merits: work on a copy
+  (`DISK_COPYING.md`); `tools/run_program.py` always does.
 
 ## On-screen keyboard: physical Shift + OSK click sends wrong character for ШЩЧЭ
 
@@ -426,6 +401,14 @@ side so the protection's sector read returns real bytes.
 - **Investigation hints**: compare the key-emission path for Ю vs. one
   of ШЩЧЭ; check whether one releases the host Shift before sending
   and the other doesn't.
+- **Where it is (read 2026-09-13, still open)**: the OSK's convenience
+  layer in `frontend/src/OnScreenKeyboard.cpp` releases Shift before a
+  shift-immune key only when Shift is the OSK's *own* sticky ВР
+  (`shiftLatched` counts `stickyKeys_` alone); a physical Shift held on
+  the host stays down in the keyboard model, so the ROM sees Shift+`[`
+  and prints `{`.  Ю escapes because `isShiftImmuneSymbol` does not list
+  it.  The fix is to include the model's physical Shift state in
+  `shiftLatched` and release/restore it the same way.
 
 
 

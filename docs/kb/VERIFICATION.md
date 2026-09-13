@@ -1,7 +1,8 @@
 # Verification: NS4 Technical Description vs Implementation
 
 Cross-referencing the NS4 technical description (3.858.420 TO) against the
-emulator core implementation.  Checked 2026-04-07.
+emulator core implementation.  Checked 2026-04-07; the gap list and the
+dispatcher bits re-checked against the code on 2026-09-13.
 
 ## Bugs found and fixed
 
@@ -29,7 +30,12 @@ Code had VBlank at vector 0100.  Fixed to vector 064.
 ### CRITICAL: Timer and VBlank interrupts not gated (board.c)
 
 Per NS4 section 4.3 (dispatcher register bits 8-9):
-- Bit 8: Monitor interrupt enable ("1" asserts VBlank IRQ)
+- Bit 8: the monitor interrupt's request itself - "1 sets it, 0 resets
+  it".  It is a level, not an enable: writing 1 raises the request,
+  writing 0 withdraws it, and nothing else fires (a clear never does).
+  First read as an enable that fired on any transition, which re-entered
+  RT-11's terminal service per character - see the long-`TYPE` entry in
+  `KNOWN_ISSUES.md` (fixed 2026-09-13, `core/tests/test_monitor_request.cpp`).
 - Bit 9: Timer interrupt enable ("1" enables timer IRQ)
 
 Both interrupts were firing unconditionally.  Fixed to check the
@@ -57,6 +63,9 @@ timer service.  Added IO_HALT_TIMER constant (not yet handled).
 - [x] Vectored interrupts: bus error(004), reserved(010), BPT(014), IOT(020),
       EMT(030), TRAP(034)
 - [x] HALT signal → push PSW+PC, load PC=172004, PSW=0340
+- [x] Reset leaves PSW=0340 as well: the machine starts at priority 7 and
+      the ROM's self-test runs masked (a key pressed during it hung the
+      machine while reset left PSW=0 - fixed 2026-09-08, `test_cpu.cpp`)
 
 ### Memory (memory.h, memory.c)
 - [x] 128 KB RAM = 16 banks × 8 KB
@@ -108,11 +117,24 @@ timer service.  Added IO_HALT_TIMER constant (not yet handled).
 - [x] Color byte: bits 15(flash) 14(intensity) 13-11(bg GRB) 10-8(fg GRB)
 - [x] Border color in Reg C bits 2-0
 
-## Not yet implemented (known gaps)
+## Gaps, as of 2026-09-13
 
-- MS7007 parallel keyboard (PPI at 177540-177546, vector 060)
-- Serial port / printer (i8251 at 177700-177722, vectors 110/114)
-- Cassette interface (Reg A bit 6 output, Reg B bit 7 input)
-- Register 177770 (halt/timer service)
-- Video attribute rendering (flash at 3 Hz, intensity bit)
-- Accurate step rate timing for FDC Type I commands
+Done since the first check:
+
+- MS7007 PPI at 177540-177546: port A latch, control word, port B read
+  as the joystick lines (Kempston order, 2026-08-25 - `docs/hardware/keyboard.md`).
+  The parallel keyboard matrix itself and vector 060 are not modelled:
+  the machine has the serial MS7004.
+- Cassette interface: `core/src/cassette.c`, the no-tape model - Reg A
+  bit 6 is taken, Reg B bit 7 reads 0.  No tape playback.
+- Video attributes: flash (phase every 30 frames) and the intensity bit
+  are rendered in `libapp/src/Screen.cpp`.
+- FDC Type I step rate honours the command's rate bits (`core/src/floppy.c`).
+
+Still open:
+
+- Serial port / printer (i8251 at 177700-177722, vectors 110/114): a
+  stub - TX bytes go to a host callback, the status and command words are
+  accepted and dropped, nothing is received.  While a hard-disk image is
+  mounted the paravirtual HD: shadows these addresses (`docs/hardware/hd.md`).
+- Register 177770 (halt/timer service): named in `board.c`, not handled.

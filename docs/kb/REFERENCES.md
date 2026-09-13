@@ -10,10 +10,11 @@ External resources for the MS0515 emulator project.
 - T-11 Engineering Spec: http://www.bitsavers.org/pdf/dec/pdp11/t11/T11_Engineering_Specification_Rev_E_Mar82.pdf
 - T-11 User's Manual: http://bitsavers.trailing-edge.com/pdf/dec/pdp11/t11/T11_UsersMan.pdf
 - T-11 CPU model (Verilog): https://github.com/1801BM1/cpu11/tree/master/t11
-- PDP-11 instruction reference: https://pdp11.org/
+- PDP-11 instruction reference: http://pdp11.org/
 
 ## Hardware datasheets
-- WD1793 FDC: http://msx.hansotten.com/technical-info/wd1793/
+- WD1793 / FD179X FDC: http://www.bitsavers.org/components/westernDigital/FD179X-01_Data_Sheet_Oct1979.pdf
+  (the MSX-side notes moved to https://hansotten.file-hunter.com/technical-info/wd1793/)
 - i8253 timer (KR580VI53 clone): https://www.scs.stanford.edu/10wi-cs140/pintos/specs/8254.pdf
 - i8255 PPI (KR580VV55 clone): https://www.cpcwiki.eu/imgs/f/f5/8255.pdf
 
@@ -24,10 +25,11 @@ External resources for the MS0515 emulator project.
 - KOI-8R (RFC 1489): https://datatracker.ietf.org/doc/html/rfc1489
 
 ## Emulator sources
-- MAME driver: https://github.com/mamedev/mame/blob/master/src/mame/drivers/ms0515.cpp
+- MAME driver: https://github.com/mamedev/mame/blob/master/src/mame/ussr/ms0515.cpp
 - ms0515btl by Nikita Zimin: https://github.com/nzeemin/ms0515btl
 
 ## Community
 - Emuverse wiki: https://emuverse.ru/wiki/Электроника_МС_0515
-- Forum thread (zx-pk.ru): https://zx-pk.ru/threads/15146-ms-0515.html
+- Forum thread on the machine (zx-pk.ru): https://zx-pk.ru/threads/15146-ms-0515.html
+- Forum thread on this emulator (zx-pk.ru, «ещё один эмулятор МС-0515»): https://zx-pk.ru/threads/36741
 - Document scans and photos (tis.kz): https://www.tis.kz/forum/topic.php?forum=31&topic=3

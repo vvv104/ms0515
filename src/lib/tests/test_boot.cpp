@@ -76,13 +76,13 @@ static std::vector<std::string> discoverFiles(const std::string &dir,
  * instead of CHECK so the suite stays green while the issues are
  * documented.  See also: docs/kb/KNOWN_ISSUES.md */
 static const std::set<std::pair<std::string, std::string>> kKnownBad = {
-    /* Omega's resident timer ISR pings the patched ROM-A's tape
-     * autoloader at 0o162360 every 16 frames; without something to
-     * drive Reg B bit 7 (CSIN) the routine spins forever in
-     * 0o162522…0o162536.  The original developer's NS4 board boots
-     * Omega without a cassette connected — the hardware mechanism
-     * isn't yet understood and we don't add an emulator-side stub.
-     * See KNOWN_ISSUES.md. */
+    /* The vvv104 Omega's timer service calls the ROM entry 0160014
+     * every 16 frames - the cursor blink in ROM-B, the cassette loader
+     * in ROM-A as dumped, which never returns without a tape.  The
+     * ROM-A in assets/ carries a one-byte RTS at that slot (since
+     * 2026-04-21), so the pair boots here; the pair stays known-bad so
+     * the open hardware question is not hidden by that byte.  See
+     * KNOWN_ISSUES.md. */
     {"ms0515-roma.rom", "test_omega.dsk"},
     /* RT-15SJ (Rodionov) was authored for ROM-A; with ROM-B the boot
      * stalls right after printing "НГМД готов..." — same behaviour as

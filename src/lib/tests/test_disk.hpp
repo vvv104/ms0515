@@ -19,7 +19,7 @@
  * FIRST so it is destroyed LAST.  Otherwise the temp file is still
  * open inside the emulator when fs::remove() runs, the unlink
  * silently fails (Windows), and stale copies pile up under
- * build/tests/temp/.
+ * TESTS_BUILD_DIR/temp/.
  */
 #ifndef MS0515_TESTS_TEST_DISK_HPP
 #define MS0515_TESTS_TEST_DISK_HPP

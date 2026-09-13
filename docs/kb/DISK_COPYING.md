@@ -5,9 +5,10 @@
 - `.dsk` images are flat byte-for-byte sector dumps with no metadata.
 - Image-level copy = `cp src.dsk dst.dsk` (or any equivalent file copy).
   That is byte-perfect and preserves every protection we have seen.
-- Never run the emulator with a fixture image mounted writable; some
-  Soviet OSes flush dirty buffer pages on close and corrupt the image
-  (see `KNOWN_ISSUES.md`).  Always work on a copy.
+- Never run the emulator with a fixture image mounted writable: a guest
+  writes to its system disk as a matter of course (`SET` patches the
+  handler file, INIT, a startup file's own bookkeeping).  Always work on
+  a copy - `tools/run_program.py` and the tests' `TempDisk` do.
 
 ## Why image-level copy works on copy-protected disks
 
@@ -45,9 +46,9 @@ ms0515.exe --disk0-side0 dst.dsk      # for a 409600-byte SS image
 
 ## Test fixtures: TempDisk
 
-The unit tests under `src/tests/` never mount fixture `.dsk` files
-directly, for the corruption reason above.  They use the RAII helper
-`TempDisk` defined in `src/tests/test_disk.hpp`:
+The unit tests never mount fixture `.dsk` files directly (a guest that
+writes would change a fixture).  They use the RAII helper `TempDisk`
+defined in `src/lib/tests/test_disk.hpp`:
 
 - The constructor copies the source fixture to a unique file under
   `TESTS_BUILD_DIR/temp/`.
@@ -58,7 +59,7 @@ Field-order rule: declare `TempDisk` *before* any `Emulator` in the
 same scope so it outlives the FDC handle.  Otherwise the temp file is
 still open inside the emulator when `fs::remove()` runs, the unlink
 silently fails on Windows, and stale copies pile up under
-`build/tests/temp/`.
+`TESTS_BUILD_DIR/temp/`.
 
 ## Within the emulator (RT-11 / OSA disk-to-disk)
 
