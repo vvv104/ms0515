@@ -151,8 +151,9 @@ void WizardTui::changed()
         /* A banner refused (no PIP to type it): the plan without it, so
          * the volumes stay in sight under the reason. */
         disk::Selection without = wizard_.selection();
-        if (without.banner) try {
+        if (without.banner || without.clearScreen) try {
             without.banner.reset();
+            without.clearScreen = false;
             plan_ = planDisk(recipeFor(manifest_, without, repo_));
         } catch (const std::exception &) {
             plan_.reset();
@@ -504,7 +505,7 @@ Element WizardTui::rowLine(const WizardRow &r, bool here) const
         /* A label's note sits at the side of its short box; a line's box
          * has the row, so its note - "a new line" - sits in the box, grey,
          * until something is typed there. */
-        const bool hint = !label && !typing && shownText.empty();
+        const bool hint = !label && !typing && shownText.empty() && !r.summary.empty();
         if (hint) shownText = r.summary;
         if (letters(shownText) > width) shownText = lastLetters(shownText, width);
         shownText.append(width - letters(shownText), ' ');
@@ -583,7 +584,7 @@ Element WizardTui::renderDetails() const
         out.push_back(text(title));
         if (!r.summary.empty()) out.push_back(text(r.summary));
         if (r.kind == WizardRow::Kind::line) out.push_back(text("from " + r.requiredBy));
-        if (r.kind == WizardRow::Kind::field) out.push_back(text("Type to change it; Enter keeps, Esc drops, Del takes it out."));
+        if (r.kind == WizardRow::Kind::field) out.push_back(text("Type to change it; Enter keeps, Esc drops, Del takes it out; a space alone is a blank line."));
         if (!r.available) out.push_back(paragraph(r.why) | kBad);
         return vbox(out);
     }

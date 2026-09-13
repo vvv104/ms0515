@@ -86,6 +86,7 @@ struct ManifestPreset {
     std::optional<std::vector<std::string>> startup;
     std::optional<std::vector<std::string>> banner;      /* lines shown as the disk starts */
     std::optional<std::string>              volumeId;
+    bool                                    clearScreen = false;   /* the banner starts by clearing the screen */
 };
 
 struct Manifest {
@@ -117,6 +118,9 @@ struct Selection {
      * by START.COM - where a `TYPE BANNER.TXT` line of `startup` puts it,
      * else after every other line. */
     std::optional<std::vector<std::string>> banner;
+    /* BANNER.TXT begins by clearing the screen - ESC H ESC J, the console's
+     * home and erase to the end - before its lines, if any. */
+    bool                                    clearScreen = false;
     /* The labels in the home blocks: the boot volume's, and on a two-sided
      * dz disk the second side's.  No owner: the collection's `owner`. */
     std::optional<std::string>              volumeId, owner;

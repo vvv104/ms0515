@@ -254,6 +254,11 @@ void DiskWizard::suggest()
 
 std::string DiskWizard::toggle(const std::string &key)
 {
+    if (key == kClearRow) {
+        if (!ready()) return "choose the diskette and the system first";
+        sel_.clearScreen = !sel_.clearScreen;
+        return "";
+    }
     const auto *b = m_.bundle(key);
     if (!b) return "no bundle " + key;
     if (!ready()) return "choose the diskette and the system first";
@@ -336,16 +341,18 @@ std::string DiskWizard::setField(const std::string &key, const std::string &valu
         return "";
     }
     /* The lines of START.COM and of BANNER.TXT: line N replaced or, emptied,
-     * taken out; the line past the last, typed into, added. */
+     * taken out; the line past the last, typed into, added.  A space alone
+     * is a blank line - kept, and added. */
+    const bool blank = text.empty() && !value.empty();
     for (const auto &[prefix, banner] : {std::pair{std::string(kStartupField), false}, std::pair{std::string(kBannerField), true}}) {
         if (key.rfind(prefix, 0) != 0 || key.size() == prefix.size()) continue;
         if (!ready()) return "choose the diskette and the system first";
         const auto at = static_cast<std::size_t>(std::stoul(key.substr(prefix.size())));
         auto lines = (banner ? sel_.banner : sel_.startup).value_or(std::vector<std::string>{});
         if (at < lines.size()) {
-            if (text.empty()) lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(at));
+            if (text.empty() && !blank) lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(at));
             else lines[at] = text;
-        } else if (!text.empty()) {
+        } else if (!text.empty() || blank) {
             lines.push_back(text);
         }
         if (banner) setBanner(std::move(lines)); else setStartup(std::move(lines));
@@ -586,11 +593,17 @@ void DiskWizard::bannerRows(std::vector<WizardRow> &out, int depth, const std::s
     const auto own = sel_.banner.value_or(std::vector<std::string>{});
     WizardRow g = heading(WizardRow::Kind::group, depth, kBannerGroup, "BANNER.TXT");
     g.parent = parent;
-    g.summary = own.empty() ? std::string("none: a text the disk shows as it starts")
-                            : std::to_string(own.size()) + (own.size() == 1 ? " line" : " lines");
+    g.summary = !own.empty() ? std::to_string(own.size()) + (own.size() == 1 ? " line" : " lines")
+              : sel_.clearScreen ? std::string("clears the screen")
+              : std::string("none: a text the disk shows as it starts");
     g.open = everything || open_.count(kBannerGroup) != 0;
     out.push_back(g);
     if (!g.open) return;
+    WizardRow clear = heading(WizardRow::Kind::bundle, depth + 1, kClearRow, "Clear the screen first");
+    clear.parent = kBannerGroup;
+    clear.mark = sel_.clearScreen ? WizardRow::Mark::on : WizardRow::Mark::off;
+    clear.summary = "BANNER.TXT starts with ESC H ESC J: the console goes home and erases to the end";
+    out.push_back(std::move(clear));
     for (std::size_t i = 0; i <= own.size(); ++i) {
         WizardRow r = heading(WizardRow::Kind::field, depth + 1, kBannerField + std::to_string(i), "");
         r.parent = kBannerGroup;
@@ -648,6 +661,7 @@ void DiskWizard::load(const SavedSelection &saved)
     for (const auto &[name, key] : s.picks) if (m_.bundle(key)) sel_.picks[name] = key;
     sel_.startup = s.startup;
     sel_.banner = s.banner;
+    sel_.clearScreen = s.clearScreen;
     sel_.volumeId = s.volumeId;
     sel_.owner = s.owner;
     sel_.secondVolumeId = s.secondVolumeId;
@@ -724,6 +738,7 @@ std::string selectionToml(const SavedSelection &saved)
     }
     if (s.startup) t += "startup    = " + list(*s.startup) + "\n";
     if (s.banner) t += "banner     = " + list(*s.banner) + "\n";
+    if (s.clearScreen) t += "clear_screen = true\n";
     if (s.volumeId) t += "volume_id  = " + quoted(*s.volumeId) + "\n";
     if (s.owner) t += "owner      = " + quoted(*s.owner) + "\n";
     if (s.secondVolumeId) t += "second_volume_id = " + quoted(*s.secondVolumeId) + "\n";
@@ -754,6 +769,7 @@ SavedSelection parseSelection(std::string_view text)
             if (const auto key = v.value<std::string>()) out.selection.picks[std::string(k.str())] = *key;
     if (root.contains("startup")) out.selection.startup = strings(root, "startup");
     if (root.contains("banner")) out.selection.banner = strings(root, "banner");
+    if (const auto v = root["clear_screen"].value<bool>()) out.selection.clearScreen = *v;
     if (const auto id = root["volume_id"].value<std::string>()) out.selection.volumeId = *id;
     if (const auto v = root["owner"].value<std::string>()) out.selection.owner = *v;
     if (const auto v = root["second_volume_id"].value<std::string>()) out.selection.secondVolumeId = *v;

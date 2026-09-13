@@ -159,6 +159,23 @@ TEST_CASE("a banner: BANNER.TXT on the boot volume in KOI-8R, and START.COM type
     com = im->readFile("START.COM");
     CHECK(std::string(com.begin(), com.begin() + 36) == "SET TT QUIET\r\nTYPE BANNER.TXT\r\nDIR\r\n");
     CHECK(com[36] == 0);
+
+    /* Clearing the screen: ESC H ESC J - home, erase to the end - before the
+     * lines; a BANNER.TXT of that alone when there are none. */
+    r.clearScreen = true;
+    im = volume(composeDisk(r), Media::ss);
+    auto cleared = im->readFile("BANNER.TXT");
+    const std::vector<uint8_t> esc{0x1B, 'H', 0x1B, 'J'};
+    CHECK(std::vector<uint8_t>(cleared.begin(), cleared.begin() + 4) == esc);
+    CHECK(std::vector<uint8_t>(cleared.begin() + 4, cleared.begin() + 31) == want);
+    r.banner.reset();
+    r.startup = std::vector<std::string>{"SET TT QUIET"};
+    im = volume(composeDisk(r), Media::ss);
+    cleared = im->readFile("BANNER.TXT");
+    CHECK(std::vector<uint8_t>(cleared.begin(), cleared.begin() + 4) == esc);
+    CHECK(cleared[4] == 0);
+    com = im->readFile("START.COM");
+    CHECK(std::string(com.begin(), com.begin() + 31) == "SET TT QUIET\r\nTYPE BANNER.TXT\r\n");
 }
 
 TEST_CASE("the plan names what finish put on the boot volume - the startup file, the banner - with their blocks") {

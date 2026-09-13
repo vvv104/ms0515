@@ -69,6 +69,9 @@ struct ComposeRecipe {
     /* Lines of a BANNER.TXT on the boot volume, and a TYPE BANNER.TXT in
      * the startup file where its lines have one, else at their end. */
     std::optional<std::vector<std::string>> banner;
+    /* BANNER.TXT starts with ESC H ESC J - the console clears its screen -
+     * and exists for that alone when there are no lines. */
+    bool clearScreen = false;
     /* Home-block labels, 12 characters at most; nullopt leaves what is
      * there - INIT's own on a fresh volume, the exemplar's on a kept one. */
     std::optional<std::string> volumeId, owner;               /* the boot volume */

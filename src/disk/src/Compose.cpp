@@ -234,14 +234,23 @@ void finish(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src
     const auto *e = src.volume.directory.find(src.startup);
     const PutOptions o{e ? e->date : uint16_t{0}, false};
     std::optional<std::vector<std::string>> startup = r.startup;
-    if (r.banner) {
+    const bool banner = r.banner || r.clearScreen;
+    if (banner) {
         const std::string type = "TYPE BANNER.TXT";
         if (!startup) startup = std::vector<std::string>{};
         if (std::find(startup->begin(), startup->end(), type) == startup->end()) startup->push_back(type);
     }
     if (startup) putOwn(img, s, src.startup, startupBytes(*startup), o, files);
     else if (e) putOwn(img, s, src.startup, src.volume.readFile(src.startup), o, files);
-    if (r.banner) putOwn(img, s, "BANNER.TXT", startupBytes(*r.banner), o, files);
+    if (banner) {
+        std::vector<uint8_t> bytes;
+        if (r.clearScreen) bytes = {0x1B, 'H', 0x1B, 'J'};
+        if (r.banner) {
+            const auto lines = startupBytes(*r.banner);
+            bytes.insert(bytes.end(), lines.begin(), lines.end());
+        }
+        putOwn(img, s, "BANNER.TXT", bytes, o, files);
+    }
 
     const char *handler = s.boot == Vol::dv ? "DV.SYS" : "DZ.SYS";
     if (!openAt(img, s, 0)->directory.find(handler))

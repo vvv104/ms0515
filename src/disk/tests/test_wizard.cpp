@@ -547,9 +547,20 @@ TEST_CASE("BANNER.TXT after START.COM: the person's lines, fields like START.COM
     CHECK(banner->open);
     CHECK(banner->summary.find("none") == 0);
     const auto at = static_cast<std::size_t>(banner - rows.data());
-    CHECK(rows[at + 1].kind == WizardRow::Kind::field);
-    CHECK(rows[at + 1].key == "#banner:0");
-    CHECK(rows[at + 1].summary == "a new line");
+    CHECK(rows[at + 1].kind == WizardRow::Kind::bundle);                /* the checkbox: clear the screen first */
+    CHECK(rows[at + 1].key == kClearRow);
+    CHECK(rows[at + 1].mark == WizardRow::Mark::off);
+    CHECK(rows[at + 2].kind == WizardRow::Kind::field);
+    CHECK(rows[at + 2].key == "#banner:0");
+    CHECK(rows[at + 2].summary == "a new line");
+    CHECK(w.toggle(kClearRow).empty());
+    CHECK(w.selection().clearScreen);
+    rows = w.rows();
+    CHECK(row(rows, kClearRow, WizardRow::Kind::bundle)->mark == WizardRow::Mark::on);
+    CHECK(row(rows, kBannerGroup, WizardRow::Kind::group)->summary == "clears the screen");
+    CHECK(w.saved().selection.clearScreen);
+    CHECK(w.toggle(kClearRow).empty());
+    CHECK_FALSE(w.selection().clearScreen);
 
     CHECK(w.setField("#banner:0", " Type a game to play it ").empty());
     CHECK(w.setField("#banner:1", "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B:").empty());     /* Игры: */
@@ -561,6 +572,13 @@ TEST_CASE("BANNER.TXT after START.COM: the person's lines, fields like START.COM
     CHECK(w.setField("#banner:0", "").empty());                          /* emptied: gone */
     CHECK(w.selection().banner == std::vector<std::string>{"\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B:"});
     CHECK(w.saved().selection.banner == w.selection().banner);
+    CHECK(w.setField("#banner:1", " ").empty());                         /* a space alone: a blank line */
+    CHECK(w.selection().banner == std::vector<std::string>{"\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B:", ""});
+    rows = w.rows();
+    CHECK(row(rows, "#banner:1", WizardRow::Kind::field)->value.empty());
+    CHECK(row(rows, "#banner:1", WizardRow::Kind::field)->summary.empty());   /* a line, not "a new line" */
+    CHECK(row(rows, "#banner:2", WizardRow::Kind::field)->summary == "a new line");
+    CHECK(w.setField("#banner:1", "").empty());                          /* emptied: gone */
     CHECK(w.setField("#banner:0", "").empty());
     CHECK_FALSE(w.selection().banner.has_value());
 }
@@ -579,10 +597,13 @@ TEST_CASE("the saved choice: its own file, tied to the collection's version") {
 
     SavedSelection saved = w.saved();
     CHECK(saved.collection == "2026.09.11-4");
-    saved.selection.banner = std::vector<std::string>{"Type a game to run it", "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B"};   /* no field of its own: the file's */
+    saved.selection.banner = std::vector<std::string>{"Type a game to run it", "", "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B"};   /* no field of its own: the file's */
+    saved.selection.clearScreen = true;
     const std::string text = selectionToml(saved);
+    CHECK(text.find("clear_screen = true") != std::string::npos);
     const SavedSelection back = parseSelection(text);
     CHECK(back.selection.banner == saved.selection.banner);
+    CHECK(back.selection.clearScreen);
     CHECK(back.collection == "2026.09.11-4");
     CHECK(back.selection.system == "omega");
     CHECK(back.selection.media == Media::dz);
@@ -599,6 +620,7 @@ TEST_CASE("the saved choice: its own file, tied to the collection's version") {
     CHECK(again.resolution().bundles == w.resolution().bundles);
     CHECK(again.notices().empty());
     CHECK(again.saved().selection.banner == saved.selection.banner);
+    CHECK(again.saved().selection.clearScreen);
 
     SavedSelection old = back;
     old.collection = "2026.01.01";

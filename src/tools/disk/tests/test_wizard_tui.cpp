@@ -450,11 +450,21 @@ TEST_CASE("a banner: BANNER.TXT and START.COM counted in the plan; without PIP t
     CHECK(s.find("START.COM 1") == std::string::npos);         /* no lines typed: no file made */
     REQUIRE(s.find(" free") != std::string::npos);
 
-    enter(tui, "BANNER.TXT");                                 /* opened, and on its first line */
+    enter(tui, "BANNER.TXT");                                 /* opened, and on its checkbox */
+    CHECK(tui.cursorKey() == kClearRow);
+    press(tui, ftxui::Event::Character(" "));
+    CHECK(tui.model().selection().clearScreen);
+    CHECK(shown(tui).find("[x] Clear the screen first") != std::string::npos);
+    press(tui, ftxui::Event::ArrowDown);
     CHECK(tui.cursorKey() == "#banner:0");
     type(tui, "Type R FIST");
     press(tui, ftxui::Event::Return);
-    CHECK(tui.model().selection().banner == std::vector<std::string>{"Type R FIST"});
+    press(tui, ftxui::Event::Return);                         /* the new line opened, empty */
+    type(tui, " ");                                           /* a space alone: a blank line */
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().banner == std::vector<std::string>{"Type R FIST", ""});
+    CHECK(shown(tui).find("[a new line") != std::string::npos);
+    CHECK(shown(tui).find("[a new line") == shown(tui).rfind("[a new line"));   /* the blank line is not one */
     s = shown(tui);
     CHECK(s.find("DZ0:") != std::string::npos);                /* the plan without the banner, still there */
     CHECK(s.find(" free") != std::string::npos);

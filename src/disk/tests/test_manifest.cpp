@@ -97,6 +97,7 @@ media     = "dz"
 volume_id = "GAMES"
 bundles   = ["sabot2", "pacman", "docs", "pip"]
 banner    = ["Type a game to run it"]
+clear_screen = true
 
 [preset.rodionov]
 title   = "Rodionov"
@@ -251,6 +252,7 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
     CHECK(r.secondOwner == "MS0515 EMU");
     CHECK(r.startup == std::vector<std::string>{"SET TT QUIET"});
     CHECK(r.banner == std::vector<std::string>{"Type a game to run it"});
+    CHECK(r.clearScreen);
     REQUIRE(r.groups.size() == 7);                             /* PIP for the banner, and DUP, the system's suggestion, last */
     CHECK(r.groups[5].title == "PIP");
     CHECK(r.groups[6].title == "DUP");
@@ -282,6 +284,7 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
     dv.media = Media::dv;
     dv.bundles = {"docs"};
     dv.banner.reset();                                         /* no PIP among these: no banner */
+    dv.clearScreen = false;
     const ComposeRecipe onDv = recipeFor(m, dv, repo);
     CHECK(onDv.groups[2].title == "DV.SYS");                   /* the media's own requirement */
     CHECK(bootedMonitor(composeDisk(onDv), 0, true, Vol::dv) == "RT11SJ");
@@ -297,7 +300,9 @@ TEST_CASE("a system's suggestions: ticked for a preset, by its preference, unles
     Selection noPip = games;
     std::erase(noPip.bundles, "pip");
     CHECK_THROWS_WITH_AS((void)recipeFor(m, noPip, repository()), doctest::Contains("banner needs PIP"), std::runtime_error);
-    noPip.banner.reset();
+    noPip.banner.reset();                                      /* clearing the screen is a BANNER.TXT too */
+    CHECK_THROWS_WITH_AS((void)recipeFor(m, noPip, repository()), doctest::Contains("banner needs PIP"), std::runtime_error);
+    noPip.clearScreen = false;
     CHECK_NOTHROW((void)recipeFor(m, noPip, repository()));
     /* Without it the disk still resolves: a suggestion is no requirement. */
     CHECK(resolveBundles(m, "osa", Media::dz, {"sabot2"}, {}).ok);
