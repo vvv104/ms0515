@@ -315,6 +315,11 @@ void DiskWizard::setStartup(std::vector<std::string> lines)
     if (lines.empty()) sel_.startup.reset(); else sel_.startup = std::move(lines);
 }
 
+void DiskWizard::setBanner(std::vector<std::string> lines)
+{
+    if (lines.empty()) sel_.banner.reset(); else sel_.banner = std::move(lines);
+}
+
 void DiskWizard::setVolumeId(std::optional<std::string> id) { sel_.volumeId = std::move(id); }
 
 std::string DiskWizard::setField(const std::string &key, const std::string &value)
@@ -330,19 +335,23 @@ std::string DiskWizard::setField(const std::string &key, const std::string &valu
         sel_.*f.member = label.empty() ? std::nullopt : std::optional<std::string>(label);
         return "";
     }
-    const std::string prefix = kStartupField;
-    if (key.rfind(prefix, 0) != 0 || key.size() == prefix.size()) return "no field " + key;
-    if (!ready()) return "choose the diskette and the system first";
-    const auto at = static_cast<std::size_t>(std::stoul(key.substr(prefix.size())));
-    auto lines = sel_.startup.value_or(std::vector<std::string>{});
-    if (at < lines.size()) {
-        if (text.empty()) lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(at));
-        else lines[at] = text;
-    } else if (!text.empty()) {
-        lines.push_back(text);
+    /* The lines of START.COM and of BANNER.TXT: line N replaced or, emptied,
+     * taken out; the line past the last, typed into, added. */
+    for (const auto &[prefix, banner] : {std::pair{std::string(kStartupField), false}, std::pair{std::string(kBannerField), true}}) {
+        if (key.rfind(prefix, 0) != 0 || key.size() == prefix.size()) continue;
+        if (!ready()) return "choose the diskette and the system first";
+        const auto at = static_cast<std::size_t>(std::stoul(key.substr(prefix.size())));
+        auto lines = (banner ? sel_.banner : sel_.startup).value_or(std::vector<std::string>{});
+        if (at < lines.size()) {
+            if (text.empty()) lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(at));
+            else lines[at] = text;
+        } else if (!text.empty()) {
+            lines.push_back(text);
+        }
+        if (banner) setBanner(std::move(lines)); else setStartup(std::move(lines));
+        return "";
     }
-    setStartup(std::move(lines));
-    return "";
+    return "no field " + key;
 }
 
 /* ---- the rows ------------------------------------------------------------- */
@@ -570,6 +579,26 @@ void DiskWizard::startupRows(std::vector<WizardRow> &out, int depth, const std::
     }
 }
 
+/* BANNER.TXT: the lines the disk shows as it starts, typed by START.COM -
+ * a group like START.COM's, of the person's lines only. */
+void DiskWizard::bannerRows(std::vector<WizardRow> &out, int depth, const std::string &parent, bool everything) const
+{
+    const auto own = sel_.banner.value_or(std::vector<std::string>{});
+    WizardRow g = heading(WizardRow::Kind::group, depth, kBannerGroup, "BANNER.TXT");
+    g.parent = parent;
+    g.summary = own.empty() ? std::string("none: a text the disk shows as it starts")
+                            : std::to_string(own.size()) + (own.size() == 1 ? " line" : " lines");
+    g.open = everything || open_.count(kBannerGroup) != 0;
+    out.push_back(g);
+    if (!g.open) return;
+    for (std::size_t i = 0; i <= own.size(); ++i) {
+        WizardRow r = heading(WizardRow::Kind::field, depth + 1, kBannerField + std::to_string(i), "");
+        r.parent = kBannerGroup;
+        if (i < own.size()) r.value = own[i]; else r.summary = "a new line";
+        out.push_back(std::move(r));
+    }
+}
+
 std::vector<WizardRow> DiskWizard::rows(bool everything) const
 {
     std::vector<WizardRow> out;
@@ -581,9 +610,15 @@ std::vector<WizardRow> DiskWizard::rows(bool everything) const
     const std::string home = startupHome();
     for (const auto &top : tree().children) {
         branchRows(out, top, 0, everything);
-        if (top.key == home && (everything || open_.count(top.key) != 0)) startupRows(out, 1, top.key, everything);
+        if (top.key == home && (everything || open_.count(top.key) != 0)) {
+            startupRows(out, 1, top.key, everything);
+            bannerRows(out, 1, top.key, everything);
+        }
     }
-    if (home.empty()) startupRows(out, 0, "", everything);
+    if (home.empty()) {
+        startupRows(out, 0, "", everything);
+        bannerRows(out, 0, "", everything);
+    }
     return out;
 }
 

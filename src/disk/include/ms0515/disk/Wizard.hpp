@@ -64,13 +64,15 @@ inline constexpr const char *kDisketteGroup = "#diskette";
 inline constexpr const char *kLabelGroup = "#label";
 inline constexpr const char *kSystemGroup = "#system";
 inline constexpr const char *kStartupGroup = "#startup";
+inline constexpr const char *kBannerGroup = "#banner";
 /* The fields' keys: the volume id; START.COM's own line N ("#startup:N", N
- * one past the last: a new line). */
+ * one past the last: a new line); BANNER.TXT's line N the same way. */
 inline constexpr const char *kVolumeIdField = "#volume-id";
 inline constexpr const char *kOwnerField = "#owner";
 inline constexpr const char *kSecondVolumeIdField = "#volume-id-2";     /* dz: side 1 */
 inline constexpr const char *kSecondOwnerField = "#owner-2";
 inline constexpr const char *kStartupField = "#startup:";
+inline constexpr const char *kBannerField = "#banner:";
 
 /* "dz - two sides, 800 KB" */
 [[nodiscard]] const char *mediaTitle(Media m);
@@ -81,8 +83,7 @@ inline constexpr const char *kStartupField = "#startup:";
  *   volume_id, owner, second_volume_id, second_owner
  * Only the person's decisions: the system's parts and the dependencies are
  * derived again, by the rules of the collection that reads it.  `banner`
- * has no field in the wizard: written into the file by hand, it is the
- * lines of a BANNER.TXT that START.COM types as the disk starts. */
+ * is the lines of a BANNER.TXT that START.COM types as the disk starts. */
 struct SavedSelection {
     std::string collection;    /* disks.toml's version; "" unknown */
     Selection   selection;
@@ -130,10 +131,12 @@ public:
     void reveal(const std::string &groupKey);
 
     void setStartup(std::vector<std::string> lines);
+    void setBanner(std::vector<std::string> lines);
     void setVolumeId(std::optional<std::string> id);
     /* A field's text, as typed: "" when taken, else why not.  A volume id or
      * an owner keeps twelve characters, in capitals, and emptied is unset; a
-     * START.COM line emptied goes, one typed into the new line is added. */
+     * START.COM or BANNER.TXT line emptied goes, one typed into the new line
+     * is added. */
     std::string setField(const std::string &key, const std::string &value);
 
     [[nodiscard]] const Selection &selection() const noexcept { return sel_; }
@@ -172,6 +175,7 @@ private:
     void openWhatIsChosen();
     [[nodiscard]] std::string startupHome() const;
     void startupRows(std::vector<WizardRow> &out, int depth, const std::string &parent, bool everything) const;
+    void bannerRows(std::vector<WizardRow> &out, int depth, const std::string &parent, bool everything) const;
     void branchRows(std::vector<WizardRow> &out, const Branch &branch, int depth, bool everything) const;
     void leafRows(std::vector<WizardRow> &out, const Branch &branch, int depth) const;
 
