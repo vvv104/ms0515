@@ -20,6 +20,7 @@ const api = {
   setSystem: c("wiz_set_system", "string", ["string"]),
   fold: c("wiz_fold", null, ["string"]),
   setField: c("wiz_set_field", "string", ["string", "string"]),
+  setText: c("wiz_set_text", "string", ["string", "string"]),
   toggle: c("wiz_toggle", "string", ["string"]),
   needed: c("wiz_needed", "string", []),
   plan: c("wiz_plan", "string", []),
@@ -46,7 +47,7 @@ const fixture = readFileSync(join(here, "../lib/tests/disks/test_osa.dsk"));
 M.FS.mkdirTree("/software/systems");
 M.FS.writeFile("/software/systems/test_osa.dsk", fixture);
 const files = { "systems/test_osa.dsk": fixture.length };
-for (const [dir, name] of [["h", "DZ.SYS"], ["h", "TT.SYS"], ["u", "DIR.SAV"], ["u2", "DIR.SAV"]]) {
+for (const [dir, name] of [["h", "DZ.SYS"], ["h", "TT.SYS"], ["u", "DIR.SAV"], ["u2", "DIR.SAV"], ["u", "PIP.SAV"]]) {
   const n = api.diskGet("/software/systems/test_osa.dsk", 0, 0, name);
   if (n < 0) fail(`the fixture has no ${name}`);
   M.FS.mkdirTree(`/software/${dir}`);
@@ -85,6 +86,12 @@ title    = "DIR (second)"
 group    = "Utilities"
 provides = ["dir"]
 files    = ["u2/DIR.SAV"]
+
+[bundle.pip]
+title    = "PIP"
+group    = "Utilities"
+provides = ["pip"]
+files    = ["u/PIP.SAV"]
 `;
 if (!api.open(manifest, Object.keys(files).join("\n"), Object.values(files).join("\n"))) fail("wiz_open: " + api.error());
 
@@ -138,6 +145,34 @@ if (row("SET TT QUIET", "line")?.requiredBy !== "OSA") fail("the system's START.
 if (row("#startup:0", "field")?.value !== "DIR" || !row("#startup:1", "field")) fail("the START.COM fields");
 if (!JSON.parse(api.plan()).startup.includes("DIR")) fail("the plan's START.COM misses the typed line");
 api.setField("#startup:0", "");
+
+// A file whole, as the page's text box gives it: blank lines inside stay,
+// the box's trailing newline adds none.
+if (api.setText("#startup", "DIR\n\nR DATSET\n") !== "") fail("wiz_set_text startup");
+if (api.setText("#banner", "Hello\r\nWorld") !== "") fail("wiz_set_text banner");
+api.fold("#banner");                        // BANNER.TXT is folded until asked for
+state = JSON.parse(api.state());
+const values = (parent) => state.rows.filter((r) => r.kind === "field" && r.parent === parent).map((r) => r.value);
+if (JSON.stringify(values("#startup")) !== JSON.stringify(["DIR", "", "R DATSET", ""])) fail("the START.COM text: " + JSON.stringify(values("#startup")));
+if (JSON.stringify(values("#banner")) !== JSON.stringify(["Hello", "World", ""])) fail("the BANNER.TXT text: " + JSON.stringify(values("#banner")));
+// TYPE is PIP's: a banner without PIP chosen is refused by the plan, not
+// ticked behind the person's back.
+let planned = JSON.parse(api.plan());
+if (planned.ok || !/PIP/.test(planned.problem)) fail("a banner planned without PIP: " + JSON.stringify(planned));
+if (api.toggle("pip") !== "") fail("toggle pip");
+planned = JSON.parse(api.plan());
+if (!planned.ok || !planned.startup.includes("R DATSET")) fail("the plan's START.COM: " + JSON.stringify(planned));
+if (!JSON.parse(api.needed()).includes("u/PIP.SAV")) fail("wiz_needed misses the PIP the banner types with");
+if (api.setText("#label", "x") === "") fail("a text where there is none");
+if (api.setText("#banner", "") !== "" || api.setText("#startup", "") !== "") fail("the texts emptied");
+state = JSON.parse(api.state());
+if (values("#startup").length !== 1 || values("#banner").length !== 1) fail("the emptied texts left lines");
+
+// A radio button picked and needed by nothing clears on a second tap.
+if (api.toggle("dir2") !== "") fail("a picked radio button does not clear");
+state = JSON.parse(api.state());
+if (row("dir2").mark !== "off") fail("the radio button stayed: " + row("dir2").mark);
+if (api.toggle("dir2") !== "") fail("toggle dir2 again");
 
 const saved = api.save();
 if (!/collection\s*=\s*"check-1"/.test(saved) || !/"dir2"/.test(saved)) fail("the saved choice:\n" + saved);

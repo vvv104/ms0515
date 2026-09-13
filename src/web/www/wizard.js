@@ -29,6 +29,7 @@ export class DiskComposer {
       fold: c("wiz_fold", null, ["string"]),
       toggle: c("wiz_toggle", "string", ["string"]),
       setField: c("wiz_set_field", "string", ["string", "string"]),
+      setText: c("wiz_set_text", "string", ["string", "string"]),
       needed: c("wiz_needed", "string", []),
       plan: c("wiz_plan", "string", []),
       build: c("wiz_build", "number", ["string"]),
@@ -117,6 +118,7 @@ export class DiskComposer {
     const out = [];
     let radioName = "";
     const pad = (r) => `style="padding-left:${0.7 + 1.2 * r.depth}em"`;
+    const texts = new Set();                    // the text boxes drawn: one per file
     const systemTitle = this.state.rows.find((r) => r.kind === "system" && r.mark !== "off")?.title
                      ?? this.state.rows.find((r) => r.key === "#system")?.summary;
     for (const r of this.state.rows) {
@@ -133,13 +135,23 @@ export class DiskComposer {
         continue;
       }
       if (r.kind === "field") {
+        // START.COM's own lines and BANNER.TXT come as one field per line;
+        // the page shows each file as one text box, the last (empty) line
+        // being the room to type the next.
+        if (r.parent === "#startup" || r.parent === "#banner") {
+          if (texts.has(r.parent)) continue;
+          const lines = this.state.rows.filter((x) => x.kind === "field" && x.parent === r.parent).slice(0, -1).map((x) => x.value);
+          texts.add(r.parent);
+          const hint = r.parent === "#startup" ? "your own lines of START.COM, one per line" : "the text the disk shows as it starts";
+          out.push(`<div class="wiz-field wiz-text" ${pad(r)}><textarea data-group="${esc(r.parent)}" rows="${Math.max(2, lines.length + 1)}"` +
+                   ` placeholder="${hint}" spellcheck="false" autocomplete="off" wrap="off">${esc(lines.join("\n"))}</textarea></div>`);
+          continue;
+        }
         const volume = r.parent === "#label";
-        const own = r.key.startsWith("#startup:") && r.value !== "";
         out.push(`<label class="wiz-field" ${pad(r)}>${r.title ? `<span>${esc(r.title)}</span>` : ""}` +
                  `<input id="wiz-f${esc(r.key.replace(/[^a-z0-9]/gi, "-"))}" data-key="${esc(r.key)}" data-parent="${esc(r.parent)}"` +
                  ` value="${esc(r.value)}" placeholder="${esc(r.summary)}" spellcheck="false" autocomplete="off"` +
-                 `${volume ? ` maxlength="12" class="vol"` : ""}>` +
-                 `${own ? `<button class="small wiz-drop" data-key="${esc(r.key)}" title="take the line out">&times;</button>` : ""}</label>`);
+                 `${volume ? ` maxlength="12" class="vol"` : ""}></label>`);
         continue;
       }
       const on = r.mark !== "off";
@@ -155,17 +167,15 @@ export class DiskComposer {
                `<span class="t">${esc(r.title)}</span><span class="b">${r.kind === "bundle" ? r.blocks : ""}</span><span class="n">${note}</span></div>`);
     }
     list.innerHTML = out.join("");
-    // A field: Enter keeps it and goes on to the next field of its block (a
-    // START.COM line emptied is gone, and the next one comes up to its place),
-    // Esc puts back what was there, x takes a START.COM line out.
+    // A field: Enter keeps it and goes on to the next field of its block,
+    // Esc puts back what was there.
     const fieldsOf = (parent) => [...this.dlg.querySelectorAll(`.wiz-field input[data-parent="${parent}"]`)];
     const keep = (input, goOn) => {
       const { key, parent } = input.dataset;
       const at = fieldsOf(parent).indexOf(input);
-      const emptied = key.startsWith("#startup:") && input.value.trim() === "";
       const why = this.api.setField(key, input.value);
       this.changed(why);
-      if (goOn && !why) fieldsOf(parent)[emptied ? at : at + 1]?.focus();
+      if (goOn && !why) fieldsOf(parent)[at + 1]?.focus();
     };
     list.querySelectorAll(".wiz-field input").forEach((input) => {
       input.onkeydown = (e) => {
@@ -174,9 +184,15 @@ export class DiskComposer {
       };
       input.onchange = () => { if (!input.dataset.kept) keep(input, false); };
     });
-    list.querySelectorAll(".wiz-drop").forEach((b) => b.onclick = (e) => {
-      e.preventDefault();
-      this.changed(this.api.setField(b.dataset.key, ""));
+    // A text box (START.COM, BANNER.TXT): Enter is a new line, the file is
+    // kept whole when the box is left, Esc puts back what was there.
+    list.querySelectorAll(".wiz-text textarea").forEach((box) => {
+      const grow = () => { box.rows = Math.max(2, box.value.split("\n").length + 1); };
+      box.oninput = grow;
+      box.onkeydown = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); box.value = box.defaultValue; grow(); box.blur(); }
+      };
+      box.onchange = () => this.changed(this.api.setText(box.dataset.group, box.value));
     });
     list.querySelectorAll(".wiz-group").forEach((g) => g.onclick = () => {
       const row = this.state.rows.find((r) => r.kind === "group" && r.key === g.dataset.group);
@@ -190,7 +206,8 @@ export class DiskComposer {
       this.current = { kind, key };
       const row = this.state.rows.find((r) => r.kind === kind && r.key === key);
       if (row && !row.available) { this.renderList(); this.renderDetails(); this.msg(row.why, true); return; }
-      if (row?.radio && row.mark !== "off") { this.renderList(); this.renderDetails(); return; }   // picked already
+      // A radio button picked already: the model clears it when nothing
+      // needs it, else says what does.
       const wasReady = this.state.ready;
       const why = kind === "media" ? this.api.setMedia(key) : kind === "system" ? this.api.setSystem(key) : this.api.toggle(key);
       this.changed(why);
