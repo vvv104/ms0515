@@ -115,9 +115,11 @@ public:
      * went.  Returns "" (the form of the other actions). */
     std::string setMedia(Media media);
     /* The system: "" when taken, else why not (no diskette yet, one it does
-     * not go on) - and nothing changed.  Another system than before takes
-     * its own builds: an alternative ticked for the old one (its DIR, PIP)
-     * gives way to what the new one suggests - notices() says which. */
+     * not go on) - and nothing changed.  A system's suggestions - its own
+     * builds of DIR, DUP, PIP - are not ticked by themselves; another
+     * system than before makes a build ticked for the old one give way to
+     * its own of the same name - notices() says which - and leaves what
+     * was not ticked alone. */
     std::string setSystem(const std::string &key);
     [[nodiscard]] const std::string &system() const noexcept { return sel_.system; }
     [[nodiscard]] std::optional<Media> media() const noexcept { return media_; }
@@ -168,8 +170,7 @@ private:
 
     void resolve();
     void dropWhatDoesNotFit();
-    void suggest();                /* the system's suggestions ticked */
-    void adoptOwnBuilds();         /* another system: its suggestions in place of the alternatives ticked before */
+    void adoptOwnBuilds();         /* another system: its own builds in place of the alternatives ticked before */
     [[nodiscard]] std::vector<std::string> alternativesOf(const ManifestBundle &b) const;
     [[nodiscard]] bool isSystemPart(const std::string &key) const;
     [[nodiscard]] std::string systemRefusal(const ManifestSystem &s) const;
