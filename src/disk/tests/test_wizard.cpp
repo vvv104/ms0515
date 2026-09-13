@@ -439,6 +439,83 @@ TEST_CASE("a system's suggestions come ticked with it - its own builds - and can
     CHECK(fresh.selection().bundles == std::vector<std::string>{"dir-vvv"});
 }
 
+TEST_CASE("another system takes its own builds: the alternatives ticked for the system before give way to its suggestions") {
+    static constexpr const char *kTwo = R"toml(
+format  = 1
+version = "x"
+
+[system.osa]
+title    = "OSA"
+image    = "systems/osa.dsk"
+media    = ["ss"]
+requires = ["dz"]
+suggests = ["dir-osa", "pip-omega"]
+
+[system.mihin]
+title    = "OS-16SJ"
+image    = "systems/mihin.dsk"
+media    = ["ss"]
+requires = ["dz"]
+suggests = ["dir-vvv", "pip-mihin"]
+
+[bundle.dz]
+title = "DZ.SYS"
+group = "System"
+files = ["h/DZ.SYS"]
+
+[bundle.dir-osa]
+title    = "DIR (OSA)"
+group    = "System"
+provides = ["dir"]
+files    = ["u/osa/DIR.SAV"]
+
+[bundle.dir-vvv]
+title    = "DIR (OMEGA2, MIHIN)"
+group    = "System"
+provides = ["dir"]
+files    = ["u/vvv/DIR.SAV"]
+
+[bundle.pip-omega]
+title    = "PIP (OSA, OMEGA, RODIONOV)"
+group    = "System"
+provides = ["pip"]
+files    = ["u/omega/PIP.SAV"]
+
+[bundle.pip-mihin]
+title    = "PIP (MIHIN)"
+group    = "System"
+provides = ["pip"]
+files    = ["u/mihin/PIP.SAV"]
+
+[bundle.game]
+title = "A game"
+group = "Games"
+files = ["g/GAME.SAV"]
+)toml";
+    const Manifest m = parseManifest(kTwo);
+    DiskWizard w(m, "osa", Media::ss);
+    CHECK(w.selection().bundles == std::vector<std::string>{"dir-osa", "pip-omega"});
+    REQUIRE(w.toggle("game").empty());
+
+    REQUIRE(w.setSystem("mihin").empty());                              /* OSA's builds give way to Mihin's own */
+    CHECK(w.selection().bundles == std::vector<std::string>{"game", "dir-vvv", "pip-mihin"});
+    CHECK(w.selection().picks.at("dir") == "dir-vvv");
+    CHECK(w.selection().picks.at("pip") == "pip-mihin");
+    REQUIRE(w.notices().size() == 2);
+    CHECK(w.notices()[0] == "DIR (OSA) gave way to DIR (OMEGA2, MIHIN): OS-16SJ's own");
+    CHECK(w.notices()[1] == "PIP (OSA, OMEGA, RODIONOV) gave way to PIP (MIHIN): OS-16SJ's own");
+
+    REQUIRE(w.toggle("dir-osa").empty());                               /* picked by hand under Mihin */
+    REQUIRE(w.setSystem("mihin").empty());                              /* the same system again: kept */
+    CHECK(w.selection().bundles == std::vector<std::string>{"game", "pip-mihin", "dir-osa"});
+    CHECK(w.notices().empty());
+
+    REQUIRE(w.setSystem("osa").empty());                                /* back: DIR is OSA's already, PIP changes */
+    CHECK(w.selection().bundles == std::vector<std::string>{"game", "dir-osa", "pip-omega"});
+    REQUIRE(w.notices().size() == 1);
+    CHECK(w.notices()[0] == "PIP (MIHIN) gave way to PIP (OSA, OMEGA, RODIONOV): OSA's own");
+}
+
 TEST_CASE("a bundle ticked that the system comes to require is the system's - locked - and ticked again when it no longer is") {
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m, "omega", Media::dz);

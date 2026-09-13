@@ -268,10 +268,37 @@ std::string DiskWizard::setSystem(const std::string &key)
     if (!media_) return "choose the diskette first";
     if (auto why = systemRefusal(*sys); !why.empty()) return sys->title + " goes " + why;
     notices_.clear();
+    const bool another = !sel_.system.empty() && sel_.system != key;
     sel_.system = key;
+    if (another) adoptOwnBuilds();
     suggest();
     dropWhatDoesNotFit();
     return "";
+}
+
+/* A system's suggestions are its own builds of the utilities.  Coming
+ * from another system, the alternatives ticked for that one - OSA's DIR
+ * under Mihin's monitor - would satisfy the names and keep the suggestions
+ * out; so each such alternative goes, with a notice, and the pick of the
+ * name becomes the new system's, for suggest() to tick.  The same system
+ * chosen again changes nothing: what was picked by hand under it stays. */
+void DiskWizard::adoptOwnBuilds()
+{
+    const auto *sys = m_.system(sel_.system);
+    if (!sys || !media_) return;
+    for (const auto &own : suggestedBundles(m_, *sys, *media_, {})) {
+        const auto *b = m_.bundle(own);
+        if (!b) continue;
+        for (const auto &name : b->provides) {
+            for (const auto &chosen : std::vector<std::string>(sel_.bundles)) {
+                const auto *o = m_.bundle(chosen);
+                if (!o || chosen == own || std::find(o->provides.begin(), o->provides.end(), name) == o->provides.end()) continue;
+                std::erase(sel_.bundles, chosen);
+                notices_.push_back(o->title + " gave way to " + b->title + ": " + sys->title + "'s own");
+            }
+            sel_.picks[name] = own;
+        }
+    }
 }
 
 void DiskWizard::suggest()
