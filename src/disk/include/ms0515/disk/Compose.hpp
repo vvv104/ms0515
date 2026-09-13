@@ -87,6 +87,10 @@ struct ComposePlan {
     bool                        ok = false;
     std::string                 problem;     /* the first thing that stops it */
     std::vector<GroupPlacement> groups;
+    /* What the composition put on the boot volume by itself, after the
+     * groups: the startup file, BANNER.TXT - each with its blocks, and
+     * volume -1 with the reason when one did not fit. */
+    std::vector<GroupPlacement> files;
     std::vector<int>            freeBlocks;  /* per volume, after everything placed */
 };
 

@@ -68,6 +68,7 @@ private:
     bool onWindowEvent(const ftxui::Event &event);
     void finishFile(const std::filesystem::path &path);
     [[nodiscard]] ftxui::Element rowLine(const disk::WizardRow &row, bool here) const;
+    [[nodiscard]] std::size_t lineBoxWidth(int depth) const;
     [[nodiscard]] ftxui::Element renderWindow(int width, int height) const;
     void finishAsk();
     bool onAskEvent(const ftxui::Event &event);
@@ -100,6 +101,7 @@ private:
     std::string             message_;             /* a window saying what went wrong */
     bool                    quitting_ = false;    /* "leave the composer?" asked */
 
+    int                     width_ = 120;         /* the screen's, as last rendered: the boxes fit it */
     int                     cursor_ = 0;          /* a row; past the rows, a button */
     int                     top_ = 0;
     Ask                     ask_ = Ask::none;
