@@ -47,7 +47,7 @@ Dispatcher register.
 |-------|------|------------------------------------------------------|
 | 0–6   | Bn   | Bank select: 1=primary, 0=extended                   |
 | 7     | VEN  | VRAM access enable through virtual window             |
-| 8     | MON  | Monitor interrupt request (1=assert VBlank IRQ)       |
+| 8     | MON  | Monitor interrupt request, vector 064: 1 sets it, 0 resets it (NS4 4.3); a level, not an edge - a write of 0 never raises one |
 | 9     | TAI  | Timer interrupt enable (1=enable timer IRQ)           |
 | 10–11 | VWn  | VRAM virtual window position selector                 |
 | 12–13 | STB  | Parallel interface (IRPR) control signals             |

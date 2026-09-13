@@ -109,6 +109,14 @@ program needs of it:
   puts it back, so a `.READW` in the middle costs nothing but the ticks
   during it.  FIST kept time on timer channel 1 instead (the printer's
   baud generator, unused), read by polling.
+- **Dispatcher bit 8 is the monitor interrupt's request itself**, a
+  level: writing 1 makes vector 064 pending, writing 0 takes the request
+  back and raises nothing (NS4 4.3).  RT-11's terminal service clears it
+  as it enters, prints one character with the priority briefly lowered,
+  sets it for the next character and returns - one interrupt per
+  character, at one stack depth.  An emulator that fires on the clear
+  too re-enters that service before its RTI once per character, and a
+  long `TYPE` ends in `?MON-F-Stack overflow` (fixed 2026-09-13).
 - **Priorities**: the core takes an interrupt's priority from the PSW
   word stored at its vector, not from the device.  RT-11 puts high ones
   there, so raising the processor priority to 5 does not keep the

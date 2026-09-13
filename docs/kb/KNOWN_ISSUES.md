@@ -474,6 +474,29 @@ reminder that a defect reproduced only on a synthetic setup accuses the
 setup first.
 
 
+## RESOLVED: a long `TYPE` stalled, then `?MON-F-Stack overflow` (2026-09-13)
+
+- **Systems**: OSA and Omega alike; any monitor that drives the console
+  through the monitor interrupt (vector 064).
+- **Reproduction**: `TYPE` of a text file longer than a few lines.  OSA
+  stopped after ~90 bytes and sat at the prompt; Omega printed ~40 bytes,
+  then `?MON-F-Stack overflow 000106` and garbage.  A `DIR` of the same
+  length was fine (it goes through `.TTYOUT`, not PIP's `TYPE`).
+- **Why**: dispatcher bit 8 is the monitor interrupt's request itself -
+  "1 sets it, 0 resets it" (NS4 4.3).  The core fired vector 064 on
+  *any* transition of the bit, so the terminal service's own clear on
+  entry raised a fresh request; it sat pending at priority 7 and broke
+  into the service the moment it lowered the priority to print, before
+  its RTI.  One nesting per character ran the stack down into the vector
+  page (the pushes overwrote 064/066 - the trace shows the interrupt
+  then vectoring to the clobbered word 140054 at priority 4 and dying on
+  a reserved instruction).  nzeemin's ms0515btl fires on any transition
+  too and fails the same way, so it was no oracle here.
+- **Fix**: `board_monitor_request()` in `core/src/board.c` - a 0→1 write
+  raises the request, a 1→0 write withdraws it, nothing else fires.
+  `core/tests/test_monitor_request.cpp` pins it: clear, lower priority,
+  no re-entry.  A 1 KB 20-line BANNER.TXT now types whole on OSA.
+
 ## RESOLVED: a key pressed during the ROM's self-test hung the machine
 
 The browser build's first bug report (2026-09-08, "during rom check

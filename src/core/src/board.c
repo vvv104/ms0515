@@ -251,6 +251,27 @@ static uint8_t io_read_byte(ms0515_board_t *board, uint16_t offset)
     return 0;
 }
 
+/* Dispatcher bit 8 is the monitor's interrupt request itself (NS4 4.3:
+ * "1 sets the request from the monitor, 0 resets it"): a write of 1 makes
+ * vector 064 pending, a write of 0 takes a pending request back - and
+ * raises none.  RT-11's terminal service clears the bit as it enters,
+ * lowers the priority to print the character, sets the bit for the next
+ * one and returns.  Taking the clear as an edge (any transition) raised a
+ * request there, which broke into the service the moment its priority
+ * dropped, before its RTI; one nesting per character ran the stack down
+ * into the vector page and `?MON-F-Stack overflow` ended every long TYPE
+ * on OSA and Omega alike.  (nzeemin's ms0515btl fires on any transition
+ * too and has the same failure.) */
+static void board_monitor_request(ms0515_board_t *board, uint16_t old)
+{
+    const uint16_t now = board->mem.dispatcher;
+    if (now & MEM_DISP_MON_IRQ) {
+        if (!(old & MEM_DISP_MON_IRQ)) cpu_interrupt(&board->cpu, 2, 064);
+    } else if (old & MEM_DISP_MON_IRQ) {
+        cpu_clear_interrupt(&board->cpu, 2);
+    }
+}
+
 static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
 {
     /* Memory dispatcher — write to the full 16-bit register on word writes.
@@ -265,10 +286,7 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
             };
             BOARD_EVT(board, MS0515_EVT_DISP, payload, sizeof payload);
         }
-        /* Bit 8: monitor interrupt — edge-triggered on any transition.
-         * Per NS4 tech desc: writing 1 initiates interrupt request. */
-        if ((board->mem.dispatcher ^ old) & MEM_DISP_MON_IRQ)
-            cpu_interrupt(&board->cpu, 2, 064);
+        board_monitor_request(board, old);
         return;
     }
 
@@ -382,9 +400,7 @@ static void io_write_word(ms0515_board_t *board, uint16_t offset, uint16_t value
     if (offset <= 0x1F) {
         uint16_t old = board->mem.dispatcher;
         board->mem.dispatcher = value;
-        /* Bit 8: monitor interrupt — edge-triggered on any transition. */
-        if ((value ^ old) & MEM_DISP_MON_IRQ)
-            cpu_interrupt(&board->cpu, 2, 064);
+        board_monitor_request(board, old);
         return;
     }
 
@@ -670,10 +686,9 @@ bool board_step_frame(ms0515_board_t *board)
      * End of frame: generate VBlank-related interrupts.
      *
      * Per NS4 tech desc:
-     *   - Monitor → vector 064, priority 4
-     *     Bit 8 of dispatcher is a SOFTWARE interrupt trigger (edge-
-     *     triggered on write), not tied to VBlank.  Handled in the
-     *     dispatcher write path above.
+     *   - Monitor → vector 064, level 4
+     *     Bit 8 of the dispatcher is the request itself, not tied to
+     *     VBlank: board_monitor_request() in the dispatcher write path.
      *   - Timer → vector 0100, priority 6
      *     Gated by dispatcher bit 9 (MEM_DISP_TIMER_IRQ).
      *     The timer interrupt is strobed by VBlank, firing once per frame.
