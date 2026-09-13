@@ -105,6 +105,7 @@ private:
     Ask                     ask_ = Ask::none;
     std::string             input_;
     bool                    editing_ = false;    /* a field's text being typed */
+    bool                    editHadText_ = false;   /* the field held text when the edit began */
     std::string             editKey_;
     std::string             edit_;
     std::string             status_;
