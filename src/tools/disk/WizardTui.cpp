@@ -70,6 +70,24 @@ void popLetter(std::string &s)
     if (!s.empty()) s.pop_back();
 }
 
+/* The letters of a UTF-8 string, one string each: the cursor moves by them. */
+std::vector<std::string> lettersOf(const std::string &s)
+{
+    std::vector<std::string> out;
+    for (const char c : s) {
+        if (continuation(c) && !out.empty()) out.back() += c;
+        else out.emplace_back(1, c);
+    }
+    return out;
+}
+
+std::string joined(const std::vector<std::string> &letters, std::size_t from, std::size_t to)
+{
+    std::string s;
+    for (std::size_t i = from; i < to && i < letters.size(); ++i) s += letters[i];
+    return s;
+}
+
 std::string lastLetters(const std::string &s, std::size_t n)
 {
     std::size_t i = s.size();
@@ -367,10 +385,14 @@ void WizardTui::startEdit(const WizardRow &row, std::string text)
     editHadText_ = !row.value.empty();
     editKey_ = row.key;
     edit_ = std::move(text);
+    editAt_ = lettersOf(edit_).size();
 }
 
-/* Typing into a field: Enter keeps the text and goes on, an arrow keeps it
- * and moves, Del empties the box, Esc drops the edit. */
+/* Typing into a field: Enter keeps the text and goes on, Up or Down keeps
+ * it and moves, Esc drops the edit.  Inside the text the cursor walks by
+ * letters - Left, Right, Home, End - what is typed goes in at it,
+ * Backspace takes the letter before it, Del the one under it, Ctrl+U the
+ * whole text. */
 bool WizardTui::onEditEvent(const Event &e)
 {
     if (e == Event::Escape) { editing_ = false; return true; }
@@ -389,9 +411,23 @@ bool WizardTui::onEditEvent(const Event &e)
         if (e == Event::ArrowDown) moveCursor(1);
         return true;
     }
-    if (e == Event::Backspace) { popLetter(edit_); return true; }
-    if (e == Event::Delete) { edit_.clear(); return true; }
-    if (e.is_character()) edit_ += e.character();
+    auto letters = lettersOf(edit_);
+    editAt_ = std::min(editAt_, letters.size());
+    if (e == Event::ArrowLeft)  { if (editAt_ > 0) --editAt_; return true; }
+    if (e == Event::ArrowRight) { if (editAt_ < letters.size()) ++editAt_; return true; }
+    if (e == Event::Home)       { editAt_ = 0; return true; }
+    if (e == Event::End)        { editAt_ = letters.size(); return true; }
+    if (e == Event::CtrlU)      { edit_.clear(); editAt_ = 0; return true; }
+    if (e == Event::Backspace) {
+        if (editAt_ > 0) letters.erase(letters.begin() + static_cast<std::ptrdiff_t>(--editAt_));
+    } else if (e == Event::Delete) {
+        if (editAt_ < letters.size()) letters.erase(letters.begin() + static_cast<std::ptrdiff_t>(editAt_));
+    } else if (e.is_character()) {
+        letters.insert(letters.begin() + static_cast<std::ptrdiff_t>(editAt_++), e.character());
+    } else {
+        return true;
+    }
+    edit_ = joined(letters, 0, letters.size());
     return true;
 }
 
@@ -464,7 +500,7 @@ Element WizardTui::rowLine(const WizardRow &r, bool here) const
         const bool typing = editing_ && editKey_ == r.key;
         const bool label = r.parent == kLabelGroup;
         const std::size_t width = label ? 12 : lineBoxWidth(r.depth);
-        std::string shownText = typing ? edit_ + "_" : r.value;
+        std::string shownText = r.value;
         /* A label's note sits at the side of its short box; a line's box
          * has the row, so its note - "a new line" - sits in the box, grey,
          * until something is typed there. */
@@ -477,8 +513,12 @@ Element WizardTui::rowLine(const WizardRow &r, bool here) const
         /* The row keeps its cursor bar while the box is typed into: the
          * bar round the box, the box in its own colours. */
         const Decorator around = here ? kCursor : Decorator(nothing);
-        const Decorator inside = typing ? kEdit : hint && !here ? kGrey : around;
-        Elements parts{text(indent + title + "[") | around, text(shownText) | inside, text("]") | around, filler() | around};
+        const Decorator inside = hint && !here ? kGrey : around;
+        Elements parts{text(indent + title + "[") | around};
+        if (typing) for (auto &part : editBox(width)) parts.push_back(std::move(part));
+        else parts.push_back(text(shownText) | inside);
+        parts.push_back(text("]") | around);
+        parts.push_back(filler() | around);
         if (label) parts.push_back(text(r.summary) | size(WIDTH, EQUAL, kSideWidth) | around);
         line = hbox(std::move(parts));
     } else if (r.kind == WizardRow::Kind::line) {
@@ -543,7 +583,7 @@ Element WizardTui::renderDetails() const
         out.push_back(text(title));
         if (!r.summary.empty()) out.push_back(text(r.summary));
         if (r.kind == WizardRow::Kind::line) out.push_back(text("from " + r.requiredBy));
-        if (r.kind == WizardRow::Kind::field) out.push_back(text("Type to change it; Enter keeps, Esc drops, Del empties."));
+        if (r.kind == WizardRow::Kind::field) out.push_back(text("Type to change it; Enter keeps, Esc drops, Del takes it out."));
         if (!r.available) out.push_back(paragraph(r.why) | kBad);
         return vbox(out);
     }
@@ -609,8 +649,8 @@ Element WizardTui::renderBottom() const
     Element line;
     if (ask_ != Ask::none) line = hbox({text("Find: "), text(input_) | kCursor, filler()});
     else line = hbox({text(status_), filler()});
-    const Element hint = hbox({text(editing_ ? "Enter: keep    Esc: drop    Del: empty    Up, Down: keep and move"
-                                             : "Space: choose    Enter: choose and go on    a field: type to edit, Del empties    / find"), filler()});
+    const Element hint = hbox({text(editing_ ? "Enter: keep  Esc: drop  Left/Right/Home/End: move  Backspace/Del: a letter out  Ctrl+U: all out  Up/Down: keep and move"
+                                             : "Space: choose    Enter: choose and go on    a field: type to edit, Del takes it out    / find"), filler()});
     return vbox({line, hint});
 }
 
@@ -623,6 +663,31 @@ Element WizardTui::renderWindow(int width, int height) const
     Element body = paragraph(quit ? std::string("Leave the composer?") : message_);
     Element keys = text(quit ? "Enter: quit    Esc: stay" : "Enter: close");
     return framed(window(text(title), vbox({body, text(""), keys})) | size(WIDTH, EQUAL, std::clamp(width - 8, 30, 60)));
+}
+
+/* The box being typed into: the text round the cursor, the box's width of
+ * it - scrolled so the cursor is in it - the cursor a "_" past the last
+ * letter or the letter it is on, shown apart. */
+Elements WizardTui::editBox(std::size_t width) const
+{
+    const auto ls = lettersOf(edit_);
+    const std::size_t at = std::min(editAt_, ls.size());
+    const bool atEnd = at == ls.size();
+    const std::size_t start = at >= width ? at - width + 1 : 0;
+    std::string before = joined(ls, start, at);
+    Elements out;
+    if (atEnd) {
+        before += "_";
+        before.append(width - (at - start) - 1, ' ');
+        out.push_back(text(before) | kEdit);
+        return out;
+    }
+    std::string after = joined(ls, at + 1, start + width);
+    after.append(width - (at - start) - 1 - letters(after), ' ');
+    out.push_back(text(before) | kEdit);
+    out.push_back(text(ls[at]) | kEdit | inverted);
+    out.push_back(text(after) | kEdit);
+    return out;
 }
 
 /* A line's box: the machine's 80 columns when the terminal has them, what

@@ -338,7 +338,7 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     CHECK(tui.model().selection().volumeId == "DVDISK");
     press(tui, ftxui::Event::ArrowUp);
     type(tui, "X");
-    press(tui, ftxui::Event::Delete);                         /* Del in an edit empties the box */
+    press(tui, ftxui::Event::CtrlU);                          /* Ctrl+U in an edit empties the box */
     type(tui, "NEW");
     press(tui, ftxui::Event::Return);
     CHECK(tui.model().selection().volumeId == "NEW");
@@ -377,7 +377,53 @@ TEST_CASE("a field takes Russian letters as letters: Backspace takes one, the bo
     for (int i = 0; i < 40; ++i) { press(tui, ftxui::Event::Character(std::string("\xD0\xAF"))); eighty += "\xD0\xAF"; }
     CHECK(shown(tui).find(eighty.substr(2) + "_") != std::string::npos);       /* the last 79 and the cursor, not 39 */
     CHECK(shown(tui).find(eighty.substr(2) + "_ ") == std::string::npos);      /* the box full to its edge */
+    press(tui, ftxui::Event::Home);                                            /* the cursor on the first letter: the box scrolls back */
+    CHECK(shown(tui).find(eighty.substr(2) + "_") == std::string::npos);
+    CHECK(shown(tui).find(eighty.substr(2)) != std::string::npos);            /* letters 2..80 after the one under the cursor */
     press(tui, ftxui::Event::Escape);
+}
+
+TEST_CASE("the cursor moves inside a field: Left, Right, Home, End; letters go in at it, Backspace and Del take one out on either side") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    ready(tui);
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);
+    type(tui, "R FSTX");
+    press(tui, ftxui::Event::ArrowLeft);                      /* before the X */
+    press(tui, ftxui::Event::Delete);                         /* the X, under the cursor, goes */
+    press(tui, ftxui::Event::ArrowLeft);
+    press(tui, ftxui::Event::ArrowLeft);                      /* before the S */
+    type(tui, "I");                                           /* R FIST */
+    press(tui, ftxui::Event::Home);
+    press(tui, ftxui::Event::Backspace);                      /* nothing before the cursor: nothing happens */
+    type(tui, "!");                                           /* !R FIST, the cursor after the ! */
+    press(tui, ftxui::Event::Backspace);                      /* the ! before the cursor goes; the R stays */
+    press(tui, ftxui::Event::End);
+    press(tui, ftxui::Event::Delete);                         /* nothing under the cursor at the end */
+    press(tui, ftxui::Event::Backspace);                      /* the T */
+    type(tui, "T");
+    CHECK(shown(tui).find("R FIST_") != std::string::npos);
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R FIST"});
+
+    press(tui, ftxui::Event::ArrowUp);
+    press(tui, ftxui::Event::Return);                         /* R FIST opened, the cursor at its end */
+    press(tui, ftxui::Event::ArrowLeft);
+    press(tui, ftxui::Event::ArrowLeft);
+    press(tui, ftxui::Event::ArrowLeft);
+    press(tui, ftxui::Event::ArrowLeft);                      /* before the F: the letter under the cursor is shown apart */
+    CHECK(shown(tui).find("IST") != std::string::npos);
+    CHECK(shown(tui).find("FIST") == std::string::npos);
+    press(tui, ftxui::Event::Character(std::string("\xD0\x9F")));   /* П */
+    press(tui, ftxui::Event::Character(std::string("\xD0\x98")));   /* И */
+    press(tui, ftxui::Event::Character(std::string("\xD0\xA0")));   /* Р */
+    press(tui, ftxui::Event::Backspace);                      /* Р goes, whole */
+    press(tui, ftxui::Event::ArrowLeft);                      /* over И, whole */
+    press(tui, ftxui::Event::Delete);                         /* И goes, whole */
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R \xD0\x9F" "FIST"});
 }
 
 TEST_CASE("a narrow terminal: the line's box takes what is left inside the frame after the indent and the brackets") {
@@ -480,7 +526,7 @@ TEST_CASE("Enter on a field opens it with the text it holds; a line emptied goes
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::Return);                         /* R PAS1 opened */
     CHECK(shown(tui).find("R PAS1_") != std::string::npos);
-    press(tui, ftxui::Event::Delete);                         /* emptied */
+    press(tui, ftxui::Event::CtrlU);                          /* emptied */
     press(tui, ftxui::Event::Return);
     CHECK_FALSE(tui.model().selection().startup.has_value());
     CHECK(tui.cursorKey() == std::string(kStartupField) + "0");   /* the line went; the new line came up */

@@ -69,6 +69,7 @@ private:
     void finishFile(const std::filesystem::path &path);
     [[nodiscard]] ftxui::Element rowLine(const disk::WizardRow &row, bool here) const;
     [[nodiscard]] std::size_t lineBoxWidth(int depth) const;
+    [[nodiscard]] ftxui::Elements editBox(std::size_t width) const;
     [[nodiscard]] ftxui::Element renderWindow(int width, int height) const;
     void finishAsk();
     bool onAskEvent(const ftxui::Event &event);
@@ -110,6 +111,7 @@ private:
     bool                    editHadText_ = false;   /* the field held text when the edit began */
     std::string             editKey_;
     std::string             edit_;
+    std::size_t             editAt_ = 0;         /* the cursor: a letter's index in edit_, its size at the end */
     std::string             status_;
     bool                    quit_ = false;
 };
