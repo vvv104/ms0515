@@ -9,11 +9,12 @@ Download ms0515-disks-<date>.zip (or a single .dsk) and boot one:
 
   ms0515 --disk0 games.dsk
 
-  games.dsk     OSA 1.0 with its games: Saboteur 2, The Way Of The
-                Exploding Fist, Pac-Man and others; the text games are
-                on the second side (R DZ2:KING)
-  devel.dsk     the Omega development kit: MACRO-11, Pascal, FORTRAN,
-                BASIC, KED
+  games.dsk     OSA 1.0 with sixteen games, a menu on the screen at
+                boot: Saboteur 2, The Way Of The Exploding Fist, Manic
+                Miner, Pac-Man, Tetris and others - type a name to play
+  devel.dsk     the Omega Pascal disk: PAS1, MACRO, LINK, KED, with a
+                Hello, world! in Pascal and in MACRO-11 and the recipe
+                to build them on the screen at boot
   rodionov.dsk  Rodionov's RT15SJ, straight into ROSA Commander
   mihin.dsk     Mihin's OS-16SJ with his formatter and utilities
 
