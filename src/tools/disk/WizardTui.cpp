@@ -355,6 +355,7 @@ void WizardTui::advance(const std::string &key, WizardRow::Kind kind)
 void WizardTui::startEdit(const WizardRow &row, std::string text)
 {
     editing_ = true;
+    editHadText_ = !row.value.empty();
     editKey_ = row.key;
     edit_ = std::move(text);
 }
@@ -370,9 +371,9 @@ bool WizardTui::onEditEvent(const Event &e)
         status_ = wizard_.setField(editKey_, edit_);
         changed();
         if (e == Event::Return && status_.empty()) {
-            const std::string prefix = kStartupField;
+            const bool lines = editKey_.rfind(kStartupField, 0) == 0 || editKey_.rfind(kBannerField, 0) == 0;
             const int at = indexOf(editKey_, WizardRow::Kind::field);
-            if (blank && editKey_.rfind(prefix, 0) == 0 && at >= 0) cursor_ = at;   /* the next line came up */
+            if (blank && lines && editHadText_ && at >= 0) cursor_ = at;   /* a line taken out: the next came up */
             else advance(editKey_, WizardRow::Kind::field);
         }
         if (e == Event::ArrowUp) moveCursor(-1);
@@ -401,6 +402,7 @@ bool WizardTui::onListEvent(const Event &e)
     }
     const auto &r = rows[static_cast<std::size_t>(cursor_)];
     if (e == Event::Character(" ")) { activate(r); return true; }
+    if (r.kind == WizardRow::Kind::field && e == Event::Return) { startEdit(r, r.value); return true; }   /* the text as it is, to edit */
     if (e == Event::Return) {                                  /* choose, and go on */
         if (r.kind == WizardRow::Kind::group) {
             if (!r.available) status_ = r.why;

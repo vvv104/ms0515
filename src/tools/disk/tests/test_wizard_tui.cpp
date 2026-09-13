@@ -194,8 +194,10 @@ TEST_CASE("the wizard's screen: the diskette first, then the system, then the gr
     type(tui, "GAMES");
     press(tui, ftxui::Event::Return);                         /* kept: on to the next field */
     CHECK(tui.model().selection().volumeId == "GAMES");
-    for (int field = 0; field < 3; ++field)                    /* Enter on a field goes past it as it is */
+    for (int field = 0; field < 3; ++field) {                  /* Enter opens a field as it is, Enter again goes past it */
         press(tui, ftxui::Event::Return);
+        press(tui, ftxui::Event::Return);
+    }
     press(tui, ftxui::Event::Character(" "));                 /* past the label: the first system */
     REQUIRE(tui.model().ready());
     s = shown(tui);
@@ -372,7 +374,9 @@ TEST_CASE("Enter walks the label field by field, on to the systems - whichever d
     enter(tui, "dz - two sides");
     CHECK(tui.cursorKey() == kVolumeIdField);
     for (const char *key : {kOwnerField, kSecondVolumeIdField, kSecondOwnerField, "omega"}) {
-        press(tui, ftxui::Event::Return);
+        press(tui, ftxui::Event::Return);                     /* opens the field */
+        CHECK(tui.cursorKey() != key);
+        press(tui, ftxui::Event::Return);                     /* keeps it and goes on */
         CHECK(tui.cursorKey() == key);
     }
     press(tui, ftxui::Event::Character(" "));
@@ -380,13 +384,50 @@ TEST_CASE("Enter walks the label field by field, on to the systems - whichever d
     enter(tui, "dv - one DV");                                /* two fields now, a system chosen */
     CHECK(tui.cursorKey() == kVolumeIdField);
     press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::Return);
     CHECK(tui.cursorKey() == kOwnerField);
+    press(tui, ftxui::Event::Return);
     press(tui, ftxui::Event::Return);
     CHECK(tui.cursorKey() == "omega");
     enter(tui, "dz - two sides");
-    for (int field = 0; field < 4; ++field) press(tui, ftxui::Event::Return);
+    for (int field = 0; field < 4; ++field) { press(tui, ftxui::Event::Return); press(tui, ftxui::Event::Return); }
     CHECK(tui.cursorKey() == "omega");
     CHECK_FALSE(tui.model().selection().volumeId.has_value());  /* walked past, nothing typed */
+}
+
+TEST_CASE("Enter on a field opens it with the text it holds; a line emptied goes, the new line left empty is passed") {
+    const Manifest m = parseManifest(kManifest);
+    const Repository repo = repository();
+    tools::WizardTui tui(m, repo, scratch());
+    enter(tui, "dz - two sides");
+    type(tui, "MYDISK");
+    press(tui, ftxui::Event::Return);
+    press(tui, ftxui::Event::ArrowUp);
+    press(tui, ftxui::Event::Return);                         /* open: MYDISK is there to edit */
+    CHECK(shown(tui).find("MYDISK_") != std::string::npos);
+    type(tui, "2");
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().volumeId == "MYDISK2");
+    CHECK(tui.cursorKey() == kOwnerField);
+
+    choose(tui, "OMEGA");
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);                      /* the new line */
+    type(tui, "R PAS1");
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1"});
+    CHECK(tui.cursorKey() == std::string(kStartupField) + "1");   /* on the next new line */
+    press(tui, ftxui::Event::Return);                         /* opened empty, kept empty: on to the next row */
+    press(tui, ftxui::Event::Return);
+    CHECK(tui.cursorKey() != std::string(kStartupField) + "1");
+    downTo(tui, "START.COM");
+    press(tui, ftxui::Event::ArrowDown);
+    press(tui, ftxui::Event::Return);                         /* R PAS1 opened */
+    CHECK(shown(tui).find("R PAS1_") != std::string::npos);
+    press(tui, ftxui::Event::Delete);                         /* emptied */
+    press(tui, ftxui::Event::Return);
+    CHECK_FALSE(tui.model().selection().startup.has_value());
+    CHECK(tui.cursorKey() == std::string(kStartupField) + "0");   /* the line went; the new line came up */
 }
 
 TEST_CASE("Enter goes on through everything to the end of the list, and stays there") {

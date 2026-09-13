@@ -85,12 +85,17 @@ title    = "DUP"
 provides = ["dup"]
 files    = ["handlers/DUP.SAV"]
 
+[bundle.pip]
+title    = "PIP"
+provides = ["pip"]
+files    = ["handlers/PIP.SAV"]
+
 [preset.games]
 title     = "OSA: games"
 system    = "osa"
 media     = "dz"
 volume_id = "GAMES"
-bundles   = ["sabot2", "pacman", "docs"]
+bundles   = ["sabot2", "pacman", "docs", "pip"]
 banner    = ["Type a game to run it"]
 
 [preset.rodionov]
@@ -120,6 +125,7 @@ Repository repository()
     for (const char *name : {"DZ.SYS", "TT.SYS", "DV.SYS", "SL.SYS"})
         (*files)[std::string("handlers/") + name] = kit->readFile(name);
     (*files)["handlers/DUP.SAV"] = blocks(4, 7);
+    (*files)["handlers/PIP.SAV"] = blocks(3, 8);
     Repository repo;
     for (const auto &kv : *files) repo.paths.push_back(kv.first);
     repo.read = [files](const std::string &p) -> std::optional<std::vector<uint8_t>> {
@@ -157,7 +163,7 @@ TEST_CASE("disks.toml read: systems, bundles and presets as written, in order") 
     CHECK(rod->reserved[1].side == 1);
     CHECK(rod->reserved[1].lbn == 799);
 
-    REQUIRE(m.bundles.size() == 8);
+    REQUIRE(m.bundles.size() == 9);
     CHECK(m.bundle("sl")->startup == std::vector<std::string>{"SET SL ON"});
     CHECK(m.bundles[0].key == "sabot2");
     CHECK(m.bundles[0].needs == std::vector<Media>{Media::ss, Media::dz});
@@ -177,7 +183,7 @@ TEST_CASE("disks.toml read: systems, bundles and presets as written, in order") 
     CHECK(m.presets[0].key == "games");
     CHECK(m.presets[0].media == Media::dz);
     CHECK(m.presets[0].volumeId == "GAMES");
-    CHECK(m.presets[0].bundles == std::vector<std::string>{"sabot2", "pacman", "docs"});
+    CHECK(m.presets[0].bundles == std::vector<std::string>{"sabot2", "pacman", "docs", "pip"});
     CHECK_FALSE(m.presets[0].startup.has_value());
     CHECK(m.preset("rodionov")->startup == std::vector<std::string>{"SET SL ON", "LOAD VM:", "R ROSA3"});
     CHECK(m.preset("nothing") == nullptr);
@@ -245,8 +251,9 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
     CHECK(r.secondOwner == "MS0515 EMU");
     CHECK(r.startup == std::vector<std::string>{"SET TT QUIET"});
     CHECK(r.banner == std::vector<std::string>{"Type a game to run it"});
-    REQUIRE(r.groups.size() == 6);                             /* and DUP, the system's suggestion, last */
-    CHECK(r.groups[5].title == "DUP");
+    REQUIRE(r.groups.size() == 7);                             /* PIP for the banner, and DUP, the system's suggestion, last */
+    CHECK(r.groups[5].title == "PIP");
+    CHECK(r.groups[6].title == "DUP");
     CHECK(r.groups[0].title == "DZ.SYS");                      /* the system's own parts first */
     CHECK(r.groups[1].title == "TT.SYS");
     const auto &sab = r.groups[2];
@@ -274,6 +281,7 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
     Selection dv = selectionOf(m, *m.preset("games"));
     dv.media = Media::dv;
     dv.bundles = {"docs"};
+    dv.banner.reset();                                         /* no PIP among these: no banner */
     const ComposeRecipe onDv = recipeFor(m, dv, repo);
     CHECK(onDv.groups[2].title == "DV.SYS");                   /* the media's own requirement */
     CHECK(bootedMonitor(composeDisk(onDv), 0, true, Vol::dv) == "RT11SJ");
@@ -284,7 +292,13 @@ TEST_CASE("a system's suggestions: ticked for a preset, by its preference, unles
     CHECK(m.system("osa")->suggests == std::vector<std::string>{"dup"});
     CHECK(m.system("rodionov")->suggests.empty());
     Selection games = selectionOf(m, *m.preset("games"));
-    CHECK(games.bundles == std::vector<std::string>{"sabot2", "pacman", "docs", "dup"});
+    CHECK(games.bundles == std::vector<std::string>{"sabot2", "pacman", "docs", "pip", "dup"});
+    /* A banner without PIP on the disk is refused: TYPE is PIP's. */
+    Selection noPip = games;
+    std::erase(noPip.bundles, "pip");
+    CHECK_THROWS_WITH_AS((void)recipeFor(m, noPip, repository()), doctest::Contains("banner needs PIP"), std::runtime_error);
+    noPip.banner.reset();
+    CHECK_NOTHROW((void)recipeFor(m, noPip, repository()));
     /* Without it the disk still resolves: a suggestion is no requirement. */
     CHECK(resolveBundles(m, "osa", Media::dz, {"sabot2"}, {}).ok);
     CHECK(suggestedBundles(m, *m.system("osa"), Media::dz, {}) == std::vector<std::string>{"dup"});

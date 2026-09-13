@@ -143,7 +143,7 @@ TEST_CASE("rows: the groups in the file's order, the system's parts marked, the 
     DiskWizard w(m, "omega", Media::dz, [](const ManifestBundle &b) { return static_cast<int>(b.title.size()); });
     const auto rows = w.rows(true);
     CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "START.COM",
-                                                     "Development", "Assembler", "Linker", "Pascal", "Games"});
+                                                     "BANNER.TXT", "Development", "Assembler", "Linker", "Pascal", "Games"});
     REQUIRE(row(rows, "dz"));
     CHECK(row(rows, "dz")->mark == WizardRow::Mark::system);
     CHECK(row(rows, "dz")->blocks == 6);
@@ -513,8 +513,12 @@ TEST_CASE("the label after the diskette, START.COM at the end of the system's gr
     CHECK(rows[at + 2].requiredBy == "Pascal");
     CHECK(rows[at + 3].kind == WizardRow::Kind::field);                 /* a new line to type */
     CHECK(rows[at + 3].key == "#startup:0");
-    CHECK(rows[at + 4].kind == WizardRow::Kind::group);
-    CHECK(rows[at + 4].title == "Development");
+    CHECK(rows[at + 4].kind == WizardRow::Kind::group);                 /* BANNER.TXT next, folded */
+    CHECK(rows[at + 4].key == kBannerGroup);
+    CHECK(rows[at + 4].title == "BANNER.TXT");
+    CHECK_FALSE(rows[at + 4].open);
+    CHECK(rows[at + 5].kind == WizardRow::Kind::group);
+    CHECK(rows[at + 5].title == "Development");
 
     CHECK(w.setField("#startup:0", "  R PAS1 ").empty());
     CHECK(w.setField("#startup:1", "DIR").empty());
@@ -529,6 +533,36 @@ TEST_CASE("the label after the diskette, START.COM at the end of the system's gr
     CHECK_FALSE(w.selection().startup.has_value());
     w.toggleFold("System");
     CHECK(row(w.rows(), "#startup", WizardRow::Kind::group) == nullptr);
+}
+
+TEST_CASE("BANNER.TXT after START.COM: the person's lines, fields like START.COM's, saved with the choice") {
+    const Manifest m = parseManifest(kManifest);
+    DiskWizard w(m, "omega", Media::dz);
+    w.toggleFold("System");
+    w.toggleFold(kBannerGroup);
+    auto rows = w.rows();
+    const auto *banner = row(rows, kBannerGroup, WizardRow::Kind::group);
+    REQUIRE(banner);
+    CHECK(banner->parent == "System");
+    CHECK(banner->open);
+    CHECK(banner->summary.find("none") == 0);
+    const auto at = static_cast<std::size_t>(banner - rows.data());
+    CHECK(rows[at + 1].kind == WizardRow::Kind::field);
+    CHECK(rows[at + 1].key == "#banner:0");
+    CHECK(rows[at + 1].summary == "a new line");
+
+    CHECK(w.setField("#banner:0", " Type a game to play it ").empty());
+    CHECK(w.setField("#banner:1", "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B:").empty());     /* Игры: */
+    CHECK(w.selection().banner == std::vector<std::string>{"Type a game to play it", "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B:"});
+    rows = w.rows();
+    CHECK(row(rows, kBannerGroup, WizardRow::Kind::group)->summary == "2 lines");
+    CHECK(row(rows, "#banner:1", WizardRow::Kind::field)->value == "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B:");
+    CHECK(row(rows, "#banner:2", WizardRow::Kind::field)->summary == "a new line");
+    CHECK(w.setField("#banner:0", "").empty());                          /* emptied: gone */
+    CHECK(w.selection().banner == std::vector<std::string>{"\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B:"});
+    CHECK(w.saved().selection.banner == w.selection().banner);
+    CHECK(w.setField("#banner:0", "").empty());
+    CHECK_FALSE(w.selection().banner.has_value());
 }
 
 TEST_CASE("the saved choice: its own file, tied to the collection's version") {

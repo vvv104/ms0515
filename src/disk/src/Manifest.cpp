@@ -581,6 +581,10 @@ ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository 
     if (!resolution.ok) throw std::runtime_error(resolution.problem);
     std::vector<const ManifestBundle *> chosen;
     for (const auto &key : resolution.bundles) chosen.push_back(m.bundle(key));
+    /* TYPE is PIP's on these monitors: without it the banner is an error
+     * at boot and the rest of START.COM goes unread. */
+    if (s.banner && std::none_of(chosen.begin(), chosen.end(), [](const auto *b) { return satisfies(*b, "pip"); }))
+        throw std::runtime_error("a banner needs PIP on the disk - TYPE is its - and no bundle chosen provides pip");
 
     auto read = [&](const std::string &path) {
         auto bytes = repo.read(path);
