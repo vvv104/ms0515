@@ -172,7 +172,6 @@ DiskWizard::DiskWizard(const Manifest &manifest, std::string system, Media media
         open_.insert(kSystemGroup);
     }
     sel_.media = *media_;
-    suggest();
     resolve();
 }
 
@@ -268,17 +267,41 @@ std::string DiskWizard::setSystem(const std::string &key)
     if (!media_) return "choose the diskette first";
     if (auto why = systemRefusal(*sys); !why.empty()) return sys->title + " goes " + why;
     notices_.clear();
+    const bool another = !sel_.system.empty() && sel_.system != key;
     sel_.system = key;
-    suggest();
+    if (another) adoptOwnBuilds();
     dropWhatDoesNotFit();
     return "";
 }
 
-void DiskWizard::suggest()
+/* A system's suggestions are its own builds of the utilities - never
+ * ticked by themselves.  Coming from another system, a build ticked for
+ * that one - OSA's DIR under Mihin's monitor - gives way to the new
+ * system's own of the same name, with a notice, and the pick of the name
+ * becomes that build; a name nothing was ticked for stays as it is.  The
+ * same system chosen again changes nothing: what was picked by hand under
+ * it stays. */
+void DiskWizard::adoptOwnBuilds()
 {
     const auto *sys = m_.system(sel_.system);
     if (!sys || !media_) return;
-    for (const auto &key : suggestedBundles(m_, *sys, *media_, sel_.bundles)) sel_.bundles.push_back(key);
+    for (const auto &own : suggestedBundles(m_, *sys, *media_, {})) {
+        const auto *b = m_.bundle(own);
+        if (!b) continue;
+        for (const auto &name : b->provides) {
+            bool replaced = false;
+            for (const auto &chosen : std::vector<std::string>(sel_.bundles)) {
+                const auto *o = m_.bundle(chosen);
+                if (!o || chosen == own || std::find(o->provides.begin(), o->provides.end(), name) == o->provides.end()) continue;
+                std::erase(sel_.bundles, chosen);
+                notices_.push_back(o->title + " gave way to " + b->title + ": " + sys->title + "'s own");
+                replaced = true;
+            }
+            if (!replaced) continue;
+            if (!contains(sel_.bundles, own)) sel_.bundles.push_back(own);
+            sel_.picks[name] = own;
+        }
+    }
 }
 
 std::string DiskWizard::toggle(const std::string &key)

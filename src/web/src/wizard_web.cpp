@@ -198,6 +198,31 @@ EMSCRIPTEN_KEEPALIVE const char *wiz_set_field(const char *key, const char *valu
     return gText.c_str();
 }
 
+/* The whole of START.COM's own lines or of BANNER.TXT, as the page's text
+ * box holds it: `group` is "#startup" or "#banner", `text` its lines with
+ * "\n" (or "\r\n") between; blank lines inside stay, blank ones at the end
+ * go, so the box's trailing newline adds no line.  "" when taken, else why
+ * not. */
+EMSCRIPTEN_KEEPALIVE const char *wiz_set_text(const char *group, const char *text)
+{
+    if (!gSession) { gText = "no collection"; return gText.c_str(); }
+    if (!gSession->wizard->ready()) { gText = "choose the diskette and the system first"; return gText.c_str(); }
+    const std::string key = group ? group : "";
+    if (key != kStartupGroup && key != kBannerGroup) { gText = "no text " + key; return gText.c_str(); }
+    std::vector<std::string> lines;
+    std::string line;
+    for (const char *p = text ? text : ""; *p; ++p) {
+        if (*p == '\r') continue;
+        if (*p == '\n') { lines.push_back(line); line.clear(); } else line += *p;
+    }
+    if (!line.empty()) lines.push_back(line);
+    while (!lines.empty() && lines.back().empty()) lines.pop_back();
+    if (key == kStartupGroup) gSession->wizard->setStartup(std::move(lines));
+    else gSession->wizard->setBanner(std::move(lines));
+    gText.clear();
+    return gText.c_str();
+}
+
 /* The files a plan or a build of the current choice reads, as a JSON list of
  * paths: the system's image and every file of every bundle it installs. */
 EMSCRIPTEN_KEEPALIVE const char *wiz_needed(void)

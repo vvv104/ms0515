@@ -256,7 +256,7 @@ TEST_CASE("another system or media drops what no longer fits, and says so") {
     CHECK(w.system() == "omega");
     REQUIRE(w.setMedia(Media::ss).empty());
     CHECK(w.setSystem("mihin").empty());                            /* no LINK there for Pascal */
-    CHECK(w.selection().bundles == std::vector<std::string>{"dir-vvv"});   /* Pascal gone, OS-16SJ's DIR suggested */
+    CHECK(w.selection().bundles.empty());                           /* Pascal gone; nothing ticked by itself */
     CHECK(mentions(w.notices(), "Pascal"));
     auto rows = w.rows(true);
     CHECK(row(rows, "macro-omega") == nullptr);                     /* another system's build: not shown */
@@ -273,7 +273,7 @@ TEST_CASE("another system or media drops what no longer fits, and says so") {
     CHECK_FALSE(row(rows, "Games", WizardRow::Kind::group)->available);
     REQUIRE(w.setSystem("omega").empty());
     CHECK(mentions(w.notices(), "Saboteur 2"));                     /* kept until a system judged it */
-    CHECK(w.selection().bundles == std::vector<std::string>{"dir-vvv"});   /* once suggested, a choice like any */
+    CHECK(w.selection().bundles.empty());                           /* OMEGA's DIR is its part, not a choice */
 }
 
 TEST_CASE("the steps: the diskette first, then the system, then the rest") {
@@ -412,31 +412,109 @@ TEST_CASE("the system's utilities: its own build marked native and on, another b
     CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::system);
 }
 
-TEST_CASE("a system's suggestions come ticked with it - its own builds - and can be unticked like any bundle") {
+TEST_CASE("a system's suggestions are not ticked by themselves: its own builds, offered like any bundle") {
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m, "mihin", Media::ss);
-    CHECK(w.selection().bundles == std::vector<std::string>{"dir-vvv"});
-    auto rows = w.rows(true);
-    CHECK(row(rows, "dir-vvv")->mark == WizardRow::Mark::on);          /* on, not the system's: it can go */
-    CHECK(w.toggle("dir-vvv").empty());
     CHECK(w.selection().bundles.empty());
     CHECK(w.resolution().ok);
-    CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::off);
+    auto rows = w.rows(true);
+    CHECK(row(rows, "dir-vvv")->mark == WizardRow::Mark::off);
+    CHECK(w.toggle("dir-vvv").empty());
+    CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::on);   /* on, not the system's: it can go */
+    CHECK(w.toggle("dir-vvv").empty());
+    CHECK(w.selection().bundles.empty());
 
     REQUIRE(w.setSystem("omega").empty());                              /* OMEGA requires dir: the system's */
     CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::system);
-    REQUIRE(w.setSystem("mihin").empty());                              /* back: suggested again */
-    CHECK(w.selection().bundles == std::vector<std::string>{"dir-vvv"});
-
-    CHECK(w.toggle("dir-omega").empty());                               /* another build in its place */
-    CHECK(w.selection().bundles == std::vector<std::string>{"dir-omega"});
-    REQUIRE(w.setSystem("mihin").empty());                              /* the name satisfied: no second DIR */
-    CHECK(w.selection().bundles == std::vector<std::string>{"dir-omega"});
+    REQUIRE(w.setSystem("mihin").empty());                              /* back: nothing ticked */
+    CHECK(w.selection().bundles.empty());
+    CHECK(row(w.rows(true), "dir-vvv")->mark == WizardRow::Mark::off);
 
     DiskWizard fresh(m);                                                /* chosen step by step: the same */
     REQUIRE(fresh.setMedia(Media::ss).empty());
     REQUIRE(fresh.setSystem("mihin").empty());
-    CHECK(fresh.selection().bundles == std::vector<std::string>{"dir-vvv"});
+    CHECK(fresh.selection().bundles.empty());
+}
+
+TEST_CASE("another system: a build ticked for the system before gives way to its own; what was not ticked stays unticked") {
+    static constexpr const char *kTwo = R"toml(
+format  = 1
+version = "x"
+
+[system.osa]
+title    = "OSA"
+image    = "systems/osa.dsk"
+media    = ["ss"]
+requires = ["dz"]
+suggests = ["dir-osa", "pip-omega"]
+
+[system.mihin]
+title    = "OS-16SJ"
+image    = "systems/mihin.dsk"
+media    = ["ss"]
+requires = ["dz"]
+suggests = ["dir-vvv", "pip-mihin"]
+
+[bundle.dz]
+title = "DZ.SYS"
+group = "System"
+files = ["h/DZ.SYS"]
+
+[bundle.dir-osa]
+title    = "DIR (OSA)"
+group    = "System"
+provides = ["dir"]
+files    = ["u/osa/DIR.SAV"]
+
+[bundle.dir-vvv]
+title    = "DIR (OMEGA2, MIHIN)"
+group    = "System"
+provides = ["dir"]
+files    = ["u/vvv/DIR.SAV"]
+
+[bundle.pip-omega]
+title    = "PIP (OSA, OMEGA, RODIONOV)"
+group    = "System"
+provides = ["pip"]
+files    = ["u/omega/PIP.SAV"]
+
+[bundle.pip-mihin]
+title    = "PIP (MIHIN)"
+group    = "System"
+provides = ["pip"]
+files    = ["u/mihin/PIP.SAV"]
+
+[bundle.game]
+title = "A game"
+group = "Games"
+files = ["g/GAME.SAV"]
+)toml";
+    const Manifest m = parseManifest(kTwo);
+    DiskWizard w(m, "osa", Media::ss);
+    CHECK(w.selection().bundles.empty());                               /* nothing ticked by itself */
+    REQUIRE(w.setSystem("mihin").empty());
+    CHECK(w.selection().bundles.empty());                               /* nor on a change of system */
+    REQUIRE(w.setSystem("osa").empty());
+
+    REQUIRE(w.toggle("dir-osa").empty());                               /* DIR ticked, PIP not */
+    REQUIRE(w.toggle("game").empty());
+    REQUIRE(w.setSystem("mihin").empty());                              /* DIR follows: Mihin's own; PIP stays unticked */
+    CHECK(w.selection().bundles == std::vector<std::string>{"game", "dir-vvv"});
+    CHECK(w.selection().picks.at("dir") == "dir-vvv");
+    CHECK(w.selection().picks.count("pip") == 0);
+    REQUIRE(w.notices().size() == 1);
+    CHECK(w.notices()[0] == "DIR (OSA) gave way to DIR (OMEGA2, MIHIN): OS-16SJ's own");
+
+    REQUIRE(w.toggle("dir-osa").empty());                               /* picked by hand under Mihin */
+    REQUIRE(w.setSystem("mihin").empty());                              /* the same system again: kept */
+    CHECK(w.selection().bundles == std::vector<std::string>{"game", "dir-osa"});
+    CHECK(w.notices().empty());
+
+    REQUIRE(w.toggle("pip-mihin").empty());
+    REQUIRE(w.setSystem("osa").empty());                                /* back: DIR is OSA's already, PIP follows */
+    CHECK(w.selection().bundles == std::vector<std::string>{"game", "dir-osa", "pip-omega"});
+    REQUIRE(w.notices().size() == 1);
+    CHECK(w.notices()[0] == "PIP (MIHIN) gave way to PIP (OSA, OMEGA, RODIONOV): OSA's own");
 }
 
 TEST_CASE("a bundle ticked that the system comes to require is the system's - locked - and ticked again when it no longer is") {
