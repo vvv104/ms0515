@@ -389,14 +389,12 @@ Manifest parseManifest(std::string_view text)
     return m;
 }
 
-Selection selectionOf(const Manifest &m, const ManifestPreset &preset)
+Selection selectionOf(const ManifestPreset &preset)
 {
     Selection s;
     s.system = preset.system;
     s.media = preset.media;
-    s.bundles = preset.bundles;
-    if (const auto *sys = m.system(preset.system))
-        for (const auto &key : suggestedBundles(m, *sys, preset.media, s.bundles)) s.bundles.push_back(key);
+    s.bundles = preset.bundles;                     /* exactly what it names: a system's suggestions are the wizard's to tick */
     s.startup = preset.startup;
     s.banner = preset.banner;
     s.clearScreen = preset.clearScreen;

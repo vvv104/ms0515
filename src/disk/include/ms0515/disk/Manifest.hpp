@@ -129,8 +129,10 @@ struct Selection {
     std::map<std::string, std::string>      picks;
 };
 
-/* A preset's choices, the system's suggestions ticked after them. */
-[[nodiscard]] Selection selectionOf(const Manifest &m, const ManifestPreset &preset);
+/* A preset's choices, exactly as it names them: a system's suggestions
+ * (DIR, DUP, PIP) are the wizard's to tick, so a preset that leaves DUP
+ * off gets no DUP - a preset is a disk described whole. */
+[[nodiscard]] Selection selectionOf(const ManifestPreset &preset);
 
 /* The bundles a system's suggestions add to `chosen` on this media: for
  * each name none of the chosen satisfies (nor stands in for, providing what
