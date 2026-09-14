@@ -35,9 +35,6 @@ public:
     /* Where the frame's events go. */
     [[nodiscard]] ms0515::AudioRenderer &renderer() noexcept { return renderer_; }
 
-    /* Call at the start of each emulated frame. */
-    void beginFrame();
-
     /* Call at the end of each emulated frame: renders the frame's
      * samples and, when `output`, queues them to SDL.  Rendered either
      * way, so the motors and the seeks keep their place while the sound
@@ -46,14 +43,8 @@ public:
 
     void shutdown();
 
-    /* What the device is sitting on, and how often the backlog had to
-     * be cut - the Sound menu shows both when something sounds wrong. */
-    [[nodiscard]] int queuedMs() const;
-    [[nodiscard]] int cuts() const noexcept { return cuts_; }
-
 private:
     SDL_AudioDeviceID     device_ = 0;
-    int                   cuts_ = 0;
     ms0515::AudioRenderer renderer_{kSampleRate};
     std::vector<int16_t>  buf_;
 };

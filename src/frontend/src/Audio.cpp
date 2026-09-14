@@ -34,11 +34,6 @@ bool Audio::init()
     return true;
 }
 
-void Audio::beginFrame()
-{
-    renderer_.beginFrame();
-}
-
 void Audio::endFrame(int totalCycles, bool output)
 {
     if (totalCycles <= 0)
@@ -56,18 +51,9 @@ void Audio::endFrame(int totalCycles, bool output)
      * when the backlog grows past a fifth of a second the queue is cut
      * once, and this frame - clicks and all - goes in behind it. */
     constexpr uint32_t kMaxQueuedBytes = kSampleRate * sizeof(int16_t) / 5;   /* 200 ms */
-    if (SDL_GetQueuedAudioSize(device_) > kMaxQueuedBytes) {
+    if (SDL_GetQueuedAudioSize(device_) > kMaxQueuedBytes)
         SDL_ClearQueuedAudio(device_);
-        ++cuts_;
-    }
     SDL_QueueAudio(device_, buf_.data(), static_cast<uint32_t>(n) * sizeof(int16_t));
-}
-
-int Audio::queuedMs() const
-{
-    if (device_ == 0) return 0;
-    return static_cast<int>(SDL_GetQueuedAudioSize(device_) * 1000
-                            / (kSampleRate * sizeof(int16_t)));
 }
 
 void Audio::shutdown()

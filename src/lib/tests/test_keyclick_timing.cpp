@@ -33,23 +33,19 @@ TEST_CASE("a held key clicks evenly, at the typematic's own period") {
     emu.reset();
 
     std::vector<int16_t> pcm, buf(4410);
-    /* The front-end's loop: host frames of 16.7 ms, emulated frames of 20 ms
-     * taken from the accumulated real time, keyTick once per host frame. */
+    /* The front-end's loop: host frames of 16.7 ms, emulated frames of
+     * 20 ms taken from the accumulated real time. */
     double accum = 0;
-    uint32_t hostMs = 0;
     bool held = false;
     for (int hostFrame = 0; hostFrame < 400; ++hostFrame) {
         accum += 16.667;
         while (accum >= 20.0) {
-            r.beginFrame();
             (void)emu.stepFrame();
             const int n = r.render(buf.data(), (int)buf.size(), emu.frameCyclePos());
             pcm.insert(pcm.end(), buf.begin(), buf.begin() + n);
             accum -= 20.0;
             emuMs += 20.0;
         }
-        hostMs += 17;
-        emu.keyTick(hostMs);
         if (!held && hostFrame == 300) { emu.keyPress(ms0515::Key::A, true); held = true; }
     }
     emu.keyPress(ms0515::Key::A, false);

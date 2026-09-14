@@ -76,7 +76,7 @@ TEST_CASE("the spindle: a drive's motor reports once when it starts and once whe
     CHECK(log.events[0] == std::make_pair(int(FDC_MECH_MOTOR_OFF), 1));
 }
 
-TEST_CASE("a seek reports its length and direction once, then one pulse per step") {
+TEST_CASE("a seek reports its length and direction once, and nothing per pulse") {
     ms0515_floppy_t fdc;
     fdc_init(&fdc);
     Log log;
@@ -86,29 +86,26 @@ TEST_CASE("a seek reports its length and direction once, then one pulse per step
 
     fdc_write(&fdc, 3, 5);                        /* data register: the target track */
     fdc_write(&fdc, 0, 0x10);                     /* SEEK, fastest rate */
-    REQUIRE(log.events.size() == 1);              /* the seek is announced at the command, before any pulse */
+    REQUIRE(log.events.size() == 1);              /* announced at the command, before the head moves */
     CHECK(log.events[0] == std::make_pair(int(FDC_MECH_SEEK), 5));
     runToIdle(fdc);
-    REQUIRE(log.events.size() == 6);
-    for (int i = 1; i <= 5; ++i) CHECK(log.events[i] == std::make_pair(int(FDC_MECH_STEP), 1));
+    CHECK(log.events.size() == 1);                /* and the five pulses say nothing of their own */
 
     log.events.clear();
     fdc_write(&fdc, 0, 0x00);                     /* RESTORE: back to track 0 */
     runToIdle(fdc);
-    REQUIRE(log.events.size() == 6);
+    REQUIRE(log.events.size() == 1);
     CHECK(log.events[0] == std::make_pair(int(FDC_MECH_SEEK), -5));
-    CHECK(log.events[5] == std::make_pair(int(FDC_MECH_STEP), -1));
 
     log.events.clear();
-    fdc_write(&fdc, 0, 0x00);                     /* already there: no seek, no pulse */
+    fdc_write(&fdc, 0, 0x00);                     /* already there: nothing to report */
     runToIdle(fdc);
     CHECK(log.events.empty());
 
     fdc_write(&fdc, 0, 0x40);                     /* STEP IN: one track toward the hub */
     runToIdle(fdc);
-    REQUIRE(log.events.size() == 2);
+    REQUIRE(log.events.size() == 1);
     CHECK(log.events[0] == std::make_pair(int(FDC_MECH_SEEK), 1));
-    CHECK(log.events[1] == std::make_pair(int(FDC_MECH_STEP), 1));
 }
 
 TEST_CASE("the keyboard clicks on every auto-repeat while the host allows it, rings on command and at power-on") {

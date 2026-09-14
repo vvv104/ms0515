@@ -113,13 +113,12 @@ using LoResPixelCb = std::function<void(int x, int y, bool lit,
                                          const LoResAttr &)>;
 
 /* What the machine does that can be heard besides the speaker: reported
- * with the CPU cycle of the frame it happened at (frameCyclePos() then),
- * for the AudioRenderer.  `arg`: the drive for a motor, the signed track
- * count for a seek (positive toward the hub), the direction for a step;
- * `stepCycles`: a seek's step period, for a renderer with one pulse
- * recorded rather than whole seeks. */
+ * with the CPU cycle of the frame it happened at, for the AudioRenderer.
+ * `arg`: the drive for a motor, the signed track count for a seek
+ * (positive toward the hub); `stepCycles`: that seek's step period, for a
+ * renderer with one pulse recorded rather than whole seeks. */
 struct MechEvent {
-    enum class Kind : uint8_t { motorOn, motorOff, seek, step, keyClick, bell };
+    enum class Kind : uint8_t { motorOn, motorOff, seek, keyClick, bell };
     Kind     kind;
     int      arg;
     int      stepCycles;
@@ -242,10 +241,6 @@ public:
     void setJoystick(uint8_t bits);
     [[nodiscard]] uint8_t joystick() const noexcept;
 
-    /* Kept for hosts that still call it once a frame; the keyboard's
-     * typematic runs on the machine's own clock now, from inside the
-     * frame, so this does nothing. */
-    void keyTick(uint32_t now_ms);
 
     [[nodiscard]] bool capsOn()   const noexcept;
     [[nodiscard]] bool ruslatOn() const noexcept;

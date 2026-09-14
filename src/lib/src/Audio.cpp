@@ -166,11 +166,6 @@ KeyboardSounds ms7004KeyboardSounds(int rate)
 
 AudioRenderer::AudioRenderer(int rate) : rate_(rate > 0 ? rate : 48000) {}
 
-void AudioRenderer::setRate(int hz)
-{
-    if (hz > 0) rate_ = hz;
-}
-
 void AudioRenderer::setDriveSounds(std::shared_ptr<const DriveSounds> sounds)
 {
     /* The voices point into the old recordings: drop them; a motor that
@@ -192,12 +187,6 @@ void AudioRenderer::setKeyboardSounds(std::shared_ptr<const KeyboardSounds> soun
     dropVoices(Tag::bell);
     keyboard_ = std::move(sounds);
 }
-
-/* Nothing to clear: render() consumes the frame's events itself.  A
- * clear here would throw away what came in BETWEEN two frames - the
- * keyboard's clicks, which the host's typematic clock produces while
- * no frame is running. */
-void AudioRenderer::beginFrame() {}
 
 void AudioRenderer::speaker(uint32_t cycle, int level) { events_.push_back({Event::Kind::speaker, cycle, level ? 1 : 0, 0}); }
 void AudioRenderer::motor(uint32_t cycle, int drive, bool on) { events_.push_back({Event::Kind::motor, cycle, drive & 1, on ? 1 : 0}); }

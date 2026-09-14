@@ -75,9 +75,6 @@ public:
 
     explicit AudioRenderer(int rate = 48000);
 
-    void setRate(int hz);
-    [[nodiscard]] int rate() const noexcept { return rate_; }
-
     /* The recordings; null clears them.  Volumes are linear gains, 1 = as recorded. */
     void setDriveSounds(std::shared_ptr<const DriveSounds> sounds);
     void setKeyboardSounds(std::shared_ptr<const KeyboardSounds> sounds);
@@ -85,11 +82,8 @@ public:
     void setDriveVolume(float gain) noexcept { driveGain_ = gain; }
     void setKeyboardVolume(float gain) noexcept { keyboardGain_ = gain; }
 
-    /* A frame: begin, the events with their cycle positions, render.
-     * An event may also arrive between two frames - the keyboard's
-     * typematic runs on the host's clock, not the machine's - and it
-     * waits for the next render. */
-    void beginFrame();
+    /* A frame: the events with their cycle positions, then render.  An
+     * event may also arrive between two renders and waits for the next. */
     void speaker(uint32_t cycle, int level);
     void motor(uint32_t cycle, int drive, bool on);
     void seek(uint32_t cycle, int tracks, uint32_t stepCycles);

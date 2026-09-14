@@ -58,8 +58,7 @@ void cFdcMechTrampoline(void *userdata, int event, int arg)
     using Kind = ms0515::MechEvent::Kind;
     const Kind kind = event == FDC_MECH_MOTOR_ON  ? Kind::motorOn
                     : event == FDC_MECH_MOTOR_OFF ? Kind::motorOff
-                    : event == FDC_MECH_SEEK      ? Kind::seek
-                    :                               Kind::step;
+                    :                               Kind::seek;
     const auto &board = self->impl()->board;
     cb(ms0515::MechEvent{kind, arg, board.fdc.step_rate_cycles,
                          static_cast<uint32_t>(board.frame_cycle_pos)});
@@ -412,10 +411,7 @@ bool Emulator::hdActive() const noexcept
 
 bool Emulator::stepFrame()
 {
-    impl_->inFrame = true;
-    const bool running = board_step_frame(&impl_->board);
-    impl_->inFrame = false;
-    return running;
+    return board_step_frame(&impl_->board);
 }
 
 void Emulator::stepInstruction()
@@ -444,11 +440,6 @@ uint8_t Emulator::joystick() const noexcept
 {
     return impl_->board.joystick;
 }
-
-/* Nothing to do: the keyboard's clock is the machine's own, ticked from
- * inside the frame (cBoardMsTrampoline).  Kept so a host that called this
- * every frame keeps building. */
-void Emulator::keyTick(uint32_t) {}
 
 bool Emulator::capsOn()   const noexcept { return ms7004_caps_on(&impl_->kbd7004); }
 bool Emulator::ruslatOn() const noexcept { return ms7004_ruslat_on(&impl_->kbd7004); }

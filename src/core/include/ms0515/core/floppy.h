@@ -100,15 +100,15 @@ typedef bool (*ms0515_fdc_write_sector_fn)(void *userdata, int track,
  *                            or stops; both sides of a drive share it
  *   FDC_MECH_SEEK            arg = tracks the head will move, signed:
  *                            positive toward the hub (higher track numbers);
- *                            reported once, when the command is latched
- *   FDC_MECH_STEP            arg = -1 / +1: one pulse of the positioner,
- *                            at the command's step rate
+ *                            reported once, when the command is latched.
+ *                            Its pulses are not reported one by one: the
+ *                            length and the command's step rate
+ *                            (step_rate_cycles) say all a listener needs
  */
 enum ms0515_fdc_mech_event {
     FDC_MECH_MOTOR_ON,
     FDC_MECH_MOTOR_OFF,
-    FDC_MECH_SEEK,
-    FDC_MECH_STEP
+    FDC_MECH_SEEK
 };
 typedef void (*ms0515_fdc_mech_fn)(void *userdata, int event, int arg);
 

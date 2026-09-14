@@ -101,18 +101,15 @@ TEST_CASE("parseWav: 16-bit mono as is, stereo averaged, 8-bit widened, other ch
 
 TEST_CASE("the speaker: its level at each sample from the frame's transitions, carried between frames") {
     AudioRenderer r(kRate);
-    r.beginFrame();
     r.speaker(0, 1);
     r.speaker(kFrame / 2, 0);
     auto out = frame(r);
     REQUIRE(out.size() == 1000);
     CHECK(all(out, 0, 500, AudioRenderer::kSpeakerAmplitude));
     CHECK(all(out, 500, 1000, -AudioRenderer::kSpeakerAmplitude));
-    r.beginFrame();
     out = frame(r);
     CHECK(all(out, 0, 1000, -AudioRenderer::kSpeakerAmplitude));   /* the level stays */
     r.setSpeakerVolume(0.0f);
-    r.beginFrame();
     CHECK(all(frame(r), 0, 1000, 0));
 }
 
@@ -125,7 +122,6 @@ TEST_CASE("the motor: start, then the loop for as long as it runs, then stop") {
     r.setSpeakerVolume(0.0f);
     r.setDriveSounds(d);
 
-    r.beginFrame();
     r.motor(0, 0, true);
     r.motor(0, 0, true);                                 /* said twice: one motor */
     auto out = frame(r);
@@ -134,26 +130,21 @@ TEST_CASE("the motor: start, then the loop for as long as it runs, then stop") {
     CHECK(r.motorRunning(0));
     CHECK_FALSE(r.motorRunning(1));
 
-    r.beginFrame();
     CHECK(all(frame(r), 0, 1000, 2000));                 /* still running, nothing said */
 
-    r.beginFrame();
     r.motor(kFrame / 2, 0, false);
     out = frame(r);
     CHECK(all(out, 0, 500, 2000));
     CHECK(all(out, 500, 550, 3000));                     /* the stop */
     CHECK(all(out, 550, 1000, 0));
     CHECK_FALSE(r.motorRunning(0));
-    r.beginFrame();
     CHECK(all(frame(r), 0, 1000, 0));
     CHECK(r.voices() == 0);
 
-    r.beginFrame();                                      /* the other drive has its own motor */
     r.motor(0, 1, true);
     CHECK(all(frame(r), 100, 1000, 2000));
     r.reset();
     CHECK_FALSE(r.motorRunning(1));
-    r.beginFrame();
     CHECK(all(frame(r), 0, 1000, 0));
 }
 
@@ -166,24 +157,19 @@ TEST_CASE("a seek: the recording of its length, else the nearest, else a pulse p
     r.setSpeakerVolume(0.0f);
     r.setDriveSounds(d);
 
-    r.beginFrame();
     r.seek(kFrame / 2, 5, 3000);
     auto out = frame(r);
     CHECK(all(out, 0, 500, 0));
     CHECK(all(out, 500, 520, 500));
     CHECK(all(out, 520, 1000, 0));
 
-    r.beginFrame();
     r.seek(0, 7, 3000);                                  /* 7: nearer to 5 than to 10 */
     CHECK(all(frame(r), 0, 20, 500));
-    r.beginFrame();
     r.seek(0, 9, 3000);
     CHECK(all(frame(r), 0, 20, 700));
-    r.beginFrame();
     r.seek(0, 79, 3000);                                 /* beyond the last recorded: the last */
     CHECK(all(frame(r), 0, 20, 700));
 
-    r.beginFrame();
     r.seek(0, -3, 3000);                                 /* out: no seeks recorded, pulses 3000 cycles = 20 samples apart */
     out = frame(r);
     CHECK(all(out, 0, 10, 900));
@@ -201,7 +187,6 @@ TEST_CASE("the keyboard: clicks overlap, the bell needs a recording, the volume 
     r.setKeyboardSounds(k);
     /* One element, one firmware: a second click waits for the first to
      * end rather than doubling on top of it. */
-    r.beginFrame();
     r.keyClick(0);
     r.keyClick(0);
     r.bell(0);
@@ -210,11 +195,9 @@ TEST_CASE("the keyboard: clicks overlap, the bell needs a recording, the volume 
     CHECK(all(out, 10, 20, 400));
     CHECK(all(out, 20, 1000, 0));                        /* and the bell has no recording here */
     r.setKeyboardVolume(0.5f);
-    r.beginFrame();
     r.keyClick(kFrame - 150);                            /* the last sample of the frame ... */
     out = frame(r);
     CHECK(out[999] == 200);
-    r.beginFrame();
     CHECK(all(frame(r), 0, 9, 200));                     /* ... and on into the next */
 }
 
@@ -225,7 +208,6 @@ TEST_CASE("a recording at another rate is resampled, and one due after the frame
     AudioRenderer r(kRate);
     r.setSpeakerVolume(0.0f);
     r.setKeyboardSounds(k);
-    r.beginFrame();
     r.keyClick(0);
     auto out = frame(r);
     CHECK(out[0] == 0);
@@ -238,18 +220,14 @@ TEST_CASE("a recording at another rate is resampled, and one due after the frame
     auto d = std::make_shared<DriveSounds>();
     d->stepIn = flat(kRate, 10, 900);
     r.setDriveSounds(d);
-    r.beginFrame();
     r.seek(kFrame - 150, 3, 150000);                     /* pulses a whole frame apart: one per frame */
     out = frame(r);
     CHECK(out[999] == 900);
-    r.beginFrame();
     out = frame(r);
     CHECK(all(out, 0, 9, 900));
     CHECK(all(out, 999, 1000, 900));
-    r.beginFrame();
     out = frame(r);
     CHECK(all(out, 999, 1000, 900));
-    r.beginFrame();
     CHECK(all(frame(r), 0, 9, 900));
 }
 
@@ -270,11 +248,10 @@ TEST_CASE("audio: the Emulator reports the boot's motor and seeks with their cyc
     emu.reset();
     for (int f = 0; f < 1000; ++f) (void)emu.stepFrame();   /* 20 s: the startup file has run its course */
 
-    int motors = 0, seeks = 0, steps = 0;
+    int motors = 0, seeks = 0;
     for (const auto &e : events) {
         if (e.kind == ms0515::MechEvent::Kind::motorOn) ++motors;
         if (e.kind == ms0515::MechEvent::Kind::seek) { ++seeks; CHECK(e.stepCycles > 0); CHECK(e.arg != 0); }
-        if (e.kind == ms0515::MechEvent::Kind::step) ++steps;
         CHECK(e.cycle < 200000);                          /* within a frame */
     }
     /* And it stops again: the guest clears the motor bit once it has read
@@ -287,7 +264,6 @@ TEST_CASE("audio: the Emulator reports the boot's motor and seeks with their cyc
     CHECK(running == 0);
     CHECK(motors >= 1);                                   /* the boot spins the drive ... */
     CHECK(seeks >= 1);                                    /* ... and moves the head */
-    CHECK(steps >= seeks);
 
     events.clear();
     emu.reset();                                          /* the keyboard is not power-cycled with the machine */
@@ -327,7 +303,6 @@ TEST_CASE("audio: the beeper's peak follows the volume, boot melody included") {
         std::vector<int16_t> out(4410);
         int peak = 0;
         for (int f = 0; f < 200; ++f) {
-            r.beginFrame();
             (void)emu.stepFrame();
             const int n = r.render(out.data(), static_cast<int>(out.size()),
                                    static_cast<uint32_t>(emu.frameCyclePos()));
@@ -350,38 +325,35 @@ TEST_CASE("audio: a key held with auto-repeat on clicks, as the keyboard does; w
     });
     emu.reset();
 
-    /* The host clock the keyboard's typematic runs on: the front-end
-     * feeds it SDL_GetTicks() once a frame, so it only ever goes up. */
-    uint32_t now = 0;
-    auto hold = [&](uint32_t ms) {
+    /* The typematic runs on the machine's own clock: stepping frames is
+     * all it takes. */
+    auto hold = [&](int frames) {
         emu.keyPress(ms0515::Key::A, true);
-        for (uint32_t end = now + ms; now <= end; now += 20) { emu.keyTick(now); (void)emu.stepFrame(); }
+        for (int f = 0; f < frames; ++f) (void)emu.stepFrame();
         emu.keyPress(ms0515::Key::A, false);
     };
 
     auto settings = emu.keyboardSettings();
     CHECK(settings.repeatEnabled);                    /* on at power-on, as the firmware has it */
-    hold(1000);
+    hold(50);
     CHECK(clicks > 5);                                /* 250 ms delay, then one every 30 ms */
 
     settings.repeatEnabled = false;                   /* switched off: the keyboard goes quiet */
     emu.applyKeyboardConfig(settings);
     clicks = 0;
-    hold(1000);
+    hold(50);
     CHECK(clicks == 0);
 }
 
-TEST_CASE("audio: an event between two frames is not lost - the keyboard's click comes from the host's clock") {
+TEST_CASE("audio: an event between two renders is not lost") {
     auto k = std::make_shared<KeyboardSounds>();
     k->click = flat(kRate, 10, 400);
     AudioRenderer r(kRate);
     r.setSpeakerVolume(0.0f);
     r.setKeyboardSounds(k);
 
-    r.beginFrame();
     (void)frame(r);                                   /* a frame goes by ... */
-    r.keyClick(kFrame - 150);                         /* ... the typematic fires between frames ... */
-    r.beginFrame();                                   /* ... and the next frame begins */
-    auto out = frame(r);
-    CHECK(out[999] == 400);                           /* the click is still there */
+    r.keyClick(kFrame - 150);                         /* ... an event lands after it ... */
+    auto out = frame(r);                              /* ... and the next render has it */
+    CHECK(out[999] == 400);
 }

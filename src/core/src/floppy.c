@@ -625,7 +625,6 @@ void fdc_tick(ms0515_floppy_t *fdc, int cycles)
             if (*track < 0)              *track = 0;
             if (*track >= FDC_TRACKS)    *track = FDC_TRACKS - 1;
             fdc->step_pulses_left--;
-            mech(fdc, FDC_MECH_STEP, fdc->step_direction);
 
             /*
              * Track register update rules per WD1793 datasheet:

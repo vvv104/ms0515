@@ -605,7 +605,8 @@ EMSCRIPTEN_KEEPALIVE int ms_transitions(Handle *h)
 EMSCRIPTEN_KEEPALIVE int ms_reg_c(Handle *h) { return h->emu.readByte(0177604); }
 
 /* Keys: `key` is ms0515::Key's value (the page carries the same table),
- * `down` 1 / 0.  ms_key_tick drives the MS7004 auto-repeat clock. */
+ * `down` 1 / 0.  The MS7004's auto-repeat runs on the machine's own
+ * clock, inside the frame - the page has nothing to drive. */
 EMSCRIPTEN_KEEPALIVE void ms_key(Handle *h, int key, int down)
 {
     h->emu.keyPress(static_cast<ms0515::Key>(key), down != 0);
@@ -618,8 +619,6 @@ EMSCRIPTEN_KEEPALIVE void ms_joystick(Handle *h, int bits)
 {
     h->emu.setJoystick(static_cast<uint8_t>(bits));
 }
-
-EMSCRIPTEN_KEEPALIVE void ms_key_tick(Handle *h, uint32_t now_ms) { h->emu.keyTick(now_ms); }
 
 /* The highest ms0515::Key value - the page checks its table against it. */
 EMSCRIPTEN_KEEPALIVE int ms_key_max(void) { return static_cast<int>(ms0515::Key::KpMinus); }

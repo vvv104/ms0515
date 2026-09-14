@@ -138,8 +138,6 @@ public:
     {
         if (frame_ < 900 && frame_ % 30 == 0) offerCR_ = true;   // the date prompts
         if (parked_) poke(0xAA45, 1);
-        nowMs_ += 20;
-        emu.keyTick(nowMs_);
         (void)emu.stepFrame();
         ++frame_;
     }
@@ -197,7 +195,6 @@ private:
     fs::path boot_, work_;
     bool offerCR_ = false;
     bool parked_ = false;
-    uint32_t nowMs_ = 0;
     int frame_ = 0;
 
     void stage(const char *name)

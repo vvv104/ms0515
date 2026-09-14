@@ -253,9 +253,8 @@ void App::initAudio()
         case Kind::motorOn:  r.motor(e.cycle, e.arg, true);  break;
         case Kind::motorOff: r.motor(e.cycle, e.arg, false); break;
         case Kind::seek:     r.seek(e.cycle, e.arg, static_cast<uint32_t>(e.stepCycles)); break;
-        case Kind::keyClick: r.keyClick(e.cycle); ++keySounds_; break;
-        case Kind::bell:     r.bell(e.cycle); ++keySounds_; break;
-        case Kind::step:     break;          /* the seek carries its pulses */
+        case Kind::keyClick: r.keyClick(e.cycle); break;
+        case Kind::bell:     r.bell(e.cycle); break;
         }
     });
     /* The flags override the config, once; the menu edits the config. */
@@ -552,8 +551,8 @@ void App::pumpEvents(bool &quit)
 
 void App::tick()
 {
-    /* Auto-repeat timer always advances; the joystick's lines follow the host. */
-    emu_.keyTick(SDL_GetTicks());
+    /* The joystick's lines follow the host; the keyboard's typematic runs
+     * on the machine's own clock, inside the frame. */
     joystick_.poll(emu_);
 
     /* Run emulated frames based on real elapsed time × speed factor. */
@@ -566,7 +565,6 @@ void App::tick()
 
         bool audioEnabled = audioOn_ && (targetSpeed_ == 100.0f);
         while (emuTimeAccumMs_ >= kFrameMs && running_) {
-            audio_.beginFrame();
             bool ok = emu_.stepFrame();
             audio_.endFrame(static_cast<int>(emu_.frameCyclePos()), audioEnabled);
             if (!ok) {
@@ -1022,9 +1020,6 @@ void App::drawSoundsSubmenu()
     if (ImGui::SliderInt("Keyboard volume", &config_.keyboardVolume, 0, 200, "%d%%"))
         audio_.renderer().setKeyboardVolume(static_cast<float>(config_.keyboardVolume) / 100.0f);
     if (ImGui::IsItemDeactivatedAfterEdit()) config_.save();
-    ImGui::Separator();
-    ImGui::TextDisabled("keyboard sounds made: %d   queued: %d ms   backlog cuts: %d",
-                        keySounds_, audio_.queuedMs(), audio_.cuts());
     ImGui::EndMenu();
 }
 
