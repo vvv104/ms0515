@@ -1,10 +1,7 @@
 /*
- * Audio.cpp — SDL2 audio output for the MS0515 1-bit speaker.
- *
- * Each emulated frame (~20 ms at 50 Hz) produces ~882 PCM samples.
- * Transitions are logged with their CPU-cycle position within the
- * frame, then converted to sample offsets for accurate waveform
- * reconstruction.  SDL_QueueAudio feeds them to the output device.
+ * Audio.cpp — SDL2 audio output: the lib's renderer makes each frame's
+ * samples (~882 at 44.1 kHz for a 50 Hz frame), SDL_QueueAudio plays
+ * them.
  */
 
 #include "Audio.hpp"
@@ -39,55 +36,39 @@ bool Audio::init()
 
 void Audio::beginFrame()
 {
-    transitions_.clear();
-    startLevel_ = currentLevel_;
+    renderer_.beginFrame();
 }
 
-void Audio::addTransition(int cyclePos, int level)
+void Audio::endFrame(int totalCycles, bool output)
 {
-    transitions_.push_back({cyclePos, level});
-    currentLevel_ = level;
-}
-
-void Audio::endFrame(int totalCycles)
-{
-    if (device_ == 0 || totalCycles <= 0)
+    if (totalCycles <= 0)
+        return;
+    buf_.resize(static_cast<std::size_t>(kSampleRate) / 10);   /* room for a 100 ms frame */
+    const int n = renderer_.render(buf_.data(), static_cast<int>(buf_.size()), static_cast<uint32_t>(totalCycles));
+    if (!output || device_ == 0 || n <= 0)
         return;
 
-    /* Prevent audio buffer from growing unboundedly if the emulator
-     * runs faster than real time (e.g. high-refresh-rate monitors).
-     * If more than ~80 ms of audio is already queued, skip this frame. */
-    uint32_t queued = SDL_GetQueuedAudioSize(device_);
-    if (queued > kSampleRate * 2 * 4 / 50)   /* ~4 frames worth */
-        return;
-
-    int numSamples = (int64_t)kSampleRate * totalCycles / 7500000;
-    if (numSamples <= 0) numSamples = 1;
-
-    std::vector<int16_t> buf(numSamples);
-
-    /* Walk through samples, looking up the speaker level at each
-     * sample's corresponding CPU cycle offset. */
-    int tIdx = 0;
-    int level = startLevel_;
-
-    for (int i = 0; i < numSamples; i++) {
-        /* CPU cycle corresponding to this audio sample */
-        int cycle = (int)((int64_t)i * totalCycles / numSamples);
-
-        /* Advance through transitions up to this cycle */
-        while (tIdx < (int)transitions_.size() &&
-               transitions_[tIdx].cycle <= cycle) {
-            level = transitions_[tIdx].level;
-            tIdx++;
-        }
-
-        buf[i] = level ? kAmplitude : -kAmplitude;
+    /* The machine can make sound a little faster than the device plays it
+     * (a host frame is not an emulated one), so the queue creeps up.  It
+     * used to be kept down by dropping the frame - which threw away
+     * whatever happened in those 20 ms: a keyclick every third repeat
+     * simply never reached the ears.  Now nothing rendered is discarded:
+     * when the backlog grows past a fifth of a second the queue is cut
+     * once, and this frame - clicks and all - goes in behind it. */
+    constexpr uint32_t kMaxQueuedBytes = kSampleRate * sizeof(int16_t) / 5;   /* 200 ms */
+    if (SDL_GetQueuedAudioSize(device_) > kMaxQueuedBytes) {
+        SDL_ClearQueuedAudio(device_);
+        ++cuts_;
     }
-
-    SDL_QueueAudio(device_, buf.data(), numSamples * sizeof(int16_t));
+    SDL_QueueAudio(device_, buf_.data(), static_cast<uint32_t>(n) * sizeof(int16_t));
 }
 
+int Audio::queuedMs() const
+{
+    if (device_ == 0) return 0;
+    return static_cast<int>(SDL_GetQueuedAudioSize(device_) * 1000
+                            / (kSampleRate * sizeof(int16_t)));
+}
 
 void Audio::shutdown()
 {

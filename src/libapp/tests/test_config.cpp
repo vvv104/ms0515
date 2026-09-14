@@ -133,6 +133,12 @@ TEST_CASE("non-default values written by save() come back through load()") {
         out.fullscreen  = true;
         out.joystick    = "gamepad";
         out.kbdTypingDelayMs = 50;
+        out.kbdAutoRepeat   = 1;
+        out.speakerVolume  = 90;
+        out.driveSounds    = "ms5305";
+        out.driveVolume    = 70;
+        out.keyboardSounds = false;
+        out.keyboardVolume = 30;
         out.save();
 
         app::Config in_ = app::Config::load();
@@ -144,6 +150,12 @@ TEST_CASE("non-default values written by save() come back through load()") {
         CHECK(in_.fullscreen           == out.fullscreen);
         CHECK(in_.joystick             == out.joystick);
         CHECK(in_.kbdTypingDelayMs     == out.kbdTypingDelayMs);
+        CHECK(in_.kbdAutoRepeat        == out.kbdAutoRepeat);
+        CHECK(in_.speakerVolume        == out.speakerVolume);
+        CHECK(in_.driveSounds          == out.driveSounds);
+        CHECK(in_.driveVolume          == out.driveVolume);
+        CHECK(in_.keyboardSounds       == out.keyboardSounds);
+        CHECK(in_.keyboardVolume       == out.keyboardVolume);
         CHECK_FALSE(in_.isDefault());
     }
 
@@ -252,3 +264,28 @@ TEST_CASE("returns empty string when neither cli nor config nor default exists")
 }
 
 }  // TEST_SUITE
+
+TEST_SUITE("Config: the mechanical sounds") {
+
+TEST_CASE("the defaults: the first drive set, the keyboard on, full volume; anything else is not default") {
+    app::Config c;
+    CHECK(c.speakerVolume == 100);
+    CHECK(c.driveSounds.empty());
+    CHECK(c.driveVolume == 100);
+    CHECK(c.keyboardSounds);
+    CHECK(c.keyboardVolume == 100);
+    CHECK(c.isDefault());
+    c.driveSounds = "off";
+    CHECK_FALSE(c.isDefault());
+    c = app::Config{};
+    c.keyboardSounds = false;
+    CHECK_FALSE(c.isDefault());
+    c = app::Config{};
+    c.driveVolume = 50;
+    CHECK_FALSE(c.isDefault());
+    c = app::Config{};
+    c.speakerVolume = 50;
+    CHECK_FALSE(c.isDefault());
+}
+
+}  // TEST_SUITE("Config: the mechanical sounds")

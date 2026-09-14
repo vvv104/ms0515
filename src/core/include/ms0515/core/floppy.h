@@ -92,6 +92,26 @@ typedef bool (*ms0515_fdc_read_sector_fn)(void *userdata, int track,
 typedef bool (*ms0515_fdc_write_sector_fn)(void *userdata, int track,
                                            int sector, const uint8_t *data);
 
+/*
+ * Mechanical events - what the drive does that can be heard - for a host
+ * that plays their sounds.  A report only: nothing the machine does
+ * depends on a listener being there.
+ *   FDC_MECH_MOTOR_ON / OFF  arg = the drive (0 or 1) whose spindle starts
+ *                            or stops; both sides of a drive share it
+ *   FDC_MECH_SEEK            arg = tracks the head will move, signed:
+ *                            positive toward the hub (higher track numbers);
+ *                            reported once, when the command is latched
+ *   FDC_MECH_STEP            arg = -1 / +1: one pulse of the positioner,
+ *                            at the command's step rate
+ */
+enum ms0515_fdc_mech_event {
+    FDC_MECH_MOTOR_ON,
+    FDC_MECH_MOTOR_OFF,
+    FDC_MECH_SEEK,
+    FDC_MECH_STEP
+};
+typedef void (*ms0515_fdc_mech_fn)(void *userdata, int event, int arg);
+
 typedef struct {
     FILE    *image;             /* Disk image file handle (NULL = empty)     */
     bool     read_only;         /* Write protection flag                    */
@@ -169,6 +189,13 @@ typedef struct ms0515_floppy {
     int         step_rate_cycles;  /* armed at command latch (cmd bits 1:0)  */
     int         settle_cycles;     /* head settle delay (h flag in Type I)   */
     uint8_t     next_status;       /* status to apply at FINISH expiry       */
+
+    /* The listener for mechanical events (see ms0515_fdc_mech_event), and
+     * the spindles it has been told are turning - one per physical drive,
+     * so a motor reports once when it starts, not on every select. */
+    ms0515_fdc_mech_fn mech_cb;
+    void       *mech_userdata;
+    bool        spinning[2];
 } ms0515_floppy_t;
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
@@ -225,6 +252,10 @@ void    fdc_detach(ms0515_floppy_t *fdc, int unit);
  * unit is computed as drive * 2 + side.
  */
 void    fdc_select(ms0515_floppy_t *fdc, int drive, int side, bool motor);
+
+/* The listener for the drive's mechanical events (NULL: none). */
+void    fdc_set_mech_callback(ms0515_floppy_t *fdc, ms0515_fdc_mech_fn cb,
+                              void *userdata);
 
 /*
  * fdc_write — CPU writes to an FDC register.

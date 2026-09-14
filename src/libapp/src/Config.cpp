@@ -28,9 +28,12 @@ bool Config::isDefault() const
         return false;
     if (kbdTypingDelayMs >= 0 || kbdTypingPeriodMs >= 0 ||
         kbdGameDelayMs   >= 0 || kbdGamePeriodMs   >= 0 ||
-        kbdAutoGameMode  >= 0) return false;
+        kbdAutoGameMode  >= 0 || kbdAutoRepeat     >= 0) return false;
     if (fullscreen) return false;
     if (!joystick.empty()) return false;
+    if (speakerVolume != 100) return false;
+    if (!driveSounds.empty() || driveVolume != 100) return false;
+    if (!keyboardSounds || keyboardVolume != 100) return false;
     return true;
 }
 
@@ -92,8 +95,14 @@ Config Config::load()
         else if (key == "kbd_game_delay_ms")    cfg.kbdGameDelayMs    = Paths::parseNumber(val);
         else if (key == "kbd_game_period_ms")   cfg.kbdGamePeriodMs   = Paths::parseNumber(val);
         else if (key == "kbd_auto_game_mode")   cfg.kbdAutoGameMode   = (val == "true") ? 1 : 0;
+        else if (key == "kbd_auto_repeat")      cfg.kbdAutoRepeat     = (val == "true") ? 1 : 0;
         else if (key == "fullscreen")           cfg.fullscreen        = (val == "true");
         else if (key == "joystick")             cfg.joystick          = val;
+        else if (key == "speaker_volume")       cfg.speakerVolume     = Paths::parseNumber(val);
+        else if (key == "drive_sounds")         cfg.driveSounds       = val;
+        else if (key == "drive_volume")         cfg.driveVolume       = Paths::parseNumber(val);
+        else if (key == "keyboard_sounds")      cfg.keyboardSounds    = (val != "false");
+        else if (key == "keyboard_volume")      cfg.keyboardVolume    = Paths::parseNumber(val);
         /* Unknown keys: silently ignored. */
     }
     return cfg;
@@ -161,8 +170,16 @@ void Config::save() const
     if (kbdAutoGameMode   >= 0)
         f << "kbd_auto_game_mode: "
           << (kbdAutoGameMode ? "true" : "false") << "\n";
+    if (kbdAutoRepeat     >= 0)
+        f << "kbd_auto_repeat: "
+          << (kbdAutoRepeat ? "true" : "false") << "\n";
     if (fullscreen) f << "fullscreen: true\n";
     if (!joystick.empty()) f << "joystick: " << joystick << "\n";
+    if (speakerVolume != 100) f << "speaker_volume: " << speakerVolume << "\n";
+    if (!driveSounds.empty()) f << "drive_sounds: " << driveSounds << "\n";
+    if (driveVolume != 100) f << "drive_volume: " << driveVolume << "\n";
+    if (!keyboardSounds) f << "keyboard_sounds: false\n";
+    if (keyboardVolume != 100) f << "keyboard_volume: " << keyboardVolume << "\n";
 }
 
 std::string resolveRom(const std::string &cliRomPath,

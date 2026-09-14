@@ -656,6 +656,16 @@ bool board_step_frame(ms0515_board_t *board)
              */
         }
 
+        /* A millisecond of the machine's time, for whatever runs on a
+         * clock of its own (the keyboard's typematic). */
+        board->ms_counter += c;
+        while (board->ms_counter >= CPU_CLOCK_HZ / 1000) {
+            board->ms_counter -= CPU_CLOCK_HZ / 1000;
+            ++board->ms_clock;
+            if (board->ms_cb)
+                board->ms_cb(board->ms_userdata, board->ms_clock, board->frame_cycle_pos);
+        }
+
         /* Tick keyboard UART periodically */
         kbd_counter += c;
         if (kbd_counter >= KBD_TICK_DIVIDER * TIMER_DIVIDER) {
@@ -716,6 +726,13 @@ void board_key_event(ms0515_board_t *board, uint8_t scancode)
 }
 
 /* ── Callback registration ───────────────────────────────────────────────── */
+
+void board_set_ms_callback(ms0515_board_t *board,
+                           board_ms_cb_t cb, void *userdata)
+{
+    board->ms_cb       = cb;
+    board->ms_userdata = userdata;
+}
 
 void board_set_sound_callback(ms0515_board_t *board,
                               board_sound_cb_t cb, void *userdata)

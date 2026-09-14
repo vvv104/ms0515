@@ -43,6 +43,9 @@ struct Emulator::Impl {
     ms7004_t       kbd7004;
 
     Emulator::SoundCallback     soundCb;
+    Emulator::MechCallback      mechCb;
+    bool                        inFrame = false;  /* stepFrame() is running */
+    uint32_t                    soundCycle = 0;   /* frame cycle of the current machine millisecond */
     Emulator::SerialOutCallback serialOutCb;
     Emulator::SerialInCallback  serialInCb;
     Emulator::VramWriteCallback vramWriteCb;

@@ -71,6 +71,14 @@ options:
                           a bug report's machine, put back on its feet
                           (the same ROM it was saved with is required).
   --save-state <path>     Write a snapshot when the run ends.
+  --drive-sounds <set>    Play the drive's motor and seeks from the
+                          recordings in assets/sounds/fdd/<set>/ ("off":
+                          none; default: the first set found).
+  --keyboard-sounds on|off  The MS7004's own click and bell, from
+                          assets/sounds/kbd/ms7004/ (default on).
+  --speaker-volume <pct>  The machine's own beeper, in percent (100).
+  --drive-volume <pct>    Volume of those recordings in percent (100).
+  --keyboard-volume <pct>
   --history-size <N>      Keep the last N machine events (reg A and
                           dispatcher writes, FDC commands, traps,
                           HALTs) in the snapshot's HIST chunk;

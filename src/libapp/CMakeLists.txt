@@ -19,6 +19,7 @@ add_library(ms0515_libapp STATIC
     src/Disks.cpp
     src/Screen.cpp
     src/Screenshot.cpp
+    src/Sounds.cpp
 )
 
 find_package(stb REQUIRED)

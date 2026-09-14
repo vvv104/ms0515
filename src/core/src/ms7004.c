@@ -316,6 +316,19 @@ static void emit(ms7004_t *kbd, uint8_t sc)
         kbd_push_scancode(kbd->uart, sc);
 }
 
+/* The keyboard's piezo element: reported to the listener, when there is one. */
+static void sound(ms7004_t *kbd, int event)
+{
+    if (kbd->sound_cb)
+        kbd->sound_cb(kbd->sound_userdata, event);
+}
+
+void ms7004_set_sound_callback(ms7004_t *kbd, ms7004_sound_fn cb, void *userdata)
+{
+    kbd->sound_cb       = cb;
+    kbd->sound_userdata = userdata;
+}
+
 /* ── Lifecycle ────────────────────────────────────────────────────────── */
 
 void ms7004_init(ms7004_t *kbd, struct ms0515_keyboard *uart)
@@ -339,7 +352,11 @@ void ms7004_init(ms7004_t *kbd, struct ms0515_keyboard *uart)
      * into game mode. */
     kbd->repeat_delay_ms   = kbd->repeat_typing_delay_ms;
     kbd->repeat_period_ms  = kbd->repeat_typing_period_ms;
-    kbd->repeat_enabled    = false;
+    /* The firmware powers up with auto-repeat, the click and the bell
+     * all enabled - the parameters byte is 0o70 at L_133 - and the
+     * keyboard's only click is the one it makes on every repeat, so
+     * with this off the machine is silent under the fingers. */
+    kbd->repeat_enabled    = true;
 
     kbd->auto_game_mode    = true;     /* heuristic on by default */
     kbd->in_game_mode      = false;
@@ -390,7 +407,15 @@ void ms7004_recompute_live_repeat(ms7004_t *kbd) { recompute_live_repeat(kbd); }
 void ms7004_reset(ms7004_t *kbd)
 {
     struct ms0515_keyboard *uart = kbd->uart;
+    ms7004_sound_fn sound_cb = kbd->sound_cb;
+    void *sound_userdata = kbd->sound_userdata;
     ms7004_init(kbd, uart);
+    kbd->sound_cb       = sound_cb;
+    kbd->sound_userdata = sound_userdata;
+    /* The firmware rings twice at ITS power-on (L_133), which is not this:
+     * the keyboard is a box of its own on the end of a cable and does not
+     * restart when the computer does.  The signal heard before the POST
+     * melody is the machine's own, through 0o247. */
 }
 
 /* ── Main entry point ─────────────────────────────────────────────────── */
@@ -552,10 +577,16 @@ void ms7004_tick(ms7004_t *kbd, uint32_t now_ms)
     if (!key_valid(kbd->repeat_key)) return;
     if (!kbd->held[kbd->repeat_key]) { kbd->repeat_key = MS7004_KEY_NONE; return; }
 
-    while ((int32_t)(now_ms - kbd->repeat_next_ms) >= 0) {
+    /* One repeat per call, at most: the keyboard scans at its own pace and
+     * has nothing to catch up with when the host was late.  A burst here
+     * would be ours alone - and the clicks of it would land on the same
+     * instant and pile up. */
+    if ((int32_t)(now_ms - kbd->repeat_next_ms) >= 0) {
         emit(kbd, kScancode[kbd->repeat_key]);
-        kbd->repeat_next_ms += kbd->repeat_period_ms;
-        if (kbd->repeat_period_ms == 0) break;  /* guard */
+        /* The firmware clicks on every repeat it sends (L_2B0: the 0xB4
+         * code, then L_0C7) - and only there: a plain make is silent. */
+        if (kbd->click_enabled) sound(kbd, MS7004_SOUND_CLICK);
+        kbd->repeat_next_ms = now_ms + (kbd->repeat_period_ms ? kbd->repeat_period_ms : 1);
     }
 }
 
@@ -722,9 +753,10 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
 
     /* ── Sound ───────────────────────────────────────────────────── */
     case 0xA7:  /* 0o247 — produce bell */
-        /* TODO: could trigger a host beep if wired up */
+        if (kbd->sound_enabled) sound(kbd, MS7004_SOUND_BELL);
         return;
     case 0x9F:  /* 0o237 — produce click */
+        sound(kbd, MS7004_SOUND_CLICK);
         /* Read pragmatically as "system is back in interactive typing".
          * The mode flag flips regardless of `auto_game_mode`; the
          * recompute step turns that into a no-op for live values when

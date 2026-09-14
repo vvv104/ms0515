@@ -53,7 +53,7 @@ TEST_CASE("ms7004_init: all keys released, toggles off") {
     CHECK(kbd.caps_on == false);
     CHECK(kbd.ruslat_on == false);
     CHECK(kbd.repeat_key == MS7004_KEY_NONE);
-    CHECK(kbd.repeat_enabled == false);
+    CHECK(kbd.repeat_enabled == true);   /* the firmware's parameters byte, 0o70 */
     CHECK(kbd.data_enabled == true);
 }
 
@@ -337,15 +337,21 @@ TEST_CASE("ms7004_release_all with no held keys emits nothing") {
 
 /* ── Auto-repeat ─────────────────────────────────────────────────────────── */
 
-TEST_CASE("auto-repeat disabled by default, no repeat scancodes") {
+TEST_CASE("auto-repeat is on at power-on, as the firmware's parameters byte says") {
     auto uart = make_uart();
     auto kbd  = make_kbd(&uart);
+    CHECK(kbd.repeat_enabled);
 
     ms7004_key(&kbd, MS7004_KEY_A, true);
     kbd_flush_fifo(&uart);
-
-    /* Advance time well past the delay */
     ms7004_tick(&kbd, 1000);
+    CHECK(uart.fifo_count > 0);
+
+    /* And the host can turn it off (0o331), which silences the clicks too. */
+    ms7004_host_byte(&kbd, 0xD9);
+    CHECK_FALSE(kbd.repeat_enabled);
+    kbd_flush_fifo(&uart);
+    ms7004_tick(&kbd, 3000);
     CHECK(uart.fifo_count == 0);
 }
 
@@ -513,6 +519,9 @@ TEST_CASE("auto-repeat enable/disable commands") {
     auto uart = make_uart();
     auto kbd  = make_kbd(&uart);
 
+    CHECK(kbd.repeat_enabled == true);   /* on at power-on */
+
+    ms7004_host_byte(&kbd, 0xE1);   /* disable */
     CHECK(kbd.repeat_enabled == false);
 
     ms7004_host_byte(&kbd, 0x90);   /* enable */

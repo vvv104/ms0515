@@ -5,6 +5,8 @@
 #include "Platform.hpp"
 #include "Ui.hpp"
 
+#include <ms0515/app/Sounds.hpp>
+
 
 #include <imgui.h>
 #include "imgui_impl_sdl2.h"
@@ -32,8 +34,8 @@ int App::run()
 {
     if (!initSdl()) return 1;
     initImGui();
+    initAudio();        /* before the machine starts: the keyboard rings at power-on */
     initEmulator();
-    initAudio();
 
     lastTickMs_         = SDL_GetTicks();
     hostMsAtLastReset_  = lastTickMs_;
@@ -229,6 +231,7 @@ void App::applyKeyboardConfig()
 {
     auto s = emu_.keyboardSettings();
     if (config_.kbdAutoGameMode    >= 0) s.autoGameMode    = (config_.kbdAutoGameMode != 0);
+    if (config_.kbdAutoRepeat      >= 0) s.repeatEnabled   = (config_.kbdAutoRepeat != 0);
     if (config_.kbdTypingDelayMs   >= 0) s.typingDelayMs   = (uint32_t)config_.kbdTypingDelayMs;
     if (config_.kbdTypingPeriodMs  >= 0) s.typingPeriodMs  = (uint32_t)config_.kbdTypingPeriodMs;
     if (config_.kbdGameDelayMs     >= 0) s.gameDelayMs     = (uint32_t)config_.kbdGameDelayMs;
@@ -241,8 +244,50 @@ void App::initAudio()
     if (!audio_.init())
         std::fprintf(stderr, "warning: audio init failed, continuing without sound\n");
     emu_.setSoundCallback([this](int value) {
-        audio_.addTransition(emu_.frameCyclePos(), value);
+        audio_.renderer().speaker(emu_.frameCyclePos(), value);
     });
+    emu_.setMechCallback([this](const ms0515::MechEvent &e) {
+        using Kind = ms0515::MechEvent::Kind;
+        auto &r = audio_.renderer();
+        switch (e.kind) {
+        case Kind::motorOn:  r.motor(e.cycle, e.arg, true);  break;
+        case Kind::motorOff: r.motor(e.cycle, e.arg, false); break;
+        case Kind::seek:     r.seek(e.cycle, e.arg, static_cast<uint32_t>(e.stepCycles)); break;
+        case Kind::keyClick: r.keyClick(e.cycle); ++keySounds_; break;
+        case Kind::bell:     r.bell(e.cycle); ++keySounds_; break;
+        case Kind::step:     break;          /* the seek carries its pulses */
+        }
+    });
+    /* The flags override the config, once; the menu edits the config. */
+    if (!cli_.driveSounds.empty())  config_.driveSounds    = cli_.driveSounds;
+    if (cli_.keyboardSounds >= 0)   config_.keyboardSounds = cli_.keyboardSounds != 0;
+    if (cli_.speakerVolume >= 0)    config_.speakerVolume  = cli_.speakerVolume;
+    if (cli_.driveVolume >= 0)      config_.driveVolume    = cli_.driveVolume;
+    if (cli_.keyboardVolume >= 0)   config_.keyboardVolume = cli_.keyboardVolume;
+    applySoundSettings();
+}
+
+/* The drive set by name, "off", or the first found; the keyboard's
+ * ms7004 set when its sounds are on; the volumes in percent. */
+void App::applySoundSettings()
+{
+    using ms0515::app::Sounds;
+    driveSets_ = Sounds::driveSets();
+    driveSet_ = config_.driveSounds == "off" ? std::string{}
+              : !config_.driveSounds.empty() ? config_.driveSounds
+              : driveSets_.empty() ? std::string{} : driveSets_.front();
+    auto &r = audio_.renderer();
+    r.setDriveSounds(driveSet_.empty() ? nullptr : Sounds::loadDrive(driveSet_));
+    /* The keyboard's: a recording when there is one, else the firmware's own drive signal. */
+    std::shared_ptr<const ms0515::KeyboardSounds> keyboard;
+    if (config_.keyboardSounds) {
+        keyboard = Sounds::loadKeyboard("ms7004");
+        if (!keyboard) keyboard = std::make_shared<ms0515::KeyboardSounds>(ms0515::ms7004KeyboardSounds(Audio::kSampleRate));
+    }
+    r.setKeyboardSounds(keyboard);
+    r.setSpeakerVolume(static_cast<float>(config_.speakerVolume) / 100.0f);
+    r.setDriveVolume(static_cast<float>(config_.driveVolume) / 100.0f);
+    r.setKeyboardVolume(static_cast<float>(config_.keyboardVolume) / 100.0f);
 }
 
 void App::shutdown()
@@ -521,9 +566,9 @@ void App::tick()
 
         bool audioEnabled = audioOn_ && (targetSpeed_ == 100.0f);
         while (emuTimeAccumMs_ >= kFrameMs && running_) {
-            if (audioEnabled) audio_.beginFrame();
+            audio_.beginFrame();
             bool ok = emu_.stepFrame();
-            if (audioEnabled) audio_.endFrame(emu_.frameCyclePos());
+            audio_.endFrame(static_cast<int>(emu_.frameCyclePos()), audioEnabled);
             if (!ok) {
                 running_ = false;
                 emuTimeAccumMs_ = 0.0f;
@@ -827,6 +872,7 @@ void App::drawMachineMenu()
     bool speedIs100 = (targetSpeed_ == 100.0f);
     if (ImGui::MenuItem("Audio", nullptr, audioOn_, speedIs100))
         audioOn_ = !audioOn_;
+    drawSoundsSubmenu();
 
     ImGui::Separator();
     if (ImGui::MenuItem("Save State...")) {
@@ -939,6 +985,49 @@ void App::drawJoystickSubmenu()
     ImGui::EndMenu();
 }
 
+/* The sound: which drive set plays (the folders of assets/sounds/fdd/),
+ * whether the keyboard's own click and bell do, and how loud each of the
+ * three is - the machine's own beeper among them. */
+void App::drawSoundsSubmenu()
+{
+    if (!ImGui::BeginMenu("Sound")) return;
+    if (ImGui::BeginMenu("Drive")) {
+        auto pick = [&](const char *label, const std::string &set) {
+            if (ImGui::MenuItem(label, nullptr, driveSet_ == set)) {
+                config_.driveSounds = set.empty() ? "off" : set;
+                config_.save();
+                applySoundSettings();
+            }
+        };
+        pick("Off", "");
+        for (const auto &set : driveSets_) pick(set.c_str(), set);
+        if (driveSets_.empty()) {
+            ImGui::Separator();
+            ImGui::TextDisabled("no recordings in assets/sounds/fdd/");
+        }
+        ImGui::EndMenu();
+    }
+    if (ImGui::MenuItem("Keyboard click and bell", nullptr, config_.keyboardSounds)) {
+        config_.keyboardSounds = !config_.keyboardSounds;
+        config_.save();
+        applySoundSettings();
+    }
+    ImGui::Separator();
+    if (ImGui::SliderInt("Speaker volume", &config_.speakerVolume, 0, 200, "%d%%"))
+        audio_.renderer().setSpeakerVolume(static_cast<float>(config_.speakerVolume) / 100.0f);
+    if (ImGui::IsItemDeactivatedAfterEdit()) config_.save();
+    if (ImGui::SliderInt("Drive volume", &config_.driveVolume, 0, 200, "%d%%"))
+        audio_.renderer().setDriveVolume(static_cast<float>(config_.driveVolume) / 100.0f);
+    if (ImGui::IsItemDeactivatedAfterEdit()) config_.save();
+    if (ImGui::SliderInt("Keyboard volume", &config_.keyboardVolume, 0, 200, "%d%%"))
+        audio_.renderer().setKeyboardVolume(static_cast<float>(config_.keyboardVolume) / 100.0f);
+    if (ImGui::IsItemDeactivatedAfterEdit()) config_.save();
+    ImGui::Separator();
+    ImGui::TextDisabled("keyboard sounds made: %d   queued: %d ms   backlog cuts: %d",
+                        keySounds_, audio_.queuedMs(), audio_.cuts());
+    ImGui::EndMenu();
+}
+
 void App::drawHardDiskSubmenu()
 {
     if (!ImGui::BeginMenu("HD: / Serial port")) return;
@@ -963,6 +1052,20 @@ void App::drawKeyboardSubmenu()
     if (!ImGui::BeginMenu("Keyboard")) return;
     auto    settings = emu_.keyboardSettings();
     bool    dirty    = false;
+
+    bool repeat = settings.repeatEnabled;
+    if (ImGui::MenuItem("Auto-repeat", nullptr, &repeat)) {
+        settings.repeatEnabled = repeat;
+        config_.kbdAutoRepeat  = repeat ? 1 : 0;
+        dirty = true;
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(
+            "The keyboard's own typematic, as the MS7004 powers up with it.  "
+            "Off by default here so a key held does not run away in a program "
+            "that never turns it off.\nThe keyboard clicks on every repeat it "
+            "sends - that is the only click it makes.");
+    }
 
     bool autoGame = settings.autoGameMode;
     if (ImGui::MenuItem("Auto game-mode", nullptr, &autoGame)) {

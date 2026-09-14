@@ -36,7 +36,7 @@ namespace {
 constexpr int kWidth        = 640;
 constexpr int kHeight       = 400;
 constexpr int kCpuClockHz   = 7500000;
-constexpr int16_t kAmplitude = 6000;
+constexpr int16_t kAmplitude = 1500;   /* the beeper, as loud as the desktop build's */
 
 struct Transition {
     int cycle;

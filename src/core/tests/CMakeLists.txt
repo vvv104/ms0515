@@ -23,6 +23,7 @@ add_executable(ms0515_core_tests
     test_vram_write_hook.cpp
     test_sound.cpp
     test_joystick.cpp
+    test_mech_events.cpp
 )
 
 target_compile_definitions(ms0515_core_tests PRIVATE

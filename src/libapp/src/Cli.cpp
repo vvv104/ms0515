@@ -97,6 +97,16 @@ CliArgs parseArgs(int argc, char **argv)
             out.noConfig = true;
         } else if (a == "--hd" && i + 1 < argc) {
             out.hdPath = argv[++i];
+        } else if (a == "--drive-sounds" && i + 1 < argc) {
+            out.driveSounds = argv[++i];
+        } else if (a == "--keyboard-sounds" && i + 1 < argc) {
+            out.keyboardSounds = std::string(argv[++i]) == "off" ? 0 : 1;
+        } else if (a == "--speaker-volume" && i + 1 < argc) {
+            out.speakerVolume = std::atoi(argv[++i]);
+        } else if (a == "--drive-volume" && i + 1 < argc) {
+            out.driveVolume = std::atoi(argv[++i]);
+        } else if (a == "--keyboard-volume" && i + 1 < argc) {
+            out.keyboardVolume = std::atoi(argv[++i]);
         } else if (a == "--frames" && i + 1 < argc) {
             out.maxFrames = std::atoi(argv[++i]);
         } else if (a == "--screenshot" && i + 1 < argc) {

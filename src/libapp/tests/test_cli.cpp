@@ -275,3 +275,22 @@ TEST_CASE("a mix — cli for one drive, config for the other") {
 }
 
 }  // TEST_SUITE
+
+TEST_SUITE("mechanical sounds flags") {
+
+TEST_CASE("--drive-sounds names a set or off, --keyboard-sounds on/off, the volumes in percent") {
+    CHECK(parse({}).driveSounds.empty());
+    CHECK(parse({}).keyboardSounds == -1);
+    CHECK(parse({}).driveVolume == -1);
+    CHECK(parse({}).keyboardVolume == -1);
+    CHECK(parse({"--drive-sounds", "ms5305"}).driveSounds == "ms5305");
+    CHECK(parse({"--drive-sounds", "off"}).driveSounds == "off");
+    CHECK(parse({"--keyboard-sounds", "off"}).keyboardSounds == 0);
+    CHECK(parse({"--keyboard-sounds", "on"}).keyboardSounds == 1);
+    CHECK(parse({}).speakerVolume == -1);
+    CHECK(parse({"--speaker-volume", "40"}).speakerVolume == 40);
+    CHECK(parse({"--drive-volume", "60"}).driveVolume == 60);
+    CHECK(parse({"--keyboard-volume", "0"}).keyboardVolume == 0);
+}
+
+}  // TEST_SUITE("mechanical sounds flags")

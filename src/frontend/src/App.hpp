@@ -52,6 +52,7 @@ private:
     void mountInitialDisks();          /* called by initEmulator */
     void applyKeyboardConfig();        /* called by initEmulator */
     void initAudio();
+    void applySoundSettings();         /* the recordings and volumes config_ asks for */
     void shutdown();
 
     /* ── Main loop ──────────────────────────────────────────────────── */
@@ -72,6 +73,7 @@ private:
     void drawHardDiskSubmenu();
     void drawKeyboardSubmenu();
     void drawJoystickSubmenu();
+    void drawSoundsSubmenu();
     void drawViewMenu();
     void drawMountErrorPopup();
     void resizeHostWindow();
@@ -154,6 +156,9 @@ private:
     bool showKeyboard_ = false;
     bool prevShowKeyboard_ = false;
     bool audioOn_      = true;
+    std::vector<std::string> driveSets_;   /* the drive sets found in assets/sounds/fdd/ */
+    std::string              driveSet_;    /* the one playing; "" none */
+    int                      keySounds_ = 0;   /* clicks and bells the keyboard has made */
     bool ramDiskOn_    = true;
     bool fullscreenOn_ = false;
     int  menuBarHeight_= 0;

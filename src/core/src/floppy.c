@@ -64,6 +64,9 @@ static const int step_rate_table[4] = { 45000, 90000, 150000, 225000 };
  * rising edge, the loop hangs.  At 7.5 MHz, 240 cycles ≈ 32 µs. */
 #define MIN_CMD_CYCLES       240
 
+static void mech(ms0515_floppy_t *fdc, int event, int arg);
+static void mech_motor(ms0515_floppy_t *fdc, int drive, bool on);
+
 /* ── Internal helpers ────────────────────────────────────────────────────── */
 
 static fdc_drive_t *current_drive(ms0515_floppy_t *fdc)
@@ -209,6 +212,7 @@ static void start_type1(ms0515_floppy_t *fdc, int target_track)
         /* Already on target — go straight to settle/finish. */
         schedule_finish(fdc, type1_status(fdc, false), fdc->settle_cycles);
     } else {
+        mech(fdc, FDC_MECH_SEEK, delta);
         fdc->state            = FDC_STATE_TYPE1_STEP;
         fdc->cycles_remaining = fdc->step_rate_cycles;
         fdc->status           = type1_status(fdc, true);
@@ -260,11 +264,34 @@ void fdc_init(ms0515_floppy_t *fdc)
     fdc->step_rate_cycles = step_rate_table[0];
 }
 
+/* Report a mechanical event to the listener, when there is one. */
+static void mech(ms0515_floppy_t *fdc, int event, int arg)
+{
+    if (fdc->mech_cb)
+        fdc->mech_cb(fdc->mech_userdata, event, arg);
+}
+
+/* The spindles as the last select left them.  Register A carries one
+ * motor bit and the drive it selects, so the motor runs in the selected
+ * drive alone: selecting another drive with the motor still on moves the
+ * sound over, and clearing the bit stops whatever was turning.  Events go
+ * out once per change, whichever side the select named. */
+static void mech_motor(ms0515_floppy_t *fdc, int drive, bool on)
+{
+    for (int d = 0; d < 2; ++d) {
+        const bool spin = on && d == drive;
+        if (fdc->spinning[d] == spin) continue;
+        fdc->spinning[d] = spin;
+        mech(fdc, spin ? FDC_MECH_MOTOR_ON : FDC_MECH_MOTOR_OFF, d);
+    }
+}
+
 void fdc_reset(ms0515_floppy_t *fdc)
 {
     /* Preserve attached disk images. */
     for (int i = 0; i < FDC_LOGICAL_UNITS; i++)
         fdc->drives[i].motor_on = false;
+    mech_motor(fdc, 0, false);              /* every spindle stops */
     fdc->head_track[0] = 0;
     fdc->head_track[1] = 0;
 
@@ -382,6 +409,14 @@ void fdc_select(ms0515_floppy_t *fdc, int drive, int side, bool motor)
 
     fdc->selected = unit;
     fdc->drives[unit].motor_on = motor;
+    mech_motor(fdc, drive, motor);
+}
+
+void fdc_set_mech_callback(ms0515_floppy_t *fdc, ms0515_fdc_mech_fn cb,
+                           void *userdata)
+{
+    fdc->mech_cb       = cb;
+    fdc->mech_userdata = userdata;
 }
 
 void fdc_write(ms0515_floppy_t *fdc, int reg, uint8_t value)
@@ -590,6 +625,7 @@ void fdc_tick(ms0515_floppy_t *fdc, int cycles)
             if (*track < 0)              *track = 0;
             if (*track >= FDC_TRACKS)    *track = FDC_TRACKS - 1;
             fdc->step_pulses_left--;
+            mech(fdc, FDC_MECH_STEP, fdc->step_direction);
 
             /*
              * Track register update rules per WD1793 datasheet:

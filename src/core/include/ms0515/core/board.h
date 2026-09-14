@@ -92,6 +92,15 @@ extern "C" {
 typedef void (*board_sound_cb_t)(void *userdata, int value);
 
 /*
+ * Called once per millisecond of the MACHINE's time, from inside the
+ * frame, with that count and the cycle of the frame it fell on.  What
+ * runs on a clock of its own and must not follow the host's frame rate
+ * hangs here - the keyboard's typematic, whose repeats would otherwise
+ * land wherever the host happened to look.
+ */
+typedef void (*board_ms_cb_t)(void *userdata, uint32_t ms, int frame_cycle);
+
+/*
  * Called when a byte is sent to the serial port (printer/RS-232).
  * Returns true if the byte was accepted.
  */
@@ -149,6 +158,10 @@ typedef struct ms0515_board {
 
     /* Callbacks */
     board_sound_cb_t      sound_cb;
+    board_ms_cb_t         ms_cb;
+    void                 *ms_userdata;
+    uint32_t              ms_clock;      /* milliseconds the machine has run */
+    int                   ms_counter;    /* cycles towards the next one     */
     board_serial_out_cb_t serial_out_cb;
     board_serial_in_cb_t  serial_in_cb;
     void                 *cb_userdata;
@@ -301,6 +314,10 @@ void     board_datio_end  (ms0515_board_t *board);
 
 void board_set_sound_callback(ms0515_board_t *board,
                               board_sound_cb_t cb, void *userdata);
+
+/* The machine's own millisecond tick (NULL: none). */
+void board_set_ms_callback(ms0515_board_t *board,
+                           board_ms_cb_t cb, void *userdata);
 
 void board_set_serial_callbacks(ms0515_board_t *board,
                                 board_serial_in_cb_t in_cb,
