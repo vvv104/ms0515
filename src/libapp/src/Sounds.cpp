@@ -28,6 +28,28 @@ Pcm read(const fs::path &file)
     return pcm ? std::move(*pcm) : Pcm{};
 }
 
+/* "seek_31_68.wav" -> (31, 68): the track the head went from and the one it
+   went to.  Anything else gives (-1, -1). */
+std::pair<int, int> seekMove(const std::string &name)
+{
+    const std::string prefix = "seek_";
+    if (name.size() <= prefix.size() + 4 || name.compare(0, prefix.size(), prefix) != 0 ||
+        name.compare(name.size() - 4, 4, ".wav") != 0)
+        return {-1, -1};
+    const std::string body = name.substr(prefix.size(), name.size() - prefix.size() - 4);
+    const std::size_t bar = body.find('_');
+    if (bar == std::string::npos) return {-1, -1};
+    int a = 0, b = 0;
+    const char *f1 = body.data(), *l1 = body.data() + bar;
+    const char *f2 = body.data() + bar + 1, *l2 = body.data() + body.size();
+    const auto r1 = std::from_chars(f1, l1, a);
+    const auto r2 = std::from_chars(f2, l2, b);
+    if (r1.ec != std::errc{} || r1.ptr != l1 || r2.ec != std::errc{} || r2.ptr != l2)
+        return {-1, -1};
+    if (a < 0 || b < 0 || a == b) return {-1, -1};
+    return {a, b};
+}
+
 /* "seek_in_12.wav" -> 12 for the prefix "seek_in_"; -1 for anything else. */
 int seekLength(const std::string &name, const std::string &prefix)
 {
@@ -98,7 +120,10 @@ std::shared_ptr<DriveSounds> Sounds::loadDriveDir(const fs::path &dir)
     s->stepOut    = read(dir / "step_out.wav");
     for (const auto &entry : fs::directory_iterator(dir, ec)) {
         const std::string name = entry.path().filename().string();
-        if (const int n = seekLength(name, "seek_in_"); n > 0) {
+        if (const auto [a, b] = seekMove(name); a >= 0) {
+            if (Pcm pcm = read(entry.path()); !pcm.empty())
+                s->moves.push_back({a, b, std::move(pcm)});
+        } else if (const int n = seekLength(name, "seek_in_"); n > 0) {
             if (Pcm pcm = read(entry.path()); !pcm.empty()) s->seekIn[n] = std::move(pcm);
         } else if (const int m = seekLength(name, "seek_out_"); m > 0) {
             if (Pcm pcm = read(entry.path()); !pcm.empty()) s->seekOut[m] = std::move(pcm);

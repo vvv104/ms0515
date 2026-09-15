@@ -382,3 +382,29 @@ TEST_CASE("the loudspeaker's high pass: the offset goes, the edges stay") {
     CHECK(b / a > 0.99);                              /* the beep is untouched */
     CHECK(b / a < 1.05);
 }
+
+TEST_CASE("a move takes the recording that ran nearest the same way") {
+    auto d = std::make_shared<DriveSounds>();
+    /* Three moves, told apart by what they carry. */
+    d->moves.push_back({0, 40, flat(kRate, 30, 100)});     /* out of track 0 */
+    d->moves.push_back({40, 79, flat(kRate, 30, 200)});    /* on from there */
+    d->moves.push_back({79, 0, flat(kRate, 30, 300)});     /* and home */
+    AudioRenderer r(kRate);
+    r.setSpeakerVolume(0.0f);
+    r.setDriveSounds(d);
+
+    /* From track 0, forty tracks in: the first of them. */
+    r.seek(0, 40, 3000);
+    CHECK(all(frame(r), 0, 30, 100));
+    for (int i = 0; i < 3; ++i) (void)frame(r);
+
+    /* On from track 40 to the last: the second, though both are about forty
+     * tracks long - the head is somewhere else now, and it sounds different. */
+    r.seek(0, 39, 3000);
+    CHECK(all(frame(r), 0, 30, 200));
+    for (int i = 0; i < 3; ++i) (void)frame(r);
+
+    /* And all the way home. */
+    r.seek(0, -79, 3000);
+    CHECK(all(frame(r), 0, 30, 300));
+}
