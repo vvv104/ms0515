@@ -139,6 +139,29 @@ instead.
 So a step at track 3 and a step at track 60 are different recordings, and a
 format walks through all of them in turn, as it did on the drive.
 
+Keeping the click sharp
+-----------------------
+Three things were taking the edge off a single step.
+
+The turn is evened out to remove the spindle's knock, and a step of the
+formatting run falls at nearly the same phase of the turn as a knock every
+time - 405 ms against 202 - so evening the turn took the top off the step as
+well, four decibels of it.  The clicks are therefore cut from before that is
+done; the flattened signal is only used to find them and to judge which are
+clean enough to keep.
+
+The moves had what runs underneath taken off them and the clicks had not, so a
+bed of the PC's fans lay under every one.  It is measured in the quiet before
+each click and subtracted, as for the moves.
+
+And each file began twelve milliseconds before its click, so the click landed
+late; now it begins four.
+
+The peak of a click now stands 17.5 dB over the average of its own file and
+33 dB over what is left of it after thirty milliseconds, against 15.7 and a
+bed of hiss before.
+
+
 One room for all of them
 ------------------------
 The recording wanders between shots taken from different distances and angles,
