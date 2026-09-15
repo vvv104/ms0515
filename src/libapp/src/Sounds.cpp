@@ -94,8 +94,6 @@ std::shared_ptr<DriveSounds> Sounds::loadDriveDir(const fs::path &dir)
     s->motorStart = read(dir / "motor_start.wav");
     s->motorLoop  = read(dir / "motor_loop.wav");
     s->motorStop  = read(dir / "motor_stop.wav");
-    s->strokeIn   = read(dir / "stroke_in.wav");
-    s->strokeOut  = read(dir / "stroke_out.wav");
     s->stepIn     = read(dir / "step_in.wav");
     s->stepOut    = read(dir / "step_out.wav");
     for (const auto &entry : fs::directory_iterator(dir, ec)) {

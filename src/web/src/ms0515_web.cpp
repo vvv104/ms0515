@@ -655,9 +655,7 @@ EMSCRIPTEN_KEEPALIVE int ms_drive_sound(Handle *h, const char *name,
         return n > 0 ? n : -1;
     };
     const int in = tracks("seek_in_"), outward = tracks("seek_out_");
-    if (file == "stroke_in.wav")       h->drive->strokeIn   = std::move(*pcm);
-    else if (file == "stroke_out.wav") h->drive->strokeOut  = std::move(*pcm);
-    else if (file == "motor_start.wav") h->drive->motorStart = std::move(*pcm);
+    if (file == "motor_start.wav")     h->drive->motorStart = std::move(*pcm);
     else if (file == "motor_loop.wav") h->drive->motorLoop  = std::move(*pcm);
     else if (file == "motor_stop.wav") h->drive->motorStop  = std::move(*pcm);
     else if (file == "step_in.wav")    h->drive->stepIn     = std::move(*pcm);

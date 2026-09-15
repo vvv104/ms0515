@@ -43,15 +43,6 @@ struct DriveSounds {
     Pcm motorStart;
     Pcm motorLoop;
     Pcm motorStop;
-    /* The head crossing the whole stroke, track 0 to the last and back.  A
-     * move of any length is the stretch of one of these between the track it
-     * started on and the one it ended on: going out from track 0 and going out
-     * from track 30 are not the same sound, because the free length of the
-     * band that rings is not the same, and a set of recordings filed by
-     * distance alone cannot tell them apart. */
-    Pcm strokeIn;
-    Pcm strokeOut;
-    /* Recordings by distance, for a set that has no full stroke. */
     std::map<int, Pcm> seekIn;
     std::map<int, Pcm> seekOut;
     Pcm stepIn;
@@ -75,15 +66,6 @@ struct KeyboardSounds {
 
 class AudioRenderer {
 public:
-    /* Tracks of the drive, for reading a full-stroke recording by position. */
-    static constexpr int kTracks = 80;
-    /* How much higher the note is at the last track than at the first.  The
-     * head hangs on a steel band and near the last track it sits close to the
-     * stepper, so the free length that rings is short.  Measured on the
-     * formatting run, where the track under the head is known for every step:
-     * 3058 Hz over the first fifth of the tracks, 3267 over the last. */
-    static constexpr double kStrokePitch = 0.068;
-
     static constexpr int kCpuHz            = 7500000;
     /* The beeper's square wave at full volume - a quarter of what it
      * first was: against the drive and the keyboard it shouted the
@@ -130,9 +112,6 @@ private:
         int         startAt;    /* output sample of this frame it begins at; 0 = already sounding */
         float       gain;
         bool        loop;
-        double      begin = 0;  /* where it started, for the edges of a slice */
-        double      until = -1; /* stop here, in the recording's samples; < 0 = at its end */
-        double      speed = 1;  /* read faster or slower: the note of a step */
     };
     struct Event {
         enum class Kind : uint8_t { speaker, motor, seek, click, bell } kind;
@@ -148,8 +127,7 @@ private:
     void startSeek(int tracks, uint32_t stepCycles, int at);
     void dropVoices(Tag tag);
     [[nodiscard]] int keyboardFreeAt(int at) const;
-    void play(Tag tag, const Pcm &pcm, int at, float gain, bool loop,
-              double from = 0.0, double until = -1.0, double speed = 1.0);
+    void play(Tag tag, const Pcm &pcm, int at, float gain, bool loop);
     [[nodiscard]] int cyclesToSamples(uint32_t cycles, uint32_t frameCycles, int n) const noexcept;
 
     int   rate_;
@@ -161,11 +139,6 @@ private:
     std::vector<Event> events_;
     std::vector<Voice> voices_;
     Motor motor_[2] = {Motor::off, Motor::off};
-    /* Where the head stands, as the seeks that went by say.  The controller
-     * never reports it, but every move arrives with its signed length, and a
-     * restore always drives to track 0 - so following the moves keeps this
-     * right, and any restore puts it right again if it ever were not. */
-    int   track_ = 0;
     int   level_ = 0;           /* the speaker's level carried between frames */
 };
 
