@@ -106,9 +106,12 @@ where no edge belongs.  That is what could be heard as a click.
 
 Up to four tracks the clicks are still countable, so those files are single
 real steps 5 ms apart, no two of them the same recording.  Each move keeps
-25 ms past the level that found it, for its own ring.  Both directions get
-different takes where the recording has two that fit within a tenth of the
-target; the full stroke has only one clean example, so both ways use it.
+25 ms past the level that found it, for its own ring.  Both directions get different takes: the same
+recording used for a move and for the move back would make the head sound as
+though it went the same way twice, which is not what a drive does.  For the
+full stroke the recording has exactly two clean examples - the head returning
+to track 0 after the formatting run, at 387 s, and one at 935 s - and they go
+one each way.
 
 The bottom end
 --------------
