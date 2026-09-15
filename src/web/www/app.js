@@ -442,7 +442,7 @@ function toggleCommander() {
   $("fm").hidden = !open;
   canvas.hidden = open;
   $("files").textContent = open ? "Files: close" : "Files";
-  if (open) commander.open(); else canvas.focus();
+  if (open) commander.open();
 }
 
 
@@ -535,7 +535,6 @@ async function boot() {
   const disk = slots.fd[unitOf(0, 0)];
   if (!disk) hint("nothing in drive A: open its panel, pick an image, Boot again");
   else hint(SHIPPED.get(disk)?.hint || "the machine boots from drive A side 0");
-  canvas.focus();
   start();
 }
 
@@ -623,7 +622,7 @@ function askBugReport() {
   dlg.addEventListener("close", () => {
     const note = $("bugnote").value;
     const done = dlg.returnValue === "save" ? saveBugReport(note, at) : Promise.resolve();
-    done.catch(fail).finally(() => { if (at.running) start(); canvas.focus(); });
+    done.catch(fail).finally(() => { if (at.running) start(); });
   }, { once: true });
 }
 
@@ -669,7 +668,6 @@ async function restoreState() {
   const gone = wanted.filter((name) => !M.FS.analyzePath(pathOf(name)).exists);
   say(`state restored (saved ${shortTime(rec.saved)})`
       + (gone.length ? ` — ${gone.join(", ")} is not mounted now: mount it and Restore again` : ""));
-  canvas.focus();
 }
 
 // ── speed ──────────────────────────────────────────────────────────────────
@@ -776,6 +774,10 @@ async function toggleSound() {
 // What does take the keyboard is what needs it: anything being typed into,
 // and the Files panels with everything they open - the viewer, the editor,
 // their dialogs, the disk wizard - all of which live inside #fm.
+//
+// The screen itself is not focusable at all any more: it does not need to be,
+// and a canvas that can hold the focus only gives the page one more place for
+// it to sit.
 const TYPED_INTO = "input:not([type=checkbox]):not([type=radio]):not([type=range])" +
                    ":not([type=button]):not([type=submit]), textarea, select," +
                    " [contenteditable=''], [contenteditable=true]";
@@ -1048,8 +1050,7 @@ function bindControls() {
   // the Files panels nothing is dropped - there the keyboard is the point.
   document.addEventListener("click", () => {
     const el = document.activeElement;
-    if (el && el !== document.body && el !== canvas &&
-        !el.closest("#fm") && !el.matches(TYPED_INTO)) el.blur();
+    if (el && el !== document.body && !el.closest("#fm") && !el.matches(TYPED_INTO)) el.blur();
   });
   window.addEventListener("beforeunload", flushDisks);
 }
