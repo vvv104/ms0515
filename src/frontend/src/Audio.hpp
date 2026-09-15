@@ -44,9 +44,14 @@ public:
     void shutdown();
 
 private:
+    /* What a loudspeaker does to a steady level: nothing.  See endFrame. */
+    void removeOffset(int n);
+
     SDL_AudioDeviceID     device_ = 0;
     ms0515::AudioRenderer renderer_{kSampleRate};
     std::vector<int16_t>  buf_;
+    float                 dcIn_  = 0.0f;   /* one pole, carried between frames */
+    float                 dcOut_ = 0.0f;
 };
 
 } /* namespace ms0515_frontend */

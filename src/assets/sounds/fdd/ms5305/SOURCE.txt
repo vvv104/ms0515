@@ -1,0 +1,150 @@
+Elektronika MS 5305 - the drive of the MS 0515
+==============================================
+
+Cut from a recording of the drive itself:
+
+  "Eliektronika MS 5305 - soviet floppy disk drive /
+   Radziecka stacja dyskietek / Советский дисковод"
+  by CzasowAnton
+  https://www.youtube.com/watch?v=2ErbxoO4FP8
+
+The recording is CzasowAnton's; credit him wherever these files travel, and
+ask before shipping them further.
+
+In it the drive lies open on a table, wired to a PC, and the camera moves
+between the drive and the PC's monitor.  Everything below follows from that:
+when the drive is out of shot the microphone is mostly hearing the PC, and
+even in shot the PC's fans are nearly as loud as the drive.
+
+What is here
+------------
+motor_start.wav  the spindle coming up to speed
+motor_loop.wav   the disc turning
+motor_stop.wav   the disc coasting to a stop
+step_in.wav      one step of the head; the same sample both ways
+step_out.wav
+seek_in_N.wav    the head crossing N tracks, for N = 1 2 3 5 8 12 20 30 45 60 79
+seek_out_N.wav   the same the other way, built from different takes
+
+Where each came from
+--------------------
+The camera position was read off the picture, one frame every quarter second:
+the monitor is bright and blue, the drive under a desk lamp is dark and warm,
+and mean colour alone tells them apart.  697 of the 1107 seconds have the
+drive in shot, and only those were used.
+
+The loop and the run-down are one unbroken take, 1076.2 - 1085.9 s: the only
+place in the recording where the camera stays on the drive while the spindle
+is stopped, starts, runs and coasts to a stop again.  So they follow each
+other as the drive made them, and the fans could be measured on both sides of
+the sound wanted and subtracted with nothing guessed.
+
+The spin-up is not that take's spin-up.  Its first turns are louder than the
+rest and off the beat, so the knock has to be patched out of them one at a
+time, and patching that much of a second leaves something that sounds edited
+rather than played.  What is here instead is the loop's own rustle read at a
+rising speed: the disc's note follows its rotation, so reading the loop slowly
+and speeding up is what the drive does - the sound's centre climbs from 2.5 to
+3.4 kHz, where the loop sits.  The reading finishes exactly where the loop's
+tail begins, so the file runs into the loop the way the loop runs into itself,
+and the two switches measure the same to a hundredth of a dB.
+
+The step is from the formatting run at 362 - 393 s, in shot, where the head
+moves one track every 405 ms.  Of the forty-odd clean steps there, the sample
+is the one closest to the spectrum they all agree on, with what runs under it
+subtracted.  An averaged step - the median spectrum carried by a single phase
+- was tried and thrown out: it comes out 7 dB peakier than any real step,
+because the phases no longer belong to the magnitudes.
+
+The knock
+---------
+That drive taps once per turn - 202 ms, 297 rpm - and the tap is a fault of
+it, not the sound of a working drive, so it is taken out.  Cutting the knocks
+and splicing the gaps gave a rhythm of its own, so instead the whole
+revolution is evened out: every frame is filed under its phase of the turn,
+the level of each phase is measured across turns, and each is brought to what
+the turn holds away from the blow.  What repeats with the spindle goes; the
+rustle, which does not, stays - and so does how loud the drive is at any
+moment, which is what lets the spin-up and the run-down keep their shape.
+Two passes.  The blow was 17 dB above the turn's mean and is now 2.6 dB,
+against 0.3 dB for white noise put through the same measurement.  On the
+run-down the turns stretch out, so there the knock is followed turn by turn -
+297, 262, 217, 163, 132, 112, 68 rpm - and the phase follows it down.
+
+At the spin-up the first turns come 180 and 196 ms apart rather than 202, and
+the first blow is 4 dB louder than the ones that follow, so a correction
+learned over the whole take under-does them.  There are only a handful, so
+they are patched one at a time from what lies either side.  Measured as how
+much the level still repeats a turn later, the spin-up now scores 0.17, the
+run-down 0.12 and the loop itself 0.35.
+
+The same knock is taken out of the step sample, or it would have ended up
+inside it.
+
+The head crossing tracks
+------------------------
+Playing one recorded click per track is what sounds wrong: identical copies
+laid over each other at a fixed spacing comb-filter into a buzz no drive
+makes.  The recording has the real thing - when the controller drives the head
+track after track the clicks run into one another and the drive rasps for as
+long as the move lasts.
+
+How long that is, the recording settles.  Measured as stretches of raised
+level, bridging dips of up to 30 ms so that one move cannot come out as two,
+the longest move in the whole recording runs 399 ms, and the distribution
+stops dead there: that is the full stroke of an 80-track drive, about 5 ms a
+track.
+
+So every file is one real move, whole, and the number in its name is how many
+tracks that move is worth.  Nothing is joined and nothing is stretched.  An
+earlier attempt did both - it built long moves by running short ones together,
+to a step rate read out of the MS 0515's own ROM - and came out two and a half
+times too long.  Joining is wrong for a second reason as well: a stepper
+starts and stops, so the beginning and end of a move are the fullest part of
+it, and running two moves together buries a pair of those edges in the middle
+where no edge belongs.  That is what could be heard as a click.
+
+Up to four tracks the clicks are still countable, so those files are single
+real steps 5 ms apart, no two of them the same recording.  Each move keeps
+25 ms past the level that found it, for its own ring.  Both directions get
+different takes where the recording has two that fit within a tenth of the
+target; the full stroke has only one clean example, so both ways use it.
+
+The bottom end
+--------------
+Measured in the part of the turn the knock never touches, the drive adds
+about 1 dB over the fans below 1 kHz and 3 to 6 dB from 1.6 kHz up.  So the
+bottom of this recording is the room and the PC, and left in it reads as a
+barrel rather than a disc; a smooth skirt from 400 to 1000 Hz takes it out.
+
+Nothing else is shaped.  Notching out each individual band the drive does not
+own was tried - it leaves a comb, which sounds worse than the barrel did.  A
+rustle has to stay broadband, so the fans are subtracted gently and what is
+left of them stays as a faint hiss 10 to 13 dB under the drive, rather than
+being scrubbed out at the cost of the top end.
+
+Balance
+-------
+Two numbers here are not taken from the recording, and they are the only two:
+how loud the head is, and how loud the spindle is under it.  Both are set
+against the machine's own beeper, which renders at 1500 - the loudest thing an
+MS 0515 makes, and the one level in this emulator already judged by ear.
+
+The head's click has one amplitude whatever the move: a move of many tracks is
+a train of the same click, so it is denser and louder in average but no louder
+in peak.  Every sound the head makes is therefore scaled to one click
+amplitude, and the group set so its loudest peak reaches 2000 - rms 280 to
+410, peaks 1340 to 1980.
+
+The spindle sits at rms 42.  The recording cannot settle this one: there the
+drive lies open on a table with the disc uncovered and the microphone right
+over it, while in a machine the disc turns inside its jacket, inside the
+drive, inside the case, and the head's knocks reach the listener through the
+chassis as well as through the air.  So the rustle is louder in the recording
+than it can ever be in use, and this is where it was judged to belong.
+
+Note for anyone judging this by ear: before POST, with no diskette in, the ROM
+runs its drive test - motor on, then up to ten tries at reading an address
+mark, each failure followed by a Restore and a step.  Every Restore is a move
+across all the tracks, so what sounds like a continuous rustle there is the
+head, not the disc.
