@@ -652,14 +652,36 @@ EMSCRIPTEN_KEEPALIVE int ms_drive_sound(Handle *h, const char *name,
             if (file[i] < '0' || file[i] > '9') return -1;
             n = n * 10 + (file[i] - '0');
         }
-        return n > 0 ? n : -1;
+        return n;
     };
+    /* "seek_31_68.wav": the track the head went from and the one it went to. */
+    auto move = [&file]() -> std::pair<int, int> {
+        if (file.compare(0, 5, "seek_") != 0 || file.size() < 12) return {-1, -1};
+        const std::string body = file.substr(5, file.size() - 9);
+        const std::size_t bar = body.find('_');
+        if (bar == std::string::npos || bar == 0 || bar + 1 >= body.size()) return {-1, -1};
+        int a = 0, b = 0;
+        for (std::size_t i = 0; i < bar; ++i) {
+            if (body[i] < '0' || body[i] > '9') return {-1, -1};
+            a = a * 10 + (body[i] - '0');
+        }
+        for (std::size_t i = bar + 1; i < body.size(); ++i) {
+            if (body[i] < '0' || body[i] > '9') return {-1, -1};
+            b = b * 10 + (body[i] - '0');
+        }
+        return a == b ? std::pair<int, int>{-1, -1} : std::pair<int, int>{a, b};
+    }();
+
+    const int one = tracks("step_");        /* "step_37.wav": the track it left */
     const int in = tracks("seek_in_"), outward = tracks("seek_out_");
     if (file == "motor_start.wav")     h->drive->motorStart = std::move(*pcm);
     else if (file == "motor_loop.wav") h->drive->motorLoop  = std::move(*pcm);
     else if (file == "motor_stop.wav") h->drive->motorStop  = std::move(*pcm);
     else if (file == "step_in.wav")    h->drive->stepIn     = std::move(*pcm);
     else if (file == "step_out.wav")   h->drive->stepOut    = std::move(*pcm);
+    else if (one >= 0)                 h->drive->steps[one]      = std::move(*pcm);
+    else if (move.first >= 0)          h->drive->moves.push_back(
+                                           {move.first, move.second, std::move(*pcm)});
     else if (in > 0)                   h->drive->seekIn[in]      = std::move(*pcm);
     else if (outward > 0)              h->drive->seekOut[outward] = std::move(*pcm);
     else return 0;

@@ -138,6 +138,23 @@ await sleep(1500);
 const restored = await evaluate("window.__ms()");
 console.log(`after reload white ${white(booted)}, after restore white ${white(restored)}, `
             + `status "${restored.status}"`);
+// Pressing something in the interface must not take the keyboard away from
+// the machine.  The page used to have to hand the focus back after every
+// control, so a control added later that forgot to would swallow whatever was
+// typed next.  Give a toolbar control the focus, type, and expect the echo.
+await evaluate('document.getElementById("joystick").focus()');
+const quiet = white(await evaluate("window.__ms()"));
+for (let i = 0; i < 6; ++i)
+  for (const [code, key, vk] of [["KeyD", "D", 68], ["KeyI", "I", 73], ["KeyR", "R", 82]]) {
+    await send("Input.dispatchKeyEvent",
+               { type: "keyDown", code, key, text: key, windowsVirtualKeyCode: vk });
+    await sleep(40);
+    await send("Input.dispatchKeyEvent", { type: "keyUp", code, key, windowsVirtualKeyCode: vk });
+  }
+const typed = await settle("the echo of what was typed with a control focused",
+                           (p) => white(p) > quiet + 40);
+console.log(`typed with the joystick button focused: white ${quiet} -> ${white(typed)}`);
+
 ws.close();
 if (!/state restored/.test(restored.status))
   throw new Error("the saved state did not outlive the page: " + restored.status);

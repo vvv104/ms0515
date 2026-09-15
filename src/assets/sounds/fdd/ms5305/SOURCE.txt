@@ -21,10 +21,11 @@ What is here
 motor_start.wav  the spindle coming up to speed
 motor_loop.wav   the disc turning
 motor_stop.wav   the disc coasting to a stop
-step_in.wav      one step of the head; the same sample both ways
+step_N.wav       one step of the head, made at track N; 58 of the 79
+step_in.wav      one step with no track to it, if a set has no step_N
 step_out.wav
-seek_in_N.wav    the head crossing N tracks, for N = 1 2 3 5 8 12 20 30 45 60 79
-seek_out_N.wav   the same the other way, built from different takes
+seek_F_T.wav     the head going from track F to track T; thirty of them,
+                 spread over where a move starts and where it ends
 
 Where each came from
 --------------------
@@ -89,26 +90,97 @@ makes.  The recording has the real thing - when the controller drives the head
 track after track the clicks run into one another and the drive rasps for as
 long as the move lasts.
 
-How long that is, the recording settles.  Measured as stretches of raised
-level, bridging dips of up to 30 ms so that one move cannot come out as two,
-the longest move in the whole recording runs 399 ms, and the distribution
-stops dead there: that is the full stroke of an 80-track drive, about 5 ms a
-track.
+Each file is one whole move, and its name says where the head went from and
+where it went to.  Not how far: the head hangs on a steel band the stepper
+pulls it along, and near the last track it sits close to the motor with a
+short free tail, so the note is high, while back at track 0 the tail is long
+and the note is low.  Crossing tracks 0 to 30 and crossing 30 to 60 are
+different sounds, and a name that says only "thirty tracks" cannot tell them
+apart.
 
-So every file is one real move, whole, and the number in its name is how many
-tracks that move is worth.  Nothing is joined and nothing is stretched.  An
-earlier attempt did both - it built long moves by running short ones together,
-to a step rate read out of the MS 0515's own ROM - and came out two and a half
-times too long.  Joining is wrong for a second reason as well: a stepper
-starts and stops, so the beginning and end of a move are the fullest part of
-it, and running two moves together buries a pair of those edges in the middle
-where no edge belongs.  That is what could be heard as a click.
+Where each move ran was read off the picture, not the sound.  The drive in the
+video is open and the carriage plainly visible, so it can be followed; but the
+camera is hand-held and every shot is a different angle and distance, so
+nothing can be measured against the frame.  Nine pieces of the chassis serve
+as landmarks, and where enough of them are found, a turn, a scale and a shift
+carry that frame onto the one shot where the full stroke is visible whole -
+60.4 pixels for 79 tracks - and the carriage is then read in that frame's
+scale, which is to say in tracks.
 
-Up to four tracks the clicks are still countable, so those files are single
-real steps 5 ms apart, no two of them the same recording.  Each move keeps
-25 ms past the level that found it, for its own ring.  Both directions get
-different takes where the recording has two that fit within a tenth of the
-target; the full stroke has only one clean example, so both ways use it.
+Only moves the sound agrees with are used: how far the carriage went in the
+picture has to match how long the move lasts, at the 5 ms a track the
+recording says.  196 of the 199 moves were placed that way and 82 agreed; of
+those, thirty are shipped, taken farthest-first so that they spread over where
+a move starts and where it ends.  Inwards they start anywhere from track 2 to
+track 66; outwards from 42 to 79, the drive in the video never being sent out
+from the first forty tracks.
+
+The emulator never reports where the head stands, but it reports every move
+with its sign, and a restore always drives to track 0 - so the renderer
+follows the moves, any restore puts it right again, and it plays the recording
+that ran nearest the same way, nearest in both ends rather than in distance.
+
+Single steps
+------------
+A step of one track is its own recording too, and there is one for every track
+the formatting run gave clean.  Formatting walks the head out a track at a
+time and writes each one, so that run is the drive stepping from track 0 to
+the last with the track under the head known for every click - the only place
+in the recording where that is true.  It starts at 353.43 s, there being
+nothing on its beat before that, and steps every 405 ms, two turns of the
+spindle.
+
+58 of the 79 are here.  The step beat is 405 ms and the spindle knocks every
+202, so a step falls on a knock nearly every time; the phase drifts slowly,
+and where it puts the two together the click cannot be had clean however the
+knock is flattened.  Those tracks are missing and the nearest one is played
+instead.
+
+So a step at track 3 and a step at track 60 are different recordings, and a
+format walks through all of them in turn, as it did on the drive.
+
+Keeping the click sharp
+-----------------------
+Three things were taking the edge off a single step.
+
+The turn is evened out to remove the spindle's knock, and a step of the
+formatting run falls at nearly the same phase of the turn as a knock every
+time - 405 ms against 202 - so evening the turn took the top off the step as
+well, four decibels of it.  The clicks are therefore cut from before that is
+done; the flattened signal is only used to find them and to judge which are
+clean enough to keep.
+
+The moves had what runs underneath taken off them and the clicks had not, so a
+bed of the PC's fans lay under every one.  It is measured in the quiet before
+each click and subtracted, as for the moves.
+
+And each file began twelve milliseconds before its click, so the click landed
+late; now it begins four.
+
+The peak of a click now stands 17.5 dB over the average of its own file and
+33 dB over what is left of it after thirty milliseconds, against 15.7 and a
+bed of hiss before.
+
+
+One room for all of them
+------------------------
+The recording wanders between shots taken from different distances and angles,
+and each colours the drive its own way - by up to 7 dB, and not evenly across
+the band.  Cut together, moves from different shots are heard as different
+drives, which is what happened: at the start of a load the machine works the
+outer tracks and at the end the inner ones, and the two came from different
+shots.
+
+The spindle's knock settles it.  It is the same blow of the same drive
+wherever it is filmed, so whatever its spectrum does between one shot and
+another is the shot's doing and nothing else's.  Dividing that out, smoothed
+over a third of an octave and never lifting or cutting a band by more than
+9 dB, leaves every move and every step sounding as though recorded in the one
+shot the long moves came from.  After it the thirty moves and the fifty-eight
+clicks agree to within 1.6 dB across the band, and among themselves to 0.9.
+
+The camera was suspected too, and cleared: every move used sits inside a shot
+of the drive by between 3 and 23 seconds, never near a cut.
 
 The bottom end
 --------------
@@ -130,11 +202,21 @@ how loud the head is, and how loud the spindle is under it.  Both are set
 against the machine's own beeper, which renders at 1500 - the loudest thing an
 MS 0515 makes, and the one level in this emulator already judged by ear.
 
-The head's click has one amplitude whatever the move: a move of many tracks is
-a train of the same click, so it is denser and louder in average but no louder
-in peak.  Every sound the head makes is therefore scaled to one click
-amplitude, and the group set so its loudest peak reaches 2000 - rms 280 to
-410, peaks 1340 to 1980.
+The head's click has one amplitude whatever the move, so every recording the
+head makes is scaled to carry the same click and the group is then set so the
+loudest move reaches 2000 - against the 1500 the beeper uses.
+
+Measuring that click needs care.  The loudest sample of a move is the loudest
+of the fifty clicks in it, while a single step has only its own, so levelling
+both by their loudest leaves the step quieter than a typical click inside a
+move - which is how it sounded.  A move is therefore measured by the middle of
+its clicks and a single step by its own peak.
+
+On top of that the single steps are lifted 5 dB.  A click on its own is heard
+as quieter than the same click inside a train of fifty, the ear following the
+whole burst rather than any one of them.  That is a judgement, not a
+measurement.  After it a step peaks at 1780 and a typical click inside a move
+at 1001.
 
 The spindle sits at rms 42.  The recording cannot settle this one: there the
 drive lies open on a table with the disc uncovered and the microphone right

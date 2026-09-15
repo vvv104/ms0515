@@ -106,9 +106,14 @@ TEST_CASE("every media from every exemplar: SWAP and the monitor from it, the pa
 
         const auto src = volume(r.system, from), got = volume(img, to);
         REQUIRE(got);
+        /* The order the machine reads them in: the system, the utilities it
+         * reaches for oftenest, the startup file, then the programs.  RT-11
+         * gives a new file the first free space that fits, so writing them in
+         * that order lays them out in it - written last, as the startup file
+         * used to be, it landed past every program on the disk. */
         std::vector<std::string> want{"SWAP.SYS", "RT11SJ.SYS"};
         if (to == Media::dv) want.push_back("DV.SYS");
-        for (const char *n : {"DZ.SYS", "TT.SYS", "PIP.SAV", "BIRDS.SAV", "BIRDS.DAT", "START.COM"}) want.push_back(n);
+        for (const char *n : {"DZ.SYS", "TT.SYS", "PIP.SAV", "START.COM", "BIRDS.SAV", "BIRDS.DAT"}) want.push_back(n);
         CHECK(names(*got) == want);                          /* SL.SYS is on the exemplar and not taken */
         for (const char *name : {"SWAP.SYS", "RT11SJ.SYS", "DZ.SYS", "START.COM"}) {
             CAPTURE(name);
@@ -200,15 +205,56 @@ TEST_CASE("the plan names what finish put on the boot volume - the startup file,
     CHECK(plan.files[1].blocks == 6);
     CHECK(plan.freeBlocks.at(0) == bootFree - 6);
 
-    r.groups.push_back({"big", Place::boot, {file("BIG.DAT", bootFree - 3, 7)}});   /* room for START.COM, not the banner */
+    /* Room for the startup file and its banner, not for the program as well.
+     * They are written first, so it is the program that is turned away - the
+     * disk the machine cannot start from is the worse of the two. */
+    r.groups.push_back({"big", Place::boot, {file("BIG.DAT", bootFree - 3, 7)}});
     plan = planDisk(r);
     CHECK_FALSE(plan.ok);
-    CHECK(plan.problem.find("BANNER.TXT") != std::string::npos);
+    CHECK(plan.problem.find("BIG.DAT") != std::string::npos);
     REQUIRE(plan.files.size() == 2);
     CHECK(plan.files[0].volume == 0);
-    CHECK(plan.files[1].volume == -1);
+    CHECK(plan.files[1].volume == 0);
     CHECK(plan.files[1].blocks == 6);
-    CHECK_FALSE(plan.files[1].problem.empty());
+    CHECK(plan.files[1].problem.empty());
+}
+
+TEST_CASE("the disk is laid out in the order the machine reads it") {
+    ComposeRecipe r = recipe(Media::dv, Media::ss);
+    r.startup = std::vector<std::string>{"R DATSET", "BLUE"};
+    r.banner = std::vector<std::string>{"HELLO"};
+    r.groups.push_back({"games", Place::boot, {file("BIRDS.SAV", 4, 0x11)}});
+    r.groups.push_back({"tools", Place::boot, {file("DIR.SAV", 3, 0x12)}});
+    r.groups.push_back({"date", Place::boot, {file("DATSET.SAV", 2, 0x13)}});
+    r.groups.push_back({"colour", Place::boot, {file("BLUE.SAV", 1, 0x14)}});
+
+    const auto img = composeDisk(r);
+    const auto got = volume(img, Media::ss);
+    REQUIRE(got);
+    const auto names = ::names(*got);
+    const auto at = [&](const char *n) {
+        return std::find(names.begin(), names.end(), n) - names.begin();
+    };
+    /* What the machine reads first is written first, because RT-11 gives a
+     * new file the first free space that fits: the utilities asked for
+     * oftenest, then the startup file with its banner behind it, then
+     * whatever the startup runs - a class of little programs, not one name -
+     * then the rest.  Laid out the other way round the head crossed the whole
+     * disk on every boot: measured at 557 tracks against 321, and the longest
+     * single move at 78 tracks against 19. */
+    CHECK(at("DIR.SAV") < at("START.COM"));
+    CHECK(at("START.COM") < at("BANNER.TXT"));
+    CHECK(at("BANNER.TXT") < at("DATSET.SAV"));
+    CHECK(at("BANNER.TXT") < at("BLUE.SAV"));
+    CHECK(at("DATSET.SAV") < at("BIRDS.SAV"));
+    CHECK(at("BLUE.SAV") < at("BIRDS.SAV"));
+
+    /* The plan still lists the groups as the recipe gave them: what the disk
+     * looks like from the wizard does not change. */
+    const auto plan = planDisk(r);
+    REQUIRE(plan.groups.size() == r.groups.size());
+    for (std::size_t i = 0; i < r.groups.size(); ++i)
+        CHECK(plan.groups[i].title == r.groups[i].title);
 }
 
 TEST_CASE("the startup file is KOI-8R: a Russian month typed in UTF-8 reaches the monitor as its own letters") {

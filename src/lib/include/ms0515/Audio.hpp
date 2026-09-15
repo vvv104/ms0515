@@ -43,6 +43,25 @@ struct DriveSounds {
     Pcm motorStart;
     Pcm motorLoop;
     Pcm motorStop;
+    /* The head's moves, each named by the track it went from and the one it
+     * went to.  Not by distance: the head hangs on a steel band the stepper
+     * pulls it along, and near the last track it sits close to the motor with
+     * a short free tail, so the note is high, while back at track 0 the tail
+     * is long and the note is low.  Crossing tracks 0 to 30 and crossing 30 to
+     * 60 are different sounds, and a name that says only "thirty tracks"
+     * cannot tell them apart. */
+    struct Move {
+        int from;
+        int to;
+        Pcm pcm;
+    };
+    std::vector<Move> moves;
+    /* One step of the head, by the track it left.  A formatting run walks the
+     * head out a track at a time, so that is where these come from, and a step
+     * at track 3 is a different recording from a step at track 60 rather than
+     * one recording pretending. */
+    std::map<int, Pcm> steps;
+    /* By distance alone, for a set that does not say where its moves ran. */
     std::map<int, Pcm> seekIn;
     std::map<int, Pcm> seekOut;
     Pcm stepIn;
@@ -66,6 +85,9 @@ struct KeyboardSounds {
 
 class AudioRenderer {
 public:
+    /* Tracks of the drive, for placing a move by where it ran. */
+    static constexpr int kTracks = 80;
+
     static constexpr int kCpuHz            = 7500000;
     /* The beeper's square wave at full volume - a quarter of what it
      * first was: against the drive and the keyboard it shouted the
@@ -139,6 +161,11 @@ private:
     std::vector<Event> events_;
     std::vector<Voice> voices_;
     Motor motor_[2] = {Motor::off, Motor::off};
+    /* Where the head stands, as the moves that went by say.  The controller
+     * never reports it, but every move arrives with its signed length and a
+     * restore always drives to track 0, so following the moves keeps this
+     * right and any restore puts it right again. */
+    int   track_ = 0;
     int   level_ = 0;           /* the speaker's level carried between frames */
 };
 

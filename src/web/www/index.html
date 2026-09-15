@@ -100,8 +100,7 @@
                    color: rgba(255,255,255,.35); font: 14px system-ui, sans-serif; display: flex; align-items: center; justify-content: center; pointer-events: none; }
   #joy.fire .firehint { background: rgba(255,120,120,.35); color: #fff; }
   /* The screen at 8:5 in whatever the header and the footer leave. */
-  #screen { display: block; width: min(100cqw, 160cqh); background: #000; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
-  #screen:focus { box-shadow: 0 0 0 2px #5a8; }
+  #screen { display: block; width: min(100cqw, 160cqh); background: #000; image-rendering: pixelated; image-rendering: crisp-edges; }
   footer { display: flex; gap: 1em; align-items: baseline; padding: .25em .75em .5em; color: #999; white-space: nowrap; overflow: hidden; }
   #status { color: #bbb; overflow: hidden; text-overflow: ellipsis; }
   footer summary { cursor: pointer; color: #8ab; }
@@ -221,7 +220,7 @@
   <input id="file" type="file" hidden>
 </header>
 <main>
-  <canvas id="screen" width="640" height="400" tabindex="0"></canvas>
+  <canvas id="screen" width="640" height="400"></canvas>
   <div id="fm" hidden></div>
   <input id="softkey" type="text" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" aria-label="keyboard input">
   <div id="joy" hidden>

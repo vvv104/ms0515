@@ -442,7 +442,7 @@ function toggleCommander() {
   $("fm").hidden = !open;
   canvas.hidden = open;
   $("files").textContent = open ? "Files: close" : "Files";
-  if (open) commander.open(); else canvas.focus();
+  if (open) commander.open();
 }
 
 
@@ -535,7 +535,6 @@ async function boot() {
   const disk = slots.fd[unitOf(0, 0)];
   if (!disk) hint("nothing in drive A: open its panel, pick an image, Boot again");
   else hint(SHIPPED.get(disk)?.hint || "the machine boots from drive A side 0");
-  canvas.focus();
   start();
 }
 
@@ -623,7 +622,7 @@ function askBugReport() {
   dlg.addEventListener("close", () => {
     const note = $("bugnote").value;
     const done = dlg.returnValue === "save" ? saveBugReport(note, at) : Promise.resolve();
-    done.catch(fail).finally(() => { if (at.running) start(); canvas.focus(); });
+    done.catch(fail).finally(() => { if (at.running) start(); });
   }, { once: true });
 }
 
@@ -669,7 +668,6 @@ async function restoreState() {
   const gone = wanted.filter((name) => !M.FS.analyzePath(pathOf(name)).exists);
   say(`state restored (saved ${shortTime(rec.saved)})`
       + (gone.length ? ` — ${gone.join(", ")} is not mounted now: mount it and Restore again` : ""));
-  canvas.focus();
 }
 
 // ── speed ──────────────────────────────────────────────────────────────────
@@ -765,6 +763,29 @@ async function toggleSound() {
   $("sound").textContent = "Sound: on";
   if ($("sndDrive").checked) await loadDriveSounds();
   soundBoxes(true);
+}
+
+// ── where the keys go ──────────────────────────────────────────────────────
+// To the machine.  Pressing something in the interface - a button, one of the
+// sound boxes, the speed slider - must not take the keyboard away from it:
+// otherwise the next thing typed is lost, and every control added later has
+// to remember to hand the focus back, which is how this page used to work.
+//
+// What does take the keyboard is what needs it: anything being typed into,
+// and the Files panels with everything they open - the viewer, the editor,
+// their dialogs, the disk wizard - all of which live inside #fm.
+//
+// The screen itself is not focusable at all any more: it does not need to be,
+// and a canvas that can hold the focus only gives the page one more place for
+// it to sit.
+const TYPED_INTO = "input:not([type=checkbox]):not([type=radio]):not([type=range])" +
+                   ":not([type=button]):not([type=submit]), textarea, select," +
+                   " [contenteditable=''], [contenteditable=true]";
+
+function pageTakesKeys() {
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) return false;
+  return el.closest("#fm") !== null || el.matches(TYPED_INTO);
 }
 
 // ── keyboard: the SDL front-end's PhysicalKeyboard, host codes in ──────────
@@ -971,10 +992,6 @@ function bindControls() {
   document.addEventListener("click", (e) => { if (!e.target.closest("details.dev")) for (const o of panels) o.open = false; });
   $("rom").onchange = saveMounts;
   // A click on a toolbar button must not keep the focus: the keys are the
-  // machine's (the keyboard button is the exception: it hands the focus to
-  // the hidden field the OS keyboard types into).
-  for (const b of document.querySelectorAll("header > button"))
-    if (b.id !== "softkbd" && b.id !== "files") b.addEventListener("click", () => canvas.focus());
   // Full screen: the button, F11; hidden where the API is not there (an iPhone).
   $("fullscreen").hidden = !(document.fullscreenEnabled || document.webkitFullscreenEnabled);
   $("fullscreen").onclick = toggleFullscreen;
@@ -1015,17 +1032,26 @@ function bindControls() {
     soundBoxes(!!audio);
   };
   $("speed").oninput = (e) => setSpeed(e.target.value);
-  $("speed").onchange = () => canvas.focus();      // the keys go back to the machine once the slider is let go
-  $("speed").ondblclick = () => { setSpeed(100); canvas.focus(); };   // a double click on the slider: back to 100%
-  $("speedv").onclick = () => { setSpeed(100); canvas.focus(); };
+  $("speed").ondblclick = () => setSpeed(100);     // a double click on the slider: back to 100%
+  $("speedv").onclick = () => setSpeed(100);
   setSpeed(localStorage.getItem(SPEED_KEY) ?? 100, false);
   $("save").onclick = () => saveState().catch(fail);
   $("restore").onclick = () => restoreState().catch(fail);
   $("bug").onclick = () => askBugReport();
   $("wipe").onclick = () => wipe().catch(fail);
-  canvas.addEventListener("keydown", (e) => onKey(e, true));
-  canvas.addEventListener("keyup", (e) => onKey(e, false));
-  canvas.addEventListener("blur", () => { if (h) { api.releaseAll(h); keyboard.reset(); } });
+  document.addEventListener("keydown", (e) => { if (!pageTakesKeys()) onKey(e, true); });
+  document.addEventListener("keyup", (e) => { if (!pageTakesKeys()) onKey(e, false); });
+  // Whatever the page took the keyboard for, the machine must not be left
+  // holding keys it will never see released.
+  document.addEventListener("focusin", () => { if (pageTakesKeys() && h) { api.releaseAll(h); keyboard.reset(); } });
+  window.addEventListener("blur", () => { if (h) { api.releaseAll(h); keyboard.reset(); } });
+  // A press is a press, not a claim on the keyboard: a control that was
+  // clicked lets it go again at once, and the machine keeps typing.  Inside
+  // the Files panels nothing is dropped - there the keyboard is the point.
+  document.addEventListener("click", () => {
+    const el = document.activeElement;
+    if (el && el !== document.body && !el.closest("#fm") && !el.matches(TYPED_INTO)) el.blur();
+  });
   window.addEventListener("beforeunload", flushDisks);
 }
 

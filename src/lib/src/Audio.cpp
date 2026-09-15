@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <utility>
@@ -199,6 +200,7 @@ void AudioRenderer::reset()
     voices_.clear();
     events_.clear();
     motor_[0] = motor_[1] = Motor::off;
+    track_ = 0;
 }
 
 bool AudioRenderer::motorRunning(int drive) const noexcept
@@ -270,10 +272,67 @@ void AudioRenderer::stopMotor(int drive, int at)
     }
 }
 
+/* A move of the head, from where it stands to where the controller sends it.
+ *
+ * The recording that ran nearest the same way is used - nearest in both ends,
+ * not in distance alone, because the note the head makes depends on where it
+ * is: near the last track it sits close to the stepper with a short free
+ * length of band to ring, and back at track 0 the tail is long and the note
+ * low.  A set that names its moves only by distance falls back to that, and
+ * one with no moves at all to a step per track at the rate the command asks.
+ */
 void AudioRenderer::startSeek(int tracks, uint32_t stepCycles, int at)
 {
     if (!drive_ || tracks == 0) return;
+    const int from = track_;
+    int to = from + tracks;
+    if (to < 0) to = 0;
+    if (to > kTracks - 1) to = kTracks - 1;
+    track_ = to;
+
     const int n = tracks < 0 ? -tracks : tracks;
+
+    /* A track or two is a click or two, and no recording of a long move will
+     * do for it: it would sound for a tenth of a second where the head took a
+     * hundredth, and a formatting run would pile one over the next.  Below
+     * this the steps are played one at a time, at the rate the command asks. */
+    constexpr int kSingly = 2;
+    if (n <= kSingly && !drive_->steps.empty()) {
+        /* Each track crossed sounds as the recording made at that track. */
+        const auto spacing = static_cast<int>(static_cast<int64_t>(stepCycles) * rate_ / kCpuHz);
+        for (int k = 0; k < n; ++k) {
+            const int track = tracks > 0 ? from + k : from - k - 1;
+            auto it = drive_->steps.lower_bound(track);
+            if (it == drive_->steps.end()) --it;
+            else if (it != drive_->steps.begin()) {
+                auto prev = std::prev(it);
+                if (track - prev->first <= it->first - track) it = prev;
+            }
+            play(Tag::seek, it->second, at + k * spacing, driveGain_, false);
+        }
+        return;
+    }
+
+    if (n > kSingly) {
+        const DriveSounds::Move *best = nullptr;
+        int closest = 0;
+        for (const auto &m : drive_->moves) {
+            if ((m.to > m.from) != (tracks > 0) || m.pcm.empty()) continue;
+            /* Near in both ends, and of about the right length: a move half
+             * again as long as the one asked for is the wrong sound however
+             * near it began. */
+            const int span = m.to > m.from ? m.to - m.from : m.from - m.to;
+            const int slack = 4 + n / 2;
+            if (span < n - slack || span > n + slack) continue;
+            const int d = std::abs(m.from - from) + std::abs(m.to - to);
+            if (!best || d < closest) { best = &m; closest = d; }
+        }
+        if (best) {
+            play(Tag::seek, best->pcm, at, driveGain_, false);
+            return;
+        }
+    }
+
     const auto &seeks = tracks > 0 ? drive_->seekIn : drive_->seekOut;
     if (!seeks.empty()) {
         /* The recording of this length, else the nearest one. */
