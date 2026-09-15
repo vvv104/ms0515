@@ -652,7 +652,7 @@ EMSCRIPTEN_KEEPALIVE int ms_drive_sound(Handle *h, const char *name,
             if (file[i] < '0' || file[i] > '9') return -1;
             n = n * 10 + (file[i] - '0');
         }
-        return n > 0 ? n : -1;
+        return n;
     };
     /* "seek_31_68.wav": the track the head went from and the one it went to. */
     auto move = [&file]() -> std::pair<int, int> {
@@ -672,12 +672,14 @@ EMSCRIPTEN_KEEPALIVE int ms_drive_sound(Handle *h, const char *name,
         return a == b ? std::pair<int, int>{-1, -1} : std::pair<int, int>{a, b};
     }();
 
+    const int one = tracks("step_");        /* "step_37.wav": the track it left */
     const int in = tracks("seek_in_"), outward = tracks("seek_out_");
     if (file == "motor_start.wav")     h->drive->motorStart = std::move(*pcm);
     else if (file == "motor_loop.wav") h->drive->motorLoop  = std::move(*pcm);
     else if (file == "motor_stop.wav") h->drive->motorStop  = std::move(*pcm);
     else if (file == "step_in.wav")    h->drive->stepIn     = std::move(*pcm);
     else if (file == "step_out.wav")   h->drive->stepOut    = std::move(*pcm);
+    else if (one >= 0)                 h->drive->steps[one]      = std::move(*pcm);
     else if (move.first >= 0)          h->drive->moves.push_back(
                                            {move.first, move.second, std::move(*pcm)});
     else if (in > 0)                   h->drive->seekIn[in]      = std::move(*pcm);

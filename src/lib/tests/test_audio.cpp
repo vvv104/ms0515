@@ -408,3 +408,43 @@ TEST_CASE("a move takes the recording that ran nearest the same way") {
     r.seek(0, -79, 3000);
     CHECK(all(frame(r), 0, 30, 300));
 }
+
+TEST_CASE("one track is a step, not the nearest long move") {
+    auto d = std::make_shared<DriveSounds>();
+    d->moves.push_back({0, 40, flat(kRate, 400, 100)});
+    d->stepIn = flat(kRate, 10, 900);
+    AudioRenderer r(kRate);
+    r.setSpeakerVolume(0.0f);
+    r.setDriveSounds(d);
+
+    r.seek(0, 1, 3000);                     /* a single step: its own recording */
+    auto out = frame(r);
+    CHECK(all(out, 0, 10, 900));
+    CHECK(all(out, 10, 1000, 0));           /* and over at once, not a long rasp */
+
+    for (int i = 0; i < 3; ++i) (void)frame(r);
+    r.seek(0, 39, 3000);                    /* a real move: the recording */
+    CHECK(all(frame(r), 0, 100, 100));
+}
+
+TEST_CASE("a step sounds as the track it is made at") {
+    auto d = std::make_shared<DriveSounds>();
+    d->steps[0] = flat(kRate, 10, 100);
+    d->steps[40] = flat(kRate, 10, 400);
+    d->steps[70] = flat(kRate, 10, 700);
+    d->moves.push_back({0, 40, flat(kRate, 200, 900)});
+    AudioRenderer r(kRate);
+    r.setSpeakerVolume(0.0f);
+    r.setDriveSounds(d);
+
+    r.seek(0, 1, 3000);                     /* a step at track 0 */
+    CHECK(all(frame(r), 0, 10, 100));
+    for (int i = 0; i < 3; ++i) (void)frame(r);
+
+    r.seek(0, 39, 3000);                    /* to track 40 the long way */
+    CHECK(all(frame(r), 0, 100, 900));
+    for (int i = 0; i < 6; ++i) (void)frame(r);
+
+    r.seek(0, 1, 3000);                     /* and a step there: another sound */
+    CHECK(all(frame(r), 0, 10, 400));
+}

@@ -21,7 +21,8 @@ What is here
 motor_start.wav  the spindle coming up to speed
 motor_loop.wav   the disc turning
 motor_stop.wav   the disc coasting to a stop
-step_in.wav      one step of the head; the same sample both ways
+step_N.wav       one step of the head, made at track N; 58 of the 79
+step_in.wav      one step with no track to it, if a set has no step_N
 step_out.wav
 seek_F_T.wav     the head going from track F to track T; thirty of them,
                  spread over where a move starts and where it ends
@@ -119,8 +120,24 @@ with its sign, and a restore always drives to track 0 - so the renderer
 follows the moves, any restore puts it right again, and it plays the recording
 that ran nearest the same way, nearest in both ends rather than in distance.
 
-A single step keeps its own recording, one track being too short to have a
-character of its own.
+Single steps
+------------
+A step of one track is its own recording too, and there is one for every track
+the formatting run gave clean.  Formatting walks the head out a track at a
+time and writes each one, so that run is the drive stepping from track 0 to
+the last with the track under the head known for every click - the only place
+in the recording where that is true.  It starts at 353.43 s, there being
+nothing on its beat before that, and steps every 405 ms, two turns of the
+spindle.
+
+58 of the 79 are here.  The step beat is 405 ms and the spindle knocks every
+202, so a step falls on a knock nearly every time; the phase drifts slowly,
+and where it puts the two together the click cannot be had clean however the
+knock is flattened.  Those tracks are missing and the nearest one is played
+instead.
+
+So a step at track 3 and a step at track 60 are different recordings, and a
+format walks through all of them in turn, as it did on the drive.
 
 The bottom end
 --------------

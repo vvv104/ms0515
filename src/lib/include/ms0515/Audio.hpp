@@ -56,6 +56,11 @@ struct DriveSounds {
         Pcm pcm;
     };
     std::vector<Move> moves;
+    /* One step of the head, by the track it left.  A formatting run walks the
+     * head out a track at a time, so that is where these come from, and a step
+     * at track 3 is a different recording from a step at track 60 rather than
+     * one recording pretending. */
+    std::map<int, Pcm> steps;
     /* By distance alone, for a set that does not say where its moves ran. */
     std::map<int, Pcm> seekIn;
     std::map<int, Pcm> seekOut;

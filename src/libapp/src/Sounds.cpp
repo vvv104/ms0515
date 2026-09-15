@@ -60,7 +60,7 @@ int seekLength(const std::string &name, const std::string &prefix)
     const char *first = name.data() + prefix.size();
     const char *last = name.data() + name.size() - 4;
     const auto r = std::from_chars(first, last, n);
-    return r.ec == std::errc{} && r.ptr == last && n > 0 ? n : -1;
+    return r.ec == std::errc{} && r.ptr == last && n >= 0 ? n : -1;
 }
 
 fs::path findSet(const char *kind, const std::string &set)
@@ -120,7 +120,9 @@ std::shared_ptr<DriveSounds> Sounds::loadDriveDir(const fs::path &dir)
     s->stepOut    = read(dir / "step_out.wav");
     for (const auto &entry : fs::directory_iterator(dir, ec)) {
         const std::string name = entry.path().filename().string();
-        if (const auto [a, b] = seekMove(name); a >= 0) {
+        if (const int track = seekLength(name, "step_"); track >= 0) {
+            if (Pcm pcm = read(entry.path()); !pcm.empty()) s->steps[track] = std::move(pcm);
+        } else if (const auto [a, b] = seekMove(name); a >= 0) {
             if (Pcm pcm = read(entry.path()); !pcm.empty())
                 s->moves.push_back({a, b, std::move(pcm)});
         } else if (const int n = seekLength(name, "seek_in_"); n > 0) {
