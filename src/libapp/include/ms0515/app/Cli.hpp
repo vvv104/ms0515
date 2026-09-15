@@ -29,6 +29,14 @@ struct CliArgs {
      * file size that is a 512-byte multiple is accepted. */
     bool        hdEnabled = false;
     std::string hdPath;
+    /* The mechanical sounds: a drive set's name or "off" ("" = from the
+     * config), the keyboard's on/off and the volumes in percent (-1 =
+     * from the config). */
+    std::string driveSounds;
+    int         keyboardSounds = -1;
+    int         speakerVolume  = -1;
+    int         driveVolume    = -1;
+    int         keyboardVolume = -1;
     std::string screenshotPath;
     int         maxFrames = 0;          /* 0 = run forever */
     int         screenshotFrame = 0;

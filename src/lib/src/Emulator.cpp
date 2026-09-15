@@ -48,6 +48,44 @@ void cSoundTrampoline(void *userdata, int value)
         cb(value);
 }
 
+/* The drive's and the keyboard's mechanical events, stamped with the
+ * cycle of the frame they happen at. */
+void cFdcMechTrampoline(void *userdata, int event, int arg)
+{
+    auto *self = static_cast<ms0515::Emulator *>(userdata);
+    auto &cb = self->impl()->mechCb;
+    if (!cb) return;
+    using Kind = ms0515::MechEvent::Kind;
+    const Kind kind = event == FDC_MECH_MOTOR_ON  ? Kind::motorOn
+                    : event == FDC_MECH_MOTOR_OFF ? Kind::motorOff
+                    :                               Kind::seek;
+    const auto &board = self->impl()->board;
+    cb(ms0515::MechEvent{kind, arg, board.fdc.step_rate_cycles,
+                         static_cast<uint32_t>(board.frame_cycle_pos)});
+}
+
+/* The machine's own millisecond: the keyboard's typematic runs on it, so
+ * a repeat falls where it falls inside the frame and not where the host
+ * happened to look. */
+void cBoardMsTrampoline(void *userdata, uint32_t ms, int frameCycle)
+{
+    auto *self = static_cast<ms0515::Emulator *>(userdata);
+    self->impl()->soundCycle = static_cast<uint32_t>(frameCycle);
+    ms7004_tick(&self->impl()->kbd7004, ms);
+}
+
+/* The keyboard's own sounds, stamped with the cycle of the millisecond
+ * that produced them. */
+void cKbdSoundTrampoline(void *userdata, int event)
+{
+    auto *self = static_cast<ms0515::Emulator *>(userdata);
+    auto &cb = self->impl()->mechCb;
+    if (!cb) return;
+    using Kind = ms0515::MechEvent::Kind;
+    cb(ms0515::MechEvent{event == MS7004_SOUND_BELL ? Kind::bell : Kind::keyClick, 0, 0,
+                         self->impl()->soundCycle});
+}
+
 bool cSerialOutTrampoline(void *userdata, uint8_t byte)
 {
     auto *self = static_cast<ms0515::Emulator *>(userdata);
@@ -188,6 +226,7 @@ Emulator::Emulator()
 {
     board_init(&impl_->board);
     ms7004_init(&impl_->kbd7004, &impl_->board.kbd);
+    board_set_ms_callback(&impl_->board, &cBoardMsTrampoline, this);
 
     /* Wire USART TX → ms7004 command channel. */
     impl_->board.kbd.tx_callback = [](void *ctx, uint8_t byte) {
@@ -402,11 +441,6 @@ uint8_t Emulator::joystick() const noexcept
     return impl_->board.joystick;
 }
 
-void Emulator::keyTick(uint32_t now_ms)
-{
-    ms7004_tick(&impl_->kbd7004, now_ms);
-}
-
 bool Emulator::capsOn()   const noexcept { return ms7004_caps_on(&impl_->kbd7004); }
 bool Emulator::ruslatOn() const noexcept { return ms7004_ruslat_on(&impl_->kbd7004); }
 
@@ -472,6 +506,7 @@ bool Emulator::waiting() const noexcept
 KeyboardSettings Emulator::keyboardSettings() const noexcept
 {
     KeyboardSettings s;
+    s.repeatEnabled   = impl_->kbd7004.repeat_enabled;
     s.autoGameMode    = impl_->kbd7004.auto_game_mode;
     s.typingDelayMs   = impl_->kbd7004.repeat_typing_delay_ms;
     s.typingPeriodMs  = impl_->kbd7004.repeat_typing_period_ms;
@@ -482,6 +517,7 @@ KeyboardSettings Emulator::keyboardSettings() const noexcept
 
 void Emulator::applyKeyboardConfig(const KeyboardSettings &s) noexcept
 {
+    impl_->kbd7004.repeat_enabled             = s.repeatEnabled;
     impl_->kbd7004.auto_game_mode             = s.autoGameMode;
     impl_->kbd7004.repeat_typing_delay_ms     = s.typingDelayMs;
     impl_->kbd7004.repeat_typing_period_ms    = s.typingPeriodMs;
@@ -557,6 +593,13 @@ void Emulator::setSoundCallback(SoundCallback cb)
                              this);
 }
 
+void Emulator::setMechCallback(MechCallback cb)
+{
+    impl_->mechCb = std::move(cb);
+    fdc_set_mech_callback(&impl_->board.fdc, impl_->mechCb ? &cFdcMechTrampoline : nullptr, this);
+    ms7004_set_sound_callback(&impl_->kbd7004, impl_->mechCb ? &cKbdSoundTrampoline : nullptr, this);
+}
+
 void Emulator::setSerialCallbacks(SerialInCallback in, SerialOutCallback out)
 {
     impl_->serialInCb  = std::move(in);
@@ -596,9 +639,14 @@ void Emulator::rewirePointers()
     impl_->board.kbd.tx_callback_ctx = &impl_->kbd7004;
 
     impl_->kbd7004.uart = &impl_->board.kbd;
+    board_set_ms_callback(&impl_->board, &cBoardMsTrampoline, this);
 
     if (impl_->soundCb)
         board_set_sound_callback(&impl_->board, &cSoundTrampoline, this);
+    if (impl_->mechCb) {
+        fdc_set_mech_callback(&impl_->board.fdc, &cFdcMechTrampoline, this);
+        ms7004_set_sound_callback(&impl_->kbd7004, &cKbdSoundTrampoline, this);
+    }
     if (impl_->serialInCb || impl_->serialOutCb)
         board_set_serial_callbacks(
             &impl_->board,

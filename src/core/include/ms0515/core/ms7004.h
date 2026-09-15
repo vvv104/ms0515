@@ -166,6 +166,30 @@ typedef enum ms7004_key {
     MS7004_KEY__COUNT
 } ms7004_key_t;
 
+/*
+ * The keyboard's own sounds - its piezo element on port P1 bit 3, driven
+ * by the firmware - for a host that plays them.  A report only.  What
+ * the firmware does (Alex's listing of the 8035 ROM):
+ *   MS7004_SOUND_CLICK  one pulse of 258 machine cycles (~0.84 ms, L_0C7):
+ *                       on every auto-repeat code the keyboard sends
+ *                       (L_2B0) while the host has the click enabled
+ *                       (0o033 + a byte; 0o231 disables it) - a plain
+ *                       make is silent - and on the host's 0o237
+ *   MS7004_SOUND_BELL   254 half-periods of ~260 us - 1.97 kHz for 65 ms
+ *                       (L_0E4): on the host's 0o247 while enabled (0o043
+ *                       + a byte; 0o241 disables it).  The firmware also
+ *                       rings twice at its own power-on (L_133), which a
+ *                       reset of the computer is not: the keyboard has
+ *                       its own supply at the end of the cable
+ * The byte after 0o033 / 0o043 is taken and ignored: the element has no
+ * volume.
+ */
+enum ms7004_sound_event {
+    MS7004_SOUND_CLICK,
+    MS7004_SOUND_BELL
+};
+typedef void (*ms7004_sound_fn)(void *userdata, int event);
+
 /* ── Public state ─────────────────────────────────────────────────────── */
 
 typedef struct ms7004 {
@@ -237,6 +261,10 @@ typedef struct ms7004 {
     bool         sound_enabled;      /* bell sound enabled */
     bool         click_enabled;      /* keyclick enabled */
     bool         latin_indicator;    /* Latin indicator LED */
+
+    /* The listener for the keyboard's own sounds (see ms7004_sound_event). */
+    ms7004_sound_fn sound_cb;
+    void        *sound_userdata;
 } ms7004_t;
 
 /* ── API ──────────────────────────────────────────────────────────────── */
@@ -248,6 +276,9 @@ typedef struct ms7004 {
  * surprising behaviour until the host↔keyboard command set is
  * modelled). */
 void ms7004_init (ms7004_t *kbd, struct ms0515_keyboard *uart);
+
+/* The listener for the keyboard's own sounds (NULL: none). */
+void ms7004_set_sound_callback(ms7004_t *kbd, ms7004_sound_fn cb, void *userdata);
 
 /* Force reset: clears held state, clears toggles, disarms repeat.
  * Does NOT send anything downstream. */

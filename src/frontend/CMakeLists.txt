@@ -59,11 +59,15 @@ set(PACKAGE_DIR "${CMAKE_SOURCE_DIR}/../package")
 add_custom_command(TARGET ms0515 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}/assets/rom"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}/assets/keyboard"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}/assets/sounds"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ms0515>" "${PACKAGE_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/assets/rom" "${PACKAGE_DIR}/assets/rom"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/assets/keyboard" "${PACKAGE_DIR}/assets/keyboard"
+    # The drive's recordings.  SOURCE.txt beside them says whose they are.
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/assets/sounds" "${PACKAGE_DIR}/assets/sounds"
     # No disks: they come from the software collection's releases, and
     # DISKS.txt says where and how to compose one.
     COMMAND ${CMAKE_COMMAND} -E copy

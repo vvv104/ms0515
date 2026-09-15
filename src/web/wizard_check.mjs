@@ -36,7 +36,6 @@ const api = {
   reset: c("ms_reset", null, ["number"]),
   frame: c("ms_frame", "number", ["number"]),
   render: c("ms_render", "number", ["number"]),
-  keyTick: c("ms_key_tick", null, ["number", "number"]),
   width: c("ms_width", "number", []),
   height: c("ms_height", "number", []),
 };
@@ -189,7 +188,7 @@ M.FS.writeFile("/rom.bin", readFileSync(join(dist, "rom/ms0515-roma.rom")));
 const h = api.create();
 if (!api.loadRom(h, "/rom.bin") || !api.mount(h, 0, "/composed.dsk")) fail("mount");
 api.reset(h);
-for (let i = 0; i < 400; ++i) { api.keyTick(h, i * 20); if (api.frame(h) === 0) fail("halted at frame " + i); }
+for (let i = 0; i < 400; ++i) { if (api.frame(h) === 0) fail("halted at frame " + i); }
 const w = api.width(), hgt = api.height(), ptr = api.render(h);
 const px = M.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + w * hgt);
 const counts = new Map();

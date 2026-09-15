@@ -313,3 +313,34 @@ Multiple bits may be set simultaneously (e.g. 0o203 = Wait + Compose).
 - Intel 8251 USART datasheet (AFN-01819B)
 - NS4 technical description (3.858.420 TO), section 4.10.1, Table 12
 - MS 7004 ТО (technical description), Tables 1–3
+
+## The keyboard's own sounds
+
+The MS7004 has a piezo element on the 8035's port P1 bit 3, and the
+firmware drives it directly (Alex's listing of the ROM; one machine
+cycle is 15 clocks of 4.608 MHz, 3.26 us):
+
+| sound | routine | drive signal | when |
+|---|---|---|---|
+| click | `L_0C7` | one pulse: high for 258 cycles (~0.84 ms), then low | on every auto-repeat code the keyboard sends (`L_2B0`, after the 0xB4), while the host has the click enabled; and on the host's "produce click" 0o237.  A plain make is silent - the firmware only sends the code |
+| bell | `L_0E4` | 254 toggles ~80 cycles apart: ~1.92 kHz for ~66 ms | on the host's 0o247 while enabled.  Twice at the keyboard's own power-on too (`L_133`, every lamp lit) - but that is the keyboard being switched on, not the computer resetting: it is a box of its own at the end of a cable, so the emulator does not ring it on a reset |
+
+The keyboard powers up with auto-repeat, the click and the bell all
+enabled (the parameters byte is 0o70 at `L_133`), which is how the
+emulator starts too - Machine / Keyboard / Auto-repeat turns the
+typematic off for a program that would run away on a held key.
+
+Enable / disable: 0o033 + a byte enables the click, 0o231 disables it;
+0o043 + a byte enables the bell, 0o241 disables it.  The byte after
+0o033 / 0o043 is read and ignored - the element has no volume.  Games
+send 0o231 at startup, which is why they type in silence.
+
+The emulator reports these as events (`MS7004_SOUND_CLICK` / `_BELL`)
+and plays them from a recording in `assets/sounds/kbd/ms7004/`
+(`click.wav`, `bell.wav`) when there is one, else synthesises them from
+the drive signal above (`ms7004KeyboardSounds`): each edge kicks a
+second-order resonator standing in for the disc, which answers with a
+decaying ring - about 4 kHz, dying in a third of a millisecond, so the
+click is a tick of some 2 ms, well clear of the 30 ms the typematic
+leaves between repeats.  The real element's resonance and damping are
+not measured; a recording of a live keyboard would replace the guess.

@@ -13,6 +13,8 @@ find_package(doctest REQUIRED)
 
 add_executable(ms0515_lib_tests
     test_main.cpp
+    test_audio.cpp
+    test_keyclick_timing.cpp
     test_cpu.cpp
     test_board.cpp
     test_boot.cpp

@@ -3,6 +3,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 add_library(ms0515_lib STATIC
+    src/Audio.cpp
     src/Emulator.cpp
     src/Debugger.cpp
     src/Disassembler.cpp

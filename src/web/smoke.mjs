@@ -22,7 +22,6 @@ const api = {
   reset:   M.cwrap("ms_reset", null, ["number"]),
   frame:   M.cwrap("ms_frame", "number", ["number"]),
   render:  M.cwrap("ms_render", "number", ["number"]),
-  keyTick: M.cwrap("ms_key_tick", null, ["number", "number"]),
   key:     M.cwrap("ms_key", null, ["number", "number", "number"]),
   audio:   M.cwrap("ms_audio", "number", ["number", "number", "number", "number"]),
   width:   M.cwrap("ms_width", "number", []),
@@ -42,7 +41,6 @@ api.reset(h);
 const pcm = M._malloc(4096 * 2);
 let cycles = 0, samples = 0;
 for (let i = 0; i < 150; ++i) {
-  api.keyTick(h, i * 20);
   const c = api.frame(h);
   if (c === 0) throw new Error(`CPU halted at frame ${i}`);
   cycles += c;

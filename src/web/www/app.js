@@ -572,7 +572,6 @@ function loop(now) {
 
 function step(now) {
   typing.tick(now);
-  api.keyTick(h, now >>> 0);
   const cycles = api.frame(h);
   ++frames;
   speakerTransitions += api.transitions(h);
@@ -888,7 +887,6 @@ function bindApi() {
     transitions: c("ms_transitions", "number", ["number"]),
     regC:    c("ms_reg_c", "number", ["number"]),
     key:     c("ms_key", null, ["number", "number", "number"]),
-    keyTick: c("ms_key_tick", null, ["number", "number"]),
     keyMax:  c("ms_key_max", "number", []),
     keyHeld: c("ms_key_held", "number", ["number", "number"]),
     ruslat:  c("ms_ruslat", "number", ["number"]),

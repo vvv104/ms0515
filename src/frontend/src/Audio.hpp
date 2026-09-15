@@ -1,15 +1,17 @@
 /*
- * Audio.hpp — SDL2 audio output for the MS0515 1-bit speaker.
+ * Audio.hpp — SDL2 audio output for the machine's sound: the 1-bit
+ * speaker and the recordings of the drive and the keyboard.
  *
- * The MS0515 speaker is driven by timer channel 2 (square wave),
- * gated by System Register C bits 5-7.  The board core tracks
- * transitions and calls a callback on each edge.  This module
- * records those transitions with sub-frame timing and renders
- * them into PCM samples queued to SDL each frame.
+ * The rendering is the lib's (ms0515::AudioRenderer); this module owns
+ * the SDL device and queues the renderer's samples to it each frame.
+ * The speaker's transitions and the mechanical events reach the renderer
+ * through App's callbacks, with their cycle position in the frame.
  */
 
 #ifndef MS0515_FRONTEND_AUDIO_HPP
 #define MS0515_FRONTEND_AUDIO_HPP
+
+#include <ms0515/Audio.hpp>
 
 #include <SDL.h>
 #include <cstdint>
@@ -19,8 +21,7 @@ namespace ms0515_frontend {
 
 class Audio {
 public:
-    static constexpr int kSampleRate  = 44100;
-    static constexpr int kAmplitude   = 6000;   /* 16-bit amplitude (~18%) */
+    static constexpr int kSampleRate = 44100;
 
     Audio() = default;
     ~Audio();
@@ -31,31 +32,26 @@ public:
     /* Open the SDL audio device.  Returns false on failure. */
     [[nodiscard]] bool init();
 
-    /* Call at the start of each emulated frame. */
-    void beginFrame();
+    /* Where the frame's events go. */
+    [[nodiscard]] ms0515::AudioRenderer &renderer() noexcept { return renderer_; }
 
-    /* Record a speaker level change.  `cyclePos` is the CPU cycle
-     * offset within the current frame (from board.frame_cycle_pos). */
-    void addTransition(int cyclePos, int level);
-
-    /* Call at the end of each emulated frame.  Renders accumulated
-     * transitions into PCM samples and queues them to SDL.
-     * `totalCycles` is the frame length in CPU cycles. */
-    void endFrame(int totalCycles);
-
+    /* Call at the end of each emulated frame: renders the frame's
+     * samples and, when `output`, queues them to SDL.  Rendered either
+     * way, so the motors and the seeks keep their place while the sound
+     * is off. `totalCycles` is the frame length in CPU cycles. */
+    void endFrame(int totalCycles, bool output);
 
     void shutdown();
 
 private:
-    SDL_AudioDeviceID device_ = 0;
+    /* What a loudspeaker does to a steady level: nothing.  See endFrame. */
+    void removeOffset(int n);
 
-    struct Transition {
-        int cycle;
-        int level;
-    };
-    std::vector<Transition> transitions_;
-    int startLevel_ = 0;   /* speaker level at frame start */
-    int currentLevel_ = 0;
+    SDL_AudioDeviceID     device_ = 0;
+    ms0515::AudioRenderer renderer_{kSampleRate};
+    std::vector<int16_t>  buf_;
+    float                 dcIn_  = 0.0f;   /* one pole, carried between frames */
+    float                 dcOut_ = 0.0f;
 };
 
 } /* namespace ms0515_frontend */

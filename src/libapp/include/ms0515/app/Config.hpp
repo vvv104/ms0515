@@ -45,8 +45,19 @@ public:
     int  kbdGameDelayMs       = -1;
     int  kbdGamePeriodMs      = -1;
     int  kbdAutoGameMode      = -1;
+    int  kbdAutoRepeat        = -1;  /* the keyboard's own typematic (yaml: "kbd_auto_repeat") */
     bool fullscreen           = false;
     std::string joystick;           /* "" (off) | "keys" | "gamepad" (yaml: "joystick") */
+    /* The sound (yaml: "speaker_volume", "drive_sounds", "drive_volume",
+     * "keyboard_sounds", "keyboard_volume").  The drive's recordings: a
+     * set's name under assets/sounds/fdd/, "off", or "" for the first set
+     * found; the keyboard's click and bell: on unless false.  Volumes in
+     * percent of each sound's own level. */
+    int         speakerVolume  = 100;
+    std::string driveSounds;
+    int         driveVolume    = 100;
+    bool        keyboardSounds = true;
+    int         keyboardVolume = 100;
 
     [[nodiscard]] bool isDefault() const;
 

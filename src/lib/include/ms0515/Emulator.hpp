@@ -85,6 +85,10 @@ inline constexpr std::size_t kFloppyDiskSize = 409600;
  * these via Emulator::keyboardSettings() / applyKeyboardConfig()
  * — the underlying ms7004_t is not exposed. */
 struct KeyboardSettings {
+    /* The keyboard's own typematic, on at power-on as the firmware has
+     * it (parameters byte 0o70 at L_133).  It is also the only thing
+     * that makes the keyboard click. */
+    bool     repeatEnabled   = true;
     bool     autoGameMode    = false;
     uint32_t typingDelayMs   = 0;
     uint32_t typingPeriodMs  = 0;
@@ -108,9 +112,23 @@ using HiResPixelCb = std::function<void(int x, int y, bool lit)>;
 using LoResPixelCb = std::function<void(int x, int y, bool lit,
                                          const LoResAttr &)>;
 
+/* What the machine does that can be heard besides the speaker: reported
+ * with the CPU cycle of the frame it happened at, for the AudioRenderer.
+ * `arg`: the drive for a motor, the signed track count for a seek
+ * (positive toward the hub); `stepCycles`: that seek's step period, for a
+ * renderer with one pulse recorded rather than whole seeks. */
+struct MechEvent {
+    enum class Kind : uint8_t { motorOn, motorOff, seek, keyClick, bell };
+    Kind     kind;
+    int      arg;
+    int      stepCycles;
+    uint32_t cycle;
+};
+
 class Emulator {
 public:
     using SoundCallback     = std::function<void(int value)>;
+    using MechCallback      = std::function<void(const MechEvent &)>;
     using SerialOutCallback = std::function<bool(uint8_t byte)>;
     using SerialInCallback  = std::function<bool(uint8_t &byte)>;
 
@@ -223,7 +241,6 @@ public:
     void setJoystick(uint8_t bits);
     [[nodiscard]] uint8_t joystick() const noexcept;
 
-    void keyTick(uint32_t now_ms);
 
     [[nodiscard]] bool capsOn()   const noexcept;
     [[nodiscard]] bool ruslatOn() const noexcept;
@@ -273,6 +290,9 @@ public:
     /* ── Callbacks ──────────────────────────────────────────────────────── */
 
     void setSoundCallback(SoundCallback cb);
+    /* The mechanical events (MechEvent): the drive's motor, seeks and
+     * steps, the keyboard's click and bell.  Empty: none reported. */
+    void setMechCallback(MechCallback cb);
     void setSerialCallbacks(SerialInCallback in, SerialOutCallback out);
 
     /* Observation callback for every byte the CPU writes into VRAM.

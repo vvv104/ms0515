@@ -14,6 +14,7 @@ add_executable(ms0515_libapp_tests
     test_cli.cpp
     test_disks.cpp
     test_screen.cpp
+    test_sounds.cpp
 )
 
 target_compile_definitions(ms0515_libapp_tests PRIVATE

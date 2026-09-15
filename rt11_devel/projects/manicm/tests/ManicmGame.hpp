@@ -120,8 +120,6 @@ public:
     void step()
     {
         if (frame_ < 900 && frame_ % 30 == 0) offerCR_ = true;   // the date prompts
-        nowMs_ += 20;
-        emu.keyTick(nowMs_);
         (void)emu.stepFrame();
         ++frame_;
     }
@@ -154,7 +152,6 @@ public:
 private:
     fs::path boot_;
     bool offerCR_ = false;
-    uint32_t nowMs_ = 0;
     int frame_ = 0;
     std::map<std::string, uint16_t> syms_;
 
