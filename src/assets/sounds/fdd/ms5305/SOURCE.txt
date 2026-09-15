@@ -179,11 +179,21 @@ how loud the head is, and how loud the spindle is under it.  Both are set
 against the machine's own beeper, which renders at 1500 - the loudest thing an
 MS 0515 makes, and the one level in this emulator already judged by ear.
 
-The head's click has one amplitude whatever the move: a move of many tracks is
-a train of the same click, so it is denser and louder in average but no louder
-in peak.  Every sound the head makes is therefore scaled to one click
-amplitude, and the group set so its loudest peak reaches 2000 - rms 280 to
-410, peaks 1340 to 1980.
+The head's click has one amplitude whatever the move, so every recording the
+head makes is scaled to carry the same click and the group is then set so the
+loudest move reaches 2000 - against the 1500 the beeper uses.
+
+Measuring that click needs care.  The loudest sample of a move is the loudest
+of the fifty clicks in it, while a single step has only its own, so levelling
+both by their loudest leaves the step quieter than a typical click inside a
+move - which is how it sounded.  A move is therefore measured by the middle of
+its clicks and a single step by its own peak.
+
+On top of that the single steps are lifted 5 dB.  A click on its own is heard
+as quieter than the same click inside a train of fifty, the ear following the
+whole burst rather than any one of them.  That is a judgement, not a
+measurement.  After it a step peaks at 1780 and a typical click inside a move
+at 1001.
 
 The spindle sits at rms 42.  The recording cannot settle this one: there the
 drive lies open on a table with the disc uncovered and the microphone right
