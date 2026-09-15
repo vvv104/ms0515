@@ -139,6 +139,26 @@ instead.
 So a step at track 3 and a step at track 60 are different recordings, and a
 format walks through all of them in turn, as it did on the drive.
 
+One room for all of them
+------------------------
+The recording wanders between shots taken from different distances and angles,
+and each colours the drive its own way - by up to 7 dB, and not evenly across
+the band.  Cut together, moves from different shots are heard as different
+drives, which is what happened: at the start of a load the machine works the
+outer tracks and at the end the inner ones, and the two came from different
+shots.
+
+The spindle's knock settles it.  It is the same blow of the same drive
+wherever it is filmed, so whatever its spectrum does between one shot and
+another is the shot's doing and nothing else's.  Dividing that out, smoothed
+over a third of an octave and never lifting or cutting a band by more than
+9 dB, leaves every move and every step sounding as though recorded in the one
+shot the long moves came from.  After it the thirty moves and the fifty-eight
+clicks agree to within 1.6 dB across the band, and among themselves to 0.9.
+
+The camera was suspected too, and cleared: every move used sits inside a shot
+of the drive by between 3 and 23 seconds, never near a cut.
+
 The bottom end
 --------------
 Measured in the part of the turn the knock never touches, the drive adds
