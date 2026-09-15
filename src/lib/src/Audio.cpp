@@ -199,6 +199,7 @@ void AudioRenderer::reset()
     voices_.clear();
     events_.clear();
     motor_[0] = motor_[1] = Motor::off;
+    track_ = 0;
 }
 
 bool AudioRenderer::motorRunning(int drive) const noexcept
@@ -214,10 +215,11 @@ int AudioRenderer::cyclesToSamples(uint32_t cycles, uint32_t frameCycles, int n)
     return at < 0 ? 0 : at >= n ? n - 1 : at;
 }
 
-void AudioRenderer::play(Tag tag, const Pcm &pcm, int at, float gain, bool loop)
+void AudioRenderer::play(Tag tag, const Pcm &pcm, int at, float gain, bool loop,
+                         double from, double until, double speed)
 {
     if (pcm.empty()) return;
-    voices_.push_back({tag, &pcm, 0.0, at, gain, loop});
+    voices_.push_back({tag, &pcm, from, at, gain, loop, from, until, speed});
 }
 
 void AudioRenderer::dropVoices(Tag tag)
@@ -270,9 +272,49 @@ void AudioRenderer::stopMotor(int drive, int at)
     }
 }
 
+/* A move of the head, from where it stands to where the controller sends it.
+ *
+ * A full-stroke recording is read between those two tracks: the sound of
+ * crossing tracks 0 to 30 is not the sound of crossing 30 to 60, and a set of
+ * recordings filed by distance alone has no way to say which is which.  Where
+ * the set has no stroke, the recordings by distance are used, and failing
+ * those, one step per track at the rate the command asks for.
+ */
 void AudioRenderer::startSeek(int tracks, uint32_t stepCycles, int at)
 {
     if (!drive_ || tracks == 0) return;
+    const int from = track_;
+    int to = from + tracks;
+    if (to < 0) to = 0;
+    if (to > kTracks - 1) to = kTracks - 1;
+    track_ = to;
+
+    /* One track is one click, and a stroke read that short would be a scrap
+     * of a rasp rather than a step.  The step's own recording serves, read a
+     * little faster the further in the head stands - which is the same note
+     * the stroke would have given there, and what a formatting run makes:
+     * eighty steps, each a shade higher than the last. */
+    const Pcm &one = tracks > 0 ? drive_->stepIn : drive_->stepOut;
+    if ((tracks == 1 || tracks == -1) && !one.empty()) {
+        const double where = static_cast<double>(from) / (kTracks - 1);
+        play(Tag::seek, one, at, driveGain_, false, 0.0, -1.0, 1.0 + kStrokePitch * where);
+        return;
+    }
+
+    const Pcm &stroke = tracks > 0 ? drive_->strokeIn : drive_->strokeOut;
+    if (!stroke.empty()) {
+        /* The stroke runs from track 0 to the last one; the outward one is
+         * the same journey the other way, so its start is the last track. */
+        const double len = static_cast<double>(stroke.samples.size());
+        const double span = static_cast<double>(kTracks - 1);
+        const auto place = [&](int track) {
+            const double x = tracks > 0 ? track : span - track;
+            return len * x / span;
+        };
+        play(Tag::seek, stroke, at, driveGain_, false, place(from), place(to));
+        return;
+    }
+
     const int n = tracks < 0 ? -tracks : tracks;
     const auto &seeks = tracks > 0 ? drive_->seekIn : drive_->seekOut;
     if (!seeks.empty()) {
@@ -289,7 +331,11 @@ void AudioRenderer::startSeek(int tracks, uint32_t stepCycles, int at)
     const Pcm &step = tracks > 0 ? drive_->stepIn : drive_->stepOut;
     if (step.empty()) return;
     const auto spacing = static_cast<int>(static_cast<int64_t>(stepCycles) * rate_ / kCpuHz);
-    for (int k = 0; k < n; ++k) play(Tag::seek, step, at + k * spacing, driveGain_, false);
+    for (int k = 0; k < n; ++k) {
+        const double where = static_cast<double>(from + (tracks > 0 ? k : -k)) / (kTracks - 1);
+        play(Tag::seek, step, at + k * spacing, driveGain_, false, 0.0, -1.0,
+             1.0 + kStrokePitch * where);
+    }
 }
 
 void AudioRenderer::apply(const Event &e, int at)
@@ -311,8 +357,17 @@ void AudioRenderer::mixVoice(Voice &v, std::vector<float> &mix, int from, int to
 {
     if (v.pcm == nullptr) return;
     const int drive = v.tag == Tag::motor0 ? 0 : v.tag == Tag::motor1 ? 1 : -1;
+    /* A slice cut out of the middle of a recording has to be let in and let
+     * out, or the cut itself is heard as a click.  The head really does start
+     * and stop, so the edges belong there; what cannot be had from the middle
+     * of a take is how full they are.
+     *
+     * Worked out each sample rather than once: a motor start hands over to the
+     * loop part way through, and the recording under the voice changes with it. */
     for (int i = v.startAt > from ? v.startAt : from; i < to; ++i) {
-        if (v.pos >= static_cast<double>(v.pcm->samples.size())) {
+        const double whole = static_cast<double>(v.pcm->samples.size());
+        const double end = v.until >= 0 && v.until < whole ? v.until : whole;
+        if (v.pos >= end) {
             if (v.loop) { v.pos -= static_cast<double>(v.pcm->samples.size()); }
             else if (drive >= 0 && motor_[drive] == Motor::starting && drive_ && !drive_->motorLoop.empty()) {
                 v.pcm = &drive_->motorLoop; v.loop = true; v.pos = 0.0; motor_[drive] = Motor::running;
@@ -327,8 +382,17 @@ void AudioRenderer::mixVoice(Voice &v, std::vector<float> &mix, int from, int to
         const auto f = static_cast<float>(v.pos - static_cast<double>(k));
         const float a = s[k];
         const float b = k + 1 < s.size() ? s[k + 1] : v.loop ? s[0] : a;
-        mix[static_cast<std::size_t>(i)] += (a + (b - a) * f) * v.gain;
-        v.pos += static_cast<double>(v.pcm->rate) / rate_;
+        const double size = static_cast<double>(s.size());
+        const double stop = v.until >= 0 && v.until < size ? v.until : size;
+        const double rise = v.begin > 0.0 ? 0.003 * v.pcm->rate : 0.0;
+        const double fall = stop < size ? 0.012 * v.pcm->rate : 0.0;
+        float edge = 1.0f;
+        if (rise > 0.0 && v.pos - v.begin < rise)
+            edge = static_cast<float>((v.pos - v.begin) / rise);
+        if (fall > 0.0 && stop - v.pos < fall)
+            edge *= static_cast<float>((stop - v.pos) / fall);
+        mix[static_cast<std::size_t>(i)] += (a + (b - a) * f) * v.gain * edge;
+        v.pos += static_cast<double>(v.pcm->rate) / rate_ * v.speed;
     }
 }
 
