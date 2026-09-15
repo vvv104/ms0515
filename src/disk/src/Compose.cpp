@@ -13,6 +13,9 @@
 
 #include <algorithm>
 #include <numeric>
+#include <optional>
+#include <set>
+#include <cctype>
 #include <cstring>
 #include <stdexcept>
 
@@ -228,18 +231,86 @@ void putOwn(std::vector<uint8_t> &img, const Shape &s, const std::string &name, 
 
 /* The startup file, the bootstrap for the media and the protected blocks:
  * what makes the volume a system once the groups are on it. */
-void finish(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src, const Shape &s,
-            std::vector<GroupPlacement> &files)
+/* The startup file and its banner, written before anything else the recipe
+ * adds.
+ *
+ * RT-11 puts a new file in the first free space that fits, so what is written
+ * first ends up nearest the system - and the machine reads them in that order:
+ * the monitor, its handlers, then the startup file, then whatever that runs.
+ * Written last, as they used to be, they landed past every program on the
+ * disk and the head crossed it twice on every boot.  Measured on the disks
+ * this composer had made: 557 tracks for a boot, against 83 for a disk laid
+ * out by hand.
+ */
+/* What the startup file will hold, the banner's own line included. */
+std::optional<std::vector<std::string>> startupLines(const ComposeRecipe &r)
+{
+    std::optional<std::vector<std::string>> lines = r.startup;
+    if (r.banner || r.clearScreen) {
+        const std::string type = "TYPE BANNER.TXT";
+        if (!lines) lines = std::vector<std::string>{};
+        if (std::find(lines->begin(), lines->end(), type) == lines->end()) lines->push_back(type);
+    }
+    return lines;
+}
+
+/* The order to write the groups in: whatever the startup file asks for by
+ * name first, the rest after.
+ *
+ * RT-11 gives a new file the first free space that fits, so the order things
+ * are written in is the order they lie in, and that should be the order they
+ * are reached for: the utilities asked for oftenest - DIR, DUP, PIP - then
+ * the startup file and its banner, then whatever the startup runs, then the
+ * rest.  An exemplar usually carries the utilities at its front already, but
+ * a recipe may be adding them itself, and then they would land past every
+ * program on the disk.
+ *
+ * Returns the order, and how many of it are those utilities: the startup file
+ * is written after them and before the rest.
+ */
+std::pair<std::vector<std::size_t>, std::size_t> readingOrder(const ComposeRecipe &r)
+{
+    const auto lines = startupLines(r);
+    std::set<std::string> asked;
+    if (lines)
+        for (const auto &line : *lines) {
+            std::string word;
+            for (const char c : line + " ") {
+                if (std::isalnum(static_cast<unsigned char>(c)))
+                    word += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                else {
+                    if (word.size() >= 2) asked.insert(word);
+                    word.clear();
+                }
+            }
+        }
+    const auto holds = [&r](std::size_t i, const std::set<std::string> &names) {
+        for (const auto &f : r.groups[i].files) {
+            std::string stem = f.name.substr(0, f.name.find('.'));
+            for (auto &c : stem) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            if (names.count(stem)) return true;
+        }
+        return false;
+    };
+    static const std::set<std::string> kOften{"DIR", "DUP", "PIP", "RESORC"};
+
+    std::vector<std::size_t> order(r.groups.size());
+    std::iota(order.begin(), order.end(), std::size_t{0});
+    const auto rest = std::stable_partition(
+        order.begin(), order.end(),
+        [&](std::size_t i) { return holds(i, asked) || holds(i, kOften); });
+    const auto afterOften = std::stable_partition(
+        order.begin(), rest, [&](std::size_t i) { return holds(i, kOften); });
+    return {order, static_cast<std::size_t>(afterOften - order.begin())};
+}
+
+void putStartup(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src,
+                const Shape &s, std::vector<GroupPlacement> &files)
 {
     const auto *e = src.volume.directory.find(src.startup);
     const PutOptions o{e ? e->date : uint16_t{0}, false};
-    std::optional<std::vector<std::string>> startup = r.startup;
+    const std::optional<std::vector<std::string>> startup = startupLines(r);
     const bool banner = r.banner || r.clearScreen;
-    if (banner) {
-        const std::string type = "TYPE BANNER.TXT";
-        if (!startup) startup = std::vector<std::string>{};
-        if (std::find(startup->begin(), startup->end(), type) == startup->end()) startup->push_back(type);
-    }
     if (startup) putOwn(img, s, src.startup, startupBytes(*startup), o, files);
     else if (e) putOwn(img, s, src.startup, src.volume.readFile(src.startup), o, files);
     if (banner) {
@@ -251,7 +322,10 @@ void finish(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src
         }
         putOwn(img, s, "BANNER.TXT", bytes, o, files);
     }
+}
 
+void finish(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src, const Shape &s)
+{
     const char *handler = s.boot == Vol::dv ? "DV.SYS" : "DZ.SYS";
     if (!openAt(img, s, 0)->directory.find(handler))
         throw std::runtime_error(std::string("the disk cannot boot: ") + handler + " is not among its files");
@@ -303,10 +377,9 @@ struct Placing {
     std::string                 problem;
 };
 
-Placing place(const std::vector<uint8_t> &base, const ComposeRecipe &r, const Shape &s,
-              const std::vector<std::size_t> &order)
+void placeInto(Placing &out, const ComposeRecipe &r, const Shape &s,
+               const std::vector<std::size_t> &order)
 {
-    Placing out{base, std::vector<GroupPlacement>(r.groups.size()), ""};
     for (const auto i : order) {
         const auto &g = r.groups[i];
         GroupPlacement p{g.title, -1, groupBlocks(g), ""};
@@ -319,7 +392,6 @@ Placing place(const std::vector<uint8_t> &base, const ComposeRecipe &r, const Sh
         else if (out.problem.empty()) out.problem = g.title + ": " + p.problem;
         out.groups[i] = std::move(p);
     }
-    return out;
 }
 
 /* The composition and its plan together: planDisk keeps the plan,
@@ -340,24 +412,54 @@ std::vector<uint8_t> compose(const ComposeRecipe &r, ComposePlan &plan)
         return {};
     }
 
-    std::vector<std::size_t> order(r.groups.size());
-    std::iota(order.begin(), order.end(), std::size_t{0});
-    Placing placed = place(img, r, s, order);
+    auto [order, often] = readingOrder(r);
+
+    /* One go at it: the utilities first, then the startup file and its
+     * banner, then everything else - the order the machine reads them in, and
+     * so the order they lie in. */
+    std::vector<GroupPlacement> startupFiles;
+    std::string trouble;
+    const auto attempt = [&](const std::vector<std::size_t> &use, std::size_t first) {
+        Placing out{img, std::vector<GroupPlacement>(r.groups.size()), ""};
+        placeInto(out, r, s, {use.begin(), use.begin() + static_cast<std::ptrdiff_t>(first)});
+        std::vector<GroupPlacement> mine;
+        try {
+            putStartup(out.img, r, *src, s, mine);
+        } catch (const std::exception &e) {
+            trouble = e.what();
+            out.problem = trouble;
+            return out;
+        }
+        placeInto(out, r, s, {use.begin() + static_cast<std::ptrdiff_t>(first), use.end()});
+        startupFiles = std::move(mine);
+        return out;
+    };
+
+    Placing placed = attempt(order, often);
+    if (!trouble.empty()) {
+        plan.problem = trouble;
+        for (const auto &g : r.groups) plan.groups.push_back({g.title, -1, groupBlocks(g), plan.problem});
+        return {};
+    }
     /* Short of room while what may go anywhere took some of the boot
      * volume: what must boot first, the rest after, on either volume. */
     const bool movable = s.volumes == 2 &&
         std::any_of(r.groups.begin(), r.groups.end(), [](const ComposeGroup &g) { return g.place == Place::any; });
     if (!placed.problem.empty() && movable) {
         std::stable_partition(order.begin(), order.end(), [&](std::size_t i) { return r.groups[i].place == Place::boot; });
-        Placing again = place(img, r, s, order);
+        const std::size_t boot = static_cast<std::size_t>(
+            std::count_if(r.groups.begin(), r.groups.end(),
+                          [](const ComposeGroup &g) { return g.place == Place::boot; }));
+        Placing again = attempt(order, std::min(often, boot));
         if (again.problem.empty()) placed = std::move(again);
     }
     img = std::move(placed.img);
     plan.groups = std::move(placed.groups);
     plan.problem = placed.problem;
+    plan.files.insert(plan.files.begin(), startupFiles.begin(), startupFiles.end());
     if (plan.problem.empty()) {
         try {
-            finish(img, r, *src, s, plan.files);
+            finish(img, r, *src, s);
         } catch (const std::exception &e) {
             plan.problem = e.what();
         }
