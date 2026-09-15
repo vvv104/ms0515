@@ -259,9 +259,9 @@ std::optional<std::vector<std::string>> startupLines(const ComposeRecipe &r)
  *
  * RT-11 gives a new file the first free space that fits, so the order things
  * are written in is the order they lie in, and that should be the order they
- * are reached for: the utilities asked for oftenest - DIR, DUP, PIP - then
- * the startup file and its banner, then whatever the startup runs, then the
- * rest.  An exemplar usually carries the utilities at its front already, but
+ * are reached for: the handlers the monitor loads before anything else, then
+ * the utilities asked for oftenest - DIR, DUP, PIP - then the startup file
+ * and its banner, then whatever the startup runs, then the rest.  An exemplar usually carries the utilities at its front already, but
  * a recipe may be adding them itself, and then they would land past every
  * program on the disk.
  *
@@ -293,15 +293,30 @@ std::pair<std::vector<std::size_t>, std::size_t> readingOrder(const ComposeRecip
         return false;
     };
     static const std::set<std::string> kOften{"DIR", "DUP", "PIP", "RESORC"};
+    /* The handlers go before even those: the monitor loads them at boot, and
+     * a disk whose TT.SYS sits past its utilities is read from both ends. */
+    const auto isHandler = [&r](std::size_t i) {
+        for (const auto &f : r.groups[i].files) {
+            const auto dot = f.name.rfind('.');
+            if (dot != std::string::npos) {
+                std::string ext = f.name.substr(dot + 1);
+                for (auto &c : ext) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                if (ext == "SYS") return true;
+            }
+        }
+        return false;
+    };
 
     std::vector<std::size_t> order(r.groups.size());
     std::iota(order.begin(), order.end(), std::size_t{0});
     const auto rest = std::stable_partition(
         order.begin(), order.end(),
-        [&](std::size_t i) { return holds(i, asked) || holds(i, kOften); });
-    const auto afterOften = std::stable_partition(
-        order.begin(), rest, [&](std::size_t i) { return holds(i, kOften); });
-    return {order, static_cast<std::size_t>(afterOften - order.begin())};
+        [&](std::size_t i) { return isHandler(i) || holds(i, asked) || holds(i, kOften); });
+    const auto afterEarly = std::stable_partition(
+        order.begin(), rest,
+        [&](std::size_t i) { return isHandler(i) || holds(i, kOften); });
+    std::stable_partition(order.begin(), afterEarly, isHandler);
+    return {order, static_cast<std::size_t>(afterEarly - order.begin())};
 }
 
 void putStartup(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src,
