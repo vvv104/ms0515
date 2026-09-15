@@ -73,3 +73,6 @@ rt11_devel/projects/banktest/*.MAP
 *.kicad_prl
 *-backups/
 fp-info-cache
+
+# what src/web/browser_check.mjs leaves behind when it runs
+browser_check.png
