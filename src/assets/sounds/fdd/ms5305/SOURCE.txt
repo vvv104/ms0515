@@ -106,12 +106,87 @@ where no edge belongs.  That is what could be heard as a click.
 
 Up to four tracks the clicks are still countable, so those files are single
 real steps 5 ms apart, no two of them the same recording.  Each move keeps
-25 ms past the level that found it, for its own ring.  Both directions get different takes: the same
-recording used for a move and for the move back would make the head sound as
-though it went the same way twice, which is not what a drive does.  For the
-full stroke the recording has exactly two clean examples - the head returning
-to track 0 after the formatting run, at 387 s, and one at 935 s - and they go
-one each way.
+25 ms past the level that found it, for its own ring.  Which way the head was going is in the sound itself, so a move is used for
+the direction it was actually made in.  The carriage rides a steel band, and
+the note its clicks set off creeps up as the head travels from track 0 towards
+79 and back down on the way home.  Measured on the formatting run, where the
+track under the head is known for every step, the click's centre of gravity
+goes from 3058 Hz over the first fifth of the tracks to 3267 over the last:
+6.8 percent across the whole stroke.  Every move in the pool is measured the
+same way, filed under the sign of its tilt, and chosen by how well both its
+length and its climb match the move wanted - the length weighing the more, as
+it is the surer of the two.
+
+It is a small effect, and on a short move it is nothing, so below five tracks
+the files are simply different steps.  The finished long ones run from +0.6 to
++4.2 percent inwards and -1.1 to -7.5 outwards, against 0.5 to 7.0 expected.
+The outward full stroke is the one move in the recording whose direction is
+known from the picture rather than the sound: the head going back to track 0
+right after the formatting run ends.
+
+The knock
+---------
+That drive taps once per turn - 202 ms, 297 rpm - and the tap is a fault of
+it, not the sound of a working drive, so it is taken out.  Cutting the knocks
+and splicing the gaps gave a rhythm of its own, so instead the whole
+revolution is evened out: every frame is filed under its phase of the turn,
+the level of each phase is measured across turns, and each is brought to what
+the turn holds away from the blow.  What repeats with the spindle goes; the
+rustle, which does not, stays - and so does how loud the drive is at any
+moment, which is what lets the spin-up and the run-down keep their shape.
+Two passes.  The blow was 17 dB above the turn's mean and is now 2.6 dB,
+against 0.3 dB for white noise put through the same measurement.  On the
+run-down the turns stretch out, so there the knock is followed turn by turn -
+297, 262, 217, 163, 132, 112, 68 rpm - and the phase follows it down.
+
+At the spin-up the first turns come 180 and 196 ms apart rather than 202, and
+the first blow is 4 dB louder than the ones that follow, so a correction
+learned over the whole take under-does them.  There are only a handful, so
+they are patched one at a time from what lies either side.  Measured as how
+much the level still repeats a turn later, the spin-up now scores 0.17, the
+run-down 0.12 and the loop itself 0.35.
+
+The same knock is taken out of the step sample, or it would have ended up
+inside it.
+
+The head crossing tracks
+------------------------
+Playing one recorded click per track is what sounds wrong: identical copies
+laid over each other at a fixed spacing comb-filter into a buzz no drive
+makes.  The recording has the real thing - when the controller drives the head
+track after track the clicks run into one another and the drive rasps for as
+long as the move lasts.
+
+How long that is, the recording settles.  Measured as stretches of raised
+level, bridging dips of up to 30 ms so that one move cannot come out as two,
+the longest move in the whole recording runs 399 ms, and the distribution
+stops dead there: that is the full stroke of an 80-track drive, about 5 ms a
+track.
+
+So every file is one real move, whole, and the number in its name is how many
+tracks that move is worth.  Nothing is joined and nothing is stretched.  An
+earlier attempt did both - it built long moves by running short ones together,
+to a step rate read out of the MS 0515's own ROM - and came out two and a half
+times too long.  Joining is wrong for a second reason as well: a stepper
+starts and stops, so the beginning and end of a move are the fullest part of
+it, and running two moves together buries a pair of those edges in the middle
+where no edge belongs.  That is what could be heard as a click.
+
+Up to four tracks the clicks are still countable, so those files are single
+real steps 5 ms apart, no two of them the same recording.  Each move keeps
+25 ms past the level that found it, for its own ring.  Which way the head was going is in the sound itself, so a move is used for
+the direction it was actually made in.  The carriage rides a steel band, and
+the note its clicks set off creeps up as the head travels from track 0 towards
+79 and back down on the way home.  Measured on the formatting run, where the
+track under the head is known for every step, the click's centre of gravity
+rises about 10 percent across the full stroke - from around 3090 Hz at the
+outer tracks to 3220 at the inner ones, with the climb steepest over the last
+third.  Every move in the pool is measured the same way and filed under the
+sign of its tilt.
+
+Across a short move the tilt is nothing and the direction cannot be heard, so
+below four tracks the files are simply different steps.  The finished long
+ones run from +0.9 to +8.0 percent inwards and -0.7 to -12.6 outwards.
 
 The bottom end
 --------------
