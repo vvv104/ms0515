@@ -19,9 +19,11 @@
 #include <emscripten.h>
 
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <vector>
 
+#include <ms0515/Audio.hpp>
 #include <ms0515/Debugger.hpp>
 #include <ms0515/Emulator.hpp>
 #include <ms0515/disk/Build.hpp>
@@ -35,8 +37,6 @@ namespace {
 
 constexpr int kWidth        = 640;
 constexpr int kHeight       = 400;
-constexpr int kCpuClockHz   = 7500000;
-constexpr int16_t kAmplitude = 1500;   /* the beeper, as loud as the desktop build's */
 
 struct Transition {
     int cycle;
@@ -54,6 +54,18 @@ struct Handle {
     int                     startLevel = 0;  /* ... at the frame's start */
     int                     frameCycles = 0; /* CPU cycles the last frame ran */
     uint32_t                frameCount = 0;
+
+    /* Sound.  The renderer is built when the page says what rate its audio
+     * context runs at, which it only knows once the user turns sound on. */
+    std::vector<ms0515::MechEvent>         mech;
+    std::unique_ptr<ms0515::AudioRenderer> audio;
+    std::unique_ptr<ms0515::DcBlocker>     cone;
+    int                                    audioRate  = 0;
+    uint32_t                               audioFrame = 0;
+    std::shared_ptr<ms0515::DriveSounds>   drive;
+    bool                                   driveOn    = false;
+    bool                                   keyboardOn = true;
+    bool                                   speakerOn  = true;
 };
 
 constexpr uint32_t rgba(uint8_t r, uint8_t g, uint8_t b)
@@ -512,6 +524,7 @@ EMSCRIPTEN_KEEPALIVE Handle *ms_create(void)
         h->transitions.push_back({static_cast<int>(h->emu.frameCyclePos()), value});
         h->level = value;
     });
+    h->emu.setMechCallback([h](const ms0515::MechEvent &e) { h->mech.push_back(e); });
     return h;
 }
 
@@ -556,6 +569,7 @@ EMSCRIPTEN_KEEPALIVE int ms_hd_active(Handle *h) { return h->emu.hdActive() ? 1 
 EMSCRIPTEN_KEEPALIVE int ms_frame(Handle *h)
 {
     h->transitions.clear();
+    h->mech.clear();
     h->startLevel = h->level;
     const bool running = h->emu.stepFrame();
     h->frameCycles = static_cast<int>(h->emu.frameCyclePos());
@@ -575,24 +589,107 @@ EMSCRIPTEN_KEEPALIVE int ms_width(void)  { return kWidth; }
 EMSCRIPTEN_KEEPALIVE int ms_height(void) { return kHeight; }
 
 /* The last frame's sound as signed 16-bit PCM at `rate` Hz into `out`
- * (up to `max` samples); returns the samples written. */
+ * (up to `max` samples); returns the samples written.
+ *
+ * The same renderer the desktop build uses, so the page gets the drive and
+ * the keyboard as well as the speaker - the keyboard for nothing, since its
+ * click and bell are built from the MS7004's firmware rather than read from
+ * files; the drive once the page has handed the recordings over. */
 EMSCRIPTEN_KEEPALIVE int ms_audio(Handle *h, int16_t *out, int max, int rate)
 {
     const int cycles = h->frameCycles;
-    if (cycles <= 0 || max <= 0)
+    if (cycles <= 0 || max <= 0 || rate <= 0)
         return 0;
-    int n = static_cast<int>(static_cast<int64_t>(rate) * cycles / kCpuClockHz);
-    if (n <= 0) n = 1;
-    if (n > max) n = max;
-    size_t t = 0;
-    int level = h->startLevel;
-    for (int i = 0; i < n; ++i) {
-        const int cycle = static_cast<int>(static_cast<int64_t>(i) * cycles / n);
-        while (t < h->transitions.size() && h->transitions[t].cycle <= cycle)
-            level = h->transitions[t++].level;
-        out[i] = level ? kAmplitude : -kAmplitude;
+    if (!h->audio || h->audioRate != rate) {
+        h->audio = std::make_unique<ms0515::AudioRenderer>(rate);
+        h->cone  = std::make_unique<ms0515::DcBlocker>(rate);
+        h->audioRate = rate;
+        h->audio->setKeyboardSounds(h->keyboardOn
+            ? std::make_shared<const ms0515::KeyboardSounds>(ms0515::ms7004KeyboardSounds(rate))
+            : nullptr);
+        h->audio->setDriveSounds(h->driveOn ? h->drive : nullptr);
+        h->audio->setSpeakerVolume(h->speakerOn ? 1.0f : 0.0f);
     }
+    if (h->audioFrame != h->frameCount) {          /* each frame's events, once */
+        h->audioFrame = h->frameCount;
+        for (const auto &t : h->transitions)
+            h->audio->speaker(static_cast<uint32_t>(t.cycle), t.level);
+        for (const auto &e : h->mech) {
+            using Kind = ms0515::MechEvent::Kind;
+            switch (e.kind) {
+            case Kind::motorOn:  h->audio->motor(e.cycle, e.arg, true);  break;
+            case Kind::motorOff: h->audio->motor(e.cycle, e.arg, false); break;
+            case Kind::seek:     h->audio->seek(e.cycle, e.arg,
+                                                static_cast<uint32_t>(e.stepCycles)); break;
+            case Kind::keyClick: h->audio->keyClick(e.cycle); break;
+            case Kind::bell:     h->audio->bell(e.cycle); break;
+            }
+        }
+    }
+    const int n = h->audio->render(out, max, static_cast<uint32_t>(cycles));
+    h->cone->apply(out, n);
     return n;
+}
+
+/* One of the drive's recordings, by the file name it has in the set
+ * ("motor_loop.wav", "seek_in_20.wav"); the page fetches them and hands the
+ * bytes over.  Nothing sounds until ms_drive_sounds turns them on. */
+EMSCRIPTEN_KEEPALIVE int ms_drive_sound(Handle *h, const char *name,
+                                        const uint8_t *data, int size)
+{
+    if (!h || !name || !data || size <= 0) return 0;
+    auto pcm = ms0515::parseWav(data, static_cast<std::size_t>(size));
+    if (!pcm) return 0;
+    if (!h->drive) h->drive = std::make_shared<ms0515::DriveSounds>();
+    const std::string file(name);
+    auto tracks = [&file](const char *prefix) -> int {
+        const std::string p(prefix);
+        if (file.size() <= p.size() || file.compare(0, p.size(), p) != 0) return -1;
+        const std::size_t dot = file.rfind(".wav");
+        if (dot == std::string::npos || dot <= p.size()) return -1;
+        int n = 0;
+        for (std::size_t i = p.size(); i < dot; ++i) {
+            if (file[i] < '0' || file[i] > '9') return -1;
+            n = n * 10 + (file[i] - '0');
+        }
+        return n > 0 ? n : -1;
+    };
+    const int in = tracks("seek_in_"), outward = tracks("seek_out_");
+    if (file == "motor_start.wav")     h->drive->motorStart = std::move(*pcm);
+    else if (file == "motor_loop.wav") h->drive->motorLoop  = std::move(*pcm);
+    else if (file == "motor_stop.wav") h->drive->motorStop  = std::move(*pcm);
+    else if (file == "step_in.wav")    h->drive->stepIn     = std::move(*pcm);
+    else if (file == "step_out.wav")   h->drive->stepOut    = std::move(*pcm);
+    else if (in > 0)                   h->drive->seekIn[in]      = std::move(*pcm);
+    else if (outward > 0)              h->drive->seekOut[outward] = std::move(*pcm);
+    else return 0;
+    return 1;
+}
+
+/* What the page's checkboxes say: the drive's recordings on or off, the
+ * keyboard's click and bell on or off.  The speaker is always there. */
+EMSCRIPTEN_KEEPALIVE void ms_drive_sounds(Handle *h, int on)
+{
+    if (!h) return;
+    h->driveOn = on != 0;
+    if (h->audio) h->audio->setDriveSounds(h->driveOn ? h->drive : nullptr);
+}
+
+EMSCRIPTEN_KEEPALIVE void ms_speaker_sound(Handle *h, int on)
+{
+    if (h && h->audio) h->audio->setSpeakerVolume(on ? 1.0f : 0.0f);
+    if (h) h->speakerOn = on != 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void ms_keyboard_sounds(Handle *h, int on)
+{
+    if (!h) return;
+    h->keyboardOn = on != 0;
+    if (h->audio)
+        h->audio->setKeyboardSounds(h->keyboardOn
+            ? std::make_shared<const ms0515::KeyboardSounds>(
+                  ms0515::ms7004KeyboardSounds(h->audioRate))
+            : nullptr);
 }
 
 /* Diagnostics for the page's __ms(): the speaker transitions of the last

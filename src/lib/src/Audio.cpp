@@ -370,4 +370,26 @@ int AudioRenderer::render(int16_t *out, int max, uint32_t frameCycles)
     return n;
 }
 
+/* ---- the loudspeaker's own high pass ---------------------------------------- */
+
+DcBlocker::DcBlocker(int rate, float cornerHz) noexcept
+    : pole_(rate > 0 ? 1.0f - 2.0f * 3.14159265f * cornerHz / static_cast<float>(rate) : 0.0f)
+{
+    if (pole_ < 0.0f) pole_ = 0.0f;
+}
+
+void DcBlocker::apply(int16_t *samples, int count) noexcept
+{
+    if (!samples) return;
+    for (int i = 0; i < count; ++i) {
+        const float x = static_cast<float>(samples[i]);
+        const float y = x - in_ + pole_ * out_;
+        in_  = x;
+        out_ = y;
+        samples[i] = static_cast<int16_t>(y > 32767.0f    ? 32767
+                                          : y < -32768.0f ? -32768
+                                                          : static_cast<int>(y));
+    }
+}
+
 } /* namespace ms0515 */

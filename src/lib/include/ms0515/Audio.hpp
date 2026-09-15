@@ -142,6 +142,36 @@ private:
     int   level_ = 0;           /* the speaker's level carried between frames */
 };
 
+/* What a loudspeaker does to a steady level: nothing.
+ *
+ * The machine's speaker is a 1-bit line, and the renderer holds it at plus or
+ * minus its amplitude for as long as the machine holds the level - so a silent
+ * machine still renders a steady offset the size of a beep.  Nothing is heard
+ * while it lasts, but every break in the stream steps between that offset and
+ * silence, and the step is heard as a click louder than anything the drive
+ * makes: the audio device opening, a queue being cut, a page's buffer running
+ * dry.  A real cone cannot hold a level either; it returns.
+ *
+ * One pole at 20 Hz takes the offset out and leaves every edge of the square
+ * wave where it was - at a kilohertz a half period is half a millisecond
+ * against the pole's eight, so the beep itself is untouched.  It belongs to
+ * whatever hands the samples to a device, not to the rendering, so the host
+ * layers apply it and the renderer's own output stays exactly what it says.
+ */
+class DcBlocker {
+public:
+    explicit DcBlocker(int rate, float cornerHz = 20.0f) noexcept;
+
+    /* In place, carrying the pole between calls. */
+    void apply(int16_t *samples, int count) noexcept;
+    void reset() noexcept { in_ = out_ = 0.0f; }
+
+private:
+    float pole_;
+    float in_  = 0.0f;
+    float out_ = 0.0f;
+};
+
 } /* namespace ms0515 */
 
 #endif /* MS0515_AUDIO_HPP */

@@ -7,11 +7,13 @@
 
 #include <ms0515/Audio.hpp>
 
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <vector>
 
 using ms0515::AudioRenderer;
+using ms0515::DcBlocker;
 using ms0515::DriveSounds;
 using ms0515::KeyboardSounds;
 using ms0515::Pcm;
@@ -356,4 +358,27 @@ TEST_CASE("audio: an event between two renders is not lost") {
     r.keyClick(kFrame - 150);                         /* ... an event lands after it ... */
     auto out = frame(r);                              /* ... and the next render has it */
     CHECK(out[999] == 400);
+}
+
+TEST_CASE("the loudspeaker's high pass: the offset goes, the edges stay") {
+    DcBlocker cone(kRate);
+    std::vector<int16_t> held(kRate, -1500);          /* a second of a held level */
+    cone.apply(held.data(), static_cast<int>(held.size()));
+    CHECK(held[0] == -1500);                          /* the step itself is kept */
+    CHECK(std::abs(held[kRate / 100]) < 1000);        /* 10 ms on, most of it gone */
+    CHECK(std::abs(held[kRate / 10]) < 10);           /* 100 ms on, nothing left */
+
+    DcBlocker again(kRate);
+    std::vector<int16_t> square(kRate / 10);          /* a 1 kHz beep */
+    for (std::size_t i = 0; i < square.size(); ++i)
+        square[i] = (i / (kRate / 2000)) % 2 == 0 ? 1500 : -1500;
+    std::vector<int16_t> filtered = square;
+    again.apply(filtered.data(), static_cast<int>(filtered.size()));
+    double a = 0.0, b = 0.0;
+    for (std::size_t i = 0; i < square.size(); ++i) {
+        a += static_cast<double>(square[i]) * square[i];
+        b += static_cast<double>(filtered[i]) * filtered[i];
+    }
+    CHECK(b / a > 0.99);                              /* the beep is untouched */
+    CHECK(b / a < 1.05);
 }

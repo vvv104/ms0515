@@ -708,12 +708,42 @@ function queueAudio() {
   speaker.port.postMessage(chunk, [chunk.buffer]);
 }
 
+// The drive's recordings: a megabyte of WAV files, fetched only when the
+// drive's box is first ticked, and handed to the module as bytes - it parses
+// them itself, the same parser the desktop build uses.
+let driveSoundsLoaded = false;
+async function loadDriveSounds() {
+  if (driveSoundsLoaded) return true;
+  const list = await fetch("sounds/index.json").then((r) => r.ok ? r.json() : []);
+  let got = 0;
+  for (const path of list) {
+    const bytes = new Uint8Array(await fetch("sounds/" + path).then((r) => r.arrayBuffer()));
+    const ptr = M._malloc(bytes.length);
+    M.HEAPU8.set(bytes, ptr);
+    got += api.driveSound(h, path.slice(path.lastIndexOf("/") + 1), ptr, bytes.length);
+    M._free(ptr);
+  }
+  driveSoundsLoaded = got > 0;
+  return driveSoundsLoaded;
+}
+
+// The three boxes beside the Sound button: what the machine may make a noise
+// with.  They only mean anything while sound is on, so they follow it.
+function soundBoxes(on) {
+  for (const id of ["sndSpeaker", "sndDrive", "sndKbd"]) $(id).disabled = !on;
+  if (!on) return;
+  api.speakerSound(h, $("sndSpeaker").checked ? 1 : 0);
+  api.kbdSounds(h, $("sndKbd").checked ? 1 : 0);
+  api.driveSounds(h, $("sndDrive").checked && driveSoundsLoaded ? 1 : 0);
+}
+
 async function toggleSound() {
   if (audio) {
     speaker = null;
     await audio.close();
     audio = null;
     $("sound").textContent = "Sound: off";
+    soundBoxes(false);
     return;
   }
   const ctx = new AudioContext();
@@ -733,6 +763,8 @@ async function toggleSound() {
   speaker.connect(audio.destination);
   if (audio.state !== "running") await audio.resume().catch(() => {});
   $("sound").textContent = "Sound: on";
+  if ($("sndDrive").checked) await loadDriveSounds();
+  soundBoxes(true);
 }
 
 // ── keyboard: the SDL front-end's PhysicalKeyboard, host codes in ──────────
@@ -884,6 +916,10 @@ function bindApi() {
     frame:   c("ms_frame", "number", ["number"]),
     render:  c("ms_render", "number", ["number"]),
     audio:   c("ms_audio", "number", ["number", "number", "number", "number"]),
+    driveSound:  c("ms_drive_sound", "number", ["number", "string", "number", "number"]),
+    driveSounds: c("ms_drive_sounds", null, ["number", "number"]),
+    kbdSounds:   c("ms_keyboard_sounds", null, ["number", "number"]),
+    speakerSound: c("ms_speaker_sound", null, ["number", "number"]),
     transitions: c("ms_transitions", "number", ["number"]),
     regC:    c("ms_reg_c", "number", ["number"]),
     key:     c("ms_key", null, ["number", "number", "number"]),
@@ -967,6 +1003,17 @@ function bindControls() {
   };
   $("boot").onclick = () => boot().catch(fail);
   $("sound").onclick = () => toggleSound().catch(fail);
+  $("sndSpeaker").onchange = () => soundBoxes(!!audio);
+  $("sndKbd").onchange = () => soundBoxes(!!audio);
+  $("sndDrive").onchange = async () => {
+    if ($("sndDrive").checked && !driveSoundsLoaded) {
+      $("sndDrive").disabled = true;
+      const ok = await loadDriveSounds().catch(() => false);
+      $("sndDrive").disabled = false;
+      if (!ok) { $("sndDrive").checked = false; hint("the drive's recordings are not on this page"); }
+    }
+    soundBoxes(!!audio);
+  };
   $("speed").oninput = (e) => setSpeed(e.target.value);
   $("speed").onchange = () => canvas.focus();      // the keys go back to the machine once the slider is let go
   $("speed").ondblclick = () => { setSpeed(100); canvas.focus(); };   // a double click on the slider: back to 100%

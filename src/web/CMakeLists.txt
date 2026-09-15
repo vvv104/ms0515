@@ -58,4 +58,21 @@ foreach(f ms0515-roma.rom ms0515-romb.rom)
         COMMAND ${CMAKE_COMMAND} -E copy "${WEB_ASSETS_DIR}/rom/${f}" "${WEB_DIST}/rom/${f}"
         DEPENDS "${WEB_ASSETS_DIR}/rom/${f}")
 endforeach()
+# The drive's recordings, and a list of them for the page to fetch by.  They
+# are not loaded until the user turns the drive's sound on, so they cost the
+# page nothing until then.
+file(GLOB WEB_SOUND_FILES RELATIVE "${WEB_ASSETS_DIR}/sounds"
+     "${WEB_ASSETS_DIR}/sounds/fdd/*/*.wav")
+set(WEB_SOUND_INDEX "${WEB_DIST}/sounds/index.json")
+list(JOIN WEB_SOUND_FILES "\",\"" WEB_SOUND_JOINED)
+file(WRITE "${WEB_SOUND_INDEX}" "[\"${WEB_SOUND_JOINED}\"]
+")
+list(APPEND WEB_COPIES "${WEB_SOUND_INDEX}")
+foreach(f ${WEB_SOUND_FILES})
+    list(APPEND WEB_COPIES "${WEB_DIST}/sounds/${f}")
+    add_custom_command(OUTPUT "${WEB_DIST}/sounds/${f}"
+        COMMAND ${CMAKE_COMMAND} -E copy "${WEB_ASSETS_DIR}/sounds/${f}" "${WEB_DIST}/sounds/${f}"
+        DEPENDS "${WEB_ASSETS_DIR}/sounds/${f}")
+endforeach()
+
 add_custom_target(ms0515_web_dist ALL DEPENDS ms0515_web ${WEB_COPIES})

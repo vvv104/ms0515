@@ -34,30 +34,6 @@ bool Audio::init()
     return true;
 }
 
-/* The machine's speaker is a 1-bit line: the renderer holds it at plus or
- * minus its amplitude for as long as the machine holds the level, so a
- * silent machine still renders a steady offset the size of a beep.  A real
- * loudspeaker cannot hold a level - the cone returns - and neither can the
- * stream: every break in it, the device opening or the queue being cut,
- * steps between that offset and silence, and the step is heard as a click
- * louder than anything the drive makes.  One pole at 20 Hz takes the offset
- * out and leaves every edge of the square wave where it was: at a kilohertz
- * a half period is half a millisecond against the pole's eight, so the beep
- * itself is untouched.
- */
-void Audio::removeOffset(int n)
-{
-    constexpr float kPole = 1.0f - 2.0f * 3.14159265f * 20.0f / static_cast<float>(kSampleRate);
-    for (int i = 0; i < n; ++i) {
-        const float x = static_cast<float>(buf_[static_cast<std::size_t>(i)]);
-        const float y = x - dcIn_ + kPole * dcOut_;
-        dcIn_  = x;
-        dcOut_ = y;
-        buf_[static_cast<std::size_t>(i)] =
-            static_cast<int16_t>(y > 32767.0f ? 32767 : y < -32768.0f ? -32768 : static_cast<int>(y));
-    }
-}
-
 void Audio::endFrame(int totalCycles, bool output)
 {
     if (totalCycles <= 0)
@@ -66,7 +42,7 @@ void Audio::endFrame(int totalCycles, bool output)
     const int n = renderer_.render(buf_.data(), static_cast<int>(buf_.size()), static_cast<uint32_t>(totalCycles));
     if (n <= 0)
         return;
-    removeOffset(n);              /* always, so the pole does not go stale while muted */
+    speakerCone_.apply(buf_.data(), n);   /* always, so the pole does not go stale while muted */
     if (!output || device_ == 0)
         return;
 
