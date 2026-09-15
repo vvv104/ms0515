@@ -225,6 +225,7 @@ TEST_CASE("the disk is laid out in the order the machine reads it") {
     r.banner = std::vector<std::string>{"HELLO"};
     r.groups.push_back({"games", Place::boot, {file("BIRDS.SAV", 4, 0x11)}});
     r.groups.push_back({"tools", Place::boot, {file("DIR.SAV", 3, 0x12)}});
+    r.groups.push_back({"handler", Place::boot, {file("VM.SYS", 2, 0x15)}});
     r.groups.push_back({"date", Place::boot, {file("DATSET.SAV", 2, 0x13)}});
     r.groups.push_back({"colour", Place::boot, {file("BLUE.SAV", 1, 0x14)}});
 
@@ -236,12 +237,13 @@ TEST_CASE("the disk is laid out in the order the machine reads it") {
         return std::find(names.begin(), names.end(), n) - names.begin();
     };
     /* What the machine reads first is written first, because RT-11 gives a
-     * new file the first free space that fits: the utilities asked for
-     * oftenest, then the startup file with its banner behind it, then
-     * whatever the startup runs - a class of little programs, not one name -
-     * then the rest.  Laid out the other way round the head crossed the whole
+     * new file the first free space that fits: the handlers the monitor loads
+     * at boot, the utilities asked for oftenest, then the startup file with
+     * its banner behind it, then whatever the startup runs - a class of
+     * little programs, not one name - then the rest.  Laid out the other way round the head crossed the whole
      * disk on every boot: measured at 557 tracks against 321, and the longest
      * single move at 78 tracks against 19. */
+    CHECK(at("VM.SYS") < at("DIR.SAV"));
     CHECK(at("DIR.SAV") < at("START.COM"));
     CHECK(at("START.COM") < at("BANNER.TXT"));
     CHECK(at("BANNER.TXT") < at("DATSET.SAV"));
