@@ -72,8 +72,11 @@ async function settle(what, ok = () => true, tries = 160) {
                   + `white ${last}, black ${peek ? black(peek) : "?"}`);
 }
 
-// The machine's own screen is up: black ground, not the page's blank white.
-const painted = (p) => black(p) > 150000;
+// The machine's own screen is up: black ground, not the page's blank white -
+// and the machine running, because a canvas that has never been drawn on is
+// black all over too, which used to pass this and let the check press a
+// button at a page that was still loading its module.
+const painted = (p) => black(p) > 150000 && p.frames > 0;
 
 await send("Page.enable");
 await send("Runtime.enable");
@@ -81,11 +84,26 @@ await send("Page.navigate", { url: url + (url.includes("?") ? "&" : "?") + "auto
 let peek = await settle("the date prompt", painted);
 console.log(`after boot: frames ${peek.frames}, running ${peek.running}, colours ${peek.colours}, status "${peek.status}"`);
 
+// Sound is on when the page opens.  Before anything has been touched a
+// browser allows no more than a suspended context, so that is what this
+// asserts; the Return below is the gesture that starts it for real.
+if (peek.sound === "off") throw new Error("the page opened with the sound off");
+console.log(`sound before a gesture: ${peek.sound}`);
+
 // RT-11's date prompt: a Return through the browser's key events.
 await send("Input.dispatchKeyEvent", { type: "keyDown", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
 await sleep(100);
 await send("Input.dispatchKeyEvent", { type: "keyUp", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
 peek = await settle("the monitor's prompt", (p) => painted(p) && white(p) > 500);
+
+// That key was the gesture: the context the page armed is playing now.
+for (let i = 0; i < 20 && peek.sound !== "running"; ++i) { await sleep(250); peek = await evaluate("window.__ms()"); }
+if (peek.sound !== "running") throw new Error(`a key did not start the sound: ${peek.sound}`);
+console.log(`sound after a key: ${peek.sound}`);
+
+// And the drive's recordings, which the page fetches for itself on opening.
+for (let i = 0; i < 40 && !peek.driveSounds; ++i) { await sleep(250); peek = await evaluate("window.__ms()"); }
+if (!peek.driveSounds) throw new Error("the drive's recordings never loaded");
 const textBefore = white(peek);
 console.log(`at the prompt: frames ${peek.frames}, colours ${peek.colours}, black ${black(peek)}, white ${textBefore}`);
 
