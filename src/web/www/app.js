@@ -265,6 +265,7 @@ async function wipe() {
   localStorage.removeItem("ms0515.images");
   localStorage.removeItem("ms0515.mounts");
   localStorage.removeItem(SPEED_KEY);
+  localStorage.removeItem(SOUND_KEY);
   await new Promise((ok, no) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = ok; r.onerror = () => no(r.error); r.onblocked = ok; });
   location.href = location.pathname;
 }
@@ -706,9 +707,10 @@ function queueAudio() {
   speaker.port.postMessage(chunk, [chunk.buffer]);
 }
 
-// The drive's recordings: a megabyte of WAV files, fetched only when the
-// drive's box is first ticked, and handed to the module as bytes - it parses
-// them itself, the same parser the desktop build uses.
+// The drive's recordings: a megabyte and a half of WAV files, fetched once the
+// drive's box is ticked - which it is when the page opens - and handed to the
+// module as bytes: it parses them itself, the same parser the desktop build
+// uses.  Nothing waits for them.
 let driveSoundsLoaded = false;
 async function loadDriveSounds() {
   if (driveSoundsLoaded) return true;
@@ -735,6 +737,25 @@ function soundBoxes(on) {
   api.driveSounds(h, $("sndDrive").checked && driveSoundsLoaded ? 1 : 0);
 }
 
+// What the user last chose, so the page opens the way it was left; a first
+// visit takes the defaults from the markup, with the sound on.
+const SOUND_KEY = "ms0515.sound";
+function soundWish() {
+  const d = { on: true, speaker: $("sndSpeaker").checked,
+              drive: $("sndDrive").checked, kbd: $("sndKbd").checked };
+  try { return { ...d, ...JSON.parse(localStorage.getItem(SOUND_KEY) ?? "{}") }; } catch { return d; }
+}
+function saveSound() {
+  localStorage.setItem(SOUND_KEY, JSON.stringify({
+    on: !!audio, speaker: $("sndSpeaker").checked,
+    drive: $("sndDrive").checked, kbd: $("sndKbd").checked }));
+}
+
+// A browser lets no page make a noise before the user has touched it, so
+// "sound on when the page opens" can only mean: build the context at once
+// and leave it suspended until the first click or key resumes it.  The
+// machine is already running by then, and nothing of it was lost - a
+// suspended context swallows the samples, it does not queue them up.
 async function toggleSound() {
   if (audio) {
     speaker = null;
@@ -742,6 +763,7 @@ async function toggleSound() {
     audio = null;
     $("sound").textContent = "Sound: off";
     soundBoxes(false);
+    saveSound();
     return;
   }
   const ctx = new AudioContext();
@@ -759,10 +781,25 @@ async function toggleSound() {
   speaker = new AudioWorkletNode(audio, "ms0515-speaker");
   speaker.port.onmessage = (e) => { audioStats = e.data; };
   speaker.connect(audio.destination);
-  if (audio.state !== "running") await audio.resume().catch(() => {});
+  // Not awaited: a browser that is waiting for the user to touch the page
+  // leaves this promise pending - not rejected - until they do, and the
+  // machine is not going to stand still for that.
+  if (audio.state !== "running") audio.resume().catch(() => {});
   $("sound").textContent = "Sound: on";
-  if ($("sndDrive").checked) await loadDriveSounds();
   soundBoxes(true);
+  saveSound();
+  // The drive's recordings are a megabyte and a half; the beeper and the
+  // keyboard are not made to wait for them, and neither is the boot.
+  if ($("sndDrive").checked && !driveSoundsLoaded)
+    loadDriveSounds().then(() => soundBoxes(true))
+                     .catch(() => hint("the drive's recordings are not on this page"));
+}
+
+// The gesture the browser waits for is any of the ones the machine gets
+// anyway.  It stays on for the life of the page: a context can be suspended
+// again later (the tab put aside), and the next touch brings it back.
+function resumeSound() {
+  if (audio && audio.state !== "running") audio.resume().catch(() => {});
 }
 
 // ── where the keys go ──────────────────────────────────────────────────────
@@ -1020,8 +1057,8 @@ function bindControls() {
   };
   $("boot").onclick = () => boot().catch(fail);
   $("sound").onclick = () => toggleSound().catch(fail);
-  $("sndSpeaker").onchange = () => soundBoxes(!!audio);
-  $("sndKbd").onchange = () => soundBoxes(!!audio);
+  $("sndSpeaker").onchange = () => { soundBoxes(!!audio); saveSound(); };
+  $("sndKbd").onchange = () => { soundBoxes(!!audio); saveSound(); };
   $("sndDrive").onchange = async () => {
     if ($("sndDrive").checked && !driveSoundsLoaded) {
       $("sndDrive").disabled = true;
@@ -1030,7 +1067,10 @@ function bindControls() {
       if (!ok) { $("sndDrive").checked = false; hint("the drive's recordings are not on this page"); }
     }
     soundBoxes(!!audio);
+    saveSound();
   };
+  window.addEventListener("pointerdown", resumeSound, true);
+  window.addEventListener("keydown", resumeSound, true);
   $("speed").oninput = (e) => setSpeed(e.target.value);
   $("speed").ondblclick = () => setSpeed(100);     // a double click on the slider: back to 100%
   $("speedv").onclick = () => setSpeed(100);
@@ -1079,6 +1119,15 @@ async function main() {
     if (m.fd[unit]) await mountFd(unit, m.fd[unit]).catch(fail);
   if (m.hd) await mountHd(m.hd).catch(fail);
 
+  const wish = soundWish();
+  $("sndSpeaker").checked = wish.speaker;
+  $("sndDrive").checked = wish.drive;
+  $("sndKbd").checked = wish.kbd;
+  // Started, not awaited, and not fail(): a page served over plain http has no
+  // AudioWorklet, and that is a reason for the button to stay off rather than
+  // for an error on the screen - and nothing here may hold up the boot.
+  if (wish.on) toggleSound().catch((e) => say("no sound: " + e.message));
+
   say("ready");
   const q = new URLSearchParams(location.search);
   if (q.get("speed")) setSpeed(q.get("speed"), false);   // `speed=200`: for this visit only
@@ -1098,6 +1147,7 @@ window.__ms = () => {
   if (ptr) for (const v of M.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + 640 * 400)) hist[v >>> 0] = (hist[v >>> 0] ?? 0) + 1;
   return { frames, running, speed: speedPct, status: status.textContent, colours: Object.keys(hist).length, hist,
            mounts: { fd: [...slots.fd], hd: slots.hd }, audio: audioStats && { ...audioStats, rate: audio?.sampleRate, state: audio?.state },
+           sound: audio ? audio.state : "off", driveSounds: driveSoundsLoaded,
            speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
            joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null,
            fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null,
