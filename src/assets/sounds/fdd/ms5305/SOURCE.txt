@@ -182,6 +182,31 @@ clicks agree to within 1.6 dB across the band, and among themselves to 0.9.
 The camera was suspected too, and cleared: every move used sits inside a shot
 of the drive by between 3 and 23 seconds, never near a cut.
 
+
+A step and a click inside a move
+--------------------------------
+Evening the shots out leaves the two agreeing on the knock, and still not on
+each other: a single step was heard as ringing where a move clacks.  Measured,
+the steps carry 8 to 9 dB less around 700 Hz to 1 kHz than the moves do and a
+decibel or two more at 3 to 4 kHz, which is that difference exactly - the body
+gone from under the click, so what is left of it sits an octave too high.
+
+The detents inside a move come every 10 ms, so no single click can be cut out
+of one to compare.  But a train of one event has, band by band, the shape of
+that event, so a whole move and a whole step file are compared as spectra
+instead.  The difference is taken where the move has its energy, smoothed over
+a whole octave - narrower than that it is the drive's own resonances moving
+about between shots - and filtered into the steps: +7 dB at 1 kHz, falling to
+nothing by 2 kHz and to -1 dB at 3 to 4 kHz.  It is held to 9 dB and made 129
+taps long, 2.7 ms, so that the click keeps its edge: after it the peak of a
+click still stands 17.2 dB over the average of its own file and 30.7 dB over
+its tail, against 17.6 and 32.9 before, and the two agree to 3.6 dB where they
+differed by 8.6.
+
+Some of what is left is not a fault to correct.  Inside a move the carriage is
+also sliding the whole time, and that rush belongs to a move and not to a step;
+the filter is deliberately short of levelling the two completely.
+
 The bottom end
 --------------
 Measured in the part of the turn the knock never touches, the drive adds
