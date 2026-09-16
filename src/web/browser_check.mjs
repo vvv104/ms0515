@@ -173,6 +173,121 @@ const typed = await settle("the echo of what was typed with a control focused",
                            (p) => white(p) > quiet + 40);
 console.log(`typed with the joystick button focused: white ${quiet} -> ${white(typed)}`);
 
+// The commander's compare view (Alt+F3): two files marked on one pane and
+// put side by side.  The fixture holds one disk, so the two are marked here
+// rather than found by name on the other pane.
+await evaluate('document.getElementById("files").click()');
+await sleep(500);
+const key = async (code, k, vk, modifiers = 0) => {
+  await send("Input.dispatchKeyEvent", { type: "keyDown", code, key: k, windowsVirtualKeyCode: vk, modifiers });
+  await sleep(60);
+  await send("Input.dispatchKeyEvent", { type: "keyUp", code, key: k, windowsVirtualKeyCode: vk, modifiers });
+  await sleep(60);
+};
+await key("Insert", "Insert", 45);                       // mark, move on, mark
+await key("ArrowDown", "ArrowDown", 40);
+await key("Insert", "Insert", 45);
+await key("F3", "F3", 114, 1);                           // 1: Alt
+await sleep(700);
+const diff = await evaluate(`(() => {
+  const rows = document.querySelectorAll(".fm-diff .fm-diff-row");
+  const bar = [...document.querySelectorAll(".fm-viewer .fm-bar button .label")].map((b) => b.textContent);
+  return { rows: rows.length, marks: document.querySelectorAll(".fm-diff mark").length,
+           skips: document.querySelectorAll(".fm-diff-skip").length,
+           head: document.querySelector(".fm-diff-head")?.textContent ?? "",
+           note: document.querySelector(".fm-diff-note")?.textContent ?? "", bar };
+})()`);
+console.log(`compare: ${diff.rows} rows, ${diff.marks} marked, ${diff.skips} skipped stretches, head "${diff.head}"`);
+if (!(diff.rows > 0)) throw new Error("Alt+F3 drew no compare rows");
+if (!(diff.marks > 0)) throw new Error("the compare view marked nothing as differing");
+if (!diff.bar.includes("Octal")) throw new Error("two binaries are not compared as bytes: " + diff.bar.join(" "));
+if (!/differ/.test(diff.note)) throw new Error("the compare view does not say how much differs: " + diff.note);
+// F2 shows what was skipped, and puts it back; F6 walks the differences;
+// F7 searches both files at once, the hit marked apart from the differences.
+const rowCount = () => evaluate('document.querySelectorAll(".fm-diff .fm-diff-row").length');
+const shown = await rowCount();
+await key("F2", "F2", 113);
+const all = await rowCount();
+if (!(all > shown)) throw new Error(`F2 did not show what was skipped: ${shown} rows, then ${all}`);
+await key("F2", "F2", 113);
+if (await rowCount() !== shown) throw new Error("F2 did not hide the same stretches again");
+await key("F6", "F6", 117);
+await key("F6", "F6", 117, 1);                           // Alt: the difference before
+if (/error/.test(await evaluate("window.__ms().status"))) throw new Error("F6 failed: " + await evaluate("window.__ms().status"));
+await key("F7", "F7", 118);
+await sleep(400);
+if (!await evaluate('!!document.querySelector(".fm-dialog input[type=text]")')) throw new Error("F7 opened no search");
+await evaluate('(() => { const i = document.querySelector(".fm-dialog input[type=text]"); i.value = "000 002"; i.focus(); })()');
+await key("Enter", "Enter", 13);
+await sleep(600);
+if (!await evaluate('!!document.querySelector(".fm-diff mark.found")'))
+  throw new Error("the search marked nothing: " + await evaluate("window.__ms().status"));
+console.log(`search in both files: found "${await evaluate('document.querySelector(".fm-diff mark.found").textContent')}"`);
+
+await key("F3", "F3", 114);                              // the same search again, without being asked
+await sleep(500);
+if (await evaluate('!!document.querySelector(".fm-dialog:not([hidden]) input[type=text]")'))
+  throw new Error("F3 asked for the query again instead of repeating the search");
+await key("F1", "F1", 112);                              // octal -> hex
+await sleep(400);
+const asHex = await evaluate('[...document.querySelectorAll(".fm-viewer .fm-bar button .label")].map((b) => b.textContent).join(" ")');
+if (!/Hex/.test(asHex)) throw new Error("F1 did not change the representation: " + asHex);
+
+// A search that finds nothing says so in a dialog with one button, not in
+// the line under the panes where the eye is not.
+await key("F1", "F1", 112);                              // hex -> text, and the query with it
+await sleep(400);
+await key("F7", "F7", 118);
+await sleep(400);
+await evaluate('(() => { const i = document.querySelector(".fm-dialog input[type=text]"); i.value = "ZZQQXX"; i.focus(); })()');
+await key("Enter", "Enter", 13);
+await sleep(600);
+const none = await evaluate('(() => { const d = document.querySelector(".fm-dialog:not([hidden]) .fm-dialog-box"); return d ? d.textContent : ""; })()');
+if (!/not in either file/.test(none)) throw new Error("a search that found nothing said: " + (none || "nothing"));
+if (await evaluate('!!document.querySelector(".fm-dialog:not([hidden]) input[type=text]")'))
+  throw new Error("the nothing-found dialog asks for something");
+console.log(`nothing found: "${none.trim()}"`);
+await key("Enter", "Enter", 13);                         // OK
+await sleep(400);
+await key("Escape", "Escape", 27);                       // back to the panes
+await sleep(300);
+if (await evaluate('document.querySelector(".fm-diff").closest(".fm-viewer").hidden') !== true)
+  throw new Error("Esc did not leave the compare view");
+
+// One file marked on each pane: those two, whatever they are named.  The two
+// panes hold the one disk here, so marking the same file on both must be
+// refused rather than compared with itself.
+const heading = () => evaluate('document.querySelector(".fm-diff-head")?.textContent ?? ""');
+const upIsOpen = () => evaluate('!document.querySelector(".fm-diff").closest(".fm-viewer").hidden');
+await key("Home", "Home", 36);                           // the same keys again, from the top:
+await key("Insert", "Insert", 45);                       // Insert toggles, so the two marks
+await key("ArrowDown", "ArrowDown", 40);                 // made above come off again
+await key("Insert", "Insert", 45);
+await key("Home", "Home", 36);
+await key("Insert", "Insert", 45);                       // the first file, on the left
+await key("Tab", "Tab", 9);
+await key("Home", "Home", 36);
+await key("Insert", "Insert", 45);                       // the same file, on the right
+await key("F3", "F3", 114, 1);
+await sleep(500);
+if (await upIsOpen()) throw new Error("a file was compared with itself");
+if (!/with itself/.test(await evaluate("window.__ms().status")))
+  throw new Error("the one file marked twice was refused for the wrong reason: " + await evaluate("window.__ms().status"));
+await key("Home", "Home", 36);
+await key("Insert", "Insert", 45);                       // that one off, the next one on
+await key("Insert", "Insert", 45);
+await key("F3", "F3", 114, 1);
+await sleep(700);
+if (!await upIsOpen()) throw new Error("one file marked on each pane did not compare");
+const pair = await heading();
+console.log(`one marked on each pane: ${pair}`);
+const named = pair.match(/DZ\d: ([A-Z0-9.]+)/g) ?? [];
+if (named.length !== 2 || named[0] === named[1])
+  throw new Error("the two marked files are not the two compared: " + pair);
+await key("Escape", "Escape", 27);
+await sleep(300);
+await evaluate('document.getElementById("files").click()');
+
 ws.close();
 if (!/state restored/.test(restored.status))
   throw new Error("the saved state did not outlive the page: " + restored.status);

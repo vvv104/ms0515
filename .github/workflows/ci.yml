@@ -173,6 +173,11 @@ jobs:
       - name: Zip check (Node)
         run: node src/web/zip_check.mjs
 
+      # What the commander's compare view (Alt+F3) is built on: the chunks
+      # cover both files, and an equal part is found again where it moved to.
+      - name: Diff check (Node)
+        run: node src/web/diff_check.mjs
+
       # The page itself in the runner's Chrome (headless, DevTools protocol):
       # boot, the date prompt answered, RT-11's text on the canvas.
       - name: Browser check (Chrome)
