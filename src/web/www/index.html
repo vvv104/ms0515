@@ -79,6 +79,16 @@
   .fm-dialog-buttons { display: flex; gap: 1em; justify-content: center; }
   .fm-dialog-buttons button { min-width: 7em; }
   .fm-viewer { position: absolute; inset: .5em; display: flex; flex-direction: column; gap: .4em; background: #111; }
+  .fm-dhead { padding: 0 .5em; }
+  .fm-diff { flex: 1; min-height: 0; overflow: auto; padding: .5em; background: #05173a; color: #cde; }
+  .fm-diff.bytes .fm-diff-cell { white-space: pre; }
+  .fm-diff-row { display: grid; grid-template-columns: 1fr 1fr; gap: .8em; }
+  .fm-diff-head { color: #8ab; border-bottom: 1px solid #446; padding-bottom: .2em; }
+  .fm-diff-cell { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .fm-diff-note { text-align: center; color: #8ab; }
+  .fm-diff-skip { grid-column: 1 / -1; text-align: center; color: #89a; border-top: 1px dotted #446; border-bottom: 1px dotted #446; }
+  .fm-diff mark { background: none; color: #ff5; }          /* what differs: the letters, not the ground */
+  .fm-diff mark.found { background: #6c6; color: #000; }    /* the search hit, which is not a difference */
   .fm-vname { color: #ccc; }
   .fm-text { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: .5em; background: #05173a; color: #cde; white-space: pre; }
   .fm-row.unused { color: #778; font-style: italic; }
@@ -263,10 +273,10 @@
     <li>Mark files with Insert or Shift+arrows; F2 / F5 / F6 / F8 take the marked ones. <b>+</b> / <b>&minus;</b> mark or unmark by an OS pattern (<code>*.MAC</code>, <code>A%B.*</code>, several with commas); <code>*</code> alone inverts the marks.</li>
     <li>Disks are DZ0: .. DZ3: and HD0:. F5 on one file or F6 takes a <code>DZn:NAME</code>: a copy under another name, a rename, or a move to another disk.</li>
     <li>F9 is the OS&#39;s INITIALIZE: volume id, owner and directory size, or the id alone with the files kept; a two-sided image can become one whole-disk DV: or MZ: volume.</li>
-    <li>With Alt held: <b>Alt+F1 / F2</b> a pane&#39;s disk list &middot; <b>Alt+F5</b> gather the marked files into a logical disk (a file the system mounts: <code>MOUNT LD0: DZn:NAME.DSK</code>) &middot; <b>Alt+F6</b> protect the marked files, or unprotect them &middot; <b>Alt+F7</b> find by pattern on every disk &middot; <b>Alt+F8</b> undelete the file an unused area was (the OS&#39;s DELETE leaves its name, length, date and data), or Recover a bare area as a file &middot; <b>Alt+F9</b> make the pane&#39;s floppy a bootable system volume of the other pane&#39;s disk: the kit copied and protected, the marked files with it, the bootstrap written as COPY/BOOT does.</li>
+    <li>With Alt held: <b>Alt+F1 / F2</b> a pane&#39;s disk list &middot; <b>Alt+F3</b> compare two files side by side, what they have in common skipped: the two marked on this pane, or one marked on each pane whatever they are named, or - nothing marked - the file under the cursor against the file of that name on the other pane. Text when both read as text, bytes when either does not; there <b>F1</b> changes that, <b>F2</b> hides or shows the stretches they agree on, <b>F4</b> and <b>F5</b> the encoding of the left and of the right file, <b>F6</b> goes to the next place they differ, <b>F7</b> searches through both at once - whichever comes first - <b>F3</b> repeats that search without asking again, and <b>Alt</b> with any of the three goes the other way &middot; <b>Alt+F5</b> gather the marked files into a logical disk (a file the system mounts: <code>MOUNT LD0: DZn:NAME.DSK</code>) &middot; <b>Alt+F6</b> protect the marked files, or unprotect them &middot; <b>Alt+F7</b> find by pattern on every disk &middot; <b>Alt+F8</b> undelete the file an unused area was (the OS&#39;s DELETE leaves its name, length, date and data), or Recover a bare area as a file &middot; <b>Alt+F9</b> make the pane&#39;s floppy a bootable system volume of the other pane&#39;s disk: the kit copied and protected, the marked files with it, the bootstrap written as COPY/BOOT does.</li>
     <li>Enter on a logical disk opens it like a directory (Backspace back out); its files are viewed, copied and deleted there, and the changes go back into the file, which grows as needed.</li>
     <li>A protected file is deleted or moved only after one more Yes / No.</li>
-    <li>Viewer: <b>F1</b> text / octal / hex &middot; <b>F2</b> wrap at 80 &middot; <b>F4</b> the encoding (ASCII, KOI-8R, KOI-7, CP866) &middot; <b>F5</b> go to a line &middot; <b>F7</b> search bytes. Editor: <b>F2</b> save, <b>F8</b> replace / insert.</li>
+    <li>Viewer: <b>F1</b> text / octal / hex &middot; <b>F2</b> wrap at 80 &middot; <b>F4</b> the encoding (ASCII, KOI-8R, KOI-7, CP866) &middot; <b>F5</b> go to a line &middot; <b>F7</b> search, <b>F3</b> the same again without asking, <b>Alt</b> with either backwards. Editor: <b>F2</b> save, <b>F8</b> replace / insert.</li>
     </ul>
     <h3>Your data</h3>
     <ul>

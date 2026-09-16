@@ -15,11 +15,25 @@
 // - so a copy may land on the same disk under another name, and a rename
 // to another disk is a move.  The viewer's keys, as mc's:
 // F1 text / octal / hex in turn, F2 wrap / unwrap at the machine's 80
-// columns, F3 and F10 back, F4 the encoding (ASCII, KOI-8R, KOI-7, KOI-7
+// columns, F10 and Esc back, F4 the encoding (ASCII, KOI-8R, KOI-7, KOI-7
 // with the РУС / ЛАТ shifts ^N / ^O, CP866 in turn), F5 go to a line, F7 search (a string in the encoding; a byte
-// sequence in hex / octal), the hit scrolled to and marked.  The editor's:
+// sequence in hex / octal), F3 the same search again without being asked -
+// Alt with either goes back up the file - the hit scrolled to and marked.  The editor's:
 // F1 the representation, F2 save, F4 the encoding, F5 go to, F7 search, F8
 // replace / insert (bytes), F10 back.
+//
+// Alt+F3 compares two files side by side: the two marked on the active pane,
+// or one marked on each pane whatever they are named, or - nothing marked -
+// the file under the cursor against the file of that name on the other pane.
+// Its keys: F1 text / octal / hex, F2 the stretches they agree on hidden or
+// shown, F4 and F5 the encoding of the left and of the right file, F6 the
+// next place they differ, F7 a search through both at once - whichever comes
+// first - F3 that search again without being asked, and Alt with any of the
+// three goes the other way; F10 or Esc back.  What the two have in common is skipped, so that what differs is all
+// that is left to read - and an equal part is found again where it has moved
+// to another line or another offset (diff.js), which is what keeps the two
+// columns beside each other after an insertion.  Text when both files read
+// as text, bytes when either does not; F1 changes that, F4 the encoding.
 //
 // A file that holds an RT-11 directory when read linearly - a logical disk
 // - is entered with Enter as if a directory: ".." (or Backspace) leads out.
@@ -29,6 +43,7 @@
 //           unmounted around a write), say, onClose }.
 import { ByteEditor, decodeBytes, encodeText } from "./edit.js?v=@STAMP@";
 import { makeZip } from "./zip.js?v=@STAMP@";
+import { lineChunks, byteChunks, alignedRuns, within } from "./diff.js?v=@STAMP@";
 
 // A source's volume kind for the disk API: 0 a DZ floppy side, 1 a
 // linear HD/LD container or logical disk, 2 a DV: whole-disk volume,
@@ -37,6 +52,8 @@ const volOf = (s) => s.vol ?? (s.linear ? 1 : 0);
 
 const LATIN_NAME = /^[A-Z0-9$]{1,6}(\.[A-Z0-9$]{1,3})?$/;
 const DEV_NAME = /^(?:([A-Z]+\d*):(?:([A-Z0-9$.]+)\/)?)?\s*([A-Z0-9$.]+)$/;   // "DZ1:NAME.EXT", "DZ1:VOL.DSK/NAME.EXT" or "NAME.EXT"
+const NEWLINE = String.fromCharCode(10);
+const MAX_DIFF_ROWS = 4000;          // a compare view longer than this is not read, only waited for
 const ENCODINGS = [["ascii", "ASCII"], ["koi8-r", "KOI-8R"], ["koi7", "KOI-7"], ["koi7s", "KOI-7 РУС/ЛАТ"], ["ibm866", "CP866"]];
 
 const el = (tag, cls, text) => {
@@ -137,9 +154,16 @@ export class Commander {
     this.vtext.tabIndex = 0;                          // the arrows and PgUp / PgDn scroll it
     this.vedit = el("div", "fm-edit");
     this.viewer.append(this.vname, this.vtext, this.vedit, this.vbar);
+    this.diff = el("div", "fm-viewer");
+    this.diff.hidden = true;
+    this.dname = el("div", "fm-dhead");
+    this.dbody = el("div", "fm-diff");
+    this.dbody.tabIndex = 0;                          // the arrows and PgUp / PgDn scroll it
+    this.dbar = el("div", "fm-bar");
+    this.diff.append(this.dname, this.dbody, this.dbar);
     this.dlg = el("div", "fm-dialog");
     this.dlg.hidden = true;
-    this.root.append(panes, this.bar, this.viewer, this.dlg);
+    this.root.append(panes, this.bar, this.viewer, this.diff, this.dlg);
     this.dialog = null;            // { resolve, input } while a dialog is up
   }
 
@@ -310,7 +334,8 @@ export class Commander {
     this.drawBar(this.bar, [
       ["Left", "another disk on the left pane", () => this.changeDisk(0)],
       ["Right", "another disk on the right pane", () => this.changeDisk(1)],
-      [], [],
+      ["Compare", "two files side by side, what they have in common skipped: the two marked here, or one marked on each pane, or this one against the file of that name on the other pane", () => this.compare()],
+      [],
       ["Volume", "the files gathered into a logical disk (a file the system mounts: MOUNT LD0: DZn:NAME)", () => this.makeVolume()],
       ["(Un)Protect", "the files /PROTECT - or /NOPROTECT when every one of them is", () => this.protect()],
       ["Find", "a pattern looked for on every mounted disk", () => this.find()],
@@ -382,7 +407,11 @@ export class Commander {
   }
 
   // F10 / Esc: the page's Files button closes the commander (and shows the screen).
-  close() { this.v = null; this.viewer.hidden = true; this.deps.onClose(); }
+  close() {
+    this.v = null; this.viewer.hidden = true;
+    this.d = null; this.diff.hidden = true;
+    this.deps.onClose();
+  }
 
   activate(i) { this.active = i; for (const [k, p] of this.panes.entries()) p.pane.classList.toggle("active", k === i); }
 
@@ -586,6 +615,7 @@ export class Commander {
     if (this.dialog) { this.dialogKey(e); return; }
     if (e.key === "Alt") { e.preventDefault(); this.altBar(true); return; }
     if (this.v) { this.viewerKey(e); return; }
+    if (this.d) { this.diffKey(e); return; }
     if (e.altKey) { this.altKey(e); return; }
     const p = this.panes[this.active];
     const acts = { F1: () => this.upload(), F2: () => this.download(), F3: () => this.view(), F4: () => this.edit(),
@@ -607,6 +637,7 @@ export class Commander {
   // The keys with Alt held.
   altKey(e) {
     const acts = { F1: () => this.changeDisk(0), F2: () => this.changeDisk(1),
+                   F3: () => this.compare(),
                    F5: () => this.makeVolume(), F6: () => this.protect(), F7: () => this.find(), F8: () => this.recover(),
                    F9: () => this.makeSystem() };
     const a = acts[e.key];
@@ -997,6 +1028,464 @@ export class Commander {
     input.click();
   }
 
+  // ── comparing two files ─────────────────────────────────────────────────
+  // Alt+F3.  Which two, in the order they are asked for:
+  //   two files marked on the active pane - those two, and the other pane is
+  //     not consulted at all;
+  //   one marked here and one marked there - those two, whatever they are
+  //     named, which is how two files of different names are compared;
+  //   nothing marked - the file under the cursor against the file of that
+  //     name on the other pane, the everyday case of one disk against
+  //     another.
+  // It says no rather than showing something useless: to more than two
+  // marked, to a name the other pane has not, and to two panes on the one
+  // disk, where a file would only be compared with itself.
+  comparePair() {
+    const p = this.panes[this.active];
+    if (!p.source) throw new Error("this pane holds no disk");
+    const list = this.targets();
+    if (list.length > 2) throw new Error(`two files are compared, and ${list.length} are marked`);
+    if (list.length === 2) return list.map((c) => ({ source: c.source, file: c.file }));
+    if (!list.length) throw new Error("nothing here to compare");
+    const other = this.panes[this.active ^ 1];
+    if (!other.source) throw new Error("the other pane holds no disk");
+    const here = p.files.filter((f) => !f.empty && p.marks.has(f.name));
+    const there = other.files.filter((f) => !f.empty && other.marks.has(f.name));
+    if (here.length === 1 && there.length === 1) {
+      if (sameSource(p.source, other.source) && here[0].name === there[0].name)
+        throw new Error(`${here[0].name} is the one file: it would be compared with itself`);
+      return [{ source: p.source, file: here[0] }, { source: other.source, file: there[0] }];
+    }
+    if (sameSource(p.source, other.source))
+      throw new Error("both panes show the same disk: mark the two files to compare");
+    const name = list[0].file.name;
+    const twin = other.files.find((f) => !f.empty && !f.up && f.name === name);
+    if (!twin) throw new Error(`${name} is not on ${other.source.dev} ${other.source.name}`);
+    return [{ source: p.source, file: list[0].file }, { source: other.source, file: twin }];
+  }
+
+  // d: { a, b (each { source, file, bytes }), repr: "text" | "hex" | "oct",
+  //      encA, encB, skip, rows, shown, query, back, from: { a, b }, hit,
+  //      at (the difference being walked) }.
+  // Text when both files read as text, bytes when either does not, since
+  // lines mean nothing in a binary.  Each side is read in its own encoding -
+  // the same text in two of them compares equal, which is the use for it.
+  compare() {
+    const [x, y] = this.comparePair();
+    const a = { ...x, bytes: this.bytesOf(x.source, x.file.name) };
+    const b = { ...y, bytes: this.bytesOf(y.source, y.file.name) };
+    const textA = looksLikeText(a.bytes), textB = looksLikeText(b.bytes);
+    this.d = { a, b, repr: textA && textB ? "text" : "oct",
+               encA: textA ? guessEncoding(a.bytes) : "ascii",
+               encB: textB ? guessEncoding(b.bytes) : "ascii",
+               skip: true, rows: [], shown: [], query: "", back: false,
+               from: { a: 0, b: 0 }, hit: null, at: null };
+    this.altBar(false);
+    this.diff.hidden = false;
+    this.showDiff();
+    this.dbody.focus();
+  }
+
+  leaveDiff() {
+    this.d = null;
+    this.diff.hidden = true;
+    this.focusList();
+  }
+
+  diffKey(e) {
+    const acts = { F1: () => this.cycleDiffRepr(), F2: () => this.toggleSkip(),
+                   F3: () => this.searchDiff(e.altKey, true),
+                   F4: () => this.cycleDiffEncoding("A"), F5: () => this.cycleDiffEncoding("B"),
+                   F6: () => this.nextDifference(e.altKey), F7: () => this.searchDiff(e.altKey),
+                   F10: () => this.leaveDiff(), Escape: () => this.leaveDiff() };
+    const a = acts[e.key];
+    if (!a) return;
+    e.preventDefault(); e.stopPropagation();
+    this.run(a);
+  }
+
+  // The same scroll place kept across a change of representation, as a
+  // fraction of the way down: the rows change shape, so there is nothing
+  // exact to keep.
+  redrawDiff(change) {
+    const frac = this.diffScrolled();
+    change();
+    this.d.hit = null;
+    this.d.at = null;
+    this.d.from = { a: 0, b: 0 };
+    this.showDiff();
+    this.diffScrollTo(frac);
+  }
+
+  cycleDiffRepr() {
+    const order = ["text", "oct", "hex"];
+    this.redrawDiff(() => {
+      this.d.repr = order[(order.indexOf(this.d.repr) + 1) % order.length];
+      this.d.query = "";              // what was typed for one representation is not a query in another
+    });
+  }
+
+  cycleDiffEncoding(side) {
+    const ids = ENCODINGS.map(([id]) => id);
+    const key = "enc" + side;
+    this.redrawDiff(() => { this.d[key] = ids[(ids.indexOf(this.d[key]) + 1) % ids.length]; });
+  }
+
+  // F2: the stretches the two files agree on hidden, or shown entire.
+  toggleSkip() {
+    this.redrawDiff(() => { this.d.skip = !this.d.skip; });
+  }
+
+  diffScrolled() {
+    const range = this.dbody.scrollHeight - this.dbody.clientHeight;
+    return range > 0 ? this.dbody.scrollTop / range : 0;
+  }
+
+  diffScrollTo(frac) {
+    this.dbody.scrollTop = frac * (this.dbody.scrollHeight - this.dbody.clientHeight);
+  }
+
+  // A row put a third of the way down, so what is around it is in view too.
+  showRow(i) {
+    const row = this.dbody.children[i];
+    if (!row) return;
+    this.dbody.scrollTop = Math.max(0, row.offsetTop - this.dbody.offsetTop - this.dbody.clientHeight / 3);
+  }
+
+  // F6 / Alt+F6: the next place the two differ, or the one before it.  The
+  // view keeps which difference it is standing on rather than working from
+  // the scroll, so that stepping forward and back walks the same list; a
+  // change of representation, of encoding or of what is hidden puts it back
+  // to the start.
+  nextDifference(back = false) {
+    const d = this.d;
+    const step = back ? -1 : 1;
+    const at = d.at ?? -1;
+    for (let i = at + step; i >= 0 && i < d.shown.length; i += step)
+      if (d.shown[i].kind === "diff") { d.at = i; this.showRow(i); return; }
+    const from = back ? d.shown.length - 1 : 0;
+    for (let i = from; i >= 0 && i < d.shown.length; i += step)
+      if (d.shown[i].kind === "diff") {
+        d.at = i;
+        this.showRow(i);
+        this.deps.say(back ? "from the end again" : "from the top again");
+        return;
+      }
+    throw new Error("the two files are the same all through");
+  }
+
+  // ── the search: both files at once ──────────────────────────────────────
+  // One query looked for in the two of them together, and the hit is
+  // whichever comes first in the view - so pressing it again walks down the
+  // two files as one, and Alt+F7 walks back up.  Each side keeps its own
+  // place, so a side passed over is not lost: its turn comes when the other
+  // has run past it.
+  // F7 asks what to look for; F3 looks for it again without asking, and Alt
+  // with either goes the other way.  Nothing looked for yet: F3 asks that
+  // once, and never again.  Where the search goes on from is the hit it is
+  // standing on, so turning round walks back over what was passed; only a
+  // new query, or a search that found nothing, starts at the end of the
+  // files again.
+  async searchDiff(back = false, again = false) {
+    const d = this.d;
+    let query = d.query;
+    if (!again || !query) {
+      query = await this.ask(d.repr === "text" ? "Search:"
+                             : `Search bytes (${d.repr === "oct" ? "octal" : "hex"}, spaces between):`,
+                             { title: back ? "Search back" : "Search", input: d.query });
+      if (!query) return;
+    }
+    if (query !== d.query) { d.query = query; d.hit = null; }
+    d.back = back;
+    d.from = d.hit ? this.behind(d.hit) : back ? this.endPlaces() : this.startPlaces();
+    const found = d.repr === "text" ? this.searchText(query, back) : this.searchBytes(query, back);
+    if (!found) {
+      const more = !!d.hit;
+      d.hit = null;                               // the next press starts over, from the other end
+      await this.sayNoMore(query, back, more, "either file");
+      return;
+    }
+    d.hit = found;
+    if (d.skip && !d.shown.includes(d.rows[found.row])) {
+      d.skip = false;                             // the hit is in a stretch that was hidden
+      this.deps.say("the hit was in what is skipped: showing everything");
+    }
+    this.showDiff();
+    const shown = d.shown.indexOf(d.rows[found.row]);
+    d.at = shown;
+    this.showRow(shown);
+  }
+
+  // A search that reaches the end with nothing says so in a dialog of its
+  // own rather than in the line under the panes, which is easy to miss when
+  // the eye is on the text.  `more` tells the two cases apart: nothing
+  // further this way, or nothing anywhere.
+  async sayNoMore(query, back, more, where) {
+    const what = more ? `no more ${back ? "above" : "below"}` : `not in ${where}`;
+    await this.showDialog(`"${query}" - ${what}.`, { title: "Search", buttons: [["OK", true]] });
+  }
+
+  startPlaces() { return { a: 0, b: 0 }; }
+
+  // Past the end of either file, so that a backward search starts at the end.
+  endPlaces() {
+    const d = this.d;
+    return d.repr === "text"
+      ? { a: d.lines.a.length - 1, b: d.lines.b.length - 1 }
+      : { a: d.a.bytes.length - 1, b: d.b.bytes.length - 1 };
+  }
+
+  // Where each side goes on from, once the search has landed on `found`: the
+  // hit itself for its own side, and for the other the same row, so that
+  // neither side is walked past what the eye has reached.
+  behind(found) {
+    const d = this.d, step = d.back ? -1 : 1;
+    const out = {};
+    for (const side of ["a", "b"]) {
+      const cell = d.rows[found.row][side];
+      const here = side === found.side ? found.pos
+                 : cell ? (d.repr === "text" ? cell.n - 1 : cell.off)
+                 : d.from[side] - step;
+      out[side] = here + step;
+    }
+    return out;
+  }
+
+  // A hit as the view needs it: the row it is in, the side, where in that
+  // row's own text or bytes it sits, and the place in that file it is at.
+  searchText(query, back) {
+    const d = this.d, want = query.toLowerCase();
+    const found = [];
+    for (const side of ["a", "b"]) {
+      const lines = d.lines[side];
+      const step = back ? -1 : 1;
+      for (let i = d.from[side]; i >= 0 && i < lines.length; i += step) {
+        const line = lines[i].toLowerCase();
+        const at = back ? line.lastIndexOf(want) : line.indexOf(want);
+        if (at < 0) continue;
+        const row = d.rows.findIndex((r) => r[side] && r[side].n === i + 1);
+        if (row < 0) continue;
+        found.push({ row, side, at, len: query.length, pos: i });
+        break;
+      }
+    }
+    return earliest(found, back);
+  }
+
+  searchBytes(query, back) {
+    const d = this.d;
+    const base = d.repr === "oct" ? 8 : 16;
+    const seq = query.trim().split(SPACES).map((t) => parseInt(t, base));
+    if (!seq.length || seq.some((b) => !(b >= 0 && b < 256)))
+      throw new Error("not a byte sequence in the digits shown");
+    const found = [];
+    for (const side of ["a", "b"]) {
+      const bytes = d[side].bytes;
+      const off = findSeq(bytes, seq, d.from[side], back);
+      if (off < 0) continue;
+      const row = d.rows.findIndex((r) => r[side] && off >= r[side].off && off < r[side].off + r[side].bytes.length);
+      if (row < 0) continue;
+      found.push({ row, side, at: off - d.rows[row][side].off, len: seq.length, pos: off });
+    }
+    return earliest(found, back);
+  }
+
+  // ── the rows the compare view is made of ────────────────────────────────
+  // A row holds one line (or one row of sixteen bytes) of each side, set
+  // beside each other.  Over a "pair" run the two sides advance together, so
+  // they can be read across; at a "gap" one side has more than the other and
+  // each gets its own rows.  A stretch of rows equal on both sides longer
+  // than a few is then collapsed into one line saying what it skipped -
+  // unless F2 says to show everything.
+  diffRows() {
+    const d = this.d;
+    return d.repr === "text" ? this.textRows() : this.byteRows();
+  }
+
+  textRows() {
+    const d = this.d;
+    const a = textOf(d.a.bytes, d.encA).split(NEWLINE);
+    const b = textOf(d.b.bytes, d.encB).split(NEWLINE);
+    const rows = [];
+    const put = (ai, bi) => {
+      const x = ai === null ? null : { n: ai + 1, text: a[ai] };
+      const y = bi === null ? null : { n: bi + 1, text: b[bi] };
+      const equal = !!x && !!y && x.text === y.text;
+      rows.push({ kind: equal ? "equal" : "diff", units: 1, diffs: equal ? 0 : 1, a: x, b: y,
+                  mark: !equal && x && y ? within(x.text, y.text) : null });
+    };
+    for (const r of alignedRuns(lineChunks(a, b))) {
+      if (r.kind === "gap") {
+        const n = Math.max(r.aLen, r.bLen);
+        for (let k = 0; k < n; ++k)
+          put(k < r.aLen ? r.aStart + k : null, k < r.bLen ? r.bStart + k : null);
+      } else {
+        for (let k = 0; k < r.len; ++k) put(r.aStart + k, r.bStart + k);
+      }
+    }
+    return { rows, unit: "lines", lines: { a, b } };
+  }
+
+  byteRows() {
+    const d = this.d, W = 16;
+    const A = d.a.bytes, B = d.b.bytes;
+    const rows = [];
+    const cell = (buf, off, len) => len <= 0 ? null : { off, bytes: buf.subarray(off, off + len) };
+    for (const r of alignedRuns(byteChunks(A, B))) {
+      if (r.kind === "gap") {
+        const n = Math.max(r.aLen, r.bLen);
+        for (let k = 0; k < n; k += W)
+          rows.push({ kind: "diff", units: Math.min(W, n - k), diffs: Math.min(W, n - k),
+                      a: cell(A, r.aStart + k, Math.min(W, r.aLen - k)),
+                      b: cell(B, r.bStart + k, Math.min(W, r.bLen - k)) });
+      } else {
+        for (let k = 0; k < r.len; k += W) {
+          const len = Math.min(W, r.len - k);
+          const x = cell(A, r.aStart + k, len), y = cell(B, r.bStart + k, len);
+          let diffs = 0;
+          for (let t = 0; t < len; ++t) if (x.bytes[t] !== y.bytes[t]) ++diffs;
+          rows.push({ kind: diffs ? "diff" : "equal", units: len, diffs, a: x, b: y });
+        }
+      }
+    }
+    return { rows, unit: "bytes" };
+  }
+
+  // The equal stretches shortened: a few rows either side of them kept, the
+  // middle replaced by a line saying how much of the file is passed over.
+  collapse(rows, context, unit) {
+    const out = [];
+    let i = 0;
+    while (i < rows.length) {
+      if (rows[i].kind !== "equal") { out.push(rows[i++]); continue; }
+      let j = i;
+      while (j < rows.length && rows[j].kind === "equal") ++j;
+      if (j - i > 2 * context + 1) {
+        let skipped = 0;
+        for (let k = i + context; k < j - context; ++k) skipped += rows[k].units;
+        out.push(...rows.slice(i, i + context));
+        out.push({ kind: "skip", note: `${skipped} ${unit} the same` });
+        out.push(...rows.slice(j - context, j));
+      } else {
+        out.push(...rows.slice(i, j));
+      }
+      i = j;
+    }
+    return out;
+  }
+
+  // ── the compare view drawn ──────────────────────────────────────────────
+  showDiff() {
+    const d = this.d;
+    const { rows, unit, lines } = this.diffRows();
+    d.rows = rows;
+    d.unit = unit;
+    d.lines = lines ?? null;
+    const list = d.skip ? this.collapse(rows, unit === "lines" ? 3 : 2, unit) : rows;
+    const differs = rows.reduce((n, r) => n + (r.diffs ?? 0), 0);
+    const total = rows.reduce((n, r) => n + r.units, 0);
+
+    const head = el("div", "fm-diff-row fm-diff-head");
+    for (const side of ["a", "b"]) {
+      const s = d[side];
+      const enc = ENCODINGS.find(([id]) => id === (side === "a" ? d.encA : d.encB))[1];
+      head.append(el("div", "fm-diff-cell", `${s.source.dev} ${s.file.name}  (${s.bytes.length} bytes)  ${enc}`));
+    }
+    const note = el("div", "fm-diff-note",
+                    differs ? `${differs} of ${total} ${unit} differ` : "the two files are the same");
+    this.dname.replaceChildren(head, note);
+
+    const body = document.createDocumentFragment();
+    d.shown = [];
+    for (const row of list) {
+      if (d.shown.length >= MAX_DIFF_ROWS) {
+        const more = el("div", "fm-diff-row skip");
+        more.append(el("div", "fm-diff-skip", "too long to draw the rest of"));
+        body.append(more);
+        break;
+      }
+      const line = el("div", "fm-diff-row " + row.kind);
+      if (row.kind === "skip") {
+        line.append(el("div", "fm-diff-skip", row.note));
+      } else {
+        for (const side of ["a", "b"]) {
+          const cell = el("div", "fm-diff-cell" + (row[side] ? "" : " gone"));
+          cell.innerHTML = d.repr === "text" ? this.textCell(row, side) : this.byteCell(row, side);
+          line.append(cell);
+        }
+      }
+      d.shown.push(row);
+      body.append(line);
+    }
+    this.dbody.className = "fm-diff" + (d.repr === "text" ? "" : " bytes");
+    this.dbody.replaceChildren(body);
+    this.dbody.scrollTop = 0;
+    this.drawDiffBar();
+  }
+
+  // Where the search landed, in the row being drawn - it is marked in place
+  // of the difference, which the row's own colour still shows.
+  hitIn(row, side) {
+    const h = this.d.hit;
+    return h && h.side === side && this.d.rows[h.row] === row ? h : null;
+  }
+
+  textCell(row, side) {
+    const c = row[side];
+    if (!c) return "";
+    const num = String(c.n).padStart(5, " ") + "  ";
+    const hit = this.hitIn(row, side);
+    if (hit) {
+      return escapeHtml(num + c.text.slice(0, hit.at)) + '<mark class="found">'
+             + escapeHtml(c.text.slice(hit.at, hit.at + hit.len)) + "</mark>"
+             + escapeHtml(c.text.slice(hit.at + hit.len));
+    }
+    if (row.kind !== "diff") return escapeHtml(num + c.text);
+    // A line only one side has: the whole of it is the difference.
+    if (!row.mark) return escapeHtml(num) + "<mark>" + escapeHtml(c.text) + "</mark>";
+    const head = Math.min(row.mark.head, c.text.length);
+    const end = Math.max(head, side === "a" ? row.mark.aEnd : row.mark.bEnd);
+    return escapeHtml(num + c.text.slice(0, head)) + "<mark>" + escapeHtml(c.text.slice(head, end))
+           + "</mark>" + escapeHtml(c.text.slice(end));
+  }
+
+  byteCell(row, side) {
+    const c = row[side];
+    if (!c) return "";
+    const d = this.d;
+    const width = d.repr === "oct" ? 3 : 2, base = d.repr === "oct" ? 8 : 16;
+    const other = row[side === "a" ? "b" : "a"];
+    const hit = this.hitIn(row, side);
+    const nums = [...c.bytes].map((v, k) => {
+      const t = v.toString(base).padStart(width, "0");
+      if (hit && k >= hit.at && k < hit.at + hit.len) return `<mark class="found">${t}</mark>`;
+      return row.kind === "diff" && (!other || other.bytes[k] !== v) ? `<mark>${t}</mark>` : t;
+    }).join(" ");
+    const pad = " ".repeat((16 - c.bytes.length) * (width + 1));
+    const enc = side === "a" ? d.encA : d.encB;
+    const chars = [...c.bytes].map((v) => escapeHtml(v < 32 || v === 127 ? "." : decodeBytes(Uint8Array.of(v), enc))).join("");
+    return c.off.toString(8).padStart(6, "0") + "  " + nums + pad + "  " + chars;
+  }
+
+  drawDiffBar() {
+    const d = this.d;
+    const enc = (id) => ENCODINGS.find(([x]) => x === id)[1];
+    const reprLabel = { text: "Text", hex: "Hex", oct: "Octal" }[d.repr];
+    this.drawBar(this.dbar, [
+      [reprLabel, "compared as text, as octal, as hex in turn", () => this.cycleDiffRepr()],
+      [d.skip ? "Show same" : "Skip same", "the stretches the two agree on hidden, or shown entire", () => this.toggleSkip()],
+      ["Again", "the last search again, without asking - with Alt, backwards", () => this.searchDiff(false, true)],
+      ["L " + enc(d.encA), "the encoding the left file is read in", () => this.cycleDiffEncoding("A")],
+      ["R " + enc(d.encB), "the encoding the right file is read in", () => this.cycleDiffEncoding("B")],
+      ["Next", "the next place the two differ - with Alt, the one before it", () => this.nextDifference()],
+      ["Search", (d.repr === "text" ? "a string, in either file, whichever comes first"
+                                    : "a byte sequence in the digits shown, in either file")
+                 + " - with Alt, backwards", () => this.searchDiff()],
+      [null], [null],
+      ["Quit", "back to the files (Esc too)", () => this.leaveDiff()],
+    ]);
+  }
+
   // ── the viewer and the editor ───────────────────────────────────────────
   // v: { mode: "view" | "edit", repr: "text" | "hex" | "oct", enc, wrap,
   //      insert, source, file, bytes (as read), textarea | editor,
@@ -1007,7 +1496,7 @@ export class Commander {
       if (mode === "edit") throw new Error("an unused area is viewed (F3), not edited");
       const bytes = this.areaBytes(p.source, f.i);
       this.v = { mode, repr: "oct", enc: "ascii", wrap: true, insert: false, source: p.source,
-                 file: { name: `< UNUSED >${f.was ? "  " + f.was : ""}`, blocks: f.blocks }, bytes, textarea: null, editor: null, query: "", hit: null };
+                 file: { name: `< UNUSED >${f.was ? "  " + f.was : ""}`, blocks: f.blocks }, bytes, textarea: null, editor: null, query: "", back: false, hit: null };
       this.viewer.hidden = false;
       this.showRepr();
       this.vtext.scrollTop = 0;
@@ -1019,7 +1508,7 @@ export class Commander {
     const bytes = this.bytesOf(c.source, c.file.name);
     const text = looksLikeText(bytes);
     this.v = { mode, repr: text ? "text" : "oct", enc: text ? guessEncoding(bytes) : "ascii", wrap: true, insert: false,
-               source: c.source, file: c.file, bytes, textarea: null, editor: null, query: "", hit: null };
+               source: c.source, file: c.file, bytes, textarea: null, editor: null, query: "", back: false, hit: null };
     this.viewer.hidden = false;
     this.showRepr();
     this.vtext.scrollTop = 0;
@@ -1065,11 +1554,7 @@ export class Commander {
     this.drawViewerBar();
   }
 
-  asText(bytes) {
-    let end = bytes.length;
-    while (end > 0 && (bytes[end - 1] === 0 || bytes[end - 1] === 26)) --end;   // the block padding
-    return decodeBytes(bytes.subarray(0, end), this.v.enc).replace(/\r\n?/g, "\n");
-  }
+  asText(bytes) { return textOf(bytes, this.v.enc); }
 
   // The view: the text, or the dump, with the search hit marked.
   renderView(bytes) {
@@ -1110,11 +1595,11 @@ export class Commander {
       [reprLabel, "text, octal, hex in turn", () => this.cycleRepr()],
       view ? (v.repr === "text" ? [v.wrap ? "Unwrap" : "Wrap", "long lines at the machine's 80 columns", () => this.toggleWrap()] : [null])
            : ["Save", "the file written back", () => this.save()],
-      view ? ["Quit", "back to the files (Esc too)", () => this.leaveViewer()] : [null],
+      ["Again", "the last search again, without asking - with Alt, backwards", () => this.search(false, true)],
       [encLabel, "the encoding: ASCII, KOI-8R, KOI-7, KOI-7 with the РУС / ЛАТ shifts, CP866 in turn", () => this.cycleEncoding()],
       ["Goto", "a line (text) or an offset (bytes)", () => this.goto()],
       [null],
-      ["Search", v.repr === "text" ? "a string, in the encoding" : "a byte sequence in the digits shown", () => this.search()],
+      ["Search", (v.repr === "text" ? "a string, in the encoding" : "a byte sequence in the digits shown") + " - with Alt, backwards", () => this.search()],
       !view && v.repr !== "text" ? [v.insert ? "Insert" : "Replace", "typing over, or inserting", () => this.toggleInsert()] : [null],
       [null],
       ["Quit", "back to the files (Esc too)", () => this.leaveViewer()],
@@ -1125,7 +1610,7 @@ export class Commander {
     const v = this.v, view = v.mode === "view";
     const acts = { F1: () => this.cycleRepr(),
                    F2: () => view ? (v.repr === "text" && this.toggleWrap()) : this.save(),
-                   F3: () => view && this.leaveViewer(), F4: () => this.cycleEncoding(), F5: () => this.goto(), F7: () => this.search(),
+                   F3: () => this.search(e.altKey, true), F4: () => this.cycleEncoding(), F5: () => this.goto(), F7: () => this.search(e.altKey),
                    F8: () => !view && v.repr !== "text" && this.toggleInsert(),
                    F10: () => this.leaveViewer(), Escape: () => this.leaveViewer() };
     const a = acts[e.key];
@@ -1194,7 +1679,10 @@ export class Commander {
   // Text, octal, hex in turn - a binary starts at octal, so octal, hex, text.
   cycleRepr() {
     const order = ["text", "oct", "hex"];
-    this.rekey(() => { this.v.repr = order[(order.indexOf(this.v.repr) + 1) % order.length]; });
+    this.rekey(() => {
+      this.v.repr = order[(order.indexOf(this.v.repr) + 1) % order.length];
+      this.v.query = "";              // what was typed for one representation is not a query in another
+    });
   }
 
   toggleWrap() {
@@ -1238,29 +1726,34 @@ export class Commander {
 
   // F7: a string in the encoding, or - in hex / octal - a byte sequence
   // ("101 102 077"); the next hit after the last one, marked and shown.
-  async search() {
+  // F7 asks what to look for; F3 looks for it again without asking, and Alt
+  // with either goes the other way.  Nothing looked for yet: F3 asks that
+  // once, and never again.  The search goes on from the hit it is standing
+  // on, so turning round walks back over what was passed.
+  async search(back = false, again = false) {
     const v = this.v;
-    const query = await this.ask(v.repr === "text" ? "Search:" : `Search bytes (${v.repr === "oct" ? "octal" : "hex"}, spaces between):`, { title: "Search", input: v.query });
-    if (!query) return;
-    const from = v.hit && query === v.query ? v.hit.at + 1 : 0;
-    v.query = query;
+    let query = v.query;
+    if (!again || !query) {
+      query = await this.ask(v.repr === "text" ? "Search:" : `Search bytes (${v.repr === "oct" ? "octal" : "hex"}, spaces between):`,
+                             { title: back ? "Search back" : "Search", input: v.query });
+      if (!query) return;
+    }
+    if (query !== v.query) { v.query = query; v.hit = null; }
     if (v.repr === "text") {
       const text = v.textarea ? v.textarea.value : this.asText(this.currentBytes());
-      const at = text.toLowerCase().indexOf(query.toLowerCase(), from);
-      if (at < 0) throw new Error(`"${query}" not found${from ? " below" : ""}`);
+      const from = v.hit ? (back ? v.hit.at - 1 : v.hit.at + 1) : (back ? text.length : 0);
+      const want = query.toLowerCase(), hay = text.toLowerCase();
+      const at = back ? hay.lastIndexOf(want, from) : hay.indexOf(want, from);
+      if (at < 0) { const more = !!v.hit; v.hit = null; await this.sayNoMore(query, back, more, "this file"); return; }
       this.showAt(at, query.length, text);
     } else {
       const base = v.repr === "oct" ? 8 : 16;
-      const seq = query.trim().split(/[\s,]+/).map((t) => parseInt(t, base));
+      const seq = query.trim().split(SPACES).map((t) => parseInt(t, base));
       if (!seq.length || seq.some((b) => !(b >= 0 && b < 256))) throw new Error("not a byte sequence in the digits shown");
       const bytes = this.currentBytes();
-      let at = -1;
-      for (let i = from; i + seq.length <= bytes.length; ++i) {
-        let k = 0;
-        while (k < seq.length && bytes[i + k] === seq[k]) ++k;
-        if (k === seq.length) { at = i; break; }
-      }
-      if (at < 0) throw new Error(`the bytes not found${from ? " below" : ""}`);
+      const from = v.hit ? (back ? v.hit.at - 1 : v.hit.at + 1) : (back ? bytes.length : 0);
+      const at = findSeq(bytes, seq, from, back);
+      if (at < 0) { const more = !!v.hit; v.hit = null; await this.sayNoMore(query, back, more, "this file"); return; }
       this.showAt(at, seq.length);
     }
   }
@@ -1334,6 +1827,51 @@ const CANCEL = Symbol("cancel");     // a guard's "stop the whole operation"
 // other unreadable bytes give nothing.
 // The way back: a field typed in the dialog as the OS's terminal would
 // store it - KOI-8R when it has anything beyond ASCII.
+// A file as text: the padding of its last block dropped, the machine's line
+// ends made the page's.
+const SPACES = /[\s,]+/;
+
+// Of the places found on either side, the one the view reaches first: by the
+// row, and within one row the left side before the right - the other way
+// about when the search is running backwards.
+function earliest(found, back = false) {
+  found.sort((x, y) => x.row - y.row || (x.side === y.side ? x.at - y.at : x.side === "a" ? -1 : 1));
+  return (back ? found[found.length - 1] : found[0]) ?? null;
+}
+
+// Where a byte sequence sits at or after `from` - or at or before it, going
+// back; -1 when it is nowhere.
+function findSeq(bytes, seq, from, back = false) {
+  const last = bytes.length - seq.length;
+  const at = (i) => {
+    let k = 0;
+    while (k < seq.length && bytes[i + k] === seq[k]) ++k;
+    return k === seq.length;
+  };
+  if (back) {
+    for (let i = Math.min(from, last); i >= 0; --i) if (at(i)) return i;
+    return -1;
+  }
+  for (let i = Math.max(0, from); i <= last; ++i) if (at(i)) return i;
+  return -1;
+}
+
+function textOf(bytes, enc) {
+  let end = bytes.length;
+  while (end > 0 && (bytes[end - 1] === 0 || bytes[end - 1] === 26)) --end;
+  return decodeBytes(bytes.subarray(0, end), enc).replace(/\r\n?/g, "\n");
+}
+
+function escapeHtml(t) {
+  return t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+
+// Two panes on the one volume: a file there would only be compared with
+// itself.
+function sameSource(x, y) {
+  return !!x && !!y && x.path === y.path && (x.side ?? 0) === (y.side ?? 0) && volOf(x) === volOf(y);
+}
+
 function homeBytes(text) {
   return encodeText(text, /[^\x00-\x7F]/.test(text) ? "koi8-r" : "ascii");
 }
