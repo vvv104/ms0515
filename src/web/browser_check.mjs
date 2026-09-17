@@ -81,6 +81,19 @@ const painted = (p) => black(p) > 150000 && p.frames > 0;
 await send("Page.enable");
 await send("Runtime.enable");
 await send("Page.navigate", { url: url + (url.includes("?") ? "&" : "?") + "autostart=1" });
+
+// Everything loaded, the machine not yet started: a browser makes no sound
+// until it has been touched, so rather than boot deaf the page puts up a play
+// arrow and waits.  A visitor clicks it; so does this.
+const arrow = async () => await evaluate('(() => { const b = document.getElementById("start"); if (!b || b.hidden) return null; const r = b.getBoundingClientRect(); return { x: (r.x + r.width / 2) | 0, y: (r.y + r.height / 2) | 0 }; })()');
+let at = null;
+for (let i = 0; i < 60 && !at; ++i) { await sleep(500); at = await arrow(); }
+if (!at) throw new Error("the page never offered to start the machine");
+if (await evaluate("window.__ms().frames") !== 0) throw new Error("the machine started before it could be heard");
+console.log("the play arrow is up; clicking it");
+await send("Input.dispatchMouseEvent", { type: "mousePressed", x: at.x, y: at.y, button: "left", clickCount: 1 });
+await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: at.x, y: at.y, button: "left", clickCount: 1 });
+
 let peek = await settle("the date prompt", painted);
 console.log(`after boot: frames ${peek.frames}, running ${peek.running}, colours ${peek.colours}, status "${peek.status}"`);
 
@@ -155,6 +168,12 @@ await evaluate('document.getElementById("save").click()');
 await sleep(1500);
 console.log(`save: "${await evaluate("window.__ms().status")}"`);
 await send("Page.navigate", { url: url + (url.includes("?") ? "&" : "?") + "autostart=1" });
+let again = null;
+for (let i = 0; i < 60 && !again; ++i) { await sleep(500); again = await arrow(); }
+if (again) {
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x: again.x, y: again.y, button: "left", clickCount: 1 });
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: again.x, y: again.y, button: "left", clickCount: 1 });
+}
 const booted = await settle("the reloaded page", painted);
 await evaluate('document.getElementById("restore").click()');
 await sleep(1500);

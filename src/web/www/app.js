@@ -72,6 +72,7 @@ let running = false, lastTick = 0, acc = 0;
 let audio = null, speaker = null, audioStats = null;   // the worklet's counters, for __ms()
 let booted = false;                 // the machine has been started, by the page or by hand
 const RETURN = String.fromCharCode(13);
+const WAIT_FOR_SOUNDS = 8000;       // ms the boot gives the drive's recordings
 let frames = 0, speakerTransitions = 0;   // the speaker's level changes, summed over the frames
 let halted = false;                        // the CPU stopped on a HALT: the bug-report button says so
 let joystick = null;                       // the MS7007-port joystick (joystick.js)
@@ -496,9 +497,9 @@ function hdRows() {
     for (let i = 2; own.has(name); ++i) name = `hd${size}m-${i}.img`;
     await addOwn(name, new Uint8Array(size * 1048576));
     await mountHd(name);
-    hint(`${name} is the HD now: Boot, then INIT HD: in the guest makes it a volume`);
+    hint(`${name} is the HD now: Reset, then INIT HD: in the guest makes it a volume`);
   }, "a zero-filled image; the guest initialises it"));
-  const hint = el("div", "hint", "RT-11 installs HD.SYS at boot: mount, then Boot (the development disk has the handler)");
+  const hint = el("div", "hint", "RT-11 installs HD.SYS at boot: mount, then Reset (the development disk has the handler)");
   return [row, make, hint];
 }
 
@@ -538,7 +539,7 @@ async function boot() {
   setHalted(false);
   saveMounts();
   const disk = slots.fd[unitOf(0, 0)];
-  if (!disk) hint("nothing in drive A: open its panel, pick an image, Boot again");
+  if (!disk) hint("nothing in drive A: open its panel, pick an image, Reset");
   else hint(SHIPPED.get(disk)?.hint || "the machine boots from drive A side 0");
   start();
 }
@@ -661,7 +662,7 @@ async function restoreState() {
   const rec = await stateGet();
   if (!rec) { say("no saved state: press \"Save state\" first"); return; }
   if (rec.rom && rec.rom !== $("rom").value) {
-    say(`the state was saved with ROM ${rec.rom.toUpperCase()}: pick it, Boot, then Restore`);
+    say(`the state was saved with ROM ${rec.rom.toUpperCase()}: pick it, Reset, then Restore`);
     return;
   }
   M.FS.writeFile(STATE_PATH, rec.bytes);
@@ -730,9 +731,20 @@ let driveSoundsLoaded = false, driveSoundsPending = null;
 async function loadDriveSounds() {
   if (driveSoundsLoaded) return true;
   const list = await fetch("sounds/index.json").then((r) => r.ok ? r.json() : []);
+  // Asked for together, not one after another.  Ninety-three of them, and
+  // over the network a request costs about two hundred milliseconds whatever
+  // it carries: in a row that is nineteen seconds, and the machine is waiting
+  // on them.  Together they are here in one.  A file that does not come is
+  // left out rather than losing the rest.
+  const files = await Promise.all(list.map(async (path) => {
+    const bytes = await fetch("sounds/" + path)
+      .then((r) => r.ok ? r.arrayBuffer() : null).catch(() => null);
+    return bytes ? [path, new Uint8Array(bytes)] : null;
+  }));
   let got = 0;
-  for (const path of list) {
-    const bytes = new Uint8Array(await fetch("sounds/" + path).then((r) => r.arrayBuffer()));
+  for (const file of files) {
+    if (!file) continue;
+    const [path, bytes] = file;
     const ptr = M._malloc(bytes.length);
     M.HEAPU8.set(bytes, ptr);
     got += api.driveSound(h, path.slice(path.lastIndexOf("/") + 1), ptr, bytes.length);
@@ -1159,14 +1171,39 @@ async function main() {
 // The machine is not started before its sounds are there.  The drive's
 // recordings are a megabyte and a half and arrive a moment after the page
 // does; a machine started ahead of them did its whole boot - the seek, the
-// Restore - with nothing to play it through, and the visitor pressed Boot a
+// Restore - with nothing to play it through, and the visitor pressed Reset a
 // second time to hear it.  So the boot waits for them, and for nothing else:
 // the browser's own rule, that a page makes no noise until it has been
 // touched, is not something to keep the machine waiting on.
 async function autostart() {
+  $("spin").hidden = false;
   if (driveSoundsPending) {
     say("the drive's recordings are on their way…");
-    await driveSoundsPending;
+    // Waited for, but not indefinitely: on a line slow enough that they take
+    // this long, a machine that never starts is worse than one that starts
+    // quietly, and they will be in by the next boot anyway.
+    await Promise.race([driveSoundsPending, new Promise((go) => setTimeout(go, WAIT_FOR_SOUNDS))]);
+  }
+  // A browser lets no page make a sound until it has been touched, so a
+  // machine started on opening does the whole of its boot - the seek, the
+  // Restore, the ROM's beep - in silence.  Rather than start it deaf, the
+  // page says it is ready and asks for that one touch; a visitor the browser
+  // already trusts (it does once they have been here before) never sees this,
+  // because the sound is running before the question arises.
+  if (audio && audio.state !== "running") {
+    $("spin").hidden = true;
+    $("start").hidden = false;
+    say("ready: one click starts the machine, so that you hear it as well as see it");
+    await new Promise((go) => {
+      const look = () => {
+        if (!audio || audio.state === "running" || booted) { audio?.removeEventListener("statechange", look); go(); }
+      };
+      audio.addEventListener("statechange", look);
+      $("start").onclick = () => { resumeSound(); look(); };
+      look();
+    });
+    $("start").hidden = true;
+    $("spin").hidden = false;
   }
   if (!booted) await boot();
 }
