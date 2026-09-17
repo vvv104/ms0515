@@ -70,6 +70,8 @@ let M, h, api;
 let image, pcmBuf;
 let running = false, lastTick = 0, acc = 0;
 let audio = null, speaker = null, audioStats = null;   // the worklet's counters, for __ms()
+let booted = false;                 // the machine has been started, by the page or by hand
+const RETURN = String.fromCharCode(13);
 let frames = 0, speakerTransitions = 0;   // the speaker's level changes, summed over the frames
 let halted = false;                        // the CPU stopped on a HALT: the bug-report button says so
 let joystick = null;                       // the MS7007-port joystick (joystick.js)
@@ -524,6 +526,8 @@ function lamps() {
 
 // ── the machine ────────────────────────────────────────────────────────────
 async function boot() {
+  booted = true;
+  $("spin").hidden = false;
   say("loading…");
   stop();
   keyboard.reset();
@@ -540,6 +544,7 @@ async function boot() {
 }
 
 function start() {
+  $("spin").hidden = true;                 // whatever was being waited for is here
   if (running) return;
   running = true;
   lastTick = performance.now();
@@ -707,11 +712,21 @@ function queueAudio() {
   speaker.port.postMessage(chunk, [chunk.buffer]);
 }
 
+// Fetched as soon as the drive is to be heard at all - they are bytes for the
+// module and want no audio context, so they need not wait for one to be built.
+// The boot waits for this, and only this.
+function fetchDriveSounds() {
+  if (!$("sndDrive").checked || driveSoundsLoaded || driveSoundsPending) return;
+  driveSoundsPending = loadDriveSounds()
+    .then(() => soundBoxes(!!audio))
+    .catch(() => hint("the drive's recordings are not on this page"));
+}
+
 // The drive's recordings: a megabyte and a half of WAV files, fetched once the
 // drive's box is ticked - which it is when the page opens - and handed to the
 // module as bytes: it parses them itself, the same parser the desktop build
 // uses.  Nothing waits for them.
-let driveSoundsLoaded = false;
+let driveSoundsLoaded = false, driveSoundsPending = null;
 async function loadDriveSounds() {
   if (driveSoundsLoaded) return true;
   const list = await fetch("sounds/index.json").then((r) => r.ok ? r.json() : []);
@@ -790,9 +805,7 @@ async function toggleSound() {
   saveSound();
   // The drive's recordings are a megabyte and a half; the beeper and the
   // keyboard are not made to wait for them, and neither is the boot.
-  if ($("sndDrive").checked && !driveSoundsLoaded)
-    loadDriveSounds().then(() => soundBoxes(true))
-                     .catch(() => hint("the drive's recordings are not on this page"));
+  fetchDriveSounds();
 }
 
 // The gesture the browser waits for is any of the ones the machine gets
@@ -1123,6 +1136,10 @@ async function main() {
   $("sndSpeaker").checked = wish.speaker;
   $("sndDrive").checked = wish.drive;
   $("sndKbd").checked = wish.kbd;
+  // The recordings first, so that the boot below has something to wait for:
+  // building the audio context takes a turn of its own, and the boot used to
+  // win that race and run silently.
+  if (wish.on) fetchDriveSounds();
   // Started, not awaited, and not fail(): a page served over plain http has no
   // AudioWorklet, and that is a reason for the button to stay off rather than
   // for an error on the screen - and nothing here may hold up the boot.
@@ -1132,11 +1149,26 @@ async function main() {
   const q = new URLSearchParams(location.search);
   if (q.get("speed")) setSpeed(q.get("speed"), false);   // `speed=200`: for this visit only
   if (q.get("autostart") !== "0") {
-    boot().then(() => {
+    autostart().then(() => {
       // `type=`: a command for the monitor, after the boot (delay= ms, 3000)
-      if (q.get("type")) typing.type("\r" + q.get("type") + "\r", +(q.get("delay") ?? 3000));
+      if (q.get("type")) typing.type(RETURN + q.get("type") + RETURN, +(q.get("delay") ?? 3000));
     }).catch(fail);
   }
+}
+
+// The machine is not started before its sounds are there.  The drive's
+// recordings are a megabyte and a half and arrive a moment after the page
+// does; a machine started ahead of them did its whole boot - the seek, the
+// Restore - with nothing to play it through, and the visitor pressed Boot a
+// second time to hear it.  So the boot waits for them, and for nothing else:
+// the browser's own rule, that a page makes no noise until it has been
+// touched, is not something to keep the machine waiting on.
+async function autostart() {
+  if (driveSoundsPending) {
+    say("the drive's recordings are on their way…");
+    await driveSoundsPending;
+  }
+  if (!booted) await boot();
 }
 
 // A peek for scripted checks (the CI's browser run): the frame count, the
