@@ -84,6 +84,13 @@ await send("Page.navigate", { url: url + (url.includes("?") ? "&" : "?") + "auto
 let peek = await settle("the date prompt", painted);
 console.log(`after boot: frames ${peek.frames}, running ${peek.running}, colours ${peek.colours}, status "${peek.status}"`);
 
+// The machine waits for the drive's recordings, so that the boot it does on
+// opening is one the visitor can hear; by the time it has drawn a frame they
+// are in, and the spinner that stood over the screen is gone.
+if (!peek.driveSounds) throw new Error("the machine started before the drive's recordings were in");
+if (await evaluate('document.getElementById("spin").hidden') !== true)
+  throw new Error("the spinner is still over a running machine");
+
 // Sound is on when the page opens.  Before anything has been touched a
 // browser allows no more than a suspended context, so that is what this
 // asserts; the Return below is the gesture that starts it for real.
@@ -101,9 +108,7 @@ for (let i = 0; i < 20 && peek.sound !== "running"; ++i) { await sleep(250); pee
 if (peek.sound !== "running") throw new Error(`a key did not start the sound: ${peek.sound}`);
 console.log(`sound after a key: ${peek.sound}`);
 
-// And the drive's recordings, which the page fetches for itself on opening.
-for (let i = 0; i < 40 && !peek.driveSounds; ++i) { await sleep(250); peek = await evaluate("window.__ms()"); }
-if (!peek.driveSounds) throw new Error("the drive's recordings never loaded");
+
 const textBefore = white(peek);
 console.log(`at the prompt: frames ${peek.frames}, colours ${peek.colours}, black ${black(peek)}, white ${textBefore}`);
 

@@ -111,6 +111,12 @@
   #joy.fire .firehint { background: rgba(255,120,120,.35); color: #fff; }
   /* The screen at 8:5 in whatever the header and the footer leave. */
   #screen { display: block; width: min(100cqw, 160cqh); background: #000; image-rendering: pixelated; image-rendering: crisp-edges; }
+  /* While the machine is being put together: the module, the ROM, the disk
+     and the drive's recordings.  Over the screen, which is black by then. */
+  #spin { position: absolute; width: 44px; height: 44px; border: 4px solid #2a3a5a; border-top-color: #8ab;
+          border-radius: 50%; animation: spin 1s linear infinite; pointer-events: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { #spin { animation-duration: 3s; } }
   footer { display: flex; gap: 1em; align-items: baseline; padding: .25em .75em .5em; color: #999; white-space: nowrap; overflow: hidden; }
   #status { color: #bbb; overflow: hidden; text-overflow: ellipsis; }
   footer summary { cursor: pointer; color: #8ab; }
@@ -231,6 +237,7 @@
 </header>
 <main>
   <canvas id="screen" width="640" height="400"></canvas>
+  <div id="spin" aria-label="loading"></div>
   <div id="fm" hidden></div>
   <input id="softkey" type="text" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" aria-label="keyboard input">
   <div id="joy" hidden>
