@@ -281,6 +281,7 @@
     <h3>Your data</h3>
     <ul>
     <li>Disks you write to stay in this browser (IndexedDB). <b>Download</b> saves a copy, <b>Revert</b> returns a shipped disk to its original, <b>Delete</b> removes one of yours.</li>
+    <li>The published page counts visits (GoatCounter): that a page was opened, which browser and system it was opened in, and from which country and which link. No cookie is set, nothing identifies you, and no address is stored. Nothing else about the machine you run here leaves the browser.</li>
     <li><b>Save state</b> keeps the machine itself - its memory and CPU as they are - so <b>Restore</b> brings it back after a reload, or another day. It needs the ROM it was saved with and the images it had mounted. One state is kept; saving again replaces it.</li>
     </ul>
     <h3>Bug report</h3>
@@ -303,5 +304,25 @@
       "browsers do not run a module from file://";
 </script>
 <script type="module" src="app.js?v=@STAMP@"></script>
+<script>
+  // How many people open this page, and what they open it in.  GoatCounter
+  // counts the visit and, from the request the browser makes anyway, the
+  // browser, the system and the country; it keeps no cookie, asks nothing of
+  // the visitor and stores no address.  Told about in the help, under "Your
+  // data".
+  //
+  // COUNTER is the site it reports to, and only the published page has one:
+  // a local build, a copy opened from disk and anybody's fork count nothing
+  // and fetch nothing, because none of them is served from here.  A fork that
+  // wants its own numbers puts its own host and its own site in.
+  const COUNTER = location.hostname === "vvv104.github.io" ? "vvv104" : "";
+  if (COUNTER && location.protocol !== "file:") {
+    const count = document.createElement("script");
+    count.async = true;
+    count.dataset.goatcounter = `https://${COUNTER}.goatcounter.com/count`;
+    count.src = "https://gc.zgo.at/count.js";
+    document.head.append(count);
+  }
+</script>
 </body>
 </html>

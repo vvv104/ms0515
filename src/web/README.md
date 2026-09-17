@@ -37,6 +37,21 @@ site, <https://vvv104.github.io/ms0515/>, is deployed by
 source is "GitHub Actions", and the `github-pages` environment allows the
 `v*` tags to deploy (its branch policy: `main` and the tag rule `v*`).
 
+## Who opens it
+
+The published page counts visits with [GoatCounter](https://www.goatcounter.com):
+the visit itself, and out of the request a browser makes anyway, the browser,
+the system and the country it came from, with the referring link.  No cookie,
+nothing that identifies a visitor, no address kept.  The help under "Your
+data" says so on the page itself.
+
+`COUNTER` at the foot of `www/index.html` is the site it reports to, and only
+the published page has one: it is set when the page is served from the host
+the site lives on, and is empty anywhere else.  So a local build, a copy
+opened from disk and anybody's fork fetch nothing and count nothing, with
+nothing to configure.  A fork that wants its own numbers puts its own host and
+its own site code in that one line.
+
 ## Check
 
 `node src/web/smoke.mjs build/emscripten-release/web/dist` boots the OSA
