@@ -1,0 +1,2 @@
+# The patches apply to DEC files with LF line ends: keep them as they are.
+patches/* -text
