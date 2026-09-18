@@ -17,4 +17,3 @@ STAR$T	= 1		;Startup command file
 OM$EXA	= 1		;This build: Omega's monitor exactly (see OMEGA.MAC)
 OM$RUS	= 1		;Omega's two strings in Russian (OMRUS.MAC)
 OM$BLK	= 1		;The cursor blink through ROM-B (OMBLNK.MAC)
-OM$HLD	= 1		;SET TT HOLD's flipped bit (KMOVLY, see README)

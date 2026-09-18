@@ -2,11 +2,16 @@
 of SYSGEN answers and the Omega modules, the way SYSGEN.COM's MONBLD does
 it, with the real MACRO and LINK inside the emulator.
 
-    python build_monitor.py [OUTDIR] [--profile omega|dec] [PART...]
+    python build_monitor.py [OUTDIR] [--profile omega|omega2|dec] [--list]
+                            [PART...]
 
-The profile picks the answers: omega - Omega's monitor exactly (SYCND.MAC),
-dec - DEC's RT-11 on the MS 0515 (SYCDEC.MAC); see OMEGA.MAC.  PARTs
-(BTSJ, RMSJ, KMSJ, TBSJ) assemble just those, without the LINK.
+The profile picks the answers: omega - the 059 Omega monitor (SYCND.MAC),
+omega2 - the vvv104 one (SYCOM2.MAC), dec - DEC's RT-11 on the MS 0515
+(SYCDEC.MAC); see OMEGA.MAC.  --list has MACRO write the listings, for
+taking a difference apart (where.py, regions.py); without them MACRO shows
+the lines in error and "?MACRO-E-Errors detected: n" on the terminal, and
+the build takes about 95 s instead of 115.  PARTs (BTSJ,
+RMSJ, KMSJ, TBSJ) assemble just those, without the LINK.
 
 The DEC sources come from the ms0515-software collection: $MS0515_SOFTWARE,
 else ../ms0515-software beside this repository (sources/rt11-v5.4).  Files
@@ -157,6 +162,9 @@ def main() -> int:
         i = args.index("--profile")
         profile = args[i + 1]
         del args[i:i + 2]
+    listings = "--list" in args
+    if listings:
+        args.remove("--list")
     if profile not in ANSWERS:
         raise SystemExit(f"no profile {profile!r}: {', '.join(ANSWERS)}")
     out = Path(args[0]) if args else Path(tempfile.gettempdir()) / "omega_monitor"
@@ -185,7 +193,8 @@ def main() -> int:
             if only and obj not in only:
                 continue
             t0 = time.time()
-            text = rt.command(f"MACRO/OBJECT:{obj}/LIST:{obj} {pre}+{'+'.join(files)}",
+            lst = f"/LIST:{obj}" if listings else ""
+            text = rt.command(f"MACRO/OBJECT:{obj}{lst} {pre}+{'+'.join(files)}",
                               timeout=3600, ignore_errors=True)
             log.append(text)
             (out / f"{obj}.out").write_text(text, encoding="utf-8")
@@ -198,7 +207,8 @@ def main() -> int:
         emu.dump(out / "session.log")
         emu.kill()
         shutil.rmtree(tmp, ignore_errors=True)
-    disk("get", image, "--hd", "--out", out, "*.OBJ", "*.LST", "*.MAP", "*.SYG")
+    disk("get", image, "--hd", "--out", out, "*.OBJ", *(["*.LST"] if listings else []),
+         "*.MAP", "*.SYG")
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     print("outputs in", out)
     return 0

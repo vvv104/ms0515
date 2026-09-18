@@ -5,7 +5,7 @@
 # the traps a T-11 does not take are taken by hand; memory up to 154000;
 # no option probes and no KT-11 set-up - CONFIG says the clock exists; the
 # console's input at 130; the keyboard rows reset; the vectors of the
-# machine's devices silenced; START.COM as the startup file (OMBOOT.MAC).
+# machine's devices silenced (OMBOOT.MAC).
 
 diff --git a/BSTRAP.MAC b/BSTRAP.MAC
 index f3bc451..5155492 100644

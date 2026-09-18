@@ -28,17 +28,23 @@ The same sources give three monitors, chosen by `--profile` (the answers
 file sets `OM$EXA` and the flags of one build, see `OMEGA.MAC`):
 
 - **`omega`** (`SYCND.MAC`, `OM$EXA = 1`, `OM$RUS = 1`) - Omega's monitor
-  (`systems/omega.dsk`) byte for byte: the reference every change is
-  checked against.
-- **`omega2`** (`SYCOM2.MAC`: `omega`'s answers, `OM$BLK = 1`,
-  `OM$HLD = 1`) - the other Omega build, of the vvv104 disks
-  (`systems/omega2.dsk`), byte for byte; see "The vvv104 build" below.
+  as the 059 disk has it (`RT11SJ.SYS` sha `ad6d31b`, the same on 062 and
+  063) byte for byte: the reference every change is checked against.
+- **`omega2`** (`SYCOM2.MAC`: `omega`'s answers and `OM$BLK = 1`) - the
+  other Omega build, of the vvv104 disks (sha `2c1f616`: `disk3`, `h0`,
+  `PAPER`'s head 0); see "The vvv104 build" below.
+
+The collection's `systems/omega.dsk` and `systems/omega2.dsk` carry these
+monitors with one byte of the collection's own changed: the startup
+command baked into the bootstrap, `@STARTS` made `@START` (see the
+collection's `systems/README.md`).  The originals, like DEC's, start with
+`STARTS.COM`, and so do the builds here.
 - **`dec`** (`SYCDEC.MAC`, `OM$EXA = 0`) - DEC's RT-11 V5.4 SJ on the MS 0515,
   the owner's aim: only what the machine needs, DEC's own SYSGEN answers
   (`SJFB.CND`: user command linkage on, no "(S)" in the banner),
   `STARTS.COM`.  Out of Omega's changes it leaves the decoding trap (no
   program of the collection carries its pair), the NOP and HALT filler
-  and the repeated CONFIG bits, START.COM and the Russian strings (the
+  and the repeated CONFIG bits, and the Russian strings (the
   banner reads DEC's `RT-11SJ`); it keeps the 8-bit terminal
   for Cyrillic (the owner's choice), and DEC's interrupt priorities (4 for
   the terminal, 6 for the clock, where Omega has 7: DEC's run the same
@@ -64,12 +70,11 @@ dec, `STARTS.COM`).  Both boot, list, copy and run programs.
 | 02 | - | **protected vectors**: `LOWMAP` also protects 070, 130, 160, 164 and the words 300-306, 320-336 |
 | 03 | `OMCONS.MAC` | **the console through the ROM**: pseudo-registers at 300-306, keys (`160004`) and characters (`160000`) through the ROM, the monitor interrupt as the output interrupt, 8-bit keys and characters for KOI-8, SO/SI shown at once, the MS 7007 rows released after each key and EMT (RMON, USR, KMON), both terminal interrupts at priority 7 |
 | 04 | `OMCLOK.MAC` | **the clock**: each tick reads 177770 twice and runs the floppy motor's time-out (off 100 ticks after the last use); the clock interrupt at priority 7 |
-| 05 | `OMBOOT.MAC` | **the bootstrap**: the timer interrupt on from the start and acknowledged in the bootstrap's handlers; priority 7 for the clock, the traps and the terminal output; the traps a T-11 does not take (no PSW address, no KT-11) taken by hand; memory sized up to 154000; no option probes and no KT-11 set-up - CONFIG says the clock exists; the console's input at vector 130; the keyboard rows reset; vectors 140, 070, 104, 134, 110 silenced; stop on an 11/23 or a J-11; `START.COM` as the startup file |
+| 05 | `OMBOOT.MAC` | **the bootstrap**: the timer interrupt on from the start and acknowledged in the bootstrap's handlers; priority 7 for the clock, the traps and the terminal output; the traps a T-11 does not take (no PSW address, no KT-11) taken by hand; memory sized up to 154000; no option probes and no KT-11 set-up - CONFIG says the clock exists; the console's input at vector 130; the keyboard rows reset; vectors 140, 070, 104, 134, 110 silenced; stop on an 11/23 or a J-11 |
 | 06 | `OMRUS.MAC` | **two strings in Russian** (`OM$RUS`): see below |
 | 07 | `OMBLNK.MAC` | **the cursor blink** (the vvv104 build only, `OM$BLK`): the clock interrupt counts ticks in a word of its own and calls the ROM's slot 160014 every sixteenth |
-| 08 | - | **SET TT HOLD's flipped bit** (the vvv104 build only, `OM$HLD`): see below |
 
-KMON's overlays are DEC's, unchanged (in the vvv104 build, but for one bit).
+KMON's overlays are DEC's, unchanged.
 
 The SYSGEN answers account for the rest of what differs from DEC's
 distributed monitors - above all no user command linkage (`U$CL`), which
@@ -96,10 +101,11 @@ monitor.
 
 ## The vvv104 build
 
-The collection's `systems/omega2.dsk` (the vvv104 disks) carries another
-build of the same monitor: the same banner, the same SYSGEN answers, and
-two differences.  The `omega2` profile is its `RT11SJ.SYS` byte for byte,
-all 40960 bytes.
+The vvv104 disks (the collection's `systems/omega2.dsk`) carry another
+build of the same monitor: the same banner, the same SYSGEN answers, one
+difference in the code, and one flipped bit that came with its copies.
+The `omega2` profile is its `RT11SJ.SYS` but for that bit, which it
+builds as DEC's.
 
 - **The cursor blink** (`OMBLNK.MAC`).  At the head of the clock
   interrupt's DEC part, before DEC's `TIKCTR`, the monitor counts ticks in
@@ -115,8 +121,9 @@ all 40960 bytes.
   copy of this monitor has it - the images of PAPER, PBF and LANG, the vvv104
   raw reads of disks 1 and 3, baspasfor - and no other monitor does (omega,
   OSA, Mihin, Rodionov have `DEC R3`).  So the bit flipped in the copy all of
-  them were made from, before they spread.  The profile keeps it to stay
-  exact; nothing else takes it.
+  them were made from, before they spread: an error that came with the
+  copies, not a part of the build, so the profile builds DEC's `DEC R3`
+  and differs from the original monitor in that one byte (067171).
 
   Searched for an unflipped copy everywhere: every image, file and
   unpacked archive of the collection and the recovery work, and every
@@ -146,7 +153,7 @@ Omega, without the blink, runs on either ROM.
 
 | tool | what |
 |---|---|
-| `build_monitor.py [OUTDIR]` | the build; `$OMEGA_WORK` names a folder of working copies to build from instead of the patches |
+| `build_monitor.py [OUTDIR] [--profile P] [--list]` | the build (about 95 s; `--list` adds the listings `where.py` and `regions.py` read, 115 s); `$OMEGA_WORK` names a folder of working copies to build from instead of the patches |
 | `compare.py BUILT OMEGA [--diff]` | per-block and aligned comparison with Omega's monitor |
 | `regions.py BUILDDIR OMEGA PART` | every difference of one part, Omega's code beside DEC's source |
 | `deltas.py BUILT OMEGA PART` | the changed single words of a part by their delta: a run of equal deltas is a shifted pointer |
@@ -170,6 +177,7 @@ link addresses where the running monitor has `MTPS`.
 
 ## Where it stands
 
-Complete for both Omega builds: profile `omega` is `systems/omega.dsk`'s
-monitor byte for byte, profile `omega2` is `systems/omega2.dsk`'s.  Next:
+Complete for both Omega builds: profile `omega` is the 059 Omega monitor
+byte for byte, profile `omega2` the vvv104 one but for its flipped bit.
+Next:
 the monitors of OSA, Mihin and Rodionov.

@@ -127,7 +127,8 @@ checked on the other kits:
   so a stray interrupt through them is ignored.  It also sets dispatcher
   bit 9, the timer interrupt, at boot; whether it stays on on ОМЕГА (on
   ОСА the timer runs only inside the floppy handler, see below) is not
-  checked.  The startup file is `START.COM`.
+  checked.  The startup file is DEC's `STARTS.COM` (the collection's
+  system disks patch the monitor to run `START.COM`).
 - **A trap to 10 on the reserved pair 176401,176402** is not an error on
   ОМЕГА: the monitor decodes the memory from the stack pointer up (each
   word XORed with a key counting up from the trapped PC and its bytes

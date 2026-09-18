@@ -23,13 +23,11 @@
 ;   timer interrupt is on from the start);
 ; - installs the console's input interrupt at 130, the MS 7004's vector,
 ;   and the output interrupt at 064 at priority 7;
-; - starts RT-11 with START.COM (SUFX$S);
 ; - points the vectors the T-11 and the machine's devices may interrupt
 ;   through - 140 (DEC's FALCON break vector), 070, 104, 134 and 110 - at
 ;   an RTI of their own (the vector's PS word is 2, an RTI) and protects
 ;   them (OMIGNV).
 ;
-.IIF NE OM$EXA, SUFX$S = 40	;Omega's startup file: START.COM, not STARTS.COM
 V.TKB	== 130		;The console's input: the MS 7004's vector
 V.TPS	== 134		; and its neighbour (CLNUP silences it: output
 			; interrupts come through 064, the monitor's)
