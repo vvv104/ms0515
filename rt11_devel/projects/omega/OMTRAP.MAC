@@ -10,7 +10,7 @@
 ; unlock it.  Any other trap to 10 goes on as DEC's, its C bit restored.
 ;
 .MACRO	OMTRAP	?A,?B,?C
-	BHI	TRAPRT		;C clear: a trap to 4
+	BCC	TRAPRT		;C clear: a trap to 4
 	MOV	R0,-(SP)
 	MOV	2(SP),R0	;The trapped PC, past the first word
 	CMP	-2(R0),#176401	;The pair?

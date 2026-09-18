@@ -74,6 +74,57 @@ the staging of files); this covers the program.
 - Everything below 01000 is RT-11's: the vectors and the system
   communication area.  The stack starts at 01000 and grows down.
 
+## What the monitor adds to DEC's
+
+The kits' monitors (ОМЕГА, ОСА and those made from them) are SYSGENs of
+DEC's RT-11 V5.4 sources with the machine's own code added; the Omega
+build's additions, rebuilt as modules over DEC's sources, are in
+`rt11_devel/projects/omega/`.  What a program meets of them - read out of
+the ОМЕГА monitor; ОСА's console code is the same, the rest is not yet
+checked on the other kits:
+
+- **The console is the ROM's.**  RT-11's console registers (`TTKS`...,
+  RMON+304..312) point at pseudo-registers at 300-306, not a DL11.  The
+  ROM has entry points for it: `CALL @#160000` writes the character in
+  R0; `CALL @#160004` returns the next key in R0, **C set when there is
+  none**.  A program may call them itself.
+- **The terminal is 8-bit**: DEC stripped bit 7 of every key and
+  character, the kits keep it, so KOI-8 letters pass both ways.  SO (016)
+  and SI (017), the РУС/ЛАТ shifts, go to the ROM's output as they are
+  typed, switching its font.
+- **The output interrupt is the monitor interrupt** (vector 064,
+  dispatcher bit 8, above): RMON sets IENABL in the pseudo-register TTPS
+  and bit 8 of the dispatcher to ask for the next character, clears both
+  when the ring is empty.  The dispatcher is write-only: **the ROM keeps
+  its copy at 157700**, and the monitor changes the copy and writes it
+  out (`BIS #400,@#157700` / `MOV @#157700,@#177400`).  A program that
+  changes the dispatcher should do the same, or the next write from the
+  copy undoes it.
+- The same holds for System Register A (177600, the floppy drive, motor
+  and side): **its copy is at 157720**, with the ROM's disk flags in bits
+  13-15 - bit 15 the motor time-out armed, 14 the drive just used, 13
+  counting.  The monitor's clock interrupt turns the motor off 100 ticks
+  after the drive was last used.
+- **The clock interrupt reads 177770 twice** before anything else (NS4
+  names it the halt and system-timer service address).  The core does
+  not model a read there.
+- **The MS 7007 matrix rows (177540) are released** - written 0 - after
+  every key the monitor takes and every EMT it returns from.
+- The terminal and clock interrupts run at priority 7.
+- **A trap to 10 on the reserved pair 176401,176402** is not an error on
+  ОМЕГА: the monitor decodes the memory from the stack pointer up (each
+  word XORed with a key counting up from the trapped PC and its bytes
+  swapped; 256 words, then 7680 more with the key starting at 176402),
+  then does an `RTI` through the decoded words at 774.  A program can
+  carry its image encoded and have the monitor unlock it.
+- **The T-11 has no PSW address** (177776), so RMON's priority changes are
+  written as a chain: its `SPL`, `GETPSW` and `PUTPSW` macros leave the
+  operands of `MOVB #n,@#PS` and friends in place and put a link to the
+  previous one where the opcode goes (`PSWLST`); the bootstrap follows the
+  chain at boot and writes `MTPS`/`MFPS` in.  The monitor file therefore
+  shows link addresses where the running monitor has `MTPS` - read such
+  code in memory, not in the file.
+
 ## The dispatcher, the VRAM window, the interrupts
 
 The dispatcher is the register at 177400 (`hardware/memory.md`).  What a

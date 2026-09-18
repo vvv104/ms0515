@@ -1,0 +1,28 @@
+# The clock: the timer and the floppy motor
+#
+# Each tick reads the timer service address 177770 twice and runs the
+# floppy motor's time-out: 100 ticks after the drive was last used it is
+# deselected with its motor off, through the ROM's copy of System Register
+# A (OMCLOK.MAC).
+
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+index 033c798..4a178c3 100644
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -2107,6 +2107,7 @@ TIFBLK::BSS	F.BSIZ/2	;FORK BLOCK				;007
+ .ENABL	LSB
+ 
+ LKINT::
++	OMCLOK			;Omega: the timer and the floppy motor
+ .IF EQ	TIME$R								;LP2
+ 	ADC	$TIME+2		;* BUMP LOW ORDER TIME
+ 	ADC	$TIME		;* CARRY INTO HIGH ORDER TIME
+@@ -2118,7 +2119,7 @@ TIKCTR:	 .WORD	0		;					;DV43
+ 	TST	INTLVL		;* Interrupting system?			;DG03
+ 	BGE	EXINT		;* Yes, exit immediately!		;DG03
+ 	JSR	R5,$INTEN	;* DROP TO PRIORITY 6			;DV43
+-	 .WORD	^C<PR6>&PR7	;*					;DV43
++	 .WORD	^C<PR7>&PR7	;Omega: level 7
+ 	RTS	PC		;Return and let $INTEN call TIMER	;DG03
+ 
+ TIMER:	MOV	R3,-(SP)	;*Save register 3			;DG03

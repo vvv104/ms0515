@@ -9,7 +9,6 @@ TIME$R	= 1		;SJ timer support
 RDF$L	= 1		;System I/O error messages
 TTYOUT  = 40.		;Size of the output buffers
 TTYIN   = 134.		;Size of the input buffers
-U$CL	= 1		;User command linkage
 U$TIL	= 1		;Utility commands
 L$ANG	= 1		;Language commands
 M$INI	= 1		;Minimal commands

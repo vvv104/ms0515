@@ -7,3 +7,4 @@
 ;
 	.INCLUDE "SRC:OMTRAP.MAC"	;The decoding trap
 	.INCLUDE "SRC:OMCONS.MAC"	;The console through the ROM
+	.INCLUDE "SRC:OMCLOK.MAC"	;The clock: timer, floppy motor
