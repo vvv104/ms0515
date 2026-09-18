@@ -23,6 +23,7 @@
 ;
 .IIF NDF OM$EXA, OM$EXA = 0
 .IIF NDF OM$BLK, OM$BLK = 0
+.IIF NDF OM$TRP, OM$TRP = 0
 .IIF NDF OM$RUS, OM$RUS = 0
 	.INCLUDE "SRC:OMTRAP.MAC"	;The decoding trap
 	.INCLUDE "SRC:OMCONS.MAC"	;The console through the ROM

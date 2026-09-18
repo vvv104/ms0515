@@ -6,18 +6,24 @@
 # A (OMCLOK.MAC).
 
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index c90e7b0..7cc5d5c 100644
+index 2c70efa..bdcc2c8 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
-@@ -2107,6 +2107,7 @@ TIFBLK::BSS	F.BSIZ/2	;FORK BLOCK				;007
- .ENABL	LSB
+@@ -2114,17 +2114,21 @@ TIFBLK::BSS	F.BSIZ/2	;FORK BLOCK				;007
  
  LKINT::
-+	OMCLOK			;Omega: the timer and the floppy motor
  .IF EQ	TIME$R								;LP2
++	OMTICK	1		;OSA: the timer, read once
  	ADC	$TIME+2		;* BUMP LOW ORDER TIME
  	ADC	$TIME		;* CARRY INTO HIGH ORDER TIME
-@@ -2118,7 +2119,7 @@ TIKCTR:	 .WORD	0		;					;DV43
++	OMMOTR			;OSA: the floppy motor
+ 	RTI
+ 
+ .IFF	;EQ TIME$R							;005
++	OMTICK	2		;Omega: the timer, read twice
++	OMMOTR			;Omega: the floppy motor
+ 	INC	(PC)+		;* BUMP CLOCK TICKER
+ TIKCTR:	 .WORD	0		;					;DV43
  	TST	INTLVL		;* Interrupting system?			;DG03
  	BGE	EXINT		;* Yes, exit immediately!		;DG03
  	JSR	R5,$INTEN	;* DROP TO PRIORITY 6			;DV43

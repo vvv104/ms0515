@@ -74,6 +74,14 @@ A:	CALL	@#CN$OUT
 B:	BIC	#177400,R0	;Eight bits: KOI-8 letters kept
 .ENDM	OMTTIN
 
+.MACRO	OMTTI0			;The same without timer support (OSA): the
+	CALL	@#CN$IN		; key into R0; DEC's SPL 0 follows, then the
+	BCC	TTINXT		; eight bits are cut out (no SO/SI shown)
+	CLRB	@#KBROWS	;None: release the rows
+	JMP	E16XT
+TTINXT:	MOV	R0,@TTKB	;(OMTTIX takes the next one here)
+.ENDM	OMTTI0
+
 .MACRO	OMTTIX	?A		;Leaving it: another key waiting?
 	CALL	@#CN$IN
 	BCS	A
