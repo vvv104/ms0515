@@ -1,0 +1,24 @@
+.SBTTL	SYCDEC	DEC'S RT-11 SJ ON THE MS 0515: THE CONDITIONAL FILE
+;
+; DEC's own answers - its distributed SJ monitor's, SJFB.CND - as far as
+; the machine allows: no FPU (the T-11 has none), none of DEC's devices
+; (the device tables are DEVTBL's, the machine's), a 50-cycle clock (the
+; machine's frame).  No SYSG$N: like DEC's distributed monitor, the banner
+; has no "(S)".  Only what the machine needs of Omega's changes (OM$EXA).
+;
+; One answer differs from DEC's: SJ timer support (TIME$R), which DEC's
+; distributed monitor has not.  The console Omega adapted to the ROM is the
+; terminal code's timer-support variant ($INTEN); DEC's other variant still
+; reads the DL11 the machine lacks, and the monitor halts as it boots.
+;
+TIME$R	= 1		;SJ timer support (the console needs it, above)
+RDF$L	= 1		;System I/O error messages
+TTYOUT  = 40.		;Size of the output buffers
+TTYIN   = 134.		;Size of the input buffers
+U$CL	= 1		;User command linkage
+U$TIL	= 1		;Utility commands
+L$ANG	= 1		;Language commands
+M$INI	= 1		;Minimal commands
+CLOCK	= 50.		;Power line frequency (the MS 0515's frame)
+STAR$T	= 1		;Startup command file
+OM$EXA	= 0		;This build: DEC's RT-11 on the MS 0515 (see OMEGA.MAC)

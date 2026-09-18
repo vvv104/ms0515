@@ -1,8 +1,12 @@
-"""build_monitor.py - build RT11SJ.SYS from DEC's RT-11 V5.4 sources and the
-Omega sysgen's answers (SYCND.MAC, DEVTBL.MAC) the way SYSGEN.COM's MONBLD
-does it, with the real MACRO and LINK inside the emulator.
+"""build_monitor.py - build RT11SJ.SYS from DEC's RT-11 V5.4 sources, a set
+of SYSGEN answers and the Omega modules, the way SYSGEN.COM's MONBLD does
+it, with the real MACRO and LINK inside the emulator.
 
-    python build_monitor.py [OUTDIR]
+    python build_monitor.py [OUTDIR] [--profile omega|dec] [PART...]
+
+The profile picks the answers: omega - Omega's monitor exactly (SYCND.MAC),
+dec - DEC's RT-11 on the MS 0515 (SYCDEC.MAC); see OMEGA.MAC.  PARTs
+(BTSJ, RMSJ, KMSJ, TBSJ) assemble just those, without the LINK.
 
 The DEC sources come from the ms0515-software collection: $MS0515_SOFTWARE,
 else ../ms0515-software beside this repository (sources/rt11-v5.4).  Files
@@ -95,7 +99,10 @@ def disk(*args) -> None:
     subprocess.run([str(DISKTOOL), *map(str, args)], check=True, capture_output=True)
 
 
-def stage(image: Path, files: Path) -> None:
+ANSWERS = {"omega": "SYCND.MAC", "dec": "SYCDEC.MAC"}
+
+
+def stage(image: Path, files: Path, profile: str) -> None:
     """A fresh HD image holding the sources.  An image, not a folder device:
     MACRO's tentative files would stay at their full allocation there."""
     src = dec_sources()
@@ -108,7 +115,8 @@ def stage(image: Path, files: Path) -> None:
     macs = [f"{n}.MAC" for n in sorted(names)]
     tree = patched(macs, src, scratch)
     for n in macs:
-        (files / n).write_bytes(crlf(source(n, tree, src)))
+        data = (HERE / ANSWERS[profile]).read_bytes() if n == "SYCND.MAC" else source(n, tree, src)
+        (files / n).write_bytes(crlf(data))
     for mod in sorted(HERE.glob("OM*.MAC")):       # Omega's modules (.INCLUDEd)
         (files / mod.name).write_bytes(crlf(mod.read_bytes()))
     disk("create", image, "--hd", "--blocks", 30000)
@@ -143,7 +151,15 @@ def link(emu: EmulatorDriver, rt: RT11Session) -> str:
 
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # the guest's KOI-8
-    out =Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.gettempdir()) / "omega_monitor"
+    args = sys.argv[1:]
+    profile = "omega"
+    if "--profile" in args:
+        i = args.index("--profile")
+        profile = args[i + 1]
+        del args[i:i + 2]
+    if profile not in ANSWERS:
+        raise SystemExit(f"no profile {profile!r}: {', '.join(ANSWERS)}")
+    out = Path(args[0]) if args else Path(tempfile.gettempdir()) / "omega_monitor"
     for need in (CLI, ROM, HD_SYS):
         if not need.exists():
             raise SystemExit(f"missing {need}")
@@ -153,7 +169,7 @@ def main() -> int:
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     image = out / "work.hd"
-    stage(image, tmp / "src")
+    stage(image, tmp / "src", profile)
 
     emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
                           "--disk0-side0", boot / "device.rtfs",
@@ -164,7 +180,7 @@ def main() -> int:
         rt = RT11Session(emu)
         rt.boot(timeout=90)
         pre = "+".join(PREFIX)
-        only = sys.argv[2:]          # build just these parts (no LINK)
+        only = args[1:]              # build just these parts (no LINK)
         for obj, files in PARTS.items():
             if only and obj not in only:
                 continue

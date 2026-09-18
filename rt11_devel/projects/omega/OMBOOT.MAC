@@ -29,7 +29,7 @@
 ;   an RTI of their own (the vector's PS word is 2, an RTI) and protects
 ;   them (OMIGNV).
 ;
-SUFX$S	= 40		;The startup file is START.COM, not STARTS.COM
+.IIF NE OM$EXA, SUFX$S = 40	;Omega's startup file: START.COM, not STARTS.COM
 V.TKB	== 130		;The console's input: the MS 7004's vector
 V.TPS	== 134		; and its neighbour (CLNUP silences it: output
 			; interrupts come through 064, the monitor's)
@@ -73,9 +73,19 @@ DS$TMR	= 1000		;Dispatcher bit 9: the timer interrupt on
 	CALL	PROTEC+<STRTOV-B$BOOT>
 .ENDM	OMIGNV
 
-.MACRO	OMCFIG			;The configuration, known
-	.REPT	90.
-	NOP
+.MACRO	OMCFIG			;The configuration, known (BCNFG's first
+.IF NE	OM$EXA			; value says the clock exists; Omega left
+	.REPT	90.		; the room of DEC's probes as NOPs and
+	NOP			; said it again)
 	.ENDR
 	BIS	#CLOCK$,BCNFG
+.ENDC	;NE OM$EXA
 .ENDM	OMCFIG
+
+.MACRO	OMCLK2			;Omega says it a third time, into CONFIG
+.IIF NE OM$EXA,	BIS	#CLOCK$,CONFIG(R4)
+.ENDM	OMCLK2
+
+.MACRO	OMHALT			;Omega stops on a processor that cannot be
+.IIF NE OM$EXA,	HALT		; an MS 0515's
+.ENDM	OMHALT

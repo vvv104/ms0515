@@ -8,7 +8,7 @@
 # machine's devices silenced; START.COM as the startup file (OMBOOT.MAC).
 
 diff --git a/BSTRAP.MAC b/BSTRAP.MAC
-index f3bc451..91128bf 100644
+index f3bc451..603f551 100644
 --- a/BSTRAP.MAC
 +++ b/BSTRAP.MAC
 @@ -168,13 +168,15 @@ REPORT:				;Asect in for error report routine
@@ -50,7 +50,7 @@ index f3bc451..91128bf 100644
  	MFPT			;Test for 23/24, if we trap, QBUS
  	CMPB	R0,#3		;No trap, is this the 11/23 code?
  	BNE	10$		;If no, QBUS, branch
-+	HALT			;Omega: not on an 11/23
++	OMHALT			;Omega: not on an 11/23
  
  ;!!!!!!!!!!!!!!!!  CHECK THIS OUT !!!!!!!!!!!!!!!!!!
  
@@ -58,7 +58,7 @@ index f3bc451..91128bf 100644
  	MFPT			;If trap, we're a Unibus
  	CMPB	R0,#5		;Are we a J11?
  	BNE	30$		;If not, we're a Unibus, branch
-+	HALT			;Omega: not on a J-11
++	OMHALT			;Omega: not on a J-11
  	BIT	#1000,@#177750	;Unibus bit set in J11 maintenance reg?
  	BNE	30$		;If yes, we're a Unibus, branch
  10$:	INC	BUSTYP		;We're a QBUS	
@@ -87,7 +87,7 @@ index f3bc451..91128bf 100644
  	MOV	#0,$RAMSZ(R4)	;Store memory size in 32 word blocks
  TOTMEM	== .-4			;Size of total system memory in blocks
  	BIS	BCNFG,CONFIG(R4) ;Store hardware configuration word in RMON
-+	BIS	#CLOCK$,CONFIG(R4) ;Omega: the clock exists
++	OMCLK2			;Omega: the clock exists
  	BIS	BCNFG2,CONFG2(R4) ;as well as the extension word
  
  .IF NE	MPT$Y

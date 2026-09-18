@@ -14,3 +14,4 @@ L$ANG	= 1		;Language commands
 M$INI	= 1		;Minimal commands
 CLOCK	= 50.		;Power line frequency
 STAR$T	= 1		;Startup command file
+OM$EXA	= 1		;This build: Omega's monitor exactly (see OMEGA.MAC)

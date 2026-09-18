@@ -21,8 +21,10 @@ MT$CNT	= 20000		;Counting
 MT$OFF	= 17		;Drive 3, motor off, upper side
 
 .MACRO	OMCLOK	?A,?B,?C
+.IF NE	OM$EXA
+	NOP			;(Omega left two words of room)
 	NOP
-	NOP
+.ENDC	;NE OM$EXA
 	TST	@#TMRSVC
 	TST	@#TMRSVC
 	TST	@#RGACPY	;Armed?

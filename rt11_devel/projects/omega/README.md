@@ -22,6 +22,28 @@ Omega made - until the build is the Omega monitor byte for byte.
   `patches/series`.  A one-line change of DEC's own line (a constant, a
   priority) is made in the patch itself, commented `Omega:`.
 
+## Two builds: Omega's, and DEC's for the MS 0515
+
+The same sources give two monitors, chosen by `--profile` (the answers
+file sets `OM$EXA`, see `OMEGA.MAC`):
+
+- **`omega`** (`SYCND.MAC`, `OM$EXA = 1`) - Omega's monitor exactly: the
+  reference every change is checked against.
+- **`dec`** (`SYCDEC.MAC`, `OM$EXA = 0`) - DEC's RT-11 V5.4 SJ on the MS 0515,
+  the owner's aim: only what the machine needs, DEC's own SYSGEN answers
+  (`SJFB.CND`: user command linkage on, no "(S)" in the banner),
+  `STARTS.COM`.  Out of Omega's changes it leaves the decoding trap (no
+  program of the collection carries its pair), the NOP and HALT filler
+  and the repeated CONFIG bits, and START.COM; it keeps the 8-bit terminal
+  for Cyrillic (the owner's choice).  One answer differs from DEC's: SJ
+  timer support (`TIME$R`) - the console Omega adapted is the timer
+  variant of DEC's terminal code, and without it the monitor halts at boot.
+
+Boot disks made from `systems/omega.dsk` with each monitor, in
+`package/assets/disks/`: `omega-dec.dsk` (profile omega, DEC's strings)
+and `dec-ms0515.dsk` (profile dec, `STARTS.COM`).  Both boot, list, copy
+and run programs.
+
 ## What Omega changed
 
 | patch | module | what |

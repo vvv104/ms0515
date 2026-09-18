@@ -9,7 +9,11 @@
 ; so a program can carry its image encoded and have the monitor itself
 ; unlock it.  Any other trap to 10 goes on as DEC's, its C bit restored.
 ;
+; It is not the machine's: no program of the collection carries the pair.
+; Only Omega's own build has it (OM$EXA).
+;
 .MACRO	OMTRAP	?A,?B,?C
+.IF NE	OM$EXA
 	BCC	TRAPRT		;C clear: a trap to 4
 	MOV	R0,-(SP)
 	MOV	2(SP),R0	;The trapped PC, past the first word
@@ -38,4 +42,5 @@ C:	XOR	R2,@SP
 	RTI
 B:	MOV	(SP)+,R0	;Not the pair: a trap to 10, as DEC's
 	MTPS	#341		; with its C bit set again
+.ENDC	;NE OM$EXA
 .ENDM	OMTRAP

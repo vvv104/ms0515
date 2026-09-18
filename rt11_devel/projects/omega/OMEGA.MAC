@@ -5,6 +5,17 @@
 ; macros only, and DEC's sources call them where Omega changed them (the
 ; hooks are the patches of patches/series).
 ;
+; Two builds come out of the same sources, told apart by OM$EXA, which
+; the answers file (SYCND) sets:
+;
+;   OM$EXA = 1  Omega's monitor exactly - the reference, checked against
+;               Omega's RT11SJ.SYS (SYCND.MAC);
+;   OM$EXA = 0  DEC's RT-11 on the MS 0515: only what the machine needs,
+;               DEC's own SYSGEN answers as far as the machine allows
+;               (SYCDEC.MAC).  Omega's decoding trap, its NOP and HALT
+;               filler, its repeated CONFIG bits and START.COM are out.
+;
+.IIF NDF OM$EXA, OM$EXA = 0
 	.INCLUDE "SRC:OMTRAP.MAC"	;The decoding trap
 	.INCLUDE "SRC:OMCONS.MAC"	;The console through the ROM
 	.INCLUDE "SRC:OMCLOK.MAC"	;The clock: timer, floppy motor
