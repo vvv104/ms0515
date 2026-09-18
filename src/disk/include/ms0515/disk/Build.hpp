@@ -83,6 +83,8 @@ void setVolumeId(std::vector<uint8_t> &image, int side, bool ds,
                  Vol vol = Vol::floppy);
 
 /* Add one file to the initialised volume on `side` (the equivalent of PIP).
+ * A file already of the name is replaced, as PIP does - unless it is
+ * protected, which throws; a failed put leaves the volume as it was.
  * Throws std::runtime_error if the side is not initialised, the name is not
  * RAD50-encodable, the data does not fit, or the directory segment is full.
  * `opts` lets the caller set the entry's date and protected flag — useful

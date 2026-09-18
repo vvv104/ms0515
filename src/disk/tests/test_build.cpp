@@ -631,6 +631,38 @@ TEST_CASE("removeFile errors") {
     }
 }
 
+TEST_CASE("putFile over a file of the same name replaces it, as PIP does") {
+    /* PIP leaves one file of a name: the old one goes when the new one is
+     * written.  An entry added beside the old one made two RESORC.SAV. */
+    auto image = makeVolume(false, 0, diverseFiles());
+    const auto bigger = pattern(5 * kBlock, 7);         /* RND.BIN was 3 blocks */
+    putFile(image, 0, false, "rnd.bin", bigger);        /* the host's spelling */
+
+    auto img = openImage(image, 0);
+    REQUIRE(img.has_value());
+    auto expected = diverseFiles();
+    for (auto &f : expected) if (f.name == "RND.BIN") f.data = bigger;
+    verifyFiles(*img, expected);
+}
+
+TEST_CASE("putFile refuses to replace a protected file and leaves the volume as it was") {
+    auto image = makeVolume(false, 0, diverseFiles());
+    putFile(image, 0, false, "KEEP.SYS", pattern(kBlock, 3), PutOptions{0, true});
+    const auto before = image;
+
+    CHECK_THROWS_AS(putFile(image, 0, false, "KEEP.SYS", pattern(kBlock, 4)), std::runtime_error);
+    CHECK(image == before);
+}
+
+TEST_CASE("putFile whose replacement does not fit keeps the old file") {
+    auto image = makeVolume(false, 0, diverseFiles());
+    const auto before = image;
+
+    std::vector<uint8_t> big(800 * kBlock, 0);          /* bigger than the volume */
+    CHECK_THROWS_AS(putFile(image, 0, false, "RND.BIN", big), std::runtime_error);
+    CHECK(image == before);
+}
+
 TEST_CASE("putFile errors") {
     auto img = blankImage(false);
     initVolume(img, 0, false);
