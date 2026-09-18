@@ -111,6 +111,14 @@ checked on the other kits:
 - **The MS 7007 matrix rows (177540) are released** - written 0 - after
   every key the monitor takes and every EMT it returns from.
 - The terminal and clock interrupts run at priority 7.
+- **The bootstrap** sizes the memory only up to 154000 (the monitor goes
+  just under it), installs the console's input interrupt at vector 130
+  (the MS 7004's) and the output at 064, and points 070, 104, 110, 134 and
+  140 at an RTI kept in the vector's own PS word (the word 2), protected -
+  so a stray interrupt through them is ignored.  It also sets dispatcher
+  bit 9, the timer interrupt, at boot; whether it stays on on ОМЕГА (on
+  ОСА the timer runs only inside the floppy handler, see below) is not
+  checked.  The startup file is `START.COM`.
 - **A trap to 10 on the reserved pair 176401,176402** is not an error on
   ОМЕГА: the monitor decodes the memory from the stack pointer up (each
   word XORed with a key counting up from the trapped PC and its bytes

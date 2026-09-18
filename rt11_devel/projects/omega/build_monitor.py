@@ -142,7 +142,8 @@ def link(emu: EmulatorDriver, rt: RT11Session) -> str:
 
 
 def main() -> int:
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.gettempdir()) / "omega_monitor"
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # the guest's KOI-8
+    out =Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.gettempdir()) / "omega_monitor"
     for need in (CLI, ROM, HD_SYS):
         if not need.exists():
             raise SystemExit(f"missing {need}")
