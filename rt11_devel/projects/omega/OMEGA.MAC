@@ -15,8 +15,20 @@
 ;               (SYCDEC.MAC).  Omega's decoding trap, its NOP and HALT
 ;               filler, its repeated CONFIG bits and START.COM are out.
 ;
+; Omega's builds give two strings in Russian (OM$RUS, OMRUS.MAC); the dec
+; profile keeps DEC's.
+;
+; A build can switch on the parts only one Omega build has (SYCOM2.MAC,
+; profile omega2, the vvv104 build): OM$BLK, its cursor blink through
+; ROM-B, and OM$HLD, the flipped bit all its copies carry in SET TT HOLD.
+;
 .IIF NDF OM$EXA, OM$EXA = 0
+.IIF NDF OM$BLK, OM$BLK = 0
+.IIF NDF OM$HLD, OM$HLD = 0
+.IIF NDF OM$RUS, OM$RUS = 0
 	.INCLUDE "SRC:OMTRAP.MAC"	;The decoding trap
 	.INCLUDE "SRC:OMCONS.MAC"	;The console through the ROM
 	.INCLUDE "SRC:OMCLOK.MAC"	;The clock: timer, floppy motor
 	.INCLUDE "SRC:OMBOOT.MAC"	;The bootstrap on the MS 0515
+	.INCLUDE "SRC:OMBLNK.MAC"	;The cursor blink through ROM-B
+	.INCLUDE "SRC:OMRUS.MAC"	;Omega's two strings in Russian

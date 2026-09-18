@@ -99,7 +99,7 @@ def disk(*args) -> None:
     subprocess.run([str(DISKTOOL), *map(str, args)], check=True, capture_output=True)
 
 
-ANSWERS = {"omega": "SYCND.MAC", "dec": "SYCDEC.MAC"}
+ANSWERS = {"omega": "SYCND.MAC", "omega2": "SYCOM2.MAC", "dec": "SYCDEC.MAC"}
 
 
 def stage(image: Path, files: Path, profile: str) -> None:

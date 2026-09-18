@@ -1,0 +1,20 @@
+.SBTTL	OMBLNK	The cursor blink through ROM-B
+;
+; OMBLNK - in LKINT, ahead of DEC's tick counter (INC (PC)+ / TIKCTR).
+;
+; The other Omega build (the vvv104 disks, systems/omega2.dsk) counts the
+; ticks in a word of its own and calls the ROM's slot 160014 every
+; sixteenth: in ROM-B that slot blinks the cursor; ROM-A has the cassette
+; loader there, with no way back, so this build runs on ROM-B only
+; (docs/kb/KNOWN_ISSUES.md).  Only that build has it (OM$BLK).
+;
+.MACRO	OMBLNK	?A,?B
+.IF NE	OM$BLK
+	INC	(PC)+		;Omega's own tick count
+A:	 .WORD	0
+	BIT	#17,A		;Every sixteenth tick
+	BNE	B
+	CALL	@#160014	;ROM-B: blink the cursor
+B:
+.ENDC	;NE OM$BLK
+.ENDM	OMBLNK

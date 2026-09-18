@@ -1,0 +1,28 @@
+.SBTTL	OMRUS	Omega's two strings in Russian
+;
+; OMRMSG - in RMONSJ, the fatal read-error message after CRASHP.
+; OMBANR - in BSTRAP, the head of the boot message (BSTRNG).
+;
+; Omega's builds say two things in Russian, in KOI-8 (OM$RUS): the
+; banner names the monitor OMEGA in Cyrillic where DEC's names it RT-11SJ
+; (the same length), and the fatal message reads "Ostanov po sistemnoj
+; oshibke chteniya" - a halt on a system read error - where DEC's reads
+; "System read failure halt".  MACRO takes ASCII only, so the letters are
+; bytes here.  The message is 10 bytes longer: RMON's code after it moves
+; on by that much, and the BR that ends the swap EMT falls out of reach -
+; Omega has a JMP there (in the patch itself).
+;
+.MACRO	OMRMSG			;The fatal read-error message
+	.ASCII	\?MON-F-\
+	.BYTE	357,323,324,301,316,317,327,040		;Ostanov
+	.BYTE	320,317,040				;po
+	.BYTE	323,311,323,324,305,315,316,317,312,040	;sistemnoj
+	.BYTE	317,333,311,302,313,305,040		;oshibke
+	.BYTE	336,324,305,316,311,321			;chteniya
+	.BYTE	CR,LF,LF,0
+.ENDM	OMRMSG
+
+.MACRO	OMBANR			;The monitor's name in the boot message
+	.BYTE	CR,LF,357,355,345,347,341		;OMEGA
+	.ASCII	" SJ"
+.ENDM	OMBANR

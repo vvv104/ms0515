@@ -87,7 +87,16 @@ checked on the other kits:
   RMON+304..312) point at pseudo-registers at 300-306, not a DL11.  The
   ROM has entry points for it: `CALL @#160000` writes the character in
   R0; `CALL @#160004` returns the next key in R0, **C set when there is
-  none**.  A program may call them itself.
+  none**.  A program may call them itself.  The entry table differs
+  between the ROMs past these two: ROM-A has six slots (160000-160024),
+  ROM-B eight (160000-160034), and the same slot does different things -
+  160014 is the cursor blink in ROM-B (163440: inverts the cursor cell,
+  flips bit 5 of the flags word 157760) but the cassette loader in ROM-A
+  (162360: waits for tape edges on 177602 forever, then jumps into what it
+  loaded).  ROM-A has no cursor blink at all.  Beyond 160000 and 160004,
+  find out which ROM is there before calling a slot.  The vvv104 ОМЕГА
+  (`systems/omega2.dsk`) calls 160014 from its clock every 16 ticks
+  without asking, which is why it hangs on ROM-A.
 - **The terminal is 8-bit**: DEC stripped bit 7 of every key and
   character, the kits keep it, so KOI-8 letters pass both ways.  SO (016)
   and SI (017), the РУС/ЛАТ shifts, go to the ROM's output as they are

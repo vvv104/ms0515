@@ -1,0 +1,20 @@
+# SET TT HOLD's flipped bit
+
+diff --git a/KMOVLY.MAC b/KMOVLY.MAC
+index d4943da..42e00a0 100644
+--- a/KMOVLY.MAC
++++ b/KMOVLY.MAC
+@@ -3256,7 +3256,13 @@ SETTTQ:	BR	1$		;SET TT QUIET (SET ECHO OFF BIT)	;BC14
+ ; IT TRANSMITS THE PROPER ESCAPE SEQUENCE TO THE TERMINAL,
+ ; TOGGLING THE LOGIC EACH TIME THE SEQUENCE IS SENT.
+ 
++.IF NE	OM$HLD
++; The vvv104 Omega build: every copy of it has bit 14 of DEC R3 set, which
++; makes it BIC -(R3),R3 - a bit flipped in the copy they all came from.
++SETTTH:	.WORD	045303		;Omega (vvv104): DEC R3 with bit 14 set
++.IFF	;NE OM$HLD
+ SETTTH:	DEC	R3		;TURN THE OPTION ON
++.ENDC	;NE OM$HLD
+ 	NOP			;FILL FOR 'NO' ENTRY POINT
+ 
+ 	MOVB	R3,2$		;'NO' ENTRY. INSERT ESCAPE CHARACTER

@@ -1,4 +1,4 @@
-.SBTTL	SYCND	OMEGA SJ(S) V05.04 SYSTEM CONDITIONAL FILE, RECONSTRUCTED
+.SBTTL	SYCOM2	OMEGA SJ(S) V05.04, THE VVV104 BUILD: THE CONDITIONAL FILE
 ;
 ; The answers the Omega sysgen gave, read back out of its monitor: the
 ; options word (SYSGEN = 002000: timer support only), CONFIG's 50-cycle
@@ -16,3 +16,5 @@ CLOCK	= 50.		;Power line frequency
 STAR$T	= 1		;Startup command file
 OM$EXA	= 1		;This build: Omega's monitor exactly (see OMEGA.MAC)
 OM$RUS	= 1		;Omega's two strings in Russian (OMRUS.MAC)
+OM$BLK	= 1		;The cursor blink through ROM-B (OMBLNK.MAC)
+OM$HLD	= 1		;SET TT HOLD's flipped bit (KMOVLY, see README)

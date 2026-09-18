@@ -22,19 +22,24 @@ Omega made - until the build is the Omega monitor byte for byte.
   `patches/series`.  A one-line change of DEC's own line (a constant, a
   priority) is made in the patch itself, commented `Omega:`.
 
-## Two builds: Omega's, and DEC's for the MS 0515
+## The builds: Omega's two, and DEC's for the MS 0515
 
-The same sources give two monitors, chosen by `--profile` (the answers
-file sets `OM$EXA`, see `OMEGA.MAC`):
+The same sources give three monitors, chosen by `--profile` (the answers
+file sets `OM$EXA` and the flags of one build, see `OMEGA.MAC`):
 
-- **`omega`** (`SYCND.MAC`, `OM$EXA = 1`) - Omega's monitor exactly: the
-  reference every change is checked against.
+- **`omega`** (`SYCND.MAC`, `OM$EXA = 1`, `OM$RUS = 1`) - Omega's monitor
+  (`systems/omega.dsk`) byte for byte: the reference every change is
+  checked against.
+- **`omega2`** (`SYCOM2.MAC`: `omega`'s answers, `OM$BLK = 1`,
+  `OM$HLD = 1`) - the other Omega build, of the vvv104 disks
+  (`systems/omega2.dsk`), byte for byte; see "The vvv104 build" below.
 - **`dec`** (`SYCDEC.MAC`, `OM$EXA = 0`) - DEC's RT-11 V5.4 SJ on the MS 0515,
   the owner's aim: only what the machine needs, DEC's own SYSGEN answers
   (`SJFB.CND`: user command linkage on, no "(S)" in the banner),
   `STARTS.COM`.  Out of Omega's changes it leaves the decoding trap (no
   program of the collection carries its pair), the NOP and HALT filler
-  and the repeated CONFIG bits, and START.COM; it keeps the 8-bit terminal
+  and the repeated CONFIG bits, START.COM and the Russian strings (the
+  banner reads DEC's `RT-11SJ`); it keeps the 8-bit terminal
   for Cyrillic (the owner's choice), and DEC's interrupt priorities (4 for
   the terminal, 6 for the clock, where Omega has 7: DEC's run the same
   under load, ^S/^Q included).  One answer differs from DEC's: SJ timer
@@ -47,9 +52,9 @@ file sets `OM$EXA`, see `OMEGA.MAC`):
   needs them; they stay, a guard against the machine's devices.
 
 Boot disks made from `systems/omega.dsk` with each monitor, in
-`package/assets/disks/`: `omega-dec.dsk` (profile omega, DEC's strings)
-and `dec-ms0515.dsk` (profile dec, `STARTS.COM`).  Both boot, list, copy
-and run programs.
+`package/assets/disks/`: `omega-dec.dsk` (profile omega as it was before
+the Russian strings came in, DEC's strings) and `dec-ms0515.dsk` (profile
+dec, `STARTS.COM`).  Both boot, list, copy and run programs.
 
 ## What Omega changed
 
@@ -60,15 +65,18 @@ and run programs.
 | 03 | `OMCONS.MAC` | **the console through the ROM**: pseudo-registers at 300-306, keys (`160004`) and characters (`160000`) through the ROM, the monitor interrupt as the output interrupt, 8-bit keys and characters for KOI-8, SO/SI shown at once, the MS 7007 rows released after each key and EMT (RMON, USR, KMON), both terminal interrupts at priority 7 |
 | 04 | `OMCLOK.MAC` | **the clock**: each tick reads 177770 twice and runs the floppy motor's time-out (off 100 ticks after the last use); the clock interrupt at priority 7 |
 | 05 | `OMBOOT.MAC` | **the bootstrap**: the timer interrupt on from the start and acknowledged in the bootstrap's handlers; priority 7 for the clock, the traps and the terminal output; the traps a T-11 does not take (no PSW address, no KT-11) taken by hand; memory sized up to 154000; no option probes and no KT-11 set-up - CONFIG says the clock exists; the console's input at vector 130; the keyboard rows reset; vectors 140, 070, 104, 134, 110 silenced; stop on an 11/23 or a J-11; `START.COM` as the startup file |
+| 06 | `OMRUS.MAC` | **two strings in Russian** (`OM$RUS`): see below |
+| 07 | `OMBLNK.MAC` | **the cursor blink** (the vvv104 build only, `OM$BLK`): the clock interrupt counts ticks in a word of its own and calls the ROM's slot 160014 every sixteenth |
+| 08 | - | **SET TT HOLD's flipped bit** (the vvv104 build only, `OM$HLD`): see below |
 
-KMON's overlays are DEC's, unchanged.
+KMON's overlays are DEC's, unchanged (in the vvv104 build, but for one bit).
 
 The SYSGEN answers account for the rest of what differs from DEC's
 distributed monitors - above all no user command linkage (`U$CL`), which
 takes the UCF code out of KMON.
 
-**The strings stay DEC's, on purpose** (the owner's decision): Omega gave
-two of them in Russian, KOI-8 -
+**Two strings are in Russian** (`OMRUS.MAC`, KOI-8 as bytes, since MACRO
+takes ASCII only) -
 
 - the fatal message `?MON-F-System read failure halt`, «Останов по
   системной ошибке чтения».  It is 10 bytes longer and pushed a `BR E16.7A`
@@ -79,11 +87,49 @@ two of them in Russian, KOI-8 -
 - the banner: Omega's `BSTRNG` reads «ОМЕГА SJ(S) V05.04» where DEC's reads
   `RT-11SJ (S) V05.04` (the first eight characters, the same length).
 
-A control run - never committed - put both Russian strings and the `JMP`
-into a copy of the sources: the build was then **Omega's `RT11SJ.SYS`
-byte for byte**, all 40960 bytes.  So nothing else differs: DEC's V5.4
-sources, the SYSGEN answers here, the five differences above and those
-two strings are the whole of the Omega monitor.
+At first the strings were left DEC's, and a control run put them into a
+copy of the sources; since the build then was Omega's monitor byte for
+byte, they became a patch of their own, on in both Omega profiles, so each
+of them builds its monitor exactly.  So nothing else differs: DEC's V5.4
+sources, the SYSGEN answers here, patches 01-06 are the whole of the Omega
+monitor.
+
+## The vvv104 build
+
+The collection's `systems/omega2.dsk` (the vvv104 disks) carries another
+build of the same monitor: the same banner, the same SYSGEN answers, and
+two differences.  The `omega2` profile is its `RT11SJ.SYS` byte for byte,
+all 40960 bytes.
+
+- **The cursor blink** (`OMBLNK.MAC`).  At the head of the clock
+  interrupt's DEC part, before DEC's `TIKCTR`, the monitor counts ticks in
+  a word of its own and calls `@#160014` on every sixteenth.  In ROM-B that
+  slot is the cursor blink (163440): it inverts the cursor cell and flips
+  bit 5 of the ROM's flags word (157760).  The ROM's own timer does not
+  call it; it is there for the monitor to call once RT-11 owns vector 100.
+  The 059 Omega (`omega`) has no blink.
+- **SET TT HOLD's flipped bit.**  The first word of `SETTTH` in the KMON
+  overlays is `045303` where DEC has `DEC R3` (`005303`): bit 14 set.  The
+  word makes no sense as a change: `BIC -(R3),R3` turns the `'\` from the
+  command table into an address and the VT52 `ESC [` into rubbish.  Every
+  copy of this monitor has it - the images of PAPER, PBF and LANG, the vvv104
+  raw reads of disks 1 and 3, baspasfor - and no other monitor does (omega,
+  OSA, Mihin, Rodionov have `DEC R3`).  So the bit flipped in the copy all of
+  them were made from, before they spread.  The profile keeps it to stay
+  exact; nothing else takes it.
+
+**Why this build hangs on ROM-A** (docs/kb/KNOWN_ISSUES.md, "Omega-pink").
+The blink is the only difference that touches the ROM, and it calls the slot
+without asking which ROM is there.  ROM-A has six slots, not eight, and its
+160014 is the cassette loader (162360): it waits for the tape's edges on
+177602 and jumps into what it loaded - with no tape it never comes back,
+and it is entered from the clock interrupt at priority 7.  ROM-A has no
+cursor blink at all (no code inverts the cursor cell), so there is nothing
+to point the call at instead.  Of the five system disks only this monitor
+calls 160014.  The builder added the blink as code of its own, so the
+machine it was built on had ROM-B's slot 160014.  The emulator's ROM-A has
+that slot patched to `RTS`, which is why the pair boots here.  The 059
+Omega, without the blink, runs on either ROM.
 
 ## The tools
 
@@ -113,8 +159,6 @@ link addresses where the running monitor has `MTPS`.
 
 ## Where it stands
 
-Complete for `systems/omega.dsk`'s monitor: with DEC's strings the build
-aligns with 99.1% of Omega's words, the rest being the two strings and the
-shift the message causes; with Omega's strings it is identical.  Next:
-the other Omega build (`omega2.dsk`, the vvv104 disks), whose resident
-part differs.
+Complete for both Omega builds: profile `omega` is `systems/omega.dsk`'s
+monitor byte for byte, profile `omega2` is `systems/omega2.dsk`'s.  Next:
+the monitors of OSA, Mihin and Rodionov.
