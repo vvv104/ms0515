@@ -35,9 +35,16 @@ file sets `OM$EXA`, see `OMEGA.MAC`):
   `STARTS.COM`.  Out of Omega's changes it leaves the decoding trap (no
   program of the collection carries its pair), the NOP and HALT filler
   and the repeated CONFIG bits, and START.COM; it keeps the 8-bit terminal
-  for Cyrillic (the owner's choice).  One answer differs from DEC's: SJ
-  timer support (`TIME$R`) - the console Omega adapted is the timer
-  variant of DEC's terminal code, and without it the monitor halts at boot.
+  for Cyrillic (the owner's choice), and DEC's interrupt priorities (4 for
+  the terminal, 6 for the clock, where Omega has 7: DEC's run the same
+  under load, ^S/^Q included).  One answer differs from DEC's: SJ timer
+  support (`TIME$R`) - the console Omega adapted is the timer variant of
+  DEC's terminal code, and without it the monitor halts at boot.
+
+  Tried and kept from Omega: the five silenced vectors (070, 104, 110, 134,
+  140).  Without them the emulator runs as well, but it raises no
+  interrupt through those vectors, so it cannot tell whether the iron
+  needs them; they stay, a guard against the machine's devices.
 
 Boot disks made from `systems/omega.dsk` with each monitor, in
 `package/assets/disks/`: `omega-dec.dsk` (profile omega, DEC's strings)

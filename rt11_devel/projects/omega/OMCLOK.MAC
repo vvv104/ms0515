@@ -9,9 +9,12 @@
 ; is armed, bit 14 - the drive was just used, bit 13 - counting.  A
 ; fresh use restarts the count; 100 ticks later (two seconds at 50 Hz)
 ; the drive is deselected with its motor off (drive 3, bit 2 - the motor,
-; active low - set) and the register written from the copy.  The clock
-; interrupt goes on at priority 7 where DEC's drops to 6 ($INTEN's word).
+; active low - set) and the register written from the copy.  Omega's clock
+; interrupt goes on at priority 7 where DEC's drops to 6 ($INTEN's word,
+; CK$PRI); DEC's 6 works as well (the dec profile keeps it).
 ;
+CK$PRI	= PR6		;The clock interrupt's priority: DEC's 6,
+.IIF NE OM$EXA, CK$PRI = PR7	; Omega's 7
 TMRSVC	= 177770	;Timer service address
 SYSRGA	= 177600	;System Register A: drives, motor, side
 RGACPY	= 157720	;The ROM's copy of it, flags in bits 13-15

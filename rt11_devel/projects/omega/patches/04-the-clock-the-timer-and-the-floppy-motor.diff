@@ -6,7 +6,7 @@
 # A (OMCLOK.MAC).
 
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 033c798..4a178c3 100644
+index c90e7b0..7cc5d5c 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -2107,6 +2107,7 @@ TIFBLK::BSS	F.BSIZ/2	;FORK BLOCK				;007
@@ -22,7 +22,7 @@ index 033c798..4a178c3 100644
  	BGE	EXINT		;* Yes, exit immediately!		;DG03
  	JSR	R5,$INTEN	;* DROP TO PRIORITY 6			;DV43
 -	 .WORD	^C<PR6>&PR7	;*					;DV43
-+	 .WORD	^C<PR7>&PR7	;Omega: level 7
++	 .WORD	^C<CK$PRI>&PR7	;* (6; Omega: 7)
  	RTS	PC		;Return and let $INTEN call TIMER	;DG03
  
  TIMER:	MOV	R3,-(SP)	;*Save register 3			;DG03

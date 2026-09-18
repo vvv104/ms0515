@@ -11,7 +11,8 @@
 ;   The keyboard interrupt takes every key the ROM holds before it leaves.
 ; - A character is written with the ROM's output entry (CN$OUT), in 8
 ;   bits too (TTSCRL and the output interrupt strip the high byte only).
-; - Both terminal interrupts run at priority 7, not 4.
+; - Omega runs both terminal interrupts at priority 7, not DEC's 4
+;   (TT$PRI); DEC's 4 works as well (the dec profile keeps it).
 ; - There is no output-ready interrupt: the monitor interrupt (vector 064),
 ;   a level raised by bit 8 of the dispatcher, stands in for it.  Turning the
 ;   output interrupt on sets that bit (through the ROM's copy of the
@@ -31,6 +32,8 @@ DISPAT	= 177400	;The dispatcher (write only)
 DSPCPY	= 157700	;The ROM's copy of it
 MI$REQ	= 400		;Its bit 8: raise the monitor interrupt
 KBROWS	= 177540	;MS 7007 matrix rows (PPI port A)
+TT$PRI	= PR4		;The terminal interrupts' priority: DEC's 4,
+.IIF NE OM$EXA, TT$PRI = PR7	; Omega's 7
 
 .MACRO	OMTTON			;Turn the output interrupt on
 	MOV	#IENABL,@TTPS

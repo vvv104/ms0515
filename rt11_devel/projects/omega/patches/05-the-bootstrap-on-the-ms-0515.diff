@@ -8,7 +8,7 @@
 # machine's devices silenced; START.COM as the startup file (OMBOOT.MAC).
 
 diff --git a/BSTRAP.MAC b/BSTRAP.MAC
-index f3bc451..603f551 100644
+index f3bc451..5155492 100644
 --- a/BSTRAP.MAC
 +++ b/BSTRAP.MAC
 @@ -168,13 +168,15 @@ REPORT:				;Asect in for error report routine
@@ -124,7 +124,7 @@ index f3bc451..603f551 100644
  	.WORD	V..TPS!...REL,	TTOINT,	PR7 ;(064) Terminal output interrupt
  .IFF
 -	.WORD	V..TPS!...REL,	TTOINT,	PR4 ;(064) Terminal output interrupt
-+	.WORD	V..TPS!...REL,	TTOINT,	PR7 ;(064) Terminal output interrupt (Omega: PR7)
++	.WORD	V..TPS!...REL,	TTOINT,	TT$PRI ;(064) Terminal output interrupt (PR4; Omega: PR7)
  .ENDC ;NE BF!MTT$Y
  .IF NE KW11$P
  	.WORD	V.LTC,	V.LTC+2,RTI	;(100) Dismiss line-time clock interrupts
