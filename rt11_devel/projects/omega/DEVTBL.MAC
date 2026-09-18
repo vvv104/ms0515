@@ -1,0 +1,122 @@
+	.TITLE	DEVTBL	SYSTEM DEVICE TABLES
+; DEVTBL - SYSTEM DEVICE TABLES of the Omega monitor, reconstructed:
+; SYSGEN.COM's own text with the devices the monitor's $PNAME holds.
+
+;+
+; Define the DEVice macro, the device macro allocates sysgen dependent
+; information into the various device tables.
+;-
+
+.ENABL	GBL
+.MACRO DEV NAME,S
+.PSECT PNAME$
+$SLOT	== $SLOT +1
+.IF NB NAME
+.RAD50 /NAME/			;PNAME$ - DEVICE ->> NAME <<-
+.IFF
+.WORD	0			;PNAME$ - DEVICE ->> EMPTY <<-
+.ENDC
+.PSECT STAT$
+.IF NB S
+.WORD	S			;STAT$
+.IFF
+.WORD	0			;STAT$
+.ENDC
+.PSECT	ENTRY$
+.IF NB NAME
+.IF IDN NAME,BA
+BA.NUM	==	2 * <$SLOT - 1>
+.ENDC
+.IF IDN NAME,PI
+PI.NUM	==	2 * <$SLOT - 1>
+.ENDC
+.IF IDN NAME,TT
+.IF NE BF!MTT$Y
+.WORD	TTLQE			;ENTRY$ - TT ENTRY POINT
+.IFF
+TT.NUM	==	0
+.WORD	0			;ENTRY$
+.ENDC
+.IFF
+.IF IDN	NAME,MQ
+.IF NE BF
+MSGENT::.WORD	MQLQE
+.IFF
+.WORD	0
+.ENDC
+.IFF
+.WORD	0
+.ENDC
+.ENDC
+.IFF
+.WORD	0			;ENTRY$
+.ENDC
+.PSECT	UNAM1$
+.WORD	0			;UNAM1$
+.PSECT	UNAM2$
+.WORD	0			;UNAM2$
+.IF NE BF
+.PSECT	OWNER$
+.WORD	0,0			;OWNER$
+.ENDC
+.PSECT	HSIZE$
+.WORD	0
+.PSECT	DVSIZ$
+.WORD	0
+.PSECT	DVREC$
+.WORD	0			;DVREC$
+
+.IF NE	MMG$T			;DVINT$
+.IF NE  XM$FET
+.PSECT	DVINT$
+JSR	PC,INTPRO
+.WORD	0
+.ENDC	;NE XM$FET
+.ENDC	;NE MMG$T
+
+.ENDM
+;+
+; The following is the declaration of the system device tables.  Edit here
+; to add a device to the system.  Each device is inserted using the DEV
+; MACRO.  NOTE:  Monitor internal devices must be the first in the tables!
+;-
+
+$SLOT	== 0		;COUNT OF NUMBER OF DEVICES
+ ;
+DEV	TT,4			;MUST BE FIRST DEVICE
+DEV				;MUST BE SECOND, SYSTEM DEVICE SLOT
+.IF NE BF
+DEV	MQ,SPECL$!42
+.IF EQ RTE$M
+DEV	PI
+.ENDC
+.ENDC
+DEV	DZ
+DEV	LS
+DEV	NL
+DEV	VM
+DEV	VS
+.IF NE	4.
+.REPT	4.
+DEV
+.ENDR
+.ENDC
+.PSECT	UNAM1$
+DKASSG:: .RAD50	/DK0/
+SYASSG:: .RAD50	/SY0/
+.PSECT	UNAM2$
+.RAD50	/DK /
+.RAD50	/SY /
+ ;.PSECT	STAT$
+ ;.WORD	0,0			;FOR MESSAGE CHANNEL
+.PSECT	ENTRY$
+.WORD	-1			;TABLE TERMINATOR
+
+.IF NE	MMG$T			;Terminate XM interrupt table.
+.IF NE  XM$FET
+.PSECT	DVINT$
+$DVITT::JSR	PC,INTPRO	;These 2 words in table save many later
+.WORD	-1
+.ENDC	;NE XM$FET
+.ENDC	;NE MMG$T
+.END

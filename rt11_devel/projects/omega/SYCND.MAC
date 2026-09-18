@@ -1,0 +1,17 @@
+.SBTTL	SYCND	OMEGA SJ(S) V05.04 SYSTEM CONDITIONAL FILE, RECONSTRUCTED
+;
+; The answers the Omega sysgen gave, read back out of its monitor: the
+; options word (SYSGEN = 002000: timer support only), CONFIG's 50-cycle
+; clock, the device slots.  Symbols SYSGEN.COM writes, in its order.
+;
+SYSG$N	= 1		;Indicate sysgened monitor
+TIME$R	= 1		;SJ timer support
+RDF$L	= 1		;System I/O error messages
+TTYOUT  = 40.		;Size of the output buffers
+TTYIN   = 134.		;Size of the input buffers
+U$CL	= 1		;User command linkage
+U$TIL	= 1		;Utility commands
+L$ANG	= 1		;Language commands
+M$INI	= 1		;Minimal commands
+CLOCK	= 50.		;Power line frequency
+STAR$T	= 1		;Startup command file
