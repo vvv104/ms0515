@@ -118,6 +118,17 @@ all 40960 bytes.
   them were made from, before they spread.  The profile keeps it to stay
   exact; nothing else takes it.
 
+  Searched for an unflipped copy everywhere: every image, file and
+  unpacked archive of the collection and the recovery work, and every
+  sector of every TD0 read - CRC failures and retries included.  Each
+  copy of `SETTTH` tells its own monitor by a word in the same sector
+  (076 bytes on, an offset into RMON: `003410` in the vvv104 build, 16
+  bytes longer by the blink, `003370` in the 059 one).  All 135 copies with
+  `003410` have `045303`; none has `005303`.  The one near-miss,
+  `corpus/files/2369ce55...bin` (`005303`, `003010`), is not a read: of its
+  122 bytes that differ from the vvv104 monitor, 113 are the 059 Omega's -
+  a hybrid of a May 2026 recovery run with the 059 build as the donor.
+
 **Why this build hangs on ROM-A** (docs/kb/KNOWN_ISSUES.md, "Omega-pink").
 The blink is the only difference that touches the ROM, and it calls the slot
 without asking which ROM is there.  ROM-A has six slots, not eight, and its
