@@ -36,7 +36,7 @@ TOOLS = TOOLSET / "build_tools"
 HD_SYS = HERE.parent / "hd" / "HD.SYS"
 
 # The monitor's four parts, as MONBLD assembles them for SJ.
-PREFIX = ["SJ", "SYCND", "EDTGBL"]
+PREFIX = ["SJ", "SYCND", "EDTGBL", "OMEGA"]   # OMEGA: the Omega modules' macros
 PARTS = {
     "BTSJ": ["BSTRAP"],
     "RMSJ": ["USR", "RMONSJ"],
@@ -58,6 +58,39 @@ def crlf(data: bytes) -> bytes:
     return data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
 
 
+def lf(data: bytes) -> bytes:
+    return data.replace(b"\r\n", b"\n")
+
+
+def patched(names: list[str], src: Path, scratch: Path) -> Path:
+    """DEC's files with Omega's changes: the patches of patches/series, one
+    per architectural difference, applied in order.  $OMEGA_WORK instead
+    names a folder of working copies (while the patches are being made)."""
+    work = os.environ.get("OMEGA_WORK")
+    if work:
+        return Path(work)
+    for n in names:
+        if (src / n).is_file():
+            (scratch / n).write_bytes(lf((src / n).read_bytes()))
+    series = HERE / "patches" / "series"
+    if series.is_file():
+        for line in series.read_text().splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line:
+                subprocess.run(["patch", "--quiet", "--forward", "-p1", "-d", str(scratch),
+                                "-i", str(HERE / "patches" / line)], check=True)
+    return scratch
+
+
+def source(name: str, tree: Path, src: Path) -> bytes:
+    """A file of Omega's own (SYCND, DEVTBL), else the patched DEC one (a
+    working-copy folder need not hold the files no patch touches)."""
+    for p in (HERE / name, tree / name, src / name):
+        if p.is_file():
+            return p.read_bytes()
+    raise SystemExit(f"no {name}")
+
+
 def disk(*args) -> None:
     subprocess.run([str(DISKTOOL), *map(str, args)], check=True, capture_output=True)
 
@@ -70,10 +103,14 @@ def stage(image: Path, files: Path) -> None:
     for p in PARTS.values():
         names.update(p)
     files.mkdir()
-    for n in sorted(names):
-        own = HERE / f"{n}.MAC"
-        data = own.read_bytes() if own.is_file() else (src / f"{n}.MAC").read_bytes()
-        (files / f"{n}.MAC").write_bytes(crlf(data))
+    scratch = files.parent / "patching"
+    scratch.mkdir()
+    macs = [f"{n}.MAC" for n in sorted(names)]
+    tree = patched(macs, src, scratch)
+    for n in macs:
+        (files / n).write_bytes(crlf(source(n, tree, src)))
+    for mod in sorted(HERE.glob("OM*.MAC")):       # Omega's modules (.INCLUDEd)
+        (files / mod.name).write_bytes(crlf(mod.read_bytes()))
     disk("create", image, "--hd", "--blocks", 30000)
     disk("init", image, "--hd")
     disk("put", image, "--hd", *sorted(files.iterdir()))
@@ -84,7 +121,7 @@ def boot_volume(boot: Path) -> None:
     for f in ("MACRO.SAV", "LINK.SAV", "SYSMAC.SML"):
         shutil.copy(TOOLS / f, boot / f)
     shutil.copy(HD_SYS, boot / "HD.SYS")
-    (boot / "STARTS.COM").write_bytes(b"SET TT QUIET\r\nASSIGN HD DK\r\n")
+    (boot / "STARTS.COM").write_bytes(b"SET TT QUIET\r\nASSIGN HD DK\r\nASSIGN HD SRC\r\n")
 
 
 def link(emu: EmulatorDriver, rt: RT11Session) -> str:

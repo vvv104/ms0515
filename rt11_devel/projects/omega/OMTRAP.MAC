@@ -1,0 +1,41 @@
+.SBTTL	OMTRAP	The decoding trap
+;
+; OMTRAP - at TRAP10:: in RMONSJ, ahead of DEC's trap code (TRAPRT).
+;
+; A trap to 4 enters with the C bit clear and goes on as DEC's does.  A
+; trap to 10 - a reserved instruction - is looked at first: when the
+; trapped instruction is the reserved pair 176401,176402, the monitor
+; decodes the memory above the user stack in place and resumes there,
+; so a program can carry its image encoded and have the monitor itself
+; unlock it.  Any other trap to 10 goes on as DEC's, its C bit restored.
+;
+.MACRO	OMTRAP	?A,?B,?C
+	BHI	TRAPRT		;C clear: a trap to 4
+	MOV	R0,-(SP)
+	MOV	2(SP),R0	;The trapped PC, past the first word
+	CMP	-2(R0),#176401	;The pair?
+	BNE	B
+	CMP	@R0,#176402
+	BNE	B
+	TST	(SP)+		;Drop the saved R0
+	MOV	(SP)+,R2	;The trapped PC is the first key
+	TST	(SP)+		;Drop the PS
+	MOV	#400,R1		;256 words from the stack pointer up
+A:	XOR	R2,@SP		;Each word XORed with the key
+	SWAB	(SP)+		; and its bytes swapped
+	INC	R2		;The key counts up
+	DEC	R1
+	BNE	A
+	MOV	#176402,R2	;Then 7680 words more, the key
+	MOV	#17000,R1	; starting over at 176402
+C:	XOR	R2,@SP
+	SWAB	(SP)+
+	INC	R2
+	DEC	R1
+	BNE	C
+	MOV	#774,SP		;RTI through the decoded words at 774,
+	ADD	#2,@SP		; the PC advanced by 2
+	RTI
+B:	MOV	(SP)+,R0	;Not the pair: a trap to 10, as DEC's
+	MTPS	#341		; with its C bit set again
+.ENDM	OMTRAP

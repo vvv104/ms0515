@@ -1,0 +1,104 @@
+.SBTTL	OMCONS	The console through the ROM
+;
+; The MS 0515 has no DL11: its keyboard and screen belong to the ROM.  The
+; monitor keeps DEC's console code - the rings, the special characters,
+; the output interrupt - and swaps each touch of the DL11 for the ROM:
+;
+; - A key is read with the ROM's input entry (CN$IN), which returns C or Z
+;   set when there is none.  The key is kept in 8 bits - DEC stripped the
+;   top one - so the KOI-8 Russian letters come through; SO and SI (the
+;   RUS/LAT shifts) go to the ROM's output at once to switch its font.
+;   The keyboard interrupt takes every key the ROM holds before it leaves.
+; - A character is written with the ROM's output entry (CN$OUT).
+; - There is no output-ready interrupt: the monitor interrupt, a level
+;   raised by bit 8 of the system register, stands in for it.  Turning the
+;   output interrupt on sets that bit (through the ROM's copy of the
+;   register, which is write-only) and IENABL in the pseudo-register TTPS;
+;   turning it off clears both.
+; - The console registers are pseudo-registers in low memory (CN$KS...).
+; - The rows of the MS 7007 keyboard matrix are released (KBROWS) whenever
+;   the monitor is done with a key or an EMT.
+;
+CN$KS	= 300		;Pseudo-registers in place of the DL11's
+CN$KB	= 302
+CN$PS	= 304
+CN$PB	= 306
+CN$OUT	= 160000	;ROM: write the character in R0
+CN$IN	= 160004	;ROM: the next key into R0; C or Z set when none
+SYSREG	= 177400	;The system register (write only)
+SYSCPY	= 157700	;The ROM's copy of it
+MI$REQ	= 400		;Its bit 8: raise the monitor interrupt
+KBROWS	= 177540	;MS 7007 matrix rows (PPI port A)
+
+.MACRO	OMTTON			;Turn the output interrupt on
+	MOV	#IENABL,@TTPS
+	BIS	#MI$REQ,@#SYSCPY
+	MOV	@#SYSCPY,@#SYSREG
+.ENDM	OMTTON
+
+.MACRO	OMTTOF			;Turn the output interrupt off
+	CLR	@TTPS
+	BIC	#MI$REQ,@#SYSCPY
+	MOV	@#SYSCPY,@#SYSREG
+.ENDM	OMTTOF
+
+.MACRO	OMTTRA			;The output interrupt leaves with more to do:
+	SPL	0		; let the waiting interrupts in,
+	SPL	7
+	OMTTON			; then ask for the next one
+.ENDM	OMTTRA
+
+.MACRO	OMTTPB			;Print the character @R4
+	MOV	R0,-(SP)
+	MOV	@R4,R0
+	CALL	@#CN$OUT
+	MOV	(SP)+,R0
+.ENDM	OMTTPB
+
+.MACRO	OMTTIN	?A,?B		;The keyboard interrupt: a key into R0
+	CALL	@#CN$IN
+	BHI	TTINXT		;There is one
+	CLRB	@#KBROWS	;None: release the rows
+	BR	TTIEX3
+TTINXT:	MOV	R0,@TTKB	;(OMTTIX takes the next one here)
+	CMPB	#16,R0		;SO and SI, the font shifts,
+	BEQ	A
+	CMPB	#17,R0		; show at once
+	BNE	B
+A:	CALL	@#CN$OUT
+B:	BIC	#177400,R0	;Eight bits: KOI-8 letters kept
+.ENDM	OMTTIN
+
+.MACRO	OMTTIX	?A		;Leaving it: another key waiting?
+	CALL	@#CN$IN
+	BLOS	A
+	JMP	TTINXT		;Yes, take it in the same interrupt
+A:	MOVB	#0,@#KBROWS	;No: release the rows
+.ENDM	OMTTIX
+
+.MACRO	OMKBRL			;Release the keyboard rows
+	MOVB	#0,@#KBROWS
+.ENDM	OMKBRL
+
+.MACRO	OMRSET	?A		;After RESET: the output interrupt as it was
+	BIC	#MI$REQ,@#SYSCPY
+	MOV	@#SYSCPY,@#SYSREG
+	CLR	@TTPS
+	MOV	(SP)+,@TTPS
+	BIT	#IENABL,@TTPS
+	BEQ	A
+	BIS	#MI$REQ,@#SYSCPY
+	MOV	@#SYSCPY,@#SYSREG
+A:
+.ENDM	OMRSET
+
+.MACRO	OMCRSH	?A,?B,?C	;Print the message at R0 and stop
+	MOV	R0,R1
+A:	MOVB	(R1)+,R0
+	BEQ	B
+	CALL	@#CN$OUT
+	BR	A
+B:	NOP
+C:	NOP			;A loop in place of DEC's HALT
+	BR	C
+.ENDM	OMCRSH

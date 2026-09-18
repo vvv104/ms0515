@@ -1,0 +1,21 @@
+# The decoding trap
+#
+# A trap to 10 on the reserved pair 176401,176402 decodes the memory above
+# the user stack in place and resumes the decoded program (OMTRAP.MAC,
+# included at TRAP10).
+
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+index 77c7ce5..69af070 100644
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -582,7 +582,9 @@ MONTRP:	JSR	R1,SVREG	;SAVE R1-R5, R0				;LP15+
+ 	MONERR	TR10.E,0,FATAL	;FATAL...TRAP TO 10
+ 
+ TRAP4::
+-TRAP10::ROL	@#ERRBYT	;SAVE C BIT
++TRAP10::
++	OMTRAP			;Omega: the decoding trap
++TRAPRT:	ROL	@#ERRBYT	;SAVE C BIT
+ 	CMP	#400,SP		;STACK OVERFLOW?
+ 	BLO	3$		;NO
+ 
