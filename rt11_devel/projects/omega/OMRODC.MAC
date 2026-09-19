@@ -6,15 +6,17 @@
 ; What is known of it:
 ;
 ; - The floppy motor's time-out is Omega's code (OMMOTR), 100 ticks.
-; - A count at 137646 (an address of the monitor where it runs, at the top
-;   of the MS 0515's memory) paces the rest: every so many ticks the
-;   cursor is inverted in the video memory (two lines, at the ROM-A's
-;   cursor address 157712) - a blink of his own, on ROM-A - and a lamp of
-;   the keyboard is toggled by a command through the ROM-A's routine at
-;   177040.
-; - The words after the first BR are code it reaches otherwise: the check
-;   of the copy protection, which reads the key through the ROM's entry
-;   160010 (the CALL @#50000 rewritten) and works on the vectors 060/062.
+; - A count at 137646 (the word before ROPRNT, OMRODT, where the monitor
+;   lands at the top of the MS 0515's memory) paces the rest: every so
+;   many ticks the cursor is inverted in the video memory (two lines, at
+;   the ROM-A's cursor address 157712) - a blink of his own, on ROM-A -
+;   and a lamp of the keyboard is toggled by a command through the
+;   ROM-A's routine at 177040.
+; - The words after the first BR are a second copy of the copy
+;   protection's check (the key of block 792 read again through the ROM's
+;   entry 160010, key0 + 340 + key1 into the PPI's control register) that
+;   nothing jumps to: an older version left in place.  The check that runs
+;   is OMRODT's (R50326).
 ; - It leaves by its own RTI at C54600, before DEC's code.
 ;
 ROCLK:	TSTB	@#157760
