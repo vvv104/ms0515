@@ -221,6 +221,9 @@ void App::mountInitialDisks()
             config_.fdPath[u0].clear();
             config_.fdPath[u1].clear();
         } else {
+            /* Sides mounted: the drive's double-sided image goes, or the
+             * next start would find both in the config and mount neither. */
+            if (!cli_.fdPath[u0].empty() || !cli_.fdPath[u1].empty()) config_.dsPath[drive].clear();
             if (!cli_.fdPath[u0].empty()) config_.fdPath[u0] = cli_.fdPath[u0];
             if (!cli_.fdPath[u1].empty()) config_.fdPath[u1] = cli_.fdPath[u1];
         }
