@@ -1,0 +1,56 @@
+.SBTTL	OMCLOK	The clock interrupt: the timer and the floppy motor
+;
+; OMTICK - at LKINT:: in RMONSJ, ahead of DEC's clock code.
+; OMMOTR - Omega (timer support): right after OMTICK, ahead of DEC's code;
+;          OSA (no timer support): after DEC's two ADCs, before the RTI.
+;
+; Each tick first reads the timer service address (NS4 names 177770 the
+; halt and system-timer service address): twice in Omega's monitor, once
+; in OSA's.  Then the floppy motor's time-out.  The ROM's disk code keeps
+; its copy of System Register A (write-only) with three flags on top: bit
+; 15 - the time-out is armed, bit 14 - the drive was just used, bit 13 -
+; counting.  A fresh use restarts the count; 100 ticks later (two seconds
+; at 50 Hz) the drive is deselected with its motor off (drive 3, bit 2 -
+; the motor, active low - set) and the register written from the copy.
+; Omega's clock interrupt goes on at priority 7 where DEC's drops to 6
+; ($INTEN's word, CK$PRI); DEC's 6 works as well (the dec profile keeps it).
+;
+CK$PRI	= PR6		;The clock interrupt's priority: DEC's 6,
+.IIF EQ OM$KIT-KT$OMG, CK$PRI = PR7	; Omega's 7
+TMRSVC	= 177770	;Timer service address
+SYSRGA	= 177600	;System Register A: drives, motor, side
+RGACPY	= 157720	;The ROM's copy of it, flags in bits 13-15
+MT$ARM	= 100000	;The time-out is armed
+MT$NEW	= 40000		;The drive was just used
+MT$CNT	= 20000		;Counting
+MT$OFF	= 17		;Drive 3, motor off, upper side
+
+.MACRO	OMTICK	READS		;The timer service address, READS times
+.IF NE	OM$KIT
+	NOP			;(the kits left two words of room)
+	NOP
+.ENDC	;NE OM$KIT
+.REPT	READS
+	TST	@#TMRSVC
+.ENDR
+.ENDM	OMTICK
+
+.MACRO	OMMOTR	?A,?B,?C	;The floppy motor's time-out
+	TST	@#RGACPY	;Armed?
+	BPL	B
+	BIT	#MT$NEW,@#RGACPY ;Used since the last tick?
+	BEQ	A
+	BIC	#MT$NEW,@#RGACPY ;Yes: count afresh
+	BIS	#MT$CNT,@#RGACPY
+	CLR	(PC)+
+C:	 .WORD	0		;The ticks counted
+A:	BIT	#MT$CNT,@#RGACPY
+	BEQ	B
+	INC	C
+	CMP	#100.,C		;Two seconds yet?
+	BHIS	B
+	BIC	#MT$CNT,@#RGACPY ;Yes: the motor off
+	BIS	#MT$OFF,@#RGACPY
+	MOVB	@#RGACPY,@#SYSRGA
+B:
+.ENDM	OMMOTR

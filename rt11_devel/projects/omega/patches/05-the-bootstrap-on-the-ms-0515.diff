@@ -1,0 +1,208 @@
+# The bootstrap on the MS 0515
+#
+# The timer interrupt on from the start and acknowledged in the bootstrap's
+# handlers; priority 7 for the clock, the traps and the terminal output;
+# the traps a T-11 does not take are taken by hand; memory up to 154000;
+# no option probes and no KT-11 set-up - CONFIG says the clock exists; the
+# console's input at 130; the keyboard rows reset; the vectors of the
+# machine's devices silenced (OMBOOT.MAC).
+
+diff --git a/BSTRAP.MAC b/BSTRAP.MAC
+index f3bc451..2cc3ada 100644
+--- a/BSTRAP.MAC
++++ b/BSTRAP.MAC
+@@ -168,13 +168,15 @@ REPORT:				;Asect in for error report routine
+ 	. = 1000
+ 
+ B$BOOT::MOV	#BRTI,@#V.LTC	;Ensure that the clock just idles
+-	CLR	@#V.LTC+2	;Clear PS in clock vector
++	MOV	#PR7,@#V.LTC+2	;Omega: the clock at priority 7
++	OMBINI			;Omega: the timer on, the USART reset
+ 	CLR	R3		;Point to location 0
+ 	MOV	@R3,DUPFLG	;Save flag indicating DUP vs. hardware boot
+ 	CLR	(R3)+		;Traps and jumps to 0 will halt
+ 	CLR	(R3)+		; with a PS of 0
+ 	MOV	SP,(PC)+	;Save SP because of possible trap clutter
+ STKPTR:	 .WORD	0		;Saved SP
++	OMBVEC			;Omega: the trap vectors at priority 7
+ .IF NE	RTE$M
+ 	CMP	@#$RTEID,#RTE$ID ;Is RTEM identifier present?
+ 	BEQ	3$		;If EQ, yes, proceed
+@@ -189,7 +191,7 @@ STKPTR:	 .WORD	0		;Saved SP
+ 	CMP	R0,#4		;Is this a FALCON processor?
+ 	BNE	67$		;Branch if not
+ 	INC	FALCON		;Set flag indicating we're a FALCON
+-	TST	@#PS		; FALCON I or FALCON II ?
++	OMBTR4			;Omega: FALCON I - the T-11 has no PS to trap on
+ 	T11NOP
+ 	COM	FALCON		; We're a FALCON II, FALCON=-2 ==> memory gap
+ 	MOV	#77600,R4	;    between 77600-77776
+@@ -231,7 +233,7 @@ BHALT::	BR	4$		;Change to HALT for fiddling
+ 4$:	CLR	R4		;Look for top of core
+ 5$:	ADD	#4000,R4	;Move to next 1K bank
+ ..28KW	== .+2		;**PATCH** CHANGE TO 160000 TO AVOID CHECKING OVER 28K
+-	CMP	R4,#170000	;Reached 30K?
++	CMP	R4,#154000	;Omega: up to 154000, the ROM's RAM above
+ 	BEQ	NXM		;Yes, 30K system with MSV11-D memory
+ 	MOV	@R4,@R4		;No, see if this location exists
+ 	BR	5$		;Keep going if we didn't trap
+@@ -250,6 +252,7 @@ NXM:
+ 	MFPT			;Test for 23/24, if we trap, QBUS
+ 	CMPB	R0,#3		;No trap, is this the 11/23 code?
+ 	BNE	10$		;If no, QBUS, branch
++	OMHALT			;Omega: not on an 11/23
+ 
+ ;!!!!!!!!!!!!!!!!  CHECK THIS OUT !!!!!!!!!!!!!!!!!!
+ 
+@@ -263,6 +266,7 @@ NXM:
+ 	MFPT			;If trap, we're a Unibus
+ 	CMPB	R0,#5		;Are we a J11?
+ 	BNE	30$		;If not, we're a Unibus, branch
++	OMHALT			;Omega: not on a J-11
+ 	BIT	#1000,@#177750	;Unibus bit set in J11 maintenance reg?
+ 	BNE	30$		;If yes, we're a Unibus, branch
+ 10$:	INC	BUSTYP		;We're a QBUS	
+@@ -339,7 +343,9 @@ FXDEVN::MOV	#B$DEVN,R5	;Point to booted device handler name
+ ; Set bits in CONFIG depending on the following tests.
+ ;-
+ 
+-CFIG::	MOV	#TSLIST,R1	;Point to TSLIST for list of possible bits
++CFIG::	OMCFIG			;Omega: the configuration is known
++.IF NE	OM$PRB		;Omega: DEC's probes out
++	MOV	#TSLIST,R1	;Point to TSLIST for list of possible bits
+ 				CK.R1=TSLIST
+ 	MOV	R1,R0		;BCNFG eventually becomes CONFIG
+ 				CK.R0=TSLIST
+@@ -578,7 +584,8 @@ CFIG2::	TST	-(R0)		;Point to BCNFG2
+ 4$:	CMP	R3,#MEM.PE	;End of status register check routine?
+ 	BLO	3$		;No, continue testing parity status registers
+ .ENDC ;NE MPT$Y
+-.SBTTL	File lookup
++.ENDC	;NE OM$PRB
++.SBTTL	File lookup
+ 
+ ;+
+ ; LOKFIL - Search for monitor, swap, and all handler files
+@@ -592,6 +599,7 @@ LOKFIL:	CLR	-(SP)		;Make room for system handler block number
+ 1$:	ASL	R0		;Double the segment number
+ 	CMP	(R0)+,(R0)+	;Offset it to get a block number (Note even #)
+ 	MOV	#256.*2,R1	;Read two blocks
++	OMLKRD			;OSA: the floppy motor's time-out (as meant)
+ 	CALL	BBREAD		;Read it into BUFFB
+ 	BCS	INPERR		;Oops, error reading
+ 	MOV	#BUFFB+D.STRT,R1 ;Point to the start block word
+@@ -989,6 +997,7 @@ MEMSIZ	== .-4			;Size of usable system memory in blocks
+ 	MOV	#0,$RAMSZ(R4)	;Store memory size in 32 word blocks
+ TOTMEM	== .-4			;Size of total system memory in blocks
+ 	BIS	BCNFG,CONFIG(R4) ;Store hardware configuration word in RMON
++	OMCLK2			;Omega: the clock exists
+ 	BIS	BCNFG2,CONFG2(R4) ;as well as the extension word
+ 
+ .IF NE	MPT$Y
+@@ -1179,12 +1188,15 @@ FRSLFL:	 .BYTE	0		;Flag for presence of handlers to install
+ 	.DSABL	LSB
+ .SBTTL	Trap to 4 interceptors
+ 
+-BCLR:	CLR	@R1		;Trap means this configuration nyet
++BCLR:	OMBACK			;Omega: the timer acknowledged
++	CLR	@R1		;Trap means this configuration nyet
+ 	ADD	(PC)+,@SP	;Offset the PC for two word MED instruction
+ PCFIX:	 .WORD	 0
+-BRTI:	RTI			;Untrap
++BRTI:	OMBACK			;Omega: the timer acknowledged
++	RTI			;Untrap
+ 
+-BSEC:	BIS	#1,2(SP)	;Trap means non-existent memory
++BSEC:	OMBACK			;Omega: the timer acknowledged
++	BIS	#1,2(SP)	;Trap means non-existent memory
+ 	RTI
+ 
+ .IF NE PRO$S
+@@ -1274,7 +1286,7 @@ T4SEC:	MOV	@#V.TR4,1$	;Save the old trap-to-4 address
+ ;-
+ 
+ BCNFG2::.WORD	0		;Boot CONFG2 word
+-BCNFG::	.WORD	LSI11$		;Boot CONFIG word
++BCNFG::	.WORD	LSI11$!OM$BCF	;Boot CONFIG word (MS 0515: the clock exists)
+ 
+ ;+
+ ; Set of bit masks for CONFIG
+@@ -1676,7 +1688,7 @@ VECLST::				;Note: load of loc 0 must be first
+ .IF NE	BF!MTT$Y
+ 	.WORD	V..TPS!...REL,	TTOINT,	PR7 ;(064) Terminal output interrupt
+ .IFF
+-	.WORD	V..TPS!...REL,	TTOINT,	PR4 ;(064) Terminal output interrupt
++	.WORD	V..TPS!...REL,	TTOINT,	TT$PRI ;(064) Terminal output interrupt (PR4; Omega: PR7)
+ .ENDC ;NE BF!MTT$Y
+ .IF NE KW11$P
+ 	.WORD	V.LTC,	V.LTC+2,RTI	;(100) Dismiss line-time clock interrupts
+@@ -2340,9 +2352,10 @@ KT11RG::CALL	@#T4SEC		;Set the carry on traps to 4 & 10.
+ 	MOV	@#MEMSIZ,@#TOTMEM ;Assume that
+ 				; we have a non-XM system without a KT-11
+ 				; in case we can't size via KT-11
+-	TST	@#SR0		;Do we have a KT-11?
++	OMBTR4			;Omega: no KT-11 - the T-11 does not trap
+ 	T11NOP			;Delay for T-11
+ 	BCS	9$		;Branch if not
++.IF NE	OM$KT		;Omega: no KT-11 to set up
+ 
+ 	BIS	#20,@#SR3	;Try to turn on 22 bit addressing.
+ .IF NE PRO$S
+@@ -2415,6 +2428,7 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
+ 	MOV	@R3,R2		;Store memory size (/32 words) in R2
+ 	MOV	R2,@#TOTMEM	;Save total memory size in 32 word blocks
+ 	MOV	#1400,@R3	;Restore PAR6
++.ENDC	;NE OM$KT
+ .IF NE	MMG$T			;If XM
+ 	MOV	#LOWCOR,R4	;Assume that low memory is a full 28K
+ 	CMP	R2,R4		;Is memory at least 28K?
+@@ -2458,8 +2472,10 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
+ 8$:
+ .ENDC	;NE PRO$S
+ .IFF	;NE MMG$T		;If not XM
++.IF NE	OM$KT		;Omega: no KT-11 to set up
+ 	CLR	@#SR0		;Turn off memory management
+ 	CLR	@#SR3		;Turn off 22-bit addressing
++.ENDC	;NE OM$KT
+ .IFTF	;NE MMG$T
+ 9$:	RETURN			;Restore vectors at 4 and 10 and return
+ .ENDC	;NE MMG$T
+@@ -2481,7 +2497,8 @@ KT11ND::
+ .SBTTL	Start the system
+ 
+ STRTOV:
+-STRTUP:	CLR	R0		;Prevent any swaps
++STRTUP:	OMKBST			;Omega: the keyboard rows reset
++	CLR	R0		;Prevent any swaps
+ 	.SETTOP			; by settoping to 0
+ 	CMP	SWPSIZ+<STRTOV-B$BOOT>,#SWAPSZ ;Swap file too small?
+ 	BLO	NOSWAP		;Yes, give error
+@@ -2691,10 +2708,11 @@ RELTCB:	MOV	#TCBPEN-TCBLST/2,R5 ;Get count of TCB pointers
+ .IF EQ	RTE$M			;If not RTEM
+ 	TST	FALCON+<STRTOV-B$BOOT> ;Are we flying with a FALCON?
+ 	BEQ	10$		;Branch if we are not
+-	MOV	#V.SBRK+4,R1	;Point to FALCON break vector + 4
+-	MOV	#PR7,-(R1)	;Set up with PS of kernel mode and PRIO 7
+-	MOV	#170000,-(R1)	;And point to MACRO ODT code
+-	CALL	PROTEC+<STRTOV-B$BOOT> ;Protect the vector from marauders
++	OMIGNV	V.SBRK		;Omega: FALCON's break vector ignored,
++	OMIGNV	70		; and those of the machine's devices
++	OMIGNV	104
++	OMIGNV	134
++	OMIGNV	110
+ 10$:
+ .ENDC	;EQ RTE$M
+ .IF NE PRO$S
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+index bdcc2c8..cd31a79 100644
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -95,7 +95,7 @@ SYUNIT::.WORD	0		;UNIT THAT SYSTEM WAS BOOTED FROM
+ 	...CMV	PART=ALL,TYPE=V
+ SYSVER:	.BYTE	RT$REL		;srr.vv rr part
+ SYSUPD:	.BYTE	RT$VER		;srr.vv vv part
+-CONFIG::.WORD	CLK50		;SYSTEM CONFIGURATION FLAGS
++CONFIG::.WORD	CLK50!OM$CFG	;SYSTEM CONFIGURATION FLAGS (OSA: the clock)
+ SCROLL::.WORD	0		;LINK TO GT40 SCROLLER CODE
+ TTKS::	.WORD	CN$KS		;CONSOLE IO ADDRESSES (Omega: pseudo-registers)
+ TTKB::	.WORD	CN$KB

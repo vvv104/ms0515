@@ -1,0 +1,54 @@
+.SBTTL	OMRUS	The kits' banners and their texts in Russian
+;
+; OMBANR - in BSTRAP, the boot message (BSTRNG): the kit's banner.
+; OMRMSG - in RMONSJ, the fatal read-error message after CRASHP.
+; RUnnn  - OSA's text for each of DEC's messages (OMRUSA.MAC), called by
+;          DEC's text macros and lines where OM$RUS is RU$OSA.
+;
+; MACRO takes ASCII only, so the Russian letters (KOI-8) are bytes here.
+;
+; The banner is the kit's own (OM$KIT): Omega's names the monitor OMEGA in
+; Cyrillic where DEC's names it RT-11SJ, the same length, the rest DEC's;
+; OSA's replaces the whole line ("OCA", Latin, then "Version 1.0" in
+; Russian).
+;
+; The texts are a choice of their own (OM$RUS), so that a build can take
+; them without the rest of a kit.  Omega's builds say two things in
+; Russian: the banner and the fatal message.  OSA's say everything but
+; the prefixes (?MON-F- ...), the error levels, the program names and the
+; commands.  The two translate the fatal message differently: Omega's
+; reads "a halt on a system read error", OSA's "a halt on an error of
+; reading the system".  Either is longer than DEC's: RMON's code after it
+; moves on, and the BR that ends the swap EMT falls out of reach - both
+; have a JMP there (in the patch itself).
+;
+.MACRO	OMBANR			;The kit's banner
+.IF EQ	OM$KIT-KT$OMG
+	.BYTE	CR,LF,357,355,345,347,341		;OMEGA
+	.ASCII	" SJ"
+.ENDC	;EQ OM$KIT-KT$OMG
+.IF EQ	OM$KIT-KT$OSA
+	.BYTE	CR,LF
+	.ASCII	/OCA    /
+	.BYTE	367,305,322,323,311,321			;Version
+	.ASCII	/ 1.0 /
+.ENDC	;EQ OM$KIT-KT$OSA
+.ENDM	OMBANR
+
+.MACRO	OMRMSG			;The fatal read-error message
+	.ASCII	\?MON-F-\
+.IF EQ	OM$RUS-RU$OMG
+	.BYTE	357,323,324,301,316,317,327,040		;Omega's: halt
+	.BYTE	320,317,040				; on
+	.BYTE	323,311,323,324,305,315,316,317,312,040	; system
+	.BYTE	317,333,311,302,313,305,040		; error
+	.BYTE	336,324,305,316,311,321			; of reading
+.IFF
+	.BYTE	357,323,324,301,316,317,327,040		;OSA's: halt
+	.BYTE	320,317,040				; on
+	.BYTE	317,333,311,302,313,305,040		; error
+	.BYTE	336,324,305,316,311,321,040		; of reading
+	.BYTE	323,311,323,324,305,315,331		; the system
+.ENDC	;EQ OM$RUS-RU$OMG
+	.BYTE	CR,LF,LF,0
+.ENDM	OMRMSG

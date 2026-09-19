@@ -1,0 +1,20 @@
+.SBTTL	SYCOM2	OMEGA SJ(S) V05.04, THE VVV104 BUILD: THE CONDITIONAL FILE
+;
+; The answers the Omega sysgen gave, read back out of its monitor: the
+; options word (SYSGEN = 002000: timer support only), CONFIG's 50-cycle
+; clock, the device slots.  Symbols SYSGEN.COM writes, in its order.
+;
+SYSG$N	= 1		;Indicate sysgened monitor
+TIME$R	= 1		;SJ timer support
+RDF$L	= 1		;System I/O error messages
+TTYOUT  = 40.		;Size of the output buffers
+TTYIN   = 134.		;Size of the input buffers
+U$TIL	= 1		;Utility commands
+L$ANG	= 1		;Language commands
+M$INI	= 1		;Minimal commands
+CLOCK	= 50.		;Power line frequency
+STAR$T	= 1		;Startup command file
+OM$KIT	= 1		;This build: Omega's monitor (KT$OMG, see OMEGA.MAC)
+OM$RUS	= 1		;Omega's two texts in Russian (RU$OMG, OMRUS.MAC)
+OM$TRP	= 1		;The decoding trap (OMTRAP.MAC)
+OM$BLK	= 1		;The cursor blink through ROM-B (OMBLNK.MAC)

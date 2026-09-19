@@ -1,0 +1,39 @@
+.SBTTL	OMEGA	The MS 0515 changes to RT-11 V5.4
+;
+; Assembled after EDTGBL in every part of the monitor.  Each module is one
+; architectural difference of the kits' SJ monitors from DEC's; it defines
+; macros only, and DEC's sources call them where the kits changed them (the
+; hooks are the patches of patches/series).
+;
+; The answers file (SYCND) says whose monitor the build is, OM$KIT:
+;
+;   0       DEC's RT-11 on the MS 0515: only what the machine needs, DEC's
+;           own SYSGEN answers (SYCDEC.MAC).  The kits' NOP and HALT
+;           filler and their repeated CONFIG bits are out.
+;   KT$OMG  Omega's monitor exactly (SYCND.MAC; SYCOM2.MAC, the vvv104
+;           build, with OM$BLK - its cursor blink through ROM-B);
+;   KT$OSA  OSA's monitor exactly (SYCOSA.MAC).
+;
+; (The answers file comes before this one: it gives the numbers.)
+;
+; OM$TRP - the decoding trap: Omega's builds only.
+; OM$RUS - the texts in Russian (OMRUS.MAC): 0 DEC's; RU$OMG Omega's two;
+;          RU$OSA OSA's, every message.
+;
+KT$OMG	= 1
+KT$OSA	= 2
+RU$OMG	= 1
+RU$OSA	= 2
+.IIF NDF OM$KIT, OM$KIT = 0
+.IIF NDF OM$BLK, OM$BLK = 0
+.IIF NDF OM$TRP, OM$TRP = 0
+.IIF NDF OM$RUS, OM$RUS = 0
+RU$ALL	= 0			;Every message the kit's (OSA's texts)
+.IIF EQ OM$RUS-RU$OSA, RU$ALL = 1
+	.INCLUDE "SRC:OMTRAP.MAC"	;The decoding trap
+	.INCLUDE "SRC:OMCONS.MAC"	;The console through the ROM
+	.INCLUDE "SRC:OMCLOK.MAC"	;The clock: timer, floppy motor
+	.INCLUDE "SRC:OMBOOT.MAC"	;The bootstrap on the MS 0515
+	.INCLUDE "SRC:OMBLNK.MAC"	;The cursor blink through ROM-B
+	.INCLUDE "SRC:OMRUS.MAC"	;The texts in Russian (OSA's: OMRUSB,
+					; OMRUSU, OMRUSK, by the DEC files)

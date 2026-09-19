@@ -1,0 +1,105 @@
+.SBTTL	OMBOOT	The bootstrap on the MS 0515
+;
+; DEC's bootstrap finds out what it runs on - the processor, the memory,
+; the clock, the options - by touching addresses and catching the traps.
+; On the MS 0515 most of that is known, and some of it cannot be probed:
+; the T-11 has no PSW address and a missing address does not trap.  So
+; Omega's bootstrap:
+;
+; - takes the clock interrupt at priority 7 and turns the timer interrupt
+;   on (dispatcher bit 9, through the ROM's copy), and resets the errors
+;   of the serial port's USART;
+; - gives the trap vectors 4 and 10 priority 7;
+; - takes by hand the trap that DEC's probe of the PSW expects (OMBTR4);
+; - sizes the memory up to 154000: above it is the ROM's own RAM;
+; - stops on an 11/23 or a J-11 (their MFPT codes);
+; - does not probe the options at all: CONFIG says only that the clock
+;   exists (in BCNFG's first value, set again after the probes' room, left
+;   as NOPs, and once more into RMON's CONFIG);
+; - has no memory management to set up: the KT-11 probe takes its trap by
+;   hand and the KT-11 code is out;
+; - raises and releases the MS 7007 keyboard rows before starting RT-11;
+; - acknowledges the timer in its own trap and interrupt handlers (the
+;   timer interrupt is on from the start);
+; - installs the console's input interrupt at 130, the MS 7004's vector,
+;   and the output interrupt at 064 at priority 7;
+; - points the vectors the T-11 and the machine's devices may interrupt
+;   through - 140 (DEC's FALCON break vector), 070, 104, 134 and 110 - at
+;   an RTI of their own (the vector's PS word is 2, an RTI) and protects
+;   them (OMIGNV).
+;
+V.TKB	== 130		;The console's input: the MS 7004's vector
+V.TPS	== 134		; and its neighbour (CLNUP silences it: output
+			; interrupts come through 064, the monitor's)
+OM$PRB	= 0		;DEC's option probes: left out
+OM$KT	= 0		;DEC's KT-11 set-up: left out
+SERCMD	= 177702	;The serial port's USART: command
+US$ER	= 20		;USART command: reset the error flags
+DS$TMR	= 1000		;Dispatcher bit 9: the timer interrupt on
+
+.MACRO	OMBINI			;Before anything else
+	BIS	#DS$TMR,@#DSPCPY
+	MOV	@#DSPCPY,@#DISPAT
+	MOV	#US$ER,@#SERCMD
+.ENDM	OMBINI
+
+.MACRO	OMBACK			;Acknowledge the timer (in the bootstrap's
+	TST	@#TMRSVC	; own trap and interrupt handlers)
+.ENDM	OMBACK
+
+.MACRO	OMBVEC			;The trap vectors at priority 7
+	MOV	#PR7,@#V.TR4+2
+	MOV	#PR7,@#V.TR10+2
+.ENDM	OMBVEC
+
+.MACRO	OMBTR4			;A trap to 4, taken by hand
+	MOV	#PR7,-(SP)
+	MOV	PC,-(SP)
+	ADD	#10,@SP
+	MOV	@#V.TR4,PC
+.ENDM	OMBTR4
+
+.MACRO	OMKBST			;The keyboard rows up, then released
+	MOVB	#-1,@#KBROWS
+	MOVB	#0,@#KBROWS
+.ENDM	OMKBST
+
+.MACRO	OMIGNV	VEC		;VEC's interrupts ignored, VEC protected
+	MOV	#VEC+4,R1
+	MOV	#2,-(R1)	;The PS word is 2, an RTI...
+	MOV	#VEC+2,-(R1)	; and the vector points at it
+	CALL	PROTEC+<STRTOV-B$BOOT>
+.ENDM	OMIGNV
+
+.MACRO	OMCFIG			;The configuration, known: the kits leave the
+.IF EQ	OM$KIT-KT$OMG		; room of DEC's probes as NOPs; Omega's last
+	.REPT	90.		; three words say again that the clock
+	NOP			; exists (BCNFG's first value says it too)
+	.ENDR
+	BIS	#CLOCK$,BCNFG
+.ENDC	;EQ OM$KIT-KT$OMG
+.IF EQ	OM$KIT-KT$OSA		;(OSA's CONFIG in RMON says it, OM$CFG)
+	.REPT	96.
+	NOP
+	.ENDR
+.ENDC	;EQ OM$KIT-KT$OSA
+.ENDM	OMCFIG
+
+.MACRO	OMCLK2			;Omega says it a third time, into CONFIG
+.IIF EQ OM$KIT-KT$OMG,	BIS	#CLOCK$,CONFIG(R4)
+.ENDM	OMCLK2
+
+OM$CFG	= 0			;RMON's CONFIG, besides the clock's rate:
+.IIF EQ OM$KIT-KT$OSA, OM$CFG = CLOCK$	; OSA's says the clock exists
+OM$BCF	= CLOCK$		;The bootstrap's CONFIG (BCNFG) says it -
+.IIF EQ OM$KIT-KT$OSA, OM$BCF = 0	; but OSA's (RMON's does)
+
+.MACRO	OMLKRD			;OSA, before the bootstrap reads the directory:
+.IF EQ	OM$KIT-KT$OSA		; meant as BIS #MT$ARM,@#RGACPY - the floppy
+	BIS	100000,@#RGACPY	; motor's time-out armed - it lacks the "#"
+.ENDC	;EQ OM$KIT-KT$OSA	; and ORs in the word at 100000 instead
+.ENDM	OMLKRD
+
+.MACRO	OMHALT			;The kits stop on a processor that cannot be
+.IIF NE OM$KIT,	HALT		; an MS 0515's
+.ENDM	OMHALT

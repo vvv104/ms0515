@@ -196,14 +196,7 @@ class Disassembler:
             return f'SOB\t{REG[reg]}, {self._fmt_addr(target)}'
 
         # ── Branch instructions ──
-        branches = {
-            0o000400: 'BR',   0o001000: 'BNE',  0o001400: 'BEQ',
-            0o100000: 'BPL',  0o100400: 'BMI',  0o101000: 'BVC',
-            0o101400: 'BVS',  0o102000: 'BCC',  0o102400: 'BCS',
-            0o103000: 'BGE',  0o103400: 'BLT',  0o034000: 'BLE',
-            0o003000: 'BGT',  0o101000: 'BVC',
-        }
-        # Better approach for branches
+        # BCC/BCS are also BHIS/BLO (the unsigned >= and <).
         br_code = op & 0o177400
         br_map = {
             0o000400: 'BR',
@@ -211,9 +204,9 @@ class Disassembler:
             0o002000: 'BGE',  0o002400: 'BLT',
             0o003000: 'BGT',  0o003400: 'BLE',
             0o100000: 'BPL',  0o100400: 'BMI',
-            0o101000: 'BVC',  0o101400: 'BVS',
-            0o102000: 'BHIS', 0o102400: 'BLO',
-            0o103000: 'BHI',  0o103400: 'BLOS',
+            0o101000: 'BHI',  0o101400: 'BLOS',
+            0o102000: 'BVC',  0o102400: 'BVS',
+            0o103000: 'BCC',  0o103400: 'BCS',
         }
         if br_code in br_map:
             target = self._decode_branch_target(op)
