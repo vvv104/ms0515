@@ -6,6 +6,11 @@
 # register) stands in for the output-ready interrupt, keys stay 8-bit for
 # KOI-8, SO/SI switch the ROM's font at once, and the MS 7007 keyboard
 # rows are released after each key and EMT (OMCONS.MAC).
+#
+# Mihin's calls the ROM through a table of his bootstrap's at 157400,
+# prints seven bits as DEC's does (KOI-7: the Russian letters come by
+# SO/SI), shows no SO/SI at once, releases no rows after a key or an EMT,
+# and runs the keyboard at priority 5 and the output at DEC's 4.
 
 diff --git a/KMON.MAC b/KMON.MAC
 index 2f94950..74c2e1f 100644
@@ -20,7 +25,7 @@ index 2f94950..74c2e1f 100644
  
  ; NOTE:	IF THIS IS THE MTTY SJ MONITOR, THE RTS BELOW WILL RETURN TO THE
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 9cd2323..2c70efa 100644
+index 94434fa..e98f150 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -97,10 +97,10 @@ SYSVER:	.BYTE	RT$REL		;srr.vv rr part
@@ -38,7 +43,7 @@ index 9cd2323..2c70efa 100644
  MAXBLK:	.WORD	-1		;MAXIMUM FILE SIZE TO ALLOW ON .ENTER
  E16LST:	.WORD	LST16-$RMON	;POINTER TO EMT 16 LIST FOR BATCH
  $TIME::	BSS	2		;DOUBLE PRECISION TIMER
-@@ -690,12 +690,7 @@ POWRUP:									;005
+@@ -698,12 +698,7 @@ POWRUP:									;005
  .ENDC ;NE PWF$L
  
  .IF NE	PWF$L!RDF$L
@@ -52,15 +57,15 @@ index 9cd2323..2c70efa 100644
  .ENDC ;NE PWF$L!RDF$L							;DV51-
  
  .DSABL	LSB
-@@ -1017,6 +1012,7 @@ E16XT:	CLR	R2		;NO USER ARGS. TO POP
+@@ -1025,6 +1020,7 @@ E16XT:	CLR	R2		;NO USER ARGS. TO POP
  ; THIS IS THE GENERAL END OF THE LINE FOR EMT'S
  
  EMTDON::JSR	R1,POPREG	;RESTORE A FEW REGISTERS
-+	OMKBRL			;Omega: release the keyboard rows
++	OMEMTX			;Omega, OSA: release the keyboard rows
  	RTI			;RETURN FROM EMT
  .SBTTL	TTYOUT
  
-@@ -1188,23 +1184,22 @@ PTIBF4:: .WORD	TTIBUF+4	;*** BOOT ***
+@@ -1196,23 +1192,22 @@ PTIBF4:: .WORD	TTIBUF+4	;*** BOOT ***
  TTIINT::JSR	R1,SVREG	;* SAVE VOLATILE REGISTERS
  	MOV	(PC)+,R5	;* POINT TO RING COUNT
  PTIBF4:: .WORD	TTIBUF+4	;*** BOOT ***
@@ -88,7 +93,7 @@ index 9cd2323..2c70efa 100644
   .IF NE	VT11$!VS60$							;DV57
  	JSR	PC,@SCLNK2	;MAYBE CALL SCROLLER
   .ENDC ;NE VT11$!VS60$
-@@ -1306,8 +1301,10 @@ TTIEX3:
+@@ -1314,8 +1309,10 @@ TTIEX3:
  	RTS	PC		;RETURN
   .IFF ;NE HSR$B								;005
    .IF EQ	TIME$R
@@ -99,7 +104,7 @@ index 9cd2323..2c70efa 100644
  	MOV	(SP)+,R0	;RESTORE REGISTERS 0 - 3
  	MOV	(SP)+,R1
  	MOV	(SP)+,R2
-@@ -1388,8 +1385,7 @@ TTCRLF:	JSR	PC,TTLFCR	;NEW LINE AFTER ^U
+@@ -1396,8 +1393,7 @@ TTCRLF:	JSR	PC,TTLFCR	;NEW LINE AFTER ^U
  
  CTRL.Q:	CLR	SYNC		;RESUME OUTPUT
  .IF EQ PDT$OP
@@ -109,7 +114,7 @@ index 9cd2323..2c70efa 100644
  .IFF
  	CLR	@TTPS		;CLEAR INTERRUPT ENABLE
  	MOV	#IENABL,@TTPS	;START INTERRUPTING
-@@ -1458,7 +1454,7 @@ ZAP::									;005
+@@ -1466,7 +1462,7 @@ ZAP::									;005
  	RESET			;STOP ALL IO
  
  .IF EQ	PDT$OP
@@ -118,7 +123,7 @@ index 9cd2323..2c70efa 100644
  .ENDC
  .IF EQ MTT$Y
  	CLR	SYNC		;Clear output stall flag
-@@ -1611,7 +1607,7 @@ OPUT:	TSTB	TTOCLO		;IS ^O ON?
+@@ -1619,7 +1615,7 @@ OPUT:	TSTB	TTOCLO		;IS ^O ON?
  	INC	-(R2)		;BUMP COUNT OF CHARACTERS IN BUFFER	;DG03
  	INC	2(R2)		;BUMP 'PUT' POINTER			;JH12-/DG03
  .IF EQ PDT$OP
@@ -127,7 +132,7 @@ index 9cd2323..2c70efa 100644
  .IFF
  	MOV	#IENABL,@TTPS	;TURN ON THE OUTPUT INTERRUPT
  .ENDC
-@@ -1641,7 +1637,7 @@ OPUT1:	TSTB	TTOCLO		;IS ^O ON?
+@@ -1649,7 +1645,7 @@ OPUT1:	TSTB	TTOCLO		;IS ^O ON?
  	INC	2(R2)		;BUMP 'PUT' POINTER			;JH12-/DG03
  	SPL	0		;return priority to what it was
  .IF EQ PDT$OP
@@ -136,21 +141,21 @@ index 9cd2323..2c70efa 100644
  .IFF
  	MOV	#IENABL,@TTPS	;TURN ON THE OUTPUT INTERRUPT
  .ENDC
-@@ -1658,7 +1654,7 @@ OPUT1:	TSTB	TTOCLO		;IS ^O ON?
+@@ -1666,7 +1662,7 @@ OPUT1:	TSTB	TTOCLO		;IS ^O ON?
  
  ; *** FOLLOWING LINE MODIFIED BY GT ON ***
  
 -TTSCRL::BIC	#^C<177>,R4	;NO PARITY BITS
-+TTSCRL::BIC	#^C<377>,R4	;Omega: eight bits, KOI-8
++TTSCRL::BIC	#^C<TT$MSK>,R4	;Omega: eight bits, KOI-8
  	MOV	(PC)+,R2	;POINT TO COUNT OF BYTES IN OUTPUT BUFFER
  PTOBF2:: .WORD	TTOBUF+2	;*** BOOT ***
  	RTS	PC
-@@ -1681,13 +1677,18 @@ CHCNT:	 .WORD	10		;# SPACES TO NEXT TAB STOP
+@@ -1689,13 +1685,18 @@ CHCNT:	 .WORD	10		;# SPACES TO NEXT TAB STOP
  
  .IF NE	TIME$R
  TTOINT::JSR	R5,$INTEN	;* DO COMMON INTERRUPT ENTRY
 -	 .WORD	^C<PR4>&PR7	; (LEVEL 0)
-+	 .WORD	^C<TT$PRI>&PR7	; (LEVEL 4; Omega: 7)
++	 .WORD	^C<TO$PRI>&PR7	; (LEVEL 4; Omega: 7)
  	MOV	(PC)+,R5	;POINT TO COUNT
  PTOBF4:: .WORD	TTOBUF+4	;*** BOOT ***
  	MOV	(PC)+,R4	;POINT TO TABCNT
@@ -166,16 +171,16 @@ index 9cd2323..2c70efa 100644
  SYNC:	 .WORD	0
  	BNE	12$		;NO, XOFF IS IN EFFECT, JUST RETURN
  	DEC	(R4)+		;DOING TABS OR FILLS?
-@@ -1707,7 +1708,7 @@ SYNC:	 .WORD	0
+@@ -1715,7 +1716,7 @@ SYNC:	 .WORD	0
  	CMP	(R5)+,#-1	;DONE YET?
  	BEQ	11$		;*** WE DO THIS SO TT: CAN USE THIS CODE ALSO
  	MOVB	@(R5)+,@R4	;GET CHARACTER, SAVE IT IN FILLC
 -3$:	BIC	#^C<177>,@R4	;STRIP PARITY				;JH9+
-+3$:	BIC	#^C<377>,@R4	;Omega: eight bits, KOI-8
++3$:	BIC	#^C<TT$MSK>,@R4	;Omega: eight bits, KOI-8
  	CMP	(R4)+,#RUBOUT	;Delete character?			;011
  	BEQ	4$		;Yes					;011
  	CMP	-2(R4),#40	;Test for printing character		;011
-@@ -1717,7 +1718,7 @@ SYNC:	 .WORD	0
+@@ -1725,7 +1726,7 @@ SYNC:	 .WORD	0
  	MOV	#10,@R4		;RESET TAB COUNT
  4$:	TST	-(R4)		;POINT TO CHARACTER TO PRINT IN FILLC
  5$:	INC	-(R5)		;BUMP OUTPUT RING POINTER
@@ -184,7 +189,7 @@ index 9cd2323..2c70efa 100644
  	BR	12$
  									;005
  7$:	CMP	-2(R4),#BS	;Backspace character?			;011
-@@ -1738,7 +1739,7 @@ SYNC:	 .WORD	0
+@@ -1746,7 +1747,7 @@ SYNC:	 .WORD	0
  10$:	DEC	R4		;BACK UP POINTER
  	CMPB	-(R4),@#TTFILL	;HAVE TO FILL?
  	BNE	5$		;NO. JUST PRINT THIS ONE
@@ -193,7 +198,7 @@ index 9cd2323..2c70efa 100644
  	CLR	@R4		;FILLERS ARE NULLS
  	CLR	-(R4)		;POINT R1 TO FILL COUNT AND CLEAR IT
  	MOVB	@#TTNFIL,@R4	;XFER FILL COUNT TO TABCNT
-@@ -1747,12 +1748,14 @@ SYNC:	 .WORD	0
+@@ -1755,12 +1756,14 @@ SYNC:	 .WORD	0
  
  11$:
  .IF EQ PDT$OP

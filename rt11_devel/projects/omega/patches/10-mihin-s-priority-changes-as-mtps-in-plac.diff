@@ -1,0 +1,29 @@
+# Mihin's priority changes as MTPS in place
+#
+# DEC's SPL leaves a two- or three-word entry in the PSWLST chain, and the
+# bootstrap turns each into the instruction the processor at hand takes.
+# Mihin's SPL is the MTPS itself, two words, off the chain; GETPSW and
+# PUTPSW stay DEC's, on it.
+
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+index 53a55a5..4eaa862 100644
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -37,6 +37,9 @@
+ ;-
+ 
+ .MACRO	SPL	N
++.IF EQ	OM$KIT-KT$MIH
++	 MTPS	#N*40		;Mihin: an MTPS in place, not in the list
++.IFF	;EQ OM$KIT-KT$MIH
+ 	 .WORD	PSWLST
+ PSWLST	== .-2
+ .IF EQ	N
+@@ -44,6 +47,7 @@ PSWLST	== .-2
+ .IFF
+ 	 .WORD	N*40,PS
+ .ENDC
++.ENDC	;EQ OM$KIT-KT$MIH
+ .ENDM	SPL
+ 
+ ;+

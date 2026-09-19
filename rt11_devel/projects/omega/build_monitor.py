@@ -2,11 +2,11 @@
 of SYSGEN answers and the Omega modules, the way SYSGEN.COM's MONBLD does
 it, with the real MACRO and LINK inside the emulator.
 
-    python build_monitor.py [OUTDIR] [--profile omega|omega2|dec] [--list]
-                            [PART...]
+    python build_monitor.py [OUTDIR] [--profile P] [--list] [PART...]
 
 The profile picks the answers: omega - the 059 Omega monitor (SYCND.MAC),
-omega2 - the vvv104 one (SYCOM2.MAC), dec - DEC's RT-11 on the MS 0515
+omega2 - the vvv104 one (SYCOM2.MAC), osa - OSA's (SYCOSA.MAC), mihin -
+Mihin's OS-16SJ (SYCMIH.MAC), dec - DEC's RT-11 on the MS 0515
 (SYCDEC.MAC); see OMEGA.MAC.  --list has MACRO write the listings, for
 taking a difference apart (where.py, regions.py); without them MACRO shows
 the lines in error and "?MACRO-E-Errors detected: n" on the terminal, and
@@ -105,7 +105,7 @@ def disk(*args) -> None:
 
 
 ANSWERS = {"omega": "SYCND.MAC", "omega2": "SYCOM2.MAC", "osa": "SYCOSA.MAC",
-           "dec": "SYCDEC.MAC"}
+           "dec": "SYCDEC.MAC", "mihin": "SYCMIH.MAC"}
 
 
 def stage(image: Path, files: Path, profile: str) -> None:

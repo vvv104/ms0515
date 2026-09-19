@@ -6,9 +6,14 @@
 # no option probes and no KT-11 set-up - CONFIG says the clock exists; the
 # console's input at 130; the keyboard rows reset; the vectors of the
 # machine's devices silenced (OMBOOT.MAC).
+#
+# Mihin's sizes the memory up to 157400 in steps of 64 words, sets up there
+# the table his console calls the ROM by, silences the devices' vectors by
+# entries of VECHI, arms the floppy motor's time-out before reading the
+# directory, and decodes his banner where the others reset the keyboard.
 
 diff --git a/BSTRAP.MAC b/BSTRAP.MAC
-index f3bc451..2cc3ada 100644
+index f3bc451..73c068e 100644
 --- a/BSTRAP.MAC
 +++ b/BSTRAP.MAC
 @@ -168,13 +168,15 @@ REPORT:				;Asect in for error report routine
@@ -37,12 +42,15 @@ index f3bc451..2cc3ada 100644
  	T11NOP
  	COM	FALCON		; We're a FALCON II, FALCON=-2 ==> memory gap
  	MOV	#77600,R4	;    between 77600-77776
-@@ -231,7 +233,7 @@ BHALT::	BR	4$		;Change to HALT for fiddling
+@@ -229,9 +231,9 @@ BHALT::	BR	4$		;Change to HALT for fiddling
+ 	CMP	R4,#160000	;Do normal check?
+ 	BLO	NXM		;No, use the switch register value
  4$:	CLR	R4		;Look for top of core
- 5$:	ADD	#4000,R4	;Move to next 1K bank
+-5$:	ADD	#4000,R4	;Move to next 1K bank
++5$:	ADD	#OM$MST,R4	;Move to next 1K bank (Mihin: 64 words)
  ..28KW	== .+2		;**PATCH** CHANGE TO 160000 TO AVOID CHECKING OVER 28K
 -	CMP	R4,#170000	;Reached 30K?
-+	CMP	R4,#154000	;Omega: up to 154000, the ROM's RAM above
++	CMP	R4,#OM$MTP	;Omega: up to 154000, the ROM's RAM above
  	BEQ	NXM		;Yes, 30K system with MSV11-D memory
  	MOV	@R4,@R4		;No, see if this location exists
  	BR	5$		;Keep going if we didn't trap
@@ -99,7 +107,15 @@ index f3bc451..2cc3ada 100644
  	BIS	BCNFG2,CONFG2(R4) ;as well as the extension word
  
  .IF NE	MPT$Y
-@@ -1179,12 +1188,15 @@ FRSLFL:	 .BYTE	0		;Flag for presence of handlers to install
+@@ -1055,6 +1064,7 @@ HRTZ50::BIT	#CLK50$,CONFIG(R4) ;50 HERTZ clock?
+ 	CALL	CLNUP+<B$BOOT-STRTOV> ;Do multi-terminal setup, PI install-
+ 				       ; ation, and FALCON break vector
+ 				       ;  setup if necessary.
++	OMJTBL			;Mihin: the table the console calls the ROM by
+ 
+ 	.BR	GTHNDL		;Get the handlers installed
+ .SBTTL	Install handlers
+@@ -1179,12 +1189,15 @@ FRSLFL:	 .BYTE	0		;Flag for presence of handlers to install
  	.DSABL	LSB
  .SBTTL	Trap to 4 interceptors
  
@@ -118,7 +134,7 @@ index f3bc451..2cc3ada 100644
  	RTI
  
  .IF NE PRO$S
-@@ -1274,7 +1286,7 @@ T4SEC:	MOV	@#V.TR4,1$	;Save the old trap-to-4 address
+@@ -1274,7 +1287,7 @@ T4SEC:	MOV	@#V.TR4,1$	;Save the old trap-to-4 address
  ;-
  
  BCNFG2::.WORD	0		;Boot CONFG2 word
@@ -127,16 +143,34 @@ index f3bc451..2cc3ada 100644
  
  ;+
  ; Set of bit masks for CONFIG
-@@ -1676,7 +1688,7 @@ VECLST::				;Note: load of loc 0 must be first
+@@ -1676,7 +1689,7 @@ VECLST::				;Note: load of loc 0 must be first
  .IF NE	BF!MTT$Y
  	.WORD	V..TPS!...REL,	TTOINT,	PR7 ;(064) Terminal output interrupt
  .IFF
 -	.WORD	V..TPS!...REL,	TTOINT,	PR4 ;(064) Terminal output interrupt
-+	.WORD	V..TPS!...REL,	TTOINT,	TT$PRI ;(064) Terminal output interrupt (PR4; Omega: PR7)
++	.WORD	V..TPS!...REL,	TTOINT,	TV$PRI ;(064) Terminal output interrupt (PR4; Omega: PR7)
  .ENDC ;NE BF!MTT$Y
  .IF NE KW11$P
  	.WORD	V.LTC,	V.LTC+2,RTI	;(100) Dismiss line-time clock interrupts
-@@ -2340,9 +2352,10 @@ KT11RG::CALL	@#T4SEC		;Set the carry on traps to 4 & 10.
+@@ -1695,7 +1708,17 @@ VECHI:
+ .IF NE	BF!MTT$Y
+ 	.WORD	V.TPS!...REL,	TTOINT,	PR7	;(?064) Terminal output interrupt
+ .IFF
++.IF EQ	OM$KIT-KT$MIH
++	OMIGNT	70		;Mihin: the vectors of the machine's devices
++	OMIGNT	74		; ignored, by the table
++	OMIGNT	104
++	OMIGNT	110
++	OMIGNT	120
++	OMIGNT	124
++	OMIGNT	134
++.IFF	;EQ OM$KIT-KT$MIH
+ 	.WORD	V.TPS!...REL,	TTOINT,	PR4	;(?064) Terminal output interrupt
++.ENDC	;EQ OM$KIT-KT$MIH
+ .ENDC ;NE BF!MTT$Y
+ .IF EQ	FPU$11
+ 	.WORD	V.FPP,	V.FPP+2, 0	;(244) FPU exceptions halt
+@@ -2340,9 +2363,10 @@ KT11RG::CALL	@#T4SEC		;Set the carry on traps to 4 & 10.
  	MOV	@#MEMSIZ,@#TOTMEM ;Assume that
  				; we have a non-XM system without a KT-11
  				; in case we can't size via KT-11
@@ -148,7 +182,7 @@ index f3bc451..2cc3ada 100644
  
  	BIS	#20,@#SR3	;Try to turn on 22 bit addressing.
  .IF NE PRO$S
-@@ -2415,6 +2428,7 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
+@@ -2415,6 +2439,7 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
  	MOV	@R3,R2		;Store memory size (/32 words) in R2
  	MOV	R2,@#TOTMEM	;Save total memory size in 32 word blocks
  	MOV	#1400,@R3	;Restore PAR6
@@ -156,7 +190,7 @@ index f3bc451..2cc3ada 100644
  .IF NE	MMG$T			;If XM
  	MOV	#LOWCOR,R4	;Assume that low memory is a full 28K
  	CMP	R2,R4		;Is memory at least 28K?
-@@ -2458,8 +2472,10 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
+@@ -2458,8 +2483,10 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
  8$:
  .ENDC	;NE PRO$S
  .IFF	;NE MMG$T		;If not XM
@@ -167,17 +201,17 @@ index f3bc451..2cc3ada 100644
  .IFTF	;NE MMG$T
  9$:	RETURN			;Restore vectors at 4 and 10 and return
  .ENDC	;NE MMG$T
-@@ -2481,7 +2497,8 @@ KT11ND::
+@@ -2481,7 +2508,8 @@ KT11ND::
  .SBTTL	Start the system
  
  STRTOV:
 -STRTUP:	CLR	R0		;Prevent any swaps
-+STRTUP:	OMKBST			;Omega: the keyboard rows reset
++STRTUP:	OMSTRT			;Omega: the keyboard rows reset (Mihin: the banner)
 +	CLR	R0		;Prevent any swaps
  	.SETTOP			; by settoping to 0
  	CMP	SWPSIZ+<STRTOV-B$BOOT>,#SWAPSZ ;Swap file too small?
  	BLO	NOSWAP		;Yes, give error
-@@ -2691,10 +2708,11 @@ RELTCB:	MOV	#TCBPEN-TCBLST/2,R5 ;Get count of TCB pointers
+@@ -2691,10 +2719,13 @@ RELTCB:	MOV	#TCBPEN-TCBLST/2,R5 ;Get count of TCB pointers
  .IF EQ	RTE$M			;If not RTEM
  	TST	FALCON+<STRTOV-B$BOOT> ;Are we flying with a FALCON?
  	BEQ	10$		;Branch if we are not
@@ -186,15 +220,17 @@ index f3bc451..2cc3ada 100644
 -	MOV	#170000,-(R1)	;And point to MACRO ODT code
 -	CALL	PROTEC+<STRTOV-B$BOOT> ;Protect the vector from marauders
 +	OMIGNV	V.SBRK		;Omega: FALCON's break vector ignored,
++.IF NE	OM$KIT-KT$MIH		; (Mihin: the rest in VECHI)
 +	OMIGNV	70		; and those of the machine's devices
 +	OMIGNV	104
 +	OMIGNV	134
 +	OMIGNV	110
++.ENDC	;NE OM$KIT-KT$MIH
  10$:
  .ENDC	;EQ RTE$M
  .IF NE PRO$S
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index bdcc2c8..cd31a79 100644
+index 48d6606..6845c25 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -95,7 +95,7 @@ SYUNIT::.WORD	0		;UNIT THAT SYSTEM WAS BOOTED FROM

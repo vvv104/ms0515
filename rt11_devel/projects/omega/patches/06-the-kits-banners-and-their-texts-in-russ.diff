@@ -1,7 +1,12 @@
 # The kits' banners and their texts in Russian
+#
+# The banner is the kit's own: Omega's names the monitor in Cyrillic, OSA's
+# replaces the line; Mihin's, "OS-16SJ (C)Mihinsoft", is kept encoded and
+# decoded by the bootstrap.  The texts in Russian are a choice of their own
+# (OMRUS.MAC).
 
 diff --git a/BSTRAP.MAC b/BSTRAP.MAC
-index 2cc3ada..b8c65ec 100644
+index 73c068e..a58e550 100644
 --- a/BSTRAP.MAC
 +++ b/BSTRAP.MAC
 @@ -1,5 +1,8 @@
@@ -13,7 +18,7 @@ index 2cc3ada..b8c65ec 100644
  
  ;                 COPYRIGHT (c) 1984, 1985, 1986 BY
  ;             DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
-@@ -1365,7 +1368,12 @@ $VSBRO:	.WORD	0		;Bootstrap read offset (for VS:)
+@@ -1366,7 +1369,12 @@ $VSBRO:	.WORD	0		;Bootstrap read offset (for VS:)
  .SBTTL	Error message text
  
  .IF EQ BF
@@ -26,7 +31,7 @@ index 2cc3ada..b8c65ec 100644
  .ENDC ;EQ BF
  
  .IF NE MMG$T
-@@ -1374,16 +1382,46 @@ NOMMGT:	.ASCIZ	"No KT11"
+@@ -1375,16 +1383,46 @@ NOMMGT:	.ASCIZ	"No KT11"
  .ENDC ;NE MMG$T
  
  	.BYTE	11		;Crash code for SWAP.SYS not found
@@ -73,10 +78,15 @@ index 2cc3ada..b8c65ec 100644
  
  .IF NE	RTE$M			;If RTEM
  UNXTRP:	.ASCIZ	"Unexpected trap"
-@@ -1428,7 +1466,16 @@ $RMSIZ::.WORD	$RMEND-KMON	;Monitor size in bytes
+@@ -1429,7 +1467,21 @@ $RMSIZ::.WORD	$RMEND-KMON	;Monitor size in bytes
  
  .ASSUME	.	EQ	4740	;Check addresses
  BSTRNG::
++.IF EQ	OM$KIT-KT$MIH
++	OMBSTR			;Mihin: his own banner, encoded
++..PLVL	== .		;**PATCH** Patch level letter(s)
++	.BYTE	0
++.IFF	;EQ OM$KIT-KT$MIH
 +.IF EQ	OM$KIT-KT$OSA
 +	OMBANR			;OSA: its own banner
 +..PLVL	== .		;**PATCH** Patch level letter(s)
@@ -90,15 +100,16 @@ index 2cc3ada..b8c65ec 100644
  
   .IF DF	SYSG$N
  	.ASCII	"(S)"		;For generated monitors
-@@ -1441,6 +1488,7 @@ BSTRNG::
+@@ -1442,6 +1494,8 @@ BSTRNG::
  	.ASCII	" "
  ..PLVL	== .		;**PATCH** Patch level letter(s)
  	...CMV	PART=SUFFIX,TYPE=Z
 +.ENDC	;EQ OM$KIT-KT$OSA
++.ENDC	;EQ OM$KIT-KT$MIH
  	.EVEN
  
  .ASSUME	.	LE	4774	;Check address
-@@ -1734,7 +1782,11 @@ LDSTRT:
+@@ -1745,7 +1799,11 @@ LDSTRT:
  ATFILE:
  
  .IF NE	STAR$T
@@ -110,7 +121,7 @@ index 2cc3ada..b8c65ec 100644
  .ENDC
  	.EVEN
  .IF EQ	RTE$M				;If not RTEM
-@@ -2320,7 +2372,12 @@ XMREL:: MOV	#$XMPTR,R1	;Get addr of free mem table (2nd word)
+@@ -2331,7 +2389,12 @@ XMREL:: MOV	#$XMPTR,R1	;Get addr of free mem table (2nd word)
  .SBTTL	Miscellaneous overlaid data
  
  	.BYTE	4		;Crash code for insufficient memory
@@ -680,10 +691,10 @@ index d4943da..20e1a70 100644
  .IIF EQ LNK$IF,	.NLIST							;BC27
  .IF NE	LNK$IF								;BC27
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index cd31a79..ccc497a 100644
+index 6845c25..59d704a 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
-@@ -136,10 +136,14 @@ IFMXNS::.BYTE	MXN$ST		;MAXIMUM @FILE NEST DEPTH		;BC23
+@@ -144,10 +144,14 @@ IFMXNS::.BYTE	MXN$ST		;MAXIMUM @FILE NEST DEPTH		;BC23
  EMTRTN:	.WORD	EMTDON-$RMON	;OFFSET TO EMT RTI FOR BATCH		;BC15
  FORK:	.WORD	$FORK-$RMON	;POINT TO FORK REQUEST PROCESSOR	;SL4
  PNPTR::	.WORD	$PNAME-$RMON	;OFFSET TO PNAME TABLE
@@ -698,7 +709,7 @@ index cd31a79..ccc497a 100644
  HSUFFX::ASCR50	040,040,SUFX$H
  	.WORD	...V2		;HANDLER SUFFIX
  SPSTAT::.WORD	0		;Spooler Status Word (not used in SJ)
-@@ -2390,7 +2394,11 @@ IOSR:	JSR	PC,$SYS
+@@ -2403,7 +2407,11 @@ IOSR:	JSR	PC,$SYS
  .IFT
  5$:									;005
  	JSR	R0,CRASHP	;PRINT MESSAGE BEFORE HALT		;005
@@ -710,7 +721,7 @@ index cd31a79..ccc497a 100644
  	 .EVEN
  .ENDC ;NE RDF$L
  
-@@ -2434,6 +2442,9 @@ C$STAT:	MOV	@R3,R4		;Get the channel status word
+@@ -2447,6 +2455,9 @@ C$STAT:	MOV	@R3,R4		;Get the channel status word
  ; FROM ALL NON RESIDENT USR FUNCTIONS.
  
  				;NOTE THAT R2=0 HERE
@@ -720,7 +731,7 @@ index cd31a79..ccc497a 100644
  U$NLOK:	TST	MONCAL		;AT WHAT LEVEL ARE WE?
  	BEQ	E16.7A		;NOT LOCKED !
  MONOUT:	DEC	(PC)+		;TIME TO RE-READ USER?
-@@ -2451,7 +2462,15 @@ KMTST:	TST	KMONIN		;IS KMON IN CONTROL?
+@@ -2464,7 +2475,15 @@ KMTST:	TST	KMONIN		;IS KMON IN CONTROL?
  	CLR	BLKEY		;KILLS DIRECTORY IN CORE
  	MOV	$SWPBL,R0	;READ IN THE USER
  	JSR	PC,$RSYS

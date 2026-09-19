@@ -4,18 +4,19 @@ The RT-11 monitors of the MS 0515 kits survived without their sources.
 Each is a SYSGEN of DEC's RT-11 V5.4 sources with the machine's own code
 added, so its sources can be rebuilt: DEC's files, the answers its SYSGEN
 was given, and the changes the kit made - until the build is the kit's
-monitor byte for byte.  Done for the ОМЕГА builds (two) and ОСА; the same
-sources give DEC's RT-11 on the MS 0515.
+monitor byte for byte.  Done for the ОМЕГА builds (two), ОСА and Mihin's
+OS-16SJ; the same sources give DEC's RT-11 on the MS 0515.
 
 ## How it is made
 
 - **DEC's sources** come from the software collection, `sources/rt11-v5.4/`
   (`$MS0515_SOFTWARE`, else `../ms0515-software` beside this repository).
 - **The SYSGEN answers** are a file for each build (`SYCND.MAC`,
-  `SYCOM2.MAC`, `SYCOSA.MAC`, `SYCDEC.MAC`) - read back from the monitor's
-  options word and its code - and `DEVTBL.MAC` (SYSGEN's device-table text
-  with the kits' devices: DZ, LS, NL, then VM and VS as user devices, four
-  spare slots).
+  `SYCOM2.MAC`, `SYCOSA.MAC`, `SYCDEC.MAC`, `SYCMIH.MAC`) - read back from
+  the monitor's options word and its code - and `DEVTBL.MAC` (SYSGEN's
+  device-table text with the kits' devices: DZ, LS, NL, then VM and VS as
+  user devices, four spare slots; Mihin's RK, DU, DX, VM, DZ, DW, MT, LP,
+  LS, NL and two spare).
 - **Each architectural difference is a module** `OMxxxx.MAC` of macros,
   gathered by `OMEGA.MAC`, which every part of the monitor assembles after
   `EDTGBL`.  DEC's files only call them where the kits changed them: those
@@ -23,7 +24,7 @@ sources give DEC's RT-11 on the MS 0515.
   order of `patches/series`.  A one-line change of DEC's own line (a
   constant, a priority) is made in the patch itself, commented with the kit.
 - **The answers file says whose monitor the build is** (`OM$KIT`: 0 DEC's,
-  1 Omega's, 2 OSA's) and which of the choices of their own it takes: the
+  1 Omega's, 2 OSA's, 3 Mihin's) and which of the choices of their own it takes: the
   texts in Russian (`OM$RUS`: none, Omega's two, OSA's all - a choice of
   its own, so that any build can take them), the decoding trap (`OM$TRP`),
   the cursor blink (`OM$BLK`).  See `OMEGA.MAC`.
@@ -37,9 +38,10 @@ sources give DEC's RT-11 on the MS 0515.
 | `omega` | `SYCND.MAC` | ОМЕГА SJ(S) V05.04, the 059 disk (`RT11SJ.SYS` sha `ad6d31b`, the same on 062 and 063) | byte for byte |
 | `omega2` | `SYCOM2.MAC` | the other ОМЕГА build, the vvv104 disks (sha `2c1f616`: `disk3`, `h0`, `PAPER`'s head 0) | but for a flipped bit its copies carry |
 | `osa` | `SYCOSA.MAC` | ОСА Версия 1.0, the 058 disk (`MON8SJ.SYS` sha `17e8d86`, the same on `osa`, `System`, `System3`) | byte for byte |
+| `mihin` | `SYCMIH.MAC` | OS-16SJ (C)Mihinsoft, the collection's `systems/mihin/RT11SJ.SYS` (sha `bc9b0f4`) | byte for byte |
 | `dec` | `SYCDEC.MAC` | DEC's RT-11 V5.4 SJ on the MS 0515 | - |
 
-The four build at once (each on an image of its own) in about two and a
+The five build at once (each on an image of its own) in about two and a
 half minutes.
 
 The collection's `systems/*.dsk` carry these monitors with the
@@ -73,17 +75,24 @@ Both boot, list, copy and run programs.
 | patch | module | what |
 |---|---|---|
 | 01 | `OMTRAP.MAC` | **the decoding trap** (Omega's only, `OM$TRP`): a trap to 10 on the reserved pair 176401,176402 decodes the memory above the stack and resumes the decoded program |
-| 02 | - | **protected vectors**: `LOWMAP` also protects 070, 130, 160, 164 and the words 300-306, 320-336 |
+| 02 | - | **protected vectors**: `LOWMAP` also protects 070, 130, 160, 164 and the words 300-306, 320-336 (Mihin's: all of 060-076, 100-106, 130, 300-306) |
 | 03 | `OMCONS.MAC` | **the console through the ROM**: pseudo-registers at 300-306, keys (`160004`) and characters (`160000`) through the ROM, the monitor interrupt as the output interrupt, 8-bit keys and characters for KOI-8, the MS 7007 rows released after each key and EMT (RMON, USR, KMON), the terminal interrupts at priority 7.  In DEC's terminal code with timer support (Omega: SO/SI shown at once) and without it (OSA: `OMTTI0`; no SO/SI shown, DEC's `SPL 0` kept) |
 | 04 | `OMCLOK.MAC` | **the clock**: each tick reads 177770 (twice in Omega's, once in OSA's) and runs the floppy motor's time-out (off 100 ticks after the last use); Omega's clock interrupt at priority 7 |
 | 05 | `OMBOOT.MAC` | **the bootstrap**: the timer interrupt on from the start and acknowledged in the bootstrap's handlers; priority 7 for the clock, the traps and the terminal output; the traps a T-11 does not take (no PSW address, no KT-11) taken by hand; memory sized up to 154000; no option probes and no KT-11 set-up (NOPs in their room: Omega 90 and says CONFIG's clock again, OSA 96); CONFIG says the clock exists (Omega: in the bootstrap, three times; OSA: in RMON's CONFIG itself); the console's input at vector 130; the keyboard rows reset; vectors 140, 070, 104, 134, 110 silenced; stop on an 11/23 or a J-11; OSA: `ST.COM` as the startup file, and a slip (below) |
 | 06 | `OMRUS.MAC`, `OMRUSB/U/K.MAC` | **the banners and the texts in Russian**: see below |
 | 07 | `OMBLNK.MAC` | **the cursor blink** (the vvv104 build only, `OM$BLK`): the clock interrupt counts ticks in a word of its own and calls the ROM's slot 160014 every sixteenth |
+| 08 | - | **exit without a RESET** (Mihin's): `ZAP` leaves out DEC's delay, the `RESET` and the console's restore |
+| 09 | - | **the default editor K52** (Mihin's): `PROGDF` names K52, KED for a VT52 |
+| 10 | - | **`SPL` as `MTPS`** (Mihin's): each priority change an `MTPS` in place, off the `PSWLST` chain |
+
+Patches 02-06 carry Mihin's variants too (see [Mihin's monitor](#mihins-monitor)).
 
 The SYSGEN answers account for the rest of what differs from DEC's
-distributed monitors: no user command linkage (`U$CL`) in either kit,
-which takes the UCF code out of KMON; SJ timer support in Omega's, none in
-OSA's.
+distributed monitors: no user command linkage (`U$CL`) in any kit, which
+takes the UCF code out of KMON; SJ timer support in Omega's and Mihin's,
+none in OSA's; Mihin's also has device time-out (`TIM$IT`), the month
+rollover of the date (`ROL$OV`) and an input ring of 80 characters, not
+134.
 
 ## The banners and the texts
 
@@ -138,6 +147,45 @@ kits.  Beyond that and its texts:
 - **`ST.COM`** as the startup file: `@ST` and four spaces over the room of
   DEC's `@STARTS` - the same length, as a patch of the file would do it.
   Other copies of this monitor in the collection read `@START` and `PMK`.
+
+## Mihin's monitor
+
+OS-16SJ, «Mihinsoft & SPF "Sensor" 1990», is a SYSGEN of its own: SJ
+timer support and device time-out, the month rollover, an input ring of
+80, and a device table of its own (RK, DU, DX, VM, DZ, DW, MT, LP, LS,
+NL).  Its MS 0515 code is Omega's kind - DEC's terminal and clock code
+with timer support - written again with changes of its own:
+
+- **The ROM through a table**: the bootstrap writes `JMP @#160000` and
+  `JMP @#160004` at 157400, and the terminal interrupts call 157400 and
+  157404, not the ROM.  So the console can be taken over without touching
+  the monitor.  The memory is sized up to that table, 157400 (in steps of
+  64 words), not 154000, and the bootstrap clears the ROM's word 157676.
+- **Seven bits**, as DEC's: the output strips the top bit (KOI-7: the
+  Russian letters come by SO/SI), no SO/SI shown at once, no keyboard
+  rows released after a key or an EMT (KMON's and USR's releases stay).
+- **Priorities**: the keyboard at 5, the output and the clock at DEC's 4
+  and 6; the output vector's own PS 7, as the kits'.
+- **The clock** runs the motor's time-out first - 128 ticks, not 100 -
+  then reads 177770 once.
+- **`SPL` is `MTPS`** in place (patch 10); `GETPSW`/`PUTPSW` stay on DEC's
+  `PSWLST` chain.
+- **No `RESET` on exit** (patch 08), and **K52** for EDIT (patch 09).
+- **The devices' vectors silenced by the table**: 070, 074, 104, 110, 120,
+  124, 134 are entries of `VECHI` pointing at an RTI of their own; only
+  FALCON's 140 is done by code.  `LOWMAP` protects all of 060-076,
+  100-106, 130, 300-306.
+- **The banner is encoded**: «OS-16SJ (C)Mihinsoft» is kept as the
+  complement of each character plus a key (153, growing by 235), and the
+  bootstrap decodes it where the others reset the keyboard rows - so the
+  line cannot be read or changed in the file.
+- CONFIG says the clock exists in RMON itself (as OSA's); the floppy
+  motor's time-out is armed before the bootstrap reads the directory, with
+  the `#` OSA's lacks.
+
+Every macro defined takes room in MACRO's work file, and KMON's assembly
+with OSA's texts has little: the macros only Mihin's build calls are
+defined for it alone (`OMBOOT.MAC`).
 
 ## The vvv104 build
 
@@ -222,5 +270,4 @@ link addresses where the running monitor has `MTPS`.
 
 ## Where it stands
 
-Complete for both Omega builds and OSA's.  Next: the monitors of Mihin
-and Rodionov.
+Complete for both Omega builds, OSA's and Mihin's.  Next: Rodionov's.
