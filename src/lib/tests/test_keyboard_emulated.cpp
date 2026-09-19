@@ -72,12 +72,10 @@ struct TestConfig {
 constexpr TestConfig kConfigs[] = {
     {ASSETS_DIR "/rom/ms0515-roma.rom", TESTS_DIR "/disks/test_osa.dsk",
      "ROM-A + OSA",     true},
-    /* ROM-A + Omega: omitted - the vvv104 Omega's timer service calls
-     * the ROM slot 0160014 every 16 frames, which in ROM-A as dumped
-     * is the cassette loader with no way out.  The shipped ROM-A has
-     * an RTS patched into that slot, so the pair would pass here; it
-     * stays out until the hardware question in KNOWN_ISSUES.md is
-     * answered.  test_boot.cpp lists this pair as known-bad. */
+    /* ROM-A + Omega: the wrong ROM - the vvv104 Omega's timer service
+     * calls the ROM slot 0160014 every 16 frames, ROM-B's cursor blink,
+     * ROM-A's cassette loader with no way out.  It was made on a machine
+     * with ROM-B.  test_boot.cpp lists the pair as known-bad. */
     {ASSETS_DIR "/rom/ms0515-roma.rom", TESTS_DIR "/disks/test_mihin.dsk",
      "ROM-A + Mihin",   false},
     {ASSETS_DIR "/rom/ms0515-roma.rom", TESTS_DIR "/disks/test_rod.dsk",

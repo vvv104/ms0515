@@ -76,13 +76,11 @@ static std::vector<std::string> discoverFiles(const std::string &dir,
  * instead of CHECK so the suite stays green while the issues are
  * documented.  See also: docs/kb/KNOWN_ISSUES.md */
 static const std::set<std::pair<std::string, std::string>> kKnownBad = {
-    /* The vvv104 Omega's timer service calls the ROM entry 0160014
-     * every 16 frames - the cursor blink in ROM-B, the cassette loader
-     * in ROM-A as dumped, which never returns without a tape.  The
-     * ROM-A in assets/ carries a one-byte RTS at that slot (since
-     * 2026-04-21), so the pair boots here; the pair stays known-bad so
-     * the open hardware question is not hidden by that byte.  See
-     * KNOWN_ISSUES.md. */
+    /* The wrong ROM for this system: the vvv104 Omega's timer service
+     * calls the ROM entry 0160014 every 16 frames - the cursor blink in
+     * ROM-B, the cassette loader in ROM-A, which never returns without a
+     * tape.  The machine it was made on had ROM-B (its owner's NC.PAS
+     * draws with ROM-B's pseudographics, which ROM-A has not). */
     {"ms0515-roma.rom", "test_omega.dsk"},
     /* RT-15SJ (Rodionov) was authored for ROM-A; with ROM-B the boot
      * stalls right after printing "НГМД готов..." — same behaviour as

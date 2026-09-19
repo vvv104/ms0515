@@ -123,7 +123,7 @@ TEST_CASE("writeBoot reproduces the boot blocks RT-11's COPY/BOOT wrote on the s
 
 TEST_CASE("a system volume the library makes boots, and makes another that boots") {
     struct System { const char *file; const char *rom; const char *monitor; const char *startup; };
-    const System systems[] = {{"test_vvv_system.dsk", "a", "RT11SJ", "STARTS.COM"}, {"test_osa_games.dsk", "a", "MON8SJ", "ST.COM"}, {"test_mihin_work.dsk", "b", "RT11SJ", "STARTS.COM"}};
+    const System systems[] = {{"test_vvv_system.dsk", "b", "RT11SJ", "STARTS.COM"}, {"test_osa_games.dsk", "a", "MON8SJ", "ST.COM"}, {"test_mihin_work.dsk", "b", "RT11SJ", "STARTS.COM"}};
     for (const auto &s : systems) {
         SUBCASE(s.file) {
             const auto system = readAll(kDisks + "/" + s.file);
