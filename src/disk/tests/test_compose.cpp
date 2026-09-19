@@ -113,9 +113,9 @@ TEST_CASE("every media from every exemplar: SWAP and the monitor from it, the pa
          * used to be, it landed past every program on the disk. */
         std::vector<std::string> want{"SWAP.SYS", "RT11SJ.SYS"};
         if (to == Media::dv) want.push_back("DV.SYS");
-        for (const char *n : {"DZ.SYS", "TT.SYS", "PIP.SAV", "START.COM", "BIRDS.SAV", "BIRDS.DAT"}) want.push_back(n);
+        for (const char *n : {"DZ.SYS", "TT.SYS", "PIP.SAV", "STARTS.COM", "BIRDS.SAV", "BIRDS.DAT"}) want.push_back(n);
         CHECK(names(*got) == want);                          /* SL.SYS is on the exemplar and not taken */
-        for (const char *name : {"SWAP.SYS", "RT11SJ.SYS", "DZ.SYS", "START.COM"}) {
+        for (const char *name : {"SWAP.SYS", "RT11SJ.SYS", "DZ.SYS", "STARTS.COM"}) {
             CAPTURE(name);
             const auto *a = src->directory.find(name), *b = got->directory.find(name);
             REQUIRE(b);
@@ -134,18 +134,18 @@ TEST_CASE("every media from every exemplar: SWAP and the monitor from it, the pa
 
 TEST_CASE("the startup file: the exemplar's copied, or made of the lines given") {
     ComposeRecipe r = recipe(Media::dv, Media::ss);
-    auto kept = volume(composeDisk(r), Media::ss)->readFile("START.COM");
+    auto kept = volume(composeDisk(r), Media::ss)->readFile("STARTS.COM");
     CHECK(std::string(kept.begin(), kept.begin() + 25) == "SET TT QUIET\r\nSET SL ON\r\n");
 
     r.startup = std::vector<std::string>{"SET TT QUIET", "LOAD VM:", "R ROSA3"};
     const auto im = volume(composeDisk(r), Media::ss);
-    const auto made = im->readFile("START.COM");
+    const auto made = im->readFile("STARTS.COM");
     CHECK(std::string(made.begin(), made.begin() + 33) == "SET TT QUIET\r\nLOAD VM:\r\nR ROSA3\r\n");
     CHECK(made[33] == 0);
-    CHECK((im->directory.find("START.COM")->status & kStatusProtected) == 0);
+    CHECK((im->directory.find("STARTS.COM")->status & kStatusProtected) == 0);
 }
 
-TEST_CASE("a banner: BANNER.TXT on the boot volume in KOI-8R, and START.COM types it - where the lines say, else last") {
+TEST_CASE("a banner: BANNER.TXT on the boot volume in KOI-8R, and STARTS.COM types it - where the lines say, else last") {
     ComposeRecipe r = recipe(Media::dv, Media::ss);
     r.startup = std::vector<std::string>{"SET TT QUIET"};
     r.banner = std::vector<std::string>{"Type a game: R FIST", "\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B"};   /* Игры */
@@ -155,13 +155,13 @@ TEST_CASE("a banner: BANNER.TXT on the boot volume in KOI-8R, and START.COM type
                                     0xE9, 0xC7, 0xD2, 0xD9, '\r', '\n'};
     CHECK(std::vector<uint8_t>(txt.begin(), txt.begin() + 27) == want);
     CHECK(txt[27] == 0);
-    auto com = im->readFile("START.COM");
+    auto com = im->readFile("STARTS.COM");
     CHECK(std::string(com.begin(), com.begin() + 31) == "SET TT QUIET\r\nTYPE BANNER.TXT\r\n");
     CHECK(com[31] == 0);
 
     r.startup = std::vector<std::string>{"SET TT QUIET", "TYPE BANNER.TXT", "DIR"};   /* placed by hand: left there */
     im = volume(composeDisk(r), Media::ss);
-    com = im->readFile("START.COM");
+    com = im->readFile("STARTS.COM");
     CHECK(std::string(com.begin(), com.begin() + 36) == "SET TT QUIET\r\nTYPE BANNER.TXT\r\nDIR\r\n");
     CHECK(com[36] == 0);
 
@@ -179,7 +179,7 @@ TEST_CASE("a banner: BANNER.TXT on the boot volume in KOI-8R, and START.COM type
     cleared = im->readFile("BANNER.TXT");
     CHECK(std::vector<uint8_t>(cleared.begin(), cleared.begin() + 4) == esc);
     CHECK(cleared[4] == 0);
-    com = im->readFile("START.COM");
+    com = im->readFile("STARTS.COM");
     CHECK(std::string(com.begin(), com.begin() + 31) == "SET TT QUIET\r\nTYPE BANNER.TXT\r\n");
 }
 
@@ -187,8 +187,8 @@ TEST_CASE("the plan names what finish put on the boot volume - the startup file,
     ComposeRecipe r = recipe(Media::dv, Media::ss);
     auto plan = planDisk(r);
     REQUIRE(plan.ok);
-    REQUIRE(plan.files.size() == 1);                                    /* the exemplar's START.COM, copied */
-    CHECK(plan.files[0].title == "START.COM");
+    REQUIRE(plan.files.size() == 1);                                    /* the exemplar's STARTS.COM, copied */
+    CHECK(plan.files[0].title == "STARTS.COM");
     CHECK(plan.files[0].volume == 0);
     CHECK(plan.files[0].blocks == 1);
 
@@ -198,7 +198,7 @@ TEST_CASE("the plan names what finish put on the boot volume - the startup file,
     plan = planDisk(r);
     REQUIRE(plan.ok);
     REQUIRE(plan.files.size() == 2);
-    CHECK(plan.files[0].title == "START.COM");
+    CHECK(plan.files[0].title == "STARTS.COM");
     CHECK(plan.files[0].blocks == 1);
     CHECK(plan.files[1].title == "BANNER.TXT");
     CHECK(plan.files[1].volume == 0);
@@ -244,8 +244,8 @@ TEST_CASE("the disk is laid out in the order the machine reads it") {
      * disk on every boot: measured at 557 tracks against 321, and the longest
      * single move at 78 tracks against 19. */
     CHECK(at("VM.SYS") < at("DIR.SAV"));
-    CHECK(at("DIR.SAV") < at("START.COM"));
-    CHECK(at("START.COM") < at("BANNER.TXT"));
+    CHECK(at("DIR.SAV") < at("STARTS.COM"));
+    CHECK(at("STARTS.COM") < at("BANNER.TXT"));
     CHECK(at("BANNER.TXT") < at("DATSET.SAV"));
     CHECK(at("BANNER.TXT") < at("BLUE.SAV"));
     CHECK(at("DATSET.SAV") < at("BIRDS.SAV"));
@@ -262,7 +262,7 @@ TEST_CASE("the disk is laid out in the order the machine reads it") {
 TEST_CASE("the startup file is KOI-8R: a Russian month typed in UTF-8 reaches the monitor as its own letters") {
     ComposeRecipe r = recipe(Media::dv, Media::ss);
     r.startup = std::vector<std::string>{"DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99"};   /* АПР */
-    const auto made = volume(composeDisk(r), Media::ss)->readFile("START.COM");
+    const auto made = volume(composeDisk(r), Media::ss)->readFile("STARTS.COM");
     const std::vector<uint8_t> want{'D', 'A', 'T', 'E', ' ', '0', '1', '-', 0xE1, 0xF0, 0xF2, '-', '9', '9', '\r', '\n'};
     CHECK(std::vector<uint8_t>(made.begin(), made.begin() + 16) == want);
     CHECK(made[16] == 0);
@@ -412,7 +412,7 @@ TEST_CASE("reserved blocks: the exemplar's sectors on the same sectors of a dz o
         for (const auto &f : vol->directory.permanentFiles()) CHECK(f.startBlock + f.length <= fenced);
 
         /* What is left takes the volume up to the block, and not past it:
-         * one block more and either the group has no room, or START.COM
+         * one block more and either the group has no room, or STARTS.COM
          * after it has none. */
         const int free = planDisk(r).freeBlocks.at(static_cast<std::size_t>(v));
         r.groups.push_back({"fills the volume", Place::any, {file("HUGE.DAT", free, 0x32)}});
@@ -423,6 +423,102 @@ TEST_CASE("reserved blocks: the exemplar's sectors on the same sectors of a dz o
         CHECK((plan.problem.find("does not fit") != std::string::npos ||
                plan.problem.find("no free area") != std::string::npos));
     }
+}
+
+TEST_CASE("a system given as files: its monitor, SWAP.SYS made of zeros, the startup file its monitor names") {
+    for (const Media to : {Media::ss, Media::dz, Media::dv}) {
+        CAPTURE(static_cast<int>(to));
+        ComposeRecipe r = recipe(Media::dv, to);
+        r.system.clear();                                      /* no exemplar image at all */
+        r.files = ComposeSystem{"RT11SJ.SYS", monitor(), encodeDate(1991, 11, 12), 32,
+                                encodeDate(1989, 12, 11), encodeDate(1995, 4, 1)};
+        r.startup = std::vector<std::string>{"SET TT QUIET"};
+        const auto img = composeDisk(r);
+        REQUIRE(mediaOf(img) == to);
+        const auto got = volume(img, to);
+        REQUIRE(got);
+        const auto all = names(*got);
+        REQUIRE(all.size() >= 2);
+        CHECK(all[0] == "SWAP.SYS");
+        CHECK(all[1] == "RT11SJ.SYS");
+
+        const auto *swap = got->directory.find("SWAP.SYS");
+        REQUIRE(swap);
+        CHECK(swap->length == 32);
+        CHECK(swap->date == encodeDate(1989, 12, 11));
+        CHECK((swap->status & kStatusProtected) != 0);
+        CHECK(got->readFile("SWAP.SYS") == std::vector<uint8_t>(32 * kBlock, 0));
+
+        const auto *mon = got->directory.find("RT11SJ.SYS");
+        REQUIRE(mon);
+        CHECK(mon->date == encodeDate(1991, 11, 12));
+        CHECK((mon->status & kStatusProtected) != 0);
+        CHECK(got->readFile("RT11SJ.SYS") == monitor());
+
+        const auto *st = got->directory.find("STARTS.COM");     /* the fixture's monitor names START */
+        REQUIRE(st);
+        CHECK(st->date == encodeDate(1995, 4, 1));
+        CHECK_FALSE((st->status & kStatusProtected) != 0);
+        const auto body = got->readFile("STARTS.COM");
+        CHECK(std::string(body.begin(), body.begin() + 14) == "SET TT QUIET\r\n");
+        CHECK(bootedMonitor(img, 0, to != Media::ss, bootVol(to)) == "RT11SJ");
+    }
+}
+
+TEST_CASE("a system given as files: the monitor's own startup name, and no startup file without lines") {
+    ComposeRecipe r = recipe(Media::dv, Media::dv);
+    r.system.clear();
+    auto mon = monitor();
+    const char st[] = "ST    ";
+    std::copy(st, st + 6, mon.begin() + 5 * kBlock + 102);    /* the KMON line made "@ST", as OSA's original has it */
+    r.files = ComposeSystem{"RT11SJ.SYS", mon, 0, 27, 0, 0};
+    r.startup = std::vector<std::string>{"SET TT QUIET"};
+    auto got = volume(composeDisk(r), Media::dv);
+    REQUIRE(got);
+    CHECK(got->directory.find("ST.COM") != nullptr);
+    CHECK(got->directory.find("STARTS.COM") == nullptr);
+    CHECK(got->directory.find("SWAP.SYS")->length == 27);
+
+    r.startup.reset();                                         /* no lines, no exemplar to copy one from */
+    got = volume(composeDisk(r), Media::dv);
+    REQUIRE(got);
+    CHECK(got->directory.find("ST.COM") == nullptr);
+}
+
+TEST_CASE("reserved blocks given as bytes: on their sectors of a dz or a dv disk, named as a two-sided disk has them") {
+    const int protLbn = 792;
+    const auto at = lbnToByte(protLbn, 1, true, Vol::floppy);
+    std::vector<uint8_t> bytes(kBlock);
+    for (std::size_t i = 0; i < kBlock; ++i) bytes[i] = static_cast<uint8_t>(0xA5 ^ i);
+    for (const Media to : {Media::dz, Media::dv}) {
+        CAPTURE(static_cast<int>(to));
+        ComposeRecipe r = recipe(Media::dz, to);
+        r.system.clear();
+        r.files = ComposeSystem{"RT11SJ.SYS", monitor(), 0, 32, 0, 0};
+        r.reserved = {{1, protLbn, bytes}};
+        const auto img = composeDisk(r);
+        CHECK(std::equal(bytes.begin(), bytes.end(), img.begin() + static_cast<std::ptrdiff_t>(at)));
+        const int fenced = to == Media::dz ? protLbn : 1592;
+        const auto vol = volume(img, to, to == Media::dz ? 1 : 0);
+        REQUIRE(vol);
+        CHECK(freeTail(*vol).startBlock + freeTail(*vol).length == fenced);
+    }
+    ComposeRecipe wrong = recipe(Media::dz, Media::dz);
+    wrong.system.clear();
+    wrong.files = ComposeSystem{"RT11SJ.SYS", monitor(), 0, 32, 0, 0};
+    wrong.reserved = {{1, protLbn, std::vector<uint8_t>(100)}};  /* not a block */
+    CHECK_FALSE(planDisk(wrong).ok);
+}
+
+TEST_CASE("a system given as files needs its monitor and SWAP.SYS's length") {
+    ComposeRecipe r = recipe(Media::dv, Media::dv);
+    r.system.clear();
+    r.files = ComposeSystem{"RT11SJ.SYS", {}, 0, 32, 0, 0};
+    CHECK_FALSE(planDisk(r).ok);
+    r.files = ComposeSystem{"RT11SJ.SYS", monitor(), 0, 0, 0, 0};
+    CHECK_FALSE(planDisk(r).ok);
+    r.files = ComposeSystem{"MONITOR", monitor(), 0, 32, 0, 0};   /* no .SYS */
+    CHECK_FALSE(planDisk(r).ok);
 }
 
 TEST_CASE("a reserved block on the second side has no place on a single-sided disk") {

@@ -23,12 +23,29 @@
 
 namespace ms0515::disk {
 
-/* A system: its exemplar image gives SWAP.SYS, the monitor and the blocks
- * it protects; everything else on the disk is bundles. */
+/* A block the system protects: where it lies (a side and its DZ block of a
+ * double-sided disk) and, in format 2, the file of its 512 bytes; in
+ * format 1 the exemplar image holds them. */
+struct ManifestReserved {
+    int         side = 0, lbn = 0;
+    std::string path;
+};
+
+/* A system: what exists nowhere else - its monitor, SWAP.SYS and the blocks
+ * it protects; everything else on the disk is bundles.  Format 1 takes them
+ * out of an exemplar image (`image`); format 2 names the monitor's file
+ * (`monitor`), SWAP.SYS's length (`swap`: the composer makes it of zeros),
+ * the dates, and each protected block's file. */
 struct ManifestSystem {
-    std::string                key, title, image;
+    std::string                key, title;
+    std::string                image;          /* format 1: the exemplar */
+    std::string                monitor;        /* format 2: the monitor's file */
+    std::optional<std::string> monitorDate;    /* YYYY-MM-DD */
+    int                        swapBlocks = 0;
+    std::optional<std::string> swapDate;
+    std::optional<std::string> startupDate;    /* the startup file's */
     std::vector<Media>         media;          /* what the monitor boots from */
-    std::vector<ReservedBlock> reserved;       /* copied from the image */
+    std::vector<ManifestReserved> reserved;
     /* The bundles it cannot work without (TOML `requires`), and those it
      * needs on one media only (`requires_by_media`: DV.SYS for dv). */
     std::vector<std::string>   dependsOn;
@@ -90,6 +107,7 @@ struct ManifestPreset {
 };
 
 struct Manifest {
+    int                         format = 1;    /* 1: systems as exemplar images, 2: as files */
     std::string                 version;       /* of the collection's disks, "" none */
     std::optional<std::string>  owner;         /* the owner written on every volume */
     std::vector<ManifestSystem> systems;       /* in the file's order */
@@ -115,7 +133,7 @@ struct Selection {
     /* Lines after the system's and the bundles' (R ROSA3). */
     std::optional<std::vector<std::string>> startup;
     /* Lines shown as the disk starts: BANNER.TXT on the boot volume, typed
-     * by START.COM - where a `TYPE BANNER.TXT` line of `startup` puts it,
+     * by STARTS.COM - where a `TYPE BANNER.TXT` line of `startup` puts it,
      * else after every other line. */
     std::optional<std::vector<std::string>> banner;
     /* BANNER.TXT begins by clearing the screen - ESC H ESC J, the console's
@@ -179,6 +197,10 @@ struct Repository {
  * files whose names are RT-11 names (a README.md next to them is not).
  * Throws when a path is not in the repository or a glob matches nothing. */
 [[nodiscard]] std::vector<std::string> bundlePaths(const ManifestBundle &b, const Repository &repo);
+
+/* The files a system is read from: its exemplar image (format 1), or its
+ * monitor's file and its protected blocks' files (format 2). */
+[[nodiscard]] std::vector<std::string> systemPaths(const ManifestSystem &s);
 
 /* The recipe for a selection, its needs resolved, the system image and
  * every file read, the startup file made of the system's lines, the chosen

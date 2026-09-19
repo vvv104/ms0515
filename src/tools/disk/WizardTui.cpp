@@ -50,7 +50,7 @@ std::optional<std::vector<uint8_t>> readHost(const std::filesystem::path &p)
 
 const int kNoteWidth = 22;
 const int kSideWidth = 5 + 2 + kNoteWidth;   /* a group's summary sits where its rows' blocks and notes do */
-const int kLineWidth = 80;                   /* a START.COM or BANNER.TXT line's box: the machine's screen is 80 columns */
+const int kLineWidth = 80;                   /* a STARTS.COM or BANNER.TXT line's box: the machine's screen is 80 columns */
 
 /* The text typed is UTF-8 and a Russian letter is two bytes of it: the
  * fields count letters, not bytes, so that Backspace takes a whole letter
@@ -361,7 +361,7 @@ std::string WizardTui::cursorKey() const
 }
 
 /* After Enter's choice: on to the next thing to choose - past the rest of a
- * radio group, over open headings, START.COM's own lines and what cannot be
+ * radio group, over open headings, STARTS.COM's own lines and what cannot be
  * taken.  At the end of the list the cursor stays. */
 void WizardTui::advance(const std::string &key, WizardRow::Kind kind)
 {
@@ -388,14 +388,14 @@ void WizardTui::startEdit(const WizardRow &row, std::string text)
     editAt_ = lettersOf(edit_).size();
 }
 
-/* A field that is a line of START.COM or BANNER.TXT, edited as a text block
+/* A field that is a line of STARTS.COM or BANNER.TXT, edited as a text block
  * (not a single-line label). */
 static bool isLineField(const std::string &key)
 {
     return key.rfind(kStartupField, 0) == 0 || key.rfind(kBannerField, 0) == 0;
 }
 
-/* A line of START.COM or BANNER.TXT, edited in place as one block of text:
+/* A line of STARTS.COM or BANNER.TXT, edited in place as one block of text:
  * the letters walk with Left, Right, Home and End; Enter splits the line, so
  * a blank line is Enter on an empty spot; Backspace and Del at the ends join
  * lines; Up and Down step line to line and, at the edges, leave the block;
@@ -554,7 +554,7 @@ bool WizardTui::onListEvent(const Event &e)
         return true;
     }
     if (r.kind == WizardRow::Kind::field && e.is_character()) { startEdit(r, e.character()); return true; }   /* afresh */
-    if (r.kind == WizardRow::Kind::field && e == Event::Delete) {   /* the box emptied: a START.COM line goes */
+    if (r.kind == WizardRow::Kind::field && e == Event::Delete) {   /* the box emptied: a STARTS.COM line goes */
         status_ = wizard_.setField(r.key, "");
         changed();
         return true;
@@ -607,7 +607,7 @@ Element WizardTui::rowLine(const WizardRow &r, bool here) const
         if (!title.empty()) title.resize(std::max<std::size_t>(title.size(), kFieldTitleWidth) + 1, ' ');
         /* The row keeps its cursor bar while the box is typed into: the
          * bar round the box, the box in its own colours.  A label is a
-         * box in brackets; a line of START.COM or BANNER.TXT is text
+         * box in brackets; a line of STARTS.COM or BANNER.TXT is text
          * behind a gutter, so the block reads as one text, not a stack
          * of fields. */
         const Decorator around = here ? kCursor : Decorator(nothing);
@@ -676,7 +676,7 @@ Element WizardTui::renderDetails() const
     Elements out;
     if (r.kind != WizardRow::Kind::bundle || !b) {
         const std::string title = r.kind == WizardRow::Kind::radio ? "one of: " + r.title
-                                : r.kind == WizardRow::Kind::field && r.title.empty() ? std::string("a line of START.COM")
+                                : r.kind == WizardRow::Kind::field && r.title.empty() ? std::string("a line of STARTS.COM")
                                 : r.title;
         out.push_back(text(title));
         if (!r.summary.empty()) out.push_back(text(r.summary));
@@ -726,7 +726,7 @@ Element WizardTui::renderPlan(int width) const
     auto groups = wizard_.blocksByGroup();
     int bundles = 0;
     for (const auto &g : groups) bundles += g.second;
-    if (plan_) for (const auto &f : plan_->files) {                /* START.COM, BANNER.TXT: a line each */
+    if (plan_) for (const auto &f : plan_->files) {                /* STARTS.COM, BANNER.TXT: a line each */
         if (f.volume < 0) continue;
         groups.emplace_back(f.title, f.blocks);
         bundles += f.blocks;

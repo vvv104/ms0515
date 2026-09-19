@@ -135,14 +135,14 @@ export class DiskComposer {
         continue;
       }
       if (r.kind === "field") {
-        // START.COM's own lines and BANNER.TXT come as one field per line;
+        // STARTS.COM's own lines and BANNER.TXT come as one field per line;
         // the page shows each file as one text box, the last (empty) line
         // being the room to type the next.
         if (r.parent === "#startup" || r.parent === "#banner") {
           if (texts.has(r.parent)) continue;
           const lines = this.state.rows.filter((x) => x.kind === "field" && x.parent === r.parent).slice(0, -1).map((x) => x.value);
           texts.add(r.parent);
-          const hint = r.parent === "#startup" ? "your own lines of START.COM, one per line" : "the text the disk shows as it starts";
+          const hint = r.parent === "#startup" ? "your own lines of STARTS.COM, one per line" : "the text the disk shows as it starts";
           out.push(`<div class="wiz-field wiz-text" ${pad(r)}><textarea data-group="${esc(r.parent)}" rows="${Math.max(2, lines.length + 1)}"` +
                    ` placeholder="${hint}" spellcheck="false" autocomplete="off" wrap="off">${esc(lines.join("\n"))}</textarea></div>`);
           continue;
@@ -184,7 +184,7 @@ export class DiskComposer {
       };
       input.onchange = () => { if (!input.dataset.kept) keep(input, false); };
     });
-    // A text box (START.COM, BANNER.TXT): Enter is a new line, the file is
+    // A text box (STARTS.COM, BANNER.TXT): Enter is a new line, the file is
     // kept whole when the box is left, Esc puts back what was there.
     list.querySelectorAll(".wiz-text textarea").forEach((box) => {
       const grow = () => { box.rows = Math.max(2, box.value.split("\n").length + 1); };

@@ -142,7 +142,7 @@ TEST_CASE("rows: the groups in the file's order, the system's parts marked, the 
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m, "omega", Media::dz, [](const ManifestBundle &b) { return static_cast<int>(b.title.size()); });
     const auto rows = w.rows(true);
-    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "START.COM",
+    CHECK(headings(rows) == std::vector<std::string>{"Diskette", "Label", "Operating system", "System", "STARTS.COM",
                                                      "BANNER.TXT", "Development", "Assembler", "Linker", "Pascal", "Games"});
     REQUIRE(row(rows, "dz"));
     CHECK(row(rows, "dz")->mark == WizardRow::Mark::system);
@@ -529,7 +529,7 @@ TEST_CASE("a bundle ticked that the system comes to require is the system's - lo
     CHECK(row(w.rows(true), "dv")->mark == WizardRow::Mark::on);
 }
 
-TEST_CASE("the label after the diskette, START.COM at the end of the system's group: fields to edit") {
+TEST_CASE("the label after the diskette, STARTS.COM at the end of the system's group: fields to edit") {
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m);
     auto rows = w.rows();
@@ -613,7 +613,7 @@ TEST_CASE("the label after the diskette, START.COM at the end of the system's gr
     CHECK(row(w.rows(), "#startup", WizardRow::Kind::group) == nullptr);
 }
 
-TEST_CASE("BANNER.TXT after START.COM: the person's lines, fields like START.COM's, saved with the choice") {
+TEST_CASE("BANNER.TXT after STARTS.COM: the person's lines, fields like STARTS.COM's, saved with the choice") {
     const Manifest m = parseManifest(kManifest);
     DiskWizard w(m, "omega", Media::dz);
     w.toggleFold("System");
@@ -628,7 +628,7 @@ TEST_CASE("BANNER.TXT after START.COM: the person's lines, fields like START.COM
     CHECK(rows[at + 1].kind == WizardRow::Kind::bundle);                /* the checkbox: clear the screen first */
     CHECK(rows[at + 1].key == kClearRow);
     CHECK(rows[at + 1].mark == WizardRow::Mark::off);
-    CHECK(rows[at + 2].kind == WizardRow::Kind::field);                 /* a line each, like START.COM's */
+    CHECK(rows[at + 2].kind == WizardRow::Kind::field);                 /* a line each, like STARTS.COM's */
     CHECK(rows[at + 2].key == std::string(kBannerField) + "0");
     CHECK(rows[at + 2].summary == "a new line");
     CHECK(w.toggle(kClearRow).empty());
@@ -681,7 +681,7 @@ TEST_CASE("the saved choice: its own file, tied to the collection's version") {
     const std::string text = selectionToml(saved);
     CHECK(text.find("clear_screen = true") != std::string::npos);
     CHECK(text.find("banner     = [") == std::string::npos);                 /* one multiline string, not a list */
-    CHECK(text.find("startup    = [") == std::string::npos);                /* START.COM the same way */
+    CHECK(text.find("startup    = [") == std::string::npos);                /* STARTS.COM the same way */
     CHECK(text.find("R PAS1'''") != std::string::npos);
     CHECK(text.find("Type a game to run it\n") != std::string::npos);          /* a real line break in the file */
     const SavedSelection back = parseSelection(text);

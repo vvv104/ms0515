@@ -108,13 +108,49 @@ const toml::table &section(const toml::table &root, std::string_view key)
     return *t;
 }
 
-ManifestSystem readSystem(const std::string &key, const toml::table &t)
+/* A table's date, checked; nullopt when it has none. */
+std::optional<std::string> dateOf(const toml::table &t, const std::string &where)
+{
+    if (!t.contains("date")) return std::nullopt;
+    auto d = str(t, "date", where, true);
+    checkDate(d, where);
+    return d;
+}
+
+const toml::table &tableOf(const toml::table &t, std::string_view key, const std::string &where, const char *shape)
+{
+    const auto *node = t.get(key);
+    const auto *sub = node ? node->as_table() : nullptr;
+    if (!sub) fail(where + (node ? ": " : " has no ") + std::string(key) + (node ? std::string(" is ") + shape : ""));
+    return *sub;
+}
+
+/* Format 2: the monitor's file, SWAP.SYS's length, the dates. */
+void readSystemFiles(ManifestSystem &s, const toml::table &t, const std::string &where)
+{
+    if (t.contains("image")) fail(where + ": an image is format 1's - format 2 names the monitor's file");
+    const auto &mon = tableOf(t, "monitor", where, "{ path = ..., date = ... }");
+    s.monitor = str(mon, "path", where + ".monitor", true);
+    s.monitorDate = dateOf(mon, where + ".monitor");
+    const auto &swap = tableOf(t, "swap", where, "{ blocks = N, date = ... }");
+    const auto blocks = swap["blocks"].value<int64_t>();
+    if (!blocks || *blocks < 1 || *blocks > 1000) fail(where + ": swap is { blocks = N, date = ... }, N a length in blocks");
+    s.swapBlocks = static_cast<int>(*blocks);
+    s.swapDate = dateOf(swap, where + ".swap");
+    if (t.contains("startup_date")) {
+        s.startupDate = str(t, "startup_date", where, true);
+        checkDate(*s.startupDate, where);
+    }
+}
+
+ManifestSystem readSystem(const std::string &key, const toml::table &t, int format)
 {
     const std::string where = "system." + key;
     ManifestSystem s;
     s.key = key;
     s.title = str(t, "title", where, true);
-    s.image = str(t, "image", where, true);
+    if (format == 1) s.image = str(t, "image", where, true);
+    else readSystemFiles(s, t, where);
     s.media = medias(t, "media", where);
     if (s.media.empty()) fail(where + " boots from no media");
     s.dependsOn = strings(t, "requires", where);
@@ -135,8 +171,11 @@ ManifestSystem readSystem(const std::string &key, const toml::table &t)
             const auto *b = e.as_table();
             const auto side = b ? (*b)["side"].value<int64_t>() : std::nullopt;
             const auto lbn = b ? (*b)["lbn"].value<int64_t>() : std::nullopt;
-            if (!side || !lbn) fail(where + ": a reserved block is { side = N, lbn = N }");
-            s.reserved.push_back({static_cast<int>(*side), static_cast<int>(*lbn)});
+            const auto path = b ? (*b)["path"].value<std::string>() : std::nullopt;
+            if (!side || !lbn || (format == 1) == path.has_value())
+                fail(where + (format == 1 ? ": a reserved block is { side = N, lbn = N }"
+                                          : ": a reserved block is { side = N, lbn = N, path = ... } - its bytes' file"));
+            s.reserved.push_back({static_cast<int>(*side), static_cast<int>(*lbn), path.value_or("")});
         }
     }
     return s;
@@ -365,8 +404,10 @@ Manifest parseManifest(std::string_view text)
     } catch (const toml::parse_error &e) {
         fail("line " + std::to_string(e.source().begin.line) + ": " + std::string(e.description()));
     }
-    if (root["format"].value<int64_t>() != 1) fail("format is not 1 - this reads format 1 only");
+    const auto format = root["format"].value<int64_t>();
+    if (format != 1 && format != 2) fail("format is not 1 or 2 - this reads those only");
     Manifest m;
+    m.format = static_cast<int>(*format);
     if (root.contains("owner")) m.owner = str(root, "owner", "the file", true);
     if (root.contains("version")) m.version = str(root, "version", "the file", true);
     /* toml++ keeps a table's keys sorted; the file's order is the source's. */
@@ -382,7 +423,7 @@ Manifest parseManifest(std::string_view text)
         });
         return out;
     };
-    for (const auto &[k, t] : inOrder(section(root, "system"))) m.systems.push_back(readSystem(k, *t));
+    for (const auto &[k, t] : inOrder(section(root, "system"))) m.systems.push_back(readSystem(k, *t, m.format));
     for (const auto &[k, t] : inOrder(section(root, "bundle"))) m.bundles.push_back(readBundle(k, *t));
     for (const auto &[k, t] : inOrder(section(root, "preset"))) m.presets.push_back(readPreset(k, *t));
     crossCheck(m);
@@ -562,6 +603,14 @@ std::string bundleRefusal(const Manifest &m, const ManifestBundle &b, const std:
     return "";
 }
 
+std::vector<std::string> systemPaths(const ManifestSystem &s)
+{
+    if (!s.image.empty()) return {s.image};
+    std::vector<std::string> out{s.monitor};
+    for (const auto &b : s.reserved) out.push_back(b.path);
+    return out;
+}
+
 std::vector<std::string> bundlePaths(const ManifestBundle &b, const Repository &repo)
 {
     std::vector<std::string> out;
@@ -593,7 +642,7 @@ ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository 
     std::vector<const ManifestBundle *> chosen;
     for (const auto &key : resolution.bundles) chosen.push_back(m.bundle(key));
     /* TYPE is PIP's on these monitors: without it the banner is an error
-     * at boot and the rest of START.COM goes unread. */
+     * at boot and the rest of STARTS.COM goes unread. */
     if ((s.banner || s.clearScreen) && std::none_of(chosen.begin(), chosen.end(), [](const auto *b) { return satisfies(*b, "pip"); }))
         throw std::runtime_error("a banner needs PIP on the disk - TYPE is its - and no bundle chosen provides pip");
 
@@ -603,8 +652,23 @@ ComposeRecipe recipeFor(const Manifest &m, const Selection &s, const Repository 
         return std::move(*bytes);
     };
     ComposeRecipe r;
-    r.system = read(sys->image);
-    r.reserved = sys->reserved;
+    if (!sys->image.empty()) r.system = read(sys->image);
+    else {
+        const auto slash = sys->monitor.find_last_of('/');
+        r.files = ComposeSystem{slash == std::string::npos ? sys->monitor : sys->monitor.substr(slash + 1),
+                                read(sys->monitor), encoded(sys->monitorDate.value_or("")),
+                                sys->swapBlocks, encoded(sys->swapDate.value_or("")),
+                                encoded(sys->startupDate.value_or(""))};
+    }
+    for (const auto &b : sys->reserved) {
+        ReservedBlock block{b.side, b.lbn, {}};
+        if (!b.path.empty()) {
+            block.data = read(b.path);
+            if (block.data.size() != kBlock)
+                throw std::runtime_error(b.path + " is no block: a protected block's file is 512 bytes");
+        }
+        r.reserved.push_back(std::move(block));
+    }
     r.media = s.media;
     std::vector<std::string> startup = sys->startup.value_or(std::vector<std::string>{});
     for (const auto *b : chosen) startup.insert(startup.end(), b->startup.begin(), b->startup.end());

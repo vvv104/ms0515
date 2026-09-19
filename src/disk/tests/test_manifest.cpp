@@ -144,11 +144,44 @@ std::string replaced(std::string s, const std::string &from, const std::string &
     return s.replace(at, from.size(), to);
 }
 
+/* The same manifest in format 2: the systems as files, no exemplar images. */
+std::string format2()
+{
+    std::string t = replaced(kToml, "format = 1", "format = 2");
+    t = replaced(t, "image = \"systems/osa.dsk\"",
+                 "monitor = { path = \"systems/osa/RT11SJ.SYS\", date = \"1991-11-12\" }\n"
+                 "swap = { blocks = 32, date = \"1989-12-11\" }\n"
+                 "startup_date = \"1995-04-01\"");
+    t = replaced(t, "image    = \"systems/rodionov.dsk\"",
+                 "monitor  = { path = \"systems/rodionov/RT11SJ.SYS\" }\n"
+                 "swap     = { blocks = 32 }");
+    return replaced(t, "reserved = [{ side = 1, lbn = 792 }, { side = 1, lbn = 799 }]",
+                    "reserved = [{ side = 1, lbn = 792, path = \"systems/rodionov/SIDE1-792.BLK\" },"
+                    " { side = 1, lbn = 799, path = \"systems/rodionov/SIDE1-799.BLK\" }]");
+}
+
+Repository repository2()
+{
+    Repository base = repository();
+    auto more = std::make_shared<std::map<std::string, std::vector<uint8_t>>>();
+    (*more)["systems/osa/RT11SJ.SYS"] = monitor();
+    (*more)["systems/rodionov/RT11SJ.SYS"] = monitor();
+    (*more)["systems/rodionov/SIDE1-792.BLK"] = blocks(1, 0x79);
+    (*more)["systems/rodionov/SIDE1-799.BLK"] = blocks(1, 0x7F);
+    for (const auto &kv : *more) base.paths.push_back(kv.first);
+    auto read = base.read;
+    base.read = [more, read](const std::string &p) -> std::optional<std::vector<uint8_t>> {
+        const auto it = more->find(p);
+        return it != more->end() ? std::optional(it->second) : read(p);
+    };
+    return base;
+}
+
 }  /* namespace */
 
 TEST_SUITE("Manifest") {
 
-TEST_CASE("a preset may give START.COM and BANNER.TXT as one multiline string each, blank lines kept") {
+TEST_CASE("a preset may give STARTS.COM and BANNER.TXT as one multiline string each, blank lines kept") {
     std::string text = kToml;
     text += "\n[preset.ml]\ntitle = \"ML\"\nsystem = \"osa\"\nmedia = \"dz\"\nbundles = [\"pip\"]\n"
             "startup = '''\nDATSET 01-04-92\nTYPE BANNER.TXT'''\n"
@@ -333,6 +366,86 @@ TEST_CASE("a system's recipe: its reserved blocks, and a startup of the system's
     CHECK(r.reserved.size() == 2);
     CHECK(r.startup == std::vector<std::string>{"SET TT QUIET", "SET SL ON", "LOAD VM:", "R ROSA3"});   /* SET SL ON once */
     CHECK(planDisk(r).ok);
+}
+
+TEST_CASE("format 2: a system as files - its monitor, SWAP.SYS's length, the dates, the protected blocks' files") {
+    const Manifest m = parseManifest(format2());
+    const auto *osa = m.system("osa");
+    REQUIRE(osa);
+    CHECK(osa->image.empty());
+    CHECK(osa->monitor == "systems/osa/RT11SJ.SYS");
+    CHECK(osa->monitorDate == "1991-11-12");
+    CHECK(osa->swapBlocks == 32);
+    CHECK(osa->swapDate == "1989-12-11");
+    CHECK(osa->startupDate == "1995-04-01");
+
+    const auto repo = repository2();
+    const ComposeRecipe r = recipeFor(m, selectionOf(*m.preset("games")), repo);
+    CHECK(r.system.empty());
+    REQUIRE(r.files);
+    CHECK(r.files->monitor == "RT11SJ.SYS");
+    CHECK(r.files->monitorData == monitor());
+    CHECK(r.files->monitorDate == encodeDate(1991, 11, 12));
+    CHECK(r.files->swapBlocks == 32);
+    CHECK(r.files->swapDate == encodeDate(1989, 12, 11));
+    CHECK(r.files->startupDate == encodeDate(1995, 4, 1));
+    const auto img = composeDisk(r);
+    const auto boot = openVolume(img, Vol::floppy, 0);
+    CHECK(boot->readFile("SWAP.SYS") == std::vector<uint8_t>(32 * kBlock, 0));
+    CHECK(bootedMonitor(img, 0, true) == "RT11SJ");
+
+    /* What a wizard fetches for the system: its files, no image. */
+    CHECK(systemPaths(*osa) == std::vector<std::string>{"systems/osa/RT11SJ.SYS"});
+    CHECK(systemPaths(*m.system("rodionov")) == std::vector<std::string>{
+        "systems/rodionov/RT11SJ.SYS", "systems/rodionov/SIDE1-792.BLK", "systems/rodionov/SIDE1-799.BLK"});
+    const Manifest one = parseManifest(kToml);
+    CHECK(systemPaths(*one.system("rodionov")) == std::vector<std::string>{"systems/rodionov.dsk"});
+
+    const ComposeRecipe rod = recipeFor(m, selectionOf(*m.preset("rodionov")), repo);
+    REQUIRE(rod.reserved.size() == 2);
+    CHECK(rod.reserved[0].side == 1);
+    CHECK(rod.reserved[0].lbn == 792);
+    CHECK(rod.reserved[0].data == blocks(1, 0x79));
+    CHECK(rod.reserved[1].data == blocks(1, 0x7F));
+    CHECK(rod.files->monitorDate == 0);                        /* no date given: none */
+    const auto disk = composeDisk(rod);
+    const auto at = lbnToByte(799, 1, true, Vol::floppy);
+    CHECK(std::equal(disk.begin() + static_cast<std::ptrdiff_t>(at), disk.begin() + static_cast<std::ptrdiff_t>(at + kBlock),
+                     blocks(1, 0x7F).begin()));
+}
+
+TEST_CASE("format 2 must not say: no monitor, no SWAP.SYS length, an image, a protected block without its file") {
+    const std::string good = format2();
+    CHECK_NOTHROW((void)parseManifest(good));
+    CHECK_THROWS_WITH_AS((void)parseManifest(replaced(good, "monitor = { path = \"systems/osa/RT11SJ.SYS\", date = \"1991-11-12\" }\n", "")),
+                         doctest::Contains("monitor"), std::runtime_error);
+    CHECK_THROWS_WITH_AS((void)parseManifest(replaced(good, "swap = { blocks = 32, date = \"1989-12-11\" }\n", "")),
+                         doctest::Contains("swap"), std::runtime_error);
+    CHECK_THROWS_WITH_AS((void)parseManifest(replaced(good, "swap = { blocks = 32,", "swap = { blocks = 0,")),
+                         doctest::Contains("swap"), std::runtime_error);
+    CHECK_THROWS_WITH_AS((void)parseManifest(replaced(good, "startup_date = \"1995-04-01\"", "image = \"systems/osa.dsk\"")),
+                         doctest::Contains("image"), std::runtime_error);
+    CHECK_THROWS_WITH_AS((void)parseManifest(replaced(good, ", path = \"systems/rodionov/SIDE1-792.BLK\"", "")),
+                         doctest::Contains("reserved"), std::runtime_error);
+    CHECK_THROWS_WITH_AS((void)parseManifest(replaced(good, "date = \"1991-11-12\"", "date = \"1991-13-12\"")),
+                         doctest::Contains("date"), std::runtime_error);
+    CHECK_THROWS_WITH_AS((void)parseManifest(replaced(good, "format = 2", "format = 3")),
+                         doctest::Contains("format"), std::runtime_error);
+    /* Format 1 still reads as it did: an image, and no monitor file. */
+    CHECK_THROWS_WITH_AS((void)parseManifest(replaced(kToml, "image = \"systems/osa.dsk\"", "monitor = { path = \"x/RT11SJ.SYS\" }")),
+                         doctest::Contains("image"), std::runtime_error);
+}
+
+TEST_CASE("format 2: a protected block's file that is no block is refused when the recipe reads it") {
+    const Manifest m = parseManifest(format2());
+    auto repo = repository2();
+    auto read = repo.read;
+    repo.read = [read](const std::string &p) -> std::optional<std::vector<uint8_t>> {
+        if (p == "systems/rodionov/SIDE1-799.BLK") return std::vector<uint8_t>(100);
+        return read(p);
+    };
+    CHECK_THROWS_WITH_AS((void)recipeFor(m, selectionOf(*m.preset("rodionov")), repo),
+                         doctest::Contains("512"), std::runtime_error);
 }
 
 TEST_CASE("a selection that breaks a rule is refused before anything is read") {

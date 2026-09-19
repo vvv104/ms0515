@@ -191,14 +191,14 @@ EMSCRIPTEN_KEEPALIVE const char *wiz_toggle(const char *key)
     return gText.c_str();
 }
 
-/* A field's text - the volume id, a START.COM line: "" when taken, else why not. */
+/* A field's text - the volume id, a STARTS.COM line: "" when taken, else why not. */
 EMSCRIPTEN_KEEPALIVE const char *wiz_set_field(const char *key, const char *value)
 {
     gText = gSession ? gSession->wizard->setField(key ? key : "", value ? value : "") : std::string("no collection");
     return gText.c_str();
 }
 
-/* The whole of START.COM's own lines or of BANNER.TXT, as the page's text
+/* The whole of STARTS.COM's own lines or of BANNER.TXT, as the page's text
  * box holds it: `group` is "#startup" or "#banner", `text` its lines with
  * "\n" (or "\r\n") between; blank lines inside stay, blank ones at the end
  * go, so the box's trailing newline adds no line.  "" when taken, else why
@@ -224,13 +224,15 @@ EMSCRIPTEN_KEEPALIVE const char *wiz_set_text(const char *group, const char *tex
 }
 
 /* The files a plan or a build of the current choice reads, as a JSON list of
- * paths: the system's image and every file of every bundle it installs. */
+ * paths: the system's (its image, or its monitor and protected blocks) and
+ * every file of every bundle it installs. */
 EMSCRIPTEN_KEEPALIVE const char *wiz_needed(void)
 {
     if (!gSession || !gSession->wizard->ready()) return "[]";
     const DiskWizard &w = *gSession->wizard;
     std::vector<std::string> paths;
-    if (const auto *sys = gSession->manifest.system(w.selection().system)) paths.push_back(sys->image);
+    if (const auto *sys = gSession->manifest.system(w.selection().system))
+        for (const auto &p : systemPaths(*sys)) paths.push_back(p);
     for (const auto &key : w.resolution().bundles) {
         try {
             for (const auto &p : bundlePaths(*gSession->manifest.bundle(key), gSession->repo)) paths.push_back(p);

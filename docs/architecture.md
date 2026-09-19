@@ -176,9 +176,12 @@ tool that read and write images directly, without running the machine.
   for byte against RT-11 on every kit shipped: LBN 0 from the volume's
   DZ.SYS at the offset its `.DRBOT` header names, LBN 2..5 the monitor's
   blocks 1..4 with the device and monitor names in RAD50), `Compose` (a
-  whole bootable ss / dz / dv diskette made from scratch: the exemplar
-  system image gives only SWAP.SYS, the monitor and its protected blocks,
-  groups of files bring the rest, then the startup file and the bootstrap
+  whole bootable ss / dz / dv diskette made from scratch: the system gives
+  only its monitor and its protected blocks - as files (`disks.toml`
+  format 2), or out of an exemplar image (format 1) - SWAP.SYS is made of
+  zeros as long as the system names (it is scratch the monitor writes
+  before it reads), groups of files bring the rest, then the startup file
+  (named by the monitor: DEC's STARTS.COM) and the bootstrap
   for the media; `planDisk` says where every group goes by putting it for
   real on a scratch copy, so what fits is what RT-11 would take).
 - Lib `ms0515_disk_manifest` (`src/disk/src/Manifest.cpp`, toml++) — reads

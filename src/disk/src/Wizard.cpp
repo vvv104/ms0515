@@ -38,7 +38,7 @@ std::string list(const std::vector<std::string> &v)
     return out + "]";
 }
 
-/* START.COM and BANNER.TXT are each written as one TOML multiline literal
+/* STARTS.COM and BANNER.TXT are each written as one TOML multiline literal
  * string, so their line breaks - blank lines and all - are honest in the
  * file.  The list form is the fall-back when the text holds the triple
  * quote a literal cannot, and is what the older tool wrote. */
@@ -392,7 +392,7 @@ std::string DiskWizard::setField(const std::string &key, const std::string &valu
         sel_.*f.member = label.empty() ? std::nullopt : std::optional<std::string>(label);
         return "";
     }
-    /* One line of START.COM or BANNER.TXT: line N replaced, or emptied
+    /* One line of STARTS.COM or BANNER.TXT: line N replaced, or emptied
      * taken out, or - past the last, typed into - added.  This is the
      * single-line path (a line's Del removes it); the multiline editor
      * splits and joins lines through setStartup / setBanner, whole, so a
@@ -618,7 +618,7 @@ void DiskWizard::startupRows(std::vector<WizardRow> &out, int depth, const std::
         if (const auto *b = m_.bundle(key)) for (const auto &line : b->startup) add(line, b->title);
     const auto own = sel_.startup.value_or(std::vector<std::string>{});
 
-    WizardRow g = heading(WizardRow::Kind::group, depth, kStartupGroup, "START.COM");
+    WizardRow g = heading(WizardRow::Kind::group, depth, kStartupGroup, "STARTS.COM");
     g.parent = parent;
     const auto count = fixed.size() + own.size();
     g.summary = std::to_string(count) + (count == 1 ? " line" : " lines");
@@ -639,8 +639,8 @@ void DiskWizard::startupRows(std::vector<WizardRow> &out, int depth, const std::
     }
 }
 
-/* BANNER.TXT: the lines the disk shows as it starts, typed by START.COM -
- * a group like START.COM's, of the person's lines only. */
+/* BANNER.TXT: the lines the disk shows as it starts, typed by STARTS.COM -
+ * a group like STARTS.COM's, of the person's lines only. */
 void DiskWizard::bannerRows(std::vector<WizardRow> &out, int depth, const std::string &parent, bool everything) const
 {
     const auto own = sel_.banner.value_or(std::vector<std::string>{});
@@ -740,7 +740,7 @@ std::vector<std::pair<std::string, int>> DiskWizard::blocksByGroup() const
 
 /* A choice read from a file: the diskette and the system open, the label
  * when one is typed, and the way down to every bundle chosen or brought
- * along, to a build other than the system's own, to its START.COM lines. */
+ * along, to a build other than the system's own, to its STARTS.COM lines. */
 void DiskWizard::openWhatIsChosen()
 {
     open_.insert(kDisketteGroup);
