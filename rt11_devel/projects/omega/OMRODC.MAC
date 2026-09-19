@@ -17,7 +17,11 @@
 ;   entry 160010, key0 + 340 + key1 into the PPI's control register) that
 ;   nothing jumps to: an older version left in place.  The check that runs
 ;   is OMRODT's (R50326).
-; - It leaves by its own RTI at C54600, before DEC's code.
+; - It leaves by its own RTI at C54600, before DEC's code - every path
+;   does, so DEC's code that keeps the time never runs.  (KMON's TIME
+;   counts 72 ticks a second, the frame rate of a machine jumpered for
+;   72 Hz, but CONFIG says there is no clock: README.md, "72 ticks a
+;   second".)
 ;
 ROCLK:	TSTB	@#157760
 	BMI	C54176

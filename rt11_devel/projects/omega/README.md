@@ -88,7 +88,7 @@ Both boot, list, copy and run programs.
 | 08 | - | **exit without a RESET** (Mihin's): `ZAP` leaves out DEC's delay, the `RESET` and the console's restore |
 | 09 | - | **the default editor K52** (Mihin's): `PROGDF` names K52, KED for a VT52 |
 | 10 | - | **`SPL` as `MTPS`** (Mihin's): each priority change an `MTPS` in place, off the `PSWLST` chain |
-| 11 | `OMRODC.MAC` | **Rodionov's clock interrupt**: his code ahead of DEC's, JMPs to `EXINT` and `TIMER`, no clock restart in `ZAP`, TIME's 72 ticks a second |
+| 11 | `OMRODC.MAC` | **Rodionov's clock interrupt**: his code ahead of DEC's, JMPs to `EXINT` and `TIMER`, no clock restart in `ZAP`, TIME's 72 ticks a second (a display at 72 Hz; never reached) |
 | 12 | `OMRODT.MAC` | **Rodionov's terminal driver**: in the middle of `TTOINT`, JMPs past it |
 
 Patches 02-06 carry Mihin's and Rodionov's variants too (see [Mihin's
@@ -221,10 +221,12 @@ Omega's bootstrap room (90 NOPs and the clock bit in BCNFG), DEC's
 - **A clock interrupt of his own** (patch 11, `OMRODC.MAC`): Omega's
   floppy motor code, then every so many ticks his cursor blink (two lines
   of the video memory inverted at ROM-A's cursor address) and a keyboard
-  lamp toggled, and an `RTI` of its own before DEC's clock code.  DEC's
-  `EXINT` and `TIMER` are out of reach of their branches: JMPs.  KMON's
-  TIME counts a "50-cycle" clock at 72 ticks a second, and `ZAP` does not
-  restart DEC's clock at 177546 - the PPI's control register here.
+  lamp toggled, and an `RTI` of its own before DEC's clock code - every
+  path ends there, so DEC's code never runs and RT-11's time stands still.
+  DEC's `EXINT` and `TIMER` are out of reach of their branches: JMPs.
+  KMON's TIME counts a "50-cycle" clock at 72 ticks a second (below), and
+  `ZAP` does not restart DEC's clock at 177546 - the PPI's control
+  register here.
 - **The copy protection**: a key read from the other side of the disk,
   see below.
 - **CONFIG left as RMON has it**: the bootstrap copies nothing of BCNFG
@@ -288,7 +290,26 @@ the clock interrupt counts in (`@#137646`), at 137646.  Under another
 monitor that address holds other code: OSA answers `?CSI-F-Недопустимая
 команда`, Omega `?MON-F-Trap to 10`.
 
-Open: why TIME counts 72 ticks a second.
+### 72 ticks a second
+
+The MS 0515's frame rate is set by jumpers - 50, 60 or 72 Hz, readable in
+System Register B (177602) bits 4-3 (`docs/hardware/video.md`) - and the
+frame strobes the timer interrupt, so on a machine jumpered for 72 Hz the
+clock ticks 72 times a second.  DEC's TIME converts a "50-cycle" clock
+with 50; Rodionov's with 72.  Nothing in the monitor reads 177602: the 72
+is written in.
+
+As shipped the change is never reached: TIME answers `?KMON-W-Нет таймера`
+(CONFIG says there is no clock, since the bootstrap copies nothing into
+it), and the clock interrupt returns before DEC's code that keeps the
+time.  Nothing writes over that `RTI` - not the monitor, not ROSA3.  So it
+reads as what an earlier version left: one that kept RT-11's time on a
+machine whose display ran at 72 Hz.
+
+For a DEC build on the MS 0515 it means that the "50/60-cycle" clock is
+the frame rate, not the mains: a machine jumpered for 60 or 72 Hz counts
+time wrongly on a monitor generated for 50, unless its bootstrap reads
+177602.
 
 ## The vvv104 build
 

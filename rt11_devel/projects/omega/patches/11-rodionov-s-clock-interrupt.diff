@@ -2,10 +2,13 @@
 #
 # Rodionov's LKINT is code of his own ahead of DEC's (OMRODC.MAC, taken word
 # for word): Omega's floppy motor code, his cursor blink in the video memory,
-# a keyboard lamp, the copy protection's check, and an RTI of its own.  His
+# a keyboard lamp, a dead copy of the copy protection's check, and an RTI of
+# its own - DEC's clock code never runs, and RT-11's time stands still.  His
 # code puts EXINT and TIMER out of reach of DEC's branches: JMPs.  ZAP does
-# not restart DEC's clock at 177546 (the PPI here), and KMON's TIME counts a
-# "50-cycle" clock at 72 ticks a second.
+# not restart DEC's clock at 177546 (the PPI here).  KMON's TIME counts a
+# "50-cycle" clock at 72 ticks a second - the frame rate of an MS 0515
+# jumpered for 72 Hz, which strobes the timer interrupt - but never gets
+# there: CONFIG says there is no clock.
 
 diff --git a/KMOVLY.MAC b/KMOVLY.MAC
 index 20e1a70..9f2c40e 100644
