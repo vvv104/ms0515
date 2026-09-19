@@ -1,0 +1,115 @@
+.SBTTL	OMRODC	Rodionov's clock interrupt
+;
+; Included by RMONSJ at LKINT (Rodionov's monitor only), ahead of DEC's
+; clock code with timer support.  Taken from his monitor word for word
+; (dis2mac.py): labels are C and the address the word has in RT15SJ.SYS.
+; What is known of it:
+;
+; - The floppy motor's time-out is Omega's code (OMMOTR), 100 ticks.
+; - A count at 137646 (the word before ROPRNT, OMRODT, where the monitor
+;   lands at the top of the MS 0515's memory) paces the rest: every so
+;   many ticks the cursor is inverted in the video memory (two lines, at
+;   the ROM-A's cursor address 157712) - a blink of his own, on ROM-A -
+;   and a lamp of the keyboard is toggled by a command through the
+;   ROM-A's routine at 177040.
+; - The words after the first BR are a second copy of the copy
+;   protection's check (the key of block 792 read again through the ROM's
+;   entry 160010, key0 + 340 + key1 into the PPI's control register) that
+;   nothing jumps to: an older version left in place.  The check that runs
+;   is OMRODT's (R50326).
+; - It leaves by its own RTI at C54600, before DEC's code - every path
+;   does, so DEC's code that keeps the time never runs.  (KMON's TIME
+;   counts 72 ticks a second, the frame rate of a machine jumpered for
+;   72 Hz, but CONFIG says there is no clock: README.md, "72 ticks a
+;   second".)
+;
+ROCLK:	TSTB	@#157760
+	BMI	C54176
+	BIS	#76,@#137646
+C54176:	TST	@#157720
+	BPL	C54302
+	BIT	#40000,@#157720
+	BEQ	C54234
+	BIC	#40000,@#157720
+	BIS	#20000,@#157720
+	.WORD	5027
+C54232:	.WORD	0
+C54234:	BIT	#20000,@#157720
+	BEQ	C54302
+	INC	C54232
+	CMP	#144,C54232
+	BCC	C54302
+	BIC	#20000,@#157720
+	BIS	#17,@#157720
+	MOVB	@#157720,@#177600
+C54302:	SUB	#2,@#137646
+	BIT	#40,@#137646
+	BNE	C54600
+	NOP
+	NOP
+	NOP
+	MOV	R1,-(SP)
+	MOV	R2,-(SP)
+	MOV	R3,-(SP)
+	BR	C54454
+	.WORD	112
+	.WORD	1044
+	.WORD	12702
+	.WORD	12
+	.WORD	60702
+	.WORD	10267
+	.WORD	4
+	.WORD	406
+C54356:	.WORD	110021
+	.WORD	0
+	.WORD	1430
+	.WORD	1000
+	.WORD	60
+	.WORD	2
+	.WORD	16737
+	.WORD	177762
+	.WORD	157730
+	.WORD	62767
+	.WORD	110010
+	.WORD	2
+	.WORD	4737
+	.WORD	50000
+	.WORD	103406
+	.WORD	13702
+	.WORD	60
+	.WORD	62702
+	.WORD	340
+	.WORD	63702
+	.WORD	62
+	.WORD	110237
+	.WORD	177546
+	.WORD	112737
+	.WORD	377
+	.WORD	177542
+	.WORD	105137
+	.WORD	177544
+	.WORD	112727
+	.WORD	240
+	.WORD	0
+C54454:	BIT	#1,@#137646
+	BNE	C54514
+	BIT	#10,@#157760
+	BNE	C54514
+	MOV	#2,R2
+	XOR	R2,C54356
+	MOV	C54356,R3
+	CALL	@#177040
+C54514:	BIS	#200,@#157700
+	MOV	@#157700,@#177400
+	MOV	@#157712,R2
+	ADD	#1060,R2
+	COMB	@R2
+	ADD	#120,R2
+	COMB	@R2
+	MOV	(SP)+,R3
+	MOV	(SP)+,R2
+	MOV	(SP)+,R1
+	BIC	#200,@#157700
+	BIS	#76,@#137646
+	MOV	@#157700,@#177400
+C54600:	RTI

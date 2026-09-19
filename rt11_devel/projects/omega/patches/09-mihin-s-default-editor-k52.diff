@@ -1,0 +1,22 @@
+# Mihin's default editor, K52
+#
+# PROGDF, the program EDIT runs, is KED in DEC's monitor and in the other
+# kits'.  Mihin's is K52, the same editor for a VT52 - the terminal the
+# MS 0515's ROM gives the console.
+
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+index d0180d7..85d9746 100644
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -180,7 +180,11 @@ TRPSET:: .WORD	TRAPLC		;*** BOOT *** Pointer to .TRPSET handler
+ NULJOB::.WORD	0		;No null job
+ IMPLOC::.WORD	0		;No impure area
+ KMONIN::.WORD	1		;0 => USER RUNNING, 1 => KMON RUNNING
++.IF EQ	OM$KIT-KT$MIH
++PROGDF::.BYTE	200!$$K52	;Mihin: the default editor K52, KED for a VT52
++.IFF	;EQ OM$KIT-KT$MIH
+ PROGDF::.BYTE	200!$$KED	;DEFAULT EDITOR TO KED PROG
++.ENDC	;EQ OM$KIT-KT$MIH
+ 	.BYTE	200!$$FORTRAN	;DEFAULT FORTRAN TO F4 COMPILER
+ WILDEF::.BYTE	1		;DEFAULT WILDCARDS TO ON
+ 	.BYTE	0		;UNUSED

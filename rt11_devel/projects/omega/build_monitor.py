@@ -2,12 +2,13 @@
 of SYSGEN answers and the Omega modules, the way SYSGEN.COM's MONBLD does
 it, with the real MACRO and LINK inside the emulator.
 
-    python build_monitor.py [OUTDIR] [--profile omega|omega2|dec] [--list]
-                            [PART...]
+    python build_monitor.py [OUTDIR] [--profile P] [--list] [PART...]
 
 The profile picks the answers: omega - the 059 Omega monitor (SYCND.MAC),
-omega2 - the vvv104 one (SYCOM2.MAC), dec - DEC's RT-11 on the MS 0515
-(SYCDEC.MAC); see OMEGA.MAC.  --list has MACRO write the listings, for
+omega2 - the vvv104 one (SYCOM2.MAC), osa - OSA's (SYCOSA.MAC), mihin -
+Mihin's OS-16SJ (SYCMIH.MAC), rodionov - Rodionov's RT15SJ (SYCROD.MAC),
+dec - DEC's RT-11 on the MS 0515 (SYCDEC.MAC), dec-ru - the same with
+OSA's texts in Russian (SYCDRU.MAC); see OMEGA.MAC.  --list has MACRO write the listings, for
 taking a difference apart (where.py, regions.py); without them MACRO shows
 the lines in error and "?MACRO-E-Errors detected: n" on the terminal, and
 the build takes about 95 s instead of 115.  PARTs (BTSJ,
@@ -52,6 +53,11 @@ PARTS = {
     "KMSJ": ["KMON", "KMOVLY"],
     "TBSJ": ["DEVTBL"],
 }
+# Each part assembles with a copy of the answers of its own (SYBTSJ...: CSI
+# takes six input files, no more) that also says which part it is
+# (OM$PRT): the modules define their macros for the parts that call them
+# only - MACRO's work file holds only so many.
+PART_NO = {"BTSJ": 1, "RMSJ": 2, "KMSJ": 3, "TBSJ": 4}
 
 
 def dec_sources() -> Path:
@@ -105,7 +111,8 @@ def disk(*args) -> None:
 
 
 ANSWERS = {"omega": "SYCND.MAC", "omega2": "SYCOM2.MAC", "osa": "SYCOSA.MAC",
-           "dec": "SYCDEC.MAC"}
+           "dec": "SYCDEC.MAC", "dec-ru": "SYCDRU.MAC", "mihin": "SYCMIH.MAC",
+           "rodionov": "SYCROD.MAC"}
 
 
 def stage(image: Path, files: Path, profile: str) -> None:
@@ -125,6 +132,9 @@ def stage(image: Path, files: Path, profile: str) -> None:
         (files / n).write_bytes(crlf(data))
     for mod in sorted(HERE.glob("OM*.MAC")):       # Omega's modules (.INCLUDEd)
         (files / mod.name).write_bytes(crlf(mod.read_bytes()))
+    answers = crlf((HERE / ANSWERS[profile]).read_bytes())
+    for obj, n in PART_NO.items():                 # the answers, and which part
+        (files / f"SY{obj}.MAC").write_bytes(answers + f"OM$PRT\t= {n}\t\t;This part: {obj}\r\n".encode())
     disk("create", image, "--hd", "--blocks", 30000)
     disk("init", image, "--hd")
     disk("put", image, "--hd", *sorted(files.iterdir()))
@@ -188,11 +198,11 @@ def main() -> int:
     try:
         rt = RT11Session(emu)
         rt.boot(timeout=90)
-        pre = "+".join(PREFIX)
         only = args[1:]              # build just these parts (no LINK)
         for obj, files in PARTS.items():
             if only and obj not in only:
                 continue
+            pre = "+".join(f"SY{obj}" if p == "SYCND" else p for p in PREFIX)
             t0 = time.time()
             lst = f"/LIST:{obj}" if listings else ""
             text = rt.command(f"MACRO/OBJECT:{obj}{lst} {pre}+{'+'.join(files)}",

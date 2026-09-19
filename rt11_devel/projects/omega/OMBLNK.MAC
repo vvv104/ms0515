@@ -6,15 +6,30 @@
 ; ticks in a word of its own and calls the ROM's slot 160014 every
 ; sixteenth: in ROM-B that slot blinks the cursor; ROM-A has the cassette
 ; loader there, with no way back, so this build runs on ROM-B only
-; (docs/kb/KNOWN_ISSUES.md).  Only that build has it (OM$BLK).
+; (docs/kb/KNOWN_ISSUES.md).  Only that build has it (OM$BLK = 1).
 ;
+; DEC's build blinks the same way where the ROM is ROM-B (OM$BLK =
+; BL$ROM): the slot is a JMP in both ROMs, and only ROM-B's goes to its
+; blink (163440, the offset 3420 in the word after the JMP); anything else
+; there - ROM-A's loader, a patched RTS - and it does not call.
+;
+BL$ROM	= 2		;OM$BLK: blink only where the ROM is ROM-B
+BL$SLT	= 160014	;The ROM's slot: ROM-B's cursor blink
+BL$OFS	= 3420		;ROM-B's JMP offset there (to 163440)
+
+.IF NE	IN$RM		;(macros for the part that calls them)
 .MACRO	OMBLNK	?A,?B
 .IF NE	OM$BLK
 	INC	(PC)+		;Omega's own tick count
 A:	 .WORD	0
 	BIT	#17,A		;Every sixteenth tick
 	BNE	B
-	CALL	@#160014	;ROM-B: blink the cursor
+.IF EQ	OM$BLK-BL$ROM
+	CMP	@#BL$SLT+2,#BL$OFS ;ROM-B's blink in the slot?
+	BNE	B		;No: leave the cursor alone
+.ENDC	;EQ OM$BLK-BL$ROM
+	CALL	@#BL$SLT	;ROM-B: blink the cursor
 B:
 .ENDC	;NE OM$BLK
 .ENDM	OMBLNK
+.ENDC	;NE IN$RM

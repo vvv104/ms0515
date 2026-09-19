@@ -1,15 +1,16 @@
 # The clock: the timer and the floppy motor
 #
-# Each tick reads the timer service address 177770 twice and runs the
-# floppy motor's time-out: 100 ticks after the drive was last used it is
-# deselected with its motor off, through the ROM's copy of System Register
-# A (OMCLOK.MAC).
+# Each tick reads the timer service address 177770 - Omega's twice, OSA's
+# and DEC's build once - and runs the floppy motor's time-out: 100 ticks
+# after the drive was last used it is deselected with its motor off,
+# through the ROM's copy of System Register A (OMCLOK.MAC).  Mihin's runs
+# the motor first, 128 ticks, then reads the timer once.
 
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 2c70efa..bdcc2c8 100644
+index e98f150..ee585ae 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
-@@ -2114,17 +2114,21 @@ TIFBLK::BSS	F.BSIZ/2	;FORK BLOCK				;007
+@@ -2122,17 +2122,26 @@ TIFBLK::BSS	F.BSIZ/2	;FORK BLOCK				;007
  
  LKINT::
  .IF EQ	TIME$R								;LP2
@@ -20,8 +21,13 @@ index 2c70efa..bdcc2c8 100644
  	RTI
  
  .IFF	;EQ TIME$R							;005
-+	OMTICK	2		;Omega: the timer, read twice
++.IF EQ	OM$KIT-KT$MIH
++	OMMOTR			;Mihin: the floppy motor,
++	OMTICK	1		; then the timer, read once
++.IFF	;EQ OM$KIT-KT$MIH
++	OMTICK	TK$RDS		;The timer: Omega reads it twice, DEC once
 +	OMMOTR			;Omega: the floppy motor
++.ENDC	;EQ OM$KIT-KT$MIH
  	INC	(PC)+		;* BUMP CLOCK TICKER
  TIKCTR:	 .WORD	0		;					;DV43
  	TST	INTLVL		;* Interrupting system?			;DG03

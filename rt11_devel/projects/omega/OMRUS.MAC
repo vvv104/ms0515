@@ -22,6 +22,7 @@
 ; moves on, and the BR that ends the swap EMT falls out of reach - both
 ; have a JMP there (in the patch itself).
 ;
+.IF NE	IN$BT
 .MACRO	OMBANR			;The kit's banner
 .IF EQ	OM$KIT-KT$OMG
 	.BYTE	CR,LF,357,355,345,347,341		;OMEGA
@@ -33,8 +34,17 @@
 	.BYTE	367,305,322,323,311,321			;Version
 	.ASCII	/ 1.0 /
 .ENDC	;EQ OM$KIT-KT$OSA
+.IF EQ	OM$KIT-KT$ROD
+	.BYTE	CR,LF,TAB,277				;(C)
+	.ASCII	/ 1992  /
+	.BYTE	362,317,304,311,317,316,317,327,040	;Rodionov
+	.BYTE	363,056,341,056				; S.A.
+	.ASCII	/    /
+.ENDC	;EQ OM$KIT-KT$ROD
 .ENDM	OMBANR
+.ENDC	;NE IN$BT
 
+.IF NE	IN$RM
 .MACRO	OMRMSG			;The fatal read-error message
 	.ASCII	\?MON-F-\
 .IF EQ	OM$RUS-RU$OMG
@@ -52,3 +62,4 @@
 .ENDC	;EQ OM$RUS-RU$OMG
 	.BYTE	CR,LF,LF,0
 .ENDM	OMRMSG
+.ENDC	;NE IN$RM

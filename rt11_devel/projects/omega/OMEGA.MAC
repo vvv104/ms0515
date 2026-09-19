@@ -12,7 +12,9 @@
 ;           filler and their repeated CONFIG bits are out.
 ;   KT$OMG  Omega's monitor exactly (SYCND.MAC; SYCOM2.MAC, the vvv104
 ;           build, with OM$BLK - its cursor blink through ROM-B);
-;   KT$OSA  OSA's monitor exactly (SYCOSA.MAC).
+;   KT$OSA  OSA's monitor exactly (SYCOSA.MAC);
+;   KT$MIH  Mihin's OS-16SJ (SYCMIH.MAC);
+;   KT$ROD  Rodionov's RT15SJ (SYCROD.MAC).
 ;
 ; (The answers file comes before this one: it gives the numbers.)
 ;
@@ -22,6 +24,8 @@
 ;
 KT$OMG	= 1
 KT$OSA	= 2
+KT$MIH	= 3
+KT$ROD	= 4
 RU$OMG	= 1
 RU$OSA	= 2
 .IIF NDF OM$KIT, OM$KIT = 0
@@ -30,6 +34,18 @@ RU$OSA	= 2
 .IIF NDF OM$RUS, OM$RUS = 0
 RU$ALL	= 0			;Every message the kit's (OSA's texts)
 .IIF EQ OM$RUS-RU$OSA, RU$ALL = 1
+;
+; OM$PRT - the part of the monitor this assembly is (build_monitor.py puts
+; a file of one line ahead of this one): 1 BTSJ, 2 RMSJ (USR and RMON),
+; 3 KMSJ, 4 TBSJ; 0 or none - all of them.  The modules define their
+; macros for the parts that call them only: every macro defined takes room
+; in MACRO's work file, and KMSJ with OSA's texts has little left.
+;
+.IIF NDF OM$PRT, OM$PRT = 0
+IN$BT	= 0			;The bootstrap's macros
+IN$RM	= 0			;RMON's and USR's
+.IIF EQ OM$PRT*<OM$PRT-1>, IN$BT = 1
+.IIF EQ OM$PRT*<OM$PRT-2>, IN$RM = 1
 	.INCLUDE "SRC:OMTRAP.MAC"	;The decoding trap
 	.INCLUDE "SRC:OMCONS.MAC"	;The console through the ROM
 	.INCLUDE "SRC:OMCLOK.MAC"	;The clock: timer, floppy motor

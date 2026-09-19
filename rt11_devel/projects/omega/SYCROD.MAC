@@ -1,0 +1,19 @@
+.SBTTL	SYCROD	RT15SJ (RODIONOV) SYSTEM CONDITIONAL FILE, RECONSTRUCTED
+;
+; The answers Rodionov's sysgen gave (RT15SJ.SYS of his disk), read back
+; out of its monitor: the options word (SYSGEN = 002000: timer support),
+; RMON's CONFIG (0: no 50-cycle bit), the device slots.  Symbols
+; SYSGEN.COM writes, in its order.
+;
+SYSG$N	= 1		;Indicate sysgened monitor
+TIME$R	= 1		;SJ timer support
+RDF$L	= 1		;System I/O error messages
+TTYOUT  = 40.		;Size of the output buffers
+TTYIN   = 134.		;Size of the input buffers
+U$TIL	= 1		;Utility commands
+L$ANG	= 1		;Language commands
+M$INI	= 1		;Minimal commands
+CLOCK	= 60.		;Power line frequency (CONFIG has no 50-cycle bit)
+STAR$T	= 1		;Startup command file
+OM$KIT	= 4		;This build: Rodionov's monitor (KT$ROD, see OMEGA.MAC)
+OM$RUS	= 2		;OSA's texts in Russian (RU$OSA, OMRUS.MAC)

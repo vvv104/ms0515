@@ -1,0 +1,19 @@
+.SBTTL	SYCDRU	DEC'S RT-11 SJ ON THE MS 0515, IN RUSSIAN: THE CONDITIONAL FILE
+;
+; SYCDEC.MAC's answers (see there) with OSA's texts in Russian: every
+; message and prompt as OSA's monitor has it (RU$OSA, OMRUS.MAC); the
+; banner stays DEC's.
+;
+TIME$R	= 1		;SJ timer support
+ROL$OV	= 1		;Month and year rollover
+RDF$L	= 1		;System I/O error messages
+TTYOUT  = 40.		;Size of the output buffers
+TTYIN   = 134.		;Size of the input buffers
+U$TIL	= 1		;Utility commands
+L$ANG	= 1		;Language commands
+M$INI	= 1		;Minimal commands
+CLOCK	= 50.		;Power line frequency (the MS 0515's frame)
+STAR$T	= 1		;Startup command file
+OM$KIT	= 0		;This build: DEC's RT-11 on the MS 0515 (see OMEGA.MAC)
+OM$BLK	= 2		;The cursor blink where the ROM is ROM-B (BL$ROM, OMBLNK.MAC)
+OM$RUS	= 2		;OSA's texts in Russian (RU$OSA, OMRUS.MAC)
