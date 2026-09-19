@@ -5,7 +5,7 @@
 # MS 0515's ROM gives the console.
 
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 16ea287..dbb86ee 100644
+index d0180d7..85d9746 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -180,7 +180,11 @@ TRPSET:: .WORD	TRAPLC		;*** BOOT *** Pointer to .TRPSET handler

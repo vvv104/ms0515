@@ -44,8 +44,9 @@ MS 0515.
 | `mihin` | `SYCMIH.MAC` | OS-16SJ (C)Mihinsoft, the collection's `systems/mihin/RT11SJ.SYS` (sha `bc9b0f4`) | byte for byte |
 | `rodionov` | `SYCROD.MAC` | RT15SJ «© 1992 Родионов С.А.», the collection's `systems/rodionov/RT15SJ.SYS` (sha `8f1e919`) | byte for byte |
 | `dec` | `SYCDEC.MAC` | DEC's RT-11 V5.4 SJ on the MS 0515 | - |
+| `dec-ru` | `SYCDRU.MAC` | the same with OSA's texts in Russian | - |
 
-The six build at once (each on an image of its own) in about two and a
+The eight build at once (each on an image of its own) in about two and a
 half minutes.
 
 The collection's `systems/*.dsk` carry these monitors with the
@@ -55,24 +56,60 @@ originals start `STARTS.COM` (Omega, like DEC) and `ST.COM` (OSA); so do
 the builds here.
 
 **`dec`** is the owner's aim: DEC's RT-11 with only what the machine needs.
-Its SYSGEN answers are DEC's own (`SJFB.CND`: user command linkage on, no
-"(S)" in the banner, no SJ timer support), `STARTS.COM`.  Out of the kits'
-changes it leaves the decoding trap (no program of the collection carries
-its pair), the NOP and HALT filler, the repeated CONFIG bits and the
-Russian texts (the banner reads DEC's `RT-11SJ`); it keeps the 8-bit
-terminal for Cyrillic (the owner's choice), and DEC's interrupt priorities
-(4 for the terminal, 6 for the clock, where the kits have 7: DEC's run the
-same under load, ^S/^Q included).  The console through the ROM sits in
-DEC's terminal code without timer support the way OSA's monitor has it.
+Its SYSGEN answers are DEC's own (`SJFB.CND`: no "(S)" in the banner),
+`STARTS.COM`, with what the owner chose for the machine (2026-09-19,
+after the kits and Mihin's and Rodionov's monitors were taken apart):
+
+- **SJ timer support** (`TIME$R`): `.TWAIT` and `.MRKT` work, so the
+  games that pace themselves by them (PACM, PAC6, SP13, DESS) run at
+  their speed, as on Omega - without it (OSA) they run too fast.  The
+  console through the ROM sits in DEC's terminal code with timer support
+  the way Omega's monitor has it; the clock reads 177770 once a tick (as
+  OSA's and Mihin's, `TK$RDS`), Omega's twice.
+- **The date rolled over** the month's and the year's end (`ROL$OV`).
+- **No user command linkage** (`U$CL`), as neither kit has it.
+- **A 50-cycle clock**: the machine's frame, as the kits have it.  The
+  frame is jumpered to 50, 60 or 72 Hz (System Register B bits 4-3); no
+  kit reads the jumpers and DEC's CONFIG knows 50 and 60 only, so on a
+  machine jumpered for 60 or 72 Hz the time runs fast.
+- **No device time-outs** (`TIM$IT`): no handler of the machine uses them.
+- **The cursor blink where the ROM is ROM-B** (`OM$BLK` = `BL$ROM`): the
+  clock calls the ROM's slot 160014 every sixteenth tick only when the
+  slot is ROM-B's jump to its blink; on ROM-A (the cassette loader there)
+  it does not, so the one monitor runs on either ROM.
+- **DEC's interrupt priorities** (4 for the terminal, 6 for the clock,
+  where the kits have 7).  They are the lines' own levels for 064 and 100,
+  so the emulator, which takes a request by its vector's PS
+  (`docs/kb/KNOWN_ISSUES.md`), acts on them as the iron does.
+- The 8-bit terminal for Cyrillic (the owner's choice).
+
+Out of the kits' changes it leaves the decoding trap (no program of the
+collection carries its pair), the NOP and HALT filler, the repeated CONFIG
+bits, and the Russian texts: the banner reads DEC's `RT-11SJ`.
+**`dec-ru`** is the same monitor with OSA's texts in Russian, every message
+and prompt (`OM$RUS` = `RU$OSA`); its banner is DEC's too.
+
+Checked on the emulator (2026-09-19): both boot on ROM-A as dumped and on
+ROM-B; the cursor blinks on ROM-B only; `TIME` keeps running, but loses
+the ticks while the floppy handler waits (it takes vector 100 for itself)
+- Omega's does the same; a long `TYPE` types whole; `^S` holds it.  But
+`^Q` does not always resume it: pressed at each of 50 frames of a held
+`TYPE`, it sticks at a few - and so does Mihin's monitor, which lowers its
+priority inside the terminal service as DEC's does, while Omega's and
+OSA's, which stay at 7, never stick.  The emulator's interrupt logic is
+not the machine's (the NS4 schematic: a latch and a priority encoder,
+`docs/kb/KNOWN_ISSUES.md`); the priorities of this build are decided once
+it is.
 
 Tried and kept from the kits: the five silenced vectors (070, 104, 110, 134,
 140).  Without them the emulator runs as well, but it raises no interrupt
 through those vectors, so it cannot tell whether the iron needs them; they
 stay, a guard against the machine's devices.
 
-Boot disks in `package/assets/disks/`: `omega-dec.dsk` (profile omega as it
-was before the Russian texts came in) and `dec-ms0515.dsk` (profile dec).
-Both boot, list, copy and run programs.
+Boot disks in `package/assets/disks/`: `dec-ms0515.dsk` (profile dec) and
+`dec-ru-ms0515.dsk` (profile dec-ru) - the collection's Omega system disk
+(`ms0515-disk compose --system omega`, its TT and DZ, with PIP, DIR and
+DUP) with the monitor put in its place and the bootstrap written for it.
 
 ## What the kits changed
 
@@ -84,7 +121,7 @@ Both boot, list, copy and run programs.
 | 04 | `OMCLOK.MAC` | **the clock**: each tick reads 177770 (twice in Omega's, once in OSA's) and runs the floppy motor's time-out (off 100 ticks after the last use); Omega's clock interrupt at priority 7 |
 | 05 | `OMBOOT.MAC` | **the bootstrap**: the timer interrupt on from the start and acknowledged in the bootstrap's handlers; priority 7 for the clock, the traps and the terminal output; the traps a T-11 does not take (no PSW address, no KT-11) taken by hand; memory sized up to 154000; no option probes and no KT-11 set-up (NOPs in their room: Omega 90 and says CONFIG's clock again, OSA 96); CONFIG says the clock exists (Omega: in the bootstrap, three times; OSA: in RMON's CONFIG itself); the console's input at vector 130; the keyboard rows reset; vectors 140, 070, 104, 134, 110 silenced; stop on an 11/23 or a J-11; OSA: `ST.COM` as the startup file, and a slip (below) |
 | 06 | `OMRUS.MAC`, `OMRUSB/U/K.MAC` | **the banners and the texts in Russian**: see below |
-| 07 | `OMBLNK.MAC` | **the cursor blink** (the vvv104 build only, `OM$BLK`): the clock interrupt counts ticks in a word of its own and calls the ROM's slot 160014 every sixteenth |
+| 07 | `OMBLNK.MAC` | **the cursor blink** (the vvv104 build, `OM$BLK`; DEC's build where the ROM is ROM-B): the clock interrupt counts ticks in a word of its own and calls the ROM's slot 160014 every sixteenth |
 | 08 | - | **exit without a RESET** (Mihin's): `ZAP` leaves out DEC's delay, the `RESET` and the console's restore |
 | 09 | - | **the default editor K52** (Mihin's): `PROGDF` names K52, KED for a VT52 |
 | 10 | - | **`SPL` as `MTPS`** (Mihin's): each priority change an `MTPS` in place, off the `PSWLST` chain |

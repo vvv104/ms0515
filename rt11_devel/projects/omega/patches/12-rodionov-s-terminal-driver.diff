@@ -8,7 +8,7 @@
 # through JMPs.
 
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 65efd9c..52731d8 100644
+index 8d635be..697a4c0 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -1712,7 +1712,8 @@ TTO2:

@@ -1,20 +1,27 @@
 .SBTTL	SYCDEC	DEC'S RT-11 SJ ON THE MS 0515: THE CONDITIONAL FILE
 ;
 ; DEC's own answers - its distributed SJ monitor's, SJFB.CND - as far as
-; the machine allows: no FPU (the T-11 has none), none of DEC's devices
-; (the device tables are DEVTBL's, the machine's), a 50-cycle clock (the
-; machine's frame).  No SYSG$N: like DEC's distributed monitor, the banner
-; has no "(S)".  No SJ timer support, as DEC's: the console through the ROM
-; sits in DEC's terminal code without it the way OSA's monitor has it.
-; Only what the machine needs of the kits' changes (OM$KIT).
+; the machine allows, with what the owner chose for it: no FPU (the T-11
+; has none), none of DEC's devices (the device tables are DEVTBL's, the
+; machine's), a 50-cycle clock (the machine's frame, as the kits have it).
+; No SYSG$N: like DEC's distributed monitor, the banner has no "(S)".
+; Chosen: SJ timer support (.TWAIT and .MRKT keep a program's pace, as on
+; Omega; the console through the ROM sits in DEC's terminal code with it
+; the way Omega's monitor has it), the date rolled over the month's and
+; the year's end, no user command linkage (as neither kit has it), the
+; cursor blink through ROM-B where the ROM is ROM-B.  Only what the
+; machine needs of the kits' changes (OM$KIT).  SYCDRU.MAC is the same
+; with OSA's texts in Russian.
 ;
+TIME$R	= 1		;SJ timer support
+ROL$OV	= 1		;Month and year rollover
 RDF$L	= 1		;System I/O error messages
 TTYOUT  = 40.		;Size of the output buffers
 TTYIN   = 134.		;Size of the input buffers
-U$CL	= 1		;User command linkage
 U$TIL	= 1		;Utility commands
 L$ANG	= 1		;Language commands
 M$INI	= 1		;Minimal commands
 CLOCK	= 50.		;Power line frequency (the MS 0515's frame)
 STAR$T	= 1		;Startup command file
 OM$KIT	= 0		;This build: DEC's RT-11 on the MS 0515 (see OMEGA.MAC)
+OM$BLK	= 2		;The cursor blink where the ROM is ROM-B (BL$ROM, OMBLNK.MAC)

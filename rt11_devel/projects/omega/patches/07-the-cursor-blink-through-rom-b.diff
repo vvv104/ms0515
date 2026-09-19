@@ -1,14 +1,14 @@
 # The cursor blink through ROM-B
 
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index fe59cb2..43b2067 100644
+index 1482fe5..f5b292d 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -2140,6 +2140,7 @@ LKINT::
- 	OMTICK	2		;Omega: the timer, read twice
+ 	OMTICK	TK$RDS		;The timer: Omega reads it twice, DEC once
  	OMMOTR			;Omega: the floppy motor
  .ENDC	;EQ OM$KIT-KT$MIH
-+	OMBLNK			;Omega, the vvv104 build: the ROM-B cursor blink
++	OMBLNK			;The ROM-B cursor blink: the vvv104 Omega, DEC's build
  	INC	(PC)+		;* BUMP CLOCK TICKER
  TIKCTR:	 .WORD	0		;					;DV43
  	TST	INTLVL		;* Interrupting system?			;DG03

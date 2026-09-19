@@ -26,7 +26,7 @@ index 20e1a70..9f2c40e 100644
  	MOV	R3,R0		;COPY POINTER TO .GTIM AREA
  	MOV	R3,-(R0)	;PUT IN ADDRESS
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 8b9171f..65efd9c 100644
+index 8e00b0b..8d635be 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -1514,7 +1514,7 @@ ZAP::									;005
@@ -64,11 +64,11 @@ index 8b9171f..65efd9c 100644
  	OMMOTR			;Mihin: the floppy motor,
  	OMTICK	1		; then the timer, read once
 @@ -2150,11 +2160,19 @@ LKINT::
- 	OMTICK	2		;Omega: the timer, read twice
+ 	OMTICK	TK$RDS		;The timer: Omega reads it twice, DEC once
  	OMMOTR			;Omega: the floppy motor
  .ENDC	;EQ OM$KIT-KT$MIH
 +.ENDC	;EQ OM$KIT-KT$ROD
- 	OMBLNK			;Omega, the vvv104 build: the ROM-B cursor blink
+ 	OMBLNK			;The ROM-B cursor blink: the vvv104 Omega, DEC's build
  	INC	(PC)+		;* BUMP CLOCK TICKER
  TIKCTR:	 .WORD	0		;					;DV43
  	TST	INTLVL		;* Interrupting system?			;DG03

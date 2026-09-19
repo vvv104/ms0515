@@ -6,8 +6,9 @@ it, with the real MACRO and LINK inside the emulator.
 
 The profile picks the answers: omega - the 059 Omega monitor (SYCND.MAC),
 omega2 - the vvv104 one (SYCOM2.MAC), osa - OSA's (SYCOSA.MAC), mihin -
-Mihin's OS-16SJ (SYCMIH.MAC), dec - DEC's RT-11 on the MS 0515
-(SYCDEC.MAC); see OMEGA.MAC.  --list has MACRO write the listings, for
+Mihin's OS-16SJ (SYCMIH.MAC), rodionov - Rodionov's RT15SJ (SYCROD.MAC),
+dec - DEC's RT-11 on the MS 0515 (SYCDEC.MAC), dec-ru - the same with
+OSA's texts in Russian (SYCDRU.MAC); see OMEGA.MAC.  --list has MACRO write the listings, for
 taking a difference apart (where.py, regions.py); without them MACRO shows
 the lines in error and "?MACRO-E-Errors detected: n" on the terminal, and
 the build takes about 95 s instead of 115.  PARTs (BTSJ,
@@ -110,7 +111,7 @@ def disk(*args) -> None:
 
 
 ANSWERS = {"omega": "SYCND.MAC", "omega2": "SYCOM2.MAC", "osa": "SYCOSA.MAC",
-           "dec": "SYCDEC.MAC", "mihin": "SYCMIH.MAC",
+           "dec": "SYCDEC.MAC", "dec-ru": "SYCDRU.MAC", "mihin": "SYCMIH.MAC",
            "rodionov": "SYCROD.MAC"}
 
 

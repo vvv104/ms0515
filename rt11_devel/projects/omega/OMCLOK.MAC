@@ -20,6 +20,8 @@
 CK$PRI	= PR6		;The clock interrupt's priority: DEC's 6,
 .IIF EQ OM$KIT-KT$OMG, CK$PRI = PR7	; Omega's 7,
 .IIF EQ OM$KIT-KT$ROD, CK$PRI = PR7	; Rodionov's too
+TK$RDS	= 2		;Reads of 177770 a tick with timer support: Omega's 2,
+.IIF EQ OM$KIT, TK$RDS = 1	; DEC's build 1 (as OSA's and Mihin's)
 OM$HZ	= 50.		;The rate KMON's TIME takes a "50-cycle" clock for:
 .IIF EQ OM$KIT-KT$ROD, OM$HZ = 72.	; Rodionov's 72
 TMRSVC	= 177770	;Timer service address
