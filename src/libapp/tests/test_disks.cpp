@@ -206,6 +206,80 @@ TEST_CASE("scans assets/rom under search roots, returns sorted unique paths") {
 }  // TEST_SUITE
 
 
+TEST_SUITE("placeDisksBySize") {
+
+TEST_CASE("--diskN takes either image: 800 KB the whole drive, 400 KB as --diskN-side0") {
+    const fs::path ss = makeBlankFile(fixtureRoot() / "place-ss.dsk", ms0515::kFloppyDiskSize);
+    const fs::path ds = makeBlankFile(fixtureRoot() / "place-ds.dsk", 2 * ms0515::kFloppyDiskSize);
+
+    app::CliArgs cli;
+    cli.dsPath[0] = ss.string();                   /* drive 0's lower side: DZ0 */
+    cli.dsPath[1] = ss.string();                   /* drive 1's: DZ1 */
+    CHECK(app::placeDisksBySize(cli).empty());
+    CHECK(cli.dsPath[0].empty());
+    CHECK(cli.fdPath[app::fdcUnitFor(0, 0)] == ss.string());
+    CHECK(cli.fdPath[app::fdcUnitFor(0, 1)].empty());
+    CHECK(cli.dsPath[1].empty());
+    CHECK(cli.fdPath[app::fdcUnitFor(1, 0)] == ss.string());
+    CHECK(cli.fdPath[app::fdcUnitFor(1, 1)].empty());
+
+    app::CliArgs whole;
+    whole.dsPath[0] = ds.string();
+    CHECK(app::placeDisksBySize(whole).empty());
+    CHECK(whole.dsPath[0] == ds.string());
+    for (int u = 0; u < 4; ++u) CHECK(whole.fdPath[u].empty());
+
+    fs::remove(ss);
+    fs::remove(ds);
+}
+
+TEST_CASE("two 400 KB images on one drive: --diskN the lower side, --diskN-side1 the upper") {
+    const fs::path ss = makeBlankFile(fixtureRoot() / "place-ss2.dsk", ms0515::kFloppyDiskSize);
+    app::CliArgs both;
+    both.dsPath[0] = ss.string();
+    both.fdPath[app::fdcUnitFor(0, 1)] = "upper.dsk";
+    CHECK(app::placeDisksBySize(both).empty());
+    CHECK(both.dsPath[0].empty());
+    CHECK(both.fdPath[app::fdcUnitFor(0, 0)] == ss.string());
+    CHECK(both.fdPath[app::fdcUnitFor(0, 1)] == "upper.dsk");
+    fs::remove(ss);
+}
+
+TEST_CASE("placeDisksBySize leaves alone what it cannot place: a missing file, the lower side already given") {
+    const fs::path ss = makeBlankFile(fixtureRoot() / "place-ss3.dsk", ms0515::kFloppyDiskSize);
+    app::CliArgs missing;
+    missing.dsPath[0] = (fixtureRoot() / "no-such.dsk").string();
+    CHECK(app::placeDisksBySize(missing).empty());
+    CHECK(missing.dsPath[0] == (fixtureRoot() / "no-such.dsk").string());   /* the mount says what is wrong */
+
+    app::CliArgs taken;
+    taken.dsPath[0] = ss.string();
+    taken.fdPath[app::fdcUnitFor(0, 0)] = "other.dsk";                      /* --disk0-side0 given too */
+    const auto said = app::placeDisksBySize(taken);
+    REQUIRE(said.size() == 1);
+    CHECK(said[0].find("side0") != std::string::npos);
+    CHECK(taken.dsPath[0] == ss.string());
+    CHECK(taken.fdPath[app::fdcUnitFor(0, 0)] == "other.dsk");
+    fs::remove(ss);
+}
+
+TEST_CASE("placed by size, a 400 KB --disk0 mounts on drive 0's lower side") {
+    const fs::path ss = makeBlankFile(fixtureRoot() / "place-ss4.dsk", ms0515::kFloppyDiskSize);
+    app::CliArgs cli;
+    cli.dsPath[0] = ss.string();
+    CHECK(app::placeDisksBySize(cli).empty());
+    {
+        ms0515::Emulator emu;
+        CHECK(app::mountDisksFromCli(emu, cli));
+        CHECK(emu.diskPath(app::fdcUnitFor(0, 0)) == ss.string());
+        CHECK(emu.diskPath(app::fdcUnitFor(0, 1)).empty());
+    }
+    fs::remove(ss);
+}
+
+}  // TEST_SUITE
+
+
 TEST_SUITE("mountDisksFromCli") {
 
 TEST_CASE("mounts a single-sided disk on the requested unit") {
