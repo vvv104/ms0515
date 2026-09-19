@@ -1,0 +1,75 @@
+# Rodionov's terminal driver
+#
+# Rodionov's monitor draws the characters itself: his driver (OMRODT.MAC,
+# taken word for word) stands in the middle of TTOINT, where the character is
+# printed, with his own glyphs - pseudographics and signs such as (C) - and
+# ROM-A's routines for the control characters and ESC sequences; it also
+# reads the keys from the MS 7004's USART.  DEC's branches past it go
+# through JMPs.
+
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+index 65efd9c..52731d8 100644
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -1712,7 +1712,8 @@ TTO2:
+ .ENDC ;EQ TIME$R
+ 	TST	(PC)+		;ARE WE DOING OUTPUT?
+ SYNC:	 .WORD	0
+-	BNE	12$		;NO, XOFF IS IN EFFECT, JUST RETURN
++.IIF NE OM$KIT-KT$ROD,	BNE	12$	;NO, XOFF IS IN EFFECT, JUST RETURN
++.IIF EQ OM$KIT-KT$ROD,	BNE	70$	;Rodionov: 12$ is past his driver
+ 	DEC	(R4)+		;DOING TABS OR FILLS?
+ 	BGT	6$		;YES. PRINT SOME
+ 	MOV	R4,-(SP)	;SAVE VITAL R4
+@@ -1728,20 +1729,38 @@ SYNC:	 .WORD	0
+ 	SUB	#TTYOUT,@R5	;CYCLE POINTER
+ 2$:	DEC	-(R5)		;DECREASE COUNT
+ 	CMP	(R5)+,#-1	;DONE YET?
+-	BEQ	11$		;*** WE DO THIS SO TT: CAN USE THIS CODE ALSO
++.IIF NE OM$KIT-KT$ROD,	BEQ	11$	;*** WE DO THIS SO TT: CAN USE THIS CODE ALSO
++.IIF EQ OM$KIT-KT$ROD,	BEQ	71$	;Rodionov: 11$ is past his driver
+ 	MOVB	@(R5)+,@R4	;GET CHARACTER, SAVE IT IN FILLC
+ 3$:	BIC	#^C<TT$MSK>,@R4	;Omega: eight bits, KOI-8
+ 	CMP	(R4)+,#RUBOUT	;Delete character?			;011
+ 	BEQ	4$		;Yes					;011
+ 	CMP	-2(R4),#40	;Test for printing character		;011
+-	BLT	7$		;<40. CHECK SPECIALS
++.IIF NE OM$KIT-KT$ROD,	BLT	7$	;<40. CHECK SPECIALS
++.IIF EQ OM$KIT-KT$ROD,	BLT	72$	;Rodionov: 7$ is past his driver
+ 	DEC	@R4		;DECREASE TAB COUNTER TO NEXT POSITION
+ 	BNE	4$		;IF 0, RESET TO 10
+ 	MOV	#10,@R4		;RESET TAB COUNT
+ 4$:	TST	-(R4)		;POINT TO CHARACTER TO PRINT IN FILLC
+ 5$:	INC	-(R5)		;BUMP OUTPUT RING POINTER
+-6$:	OMTTPB			;Omega: PRINT CHARACTER
++6$:
++.IF EQ	OM$KIT-KT$ROD
++	MOV	R0,-(SP)	;Rodionov: PRINT CHARACTER - by his driver,
++	MOV	@R4,R0		; which stands here; the branches past it
++	BR	73$		; go through these JMPs
++70$:	JMP	12$
++71$:	JMP	11$
++72$:	JMP	7$
++73$:	CALL	ROPRNT
++	JMP	74$
++	.INCLUDE "SRC:OMRODT.MAC"	;Rodionov's terminal driver
++74$:	MOV	(SP)+,R0
++	BR	12$
++75$:	JMP	5$
++.IFF	;EQ OM$KIT-KT$ROD
++	OMTTPB			;Omega: PRINT CHARACTER
+ 	BR	12$
++.ENDC	;EQ OM$KIT-KT$ROD
+ 									;005
+ 7$:	CMP	-2(R4),#BS	;Backspace character?			;011
+ 	BNE	14$		;No, check for TAB			;011
+@@ -1760,7 +1779,8 @@ SYNC:	 .WORD	0
+ 9$:	MOV	#10,@R4		;RESET TAB POSITION
+ 10$:	DEC	R4		;BACK UP POINTER
+ 	CMPB	-(R4),@#TTFILL	;HAVE TO FILL?
+-	BNE	5$		;NO. JUST PRINT THIS ONE
++.IIF NE OM$KIT-KT$ROD,	BNE	5$	;NO. JUST PRINT THIS ONE
++.IIF EQ OM$KIT-KT$ROD,	BNE	75$	;Rodionov: 5$ is before his driver
+ 	OMTTPB			;Omega: TYPE THIS ONE
+ 	CLR	@R4		;FILLERS ARE NULLS
+ 	CLR	-(R4)		;POINT R1 TO FILL COUNT AND CLEAR IT

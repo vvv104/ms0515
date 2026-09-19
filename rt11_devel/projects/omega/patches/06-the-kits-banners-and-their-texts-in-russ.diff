@@ -2,11 +2,13 @@
 #
 # The banner is the kit's own: Omega's names the monitor in Cyrillic, OSA's
 # replaces the line; Mihin's, "OS-16SJ (C)Mihinsoft", is kept encoded and
-# decoded by the bootstrap.  The texts in Russian are a choice of their own
+# decoded by the bootstrap; Rodionov's, "(C) 1992 Rodionov S.A." in Cyrillic,
+# fills the room to SUFFX, whose zero ends it.  OSA's and Rodionov's name the
+# monitor OCA in RAD50.  The texts in Russian are a choice of their own
 # (OMRUS.MAC).
 
 diff --git a/BSTRAP.MAC b/BSTRAP.MAC
-index 73c068e..a58e550 100644
+index 9dac5c9..4522d49 100644
 --- a/BSTRAP.MAC
 +++ b/BSTRAP.MAC
 @@ -1,5 +1,8 @@
@@ -18,7 +20,7 @@ index 73c068e..a58e550 100644
  
  ;                 COPYRIGHT (c) 1984, 1985, 1986 BY
  ;             DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
-@@ -1366,7 +1369,12 @@ $VSBRO:	.WORD	0		;Bootstrap read offset (for VS:)
+@@ -1368,7 +1371,12 @@ $VSBRO:	.WORD	0		;Bootstrap read offset (for VS:)
  .SBTTL	Error message text
  
  .IF EQ BF
@@ -31,7 +33,7 @@ index 73c068e..a58e550 100644
  .ENDC ;EQ BF
  
  .IF NE MMG$T
-@@ -1375,16 +1383,46 @@ NOMMGT:	.ASCIZ	"No KT11"
+@@ -1377,16 +1385,46 @@ NOMMGT:	.ASCIZ	"No KT11"
  .ENDC ;NE MMG$T
  
  	.BYTE	11		;Crash code for SWAP.SYS not found
@@ -78,7 +80,7 @@ index 73c068e..a58e550 100644
  
  .IF NE	RTE$M			;If RTEM
  UNXTRP:	.ASCIZ	"Unexpected trap"
-@@ -1429,7 +1467,21 @@ $RMSIZ::.WORD	$RMEND-KMON	;Monitor size in bytes
+@@ -1431,7 +1469,21 @@ $RMSIZ::.WORD	$RMEND-KMON	;Monitor size in bytes
  
  .ASSUME	.	EQ	4740	;Check addresses
  BSTRNG::
@@ -87,11 +89,11 @@ index 73c068e..a58e550 100644
 +..PLVL	== .		;**PATCH** Patch level letter(s)
 +	.BYTE	0
 +.IFF	;EQ OM$KIT-KT$MIH
-+.IF EQ	OM$KIT-KT$OSA
-+	OMBANR			;OSA: its own banner
++.IF EQ	<OM$KIT-KT$OSA>*<OM$KIT-KT$ROD>
++	OMBANR			;OSA, Rodionov: their own banners
 +..PLVL	== .		;**PATCH** Patch level letter(s)
-+	.BYTE	0
-+.IFF	;EQ OM$KIT-KT$OSA
++.IIF NE OM$KIT-KT$ROD,	.BYTE	0	;(Rodionov's ends on SUFFX's zero)
++.IFF	;EQ <OM$KIT-KT$OSA>*<OM$KIT-KT$ROD>
 +.IF EQ	OM$KIT-KT$OMG
 +	OMBANR			;Omega: its name in Russian
 +.IFF	;EQ OM$KIT-KT$OMG
@@ -100,16 +102,16 @@ index 73c068e..a58e550 100644
  
   .IF DF	SYSG$N
  	.ASCII	"(S)"		;For generated monitors
-@@ -1442,6 +1494,8 @@ BSTRNG::
+@@ -1444,6 +1496,8 @@ BSTRNG::
  	.ASCII	" "
  ..PLVL	== .		;**PATCH** Patch level letter(s)
  	...CMV	PART=SUFFIX,TYPE=Z
-+.ENDC	;EQ OM$KIT-KT$OSA
++.ENDC	;EQ <OM$KIT-KT$OSA>*<OM$KIT-KT$ROD>
 +.ENDC	;EQ OM$KIT-KT$MIH
  	.EVEN
  
  .ASSUME	.	LE	4774	;Check address
-@@ -1745,7 +1799,11 @@ LDSTRT:
+@@ -1747,7 +1801,11 @@ LDSTRT:
  ATFILE:
  
  .IF NE	STAR$T
@@ -121,7 +123,7 @@ index 73c068e..a58e550 100644
  .ENDC
  	.EVEN
  .IF EQ	RTE$M				;If not RTEM
-@@ -2331,7 +2389,12 @@ XMREL:: MOV	#$XMPTR,R1	;Get addr of free mem table (2nd word)
+@@ -2333,7 +2391,12 @@ XMREL:: MOV	#$XMPTR,R1	;Get addr of free mem table (2nd word)
  .SBTTL	Miscellaneous overlaid data
  
  	.BYTE	4		;Crash code for insufficient memory
@@ -691,21 +693,21 @@ index d4943da..20e1a70 100644
  .IIF EQ LNK$IF,	.NLIST							;BC27
  .IF NE	LNK$IF								;BC27
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 6845c25..59d704a 100644
+index 6845c25..fe59cb2 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -144,10 +144,14 @@ IFMXNS::.BYTE	MXN$ST		;MAXIMUM @FILE NEST DEPTH		;BC23
  EMTRTN:	.WORD	EMTDON-$RMON	;OFFSET TO EMT RTI FOR BATCH		;BC15
  FORK:	.WORD	$FORK-$RMON	;POINT TO FORK REQUEST PROCESSOR	;SL4
  PNPTR::	.WORD	$PNAME-$RMON	;OFFSET TO PNAME TABLE
-+.IF EQ	OM$KIT-KT$OSA
-+MONAME::.RAD50	/OCA   /	;OSA: RAD50 MONITOR NAME, its own
-+.IFF	;EQ OM$KIT-KT$OSA
++.IF EQ	<OM$KIT-KT$OSA>*<OM$KIT-KT$ROD>
++MONAME::.RAD50	/OCA   /	;OSA (and Rodionov): RAD50 MONITOR NAME
++.IFF	;EQ <OM$KIT-KT$OSA>*<OM$KIT-KT$ROD>
  MONAME::ASCR50	NAME$1,NAME$2,NAME$3 ;RAD50 MONITOR NAME
  	.WORD	...V2
  	ASCR50	NAME$4,NAME$5,NAME$6
  	.WORD	...V2
-+.ENDC	;EQ OM$KIT-KT$OSA
++.ENDC	;EQ <OM$KIT-KT$OSA>*<OM$KIT-KT$ROD>
  HSUFFX::ASCR50	040,040,SUFX$H
  	.WORD	...V2		;HANDLER SUFFIX
  SPSTAT::.WORD	0		;Spooler Status Word (not used in SJ)

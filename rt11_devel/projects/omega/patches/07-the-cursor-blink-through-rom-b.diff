@@ -1,7 +1,7 @@
 # The cursor blink through ROM-B
 
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 59d704a..5451bec 100644
+index fe59cb2..43b2067 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -2140,6 +2140,7 @@ LKINT::

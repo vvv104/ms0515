@@ -6,7 +6,7 @@
 # output interrupt, never touched, needs no restoring.
 
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 5451bec..3c94c3e 100644
+index 43b2067..16ea287 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -1455,6 +1455,7 @@ CTRLC2:	BIS	#100000,TTILCT	;					;CG??

@@ -39,7 +39,8 @@ CN$TBL	= 157400	;Mihin: his bootstrap's JMP @#CN$OUT, JMP @#CN$IN
 TT$OUT	= CN$OUT	;The terminal interrupts call the ROM:
 TT$IN	= CN$IN		; the kits' directly,
 .IIF EQ OM$KIT-KT$MIH, TT$OUT = CN$TBL		; Mihin's through
-.IIF EQ OM$KIT-KT$MIH, TT$IN = CN$TBL+4	; his table
+.IIF EQ OM$KIT-KT$MIH, TT$IN = CN$TBL+4	; his table (Rodionov's:
+					; his own code, ROPRNT and ROKEY)
 DISPAT	= 177400	;The dispatcher (write only)
 DSPCPY	= 157700	;The ROM's copy of it
 MI$REQ	= 400		;Its bit 8: raise the monitor interrupt
@@ -53,7 +54,20 @@ TO$PRI	= TT$PRI	;The output interrupt's priority the same,
 .IIF EQ OM$KIT-KT$MIH, TO$PRI = PR4	; but Mihin's DEC's 4
 TT$MSK	= 377		;Characters are eight bits (KOI-8),
 .IIF EQ OM$KIT-KT$MIH, TT$MSK = 177	; Mihin's seven, as DEC's (KOI-7)
+TT$ROW	= 1		;The keyboard interrupt and the EMTs release the
+TT$SOS	= 1		; rows; SO/SI are shown at once; a key is cut
+TT$8BI	= 1		; to eight bits - Mihin's does none of it,
+.IIF EQ OM$KIT-KT$MIH, TT$ROW = 0
+.IIF EQ OM$KIT-KT$MIH, TT$SOS = 0
+.IIF EQ OM$KIT-KT$MIH, TT$8BI = 0
+.IIF EQ OM$KIT-KT$ROD, TT$ROW = 0	; Rodionov's only the cut
+.IIF EQ OM$KIT-KT$ROD, TT$SOS = 0
 
+.MACRO	OMKBRL			;Release the keyboard rows (not Rodionov:
+.IIF NE OM$KIT-KT$ROD,	MOVB	#0,@#KBROWS	; his keys come by the USART)
+.ENDM	OMKBRL
+
+.IF NE	IN$RM		;(the rest: RMON's alone)
 .MACRO	OMTTON			;Turn the output interrupt on
 	MOV	#IENABL,@TTPS
 	BIS	#MI$REQ,@#DSPCPY
@@ -75,27 +89,37 @@ TT$MSK	= 377		;Characters are eight bits (KOI-8),
 .MACRO	OMTTPB			;Print the character @R4
 	MOV	R0,-(SP)
 	MOV	@R4,R0
+.IF EQ	OM$KIT-KT$ROD
+	CALL	ROPRNT		;(Rodionov: his driver, OMRODT)
+.IFF	;EQ OM$KIT-KT$ROD
 	CALL	@#TT$OUT
+.ENDC	;EQ OM$KIT-KT$ROD
 	MOV	(SP)+,R0
 .ENDM	OMTTPB
 
-.MACRO	OMTTIN	?A,?B		;The keyboard interrupt: a key into R0
+.MACRO	OMTTKY			;The next key into R0; C set when none
+.IF EQ	OM$KIT-KT$ROD
+	CALL	ROKEY		;(Rodionov: his driver, OMRODT)
+.IFF	;EQ OM$KIT-KT$ROD
 	CALL	@#TT$IN
+.ENDC	;EQ OM$KIT-KT$ROD
+.ENDM	OMTTKY
+
+.MACRO	OMTTIN	?A,?B		;The keyboard interrupt: a key into R0
+	OMTTKY
 	BCC	TTINXT		;There is one
-.IF EQ	OM$KIT-KT$MIH
-	BR	TTIEX3		;None (Mihin: the rows stay)
-TTINXT:	MOV	R0,@TTKB	;(OMTTIX takes the next one here)
-.IFF	;EQ OM$KIT-KT$MIH
-	CLRB	@#KBROWS	;None: release the rows
+.IIF NE TT$ROW,	CLRB	@#KBROWS	;None: release the rows
 	BR	TTIEX3
 TTINXT:	MOV	R0,@TTKB	;(OMTTIX takes the next one here)
+.IF NE	TT$SOS
 	CMPB	#16,R0		;SO and SI, the font shifts,
 	BEQ	A
 	CMPB	#17,R0		; show at once
 	BNE	B
 A:	CALL	@#CN$OUT
-B:	BIC	#177400,R0	;Eight bits: KOI-8 letters kept
-.ENDC	;EQ OM$KIT-KT$MIH
+B:
+.ENDC	;NE TT$SOS
+.IIF NE TT$8BI,	BIC	#177400,R0	;Eight bits: KOI-8 letters kept
 .ENDM	OMTTIN
 
 .MACRO	OMTTI0			;The same without timer support (OSA): the
@@ -107,22 +131,19 @@ TTINXT:	MOV	R0,@TTKB	;(OMTTIX takes the next one here)
 .ENDM	OMTTI0
 
 .MACRO	OMTTIX	?A		;Leaving it: another key waiting?
-	CALL	@#TT$IN
+	OMTTKY
 .IF EQ	OM$KIT-KT$MIH
 	BCC	TTINXT		;Yes, take it in the same interrupt
 .IFF	;EQ OM$KIT-KT$MIH
 	BCS	A
 	JMP	TTINXT		;Yes, take it in the same interrupt
-A:	MOVB	#0,@#KBROWS	;No: release the rows
+A:
+.IIF NE TT$ROW,	MOVB	#0,@#KBROWS	;No: release the rows
 .ENDC	;EQ OM$KIT-KT$MIH
 .ENDM	OMTTIX
 
-.MACRO	OMKBRL			;Release the keyboard rows
-	MOVB	#0,@#KBROWS
-.ENDM	OMKBRL
-
-.MACRO	OMEMTX			;Returning from an EMT: the rows released,
-.IIF NE OM$KIT-KT$MIH,	OMKBRL	; but not by Mihin's
+.MACRO	OMEMTX			;Returning from an EMT: the rows released
+.IIF NE TT$ROW,	OMKBRL
 .ENDM	OMEMTX
 
 .MACRO	OMRSET	?A		;After RESET: the output interrupt as it was
@@ -148,3 +169,4 @@ B:
 C:	NOP			;A loop in place of DEC's HALT
 	BR	C
 .ENDM	OMCRSH
+.ENDC	;NE IN$RM

@@ -18,7 +18,10 @@
 ; ($INTEN's word, CK$PRI); DEC's 6 works as well (the dec profile keeps it).
 ;
 CK$PRI	= PR6		;The clock interrupt's priority: DEC's 6,
-.IIF EQ OM$KIT-KT$OMG, CK$PRI = PR7	; Omega's 7
+.IIF EQ OM$KIT-KT$OMG, CK$PRI = PR7	; Omega's 7,
+.IIF EQ OM$KIT-KT$ROD, CK$PRI = PR7	; Rodionov's too
+OM$HZ	= 50.		;The rate KMON's TIME takes a "50-cycle" clock for:
+.IIF EQ OM$KIT-KT$ROD, OM$HZ = 72.	; Rodionov's 72
 TMRSVC	= 177770	;Timer service address
 SYSRGA	= 177600	;System Register A: drives, motor, side
 RGACPY	= 157720	;The ROM's copy of it, flags in bits 13-15
@@ -27,6 +30,7 @@ MT$NEW	= 40000		;The drive was just used
 MT$CNT	= 20000		;Counting
 MT$OFF	= 17		;Drive 3, motor off, upper side
 
+.IF NE	IN$RM		;(macros for the part that calls them)
 .MACRO	OMTICK	READS		;The timer service address, READS times
 .IF NE	OM$KIT
 .IF NE	OM$KIT-KT$MIH
@@ -63,3 +67,4 @@ A:	BIT	#MT$CNT,@#RGACPY
 	MOVB	@#RGACPY,@#SYSRGA
 B:
 .ENDM	OMMOTR
+.ENDC	;NE IN$RM

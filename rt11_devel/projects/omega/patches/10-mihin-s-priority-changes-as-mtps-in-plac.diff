@@ -6,7 +6,7 @@
 # PUTPSW stay DEC's, on it.
 
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 53a55a5..4eaa862 100644
+index dbb86ee..8b9171f 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
 @@ -37,6 +37,9 @@
