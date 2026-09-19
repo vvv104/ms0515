@@ -1,10 +1,10 @@
 # The cursor blink through ROM-B
 
 diff --git a/RMONSJ.MAC b/RMONSJ.MAC
-index 1fb1d01..e56784b 100644
+index ccc497a..8dada37 100644
 --- a/RMONSJ.MAC
 +++ b/RMONSJ.MAC
-@@ -2123,6 +2123,7 @@ LKINT::
+@@ -2127,6 +2127,7 @@ LKINT::
  .IFF	;EQ TIME$R							;005
  	OMTICK	2		;Omega: the timer, read twice
  	OMMOTR			;Omega: the floppy motor

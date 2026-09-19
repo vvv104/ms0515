@@ -1,0 +1,868 @@
+# The kits' banners and their texts in Russian
+
+diff --git a/BSTRAP.MAC b/BSTRAP.MAC
+index 2cc3ada..b8c65ec 100644
+--- a/BSTRAP.MAC
++++ b/BSTRAP.MAC
+@@ -1,5 +1,8 @@
+ .MCALL .MODULE
+ .MODULE BSTRAP,VERSION=84,COMMENT=<Secondary Bootstrap>
++.IF NE	RU$ALL
++	.INCLUDE "SRC:OMRUSB.MAC"	;The kit's texts (OMRUS.MAC)
++.ENDC	;NE RU$ALL
+ 
+ ;                 COPYRIGHT (c) 1984, 1985, 1986 BY
+ ;             DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+@@ -1365,7 +1368,12 @@ $VSBRO:	.WORD	0		;Bootstrap read offset (for VS:)
+ .SBTTL	Error message text
+ 
+ .IF EQ BF
++.IF NE	RU$ALL
++TTMSG:	RU001			;The kit's text (OMRUS.MAC)
++	.BYTE	0
++.IFF	;NE RU$ALL
+ TTMSG:	.ASCIZ	"?BOOT-W-Invalid or missing TT.SYS"
++.ENDC	;NE RU$ALL
+ .ENDC ;EQ BF
+ 
+ .IF NE MMG$T
+@@ -1374,16 +1382,46 @@ NOMMGT:	.ASCIZ	"No KT11"
+ .ENDC ;NE MMG$T
+ 
+ 	.BYTE	11		;Crash code for SWAP.SYS not found
++.IF NE	RU$ALL
++NSWAP:	RU002			;The kit's text (OMRUS.MAC)
++	.BYTE	0
++.IFF	;NE RU$ALL
+ NSWAP:	.ASCIZ	"SWAP.SYS not found"
++.ENDC	;NE RU$ALL
+ 	.BYTE	3		;Crash code for handler file not found
++.IF NE	RU$ALL
++NOHNDL:	RU003			;The kit's text (OMRUS.MAC)
++	.BYTE	0
++.IFF	;NE RU$ALL
+ NOHNDL:	.ASCIZ	"Handler file not found"
++.ENDC	;NE RU$ALL
+ 	.BYTE	10		;Crash code for swap file too small
++.IF NE	RU$ALL
++SPTSML:	RU004			;The kit's text (OMRUS.MAC)
++	.BYTE	0
++.IFF	;NE RU$ALL
+ SPTSML:	.ASCIZ	"Swap file too small"
++.ENDC	;NE RU$ALL
++.IF NE	RU$ALL
++ERRHND:	RU005			;The kit's text (OMRUS.MAC)
++	.BYTE	0
++.IFF	;NE RU$ALL
+ ERRHND:	.ASCIZ	"?BOOT-W-Error reading handler"
++.ENDC	;NE RU$ALL
+ 	.BYTE	6		;Crash code for monitor file not found
++.IF NE	RU$ALL
++NOMON:	RU006			;The kit's text (OMRUS.MAC)
++	.BYTE	0
++.IFF	;NE RU$ALL
+ NOMON:	.ASCIZ	"Monitor file not found"
++.ENDC	;NE RU$ALL
+ 	.BYTE	2		;Crash code for conflicting SYSGEN options
++.IF NE	RU$ALL
++CNFSGN:	RU007			;The kit's text (OMRUS.MAC)
++	.BYTE	0
++.IFF	;NE RU$ALL
+ CNFSGN:	.ASCIZ	"Conflicting SYSGEN options"
++.ENDC	;NE RU$ALL
+ 
+ .IF NE	RTE$M			;If RTEM
+ UNXTRP:	.ASCIZ	"Unexpected trap"
+@@ -1428,7 +1466,16 @@ $RMSIZ::.WORD	$RMEND-KMON	;Monitor size in bytes
+ 
+ .ASSUME	.	EQ	4740	;Check addresses
+ BSTRNG::
++.IF EQ	OM$KIT-KT$OSA
++	OMBANR			;OSA: its own banner
++..PLVL	== .		;**PATCH** Patch level letter(s)
++	.BYTE	0
++.IFF	;EQ OM$KIT-KT$OSA
++.IF EQ	OM$KIT-KT$OMG
++	OMBANR			;Omega: its name in Russian
++.IFF	;EQ OM$KIT-KT$OMG
+ 	.ASCII	<CR><LF><NAME$1><NAME$2>"-"<NAME$3><NAME$4><NAME$5><NAME$6>" "
++.ENDC	;EQ OM$KIT-KT$OMG
+ 
+  .IF DF	SYSG$N
+ 	.ASCII	"(S)"		;For generated monitors
+@@ -1441,6 +1488,7 @@ BSTRNG::
+ 	.ASCII	" "
+ ..PLVL	== .		;**PATCH** Patch level letter(s)
+ 	...CMV	PART=SUFFIX,TYPE=Z
++.ENDC	;EQ OM$KIT-KT$OSA
+ 	.EVEN
+ 
+ .ASSUME	.	LE	4774	;Check address
+@@ -1734,7 +1782,11 @@ LDSTRT:
+ ATFILE:
+ 
+ .IF NE	STAR$T
++.IF EQ	OM$KIT-KT$OSA
++	.ASCIZ	"@ST    "	;OSA: ST.COM, over the name's room
++.IFF	;EQ OM$KIT-KT$OSA
+ 	.ASCIZ	"@START"<SUFX$S>	;Start file name for this monitor
++.ENDC	;EQ OM$KIT-KT$OSA
+ .ENDC
+ 	.EVEN
+ .IF EQ	RTE$M				;If not RTEM
+@@ -2320,7 +2372,12 @@ XMREL:: MOV	#$XMPTR,R1	;Get addr of free mem table (2nd word)
+ .SBTTL	Miscellaneous overlaid data
+ 
+ 	.BYTE	4		;Crash code for insufficient memory
++.IF NE	RU$ALL
++NOCORE:	RU008			;The kit's text (OMRUS.MAC)
++	.BYTE	0
++.IFF	;NE RU$ALL
+ NOCORE:	.ASCIZ	"Insufficient memory"
++.ENDC	;NE RU$ALL
+ 	.EVEN
+ 
+ RELEND::
+diff --git a/EDTGBL.MAC b/EDTGBL.MAC
+index 3fc0f65..17a09e1 100644
+--- a/EDTGBL.MAC
++++ b/EDTGBL.MAC
+@@ -164,10 +164,17 @@
+ ; 'CODE' IS THE CODE DESIGNATION
+ ;-
+ 
+-.MACRO	CSIERR	TEXT,CODE
++.MACRO	CSIERR	TEXT,CODE,RU
+ 	 JSR	R0,MSG
+ 	 .BYTE	CODE
++..RU	= 0
++.IIF NB <RU>, ..RU = RU$ALL	;The kit's text (OMRUS.MAC)?
++.IF NE	..RU
++	 RU
++	 .BYTE	0
++.IFF	;NE ..RU
+ 	 .ASCIZ	"TEXT"
++.ENDC	;NE ..RU
+ 	 .EVEN
+ .ENDM	CSIERR
+ ;+
+diff --git a/KMON.MAC b/KMON.MAC
+index 74c2e1f..e2306b2 100644
+--- a/KMON.MAC
++++ b/KMON.MAC
+@@ -1,5 +1,8 @@
+ .MCALL .MODULE
+ .MODULE KMON,VERSION=63,COMMENT=<Keyboard Monitor>
++.IF NE	RU$ALL
++	.INCLUDE "SRC:OMRUSK.MAC"	;The kit's texts (OMRUS.MAC)
++.ENDC	;NE RU$ALL
+ 
+ ;                   COPYRIGHT (c) 1984, 1985, 1986 BY
+ ;             DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+@@ -113,10 +116,18 @@ GT$$	= 0
+ 
+ OERPTR=0			;INITIALIZE ERROR TEXT OFFSET POINTER
+ 
+-.MACRO	KMEROR	TEXT,ARG,ERRLEV
++.MACRO	KMEROR	TEXT,ARG,ERRLEV,RU
+ .IF NB	ARG
+ 	 JSR	R0,MSGKM
++..RU	= 0
++.IIF NB <RU>, ..RU = RU$ALL	;The kit's text (OMRUS.MAC)?
++.IF NE	..RU
++	 .ASCII	\?KMON-U-\
++	 RU
++	 .BYTE	0
++.IFF	;NE ..RU
+ 	 .ASCIZ	\?KMON-U-TEXT\
++.ENDC	;NE ..RU
+ 	 .EVEN
+ .IIF GE	OVLYN,.ERROR	;ERROR TEXT IN OVERLAY
+ .IFF
+@@ -134,10 +145,23 @@ OERPTR=0			;INITIALIZE ERROR TEXT OFFSET POINTER
+      .IFF
+ 	.BYTE ERRLEV
+      .ENDC ;B ERRLEV
++..RU	= 0
++.IIF NB <RU>, ..RU = RU$ALL	;The kit's text (OMRUS.MAC)?
++.IF NE	..RU
++	 RU
++	 .BYTE	0
++.IFF	;NE ..RU
+ 	 .ASCIZ	\TEXT\
++.ENDC	;NE ..RU
+ 	.IIF GE <.-STADDR> - <1000*OVLYSZ>, .ERROR ;ERROR MESSAGE OVERFLOW
+   .ENDC ;DF OERBEG
++..RU	= 0
++.IIF NB <RU>, ..RU = RU$ALL	;The kit's text (OMRUS.MAC)?
++.IF NE	..RU
++	RU	$TMPN
++.IFF	;NE ..RU
+ 	.NCHR	$TMPN,<TEXT>
++.ENDC	;NE ..RU
+ 	OERPTR=OERPTR+$TMPN+2
+  .IFF
+ 	.PSECT	RT11
+@@ -171,7 +195,7 @@ OERPTR=0			;INITIALIZE ERROR TEXT OFFSET POINTER
+ ;
+ ; NOTE: NO RESIDENT MESSAGES MAY USE THIS ROUTINE
+ ;-
+-.MACRO	KMRTMG	TEXT,ERRLEV,PRFILE
++.MACRO	KMRTMG	TEXT,ERRLEV,PRFILE,RU
+  .IF GE	OVLYN
+ 	.IF IDN	<PRFILE>,<PFILE>
+ 		OJSR	PC,RTERR1
+@@ -210,10 +234,23 @@ OERPTR=0			;INITIALIZE ERROR TEXT OFFSET POINTER
+      .IFF
+ 	.BYTE ERRLEV
+      .ENDC	;B ERRLEV
++..RU	= 0
++.IIF NB <RU>, ..RU = RU$ALL	;The kit's text (OMRUS.MAC)?
++.IF NE	..RU
++	 RU
++	 .BYTE	200
++.IFF	;NE ..RU
+ 	 .ASCII	\TEXT\<200>
++.ENDC	;NE ..RU
+ 	.IIF GE <.-STADD2> - <1000*OVLYSZ>,.ERROR ;ERROR MESSAGE OVERFLOW
+   .ENDC ;DF OERBG2
++..RU	= 0
++.IIF NB <RU>, ..RU = RU$ALL	;The kit's text (OMRUS.MAC)?
++.IF NE	..RU
++	RU	$TMPN
++.IFF	;NE ..RU
+ 	.NCHR	$TMPN,<TEXT>
++.ENDC	;NE ..RU
+ 	OERPT2=OERPT2+$TMPN+2
+  .IFF
+ 	.PSECT	RT11
+@@ -805,7 +842,7 @@ IFDCLN:	CMPB	@R2,#-1		;Are we at end of DCL/@FILE data?
+ 
+ 12$:	CMPB	@R2,#-1		;CONTINUED LINE, ARE WE AT END OF DATA?	;BC8
+ 	BNE	5$		;NO, PROCESS CONTINUATION		;BC8
+-ILCNT:	KMEROR	<Invalid continuation> ;YES, CAN'T CONTINUE THAT WAY;BC14;BC31
++ILCNT:	KMEROR	<Invalid continuation>,RU=RU042 ;YES, CAN'T CONTINUE THAT WAY;BC14;BC31
+ 
+ .DSABL	LSB
+ .SBTTL	INDIRECT FILE EXPANSION
+@@ -1038,7 +1075,7 @@ CCLENT:
+ 	OVLINK	UCL		;Go run UCL
+ .ENDC	;NE U$CL
+ 
+-AMBCOM:	KMEROR	<Ambiguous command>
++AMBCOM:	KMEROR	<Ambiguous command>,RU=RU043
+ 
+ 40$:	BITB	#100,@R2	;IS RECOGNIZED COMMAND UNIQUE?
+ 	BNE	AMBCOM		;NO, ERROR
+@@ -1107,11 +1144,11 @@ IFBN:	 .WORD	-1		;(@FILE BLOCK NUMBER CURRENTLY IN MEMORY)
+ 
+ 2$:	CLR	-(R5)		;NO OVERLAY IS IN
+ 	CLR	R4		;MESSAGE IS FATAL AND			;BC33
+-	KMEROR	<Overlay read error>,RES,UNCON$ ;Must be resident
++	KMEROR	<Overlay read error>,RES,UNCON$,RU=RU009 ;Must be resident
+ 
+ .DSABL	LSB
+ 
+-BADCOM:	KMEROR	<Invalid command>					;BC14
++BADCOM:	KMEROR	<Invalid command>,RU=RU040					;BC14
+ 
+ ;+
+ ; THIS ROUTINE IS USED TO LINK FROM ONE OVERLAY TO ANOTHER
+@@ -1303,7 +1340,7 @@ RUN:	CLR	RFLG		;Initialize R flag
+ RUN2:	CLR	R2		;USE THE START ADDRESS
+ 	OVLINK	STRE		;LINK TO REST OF RUN			;BC22
+ 
+-NOTFND:	KMRTMG	<File not found>,,PFILE
++NOTFND:	KMRTMG	<File not found>,,PFILE,RU=RU039
+ 
+ .SBTTL	R  (RUN FROM SY:)
+ 
+@@ -1433,7 +1470,7 @@ BEGIN:
+ .ENDC ;EQ MMG$T
+ 
+ OVERC:	CLR	@#USERTOP	;FILE WAS TOO BIG. CLEAR TOP OF
+-	KMEROR	<Insufficient memory> ;MEMORY FOR NEXT KMON CMD.
++	KMEROR	<Insufficient memory>,RU=RU008 ;MEMORY FOR NEXT KMON CMD.
+ 
+ 	.DSABL	LSB
+ .SBTTL	GET	(also used by RUN)
+@@ -1548,9 +1585,9 @@ SYSK:	CLR	@.BLKEY		;NO DIRECTORY BLOCK IN IN USRBUF NOW
+ 	BCC	4$		;OK, RETURN
+ 	TST	2(R5)		;READ OR WRITE ERROR?			;BD02+
+ 	BPL	SYRDER		;READ ERROR
+-SYWTER:	KMEROR	<System output error>,,UNCON$
++SYWTER:	KMEROR	<System output error>,,UNCON$,RU=RU044
+ 
+-SYRDER:	KMEROR	<System input error>,,UNCON$
++SYRDER:	KMEROR	<System input error>,,UNCON$,RU=RU045
+ 
+ CLRLOW:	MOV	#PARMS,R1	;POINT TO PARAMETER AREA IN LOW MEMORY
+ 2$:	CLRB	(R1)+		;CLEAR OUT 40-53			;BC19
+@@ -1635,7 +1672,7 @@ FILE:
+ 	BEQ	NOFILE		;YES, THATS BAD
+ 	MOV	2(R3),R2	;FILE NAME MUST BE SPECIFIED		;JH15
+ 	BNE	RTS7A		;IT WAS
+-NOFILE:	KMEROR	<No file>
++NOFILE:	KMEROR	<No file>,RU=RU046
+ 
+ ; ENTRY FOR INDIRECT COMMAND FILE PROCESSOR
+ 
+@@ -1685,7 +1722,7 @@ CCBB0:	MOV	SYSIOB,R5	;GET POINTER TO BUFFER
+ 	CLR	@.BLKEY		;TELL USR THAT DIR NOT IN MEMORY
+ 	.READW	CHOVLY,R5,#400	;READ ONE BLOCK INTO BUFFER
+ 	BCC	1$		;OOPS, ERROR WHILE READING		;BC35
+-FIPERR:	KMRTMG	<Input error>,,PFILE	;INPUT ERROR		;BC14	;BD02
++FIPERR:	KMRTMG	<Input error>,,PFILE,RU=RU072	;INPUT ERROR		;BC14	;BD02
+ 
+ 1$:
+ .IF NE	MMG$T
+@@ -1764,7 +1801,7 @@ VBIAS:	 .WORD	0		;0 if privileged; V.MAX if virtual
+ RTS7A:	RETURN
+ 
+ .IF EQ	MMG$T
+-NEEDXM:	KMRTMG	<Extended memory monitor required for>,,PFILE		;SD01
++NEEDXM:	KMRTMG	<Extended memory monitor required for>,,PFILE,RU=RU073		;SD01
+ .IFF
+ 12$:	MOV	R5,R3
+ 	MOV	#PARMS,R1	;R1 -> KERNEL SYSCOM AREA
+@@ -1934,9 +1971,9 @@ RTS7:	RETURN
+ 
+ 2$:	OVLINK	OL1		;DO A LOAD OF THE HANDLER, THEN COME BACK
+ 
+-BADHAN:	KMRTMG	<Invalid device>				;BC14	;BD02
++BADHAN:	KMRTMG	<Invalid device>,RU=RU041				;BC14	;BD02
+ 
+-BADFET:	KMRTMG	<Bad fetch>					;BC22	;BD02
++BADFET:	KMRTMG	<Bad fetch>,RU=RU074					;BC22	;BD02
+ 
+ .DSABL	LSB
+ .SBTTL	SETBIT
+@@ -2066,7 +2103,7 @@ IFOPN:	 .WORD	0		;(FLAG NOT = 0 IF INDIRECT FILE IS OPEN)
+ 
+ ; INVALID DEVICE SINCE DIDN'T ENTER IT					;BC8
+ ; @FILE ON DEV WE CAN'T SAVESTATUS				;BC14	;HJ17-
+-CMDDVE:	KMEROR	<Invalid device for command file>
++CMDDVE:	KMEROR	<Invalid device for command file>,RU=RU047
+ 
+ .SBTTL	KDOT - PRINT KMON'S PROMPTING DOT
+ 
+@@ -3118,8 +3155,15 @@ TEMP = TEMP + 1
+ ; LNUM ENCODES POSITIONAL QUALIFIER INDICATING WHERE OPTION IS LEGAL,
+ ; ALWAYS ASSOCIATED WITH STACK FRAMES FROM SCALL'S
+ ;-
+-.MACRO	PTXT	TEXT
++.MACRO	PTXT	TEXT,RU
++..RU	= 0
++.IIF NB <RU>, ..RU = RU$ALL	;The kit's text (OMRUS.MAC)?
++.IF NE	..RU
++	RU
++	.ASCII	\? \ <200>
++.IFF	;NE ..RU
+ 	.ASCII	\TEXT\ \? \ <200>
++.ENDC	;NE ..RU
+ .ENDM
+ 
+ ;+
+@@ -3290,7 +3334,7 @@ INTERP:	MOVB	(R4)+,R1	;GET THE NEXT INTERP BYTE < 128
+ 	CALL	@R1		;CALL SUBROUTINE
+ 	BR	INTERP		;GO DO NEXT ONE
+ 
+-LTL:	KMEROR	<Line too long>						;BD02
++LTL:	KMEROR	<Line too long>,RU=RU048						;BD02
+ .SBTTL	DCL STACKING ROUTINES
+ 
+ ;+
+@@ -3367,7 +3411,7 @@ EOLSEQ:	TSTB	@R5		;ARE WE AT THE END OF THE LINE?
+ 3$:	MOV	R0,FORCEP	;SET THE CUSP NUMBER AND FORCE INDICATOR
+ 4$:	RETURN			;Continue
+ 
+-ILLOPT:	KMEROR	<Invalid option for program>
++ILLOPT:	KMEROR	<Invalid option for program>,RU=RU049
+ 
+ APLYDEF:CMPB	FORCEP,(R4)+	;IS THIS THE RIGHT PROGRAM FOR SWITCH?	;BD02+
+ 	BNE	SYNPB2		;NO
+@@ -3413,7 +3457,7 @@ LSTREL	= .
+ 				;Loading handler would cause us to move
+ 				;and furthermore wouldn't be released!!
+ 	BNE	7$		;Handler is loaded
+-	KMRTMG	<Handler must be loaded>,,DEV
++	KMRTMG	<Handler must be loaded>,,DEV,RU=RU075
+ 
+ 7$:	TST	(R3)+		;Bump past program field
+ 	MOV	(R3)+,6(R1)	;Set first default filetype
+@@ -3646,11 +3690,11 @@ OPTBAS	= .
+ 	BCC	8$		;NO, PROBABLY COMMAND
+ 	TSTB	(R2)+		;BUMP TO NEXT CHAR
+ 	BPL	7$		;BRANCH IF THERE IS ONE
+-ILSWIT: KMEROR	<Invalid option>
++ILSWIT: KMEROR	<Invalid option>,RU=RU050
+ 
+-AMBSWT:	KMEROR	<Ambiguous option>
++AMBSWT:	KMEROR	<Ambiguous option>,RU=RU051
+ 
+-ILLNOS:	KMEROR	<Invalid NO on option>
++ILLNOS:	KMEROR	<Invalid NO on option>,RU=RU052
+ 
+ 8$:	BITB	#100,@R2	;IS RECOGNIZED COMMAND UNIQUE?
+ 	BNE	AMBSWT		;NO, AN ERROR
+@@ -3777,9 +3821,9 @@ PCDT:	MOVB	DSWOFF,R1	;OFFSET OF NEXT ASCII SWITCH
+ 	INCB	DSWOFF		;BUMP THE OFFSET
+ 	RETURN
+ 
+-TCERR:	KMEROR	<Command string too complicated>
+-ILVALU:	KMEROR	<Invalid value specified with option>
+-CNFSWT:	KMEROR	<Conflicting options>
++TCERR:	KMEROR	<Command string too complicated>,RU=RU053
++ILVALU:	KMEROR	<Invalid value specified with option>,RU=RU054
++CNFSWT:	KMEROR	<Conflicting options>,RU=RU055
+ .SBTTL	SWITCH ACTION ROUTINES
+ 
+ ; ACTION ROUTINE FOR /ALLOCATION:NN
+@@ -4084,8 +4128,8 @@ SPECTP:	 .WORD	0		;WILD CARDING IN FILE SPEC ALLOWED FLAG
+ 	MOVB	@R5,(R0)+	;PUT IN '.'
+ 	CALL	GETAS3		;Get extension 3 bytes
+ 	BCC	7$		;Go to fill in file size
+-FERR:	KMEROR	<Error in file spec>
+-FNERR:	KMEROR	<Too many files>
++FERR:	KMEROR	<Error in file spec>,RU=RU056
++FNERR:	KMEROR	<Too many files>,RU=RU057
+ 5$:	TST	@R0		;IS THERE A FILETYPE?
+ 	BNE	7$		;YES
+ 	TST	SPECTP		;IN SPECIAL MODE?
+@@ -4571,18 +4615,18 @@ MEXLST:	.BYTE	XX,YY,ZZ,... ;CODED VALUES INDICATING EXCLUSIONS
+ 	BACKWT	$LPWLD,<LP:*.*>
+ 	BACKWT	DUMYNM,<ODT>
+ 
+-$FROM:	PTXT	<From>
+-$TO:	PTXT	<To  >
+-$JOB:	PTXT	<Jobname>
+-$FILEE:	PTXT	<File>
+-$FILE:	PTXT	<Files>
+-$DEVICE:PTXT	<Device>
+-$DVOFL:	PTXT	<Device or file>
+-$FILE1:	PTXT	<File 1>
+-$FILE2:	PTXT	<File 2>
+-$LIBR:	PTXT	<Library>
+-$PHYSIC:PTXT	<Device  name>
+-$LOGICA:PTXT	<Logical name>
++$FROM:	PTXT	<From>,RU=RU086
++$TO:	PTXT	<To  >,RU=RU087
++$JOB:	PTXT	<Jobname>,RU=RU010
++$FILEE:	PTXT	<File>,RU=RU011
++$FILE:	PTXT	<Files>,RU=RU012
++$DEVICE:PTXT	<Device>,RU=RU013
++$DVOFL:	PTXT	<Device or file>,RU=RU014
++$FILE1:	PTXT	<File 1>,RU=RU015
++$FILE2:	PTXT	<File 2>,RU=RU016
++$LIBR:	PTXT	<Library>,RU=RU017
++$PHYSIC:PTXT	<Device  name>,RU=RU018
++$LOGICA:PTXT	<Logical name>,RU=RU019
+ 
+ 	.EVEN
+ .SBTTL	DCL SUPPORT ROUTINES
+diff --git a/KMOVLY.MAC b/KMOVLY.MAC
+index d4943da..20e1a70 100644
+--- a/KMOVLY.MAC
++++ b/KMOVLY.MAC
+@@ -491,13 +491,13 @@ OERBG2:				;START OF THE ERROR MESSAGES		;BD02-
+ 	CALL	R10OUT		;PRINT YEAR
+ K0CRLF:	OJMP	KCRLF		;PRINT CR LF AND EXIT
+ 
+-9$:	KMEROR	<No date>,,WARN$ ;NON-FATAL
++9$:	KMEROR	<No date>,,WARN$,RU=RU058 ;NON-FATAL
+ 
+ 10$:
+ .IF EQ	CONT$N
+-	KMEROR	<Invalid date>	;FATAL
++	KMEROR	<Invalid date>,RU=RU059	;FATAL
+ .IFF
+-	KMEROR	<Invalid date>,,WARN$ ;NON-FATAL
++	KMEROR	<Invalid date>,,WARN$,RU=RU059 ;NON-FATAL
+ .ENDC ;EQ CONT$N
+ 
+ NUMK:	OJSR	PC,DECNUM	;GET A NUMBER FROM THE COMMAND STRING
+@@ -600,12 +600,12 @@ K0RTS:	RETURN
+ 
+ 12$:
+ .IF EQ	CONT$N								;BC33+
+-	KMEROR	<Invalid time>	;FATAL
++	KMEROR	<Invalid time>,RU=RU060	;FATAL
+ .IFF
+-	KMEROR	<Invalid time>,,WARN$ ;NON-FATAL			;BD02
++	KMEROR	<Invalid time>,,WARN$,RU=RU060 ;NON-FATAL			;BD02
+ .ENDC ;EQ CONT$N							;BC33-
+ 
+-13$:	KMEROR	<No clock>,,WARN$ ;NON-FATAL				;BD02
++13$:	KMEROR	<No clock>,,WARN$,RU=RU061 ;NON-FATAL				;BD02
+ 
+ 14$:	OJMP	KCRLF		;PRINT CR LF				;BD02
+ 
+@@ -649,7 +649,12 @@ SDTM:	.BYTE	0,..SDTM	;AREA BLOCK FOR .SDTTM CALL
+ 
+ .NLIST	BEX
+ ..MNTH	== .		;**PATCH** "-Jan-Feb-..." MONTH NAMES IN ASCII
++.IF NE	RU$ALL
++MONTHS:	RU085			;The kit's text (OMRUS.MAC)
++	.BYTE	0
++.IFF	;NE RU$ALL
+ MONTHS:	.ASCIZ	"-Jan-Feb-Mar-Apr-May-Jun-Jul-Aug-Sep-Oct-Nov-Dec-"
++.ENDC	;NE RU$ALL
+ .LIST	BEX
+ 
+ 	.BYTE	0,..GTIM	;AREA BLOCK FOR .GTIM CALL
+@@ -756,7 +761,7 @@ CLOSEO:	TSTB	@R5		;END OF LINE?			;BC11
+ 
+ 12$:	OJMP	BADCOM		;INVALID COMMAND			;BD02
+ 
+-13$:	KMEROR	<File created; protected file already exists>,,WARN$	;BD02
++13$:	KMEROR	<File created; protected file already exists>,,WARN$,RU=RU062	;BD02
+ 
+ .ENDC ;CLOS$$
+ 	OVERLAY
+@@ -1246,7 +1251,7 @@ CLNFLG:  .WORD	0		;<> denotes colon detected
+ 	BNE	40$		;No, look some more
+ 
+ .IF EQ	MMG$T			;If not XM
+-	KMRTMG	<Device not installed>,,<JSTNAM>
++	KMRTMG	<Device not installed>,,<JSTNAM>,RU=RU076
+ .IFF				;If XM
+ 	BR	80$		;Go try to remove region
+ .ENDC
+@@ -1314,7 +1319,7 @@ NAME:	 .BLKW	2		;Two RAD50 words for device name storage
+ 100$:	RETURN
+ 
+ 
+-105$:	KMRTMG	<Device loaded or not removable>,,<JSTNAM>
++105$:	KMRTMG	<Device loaded or not removable>,,<JSTNAM>,RU=RU077
+ 
+ .IF EQ	MMG$T			;If not XM
+ NAME:	 .BLKW	2		;Two RAD50 words for device name storage
+@@ -1560,7 +1565,7 @@ FJERR:	KMEROR	<Foreground active>
+ 	KMRTMG	<No such job or device ->,,<BCKASZ>
+ .ENDC	;EQ SYT$K
+ 	
+-105$:	KMEROR	<Unable to unload handler>
++105$:	KMEROR	<Unable to unload handler>,RU=RU063
+ 
+ ;+
+ ;This code unloads an inactive foreground job that has aborted and is just
+@@ -2654,7 +2659,7 @@ RLROOT:	MOV	SAVLOD,STOVL	;START AT PROGRAM LOAD ADDRESS		;SL24
+ 	MOV	2(SP),R4	;POINT TO JOB'S MEMORY AREA		;BD02
+ 	BEQ	4$		;NO MEMORY ALLOCATED			;BD02
+ 	OJSR	PC,PUTBLK	;RELEASE MEMORY				;BD02
+-4$:	KMRTMG	<Output error>,,PFILE					;BD02
++4$:	KMRTMG	<Output error>,,PFILE,RU=RU083					;BD02
+ 
+ FRERR:	MOV	2(SP),R4	;POINT TO JOB'S MEMORY AREA		;BD02
+ 	BEQ	5$		;NONE ALLOCATED YET
+@@ -3054,7 +3059,7 @@ NXTINS:	ROR	UNUM		;Assume no unit number specified
+ 	.WRITW	CHOVLY,R4,#512.	;Rewrite the handler
+ 	MOV	(SP)+,R4	;Restore pointer
+ 261$:	BCC	328$		;Check for more set commands
+-	KMRTMG	<SY: Write-locked>,UNCON$,PFILE
++	KMRTMG	<SY: Write-locked>,UNCON$,PFILE,RU=RU078
+ 
+ 328$:	TSTB	-1(R5)		;End of line?
+ 	BEQ	28$ 		;Yes, close it out
+@@ -3068,7 +3073,7 @@ NXTINS:	ROR	UNUM		;Assume no unit number specified
+ 
+ 29$:	OJMP	FIPERR		;INPUT ERROR ON HANDLER			;BD02
+ 
+-30$:	KMEROR	<Invalid set parameter>
++30$:	KMEROR	<Invalid set parameter>,RU=RU064
+ 
+ 31$:	MOV	@#SYSPTR,R0	;SET TTY OR SET USR. POINT TO RMON
+ 
+@@ -3569,7 +3574,7 @@ OINSTAL:CALL	NMCK		;Check name for proper format
+ 	TST	(R3)+		;NOT EMPTY HERE, BUMP SLOT COUNTER
+ 	CMP	R3,#$SLOT*2	;DONE CHECKING ALL SLOTS?
+ 	BLO	5$		;NOT YET
+-	KMEROR	<No room>	;YES, NO FREE SLOTS
++	KMEROR	<No room>,RU=RU065	;YES, NO FREE SLOTS
+ 
+ 10$:	OJMP	BADHAN		;Invalid device specified
+ 
+@@ -3644,16 +3649,16 @@ FNDSLT:
+ 	BEQ	PCRTS		;YES, BACK TO KMON			;BC14
+ 	OJMP	BADCOM		;ILLEGAL SYNTAX				;BC11
+ 
+-25$:	KMRTMG	<Already installed/assigned>,WARN$ ;Device already exists
++25$:	KMRTMG	<Already installed/assigned>,WARN$,RU=RU079 ;Device already exists
+ 						   ;in system tables
+ 
+ 30$:	OJMP	NOTFND		;HANDLER FILE NOT FOUND ON SY:
+ 
+ 35$:	OJMP	FIPERR		;I/O ERROR READING HANDLER FILE
+ 
+-40$:	KMEROR	<Conflicting SYSGEN options> ;HANDLER & RMON DON'T MATCH
++40$:	KMEROR	<Conflicting SYSGEN options>,RU=RU066 ;HANDLER & RMON DON'T MATCH
+ 
+-45$:	KMRTMG	<Invalid device installation>,,PFILE ;CSR OR SETUP FAILURE 
++45$:	KMRTMG	<Invalid device installation>,,PFILE,RU=RU080 ;CSR OR SETUP FAILURE 
+ 
+ 50$:	.BLKW	2		;EMT STORAGE
+ 
+@@ -3853,7 +3858,7 @@ ADTRAN:	MOV	@#SYSPTR,R2	;POINT TO RESIDENT MONITOR
+ 	ADD	@R5,R2		;ADD START OF BUFFER
+ 	BR	5$		;POP R5 AND RETURN
+ 
+-4$:	KMEROR	<Address>
++4$:	KMEROR	<Address>,RU=RU067
+ 
+ SAVEVC:	MOV	#-400,<SYSIOB+2-OVLY>-<.+6-OVLYST>(PC) ;MAKE A ONE BLOCK WRITE
+ 	OADDR	SAVSWT,R5,PUSH	;SAVE R5, POINT TO SYSIOB-4
+@@ -4257,9 +4262,9 @@ HANERK:	OJMP	BADHAN		;<ILL DEV>
+ 	CLR	@R4		;DEASSIGN, clear the user logical name
+ 	RETURN
+ 
+-11$:	KMRTMG	<Logical name not found>,WARN$ ;Name not found for DEASSIGN
++11$:	KMRTMG	<Logical name not found>,WARN$,RU=RU081 ;Name not found for DEASSIGN
+ 
+-12$:	KMEROR	<No room>	;No room in user name table
++12$:	KMEROR	<No room>,RU=RU065	;No room in user name table
+ 
+ .DSABL	LSB
+ .ENDC ;ASSI$$!DEAS$$
+@@ -7326,7 +7331,7 @@ GOTADR:	MOV	PC,-(SP)	;Equivalent to OADDR KMON,-(SP)
+ 	MOV	@#SYSPTR,R5	;Get start of RMON
+ 	OJMP	BEGIN
+ 
+-INVCNS:	KMEROR	<Invalid control file nesting>
++INVCNS:	KMEROR	<Invalid control file nesting>,RU=RU068
+ 
+ BDCOM:	OJMP	BADCOM
+ 
+@@ -7635,7 +7640,7 @@ OVERC1:	OJMP	OVERC
+ 
+ 60$:	OJMP	BADCOM		;Invalid command
+ 
+-65$:	KMEROR	<Command file nesting too deep> ;@file nesting too deep
++65$:	KMEROR	<Command file nesting too deep>,RU=RU069 ;@file nesting too deep
+ 
+ 70$:	OJMP	NOFILE		;No file error
+ 
+@@ -7936,7 +7941,7 @@ DOSAVE:	OADDR	KMON,R4		;R4 -> KMON
+ 
+ 7$:	.CLOSE	CHOVLY		;DONE				;BC6
+ 	BCC	SVRTS		;SOME ARE LUCKY,SOME AREN'T		;BD02+
+-	KMRTMG	<File created; protected file already exists>,WARN$,PFILE
++	KMRTMG	<File created; protected file already exists>,WARN$,PFILE,RU=RU082
+ 
+ SVRTS:	RETURN
+ 
+@@ -7947,15 +7952,15 @@ SAVNUM:	MOV	R5,-(SP)	;SAVE POINTER
+ 	CMP	(SP)+,R5	;GOT ANYTHING?
+ 	BNE	SVRTS		;IF NE-YES, RTN			;BC14
+ 				;NO-ERROR			;BC14
+-BADSAV:	KMEROR	<Parameters>
++BADSAV:	KMEROR	<Parameters>,RU=RU070
+ 
+-WSVERR:	KMRTMG	<Output error>,,PFILE	;OUTPUT ERROR			;BD02+
++WSVERR:	KMRTMG	<Output error>,,PFILE,RU=RU083	;OUTPUT ERROR			;BD02+
+ 
+ ENTERR:	CMPB	@#ERRBYT,#3	;PROTECTION VIOLATION ?
+ 	BNE	FROOM		;NO, JUST FULL DEVICE
+-	KMRTMG	<Protected file already exists>,,PFILE
++	KMRTMG	<Protected file already exists>,,PFILE,RU=RU084
+ 
+-FROOM:	KMRTMG	<Device full>,,PFILE
++FROOM:	KMRTMG	<Device full>,,PFILE,RU=RU038
+ .ENDC ;NE SAVE$$
+ .SBTTL	INDIRECT FILE EXPANSION (CONT'D)
+ 
+@@ -8076,7 +8081,7 @@ SCNDN1:	OJMP	SCNDUN		;OK, GO PROCESS IT			;BC20
+ 
+ IFRDER:	TSTB	@#ERRBYT	;IS IT READ ERROR OR END OF FILE?
+ 	BEQ	IFEOF1		;GO FINISH END OF FILE ON INDIRECT FILE
+-IFERR:	KMEROR	<Command file I/O error>,,UNCON$
++IFERR:	KMEROR	<Command file I/O error>,,UNCON$,RU=RU071
+ 
+ .IIF EQ LNK$IF,	.NLIST							;BC27
+ .IF NE	LNK$IF								;BC27
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+index cd31a79..ccc497a 100644
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -136,10 +136,14 @@ IFMXNS::.BYTE	MXN$ST		;MAXIMUM @FILE NEST DEPTH		;BC23
+ EMTRTN:	.WORD	EMTDON-$RMON	;OFFSET TO EMT RTI FOR BATCH		;BC15
+ FORK:	.WORD	$FORK-$RMON	;POINT TO FORK REQUEST PROCESSOR	;SL4
+ PNPTR::	.WORD	$PNAME-$RMON	;OFFSET TO PNAME TABLE
++.IF EQ	OM$KIT-KT$OSA
++MONAME::.RAD50	/OCA   /	;OSA: RAD50 MONITOR NAME, its own
++.IFF	;EQ OM$KIT-KT$OSA
+ MONAME::ASCR50	NAME$1,NAME$2,NAME$3 ;RAD50 MONITOR NAME
+ 	.WORD	...V2
+ 	ASCR50	NAME$4,NAME$5,NAME$6
+ 	.WORD	...V2
++.ENDC	;EQ OM$KIT-KT$OSA
+ HSUFFX::ASCR50	040,040,SUFX$H
+ 	.WORD	...V2		;HANDLER SUFFIX
+ SPSTAT::.WORD	0		;Spooler Status Word (not used in SJ)
+@@ -2390,7 +2394,11 @@ IOSR:	JSR	PC,$SYS
+ .IFT
+ 5$:									;005
+ 	JSR	R0,CRASHP	;PRINT MESSAGE BEFORE HALT		;005
++.IF NE	OM$RUS
++	 OMRMSG			;Omega: the message in Russian
++.IFF	;NE OM$RUS
+ 	 .ASCIZ	\?MON-F-System read failure halt\ <CR> <LF> <LF>
++.ENDC	;NE OM$RUS
+ 	 .EVEN
+ .ENDC ;NE RDF$L
+ 
+@@ -2434,6 +2442,9 @@ C$STAT:	MOV	@R3,R4		;Get the channel status word
+ ; FROM ALL NON RESIDENT USR FUNCTIONS.
+ 
+ 				;NOTE THAT R2=0 HERE
++.IF NE	RU$ALL
++E16.7B:	BR	E16.7A		;OSA: the swap EMT's way to E16.7A (above)
++.ENDC	;NE RU$ALL
+ U$NLOK:	TST	MONCAL		;AT WHAT LEVEL ARE WE?
+ 	BEQ	E16.7A		;NOT LOCKED !
+ MONOUT:	DEC	(PC)+		;TIME TO RE-READ USER?
+@@ -2451,7 +2462,15 @@ KMTST:	TST	KMONIN		;IS KMON IN CONTROL?
+ 	CLR	BLKEY		;KILLS DIRECTORY IN CORE
+ 	MOV	$SWPBL,R0	;READ IN THE USER
+ 	JSR	PC,$RSYS
++.IF NE	OM$RUS
++.IF NE	RU$ALL
++	BR	E16.7B		;OSA: a step on the way, E16.7A out of reach
++.IFF	;NE RU$ALL
++	JMP	E16.7A		;Omega: the Russian message put it out of BR's reach
++.ENDC	;NE RU$ALL
++.IFF	;NE OM$RUS
+ 	BR	E16.7A		;END OF EMT.
++.ENDC	;NE OM$RUS
+ 
+ SPAREA:				;COMMON EMT 375 LIST, AND
+ KMBLK::	 BSS	5		;IO BLOCK FOR 'FINAL' READ
+diff --git a/USR.MAC b/USR.MAC
+index 75b0815..309d19d 100644
+--- a/USR.MAC
++++ b/USR.MAC
+@@ -1,5 +1,8 @@
+ .MCALL .MODULE
+ .MODULE USR,VERSION=33,COMMENT=<User Service Routines>
++.IF NE	RU$ALL
++	.INCLUDE "SRC:OMRUSU.MAC"	;The kit's texts (OMRUS.MAC)
++.ENDC	;NE RU$ALL
+ 
+ ;                  COPYRIGHT (c) 1984, 1985, 1986 BY
+ ;             DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+@@ -461,7 +464,7 @@ PREG:	.ASCII	"R0   "<200>	;	"
+ 
+ .DSABL	LSB
+ .ENDC ;NE PANI$C
+-.MACRO	ERRMSG	CODE,DUMP,TEXT
++.MACRO	ERRMSG	CODE,DUMP,TEXT,RU
+ 	..TMP2=.
+ 	.=IOTLS+..TEMP+..TEMP
+ 	.WORD	..TMP2-IOTPC
+@@ -474,7 +477,13 @@ PREG:	.ASCII	"R0   "<200>	;	"
+ 	.BYTE	0
+   .ENDC
+ .ENDC ;NE PANI$C
++..RU	= 0
++.IIF NB <RU>, ..RU = RU$ALL	;The kit's text (OMRUS.MAC)?
++.IF NE	..RU
++	RU
++.IFF	;NE ..RU
+ 	.ASCII	\TEXT\
++.ENDC	;NE ..RU
+ .IF EQ	PANI$C
+ 	.BYTE	200
+ .IFF
+@@ -487,23 +496,23 @@ CODE'.E	= ..TEMP
+ MONMSG:	.ASCII	<CR><LF>"?MON-F-"<200>
+ 
+ ..TEMP	= 0
+-	ERRMSG	USRX	YES	<Invalid call to USR>
+-	ERRMSG	NODV	NO	<No device>
+-	ERRMSG	DIRI	NO	<Directory I/O error>
+-	ERRMSG	FETC	YES	<Bad Fetch>
+-	ERRMSG	OVLY	NO	<Overlay error>
+-	ERRMSG	DOVR	NO	<Directory overflow>
+-	ERRMSG	ADDR	YES	<Invalid address>
+-	ERRMSG	CHAN	YES	<Invalid channel>
+-	ERRMSG	EMT	YES	<Invalid EMT>
+-	ERRMSG	TR04	YES	<Trap to 4>
+-	ERRMSG	TR10	YES	<Trap to 10>
+-	ERRMSG	ILLD	NO	<Invalid directory>
+-	ERRMSG	UDRV	YES	<Unloaded driver>
+-	ERRMSG	FPP	YES	<FP trap>
+-	ERRMSG	MPAR	NO	<Memory error>
+-	ERRMSG	STCK	YES	<Stack overflow>
+-	ERRMSG	IOBD	NO	<System write error>
++	ERRMSG	USRX	YES	<Invalid call to USR>,RU=RU020
++	ERRMSG	NODV	NO	<No device>,RU=RU021
++	ERRMSG	DIRI	NO	<Directory I/O error>,RU=RU022
++	ERRMSG	FETC	YES	<Bad Fetch>,RU=RU023
++	ERRMSG	OVLY	NO	<Overlay error>,RU=RU024
++	ERRMSG	DOVR	NO	<Directory overflow>,RU=RU025
++	ERRMSG	ADDR	YES	<Invalid address>,RU=RU026
++	ERRMSG	CHAN	YES	<Invalid channel>,RU=RU027
++	ERRMSG	EMT	YES	<Invalid EMT>,RU=RU028
++	ERRMSG	TR04	YES	<Trap to 4>,RU=RU029
++	ERRMSG	TR10	YES	<Trap to 10>,RU=RU030
++	ERRMSG	ILLD	NO	<Invalid directory>,RU=RU031
++	ERRMSG	UDRV	YES	<Unloaded driver>,RU=RU032
++	ERRMSG	FPP	YES	<FP trap>,RU=RU033
++	ERRMSG	MPAR	NO	<Memory error>,RU=RU034
++	ERRMSG	STCK	YES	<Stack overflow>,RU=RU035
++	ERRMSG	IOBD	NO	<System write error>,RU=RU036
+ 	.EVEN
+ 
+ IOTLS:	.BLKW	..TEMP		;ALLOCATE THE MESSAGE OFFSET TABLE
+@@ -2479,7 +2488,7 @@ ABORT2:				;(ABORT POINT)
+ .ENDC ;NE BF
+ 	.EXIT			;TERMINATE RUNNING PROGRAM
+ 
+-PRERR:	CSIERR	<Prot file>,2	;OUTPUT FILE WAS PROTECTED
++PRERR:	CSIERR	<Prot file>,2,RU=RU037	;OUTPUT FILE WAS PROTECTED
+ 
+ 21$:	TST	R1		;WAS THE LINE TOO LONG?
+ 	BLE	SYNBLE		;YES, GIVE A SYNTAX ERROR
+@@ -2595,14 +2604,14 @@ EMTMOD:: .WORD	0
+ 	BCC	SWITCH		;GO LOOK FOR SWITCHES
+ 	CMPB	#1,@#ERRBYT	;WAS IT A 1 (=> DEVICE FULL)?
+ 	BNE	PRERR		;NO, PROTECTION VIOLATION
+-	CSIERR	<Device full>,3
++	CSIERR	<Device full>,3,RU=RU038
+ 
+ INFILE:	MOV	#EMT+20,-(SP)	;MAKE THE EMT
+ 	ADD	R3,@SP		;PUT IN THE FILE NUMBER
+ 	MOV	(SP)+,@PC	;BAD TECHNIQUE
+ 	 HALT			;LOOKUP THE FILE
+ 	BCC	SWITCH		;FOUND IT. GO DO SWITCHES
+-	CSIERR	<File not found>,4 ;GIVE ERROR
++	CSIERR	<File not found>,4,RU=RU039 ;GIVE ERROR
+ 
+ .DSABL	LSB
+ .SBTTL	GET SWITCHES
+@@ -2621,7 +2630,7 @@ SWTCNT:	 .WORD	0
+ .ENDC ;NE MMG$T
+ 	TSTB	@R5		;NULL BYTE HERE TO INDICATE END OF LINE?
+ 	BEQ	RETURN		;YES, GO HOME
+-SYNERR:	CSIERR	<Invalid command>,0
++SYNERR:	CSIERR	<Invalid command>,0,RU=RU040
+ 
+ .IF EQ	MMG$T
+ SWITCH:	CMPB	#SLASH,@R5	;CHECK FOR /  START OF SWITCH
+@@ -2666,7 +2675,7 @@ SWITCH:	CMPB	#SLASH,@R5	;CHECK FOR /  START OF SWITCH
+ 	MOV	(SP)+,R2	;RESTORE R2
+ 	BR	1$		;LOOK FOR ANOTHER SWITCH
+ 
+-HANERR:	CSIERR	<Invalid device>,1
++HANERR:	CSIERR	<Invalid device>,1,RU=RU041
+ .IFF
+ 
+ .ENABL	LSB
+@@ -2706,7 +2715,7 @@ SWITCH:	CMPB	@R5,#SLASH	;CHECK FOR /  START OF SWITCH
+ 	CALL	PUSHSP		;PUT IT ON USER STACK
+ 	BR	6$
+ 
+-HANERR:	CSIERR	<Invalid device>,1
++HANERR:	CSIERR	<Invalid device>,1,RU=RU041
+ 
+ 5$:	MOV	R2,-(SP)	;SAVE R2
+ 	MOV	SP,R2		;RAD50 PACK RETURNS IN @R2

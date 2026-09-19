@@ -16,7 +16,7 @@
 ; ($INTEN's word, CK$PRI); DEC's 6 works as well (the dec profile keeps it).
 ;
 CK$PRI	= PR6		;The clock interrupt's priority: DEC's 6,
-.IIF NE OM$EXA, CK$PRI = PR7	; Omega's 7
+.IIF EQ OM$KIT-KT$OMG, CK$PRI = PR7	; Omega's 7
 TMRSVC	= 177770	;Timer service address
 SYSRGA	= 177600	;System Register A: drives, motor, side
 RGACPY	= 157720	;The ROM's copy of it, flags in bits 13-15
@@ -26,10 +26,10 @@ MT$CNT	= 20000		;Counting
 MT$OFF	= 17		;Drive 3, motor off, upper side
 
 .MACRO	OMTICK	READS		;The timer service address, READS times
-.IF NE	OM$EXA
+.IF NE	OM$KIT
 	NOP			;(the kits left two words of room)
 	NOP
-.ENDC	;NE OM$EXA
+.ENDC	;NE OM$KIT
 .REPT	READS
 	TST	@#TMRSVC
 .ENDR

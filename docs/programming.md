@@ -77,11 +77,10 @@ the staging of files); this covers the program.
 ## What the monitor adds to DEC's
 
 The kits' monitors (ОМЕГА, ОСА and those made from them) are SYSGENs of
-DEC's RT-11 V5.4 sources with the machine's own code added; the Omega
-build's additions, rebuilt as modules over DEC's sources, are in
-`rt11_devel/projects/omega/`.  What a program meets of them - read out of
-the ОМЕГА monitor; ОСА's console code is the same, the rest is not yet
-checked on the other kits:
+DEC's RT-11 V5.4 sources with the machine's own code added; their
+additions, rebuilt as modules over DEC's sources (both ОМЕГА builds and
+ОСА, byte for byte), are in `rt11_devel/projects/omega/`.  What a program
+meets of them - the same in both kits where not said otherwise:
 
 - **The console is the ROM's.**  RT-11's console registers (`TTKS`...,
   RMON+304..312) point at pseudo-registers at 300-306, not a DL11.  The
@@ -98,9 +97,10 @@ checked on the other kits:
   (`systems/omega2.dsk`) calls 160014 from its clock every 16 ticks
   without asking, which is why it hangs on ROM-A.
 - **The terminal is 8-bit**: DEC stripped bit 7 of every key and
-  character, the kits keep it, so KOI-8 letters pass both ways.  SO (016)
-  and SI (017), the РУС/ЛАТ shifts, go to the ROM's output as they are
-  typed, switching its font.
+  character, the kits keep it, so KOI-8 letters pass both ways.  On ОМЕГА
+  SO (016) and SI (017), the РУС/ЛАТ shifts, go to the ROM's output as
+  they are typed, switching its font; ОСА puts them in the ring like any
+  key.
 - **The output interrupt is the monitor interrupt** (vector 064,
   dispatcher bit 8, above): RMON sets IENABL in the pseudo-register TTPS
   and bit 8 of the dispatcher to ask for the next character, clears both
@@ -114,9 +114,10 @@ checked on the other kits:
   13-15 - bit 15 the motor time-out armed, 14 the drive just used, 13
   counting.  The monitor's clock interrupt turns the motor off 100 ticks
   after the drive was last used.
-- **The clock interrupt reads 177770 twice** before anything else (NS4
-  names it the halt and system-timer service address).  The core does
-  not model a read there.
+- **The clock interrupt reads 177770** before anything else - twice on
+  ОМЕГА, once on ОСА (NS4 names it the halt and system-timer service
+  address).  The core does not model a read there.  ОМЕГА is generated
+  with SJ timer support (mark time, timed waits), ОСА without it.
 - **The MS 7007 matrix rows (177540) are released** - written 0 - after
   every key the monitor takes and every EMT it returns from.
 - The terminal and clock interrupts run at priority 7.
@@ -127,10 +128,14 @@ checked on the other kits:
   so a stray interrupt through them is ignored.  It also sets dispatcher
   bit 9, the timer interrupt, at boot; whether it stays on on ОМЕГА (on
   ОСА the timer runs only inside the floppy handler, see below) is not
-  checked.  The startup file is DEC's `STARTS.COM` (the collection's
-  system disks patch the monitor to run `START.COM`).
+  checked.  The startup file is DEC's `STARTS.COM` on ОМЕГА and `ST.COM`
+  on ОСА (the collection's system disks patch both monitors to run
+  `START.COM`).
+- **The monitor's messages**: English on ОМЕГА (but the banner and the
+  fatal read-error message), Russian (KOI-8) on ОСА - every message and
+  prompt, the prefixes (`?MON-F-` ...) and the program names kept.
 - **A trap to 10 on the reserved pair 176401,176402** is not an error on
-  ОМЕГА: the monitor decodes the memory from the stack pointer up (each
+  ОМЕГА (ОСА has no such trap): the monitor decodes the memory from the stack pointer up (each
   word XORed with a key counting up from the trapped PC and its bytes
   swapped; 256 words, then 7680 more with the key starting at 176402),
   then does an `RTI` through the decoded words at 774.  A program can

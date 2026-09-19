@@ -8,7 +8,7 @@
 # machine's devices silenced (OMBOOT.MAC).
 
 diff --git a/BSTRAP.MAC b/BSTRAP.MAC
-index f3bc451..5155492 100644
+index f3bc451..2cc3ada 100644
 --- a/BSTRAP.MAC
 +++ b/BSTRAP.MAC
 @@ -168,13 +168,15 @@ REPORT:				;Asect in for error report routine
@@ -83,7 +83,15 @@ index f3bc451..5155492 100644
  
  ;+
  ; LOKFIL - Search for monitor, swap, and all handler files
-@@ -989,6 +996,7 @@ MEMSIZ	== .-4			;Size of usable system memory in blocks
+@@ -592,6 +599,7 @@ LOKFIL:	CLR	-(SP)		;Make room for system handler block number
+ 1$:	ASL	R0		;Double the segment number
+ 	CMP	(R0)+,(R0)+	;Offset it to get a block number (Note even #)
+ 	MOV	#256.*2,R1	;Read two blocks
++	OMLKRD			;OSA: the floppy motor's time-out (as meant)
+ 	CALL	BBREAD		;Read it into BUFFB
+ 	BCS	INPERR		;Oops, error reading
+ 	MOV	#BUFFB+D.STRT,R1 ;Point to the start block word
+@@ -989,6 +997,7 @@ MEMSIZ	== .-4			;Size of usable system memory in blocks
  	MOV	#0,$RAMSZ(R4)	;Store memory size in 32 word blocks
  TOTMEM	== .-4			;Size of total system memory in blocks
  	BIS	BCNFG,CONFIG(R4) ;Store hardware configuration word in RMON
@@ -91,7 +99,7 @@ index f3bc451..5155492 100644
  	BIS	BCNFG2,CONFG2(R4) ;as well as the extension word
  
  .IF NE	MPT$Y
-@@ -1179,12 +1187,15 @@ FRSLFL:	 .BYTE	0		;Flag for presence of handlers to install
+@@ -1179,12 +1188,15 @@ FRSLFL:	 .BYTE	0		;Flag for presence of handlers to install
  	.DSABL	LSB
  .SBTTL	Trap to 4 interceptors
  
@@ -110,16 +118,16 @@ index f3bc451..5155492 100644
  	RTI
  
  .IF NE PRO$S
-@@ -1274,7 +1285,7 @@ T4SEC:	MOV	@#V.TR4,1$	;Save the old trap-to-4 address
+@@ -1274,7 +1286,7 @@ T4SEC:	MOV	@#V.TR4,1$	;Save the old trap-to-4 address
  ;-
  
  BCNFG2::.WORD	0		;Boot CONFG2 word
 -BCNFG::	.WORD	LSI11$		;Boot CONFIG word
-+BCNFG::	.WORD	LSI11$!CLOCK$	;Boot CONFIG word (Omega: the clock exists)
++BCNFG::	.WORD	LSI11$!OM$BCF	;Boot CONFIG word (MS 0515: the clock exists)
  
  ;+
  ; Set of bit masks for CONFIG
-@@ -1676,7 +1687,7 @@ VECLST::				;Note: load of loc 0 must be first
+@@ -1676,7 +1688,7 @@ VECLST::				;Note: load of loc 0 must be first
  .IF NE	BF!MTT$Y
  	.WORD	V..TPS!...REL,	TTOINT,	PR7 ;(064) Terminal output interrupt
  .IFF
@@ -128,7 +136,7 @@ index f3bc451..5155492 100644
  .ENDC ;NE BF!MTT$Y
  .IF NE KW11$P
  	.WORD	V.LTC,	V.LTC+2,RTI	;(100) Dismiss line-time clock interrupts
-@@ -2340,9 +2351,10 @@ KT11RG::CALL	@#T4SEC		;Set the carry on traps to 4 & 10.
+@@ -2340,9 +2352,10 @@ KT11RG::CALL	@#T4SEC		;Set the carry on traps to 4 & 10.
  	MOV	@#MEMSIZ,@#TOTMEM ;Assume that
  				; we have a non-XM system without a KT-11
  				; in case we can't size via KT-11
@@ -140,7 +148,7 @@ index f3bc451..5155492 100644
  
  	BIS	#20,@#SR3	;Try to turn on 22 bit addressing.
  .IF NE PRO$S
-@@ -2415,6 +2427,7 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
+@@ -2415,6 +2428,7 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
  	MOV	@R3,R2		;Store memory size (/32 words) in R2
  	MOV	R2,@#TOTMEM	;Save total memory size in 32 word blocks
  	MOV	#1400,@R3	;Restore PAR6
@@ -148,7 +156,7 @@ index f3bc451..5155492 100644
  .IF NE	MMG$T			;If XM
  	MOV	#LOWCOR,R4	;Assume that low memory is a full 28K
  	CMP	R2,R4		;Is memory at least 28K?
-@@ -2458,8 +2471,10 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
+@@ -2458,8 +2472,10 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
  8$:
  .ENDC	;NE PRO$S
  .IFF	;NE MMG$T		;If not XM
@@ -159,7 +167,7 @@ index f3bc451..5155492 100644
  .IFTF	;NE MMG$T
  9$:	RETURN			;Restore vectors at 4 and 10 and return
  .ENDC	;NE MMG$T
-@@ -2481,7 +2496,8 @@ KT11ND::
+@@ -2481,7 +2497,8 @@ KT11ND::
  .SBTTL	Start the system
  
  STRTOV:
@@ -169,7 +177,7 @@ index f3bc451..5155492 100644
  	.SETTOP			; by settoping to 0
  	CMP	SWPSIZ+<STRTOV-B$BOOT>,#SWAPSZ ;Swap file too small?
  	BLO	NOSWAP		;Yes, give error
-@@ -2691,10 +2707,11 @@ RELTCB:	MOV	#TCBPEN-TCBLST/2,R5 ;Get count of TCB pointers
+@@ -2691,10 +2708,11 @@ RELTCB:	MOV	#TCBPEN-TCBLST/2,R5 ;Get count of TCB pointers
  .IF EQ	RTE$M			;If not RTEM
  	TST	FALCON+<STRTOV-B$BOOT> ;Are we flying with a FALCON?
  	BEQ	10$		;Branch if we are not
@@ -185,3 +193,16 @@ index f3bc451..5155492 100644
  10$:
  .ENDC	;EQ RTE$M
  .IF NE PRO$S
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+index bdcc2c8..cd31a79 100644
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -95,7 +95,7 @@ SYUNIT::.WORD	0		;UNIT THAT SYSTEM WAS BOOTED FROM
+ 	...CMV	PART=ALL,TYPE=V
+ SYSVER:	.BYTE	RT$REL		;srr.vv rr part
+ SYSUPD:	.BYTE	RT$VER		;srr.vv vv part
+-CONFIG::.WORD	CLK50		;SYSTEM CONFIGURATION FLAGS
++CONFIG::.WORD	CLK50!OM$CFG	;SYSTEM CONFIGURATION FLAGS (OSA: the clock)
+ SCROLL::.WORD	0		;LINK TO GT40 SCROLLER CODE
+ TTKS::	.WORD	CN$KS		;CONSOLE IO ADDRESSES (Omega: pseudo-registers)
+ TTKB::	.WORD	CN$KB

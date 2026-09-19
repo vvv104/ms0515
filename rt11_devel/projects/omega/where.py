@@ -13,7 +13,7 @@ from pathlib import Path
 
 LISTINGS = ['BTSJ', 'RMSJ', 'KMSJ', 'TBSJ']
 LINE = re.compile(r'^\s*\d+\s+(\d{6})\s')
-PSECT = re.compile(r'^\s*\d+\s+(?:\d{6}\s+)?\.PSECT\s+([A-Z0-9$.]+)', re.I)
+PSECT = re.compile(r'^\s*\d+\s+(?:\d{6}\s+)?\.[PC]SECT\s+([A-Z0-9$.]+)', re.I)
 ASECT = re.compile(r'^\s*\d+\s+(?:\d{6}\s+)?\.ASECT\b', re.I)
 
 
