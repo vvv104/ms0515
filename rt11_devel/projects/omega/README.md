@@ -176,7 +176,8 @@ builds as DEC's.
   122 bytes that differ from the vvv104 monitor, 113 are the 059 Omega's -
   a hybrid of a May 2026 recovery run with the 059 build as the donor.
 
-**Why this build hangs on ROM-A** (docs/kb/KNOWN_ISSUES.md, "Omega-pink").
+**Why this build hangs on ROM-A** (docs/kb/KNOWN_ISSUES.md): it was made
+for ROM-B.
 The blink is the only difference that touches the ROM, and it calls the slot
 without asking which ROM is there.  ROM-A has six slots, not eight, and its
 160014 is the cassette loader (162360): it waits for the tape's edges on
@@ -185,9 +186,11 @@ and it is entered from the clock interrupt at priority 7.  ROM-A has no
 cursor blink at all (no code inverts the cursor cell), so there is nothing
 to point the call at instead.  Of the five system disks only this monitor
 calls 160014.  The builder added the blink as code of its own, so the
-machine it was built on had ROM-B's slot 160014.  The emulator's ROM-A has
-that slot patched to `RTS`, which is why the pair boots here.  The 059
-Omega, without the blink, runs on either ROM.
+machine it was built on had ROM-B's slot 160014 - and ROM-B it was: the
+same owner's NC.PAS draws with ROM-B's pseudographics, which ROM-A has
+not.  The emulator now ships ROM-A as dumped (its old `RTS` patch at 160014
+is gone), so the pair hangs here as on the iron.  The 059 Omega, without
+the blink, runs on either ROM.
 
 ## The tools
 

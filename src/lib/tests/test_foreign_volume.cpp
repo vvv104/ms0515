@@ -40,7 +40,9 @@ using namespace ms0515::disk;
 namespace {
 
 const std::string kDisks = std::string{TESTS_DIR} + "/disks/originals";
-const std::string kRomA  = std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom";
+/* ROM-B: the vvv104 Omega calls its cursor blink (slot 0160014) - the
+ * machine it was made on had ROM-B; ROM-A has the cassette loader there. */
+const std::string kRomB  = std::string{ASSETS_DIR} + "/rom/ms0515-romb.rom";
 
 std::vector<uint8_t> readAll(const std::string &path)
 {
@@ -173,7 +175,7 @@ TEST_CASE("the OS reads a DV/MZ volume the library made, through its own handler
             writeAll(volPath, volume);
             {
                 ms0515::Emulator emu;
-                REQUIRE(emu.loadRomFile(kRomA));
+                REQUIRE(emu.loadRomFile(kRomB));
                 REQUIRE(emu.mountDisk(0, sysPath.string()));   /* drive 0 side 0 */
                 REQUIRE(emu.mountDisk(1, volPath.string()));   /* drive 1, both sides */
                 REQUIRE(emu.mountDisk(3, volPath.string()));
@@ -233,7 +235,7 @@ TEST_CASE("a DV system volume the library makes boots the machine")
     writeAll(path, target);
     {
         ms0515::Emulator emu;
-        REQUIRE(emu.loadRomFile(kRomA));
+        REQUIRE(emu.loadRomFile(kRomB));
         REQUIRE(emu.mountDisk(0, path.string()));
         REQUIRE(emu.mountDisk(2, path.string()));
         emu.reset();

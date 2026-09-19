@@ -40,6 +40,46 @@ constexpr uint32_t kKoi8Hi[128] = {
     0x042C,0x042B,0x0417,0x0428,0x042D,0x0429,0x0427,0x042A,
 };
 
+/* The glyphs KOI-8R has no code for, in the control slots VramMirror.hpp
+ * names. */
+struct Extra { uint8_t code; uint32_t cp; };
+constexpr Extra kExtras[] = {
+    {VramMirror::kArrowRight, 0x2192},    {VramMirror::kArrowLeft, 0x2190},
+    {VramMirror::kPlusMinus, 0x00B1},     {VramMirror::kNumeroSign, 0x2116},
+    {VramMirror::kCurrencySign, 0x00A4},  {VramMirror::kArcDownRight, 0x256D},
+    {VramMirror::kArcDownLeft, 0x256E},   {VramMirror::kArcUpLeft, 0x256F},
+    {VramMirror::kArcUpRight, 0x2570},    {VramMirror::kPointerRight, 0x25BA},
+    {VramMirror::kPointerLeft, 0x25C4},   {VramMirror::kArrowDownTri, 0x25BC},
+    {VramMirror::kArrowUpTri, 0x25B2},    {VramMirror::kArrowDownThick, 0x2193},
+    {VramMirror::kArrowUpThick, 0x2191},
+};
+
+/* ROM-B's pseudographics: its table of 64 glyphs at 157000 draws the codes
+ * 200-277 (0x80..0xBF) - the mixed lines, the double lines and the shades,
+ * the single lines and the blocks, Ё ё, the round corners, the arrows and
+ * signs, a blank.  (The same order as src/files/Viewer.cpp's.) */
+constexpr uint32_t kRomBGraph[64] = {
+    0x2567,0x2568,0x2564,0x2561,0x2562,0x2556,0x2555,0x2565,
+    0x2559,0x2558,0x2552,0x255C,0x255B,0x255E,0x255F,0x2553,
+    0x2554,0x2557,0x255D,0x255A,0x2550,0x2551,0x2566,0x2563,
+    0x2569,0x2560,0x256C,0x2591,0x2592,0x2593,0x256B,0x256A,
+    0x250C,0x2510,0x2518,0x2514,0x2500,0x2502,0x252C,0x2524,
+    0x2534,0x251C,0x253C,0x2588,0x2584,0x258C,0x2590,0x2580,
+    0x0401,0x0451,0x256D,0x256E,0x256F,0x2570,0x2192,0x2190,
+    0x2191,0x2193,0x00F7,0x00B1,0x2116,0x00A4,0x25A0,0x0020,
+};
+
+/* The cell code that shows the code point `cp`: KOI-8R's, else one of the
+ * extras; 0 for none. */
+uint8_t cellCodeOf(uint32_t cp)
+{
+    for (int i = 0; i < 128; ++i)
+        if (kKoi8Hi[i] == cp) return static_cast<uint8_t>(0x80 + i);
+    for (const Extra &e : kExtras)
+        if (e.cp == cp) return e.code;
+    return 0;
+}
+
 std::string encodeUtf8(uint32_t cp)
 {
     std::string s;
@@ -79,6 +119,25 @@ int findFontBase(const uint8_t *rom, size_t romSize,
         }
     }
     return -1;
+}
+
+/* ROM-B's glyphs of the codes 200-277 into the font map, by what each
+ * draws; found by the table's corner ┌ at code 240, checked by its ═ at
+ * 224 (ROM-A has no such table).  Insert-if-absent: a letter of the ROM's
+ * fonts with the same bitmap stays a letter. */
+void addRomBGraph(std::unordered_map<uint64_t, uint8_t> &map, const uint8_t *rom, size_t romSize)
+{
+    static constexpr uint8_t kCorner[8] = {0, 0, 0, 0, 0x1F, 0x18, 0x18, 0x18};
+    static constexpr uint8_t kDouble[8] = {0, 0, 0xFF, 0, 0xFF, 0, 0, 0};
+    const int base = findFontBase(rom, romSize, kCorner, 040);
+    if (base < 0 || static_cast<size_t>(base) + 64 * 8 > romSize) return;
+    if (std::memcmp(rom + base + 024 * 8, kDouble, 8) != 0) return;
+    for (int i = 0; i < 64; ++i) {
+        uint64_t key = 0;
+        for (int y = 0; y < 8; ++y) key |= static_cast<uint64_t>(rom[base + i * 8 + y]) << (y * 8);
+        const uint8_t code = cellCodeOf(kRomBGraph[i]);
+        if (key != 0 && code != 0) map.emplace(key, code);
+    }
 }
 
 }  /* anonymous namespace */
@@ -267,6 +326,8 @@ void VramMirror::buildFont(const uint8_t *rom, size_t romSize)
         }
     }
 
+    addRomBGraph(glyphMap_, rom, romSize);
+
     /* OS-drawn glyphs not in either ROM font.  Each extracted from a
      * real boot trace; try_emplace so a ROM glyph with the same shape
      * still wins.
@@ -303,8 +364,9 @@ void VramMirror::buildFont(const uint8_t *rom, size_t romSize)
         { 0xFFFFFFFFFFFFFFFFULL, 0x8D },  /* █ full block */
         { 0xF0F0F0F0F0F0F0F0ULL, 0x8E },  /* ▌ left half */
         { 0x0F0F0F0F0F0F0F0FULL, 0x8F },  /* ▐ right half */
-        { 0xAA55AA55AA55AA55ULL, 0x90 },  /* ░ light shade */
-        { 0xEEDB77DBEEDB77DBULL, 0x91 },  /* ▒ medium shade */
+        { 0x8822882288228822ULL, 0x90 },  /* ░ light shade, a quarter */
+        { 0xAA55AA55AA55AA55ULL, 0x91 },  /* ▒ medium shade, a half */
+        { 0xEEDB77DBEEDB77DBULL, 0x92 },  /* ▓ dark shade, three quarters */
         /* Double-line frame */
         { 0x000000FF00FF0000ULL, 0xA0 },  /* ═ */
         { 0x6666666666666666ULL, 0xA1 },  /* ║ */
@@ -342,8 +404,19 @@ void VramMirror::buildFont(const uint8_t *rom, size_t romSize)
          *            files in the panel above / below") */
         { 0x0000FFFF7E3C1800ULL, kArrowUpTri     },  /* ▲ pure  (RAM 0xC37E) */
         { 0x0000183C7EFFFF00ULL, kArrowDownTri   },  /* ▼ pure  (RAM 0xC386) */
-        { 0x183C7EFF18181818ULL, kArrowDownThick },  /* ⬇ thick (RAM 0xC39E) */
-        { 0x18181818FF7E3C18ULL, kArrowUpThick   },  /* ⬆ thick (RAM 0xC3A6) */
+        { 0x183C7EFF18181818ULL, kArrowDownThick },  /* ↓ thick (RAM 0xC39E) */
+        { 0x18181818FF7E3C18ULL, kArrowUpThick   },  /* ↑ thick (RAM 0xC3A6) */
+        /* The rest of his table's last row (RT15SJ.SYS 047320 + (code-200)*8,
+         * codes 260-276). */
+        { 0x00000000003C663CULL, 0x9C },           /* ° */
+        { 0x003E607E663C0014ULL, 0xA3 },           /* ё */
+        { 0x0080E0F8FEF8E080ULL, kPointerRight },  /* ► */
+        { 0x00020E3EFE3E0E02ULL, kPointerLeft  },  /* ◄ */
+        { 0x080C0EFF0E0C0800ULL, kArrowRight   },  /* → */
+        { 0x103070FF70301000ULL, kArrowLeft    },  /* ← */
+        { 0x0018007E00180000ULL, 0x9F },           /* ÷ */
+        { 0x007E0018187E1818ULL, kPlusMinus    },  /* ± */
+        { 0x00888898B8E8CB8BULL, kNumeroSign   },  /* № */
     };
     for (const auto &g : kCustomGlyphs)
         glyphMap_.try_emplace(g.key, g.code);
@@ -352,11 +425,8 @@ void VramMirror::buildFont(const uint8_t *rom, size_t romSize)
 std::string VramMirror::utf8FromKoi8(uint8_t code)
 {
     if (code == kUnknownGlyph)    return "\xE2\x96\x88";   /* █ U+2588 */
-    if (code == kCopyrightSign)   return "\xC2\xA9";       /* © U+00A9 */
-    if (code == kArrowDownTri)    return "\xE2\x96\xBC";   /* ▼ U+25BC */
-    if (code == kArrowUpTri)      return "\xE2\x96\xB2";   /* ▲ U+25B2 */
-    if (code == kArrowDownThick)  return "\xE2\xAC\x87";   /* ⬇ U+2B07 */
-    if (code == kArrowUpThick)    return "\xE2\xAC\x86";   /* ⬆ U+2B06 */
+    for (const Extra &e : kExtras)
+        if (e.code == code) return encodeUtf8(e.cp);
     if (code >= 0x20 && code < 0x7F)
         return std::string(1, static_cast<char>(code));
     if (code >= 0x80) return encodeUtf8(kKoi8Hi[code - 0x80]);

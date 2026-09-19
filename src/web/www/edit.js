@@ -2,7 +2,7 @@
 // encodings, or bytes in octal / hex.
 //
 // Text: a textarea over the decoded file; saving encodes it back the same
-// way (KOI-7, KOI-8R or CP866; a character the encoding has not becomes
+// way (KOI-7, KOI-8 or CP866; a character the encoding has not becomes
 // "?"), CR LF line ends as RT-11 writes them.
 //
 // Bytes: a grid of the file - an offset, the bytes as octal (the machine's
@@ -12,6 +12,113 @@
 // mode (the default) overwrites, Insert mode (the Insert key) puts a new
 // byte before the cursor; Delete and Backspace remove bytes in either.
 const KOI7 = "ЮАБЦДЕФГХИЙКЛМНОПЯРСТУЖВЬЫЗШЭЩЧЪ";
+
+// KOI-8 on the MS 0515: KOI-8R's letters at 0xC0..0xFF, and at 0x80..0xBF
+// (octal 200-277) the pseudographics of ROM-B - its table of 64 glyphs at
+// 157000, not KOI-8R's; ROM-A prints nothing for these codes.  Rodionov's
+// monitor draws them on ROM-A from a table of its own ("koi8rod"): the single
+// and the mixed rows swapped, his signs in the last row, 233 not printed.
+const ROMB_GRAPH = [..."╧╨╤╡╢╖╕╥╙╘╒╜╛╞╟╓╔╗╝╚═║╦╣╩╠╬░▒▓╫╪┌┐┘└─│┬┤┴├┼█▄▌▐▀Ёё╭╮╯╰→←↑↓÷±№¤■ "];
+const ROD_GRAPH = [..."┌┐┘└─│┬┤┴├┼█▄▌▐▀╔╗╝╚═║╦╣╩╠╬.▒▓╫╪╧╨╤╡╢╖╕╥╙╘╒╜╛╞╟╓°ё►◄▲▼→←↓↑÷░┌±№©"];
+const KOI8_LETTERS = [..."юабцдефгхийклмнопярстужвьызшэщчъЮАБЦДЕФГХИЙКЛМНОПЯРСТУЖВЬЫЗШЭЩЧЪ"];
+const CP866_HIGH = [..."АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмноп░▒▓│┤╡╢╖╕╣║╗╝╜╛┐" +
+                      "└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀рстуфхцчшщъыьэюяЁёЄєЇїЎў°∙·√№¤■ "];
+
+function koi8Char(b, graph) {
+  if (b < 0x80) return String.fromCharCode(b);
+  return b < 0xC0 ? graph[b - 0x80] : KOI8_LETTERS[b - 0xC0];
+}
+
+// The four ends of a line-drawing character - up, right, down, left - as
+// 0 none, 1 single, 2 double.
+const EDGES = new Map(Object.entries({
+  "─": "0101", "│": "1010", "┌": "0110", "┐": "0011", "└": "1100", "┘": "1001", "├": "1110", "┤": "1011",
+  "┬": "0111", "┴": "1101", "┼": "1111", "═": "0202", "║": "2020", "╔": "0220", "╗": "0022", "╚": "2200",
+  "╝": "2002", "╠": "2220", "╣": "2022", "╦": "0222", "╩": "2202", "╬": "2222", "╒": "0210", "╓": "0120",
+  "╕": "0012", "╖": "0021", "╘": "1200", "╙": "2100", "╛": "1002", "╜": "2001", "╞": "1210", "╟": "2120",
+  "╡": "1012", "╢": "2021", "╤": "0212", "╥": "0121", "╧": "1202", "╨": "2101", "╪": "1212", "╫": "2121",
+  "╭": "0110", "╮": "0011", "╯": "1001", "╰": "1100",
+}).map(([ch, e]) => [ch, [...e].map(Number)]));
+const NO_EDGES = [0, 0, 0, 0];
+
+// How well a table's lines join in the text: +1 for each pair of neighbours
+// (side by side, or one above the other) whose facing ends meet in the same
+// style, -1 where one end reaches out and the other does not answer.
+function joins(bytes, glyphOf) {
+  const rows = [[]];
+  for (const b of bytes) {
+    if (b === 10) rows.push([]);
+    else if (b !== 13) rows[rows.length - 1].push(EDGES.get(glyphOf(b)) ?? NO_EDGES);
+  }
+  const score = (out, into) => (out && into === out ? 1 : out || into ? -1 : 0);
+  let total = 0;
+  rows.forEach((row, y) => row.forEach((e, x) => {
+    const right = row[x + 1], below = rows[y + 1]?.[x];
+    if (right && (e !== NO_EDGES || right !== NO_EDGES)) total += score(e[1], right[3]);
+    if (below && (e !== NO_EDGES || below !== NO_EDGES)) total += score(e[2], below[0]);
+  }));
+  return total;
+}
+
+// Pairs of different letters side by side: words, which frames are not.
+function letterPairs(bytes, isLetter) {
+  let n = 0;
+  for (let i = 0; i + 1 < bytes.length; ++i)
+    if (bytes[i] !== bytes[i + 1] && isLetter(bytes[i]) && isLetter(bytes[i + 1])) ++n;
+  return n;
+}
+
+// Text, or bytes?  A text file is printable characters (the 8-bit letters
+// and the pseudographics of KOI-8 / CP866 included), CR LF TAB FF ESC, the
+// KOI-7 shifts, ^Z, with nothing else but the zero padding of its last block.
+export function looksLikeText(bytes) {
+  let end = bytes.length;
+  while (end > 0 && (bytes[end - 1] === 0 || bytes[end - 1] === 26)) --end;
+  const sample = bytes.subarray(0, Math.min(end, 4096));
+  if (!sample.length) return true;
+  let text = 0;
+  for (const v of sample)
+    if ((v >= 0x20 && v !== 0x7F) || [9, 10, 12, 13, 14, 15, 26, 27].includes(v)) ++text;
+  return text >= sample.length * 0.97 && !sample.includes(0);
+}
+
+// Letter frequencies, per cent, of English a-z and of Russian in the KOI-7
+// order (ЮАБЦДЕФГХИЙКЛМНОПЯРСТУЖВЬЫЗШЭЩЧЪ), both over the bytes 0x60..0x7F;
+// 0 for the English punctuation there (` { | } ~ DEL).
+const EN_FREQ = [0, 8.2, 1.5, 2.8, 4.3, 12.7, 2.2, 2.0, 6.1, 7.0, 0.15, 0.77, 4.0, 2.4, 6.7, 7.5, 1.9, 0.095, 6.0, 6.3, 9.1, 2.8, 0.98, 2.4, 0.15, 2.0, 0.074, 0, 0, 0, 0, 0];
+const RU_FREQ = [0.64, 8.0, 1.6, 0.48, 3.0, 8.5, 0.26, 1.7, 0.97, 7.4, 1.2, 3.5, 4.4, 3.2, 6.7, 10.9, 2.8, 2.0, 4.7, 5.5, 6.3, 2.6, 0.94, 4.5, 1.7, 1.9, 1.6, 0.73, 0.32, 0.36, 1.4, 0.04];
+
+// The encoding a text is most likely in.  8-bit: the letters that make
+// words and the lines that join - KOI-8's (letters at 0xC0..0xFF, frames at
+// 0x80..0xBF) against CP866's (letters at 0x80..0xAF and 0xE0..0xF1, frames
+// at 0xB0..0xDF); in KOI-8, ROM-B's pseudographics unless Rodionov's join
+// better.  A ^N or ^O: KOI-7 with the РУС / ЛАТ shifts (10L01.DOC on the
+// Mihin disk).  Else the bytes 0x60..0x7F are either English lowercase or
+// Russian in KOI-7: the one whose letter frequencies fit them better wins,
+// KOI-7 only by a clear margin (0.2 nats a letter, 20 letters at least) -
+// Russian transliterated in Latin letters, and program text, read as
+// English.  Nothing there at all: ASCII.
+export function guessEncoding(bytes) {
+  const b = bytes.subarray(0, 8192);
+  if (b.some((v) => v >= 0x80)) {
+    const romB = joins(b, (v) => (v >= 0x80 && v < 0xC0 ? ROMB_GRAPH[v - 0x80] : null));
+    const rod = joins(b, (v) => (v >= 0x80 && v < 0xC0 ? ROD_GRAPH[v - 0x80] : null));
+    const cpJoins = joins(b, (v) => (v >= 0x80 ? CP866_HIGH[v - 0x80] : null));
+    const koi8 = letterPairs(b, (v) => v >= 0xC0) + Math.max(romB, rod, 0);
+    const cp866 = letterPairs(b, (v) => (v >= 0x80 && v <= 0xAF) || (v >= 0xE0 && v <= 0xF1)) + Math.max(cpJoins, 0);
+    if (cp866 > koi8) return "ibm866";
+    return rod > romB ? "koi8rod" : "koi8";
+  }
+  if (b.some((v) => v === 0x0E || v === 0x0F)) return "koi7s";      // the terminal's РУС / ЛАТ shifts
+  let en = 0, ru = 0, n = 0;
+  for (const v of b) {
+    if (v < 0x60 || v > 0x7F) continue;
+    en += Math.log((EN_FREQ[v - 0x60] + 0.02) / 100);
+    ru += Math.log((RU_FREQ[v - 0x60] + 0.02) / 100);
+    ++n;
+  }
+  return n >= 20 && (ru - en) / n >= 0.2 ? "koi7" : "ascii";
+}
 
 // ── the encodings both ways ─────────────────────────────────────────────────
 // KOI-7 with the terminal's РУС / ЛАТ shifts: ^N (0x0E) makes 0x40..0x7F
@@ -63,6 +170,12 @@ export function decodeBytes(bytes, enc) {
     for (const b of bytes) out += b >= 0x60 && b <= 0x7F ? KOI7[b - 0x60] : String.fromCharCode(b);
     return out;
   }
+  if (enc === "koi8" || enc === "koi8rod") {
+    const graph = enc === "koi8" ? ROMB_GRAPH : ROD_GRAPH;
+    let out = "";
+    for (const b of bytes) out += koi8Char(b, graph);
+    return out;
+  }
   return new TextDecoder(enc).decode(bytes);
 }
 
@@ -74,8 +187,10 @@ function encoderFor(enc) {
     for (let i = 0; i < KOI7.length; ++i) map.set(KOI7[i], 0x60 + i);
     for (let i = 0; i < KOI7.length; ++i) map.set(KOI7[i].toLowerCase(), 0x60 + i);
   } else if (enc !== "ascii") {          // ascii: nothing above 127 - a "?" for what has no byte
-    const dec = new TextDecoder(enc);
-    for (let b = 128; b < 256; ++b) map.set(dec.decode(new Uint8Array([b])), b);
+    for (let b = 128; b < 256; ++b) {
+      const ch = decodeBytes(new Uint8Array([b]), enc);
+      if (!map.has(ch)) map.set(ch, b);  // a glyph twice (Rodionov's ┌): its first code
+    }
   }
   encoders.set(enc, map);
   return map;

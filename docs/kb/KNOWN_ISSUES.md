@@ -1,54 +1,30 @@
 # Known Issues
 
-## ROM-A + the vvv104 Omega - the monitor's timer hook lands in the ROM's tape loader (unresolved)
+## The emulator boots any system on any ROM - two of them need a particular one
 
-- **ROM**: `ms0515-roma.rom` - the dump that circulates with ms0515btl and
-  EmuStudio (sha256 `5c3dfcee…`); the owner's machine was dumped by other
-  hands and the file handed back, so whether this image is that board's
-  is not certain.
-- **Monitors**: the vvv104 build of ОМЕГА SJ(S) V05.04 - the collection's
-  `omega2.dsk` and the test fixture `test_omega.dsk` (one byte apart).
-  The other Omega, `omega.dsk` (the 059 build), boots on ROM-A: its
-  timer service has no hook at all.
-- **Symptom**: ~0.3 s after the monitor starts, the border turns magenta
-  and the machine is dead - keyboard included.
-- **What happens** (re-read 2026-09-13): the monitor's timer service
-  (vector 100, PSW 0341 - priority 7; the timer request is the frame
-  strobe, enabled by dispatcher bit 9, which the monitor sets itself at
-  `100070`) counts ticks and every sixteenth does `CALL @#160014` with
-  no test of which ROM it runs on.  `160014` is a slot of the ROM's
-  entry table.  In ROM-B it leads to `163440`, the cursor blink (two
-  VRAM bytes complemented when `@#157760` bit 7 is set) - that is what
-  the monitor wants.  In ROM-A the same slot is `JMP 162360`, the
-  cassette loader the console's `L` command runs.  The other slots
-  (`160000..160024`) mean the same in both ROMs; this one differs.
-- **The loader has no way out without a tape**: `162504` waits for the
-  CSIN level (Reg B bit 7) to change - a constant level spins forever;
-  any signal makes it hunt for the sync byte `346`/`031`, then read a
-  garbage load address and length, write words at `(R4)+` until
-  `R4 == R5`, and jump through `@#157704`.  Noise, a square wave, a
-  loopback: every one ends in either the spin or a wrecked memory, at
-  priority 7.  So the vvv104 monitor cannot run on a machine with this
-  ROM-A as dumped - yet the owner's disks with it ran on his machine,
-  which was dumped as this ROM-A, and he half remembers the cursor
-  blinking.  One of those facts is wrong and we cannot tell which; left
-  open (2026-09-13).
-- **What would resolve it**: the ROM read again from the board itself,
-  or the board powered up with the vvv104 disk; or a second dump of an
-  NS4 ROM from any machine that ran these disks.
-- **What the emulator ships**: `src/assets/rom/ms0515-roma.rom` is
-  **not the dump**: one byte at `160014` is `000207` (`RTS PC`) instead
-  of `000167` (`JMP 162360`), patched on 2026-04-21 (commit `b97c30c`,
-  "avoid hang on absent tape") and kept when the emulator-side stub in
-  `rom_patches.c` was dropped on 2026-05-02 (`78f6093`).  That byte is
-  why ROM-A + Omega boots here at all: the hook returns at once, the
-  cursor does not blink, everything else is the ROM as dumped.  The
-  original is `ms0515_data/docs/ms0515-roma.rom`; with it the fixture
-  and `omega2.dsk` show the magenta screen, `omega.dsk` boots.
-- **Test impact**: `test_boot.cpp` keeps `(ms0515-roma.rom,
-  test_omega.dsk)` in `kKnownBad` and `test_keyboard_emulated.cpp` keeps
-  the pair out of `kConfigs`, so the hardware question is not papered
-  over by the patched byte; both comments say so.
+- **The systems**: the vvv104 build of ОМЕГА (`omega2.dsk`, the test
+  fixture `test_omega.dsk`) runs on **ROM-B only**; Rodionov's RT15SJ
+  (`rodionov.dsk`, `test_rod.dsk`) on **ROM-A only**.  The others (the 059
+  ОМЕГА, ОСА, Mihin's) run on either.
+- **Why**: the vvv104 Omega's clock calls the ROM slot `160014` every 16
+  ticks - ROM-B's cursor blink, ROM-A's cassette loader, which never
+  returns without a tape (the screen goes magenta, the machine is dead).
+  Rodionov's terminal driver jumps into ROM-A's own routines by their
+  addresses (the control characters, the ESC sequences, the keyboard),
+  which hold other code in ROM-B.
+- **Settled 2026-09-19**: the machine the vvv104 disks come from had
+  ROM-B.  Its owner's own `NC.PAS` draws its panels with ROM-B's
+  pseudographics (a table of 64 glyphs at ROM-B `157000`, the codes
+  200-277); ROM-A prints nothing for those codes.  The circulating ROM-A
+  dump (sha256 `5c3dfcee...`) is now shipped as it is: the one-byte `RTS`
+  the emulator had patched into its slot `160014` (2026-04-21, `b97c30c`)
+  so that the pair booted is gone.
+- **Open**: nothing stops a user from booting either of the two on the
+  wrong ROM.  The ROM should be refused, or chosen automatically, from the
+  system on the disk (its monitor file tells which) - how is to be worked
+  out.
+- **Test impact**: `test_boot.cpp` keeps both wrong pairs in `kKnownBad`;
+  the tests that boot the vvv104 Omega do it on ROM-B.
 
 ## Mihin (OS-16SJ) — РУС/ЛАТ key prints `^N`/`^O`, locks input on exit
 

@@ -53,7 +53,7 @@ bool Tui::onViewerKey(const Event &e)
     else if (e == Event::F1) {
         message("Help", {"F2 wrap / unwrap      F4 hex dump / text     F9 octal dump / text",
                          "F5 go to a line or an offset                 F7 search",
-                         "F8 the next encoding (ASCII, KOI-8R, KOI-7, KOI-7 ^N/^O, CP866)",
+                         "F8 the next encoding (ASCII, KOI-8, KOI-8 Rodionov, KOI-7, KOI-7 ^N/^O, CP866)",
                          "F3 / F10 / Esc back to the panels"});
     }
     else if (e == Event::F2) { v.opts.wrap = !v.opts.wrap; rerender(); }

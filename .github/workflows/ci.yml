@@ -178,6 +178,11 @@ jobs:
       - name: Diff check (Node)
         run: node src/web/diff_check.mjs
 
+      # The commander's encodings (the viewer, the editor, the guess): KOI-8
+      # with ROM-B's pseudographics, Rodionov's, CP866, told by the frames.
+      - name: Encoding check (Node)
+        run: node src/web/encoding_check.mjs
+
       # The page itself in the runner's Chrome (headless, DevTools protocol):
       # boot, the date prompt answered, RT-11's text on the canvas.
       - name: Browser check (Chrome)

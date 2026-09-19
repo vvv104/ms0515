@@ -170,7 +170,7 @@ public:
     std::filesystem::path lastDir_;         /* where the image picker starts */
     std::string newFileDate_;               /* the date host files get on a volume */
     bool showUnused_ = true;                /* the unused areas in the panels, mc's hidden files */
-    Encoding viewEncoding_ = Encoding::koi8r;
+    Encoding viewEncoding_ = Encoding::koi8;
 
     [[nodiscard]] Panel &panel() { return panels_[active_]; }
     [[nodiscard]] Panel &other() { return panels_[1 - active_]; }

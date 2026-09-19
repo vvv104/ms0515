@@ -95,7 +95,19 @@ meets of them - the same in both kits where not said otherwise:
   loaded).  ROM-A has no cursor blink at all.  Beyond 160000 and 160004,
   find out which ROM is there before calling a slot.  The vvv104 ОМЕГА
   (`systems/omega2.dsk`) calls 160014 from its clock every 16 ticks
-  without asking, which is why it hangs on ROM-A.
+  without asking: it was made on a machine with ROM-B and hangs on
+  ROM-A.  Rodionov's RT15SJ is the other way round: its terminal driver
+  jumps into ROM-A's own routines, and it runs on ROM-A only.
+- **The codes 200-277 (pseudographics) are the ROM's.**  ROM-A prints
+  nothing for them.  ROM-B draws them from a table of 64 glyphs at
+  157000 (the glyph of code c at 157000 + (c-200)*8): 200-217 the mixed
+  single/double lines (╧╨╤╡╢╖╕╥╙╘╒╜╛╞╟╓), 220-237 the double lines and
+  the shades (╔╗╝╚═║╦╣╩╠╬░▒▓╫╪), 240-257 the single lines and the blocks
+  (┌┐┘└─│┬┤┴├┼█▄▌▐▀), 260-277 Ё ё, four diagonal halves, → ← ↑ ↓ ÷ ± №
+  ¤ ■.  This is not KOI-8R's order.  Rodionov's monitor draws these codes
+  itself on ROM-A, with a table of its own: the single and the mixed rows
+  swapped, 260-277 ° ё ► ◄ ▲ ▼ → ← ↓ ↑ ÷ ░ ┌ ± № ©, 233 not printed (the
+  8-bit CSI).  A program that draws frames draws them for one of the two.
 - **The terminal is 8-bit**: DEC stripped bit 7 of every key and
   character, the kits keep it, so KOI-8 letters pass both ways.  On ОМЕГА
   SO (016) and SI (017), the РУС/ЛАТ shifts, go to the ROM's output as

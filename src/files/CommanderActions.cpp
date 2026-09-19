@@ -56,7 +56,7 @@ void Tui::buildMenus()
     options.items = {{"Viewer encoding...", "", [this] {
                           Dialog d;
                           d.title = "Viewer encoding";
-                          d.radio = {"ASCII", "KOI-8R", "KOI-7", "KOI-7 ^N/^O", "CP866"};
+                          d.radio = {"ASCII", "KOI-8", "KOI-8 Rodionov", "KOI-7", "KOI-7 ^N/^O", "CP866"};
                           d.radioAt = static_cast<int>(viewEncoding_);
                           d.buttons = {"OK", "Cancel"};
                           d.focus = Dialog::Focus::radio;

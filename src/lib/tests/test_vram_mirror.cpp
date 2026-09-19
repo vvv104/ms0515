@@ -20,9 +20,11 @@ extern "C" {
 #include <ms0515/core/memory.h>
 }
 
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -282,6 +284,78 @@ TEST_CASE("detach stops further writes from registering") {
     paint_glyph(emu, 0, 0, font.glyphFor(emu, 'A'));
     mirror.flushFrame();
     CHECK(mirror.history().empty());
+}
+
+namespace {
+
+/* The glyphs of one row, painted from 8-byte bitmaps, as the mirror reads
+ * them back. */
+std::string paintedRow(ms0515::Emulator &emu, const std::vector<std::array<uint8_t, 8>> &glyphs)
+{
+    enable_vram_window(emu);
+    ms0515::VramMirror mirror;
+    mirror.attach(emu);
+    mirror.flushFrame();
+    mirror.clearHistory();
+    for (size_t i = 0; i < glyphs.size(); ++i)
+        paint_glyph(emu, 0, static_cast<int>(i), glyphs[i].data());
+    mirror.flushFrame();
+    std::string out;
+    const auto snap = mirror.snapshot();
+    for (size_t i = 0; i < glyphs.size(); ++i)
+        out += ms0515::VramMirror::utf8FromKoi8(snap.cells[i]);
+    return out;
+}
+
+/* A glyph key as the mirror packs it (scanline 0 in the low byte). */
+std::array<uint8_t, 8> glyphOf(uint64_t key)
+{
+    std::array<uint8_t, 8> g{};
+    for (int y = 0; y < 8; ++y) g[y] = static_cast<uint8_t>(key >> (8 * y));
+    return g;
+}
+
+}  // namespace
+
+TEST_CASE("ROM-B's pseudographics (its table at 157000, codes 200-277) read as the lines they draw") {
+    if (!std::filesystem::exists(kRomPath)) return;
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(kRomPath));
+    auto rom = ms0515::internal::rom(emu);
+    /* ROM-B's table, found by its corner at code 240 (as the mirror does) */
+    static constexpr uint8_t kCorner[8] = {0, 0, 0, 0, 0x1F, 0x18, 0x18, 0x18};
+    int base = -1;
+    for (size_t off = 0; off + 8 <= rom.size() && base < 0; ++off)
+        if (std::memcmp(rom.data() + off, kCorner, 8) == 0) base = static_cast<int>(off) - 040 * 8;
+    REQUIRE(base >= 0);
+    auto at = [&](int code) {
+        std::array<uint8_t, 8> g{};
+        std::memcpy(g.data(), rom.data() + base + (code - 0200) * 8, 8);
+        return g;
+    };
+    /* the double and the mixed lines are ROM-B's own drawing */
+    CHECK(paintedRow(emu, {at(0220), at(0224), at(0226), at(0221)}) == "╔═╦╗");
+    CHECK(paintedRow(emu, {at(0225), at(0231), at(0232), at(0227)}) == "║╠╬╣");
+    CHECK(paintedRow(emu, {at(0202), at(0200), at(0216), at(0204)}) == "╤╧╟╢");
+    CHECK(paintedRow(emu, {at(0240), at(0244), at(0252), at(0245)}) == "┌─┼│");
+    CHECK(paintedRow(emu, {at(0262), at(0263), at(0264), at(0265)}) == "╭╮╯╰");
+    CHECK(paintedRow(emu, {at(0266), at(0267), at(0273), at(0274), at(0275)}) == "→←±№¤");
+}
+
+TEST_CASE("Rodionov's glyphs read as his signs; the shades by their density; ╘ is no ©") {
+    const std::string romA = std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom";
+    if (!std::filesystem::exists(romA)) return;
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(romA));
+    CHECK(paintedRow(emu, {glyphOf(0x3C4299A1A199423CULL), glyphOf(0x00000000003C663CULL),
+                           glyphOf(0x0080E0F8FEF8E080ULL), glyphOf(0x00020E3EFE3E0E02ULL),
+                           glyphOf(0x080C0EFF0E0C0800ULL), glyphOf(0x103070FF70301000ULL),
+                           glyphOf(0x007E0018187E1818ULL), glyphOf(0x00888898B8E8CB8BULL),
+                           glyphOf(0x0018007E00180000ULL)}) == "©°►◄→←±№÷");
+    CHECK(paintedRow(emu, {glyphOf(0x8822882288228822ULL), glyphOf(0xAA55AA55AA55AA55ULL),
+                           glyphOf(0xEEDB77DBEEDB77DBULL)}) == "░▒▓");
+    CHECK(paintedRow(emu, {glyphOf(0x0000001F181F1818ULL), glyphOf(0x1818181F00000000ULL)}) == "╘┌");
+    CHECK(paintedRow(emu, {glyphOf(0x183C7EFF18181818ULL), glyphOf(0x18181818FF7E3C18ULL)}) == "↓↑");
 }
 
 }  // TEST_SUITE
