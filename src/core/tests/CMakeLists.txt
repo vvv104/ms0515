@@ -19,6 +19,7 @@ add_executable(ms0515_core_tests
     test_floppy.cpp
     test_trap_thunk.cpp
     test_monitor_request.cpp
+    test_irq_order.cpp
     test_cpu_timing.cpp
     test_vram_write_hook.cpp
     test_sound.cpp

@@ -42,10 +42,19 @@ static void cpu_push(ms0515_cpu_t *cpu, uint16_t value)
 }
 
 /*
+ * The level of a request's CP code (NS4 Table 4, the T-11's coding).
+ */
+static inline int cpu_code_level(int code)
+{
+    return code >= 014 ? 7 : code >= 010 ? 6 : code >= 4 ? 5 : 4;
+}
+
+/*
  * Service an interrupt: push PSW and PC, load new PC and PSW from vector.
  */
 static void cpu_service_interrupt(ms0515_cpu_t *cpu, uint16_t vector)
 {
+    cpu_sample_requests(cpu);   /* the vector's read cycles */
     uint16_t new_pc = board_read_word(cpu->board, vector);
     {
         uint8_t vec8 = (uint8_t)vector;
@@ -134,36 +143,53 @@ static bool cpu_check_interrupts(ms0515_cpu_t *cpu)
         return true;
     }
 
-    /* External vectored interrupts — check priority */
-    for (int i = 0; i < 16; i++) {
-        if (cpu->irq_virq[i]) {
-            /*
-             * Interrupt priority is encoded in the vector's PSW.
-             * For simplicity, we compare the IRQ's inherent priority
-             * against the CPU's current priority.
-             *
-             * MS0515 priority mapping (from NS4 Table 4):
-             *   IRQ 11 (timer)     → priority 6
-             *   IRQ 9  (serial RX) → priority 6
-             *   IRQ 8  (serial TX) → priority 6
-             *   IRQ 5  (keyboard)  → priority 5
-             *   IRQ 2  (VBlank)    → priority 4
-             *
-             * We derive the priority from the PSW stored at vector+2.
-             */
-            uint16_t vec = cpu->irq_virq_vec[i];
-            uint16_t new_psw = board_read_word(cpu->board, vec + 2);
-            int irq_prio = (new_psw >> 5) & 7;
-
-            if (irq_prio > priority) {
-                cpu->irq_virq[i] = false;
-                cpu_service_interrupt(cpu, vec);
-                return true;
-            }
-        }
+    /* External vectored interrupts: the code the processor read off
+     * CP0-CP3 in this instruction's read cycles (irq_seen), taken when its
+     * level is above the priority.  The level is the code's (17-14 level
+     * 7, 13-10 level 6, 7-4 level 5, 3-1 level 4); the PS in the vector is
+     * only what the service runs at.  WAIT reads the requests in its
+     * priority-input cycle, so a waiting processor looks at them now. */
+    if (cpu->waiting)
+        cpu_sample_requests(cpu);
+    const int code = cpu->irq_seen;
+    if (code != 0 && cpu_code_level(code) > priority) {
+        cpu->irq_seen      = 0;
+        cpu->irq_virq[code] = false;
+        cpu_service_interrupt(cpu, cpu->irq_virq_vec[code]);
+        return true;
     }
 
     return false;
+}
+
+/*
+ * The board's priority encoder, D96 (К555ИВ3, 3.858.420 Э3 sheet 2): of the
+ * latched requests one code goes to CP0-CP3, by the input it is wired to.
+ * Its outputs are the CP code, which is the core's line number.
+ *
+ * The schematic's revision puts the MS 7004 keyboard first (input 9), then
+ * the timer (7), the serial port's receiver (5) and transmitter (4), the
+ * MS 7007 (3), and the monitor last (2).  Here the monitor comes first and
+ * the rest keep that order: with the monitor last, OSA's ^Q never resumes
+ * a TYPE held by ^S (its output service asks for itself again before its
+ * RTI; the key, taken at that RTI, lowers the priority and the monitor's
+ * request nests in it for good), while with the monitor above the keyboard
+ * every system of the collection - Omega's two, OSA's, Mihin's, DEC's -
+ * resumes at any moment.  The machines differed and were reworked; the
+ * ones OSA ran on cannot have had the monitor last.  (lib/tests/
+ * test_ctrl_s_q.cpp; docs/kb/KNOWN_ISSUES.md.)
+ */
+static const uint8_t kEncoderOrder[] = { 2, 5, 11, 9, 8, 3 };
+
+void cpu_sample_requests(ms0515_cpu_t *cpu)
+{
+    cpu->irq_seen = 0;
+    for (size_t i = 0; i < sizeof kEncoderOrder; ++i) {
+        if (cpu->irq_virq[kEncoderOrder[i]]) {
+            cpu->irq_seen = kEncoderOrder[i];
+            return;
+        }
+    }
 }
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
@@ -221,6 +247,7 @@ void cpu_reset(ms0515_cpu_t *cpu)
     cpu->irq_trap      = false;
     cpu->irq_tbit      = false;
     memset(cpu->irq_virq, 0, sizeof(cpu->irq_virq));
+    cpu->irq_seen = 0;
 }
 
 int cpu_step(ms0515_cpu_t *cpu)
@@ -251,6 +278,7 @@ int cpu_step(ms0515_cpu_t *cpu)
 
     /* Fetch instruction */
     cpu->instruction_pc = cpu->r[CPU_REG_PC];
+    cpu_sample_requests(cpu);   /* the fetch's read cycle */
     cpu->instruction    = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
     cpu->r[CPU_REG_PC] += 2;
     cpu->cycles = 9;   /* Instruction fetch + decode (per K1807VM1 / MAME T11) */

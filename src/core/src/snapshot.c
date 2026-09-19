@@ -204,6 +204,7 @@ static bool read_cpu(snap_io_t *f, ms0515_cpu_t *cpu)
     for (int i = 0; i < 16; i++)
         if (!read_u16(f, &cpu->irq_virq_vec[i])) return false;
     if (!read_i32(f, &cpu->cycles)) return false;
+    cpu_sample_requests(cpu);   /* the latch is not saved: as if read now */
     return true;
 }
 

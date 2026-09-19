@@ -153,8 +153,12 @@ typedef struct ms0515_cpu {
     bool     irq_emt;           /* EMT instruction                           */
     bool     irq_trap;          /* TRAP instruction                          */
     bool     irq_tbit;          /* T-bit (single-step) trap                  */
-    bool     irq_virq[16];     /* Vectored external IRQ lines               */
+    bool     irq_virq[16];     /* Vectored external IRQ lines, by CP code   */
     uint16_t irq_virq_vec[16]; /* Corresponding vector addresses            */
+    uint8_t  irq_seen;         /* The code the processor last read off
+                                * CP0-CP3 in a read cycle (0: none) - the
+                                * board's encoder's choice, see
+                                * cpu_sample_requests                       */
 
     /* Cycle counter — incremented per bus access, used for timing */
     int      cycles;
@@ -216,6 +220,15 @@ void cpu_interrupt(ms0515_cpu_t *cpu, int irq, uint16_t vector);
  * cpu_clear_interrupt — Clear a pending external interrupt.
  */
 void cpu_clear_interrupt(ms0515_cpu_t *cpu, int irq);
+
+/*
+ * cpu_sample_requests — A read cycle's look at CP0-CP3: the requests
+ * present, through the board's priority encoder, latched as irq_seen.
+ * The processor calls it before each of its bus reads; the interrupt is
+ * decided on it after the instruction (NS4 TO 4.5.2).  Also for a restored
+ * snapshot, whose latch is not saved.
+ */
+void cpu_sample_requests(ms0515_cpu_t *cpu);
 
 /* ── Inline accessors ─────────────────────────────────────────────────────── */
 
