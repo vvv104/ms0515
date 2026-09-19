@@ -10,7 +10,7 @@ Usage
 
     emu = EmulatorDriver([
         "C:/path/to/ms0515-cli.exe",
-        "--rom", "C:/.../ms0515-roma.rom",
+        "--rom", "C:/.../ms0515-romb.rom",
         "--disk0", "C:/.../boot.dsk",
     ])
     emu.start()
@@ -40,7 +40,11 @@ class EmulatorDriver:
     ``send`` and wait for substrings or regex patterns via ``wait_for``.
 
     Output is treated as bytes; ``tail`` and ``wait_for`` decode with a
-    user-chosen codec (default cp866 for Soviet-era OS output).
+    user-chosen codec (default cp866 for Soviet-era OS output).  The buffer
+    holds what the screen shows: escape sequences are dropped as they
+    arrive, so a cursor the machine blinks (the mirror shows and hides the
+    terminal's) is no output - a wait goes idle at the prompt, and the tail
+    is text.  ``dump`` writes the stream as it came.
     """
 
     def __init__(
@@ -56,7 +60,9 @@ class EmulatorDriver:
         self.env = env
         self.encoding = encoding
         self._proc: subprocess.Popen | None = None
-        self._buf = bytearray()
+        self._buf = bytearray()         # the text, escapes dropped
+        self._raw = bytearray()         # the stream as it came, for dump
+        self._esc = bytearray()         # an escape sequence being read
         self._buf_lock = threading.Lock()
         self._reader: threading.Thread | None = None
 
@@ -120,7 +126,7 @@ class EmulatorDriver:
     def dump(self, path: str | Path) -> int:
         """Persist the entire captured output to *path*.  Returns size."""
         with self._buf_lock:
-            data = bytes(self._buf)
+            data = bytes(self._raw)
         Path(path).write_bytes(data)
         return len(data)
 
@@ -201,7 +207,31 @@ class EmulatorDriver:
             if not chunk:
                 return
             with self._buf_lock:
-                self._buf.append(chunk[0])
+                self._raw.append(chunk[0])
+                self._take(chunk[0])
+
+    def _take(self, b: int) -> None:
+        """Append one byte of the stream to the text, or to the escape
+        sequence it belongs to: CSI (ESC [ ... final byte) and OSC
+        (ESC ] ... BEL) are dropped whole, any other ESC with the byte
+        after it."""
+        esc = self._esc
+        if not esc:
+            if b == 0x1B:
+                esc.append(b)
+            else:
+                self._buf.append(b)
+            return
+        esc.append(b)
+        kind = esc[1]
+        if kind == ord("["):
+            done = len(esc) > 2 and 0x40 <= b <= 0x7E
+        elif kind == ord("]"):
+            done = b == 0x07
+        else:
+            done = True
+        if done:
+            esc.clear()
 
     def _decode(self, raw: bytes) -> str:
         text = raw.decode(self.encoding, errors="replace")

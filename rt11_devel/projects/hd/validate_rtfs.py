@@ -21,7 +21,7 @@ from emu_driver import EmulatorDriver
 from rt11 import RT11Session
 
 CLI = ROOT / "package/ms0515-cli.exe"
-ROM = ROOT / "package/assets/rom/ms0515-roma.rom"
+ROM = ROOT / "package/assets/rom/ms0515-romb.rom"   # the toolset system is the vvv104 Omega: ROM-B
 SYSTEM_DIR = TOOLSET / "system"
 
 if not (HERE / "HD.SYS").exists():
