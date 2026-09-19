@@ -196,13 +196,14 @@ static int directoryLbn(const std::vector<uint8_t> &image, int side, bool ds, Vo
     throw std::runtime_error("side is not initialised (run init first)");
 }
 
-void putFile(std::vector<uint8_t> &image, int side, bool ds,
-             const std::string &name, std::span<const uint8_t> data,
-             const PutOptions &opts, Vol vol)
+/* Add `name` as a new entry; a file already of the name is the caller's. */
+static void putNewFile(std::vector<uint8_t> &image, int side, bool ds,
+                       const std::string &name, std::span<const uint8_t> data,
+                       const PutOptions &opts, Vol vol)
 {
     requireValidSize(image, ds, vol);
 
-    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds, vol); };
+    auto off =[&](int lbn) { return lbnToByte(lbn, side, ds, vol); };
     const int dirLbn = directoryLbn(image, side, ds, vol);
 
     std::vector<uint8_t> seg(2 * kBlock);
@@ -304,6 +305,28 @@ void putFile(std::vector<uint8_t> &image, int side, bool ds,
 
     std::memcpy(image.data() + off(dirLbn),     seg.data(),          kBlock);
     std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
+}
+
+void putFile(std::vector<uint8_t> &image, int side, bool ds,
+             const std::string &name, std::span<const uint8_t> data,
+             const PutOptions &opts, Vol vol)
+{
+    requireValidSize(image, ds, vol);
+    const auto there = openVolume(image, vol, side);
+    const DirEntry *old = (there && there->hasDirectory) ? there->directory.find(name) : nullptr;
+    if (!old) {
+        putNewFile(image, side, ds, name, data, opts, vol);
+        return;
+    }
+    /* PIP's way: the new file takes the name, the old one goes - unless it
+     * is protected.  Done on a copy, so a file that does not fit leaves the
+     * old one where it was. */
+    if (old->status & kStatusProtected)
+        throw std::runtime_error("protected file " + name + " already exists (unprotect it first)");
+    auto work = image;
+    removeFile(work, side, ds, name, vol);
+    putNewFile(work, side, ds, name, data, opts, vol);
+    image = std::move(work);
 }
 
 namespace {
