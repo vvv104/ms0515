@@ -393,7 +393,7 @@ TEST_CASE("reserved blocks: the exemplar's sectors on the same sectors of a dz o
         CAPTURE(static_cast<int>(to));
         ComposeRecipe r = recipe(Media::dz, to);
         for (std::size_t i = 0; i < kBlock; ++i) r.system[at + i] = static_cast<uint8_t>(0x5A ^ i);
-        r.reserved = {{1, protLbn}};
+        r.reserved = {{1, protLbn, {}}};
 
         const auto img = composeDisk(r);
         CHECK(std::equal(img.begin() + static_cast<std::ptrdiff_t>(at), img.begin() + static_cast<std::ptrdiff_t>(at + kBlock),
@@ -523,7 +523,7 @@ TEST_CASE("a system given as files needs its monitor and SWAP.SYS's length") {
 
 TEST_CASE("a reserved block on the second side has no place on a single-sided disk") {
     ComposeRecipe r = recipe(Media::dz, Media::ss);
-    r.reserved = {{1, 792}};
+    r.reserved = {{1, 792, {}}};
     const auto plan = planDisk(r);
     CHECK_FALSE(plan.ok);
     CHECK(plan.problem.find("second side") != std::string::npos);
