@@ -15,8 +15,22 @@
 ; - ROKEY takes the keys from the MS 7004's USART (177440/177442) and from
 ;   the ROM-A's queue; Hold Screen (0126) stops the output, its lamp lit by
 ;   the keyboard commands 0x13/0x11 through the ROM-A's routine at 177040.
-; - R50406 rewrites its own CALL to the ROM's entry 160010 and reads the
-;   key of the copy protection from the other side of the disk.
+; - The copy protection (R50326, once, at the first character printed):
+;   R50406 turns its CALL @#50000 into CALL @#160010, the ROM's disk
+;   entry, by adding 110010, and reads the key - two words of block 792 on
+;   the other side of the disk (the parameters at R50376: the block, side
+;   1, the buffer 060, two words) - into 060/062, the DL11's vector the
+;   MS 0515 does not use; 063 is set once it was tried.  The key,
+;   062702 000740, is ADD #740,R2: it goes into R50472/R50474 with a TSTB
+;   @#157760 after it, over an instruction that is valid too - the cursor's
+;   lines in the video memory are found by it, or not.  Then key0 + 736 +
+;   key1 goes to the PPI's control register (its address from ROM-A's
+;   word at 160034), the PPI's ports A and B are complemented, and R50324
+;   becomes 137646 - the word before ROPRNT where the monitor lands.
+; - ROPRNT lands at 137652 (the monitor always moves by 071416 on the 56K
+;   machine), and ROSA3, his shell, calls it there - CALL @#137652 - so it
+;   runs under this monitor only.  ROSA3's own key (block 799, its command
+;   keys' codes) it reads itself.  README.md, "The copy protection".
 ;
 	.WORD	0
 	.WORD	0
@@ -581,23 +595,23 @@ R50326:	BIC	#177400,R0
 	ADD	PC,R3
 	MOV	R3,R50374
 	BR	R50406
-R50374:	.WORD	0
-	.WORD	1430
-	.WORD	1000
-	.WORD	60
-	.WORD	2
+R50374:	.WORD	0	;the pointer to the parameters, set by ADD PC
+	.WORD	1430	;block 792
+	.WORD	1000	;side 1, drive 0
+	.WORD	60	;the buffer: 060
+	.WORD	2	;two words
 R50406:	MOV	R50374,@#157730
-	ADD	#110010,R50424
+	ADD	#110010,R50424	;CALL @#50000 made CALL @#160010
 	.WORD	4737
-R50424:	.WORD	50000
+R50424:	.WORD	50000	;the call's address, rewritten
 	BCS	R50460
-	MOV	@#60,R50472
+	MOV	@#60,R50472	;the key into the code: ADD #740,R2
 	MOV	@#62,R50474
-	MOV	#105737,R50476
+	MOV	#105737,R50476	;  and after it TSTB @#157760
 	MOV	#157760,R50500
-R50460:	INCB	@#63
+R50460:	INCB	@#63	;the key was tried
 R50464:	MOV	R50320,@#157764
-R50472:	.WORD	62737
+R50472:	.WORD	62737	;rewritten by the key (ADD #740,R2)
 R50474:	.WORD	137
 R50476:	.WORD	164124
 R50500:	BNE	R50474
@@ -611,13 +625,13 @@ R50500:	BNE	R50474
 	MOV	@#62,R3
 	ADD	#736,R3
 	ADD	@#60,R3
-	MOV	R3,@160034	;? 160034
+	MOV	R3,@160034	;key0+736+key1 to the PPI (177546 in ROM-A)
 	MOV	@#160034,R50322
 	BIC	#6,R50322
 	COM	@R50322
 	ADD	#2,R50322
 	COM	@R50322
-	ADD	#137644,R50324
+	ADD	#137644,R50324	;R50324 = 137646, where the monitor lands
 	NOP
 	NOP
 	BR	R50634

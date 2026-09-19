@@ -225,11 +225,8 @@ Omega's bootstrap room (90 NOPs and the clock bit in BCNFG), DEC's
   `EXINT` and `TIMER` are out of reach of their branches: JMPs.  KMON's
   TIME counts a "50-cycle" clock at 72 ticks a second, and `ZAP` does not
   restart DEC's clock at 177546 - the PPI's control register here.
-- **The copy protection**: code in the driver and in the clock interrupt
-  rewrites its own `CALL @#50000` into `CALL @#160010`, the ROM's disk
-  entry, reads the key from the other side of the disk (LBN 792/799 of
-  side 1 - the collection keeps them) and works on the vectors 060/062;
-  ROSA3, his shell, runs on this system only.
+- **The copy protection**: a key read from the other side of the disk,
+  see below.
 - **CONFIG left as RMON has it**: the bootstrap copies nothing of BCNFG
   into it, so it says neither the clock nor 50 Hz (the answers file says
   60, which leaves the bit out).
@@ -238,10 +235,60 @@ Omega's bootstrap room (90 NOPs and the clock bit in BCNFG), DEC's
   once.
 - The banner fills the room up to `SUFFX`, whose zero ends it.
 
-Open: why 72 ticks a second; how the protection's check reaches its code
-(the `RTI` it may turn into a `NOP`, letting DEC's clock run) and what
-ROSA3 asks of the monitor; the glyph tables as a code page (the owner:
-our viewer and editor show his pseudographics wrong).
+### The copy protection
+
+Two keys on the other side of the disk (side 1), in blocks the RT-11
+volume never uses; the collection keeps them (`systems/rodionov/
+SIDE1-792.BLK`, `SIDE1-799.BLK`).  Both are read through the ROM's disk
+entry `160010`, which takes its parameters from a block `@#157730` points
+at: the block number; a byte (unused here) and a byte whose bit 0 is the
+drive and bit 1 the side (set: side 1); the buffer; the number of words,
+negative for a write.
+
+**The monitor's key: block 792, two words, `062702 000740`** - the
+instruction `ADD #740,R2`.  The first character printed (`R50326` in
+`OMRODT.MAC`) reads them, once, into the words 060/062 - the DL11's input
+vector, which the MS 0515 does not use (its console is at 130) - and sets
+063 as the sign it was done.  The `CALL` is written `CALL @#50000` and
+made `CALL @#160010` by adding 110010 to it just before, so the file shows
+no call of the ROM.  Then:
+
+- the two words are written into the driver's own code (`R50472`), with a
+  `TSTB @#157760` after them, over an instruction that is also valid:
+  `ADD #740,R2` finds the cursor's lines in the video memory (six lines
+  down); without the key the other instruction runs and the cursor goes
+  elsewhere;
+- key0 + 736 + key1 is written to the PPI's control register, whose
+  address comes from the word at ROM-A's `160034` (177546 there - one more
+  tie to ROM-A), and the PPI's ports A and B are complemented; the same
+  sum gives the monitor its word 137646 (below).
+
+The clock interrupt (`OMRODC.MAC`) holds a second copy of the check (the
+key read again, key0 + 340 + key1 into the PPI's control register) past
+its first `BR`, which nothing jumps to: an older version left in place.
+
+**ROSA3's key: block 799, five words, `106213 100600 053603 076175 0`** -
+the codes of its command keys: 213 214 200 201 203 127 175 174 (on the
+LK201's layout: Insert Here, Remove, F17, F18, F20, F2, Do, Help - the
+ПМ key its screen names).  ROSA3 reads them itself, through the same ROM
+entry, into its table at 010156; a key pressed (the MS 7004's raw code,
+from 177440) is looked up there and its handler taken from the table at
+010132.  So its screen draws as ever, and the first key pressed without
+the key sector says «Программа, переписанная без разрешения АВТОРА не
+работает»; so does a failed read.  It also checks, after it opens a file,
+that its own `BIT #340,...` still holds 340 - a patch that removes the
+check is caught.  The word it reads and writes in block 799 of the boot
+side tells whether the disk is in and writable; it is no protection.
+
+ROSA3 needs the monitor besides: it prints part of its text by calling the
+driver's `ROPRNT` where it lands, `CALL @#137652`.  The monitor, moved to
+the top of the 56K machine, always lands at its link address + 071416:
+`ROPRNT` (046234 in the file) at 137652, the word before it, the flags
+the clock interrupt counts in (`@#137646`), at 137646.  Under another
+monitor that address holds other code: OSA answers `?CSI-F-Недопустимая
+команда`, Omega `?MON-F-Trap to 10`.
+
+Open: why TIME counts 72 ticks a second.
 
 ## The vvv104 build
 
