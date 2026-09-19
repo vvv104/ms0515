@@ -203,11 +203,16 @@ program needs of it:
   character, at one stack depth.  An emulator that fires on the clear
   too re-enters that service before its RTI once per character, and a
   long `TYPE` ends in `?MON-F-Stack overflow` (fixed 2026-09-13).
-- **Priorities**: the core takes an interrupt's priority from the PSW
-  word stored at its vector, not from the device.  RT-11 puts high ones
-  there, so raising the processor priority to 5 does not keep the
-  keyboard's interrupt from RT-11's handler.  To own a device, own its
-  vector.
+- **Priorities are the lines'**, as on the T-11: the timer 6 (vector
+  100), the keyboard 5 (130), the monitor interrupt 4 (064); a request is
+  taken when its level is above the processor's priority, and the PSW in
+  the vector is only what the service then runs at.  So priority 5 holds
+  the keyboard off, 6 the timer too.  The board's encoder shows the
+  processor **one request at a time** - the monitor's, else the keyboard's,
+  else the timer's - so a waiting keyboard request at priority 5 hides a
+  timer request as well.  The processor reads the requests in its bus
+  read cycles: one set by an instruction is taken after the next one.
+  (`docs/kb/KNOWN_ISSUES.md`, the interrupt entry.)
 
 ## The keyboard
 

@@ -24,6 +24,8 @@ add_executable(ms0515_lib_tests
     test_terminal.cpp
     test_vram_write_callback.cpp
     test_vram_mirror.cpp
+    test_clock_time.cpp
+    test_ctrl_s_q.cpp
     test_ex_disk.cpp
     test_hd_disk.cpp
     test_dir_vs_os.cpp

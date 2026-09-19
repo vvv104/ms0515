@@ -433,6 +433,50 @@ reminder that a defect reproduced only on a synthetic setup accuses the
 setup first.
 
 
+## RESOLVED: interrupts taken as the T-11 and the NS4 board take them - but for the encoder's order (2026-09-19)
+
+- **What the core did**: a pending request was taken when the PS stored
+  in its *vector* was above the processor's priority, the lowest line
+  first, the moment it was raised.  So a monitor's choice of the PS in its
+  vectors changed what the emulator took and when, and a monitor that
+  lowers its priority inside its terminal service - DEC's, Mihin's - lost
+  `^Q` now and then: of 50 moments `^Q` came after a `TYPE` held by `^S`,
+  DEC's build stuck at 2-6, Mihin's at 2-9 (`lib/tests/test_ctrl_s_q.cpp`).
+- **What the documents say**:
+  - the T-11 User's Guide (1.5.1-1.5.2): requests are read only in a read
+    transaction or an assert-priority-in one (WAIT, RESET); before the next
+    fetch the processor arbitrates what it read; the code on CP<3:0> is
+    the level (17-14 level 7, 13-10 level 6, 7-4 level 5, 3-1 level 4),
+    the vector's PS only what the service runs at; nothing holds an
+    interrupt back after RTI (only a trace trap after RTT);
+  - the NS4 schematic (`3.858.420 Э3` sheet 2, found in the scan of the
+    operating documents, `mc0515-ed`, page 19): the requests are latched in
+    D89 (К555ИР23) on the bus strobe and go through a priority encoder, D96
+    (К555ИВ3), which puts one code on CP0-CP3 - the MS 7004 keyboard's
+    (input 9), else the timer's (7), the serial port's (5, 4), the MS
+    7007's (3), the monitor's (2).  Its wiring gives NS4 Table 4 exactly.
+- **What the core does now** (`cpu_check_interrupts`, `cpu_sample_requests`
+  in `core/src/cpu.c`; `core/tests/test_irq_order.cpp`): before each of its
+  read cycles the processor latches the requests through the encoder; the
+  code latched is taken when its level is above the priority; WAIT reads
+  them in its own cycle.  A request set by an instruction's write is seen
+  after the next instruction.
+- **But for the encoder's order**: with the monitor last, as the schematic
+  has it, OSA's `^Q` never resumes a held `TYPE` - at none of the 50
+  moments.  Under `^S` OSA's output service asks for itself again before
+  its RTI; `^Q` arriving after its window at priority 0 is taken at that
+  RTI, OSA's keyboard service drops to priority 0 at once (DEC's `SPL 0`),
+  and the monitor's request nests in it for good.  With the monitor above
+  the keyboard every system - both Omegas, OSA, Mihin's, DEC's build and
+  its Russian one, on ROM-A and ROM-B - resumes at every moment; so the
+  core puts the monitor first and keeps the schematic's order for the
+  rest.  The machines were built in batches and reworked, and the
+  schematic's revision is of an unknown one; the machines OSA ran on
+  cannot have had the monitor last.  The owner's own machine ran Omega,
+  which works either way.
+- **What would settle the order**: OSA on a real MS 0515 - a long `TYPE`,
+  `^S`, `^Q`, many times; or another revision of the NS4 schematic.
+
 ## RESOLVED: a long `TYPE` stalled, then `?MON-F-Stack overflow` (2026-09-13)
 
 - **Systems**: OSA and Omega alike; any monitor that drives the console

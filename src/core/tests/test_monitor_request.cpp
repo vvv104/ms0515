@@ -48,6 +48,14 @@ void prepare(ms0515_board_t &board, int priority)
     board.cpu.psw           = (uint16_t)(priority << 5);
 }
 
+/* The requests as the processor's next read cycle latches them (the
+ * NS4 board: a request is seen through the latch, not the moment it is
+ * written - core/tests/test_irq_order.cpp). */
+void latch(ms0515_board_t &board)
+{
+    cpu_sample_requests(&board.cpu);
+}
+
 /* One instruction: did the processor enter the service routine on it? */
 bool taken(ms0515_board_t &board)
 {
@@ -65,6 +73,7 @@ TEST_CASE("bit 8 written 1 requests the monitor interrupt; taken once") {
     ms0515_board_t board;
     prepare(board, 0);
     write_word(board, DISPATCHER, BIT8);
+    latch(board);
     CHECK(taken(board));
     board.cpu.psw = 0;
     CHECK_FALSE(taken(board));                       /* one request, one service */
@@ -74,12 +83,15 @@ TEST_CASE("bit 8 written 0 takes a pending request back, and raises none of its 
     ms0515_board_t board;
     prepare(board, 7);                               /* held off: it stays pending */
     write_word(board, DISPATCHER, BIT8);
+    latch(board);
     write_word(board, DISPATCHER, 0);                /* reset: NS4 4.3 */
+    latch(board);
     board.cpu.psw = 0;
     CHECK_FALSE(taken(board));
 
     prepare(board, 0);
     write_word(board, DISPATCHER, 0);                /* a write of 0 on 0: nothing */
+    latch(board);
     CHECK_FALSE(taken(board));
 }
 
@@ -87,12 +99,15 @@ TEST_CASE("the service routine's own clear must not re-enter it: clear, lower th
     ms0515_board_t board;
     prepare(board, 0);
     write_word(board, DISPATCHER, BIT8);             /* the main line asks for a character */
+    latch(board);
     REQUIRE(taken(board));                           /* the service is entered, at 7 */
     REQUIRE(board.cpu.psw == 0340);
     write_word(board, DISPATCHER, 0);                /* the service acknowledges: bit 8 off */
+    latch(board);
     board.cpu.psw = 0;                               /* it lowers the priority to print */
     CHECK_FALSE(taken(board));                       /* nothing pending: no re-entry */
     write_word(board, DISPATCHER, BIT8);             /* it asks for the next character */
+    latch(board);
     CHECK(taken(board));                             /* and that one is taken */
 }
 
@@ -100,7 +115,9 @@ TEST_CASE("bit 8 written 1 while already 1 is still one request") {
     ms0515_board_t board;
     prepare(board, 7);
     write_word(board, DISPATCHER, BIT8);
+    latch(board);
     write_word(board, DISPATCHER, BIT8);
+    latch(board);
     board.cpu.psw = 0;
     CHECK(taken(board));
     board.cpu.psw = 0;

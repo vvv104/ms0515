@@ -76,6 +76,22 @@ static inline bool get_c(const ms0515_cpu_t *cpu)
     return (cpu->psw & CPU_PSW_C) != 0;
 }
 
+/* ── Bus reads ────────────────────────────────────────────────────────────── */
+
+/* A read cycle of the processor: it reads the interrupt requests off CP0-CP3
+ * as it reads the bus (NS4 TO 4.5.2), so the latch is taken first. */
+static inline uint16_t bus_read_word(ms0515_cpu_t *cpu, uint16_t addr)
+{
+    cpu_sample_requests(cpu);
+    return board_read_word(cpu->board, addr);
+}
+
+static inline uint8_t bus_read_byte(ms0515_cpu_t *cpu, uint16_t addr)
+{
+    cpu_sample_requests(cpu);
+    return board_read_byte(cpu->board, addr);
+}
+
 /* ── Addressing mode helpers ──────────────────────────────────────────────── */
 
 /*
@@ -184,7 +200,7 @@ static uint16_t get_word_addr(ms0515_cpu_t *cpu, int mode, int reg)
         addr = cpu->r[reg];
         cpu->r[reg] += 2;
         cpu->cycles += BUS_CYCLE;
-        return board_read_word(cpu->board, addr);
+        return bus_read_word(cpu, addr);
 
     case 4:  /* Autodecrement: -(Rn) */
         cpu->cycles += AUTODEC_CYCLE;
@@ -194,19 +210,19 @@ static uint16_t get_word_addr(ms0515_cpu_t *cpu, int mode, int reg)
     case 5:  /* Autodecrement deferred: @-(Rn) */
         cpu->cycles += AUTODEC_CYCLE + BUS_CYCLE;
         cpu->r[reg] -= 2;
-        return board_read_word(cpu->board, cpu->r[reg]);
+        return bus_read_word(cpu, cpu->r[reg]);
 
     case 6:  /* Index: X(Rn) */
         cpu->cycles += INDEX_CYCLE + BUS_CYCLE;
-        addr = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
+        addr = bus_read_word(cpu, cpu->r[CPU_REG_PC]);
         cpu->r[CPU_REG_PC] += 2;
         return (uint16_t)(addr + cpu->r[reg]);
 
     case 7:  /* Index deferred: @X(Rn) */
         cpu->cycles += INDEX_CYCLE + 2 * BUS_CYCLE;
-        addr = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
+        addr = bus_read_word(cpu, cpu->r[CPU_REG_PC]);
         cpu->r[CPU_REG_PC] += 2;
-        return board_read_word(cpu->board, (uint16_t)(addr + cpu->r[reg]));
+        return bus_read_word(cpu, (uint16_t)(addr + cpu->r[reg]));
 
     default:
         return 0;
@@ -240,7 +256,7 @@ static uint16_t get_byte_addr(ms0515_cpu_t *cpu, int mode, int reg)
         addr = cpu->r[reg];
         cpu->r[reg] += 2;
         cpu->cycles += BUS_CYCLE;
-        return board_read_word(cpu->board, addr);
+        return bus_read_word(cpu, addr);
 
     case 4:
         cpu->cycles += AUTODEC_CYCLE;
@@ -250,19 +266,19 @@ static uint16_t get_byte_addr(ms0515_cpu_t *cpu, int mode, int reg)
     case 5:
         cpu->cycles += AUTODEC_CYCLE + BUS_CYCLE;
         cpu->r[reg] -= 2;
-        return board_read_word(cpu->board, cpu->r[reg]);
+        return bus_read_word(cpu, cpu->r[reg]);
 
     case 6:
         cpu->cycles += INDEX_CYCLE + BUS_CYCLE;
-        addr = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
+        addr = bus_read_word(cpu, cpu->r[CPU_REG_PC]);
         cpu->r[CPU_REG_PC] += 2;
         return (uint16_t)(addr + cpu->r[reg]);
 
     case 7:
         cpu->cycles += INDEX_CYCLE + 2 * BUS_CYCLE;
-        addr = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
+        addr = bus_read_word(cpu, cpu->r[CPU_REG_PC]);
         cpu->r[CPU_REG_PC] += 2;
-        return board_read_word(cpu->board, (uint16_t)(addr + cpu->r[reg]));
+        return bus_read_word(cpu, (uint16_t)(addr + cpu->r[reg]));
 
     default:
         return 0;
@@ -275,7 +291,7 @@ static uint16_t read_word_op(ms0515_cpu_t *cpu, int mode, int reg, uint16_t addr
     if (mode == 0)
         return cpu->r[reg];
     cpu->cycles += BUS_CYCLE;
-    return board_read_word(cpu->board, addr);
+    return bus_read_word(cpu, addr);
 }
 
 static void write_word_op(ms0515_cpu_t *cpu, int mode, int reg,
@@ -297,7 +313,7 @@ static uint8_t read_byte_op(ms0515_cpu_t *cpu, int mode, int reg, uint16_t addr)
     if (mode == 0)
         return (uint8_t)(cpu->r[reg] & 0xFF);
     cpu->cycles += BUS_CYCLE;
-    return board_read_byte(cpu->board, addr);
+    return bus_read_byte(cpu, addr);
 }
 
 static void write_byte_op(ms0515_cpu_t *cpu, int mode, int reg,
@@ -329,14 +345,14 @@ static void discard_read_word(ms0515_cpu_t *cpu, int mode, uint16_t addr)
 {
     if (mode == 0) return;
     cpu->cycles += BUS_CYCLE;
-    (void)board_read_word(cpu->board, addr);
+    (void)bus_read_word(cpu, addr);
 }
 
 static void discard_read_byte(ms0515_cpu_t *cpu, int mode, uint16_t addr)
 {
     if (mode == 0) return;
     cpu->cycles += BUS_CYCLE;
-    (void)board_read_byte(cpu->board, addr);
+    (void)bus_read_byte(cpu, addr);
 }
 
 /*
@@ -377,7 +393,7 @@ static void push(ms0515_cpu_t *cpu, uint16_t val)
 static uint16_t pop(ms0515_cpu_t *cpu)
 {
     cpu->cycles += BUS_CYCLE;
-    uint16_t val = board_read_word(cpu->board, cpu->r[CPU_REG_SP]);
+    uint16_t val = bus_read_word(cpu, cpu->r[CPU_REG_SP]);
     cpu->r[CPU_REG_SP] += 2;
     return val;
 }
