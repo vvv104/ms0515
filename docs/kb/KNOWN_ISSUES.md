@@ -433,6 +433,46 @@ reminder that a defect reproduced only on a synthetic setup accuses the
 setup first.
 
 
+## The core takes interrupts not as the T-11 does - and the T-11's way stops OSA's ^Q (open)
+
+- **What the core does** (`cpu_check_interrupts` in `core/src/cpu.c`): a
+  pending request is taken when the PS stored in its *vector* (the word
+  after the handler's address) is above the processor's priority, and of
+  the requests pending together the lowest line goes first.
+- **What the documents say**: the T-11 reads a request as a code on
+  CP<3:0>, and the code is its level - 17-14 level 7, 13-10 level 6, 7-4
+  level 5, 3-1 level 4.  The board's lines are those codes (NS4 Table 4:
+  the timer 11 at level 6, the serial port 9 and 8 at 6, the keyboard 5
+  at 5, the monitor interrupt 2 at 4).  A request is taken when its
+  *level* is above the priority, the highest first; the PS in the vector
+  is only what the service then runs at.
+- **Why it stays**: done the documents' way (tried 2026-09-19: all the
+  test suites green, a long `TYPE` whole on OSA, both Omegas, DEC's
+  monitor, Mihin's and Rodionov's, on ROM-A and ROM-B), OSA's `^Q` no
+  longer resumes a `TYPE` held by `^S` - the machine livelocks.  Highest
+  first alone (without the level) does the same.  The event trace:
+  under `^S` OSA's output service (vector 064, PS 7) asks for itself
+  again before its RTI and opens a one-instruction window at priority 0
+  on the way.  With the lowest line first the key waits past the RTI
+  point (064 wins there) and enters in the window, where 064 is not
+  pending - the key is read and the output resumes.  With the highest
+  first the key enters at the RTI point with 064 pending; OSA's keyboard
+  service runs DEC's `SPL 0` at once, 064 nests, asks again, nests again,
+  and the keyboard service never runs an instruction.  So the core's
+  order is not the machine's, but it is the order under which every
+  original runs; the machine must avoid the loop some way the core does
+  not model (an instruction taken after RTI before the next interrupt? a
+  request of bit 8 that rises later than the write?).
+- **What would resolve it**: the T-11 User's Guide (EK-DCT11-UG) on when
+  a request is sampled after RTI and after an interrupt's entry, or the
+  iron itself with OSA: `TYPE` a long file, `^S`, `^Q`.  The tried change
+  and its tests are kept outside the repository until then.
+- **Consequence**: a monitor's choice of the PS in its vectors (the kits'
+  7 or DEC's 4 for the terminal and 6 for the clock) changes what the
+  emulator takes and when - on the iron it would not.  DEC's values match
+  the lines' levels for 064 and 100, so there the emulator and the iron
+  agree.
+
 ## RESOLVED: a long `TYPE` stalled, then `?MON-F-Stack overflow` (2026-09-13)
 
 - **Systems**: OSA and Omega alike; any monitor that drives the console
