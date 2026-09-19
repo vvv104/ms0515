@@ -160,7 +160,7 @@ from emu_driver import EmulatorDriver
 from rt11 import RT11Session
 
 CLI  = "package/ms0515-cli.exe"
-ROM  = "package/assets/rom/ms0515-roma.rom"
+ROM  = "package/assets/rom/ms0515-romb.rom"   # system/ is the vvv104 Omega: ROM-B
 
 boot = Path(tempfile.gettempdir()) / "myboot"      # folder devices: just
 work = Path(tempfile.gettempdir()) / "mywork"      # copy files around

@@ -58,7 +58,7 @@ ROOT = HERE.parent.parent
 SYSTEM_DIR  = HERE / "system"        # bootable folder template (.rtfs)
 DEVEL       = HERE / "build_tools"
 CLI         = ROOT / "package/ms0515-cli.exe"
-ROM         = ROOT / "package/assets/rom/ms0515-roma.rom"
+ROM         = ROOT / "package/assets/rom/ms0515-romb.rom"   # the system/ Omega (vvv104) was made for ROM-B
 
 sys.path.insert(0, str(HERE))
 from emu_driver import EmulatorDriver       # noqa: E402

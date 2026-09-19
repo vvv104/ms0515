@@ -106,6 +106,18 @@ class TestPatternForms:
             # the *decoded* view.
             assert "\x1b" not in emu.tail(64)
 
+    def test_cursor_blink_is_not_output(self):
+        # The screen mirror shows and hides the terminal's cursor as the
+        # machine blinks its own (ROM-B does): escapes and nothing else,
+        # for as long as the prompt waits.  They are no output - the wait
+        # goes idle, and the prompt stays in the tail.
+        blink = "|".join("0.02,\x1b[?2026h\x1b[?25l\x1b[?2026l|0.02,"
+                         "\x1b[?2026h\x1b[?25h\x1b[?2026l" for _ in range(150))
+        with _spawn_child("0.0,\x1b[5;1HREADY\r\n.|" + blink) as emu:
+            emu.send("\n")
+            emu.wait_for(r"\.\s*$", "prompt", timeout=3, idle=0.3)
+            assert "READY" in emu.tail(64)
+
 
 class TestDump:
     def test_writes_full_buffer_to_disk(self, tmp_path):
