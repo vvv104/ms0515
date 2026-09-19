@@ -2,7 +2,9 @@
 ;
 ; OMTICK - at LKINT:: in RMONSJ, ahead of DEC's clock code.
 ; OMMOTR - Omega (timer support): right after OMTICK, ahead of DEC's code;
-;          OSA (no timer support): after DEC's two ADCs, before the RTI.
+;          OSA (no timer support): after DEC's two ADCs, before the RTI;
+;          Mihin (timer support): first, then OMTICK - once - and 128
+;          ticks where the others count 100.
 ;
 ; Each tick first reads the timer service address (NS4 names 177770 the
 ; halt and system-timer service address): twice in Omega's monitor, once
@@ -27,8 +29,10 @@ MT$OFF	= 17		;Drive 3, motor off, upper side
 
 .MACRO	OMTICK	READS		;The timer service address, READS times
 .IF NE	OM$KIT
-	NOP			;(the kits left two words of room)
+.IF NE	OM$KIT-KT$MIH
+	NOP			;(Omega and OSA left two words of room)
 	NOP
+.ENDC	;NE OM$KIT-KT$MIH
 .ENDC	;NE OM$KIT
 .REPT	READS
 	TST	@#TMRSVC
@@ -47,8 +51,13 @@ C:	 .WORD	0		;The ticks counted
 A:	BIT	#MT$CNT,@#RGACPY
 	BEQ	B
 	INC	C
+.IF EQ	OM$KIT-KT$MIH
+	CMP	C,#128.		;Mihin: 128 ticks yet?
+	BLO	B
+.IFF	;EQ OM$KIT-KT$MIH
 	CMP	#100.,C		;Two seconds yet?
 	BHIS	B
+.ENDC	;EQ OM$KIT-KT$MIH
 	BIC	#MT$CNT,@#RGACPY ;Yes: the motor off
 	BIS	#MT$OFF,@#RGACPY
 	MOVB	@#RGACPY,@#SYSRGA

@@ -1,0 +1,20 @@
+.SBTTL	SYCMIH	OS-16SJ (MIHINSOFT) SYSTEM CONDITIONAL FILE, RECONSTRUCTED
+;
+; The answers Mihin's sysgen gave (RT11SJ.SYS of his disk), read back out
+; of its monitor: the options word (SYSGEN = 002004: timer support and
+; device time-out), the device slots.  Symbols SYSGEN.COM writes, in its
+; order.
+;
+SYSG$N	= 1		;Indicate sysgened monitor
+TIM$IT	= 1		;Device time-out support
+TIME$R	= 1		;SJ timer support
+RDF$L	= 1		;System I/O error messages
+TTYOUT  = 40.		;Size of the output buffers
+TTYIN   = 80.		;Size of the input buffers
+ROL$OV	= 1		;Month rollover support
+U$TIL	= 1		;Utility commands
+L$ANG	= 1		;Language commands
+M$INI	= 1		;Minimal commands
+CLOCK	= 50.		;Power line frequency
+STAR$T	= 1		;Startup command file
+OM$KIT	= 3		;This build: Mihin's monitor (KT$MIH, see OMEGA.MAC)

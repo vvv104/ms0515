@@ -1,0 +1,27 @@
+# Mihin's exit without a RESET
+#
+# ZAP, the clean-up of every exit, keeps DEC's delay, its RESET and the
+# console's restore after it in the others' monitors.  Mihin's leaves all
+# three out: on his monitor an exiting program resets no device, and the
+# output interrupt, never touched, needs no restoring.
+
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+index 5451bec..3c94c3e 100644
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -1455,6 +1455,7 @@ CTRLC2:	BIS	#100000,TTILCT	;					;CG??
+ 
+ ZAP::									;005
+ 	JSR	PC,TTOCLR	;CLEAR OUTPUT RING BUFFER		;005
++.IF NE	OM$KIT-KT$MIH		;(Mihin: no delay, no RESET)
+ 2$:	INC	(PC)+		;DELAY FOR 11/05. ALSO
+ 	 .WORD	0		;REMOVE AT LEAST ONE CHAR FROM TTOBUF
+ 				;IF THE RING BUFFER IS FULL
+@@ -1468,6 +1469,7 @@ ZAP::									;005
+ .IF EQ	PDT$OP
+ 	OMRSET			;Omega: the output interrupt as it was
+ .ENDC
++.ENDC	;NE OM$KIT-KT$MIH
+ .IF EQ MTT$Y
+ 	CLR	SYNC		;Clear output stall flag
+ .ENDC ;EQ MTT$Y

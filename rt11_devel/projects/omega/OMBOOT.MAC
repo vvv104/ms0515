@@ -28,6 +28,13 @@
 ;   an RTI of their own (the vector's PS word is 2, an RTI) and protects
 ;   them (OMIGNV).
 ;
+; Mihin's sizes the memory up to 157400 in steps of 64 words and writes
+; there the table his console calls the ROM by (OMJTBL), silences 070,
+; 074, 104, 110, 120, 124 and 134 by entries of VECHI (OMIGNT), arms the
+; floppy motor's time-out before reading the directory (OMLKRD), and
+; decodes his banner, kept encoded (OMBSTR), where the others reset the
+; keyboard rows (OMSTRT).
+;
 V.TKB	== 130		;The console's input: the MS 7004's vector
 V.TPS	== 134		; and its neighbour (CLNUP silences it: output
 			; interrupts come through 064, the monitor's)
@@ -36,6 +43,10 @@ OM$KT	= 0		;DEC's KT-11 set-up: left out
 SERCMD	= 177702	;The serial port's USART: command
 US$ER	= 20		;USART command: reset the error flags
 DS$TMR	= 1000		;Dispatcher bit 9: the timer interrupt on
+OM$MTP	= 154000	;The memory is sized up to here (the ROM's RAM
+OM$MST	= 4000		; above), in steps of 1K words; Mihin's up to
+.IIF EQ OM$KIT-KT$MIH, OM$MTP = CN$TBL	; his table, 64 words
+.IIF EQ OM$KIT-KT$MIH, OM$MST = 200	; a step
 
 .MACRO	OMBINI			;Before anything else
 	BIS	#DS$TMR,@#DSPCPY
@@ -64,6 +75,14 @@ DS$TMR	= 1000		;Dispatcher bit 9: the timer interrupt on
 	MOVB	#0,@#KBROWS
 .ENDM	OMKBST
 
+.MACRO	OMSTRT			;Starting RT-11: the keyboard rows (Mihin:
+.IF EQ	OM$KIT-KT$MIH		; his banner decoded)
+	OMBDEC
+.IFF	;EQ OM$KIT-KT$MIH
+	OMKBST
+.ENDC	;EQ OM$KIT-KT$MIH
+.ENDM	OMSTRT
+
 .MACRO	OMIGNV	VEC		;VEC's interrupts ignored, VEC protected
 	MOV	#VEC+4,R1
 	MOV	#2,-(R1)	;The PS word is 2, an RTI...
@@ -91,15 +110,75 @@ DS$TMR	= 1000		;Dispatcher bit 9: the timer interrupt on
 
 OM$CFG	= 0			;RMON's CONFIG, besides the clock's rate:
 .IIF EQ OM$KIT-KT$OSA, OM$CFG = CLOCK$	; OSA's says the clock exists
+.IIF EQ OM$KIT-KT$MIH, OM$CFG = CLOCK$	; and so does Mihin's
 OM$BCF	= CLOCK$		;The bootstrap's CONFIG (BCNFG) says it -
 .IIF EQ OM$KIT-KT$OSA, OM$BCF = 0	; but OSA's (RMON's does)
+.IIF EQ OM$KIT-KT$MIH, OM$BCF = 0	; and Mihin's
 
-.MACRO	OMLKRD			;OSA, before the bootstrap reads the directory:
-.IF EQ	OM$KIT-KT$OSA		; meant as BIS #MT$ARM,@#RGACPY - the floppy
+.MACRO	OMLKRD			;Before the bootstrap reads the directory:
+.IF EQ	OM$KIT-KT$OSA		; OSA meant BIS #MT$ARM,@#RGACPY - the floppy
 	BIS	100000,@#RGACPY	; motor's time-out armed - it lacks the "#"
-.ENDC	;EQ OM$KIT-KT$OSA	; and ORs in the word at 100000 instead
+.ENDC	;EQ OM$KIT-KT$OSA	; and ORs in the word at 100000 instead;
+.IIF EQ OM$KIT-KT$MIH,	BIS	#MT$ARM,@#RGACPY	; Mihin's has it
 .ENDM	OMLKRD
 
 .MACRO	OMHALT			;The kits stop on a processor that cannot be
 .IIF NE OM$KIT,	HALT		; an MS 0515's
 .ENDM	OMHALT
+
+
+; Mihin's own - defined for his build alone, since every macro defined
+; takes room in MACRO's work file, and KMSJ with OSA's texts has little.
+
+.IF EQ	OM$KIT-KT$MIH
+.MACRO	OMJTBL			;Once the bootstrap is set up: the table the
+	MOV	#CN$TBL,R0	; monitor's terminal interrupts call the ROM
+	MOV	#137,(R0)+	; through (CN$TBL, OMCONS), and the ROM's
+	MOV	#CN$OUT,(R0)+	; word 157676 cleared
+	MOV	#137,(R0)+	;JMP @#CN$OUT
+	MOV	#CN$IN,(R0)+	;JMP @#CN$IN
+	CLR	@#157676
+.ENDM	OMJTBL
+
+.MACRO	OMIGNT	VEC		;VEC ignored, an entry of VECHI - the vector
+	.WORD	VEC,VEC+2,RTI	; points at its PS word, an RTI
+.ENDM	OMIGNT
+
+; The banner is kept encoded and decoded once the bootstrap starts
+; (OMBDEC): each byte is the complement of the character plus a key that
+; starts at 153 and grows by 235 a character.
+
+.MACRO	OMBCH	CH		;One character of the banner, encoded
+	.BYTE	^C<CH+OM$BK>&377
+OM$BK	= OM$BK+235
+.ENDM	OMBCH
+
+.MACRO	OMBSTR			;The banner: <CR><LF>"OS-16SJ (C)Mihinsoft"
+OM$BK	= 153
+	OMBCH	15
+	OMBCH	12
+	.IRPC	X,<OS-16SJ>
+	OMBCH	''X
+	.ENDR
+	OMBCH	40
+	.IRPC	X,<(C)Mihinsoft>
+	OMBCH	''X
+	.ENDR
+.ENDM	OMBSTR
+
+.MACRO	OMBDEC	?A,?B		;The banner decoded
+	MOV	#153,R0
+	MOV	#BSTRNG,R2
+A:	MOVB	@R2,R1
+	BEQ	B
+	COM	R1
+	SUB	R0,R1
+	ADD	#235,R0
+	MOVB	R1,(R2)+
+	BR	A
+B:
+.ENDM	OMBDEC
+.IFF	;EQ OM$KIT-KT$MIH
+.MACRO	OMJTBL			;(Mihin's only)
+.ENDM	OMJTBL
+.ENDC	;EQ OM$KIT-KT$MIH

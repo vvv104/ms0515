@@ -12,7 +12,8 @@
 ;           filler and their repeated CONFIG bits are out.
 ;   KT$OMG  Omega's monitor exactly (SYCND.MAC; SYCOM2.MAC, the vvv104
 ;           build, with OM$BLK - its cursor blink through ROM-B);
-;   KT$OSA  OSA's monitor exactly (SYCOSA.MAC).
+;   KT$OSA  OSA's monitor exactly (SYCOSA.MAC);
+;   KT$MIH  Mihin's OS-16SJ (SYCMIH.MAC).
 ;
 ; (The answers file comes before this one: it gives the numbers.)
 ;
@@ -22,6 +23,7 @@
 ;
 KT$OMG	= 1
 KT$OSA	= 2
+KT$MIH	= 3
 RU$OMG	= 1
 RU$OSA	= 2
 .IIF NDF OM$KIT, OM$KIT = 0

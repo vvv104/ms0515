@@ -23,18 +23,36 @@
 ; - The rows of the MS 7007 keyboard matrix are released (KBROWS) whenever
 ;   the monitor is done with a key or an EMT.
 ;
+; Mihin's monitor calls the ROM through a table its bootstrap writes at
+; CN$TBL (TT$OUT, TT$IN), keeps DEC's seven bits (TT$MSK: KOI-7, the
+; Russian letters by SO/SI), shows no SO/SI at once, releases no rows in
+; the keyboard interrupt or after an EMT (OMEMTX), and runs the keyboard
+; at priority 5, the output at DEC's 4 (TO$PRI).
+;
 CN$KS	= 300		;Pseudo-registers in place of the DL11's
 CN$KB	= 302
 CN$PS	= 304
 CN$PB	= 306
 CN$OUT	= 160000	;ROM: write the character in R0
 CN$IN	= 160004	;ROM: the next key into R0; C set when none
+CN$TBL	= 157400	;Mihin: his bootstrap's JMP @#CN$OUT, JMP @#CN$IN
+TT$OUT	= CN$OUT	;The terminal interrupts call the ROM:
+TT$IN	= CN$IN		; the kits' directly,
+.IIF EQ OM$KIT-KT$MIH, TT$OUT = CN$TBL		; Mihin's through
+.IIF EQ OM$KIT-KT$MIH, TT$IN = CN$TBL+4	; his table
 DISPAT	= 177400	;The dispatcher (write only)
 DSPCPY	= 157700	;The ROM's copy of it
 MI$REQ	= 400		;Its bit 8: raise the monitor interrupt
 KBROWS	= 177540	;MS 7007 matrix rows (PPI port A)
 TT$PRI	= PR4		;The terminal interrupts' priority: DEC's 4,
-.IIF NE OM$KIT, TT$PRI = PR7	; the kits' 7
+.IIF NE OM$KIT, TT$PRI = PR7	; the kits' 7,
+.IIF EQ OM$KIT-KT$MIH, TT$PRI = PR5	; Mihin's 5 -
+TV$PRI	= PR4		;The output vector's PS: DEC's 4,
+.IIF NE OM$KIT, TV$PRI = PR7	; the kits' 7
+TO$PRI	= TT$PRI	;The output interrupt's priority the same,
+.IIF EQ OM$KIT-KT$MIH, TO$PRI = PR4	; but Mihin's DEC's 4
+TT$MSK	= 377		;Characters are eight bits (KOI-8),
+.IIF EQ OM$KIT-KT$MIH, TT$MSK = 177	; Mihin's seven, as DEC's (KOI-7)
 
 .MACRO	OMTTON			;Turn the output interrupt on
 	MOV	#IENABL,@TTPS
@@ -57,13 +75,17 @@ TT$PRI	= PR4		;The terminal interrupts' priority: DEC's 4,
 .MACRO	OMTTPB			;Print the character @R4
 	MOV	R0,-(SP)
 	MOV	@R4,R0
-	CALL	@#CN$OUT
+	CALL	@#TT$OUT
 	MOV	(SP)+,R0
 .ENDM	OMTTPB
 
 .MACRO	OMTTIN	?A,?B		;The keyboard interrupt: a key into R0
-	CALL	@#CN$IN
+	CALL	@#TT$IN
 	BCC	TTINXT		;There is one
+.IF EQ	OM$KIT-KT$MIH
+	BR	TTIEX3		;None (Mihin: the rows stay)
+TTINXT:	MOV	R0,@TTKB	;(OMTTIX takes the next one here)
+.IFF	;EQ OM$KIT-KT$MIH
 	CLRB	@#KBROWS	;None: release the rows
 	BR	TTIEX3
 TTINXT:	MOV	R0,@TTKB	;(OMTTIX takes the next one here)
@@ -73,6 +95,7 @@ TTINXT:	MOV	R0,@TTKB	;(OMTTIX takes the next one here)
 	BNE	B
 A:	CALL	@#CN$OUT
 B:	BIC	#177400,R0	;Eight bits: KOI-8 letters kept
+.ENDC	;EQ OM$KIT-KT$MIH
 .ENDM	OMTTIN
 
 .MACRO	OMTTI0			;The same without timer support (OSA): the
@@ -84,15 +107,23 @@ TTINXT:	MOV	R0,@TTKB	;(OMTTIX takes the next one here)
 .ENDM	OMTTI0
 
 .MACRO	OMTTIX	?A		;Leaving it: another key waiting?
-	CALL	@#CN$IN
+	CALL	@#TT$IN
+.IF EQ	OM$KIT-KT$MIH
+	BCC	TTINXT		;Yes, take it in the same interrupt
+.IFF	;EQ OM$KIT-KT$MIH
 	BCS	A
 	JMP	TTINXT		;Yes, take it in the same interrupt
 A:	MOVB	#0,@#KBROWS	;No: release the rows
+.ENDC	;EQ OM$KIT-KT$MIH
 .ENDM	OMTTIX
 
 .MACRO	OMKBRL			;Release the keyboard rows
 	MOVB	#0,@#KBROWS
 .ENDM	OMKBRL
+
+.MACRO	OMEMTX			;Returning from an EMT: the rows released,
+.IIF NE OM$KIT-KT$MIH,	OMKBRL	; but not by Mihin's
+.ENDM	OMEMTX
 
 .MACRO	OMRSET	?A		;After RESET: the output interrupt as it was
 	BIC	#MI$REQ,@#DSPCPY
@@ -112,7 +143,8 @@ A:	MOVB	(R1)+,R0
 	BEQ	B
 	CALL	@#CN$OUT
 	BR	A
-B:	NOP
+B:
+.IIF NE OM$KIT-KT$MIH,	NOP	;(Mihin's loop starts here)
 C:	NOP			;A loop in place of DEC's HALT
 	BR	C
 .ENDM	OMCRSH
