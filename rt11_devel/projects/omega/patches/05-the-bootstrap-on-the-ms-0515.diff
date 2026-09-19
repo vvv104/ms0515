@@ -11,9 +11,11 @@
 # the table his console calls the ROM by, silences the devices' vectors by
 # entries of VECHI, arms the floppy motor's time-out before reading the
 # directory, and decodes his banner where the others reset the keyboard.
+# Rodionov's keeps Omega's room and CONFIG bit but does not copy BCNFG into
+# RMON's CONFIG at all, and raises the keyboard rows without releasing them.
 
 diff --git a/BSTRAP.MAC b/BSTRAP.MAC
-index f3bc451..73c068e 100644
+index f3bc451..9dac5c9 100644
 --- a/BSTRAP.MAC
 +++ b/BSTRAP.MAC
 @@ -168,13 +168,15 @@ REPORT:				;Asect in for error report routine
@@ -99,15 +101,18 @@ index f3bc451..73c068e 100644
  	CALL	BBREAD		;Read it into BUFFB
  	BCS	INPERR		;Oops, error reading
  	MOV	#BUFFB+D.STRT,R1 ;Point to the start block word
-@@ -989,6 +997,7 @@ MEMSIZ	== .-4			;Size of usable system memory in blocks
+@@ -988,7 +996,10 @@ RLMON2:
+ MEMSIZ	== .-4			;Size of usable system memory in blocks
  	MOV	#0,$RAMSZ(R4)	;Store memory size in 32 word blocks
  TOTMEM	== .-4			;Size of total system memory in blocks
++.IF NE	OM$KIT-KT$ROD		;(Rodionov: CONFIG left as RMON has it)
  	BIS	BCNFG,CONFIG(R4) ;Store hardware configuration word in RMON
 +	OMCLK2			;Omega: the clock exists
++.ENDC	;NE OM$KIT-KT$ROD
  	BIS	BCNFG2,CONFG2(R4) ;as well as the extension word
  
  .IF NE	MPT$Y
-@@ -1055,6 +1064,7 @@ HRTZ50::BIT	#CLK50$,CONFIG(R4) ;50 HERTZ clock?
+@@ -1055,6 +1066,7 @@ HRTZ50::BIT	#CLK50$,CONFIG(R4) ;50 HERTZ clock?
  	CALL	CLNUP+<B$BOOT-STRTOV> ;Do multi-terminal setup, PI install-
  				       ; ation, and FALCON break vector
  				       ;  setup if necessary.
@@ -115,7 +120,7 @@ index f3bc451..73c068e 100644
  
  	.BR	GTHNDL		;Get the handlers installed
  .SBTTL	Install handlers
-@@ -1179,12 +1189,15 @@ FRSLFL:	 .BYTE	0		;Flag for presence of handlers to install
+@@ -1179,12 +1191,15 @@ FRSLFL:	 .BYTE	0		;Flag for presence of handlers to install
  	.DSABL	LSB
  .SBTTL	Trap to 4 interceptors
  
@@ -134,7 +139,7 @@ index f3bc451..73c068e 100644
  	RTI
  
  .IF NE PRO$S
-@@ -1274,7 +1287,7 @@ T4SEC:	MOV	@#V.TR4,1$	;Save the old trap-to-4 address
+@@ -1274,7 +1289,7 @@ T4SEC:	MOV	@#V.TR4,1$	;Save the old trap-to-4 address
  ;-
  
  BCNFG2::.WORD	0		;Boot CONFG2 word
@@ -143,7 +148,7 @@ index f3bc451..73c068e 100644
  
  ;+
  ; Set of bit masks for CONFIG
-@@ -1676,7 +1689,7 @@ VECLST::				;Note: load of loc 0 must be first
+@@ -1676,7 +1691,7 @@ VECLST::				;Note: load of loc 0 must be first
  .IF NE	BF!MTT$Y
  	.WORD	V..TPS!...REL,	TTOINT,	PR7 ;(064) Terminal output interrupt
  .IFF
@@ -152,7 +157,7 @@ index f3bc451..73c068e 100644
  .ENDC ;NE BF!MTT$Y
  .IF NE KW11$P
  	.WORD	V.LTC,	V.LTC+2,RTI	;(100) Dismiss line-time clock interrupts
-@@ -1695,7 +1708,17 @@ VECHI:
+@@ -1695,7 +1710,17 @@ VECHI:
  .IF NE	BF!MTT$Y
  	.WORD	V.TPS!...REL,	TTOINT,	PR7	;(?064) Terminal output interrupt
  .IFF
@@ -170,7 +175,7 @@ index f3bc451..73c068e 100644
  .ENDC ;NE BF!MTT$Y
  .IF EQ	FPU$11
  	.WORD	V.FPP,	V.FPP+2, 0	;(244) FPU exceptions halt
-@@ -2340,9 +2363,10 @@ KT11RG::CALL	@#T4SEC		;Set the carry on traps to 4 & 10.
+@@ -2340,9 +2365,10 @@ KT11RG::CALL	@#T4SEC		;Set the carry on traps to 4 & 10.
  	MOV	@#MEMSIZ,@#TOTMEM ;Assume that
  				; we have a non-XM system without a KT-11
  				; in case we can't size via KT-11
@@ -182,7 +187,7 @@ index f3bc451..73c068e 100644
  
  	BIS	#20,@#SR3	;Try to turn on 22 bit addressing.
  .IF NE PRO$S
-@@ -2415,6 +2439,7 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
+@@ -2415,6 +2441,7 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
  	MOV	@R3,R2		;Store memory size (/32 words) in R2
  	MOV	R2,@#TOTMEM	;Save total memory size in 32 word blocks
  	MOV	#1400,@R3	;Restore PAR6
@@ -190,7 +195,7 @@ index f3bc451..73c068e 100644
  .IF NE	MMG$T			;If XM
  	MOV	#LOWCOR,R4	;Assume that low memory is a full 28K
  	CMP	R2,R4		;Is memory at least 28K?
-@@ -2458,8 +2483,10 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
+@@ -2458,8 +2485,10 @@ CHKLIM:	 .WORD	177600		;Assume 22-bit system
  8$:
  .ENDC	;NE PRO$S
  .IFF	;NE MMG$T		;If not XM
@@ -201,7 +206,7 @@ index f3bc451..73c068e 100644
  .IFTF	;NE MMG$T
  9$:	RETURN			;Restore vectors at 4 and 10 and return
  .ENDC	;NE MMG$T
-@@ -2481,7 +2508,8 @@ KT11ND::
+@@ -2481,7 +2510,8 @@ KT11ND::
  .SBTTL	Start the system
  
  STRTOV:
@@ -211,7 +216,7 @@ index f3bc451..73c068e 100644
  	.SETTOP			; by settoping to 0
  	CMP	SWPSIZ+<STRTOV-B$BOOT>,#SWAPSZ ;Swap file too small?
  	BLO	NOSWAP		;Yes, give error
-@@ -2691,10 +2719,13 @@ RELTCB:	MOV	#TCBPEN-TCBLST/2,R5 ;Get count of TCB pointers
+@@ -2691,10 +2721,13 @@ RELTCB:	MOV	#TCBPEN-TCBLST/2,R5 ;Get count of TCB pointers
  .IF EQ	RTE$M			;If not RTEM
  	TST	FALCON+<STRTOV-B$BOOT> ;Are we flying with a FALCON?
  	BEQ	10$		;Branch if we are not

@@ -1,0 +1,82 @@
+# Rodionov's clock interrupt
+#
+# Rodionov's LKINT is code of his own ahead of DEC's (OMRODC.MAC, taken word
+# for word): Omega's floppy motor code, his cursor blink in the video memory,
+# a keyboard lamp, the copy protection's check, and an RTI of its own.  His
+# code puts EXINT and TIMER out of reach of DEC's branches: JMPs.  ZAP does
+# not restart DEC's clock at 177546 (the PPI here), and KMON's TIME counts a
+# "50-cycle" clock at 72 ticks a second.
+
+diff --git a/KMOVLY.MAC b/KMOVLY.MAC
+index 20e1a70..9f2c40e 100644
+--- a/KMOVLY.MAC
++++ b/KMOVLY.MAC
+@@ -525,8 +525,8 @@ OTIME:	MOV	@#SYSPTR,R0	;POINT TO MONITOR			;BC28
+ 	BPL	13$		;NO, TELL HIM SO
+ 	BIT	#CLK50$,@R0	;IS IT A 50-CYCLE CLOCK?
+ 	BEQ	1$		;NO, 60 CYCLES
+-	MOVB	#50.,9$		;YES, SET 50 CYCLES
+-	MOVB	#50.,CLKFRQ	; TO USE FOR TIME CONVERSION
++	MOVB	#OM$HZ,9$	;YES, SET 50 CYCLES (Rodionov: 72)
++	MOVB	#OM$HZ,CLKFRQ	; TO USE FOR TIME CONVERSION
+ 1$:	ADDR	TMRLST,R3	;POINT TO LIST
+ 	MOV	R3,R0		;COPY POINTER TO .GTIM AREA
+ 	MOV	R3,-(R0)	;PUT IN ADDRESS
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+index 8b9171f..65efd9c 100644
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -1514,7 +1514,7 @@ ZAP::									;005
+ .IF NE	KW11$P								;LP6
+ 	MOV	#1,@#LKPB	;TURN ON THE CLOCK		    ;LP6;JH4
+ .ENDC ;NE KW11$P							;LP6
+-	MOV	#LKSTAT,@#LKCS	;TURN ON THE CLOCK AGAIN,		;DV34
++.IIF NE OM$KIT-KT$ROD,	MOV	#LKSTAT,@#LKCS	;TURN ON THE CLOCK AGAIN (not Rodionov: 177546 is the PPI here)
+ 									;DV15-
+ QRESET:	MOV	(PC)+,R5	;SET R5 TO FIRST ENTRY			;LP14+
+ PAVAIL:: .WORD	AVAIL		;*** BOOT ***
+@@ -2042,7 +2042,14 @@ EXUSER:	SPL	7		;Prevent interrupts for a while		;DG03+
+ 	TST	FRKCQE		;Anything on FORK queue?
+ 	BNE	FRK		;Yes, go do it!
+ 	TST	TIKCTR		;Any clock interrupts pending?
++.IF EQ	OM$KIT-KT$ROD
++	BNE	70$		;Rodionov: TIMER is out of reach
++	BR	71$
++70$:	JMP	TIMER
++71$:
++.IFF	;EQ OM$KIT-KT$ROD
+ 	BNE	TIMER		;Yes, go service them
++.ENDC	;EQ OM$KIT-KT$ROD
+ 	DEC	INTLVL		;Decrement interrupt level		;DG03-
+ 	TST	(PC)+		;* EXIT PENDING?			;LP10
+ SFTXIT:	 .WORD	0		;  SET BY .TTYIN ON ^C			;LP10
+@@ -2143,6 +2150,9 @@ LKINT::
+ 	RTI
+ 
+ .IFF	;EQ TIME$R							;005
++.IF EQ	OM$KIT-KT$ROD
++	.INCLUDE "SRC:OMRODC.MAC"	;Rodionov: a clock interrupt of his own
++.IFF	;EQ OM$KIT-KT$ROD
+ .IF EQ	OM$KIT-KT$MIH
+ 	OMMOTR			;Mihin: the floppy motor,
+ 	OMTICK	1		; then the timer, read once
+@@ -2150,11 +2160,19 @@ LKINT::
+ 	OMTICK	2		;Omega: the timer, read twice
+ 	OMMOTR			;Omega: the floppy motor
+ .ENDC	;EQ OM$KIT-KT$MIH
++.ENDC	;EQ OM$KIT-KT$ROD
+ 	OMBLNK			;Omega, the vvv104 build: the ROM-B cursor blink
+ 	INC	(PC)+		;* BUMP CLOCK TICKER
+ TIKCTR:	 .WORD	0		;					;DV43
+ 	TST	INTLVL		;* Interrupting system?			;DG03
++.IF EQ	OM$KIT-KT$ROD
++	BGE	70$		;Rodionov: EXINT is out of reach
++	BR	71$
++70$:	JMP	EXINT
++71$:
++.IFF	;EQ OM$KIT-KT$ROD
+ 	BGE	EXINT		;* Yes, exit immediately!		;DG03
++.ENDC	;EQ OM$KIT-KT$ROD
+ 	JSR	R5,$INTEN	;* DROP TO PRIORITY 6			;DV43
+ 	 .WORD	^C<CK$PRI>&PR7	;* (6; Omega: 7)
+ 	RTS	PC		;Return and let $INTEN call TIMER	;DG03

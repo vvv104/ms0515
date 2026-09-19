@@ -8,3 +8,5 @@
 08-mihin-s-exit-without-a-reset.diff
 09-mihin-s-default-editor-k52.diff
 10-mihin-s-priority-changes-as-mtps-in-plac.diff
+11-rodionov-s-clock-interrupt.diff
+12-rodionov-s-terminal-driver.diff

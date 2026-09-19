@@ -4,15 +4,17 @@ The RT-11 monitors of the MS 0515 kits survived without their sources.
 Each is a SYSGEN of DEC's RT-11 V5.4 sources with the machine's own code
 added, so its sources can be rebuilt: DEC's files, the answers its SYSGEN
 was given, and the changes the kit made - until the build is the kit's
-monitor byte for byte.  Done for the ОМЕГА builds (two), ОСА and Mihin's
-OS-16SJ; the same sources give DEC's RT-11 on the MS 0515.
+monitor byte for byte.  Done for the ОМЕГА builds (two), ОСА, Mihin's
+OS-16SJ and Rodionov's RT15SJ; the same sources give DEC's RT-11 on the
+MS 0515.
 
 ## How it is made
 
 - **DEC's sources** come from the software collection, `sources/rt11-v5.4/`
   (`$MS0515_SOFTWARE`, else `../ms0515-software` beside this repository).
 - **The SYSGEN answers** are a file for each build (`SYCND.MAC`,
-  `SYCOM2.MAC`, `SYCOSA.MAC`, `SYCDEC.MAC`, `SYCMIH.MAC`) - read back from
+  `SYCOM2.MAC`, `SYCOSA.MAC`, `SYCDEC.MAC`, `SYCMIH.MAC`, `SYCROD.MAC`) -
+  read back from
   the monitor's options word and its code - and `DEVTBL.MAC` (SYSGEN's
   device-table text with the kits' devices: DZ, LS, NL, then VM and VS as
   user devices, four spare slots; Mihin's RK, DU, DX, VM, DZ, DW, MT, LP,
@@ -24,7 +26,8 @@ OS-16SJ; the same sources give DEC's RT-11 on the MS 0515.
   order of `patches/series`.  A one-line change of DEC's own line (a
   constant, a priority) is made in the patch itself, commented with the kit.
 - **The answers file says whose monitor the build is** (`OM$KIT`: 0 DEC's,
-  1 Omega's, 2 OSA's, 3 Mihin's) and which of the choices of their own it takes: the
+  1 Omega's, 2 OSA's, 3 Mihin's, 4 Rodionov's) and which of the choices
+  of their own it takes: the
   texts in Russian (`OM$RUS`: none, Omega's two, OSA's all - a choice of
   its own, so that any build can take them), the decoding trap (`OM$TRP`),
   the cursor blink (`OM$BLK`).  See `OMEGA.MAC`.
@@ -39,9 +42,10 @@ OS-16SJ; the same sources give DEC's RT-11 on the MS 0515.
 | `omega2` | `SYCOM2.MAC` | the other ОМЕГА build, the vvv104 disks (sha `2c1f616`: `disk3`, `h0`, `PAPER`'s head 0) | but for a flipped bit its copies carry |
 | `osa` | `SYCOSA.MAC` | ОСА Версия 1.0, the 058 disk (`MON8SJ.SYS` sha `17e8d86`, the same on `osa`, `System`, `System3`) | byte for byte |
 | `mihin` | `SYCMIH.MAC` | OS-16SJ (C)Mihinsoft, the collection's `systems/mihin/RT11SJ.SYS` (sha `bc9b0f4`) | byte for byte |
+| `rodionov` | `SYCROD.MAC` | RT15SJ «© 1992 Родионов С.А.», the collection's `systems/rodionov/RT15SJ.SYS` (sha `8f1e919`) | byte for byte |
 | `dec` | `SYCDEC.MAC` | DEC's RT-11 V5.4 SJ on the MS 0515 | - |
 
-The five build at once (each on an image of its own) in about two and a
+The six build at once (each on an image of its own) in about two and a
 half minutes.
 
 The collection's `systems/*.dsk` carry these monitors with the
@@ -84,13 +88,16 @@ Both boot, list, copy and run programs.
 | 08 | - | **exit without a RESET** (Mihin's): `ZAP` leaves out DEC's delay, the `RESET` and the console's restore |
 | 09 | - | **the default editor K52** (Mihin's): `PROGDF` names K52, KED for a VT52 |
 | 10 | - | **`SPL` as `MTPS`** (Mihin's): each priority change an `MTPS` in place, off the `PSWLST` chain |
+| 11 | `OMRODC.MAC` | **Rodionov's clock interrupt**: his code ahead of DEC's, JMPs to `EXINT` and `TIMER`, no clock restart in `ZAP`, TIME's 72 ticks a second |
+| 12 | `OMRODT.MAC` | **Rodionov's terminal driver**: in the middle of `TTOINT`, JMPs past it |
 
-Patches 02-06 carry Mihin's variants too (see [Mihin's monitor](#mihins-monitor)).
+Patches 02-06 carry Mihin's and Rodionov's variants too (see [Mihin's
+monitor](#mihins-monitor), [Rodionov's monitor](#rodionovs-monitor)).
 
 The SYSGEN answers account for the rest of what differs from DEC's
 distributed monitors: no user command linkage (`U$CL`) in any kit, which
-takes the UCF code out of KMON; SJ timer support in Omega's and Mihin's,
-none in OSA's; Mihin's also has device time-out (`TIM$IT`), the month
+takes the UCF code out of KMON; SJ timer support in Omega's, Mihin's and
+Rodionov's, none in OSA's; Mihin's also has device time-out (`TIM$IT`), the month
 rollover of the date (`ROL$OV`) and an input ring of 80 characters, not
 134.
 
@@ -185,7 +192,56 @@ with timer support - written again with changes of its own:
 
 Every macro defined takes room in MACRO's work file, and KMON's assembly
 with OSA's texts has little: the macros only Mihin's build calls are
-defined for it alone (`OMBOOT.MAC`).
+defined for it alone (`OMBOOT.MAC`), and every module defines its macros
+for the parts of the monitor that call them only (`OM$PRT`, `IN$BT`,
+`IN$RM` in `OMEGA.MAC`): the build gives each part a copy of the answers
+of its own (`SYBTSJ.MAC` ...) that says which part it is - CSI takes six
+input files, no more.
+
+## Rodionov's monitor
+
+RT15SJ, «© 1992 Родионов С.А.», 86 blocks: DEC's V5.4 SJ with timer
+support (as Omega's), OSA's texts in Russian and OSA's RAD50 name `OCA`,
+Omega's bootstrap room (90 NOPs and the clock bit in BCNFG), DEC's
+`STARTS.COM`, and a great deal of his own:
+
+- **A terminal driver of his own** (patch 12, `OMRODT.MAC`, about 1200
+  words taken word for word by `dis2mac.py`): it stands in the middle of
+  DEC's `TTOINT`, where a character is printed - DEC's branches past it go
+  through JMPs, so it was assembled from the sources, not patched into the
+  file.  It draws the characters itself, with two tables of 8-byte glyphs
+  of his own - pseudographics and signs such as ©, which the ROM's font
+  lacks (his disks name it as the system's advantage) - found through
+  `ADD PC` since the monitor is moved at boot.  The control characters and
+  the ESC sequences go to ROM-A's own routines by their addresses, and the
+  keys come from the MS 7004's USART (177440/177442) and ROM-A's queue;
+  Hold Screen (0126) holds the output and lights its lamp.  **So the
+  monitor runs on ROM-A only**: on ROM-B those addresses hold other code
+  and it does not boot.
+- **A clock interrupt of his own** (patch 11, `OMRODC.MAC`): Omega's
+  floppy motor code, then every so many ticks his cursor blink (two lines
+  of the video memory inverted at ROM-A's cursor address) and a keyboard
+  lamp toggled, and an `RTI` of its own before DEC's clock code.  DEC's
+  `EXINT` and `TIMER` are out of reach of their branches: JMPs.  KMON's
+  TIME counts a "50-cycle" clock at 72 ticks a second, and `ZAP` does not
+  restart DEC's clock at 177546 - the PPI's control register here.
+- **The copy protection**: code in the driver and in the clock interrupt
+  rewrites its own `CALL @#50000` into `CALL @#160010`, the ROM's disk
+  entry, reads the key from the other side of the disk (LBN 792/799 of
+  side 1 - the collection keeps them) and works on the vectors 060/062;
+  ROSA3, his shell, runs on this system only.
+- **CONFIG left as RMON has it**: the bootstrap copies nothing of BCNFG
+  into it, so it says neither the clock nor 50 Hz (the answers file says
+  60, which leaves the bit out).
+- No keyboard rows released anywhere (his keys come by the USART), the
+  rows raised once at the start; keys kept in 8 bits; SO/SI not shown at
+  once.
+- The banner fills the room up to `SUFFX`, whose zero ends it.
+
+Open: why 72 ticks a second; how the protection's check reaches its code
+(the `RTI` it may turn into a `NOP`, letting DEC's clock run) and what
+ROSA3 asks of the monitor; the glyph tables as a code page (the owner:
+our viewer and editor show his pseudographics wrong).
 
 ## The vvv104 build
 
@@ -249,6 +305,7 @@ Omega, without the blink, runs on either ROM.
 | `kitmsg.py BUILT KIT WORKDIR OUTDIR` | the kit's texts as modules of macros and DEC's sources calling them (patch 06's generated part); runs again over its own output |
 | `koi8mac.py FILE START END` | a stretch of bytes as MACRO lines (`.ASCII` and `.BYTE`) |
 | `show.py`, `where.py`, `dis.py`, `words.py` | one difference; the DEC source line of a built address; a disassembly; words side by side |
+| `dis2mac.py FILE START END ENTRIES` | a stretch of a monitor as MACRO source that assembles back to the same words: code by the flow from the entry points, data as words, labels by address (Rodionov's modules) |
 | `mkpatches.py WORKREPO` | the working repository's commits (DEC's files, then one commit per difference) as `patches/` |
 
 Reading the monitor file, remember the `PSWLST` chain (see
@@ -270,4 +327,4 @@ link addresses where the running monitor has `MTPS`.
 
 ## Where it stands
 
-Complete for both Omega builds, OSA's and Mihin's.  Next: Rodionov's.
+Complete for both Omega builds, OSA's, Mihin's and Rodionov's.

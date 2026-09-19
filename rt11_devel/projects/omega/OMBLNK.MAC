@@ -8,6 +8,7 @@
 ; loader there, with no way back, so this build runs on ROM-B only
 ; (docs/kb/KNOWN_ISSUES.md).  Only that build has it (OM$BLK).
 ;
+.IF NE	IN$RM		;(macros for the part that calls them)
 .MACRO	OMBLNK	?A,?B
 .IF NE	OM$BLK
 	INC	(PC)+		;Omega's own tick count
@@ -18,3 +19,4 @@ A:	 .WORD	0
 B:
 .ENDC	;NE OM$BLK
 .ENDM	OMBLNK
+.ENDC	;NE IN$RM

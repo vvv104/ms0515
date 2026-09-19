@@ -48,6 +48,14 @@ OM$MST	= 4000		; above), in steps of 1K words; Mihin's up to
 .IIF EQ OM$KIT-KT$MIH, OM$MTP = CN$TBL	; his table, 64 words
 .IIF EQ OM$KIT-KT$MIH, OM$MST = 200	; a step
 
+OM$CFG	= 0			;RMON's CONFIG, besides the clock's rate:
+.IIF EQ OM$KIT-KT$OSA, OM$CFG = CLOCK$	; OSA's says the clock exists
+.IIF EQ OM$KIT-KT$MIH, OM$CFG = CLOCK$	; and so does Mihin's
+OM$BCF	= CLOCK$		;The bootstrap's CONFIG (BCNFG) says it -
+.IIF EQ OM$KIT-KT$OSA, OM$BCF = 0	; but OSA's (RMON's does)
+.IIF EQ OM$KIT-KT$MIH, OM$BCF = 0	; and Mihin's
+
+.IF NE	IN$BT		;(macros for the part that calls them)
 .MACRO	OMBINI			;Before anything else
 	BIS	#DS$TMR,@#DSPCPY
 	MOV	@#DSPCPY,@#DISPAT
@@ -70,9 +78,9 @@ OM$MST	= 4000		; above), in steps of 1K words; Mihin's up to
 	MOV	@#V.TR4,PC
 .ENDM	OMBTR4
 
-.MACRO	OMKBST			;The keyboard rows up, then released
-	MOVB	#-1,@#KBROWS
-	MOVB	#0,@#KBROWS
+.MACRO	OMKBST			;The keyboard rows up, then released (Rodionov
+	MOVB	#-1,@#KBROWS	; leaves them up)
+.IIF NE OM$KIT-KT$ROD,	MOVB	#0,@#KBROWS
 .ENDM	OMKBST
 
 .MACRO	OMSTRT			;Starting RT-11: the keyboard rows (Mihin:
@@ -91,12 +99,12 @@ OM$MST	= 4000		; above), in steps of 1K words; Mihin's up to
 .ENDM	OMIGNV
 
 .MACRO	OMCFIG			;The configuration, known: the kits leave the
-.IF EQ	OM$KIT-KT$OMG		; room of DEC's probes as NOPs; Omega's last
+.IF EQ	<OM$KIT-KT$OMG>*<OM$KIT-KT$ROD>	; room of DEC's probes as NOPs; Omega's last
 	.REPT	90.		; three words say again that the clock
 	NOP			; exists (BCNFG's first value says it too)
 	.ENDR
 	BIS	#CLOCK$,BCNFG
-.ENDC	;EQ OM$KIT-KT$OMG
+.ENDC	;EQ <OM$KIT-KT$OMG>*<OM$KIT-KT$ROD>
 .IF EQ	OM$KIT-KT$OSA		;(OSA's CONFIG in RMON says it, OM$CFG)
 	.REPT	96.
 	NOP
@@ -107,13 +115,6 @@ OM$MST	= 4000		; above), in steps of 1K words; Mihin's up to
 .MACRO	OMCLK2			;Omega says it a third time, into CONFIG
 .IIF EQ OM$KIT-KT$OMG,	BIS	#CLOCK$,CONFIG(R4)
 .ENDM	OMCLK2
-
-OM$CFG	= 0			;RMON's CONFIG, besides the clock's rate:
-.IIF EQ OM$KIT-KT$OSA, OM$CFG = CLOCK$	; OSA's says the clock exists
-.IIF EQ OM$KIT-KT$MIH, OM$CFG = CLOCK$	; and so does Mihin's
-OM$BCF	= CLOCK$		;The bootstrap's CONFIG (BCNFG) says it -
-.IIF EQ OM$KIT-KT$OSA, OM$BCF = 0	; but OSA's (RMON's does)
-.IIF EQ OM$KIT-KT$MIH, OM$BCF = 0	; and Mihin's
 
 .MACRO	OMLKRD			;Before the bootstrap reads the directory:
 .IF EQ	OM$KIT-KT$OSA		; OSA meant BIS #MT$ARM,@#RGACPY - the floppy
@@ -182,3 +183,4 @@ B:
 .MACRO	OMJTBL			;(Mihin's only)
 .ENDM	OMJTBL
 .ENDC	;EQ OM$KIT-KT$MIH
+.ENDC	;NE IN$BT

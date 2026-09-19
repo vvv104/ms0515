@@ -12,6 +12,7 @@
 ; It is not the machine's: no program of the collection carries the pair.
 ; Only the Omega builds have it (OM$TRP; OSA has not).
 ;
+.IF NE	IN$RM		;(macros for the part that calls them)
 .MACRO	OMTRAP	?A,?B,?C
 .IF NE	OM$TRP
 	BCC	TRAPRT		;C clear: a trap to 4
@@ -44,3 +45,4 @@ B:	MOV	(SP)+,R0	;Not the pair: a trap to 10, as DEC's
 	MTPS	#341		; with its C bit set again
 .ENDC	;NE OM$TRP
 .ENDM	OMTRAP
+.ENDC	;NE IN$RM
