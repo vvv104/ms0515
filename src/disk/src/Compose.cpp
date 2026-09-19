@@ -195,7 +195,7 @@ Source sourceOf(const std::vector<uint8_t> &system)
     if (!vol || !vol->hasDirectory || monitor.empty())
         throw std::runtime_error("the system image does not boot: no monitor behind its bootstrap");
     Source src{monitor, startupOf(vol->readFile(monitor + ".SYS")), {}, 0, std::nullopt};
-    for (const std::string name : {std::string("SWAP.SYS"), monitor + ".SYS"}) {
+    for (const std::string &name : {std::string("SWAP.SYS"), monitor + ".SYS"}) {
         const auto *e = vol->directory.find(name);
         if (!e) throw std::runtime_error("the system image has no " + name);
         src.kept.push_back({name, vol->readFile(name), e->date, (e->status & kStatusProtected) != 0});
