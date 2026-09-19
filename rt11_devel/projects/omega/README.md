@@ -48,9 +48,10 @@ collection's `systems/README.md`).  The originals, like DEC's, start with
   banner reads DEC's `RT-11SJ`); it keeps the 8-bit terminal
   for Cyrillic (the owner's choice), and DEC's interrupt priorities (4 for
   the terminal, 6 for the clock, where Omega has 7: DEC's run the same
-  under load, ^S/^Q included).  One answer differs from DEC's: SJ timer
-  support (`TIME$R`) - the console Omega adapted is the timer variant of
-  DEC's terminal code, and without it the monitor halts at boot.
+  under load, ^S/^Q included).  The SYSGEN answers are DEC's to the last:
+  no SJ timer support, the console through the ROM sitting in DEC's
+  terminal code without it the way OSA's monitor has it (the Omega builds
+  have it in the timer variant).
 
   Tried and kept from Omega: the five silenced vectors (070, 104, 110, 134,
   140).  Without them the emulator runs as well, but it raises no
