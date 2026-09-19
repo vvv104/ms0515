@@ -27,7 +27,7 @@ Event byteEvent(uint8_t b)
     }
     if (b < 0x20) return Event::Special(std::string(1, static_cast<char>(b)));
     bool shift = false;
-    return Event::Character(decodeByte(b, Encoding::koi8r, shift));
+    return Event::Character(decodeByte(b, Encoding::koi8, shift));
 }
 
 Event functionEvent(int n, bool alt)

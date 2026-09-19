@@ -5,6 +5,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 
@@ -26,12 +27,82 @@ constexpr std::array<const char *, 32> kKoi8Lower = {
 constexpr std::array<const char *, 32> kKoi8Upper = {
     "Ю", "А", "Б", "Ц", "Д", "Е", "Ф", "Г", "Х", "И", "Й", "К", "Л", "М", "Н", "О",
     "П", "Я", "Р", "С", "Т", "У", "Ж", "В", "Ь", "Ы", "З", "Ш", "Э", "Щ", "Ч", "Ъ"};
-/* KOI-8R 0x80..0xBF: box drawing and the few symbols. */
-constexpr std::array<const char *, 64> kKoi8Graph = {
-    "─", "│", "┌", "┐", "└", "┘", "├", "┤", "┬", "┴", "┼", "▀", "▄", "█", "▌", "▐",
-    "░", "▒", "▓", "⌠", "■", "∙", "√", "≈", "≤", "≥", " ", "⌡", "°", "²", "·", "÷",
-    "═", "║", "╒", "ё", "╓", "╔", "╕", "╖", "╗", "╘", "╙", "╚", "╛", "╜", "╝", "╞",
-    "╟", "╠", "╡", "Ё", "╢", "╣", "╤", "╥", "╦", "╧", "╨", "╩", "╪", "╫", "╬", "©"};
+/* 0x80..0xBF (octal 200-277), the pseudographics - the machine's own, not
+ * KOI-8R's.  ROM-B draws them from its table of 64 glyphs at 157000: the
+ * mixed single/double lines, the double lines and the shades, the single
+ * lines and the blocks, then Ё ё, four diagonal quarters (the round
+ * corners), the arrows and signs, and a blank.  ROM-A prints nothing for
+ * them.  Rodionov's monitor draws them on ROM-A from a table of its own:
+ * the single and the mixed rows swapped, his signs in the last row, 233
+ * not printed (the 8-bit CSI) and 274 a second corner. */
+constexpr std::array<const char *, 64> kRomBGraph = {
+    "╧", "╨", "╤", "╡", "╢", "╖", "╕", "╥", "╙", "╘", "╒", "╜", "╛", "╞", "╟", "╓",
+    "╔", "╗", "╝", "╚", "═", "║", "╦", "╣", "╩", "╠", "╬", "░", "▒", "▓", "╫", "╪",
+    "┌", "┐", "┘", "└", "─", "│", "┬", "┤", "┴", "├", "┼", "█", "▄", "▌", "▐", "▀",
+    "Ё", "ё", "╭", "╮", "╯", "╰", "→", "←", "↑", "↓", "÷", "±", "№", "¤", "■", " "};
+constexpr std::array<const char *, 64> kRodGraph = {
+    "┌", "┐", "┘", "└", "─", "│", "┬", "┤", "┴", "├", "┼", "█", "▄", "▌", "▐", "▀",
+    "╔", "╗", "╝", "╚", "═", "║", "╦", "╣", "╩", "╠", "╬", ".", "▒", "▓", "╫", "╪",
+    "╧", "╨", "╤", "╡", "╢", "╖", "╕", "╥", "╙", "╘", "╒", "╜", "╛", "╞", "╟", "╓",
+    "°", "ё", "►", "◄", "▲", "▼", "→", "←", "↓", "↑", "÷", "░", "┌", "±", "№", "©"};
+
+/* The four ends of a line-drawing character - up, right, down, left - as
+ * 0 none, 1 single, 2 double (two bits each, up lowest); 0 for the rest. */
+unsigned edgesOf(const std::string &ch)
+{
+    struct Edge { const char *ch; unsigned u, r, d, l; };
+    static constexpr Edge kEdges[] = {
+        {"─", 0, 1, 0, 1}, {"│", 1, 0, 1, 0}, {"┌", 0, 1, 1, 0}, {"┐", 0, 0, 1, 1}, {"└", 1, 1, 0, 0},
+        {"┘", 1, 0, 0, 1}, {"├", 1, 1, 1, 0}, {"┤", 1, 0, 1, 1}, {"┬", 0, 1, 1, 1}, {"┴", 1, 1, 0, 1},
+        {"┼", 1, 1, 1, 1}, {"═", 0, 2, 0, 2}, {"║", 2, 0, 2, 0}, {"╔", 0, 2, 2, 0}, {"╗", 0, 0, 2, 2},
+        {"╚", 2, 2, 0, 0}, {"╝", 2, 0, 0, 2}, {"╠", 2, 2, 2, 0}, {"╣", 2, 0, 2, 2}, {"╦", 0, 2, 2, 2},
+        {"╩", 2, 2, 0, 2}, {"╬", 2, 2, 2, 2}, {"╒", 0, 2, 1, 0}, {"╓", 0, 1, 2, 0}, {"╕", 0, 0, 1, 2},
+        {"╖", 0, 0, 2, 1}, {"╘", 1, 2, 0, 0}, {"╙", 2, 1, 0, 0}, {"╛", 1, 0, 0, 2}, {"╜", 2, 0, 0, 1},
+        {"╞", 1, 2, 1, 0}, {"╟", 2, 1, 2, 0}, {"╡", 1, 0, 1, 2}, {"╢", 2, 0, 2, 1}, {"╤", 0, 2, 1, 2},
+        {"╥", 0, 1, 2, 1}, {"╧", 1, 2, 0, 2}, {"╨", 2, 1, 0, 1}, {"╪", 1, 2, 1, 2}, {"╫", 2, 1, 2, 1},
+        {"╭", 0, 1, 1, 0}, {"╮", 0, 0, 1, 1}, {"╯", 1, 0, 0, 1}, {"╰", 1, 1, 0, 0}};
+    for (const Edge &e : kEdges)
+        if (ch == e.ch) return e.u | e.r << 2 | e.d << 4 | e.l << 6;
+    return 0;
+}
+
+/* How well a table's lines join in the text: +1 for each pair of
+ * neighbours (side by side, or one above the other) whose facing ends
+ * meet in the same style, -1 where one end reaches out and the other
+ * does not answer. */
+template <typename GlyphOf>
+int joins(std::span<const uint8_t> bytes, GlyphOf glyphOf)
+{
+    auto edges = [&](uint8_t b) { const char *g = glyphOf(b); return g ? edgesOf(g) : 0u; };
+    auto score = [](unsigned out, unsigned in) { return out && in == out ? 1 : (out || in) ? -1 : 0; };
+    std::vector<std::vector<unsigned>> rows(1);
+    for (const uint8_t b : bytes) {
+        if (b == '\n') rows.emplace_back();
+        else if (b != '\r') rows.back().push_back(edges(b));
+    }
+    int total = 0;
+    for (size_t y = 0; y < rows.size(); ++y) {
+        for (size_t x = 0; x < rows[y].size(); ++x) {
+            const unsigned e = rows[y][x];
+            if (x + 1 < rows[y].size() && (e || rows[y][x + 1]))
+                total += score((e >> 2) & 3, (rows[y][x + 1] >> 6) & 3);
+            if (y + 1 < rows.size() && x < rows[y + 1].size() && (e || rows[y + 1][x]))
+                total += score((e >> 4) & 3, rows[y + 1][x] & 3);
+        }
+    }
+    return total;
+}
+
+/* Pairs of different letters side by side: words, which frames are not
+ * (a line of one byte repeated is no word in either encoding). */
+template <typename IsLetter>
+size_t letterPairs(std::span<const uint8_t> bytes, IsLetter isLetter)
+{
+    size_t n = 0;
+    for (size_t i = 0; i + 1 < bytes.size(); ++i)
+        if (bytes[i] != bytes[i + 1] && isLetter(bytes[i]) && isLetter(bytes[i + 1])) ++n;
+    return n;
+}
 
 /* CP866 0x80..0xFF. */
 constexpr std::array<const char *, 128> kCp866 = {
@@ -152,10 +223,11 @@ std::string decodeByte(uint8_t byte, Encoding encoding, bool &rusShift)
         if (rusShift && byte >= 0x60 && byte <= 0x7E) return kKoi7[byte - 0x60];
         if (rusShift && byte >= 0x40 && byte <= 0x5E) return kKoi7[byte - 0x40];
         return asciiChar(byte);
-    case Encoding::koi8r:
+    case Encoding::koi8:
+    case Encoding::koi8rod:
         if (byte >= 0xE0) return kKoi8Upper[byte - 0xE0];
         if (byte >= 0xC0) return kKoi8Lower[byte - 0xC0];
-        if (byte >= 0x80) return kKoi8Graph[byte - 0x80];
+        if (byte >= 0x80) return (encoding == Encoding::koi8 ? kRomBGraph : kRodGraph)[byte - 0x80];
         return asciiChar(byte);
     case Encoding::cp866:
         if (byte >= 0x80) return kCp866[byte - 0x80];
@@ -191,13 +263,11 @@ bool isTextLike(std::span<const uint8_t> bytes)
 Encoding detectEncoding(std::span<const uint8_t> whole)
 {
     const auto bytes = textBody(whole);
-    size_t koi8 = 0, cp866 = 0, high = 0, lowerRange = 0, koi7Marks = 0;
+    size_t high = 0, lowerRange = 0, koi7Marks = 0;
     for (const uint8_t b : bytes) {
         if (b == 0x0E || b == 0x0F) return Encoding::koi7shift;
         if (b >= 0x80) {
             ++high;
-            if (b >= 0xC0) ++koi8;
-            if (b <= 0xAF || (b >= 0xE0 && b <= 0xF1)) ++cp866;
             continue;
         }
         if (b >= 0x60 && b <= 0x7E) {
@@ -208,7 +278,23 @@ Encoding detectEncoding(std::span<const uint8_t> whole)
             }
         }
     }
-    if (high > 0) return cp866 > koi8 ? Encoding::cp866 : Encoding::koi8r;
+    if (high > 0) {
+        /* whose letters make words and whose lines join: KOI-8's letters
+         * at 0xC0..0xFF and its frames at 0x80..0xBF, or CP866's letters at
+         * 0x80..0xAF and 0xE0..0xF1 and its frames at 0xB0..0xDF */
+        auto graph = [](const std::array<const char *, 64> &t) {
+            return [&t](uint8_t b) -> const char * { return b >= 0x80 && b < 0xC0 ? t[b - 0x80] : nullptr; };
+        };
+        const int romB = joins(bytes, graph(kRomBGraph));
+        const int rod = joins(bytes, graph(kRodGraph));
+        const int cpJoins = joins(bytes, [](uint8_t b) -> const char * { return b >= 0x80 ? kCp866[b - 0x80] : nullptr; });
+        const long koi8 = static_cast<long>(letterPairs(bytes, [](uint8_t b) { return b >= 0xC0; })) + std::max({romB, rod, 0});
+        const long cp866 = static_cast<long>(letterPairs(bytes, [](uint8_t b) {
+                               return (b >= 0x80 && b <= 0xAF) || (b >= 0xE0 && b <= 0xF1); })) + std::max(cpJoins, 0);
+        if (cp866 > koi8) return Encoding::cp866;
+        /* KOI-8: ROM-B's pseudographics unless Rodionov's lines join better */
+        return rod > romB ? Encoding::koi8rod : Encoding::koi8;
+    }
     if (lowerRange == 0) return Encoding::ascii;
     return koi7Marks * 100 >= lowerRange * 3 ? Encoding::koi7 : Encoding::ascii;
 }
@@ -266,7 +352,8 @@ const char *encodingName(Encoding encoding)
 {
     switch (encoding) {
     case Encoding::ascii:     return "ASCII";
-    case Encoding::koi8r:     return "KOI-8R";
+    case Encoding::koi8:      return "KOI-8";
+    case Encoding::koi8rod:   return "KOI-8 Rodionov";
     case Encoding::koi7:      return "KOI-7";
     case Encoding::koi7shift: return "KOI-7 ^N/^O";
     case Encoding::cp866:     return "CP866";
@@ -282,8 +369,9 @@ View nextView(View view)
 Encoding nextEncoding(Encoding encoding)
 {
     switch (encoding) {
-    case Encoding::ascii:     return Encoding::koi8r;
-    case Encoding::koi8r:     return Encoding::koi7;
+    case Encoding::ascii:     return Encoding::koi8;
+    case Encoding::koi8:      return Encoding::koi8rod;
+    case Encoding::koi8rod:   return Encoding::koi7;
     case Encoding::koi7:      return Encoding::koi7shift;
     case Encoding::koi7shift: return Encoding::cp866;
     case Encoding::cp866:     return Encoding::ascii;

@@ -19,16 +19,18 @@ namespace ms0515::files {
 
 enum class View { text, octal, hex };
 
-/* The machine's encodings: 7-bit ASCII (high bit shown as '.'); KOI-8R
- * (the .COM files, most program text); KOI-7 (the games: the lower-case
- * Latin positions ARE the Cyrillic letters); KOI-7 with the ^N / ^O
- * (SO / SI) shifts switching РУС / ЛАТ, as the terminal driver does; and
- * CP866 (the manuals and application data). */
-enum class Encoding { ascii, koi8r, koi7, koi7shift, cp866 };
+/* The machine's encodings: 7-bit ASCII (high bit shown as '.'); KOI-8
+ * (the .COM files, most program text) - KOI-8R's letters, and at 200-277
+ * the pseudographics of ROM-B, the machine's own, not KOI-8R's; KOI-8 with
+ * the pseudographics of Rodionov's monitor instead; KOI-7 (the games: the
+ * lower-case Latin positions ARE the Cyrillic letters); KOI-7 with the
+ * ^N / ^O (SO / SI) shifts switching РУС / ЛАТ, as the terminal driver
+ * does; and CP866 (the manuals and application data). */
+enum class Encoding { ascii, koi8, koi8rod, koi7, koi7shift, cp866 };
 
 struct ViewOptions {
     View     view     = View::text;
-    Encoding encoding = Encoding::koi8r;
+    Encoding encoding = Encoding::koi8;
     bool     wrap     = true;       /* text: break lines at the machine's 80 columns */
 };
 
@@ -47,8 +49,10 @@ struct ViewOptions {
 [[nodiscard]] std::span<const uint8_t> textBody(std::span<const uint8_t> bytes);
 
 /* The encoding a text is most likely in.  The KOI-7 shifts (^N ^O) name
- * theirs; 8-bit letters are KOI-8R's (0xC0..0xFF) or CP866's (0x80..0xAF,
- * 0xE0..0xF1), whichever has more; a 7-bit text with nothing in the
+ * theirs; 8-bit letters are KOI-8's (0xC0..0xFF) or CP866's (0x80..0xAF,
+ * 0xE0..0xF1), whichever makes more words (pairs of different letters side
+ * by side); in KOI-8, the pseudographics are ROM-B's unless Rodionov's
+ * make the frames' lines join better; a 7-bit text with nothing in the
  * lower-case range is ASCII, and one with letters there is KOI-7 Russian
  * when the codes English hardly uses - q j x and ` { | } ~, which KOI-7
  * gives to common Cyrillic letters - make 3% of that range, else ASCII. */

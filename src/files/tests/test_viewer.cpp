@@ -53,9 +53,9 @@ TEST_CASE("the encodings: KOI-8R, KOI-7, KOI-7 with the SO/SI shifts, CP866, and
     bool shift = false;
     /* KOI-8R: 0xD0 0xD2 0xC9 0xD7 0xC5 0xD4 = привет (the upper-case row is 0xE0..) */
     const std::vector<uint8_t> koi8 = {0xD0, 0xD2, 0xC9, 0xD7, 0xC5, 0xD4};
-    CHECK(renderLines(koi8, text(Encoding::koi8r))[0] == "привет");
+    CHECK(renderLines(koi8, text(Encoding::koi8))[0] == "привет");
     const std::vector<uint8_t> koi8up = {0xF0, 0xF2, 0xE9};
-    CHECK(renderLines(koi8up, text(Encoding::koi8r))[0] == "ПРИ");
+    CHECK(renderLines(koi8up, text(Encoding::koi8))[0] == "ПРИ");
     /* KOI-7: the lower-case Latin positions are the Cyrillic letters -
      * the games' «na~nem?» is «НАЧНЕМ?» */
     CHECK(renderLines(bytesOf("na~nem?"), text(Encoding::koi7))[0] == "НАЧНЕМ?");
@@ -107,7 +107,7 @@ TEST_CASE("the gutter of both dumps speaks the encoding the viewer is set to")
     const auto bytes = bytesOf("\xF0\xD2\xC9 AB");
     ViewOptions o;
     o.view = View::hex;
-    o.encoding = Encoding::koi8r;
+    o.encoding = Encoding::koi8;
     const std::string koi8 = renderLines(bytes, o)[0];
     o.encoding = Encoding::cp866;
     const std::string cp866 = renderLines(bytes, o)[0];
@@ -122,7 +122,7 @@ TEST_CASE("the gutter of both dumps speaks the encoding the viewer is set to")
     CHECK(gutter(ascii, 57).find(" AB") != std::string::npos);
     /* the octal dump goes the same way */
     o.view = View::octal;
-    o.encoding = Encoding::koi8r;
+    o.encoding = Encoding::koi8;
     CHECK(gutter(renderLines(bytes, o)[0], 64).find("\xD1\x80") != std::string::npos);
 }
 
@@ -131,7 +131,7 @@ TEST_CASE("search: a string typed by the user is encoded the way the file is, th
     const auto needle = encodeString("НА", Encoding::koi7);
     REQUIRE(needle.has_value());
     CHECK(*needle == bytesOf("na"));
-    const auto k8 = encodeString("при", Encoding::koi8r);
+    const auto k8 = encodeString("при", Encoding::koi8);
     REQUIRE(k8.has_value());
     CHECK(*k8 == std::vector<uint8_t>{0xD0, 0xD2, 0xC9});
     CHECK_FALSE(encodeString("Я", Encoding::ascii).has_value());
@@ -147,6 +147,11 @@ TEST_CASE("the cycles and names the key bar shows")
     CHECK(nextView(View::octal) == View::hex);
     CHECK(nextView(View::hex) == View::text);
     CHECK(nextEncoding(Encoding::cp866) == Encoding::ascii);
+    CHECK(nextEncoding(Encoding::ascii) == Encoding::koi8);
+    CHECK(nextEncoding(Encoding::koi8) == Encoding::koi8rod);
+    CHECK(nextEncoding(Encoding::koi8rod) == Encoding::koi7);
+    CHECK(std::string(encodingName(Encoding::koi8)) == "KOI-8");
+    CHECK(std::string(encodingName(Encoding::koi8rod)) == "KOI-8 Rodionov");
     CHECK(std::string(viewName(View::hex)) == "hex");
     CHECK(std::string(encodingName(Encoding::koi7shift)) == "KOI-7 ^N/^O");
 }
@@ -180,7 +185,7 @@ TEST_CASE("the encoding is told from the bytes: the shifts, the 8-bit halves, KO
     /* the KOI-7 shifts settle it */
     CHECK(detectEncoding(bytesOf("HELLO \x0Epriwet\x0F")) == Encoding::koi7shift);
     /* 8-bit: KOI-8R letters live in 0xC0..0xFF, CP866's in 0x80..0xAF and 0xE0..0xF1 */
-    CHECK(detectEncoding(bytesOf("\xF0\xD2\xC9\xD7\xC5\xD4 \xCD\xC9\xD2")) == Encoding::koi8r);
+    CHECK(detectEncoding(bytesOf("\xF0\xD2\xC9\xD7\xC5\xD4 \xCD\xC9\xD2")) == Encoding::koi8);
     CHECK(detectEncoding(bytesOf("\x8F\xE0\xA8\xA2\xA5\xE2 \xAC\xA8\xE0")) == Encoding::cp866);
     /* 7-bit: upper-case only, or English prose, is ASCII */
     CHECK(detectEncoding(bytesOf("EXPRESS SERVICE\r\nTYPE ANY KEY\r\n")) == Encoding::ascii);
@@ -193,4 +198,51 @@ TEST_CASE("the encoding is told from the bytes: the shifts, the 8-bit halves, KO
                                  "sledu`]ij |kzemplqr fajla.\r\n")) == Encoding::koi7);
     /* a text-like file with a form feed and tabs stays what its letters say */
     CHECK(detectEncoding(bytesOf("\x0C\tA LINE\r\n")) == Encoding::ascii);
+}
+
+TEST_CASE("KOI-8 on the MS 0515: 200-277 are ROM-B's pseudographics, Rodionov's table the other")
+{
+    /* ROM-B: the single lines at 240-257, the double at 220-237, the mixed at 200-217 */
+    CHECK(renderLines(bytesOf("\xA0\xA4\xA6\xA4\xA1"), text(Encoding::koi8))[0] == "┌─┬─┐");
+    CHECK(renderLines(bytesOf("\xA5\xAA\xA5"), text(Encoding::koi8))[0] == "│┼│");
+    CHECK(renderLines(bytesOf("\x90\x94\x91\x95\x93\x94\x92"), text(Encoding::koi8))[0] == "╔═╗║╚═╝");
+    CHECK(renderLines(bytesOf("\x80\x82\x9B\xAB"), text(Encoding::koi8))[0] == "╧╤░█");
+    CHECK(renderLines(bytesOf("\xB0\xB1\xB2\xB3\xB4\xB5"), text(Encoding::koi8))[0] == "Ёё╭╮╯╰");
+    CHECK(renderLines(bytesOf("\xB6\xB7\xB8\xB9\xBA\xBB\xBC\xBD\xBE"), text(Encoding::koi8))[0] == "→←↑↓÷±№¤■");
+    /* the letters stay KOI-8's */
+    CHECK(renderLines(bytesOf("\xF0\xD2\xC9"), text(Encoding::koi8))[0] == "При");
+
+    /* Rodionov's: the single lines at 200-217, the mixed at 240-257, his signs at 260-277 */
+    CHECK(renderLines(bytesOf("\x80\x84\x86\x84\x81"), text(Encoding::koi8rod))[0] == "┌─┬─┐");
+    CHECK(renderLines(bytesOf("\x90\x94\x91"), text(Encoding::koi8rod))[0] == "╔═╗");
+    CHECK(renderLines(bytesOf("\xA0\xA2"), text(Encoding::koi8rod))[0] == "╧╤");
+    CHECK(renderLines(bytesOf("\xB0\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xBB"), text(Encoding::koi8rod))[0]
+          == "°ё►◄▲▼→←↓↑÷░");
+    CHECK(renderLines(bytesOf("\xBC\xBD\xBE\xBF"), text(Encoding::koi8rod))[0] == "┌±№©");
+
+    /* both ways: a frame typed in is found as the file's bytes */
+    CHECK(encodeString("┌─┐", Encoding::koi8) == std::vector<uint8_t>{0xA0, 0xA4, 0xA1});
+    CHECK(encodeString("┌─┐", Encoding::koi8rod) == std::vector<uint8_t>{0x80, 0x84, 0x81});
+    CHECK(encodeString("©", Encoding::koi8rod) == std::vector<uint8_t>{0xBF});
+}
+
+TEST_CASE("the pseudographics' table is told by the frames: the one whose lines join")
+{
+    /* a panel with single lines, in ROM-B's codes and in Rodionov's */
+    const std::string romb = "\xA0\xA4\xA4\xA6\xA4\xA4\xA1\r\n"
+                             "\xA5 NA\xA5 NB\xA5\r\n"
+                             "\xA3\xA4\xA4\xA8\xA4\xA4\xA2\r\n";
+    const std::string rod = "\x80\x84\x84\x86\x84\x84\x81\r\n"
+                            "\x85 NA\x85 NB\x85\r\n"
+                            "\x83\x84\x84\x88\x84\x84\x82\r\n";
+    CHECK(detectEncoding(bytesOf(romb)) == Encoding::koi8);
+    CHECK(detectEncoding(bytesOf(rod)) == Encoding::koi8rod);
+    /* double lines are the same in both: ROM-B's, the machine's own */
+    CHECK(detectEncoding(bytesOf("\x90\x94\x94\x91\r\n\x95  \x95\r\n\x93\x94\x94\x92\r\n")) == Encoding::koi8);
+    /* frames round a Russian text stay KOI-8, not CP866 (whose letters 0x80..0xAF are) */
+    const std::string doc = "\x80\x84\x84\x84\x84\x84\x84\x84\x84\x84\x84\x84\x84\x81\r\n"
+                            "\x85 \xF7\xEE\xE9\xED\xE1\xEE\xE9\xE5 !!!\x85\r\n"
+                            "\x85 \xCE\xC5\xCC\xDA\xD1 \xCE\xC1\xD6\xC9\xCD\xC1\xD4\xD8 \x85\r\n"
+                            "\x83\x84\x84\x84\x84\x84\x84\x84\x84\x84\x84\x84\x84\x82\r\n";
+    CHECK(detectEncoding(bytesOf(doc)) == Encoding::koi8rod);
 }

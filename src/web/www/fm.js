@@ -15,8 +15,9 @@
 // - so a copy may land on the same disk under another name, and a rename
 // to another disk is a move.  The viewer's keys, as mc's:
 // F1 text / octal / hex in turn, F2 wrap / unwrap at the machine's 80
-// columns, F10 and Esc back, F4 the encoding (ASCII, KOI-8R, KOI-7, KOI-7
-// with the РУС / ЛАТ shifts ^N / ^O, CP866 in turn), F5 go to a line, F7 search (a string in the encoding; a byte
+// columns, F10 and Esc back, F4 the encoding (ASCII, KOI-8 - ROM-B's
+// pseudographics -, KOI-8 with Rodionov's, KOI-7, KOI-7 with the РУС / ЛАТ
+// shifts ^N / ^O, CP866 in turn), F5 go to a line, F7 search (a string in the encoding; a byte
 // sequence in hex / octal), F3 the same search again without being asked -
 // Alt with either goes back up the file - the hit scrolled to and marked.  The editor's:
 // F1 the representation, F2 save, F4 the encoding, F5 go to, F7 search, F8
@@ -41,7 +42,7 @@
 // `deps`: { sources() -> [{ id, label, path, side, vol, name }],
 //           api, module(), writable(source, op) -> Promise (the image
 //           unmounted around a write), say, onClose }.
-import { ByteEditor, decodeBytes, encodeText } from "./edit.js?v=@STAMP@";
+import { ByteEditor, decodeBytes, encodeText, guessEncoding, looksLikeText } from "./edit.js?v=@STAMP@";
 import { makeZip } from "./zip.js?v=@STAMP@";
 import { lineChunks, byteChunks, alignedRuns, within } from "./diff.js?v=@STAMP@";
 
@@ -54,7 +55,8 @@ const LATIN_NAME = /^[A-Z0-9$]{1,6}(\.[A-Z0-9$]{1,3})?$/;
 const DEV_NAME = /^(?:([A-Z]+\d*):(?:([A-Z0-9$.]+)\/)?)?\s*([A-Z0-9$.]+)$/;   // "DZ1:NAME.EXT", "DZ1:VOL.DSK/NAME.EXT" or "NAME.EXT"
 const NEWLINE = String.fromCharCode(10);
 const MAX_DIFF_ROWS = 4000;          // a compare view longer than this is not read, only waited for
-const ENCODINGS = [["ascii", "ASCII"], ["koi8-r", "KOI-8R"], ["koi7", "KOI-7"], ["koi7s", "KOI-7 РУС/ЛАТ"], ["ibm866", "CP866"]];
+const ENCODINGS = [["ascii", "ASCII"], ["koi8", "KOI-8"], ["koi8rod", "KOI-8 Rodionov"], ["koi7", "KOI-7"],
+                   ["koi7s", "KOI-7 РУС/ЛАТ"], ["ibm866", "CP866"]];
 
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
@@ -62,49 +64,6 @@ const el = (tag, cls, text) => {
   if (text !== undefined) e.textContent = text;
   return e;
 };
-
-// Text, or bytes?  A text file is printable characters (the 8-bit letters
-// of KOI-8R / CP866 included), CR LF TAB ^Z, with nothing else but the
-// zero padding of its last block.
-function looksLikeText(bytes) {
-  let end = bytes.length;
-  while (end > 0 && (bytes[end - 1] === 0 || bytes[end - 1] === 26)) --end;
-  const sample = bytes.subarray(0, Math.min(end, 4096));
-  if (!sample.length) return true;
-  let text = 0;
-  for (const v of sample)
-    if ((v >= 0x20 && v < 0x7F) || v === 9 || v === 10 || v === 13 || v === 14 || v === 15 || v === 26 || v >= 0xC0) ++text;
-  return text >= sample.length * 0.97 && !sample.includes(0);
-}
-
-// The encoding a text is likely in: 7-bit with the KOI-7 Cyrillic range in
-// use -> KOI-7, else KOI-8R (CP866 is an F-key away).
-// Letter frequencies, per cent, of English a-z and of Russian in the KOI-7
-// order (ЮАБЦДЕФГХИЙКЛМНОПЯРСТУЖВЬЫЗШЭЩЧЪ), both over the bytes 0x60..0x7F;
-// 0 for the English punctuation there (` { | } ~ DEL).
-const EN_FREQ = [0, 8.2, 1.5, 2.8, 4.3, 12.7, 2.2, 2.0, 6.1, 7.0, 0.15, 0.77, 4.0, 2.4, 6.7, 7.5, 1.9, 0.095, 6.0, 6.3, 9.1, 2.8, 0.98, 2.4, 0.15, 2.0, 0.074, 0, 0, 0, 0, 0];
-const RU_FREQ = [0.64, 8.0, 1.6, 0.48, 3.0, 8.5, 0.26, 1.7, 0.97, 7.4, 1.2, 3.5, 4.4, 3.2, 6.7, 10.9, 2.8, 2.0, 4.7, 5.5, 6.3, 2.6, 0.94, 4.5, 1.7, 1.9, 1.6, 0.73, 0.32, 0.36, 1.4, 0.04];
-
-// The encoding a text is most likely in.  A byte above 0x7F makes it
-// KOI-8R; a ^N or ^O KOI-7 with the РУС / ЛАТ shifts (10L01.DOC on the
-// Mihin disk).  Else the bytes 0x60..0x7F are either English lowercase or
-// Russian in KOI-7: the one whose letter frequencies fit them better wins,
-// KOI-7 only by a clear margin (0.2 nats a letter, 20 letters at least) -
-// Russian transliterated in Latin letters, and program text, read as
-// English.  Nothing there at all: ASCII.
-export function guessEncoding(bytes) {
-  const b = bytes.subarray(0, 8192);
-  if (b.some((v) => v >= 0x80)) return "koi8-r";
-  if (b.some((v) => v === 0x0E || v === 0x0F)) return "koi7s";      // the terminal's РУС / ЛАТ shifts
-  let en = 0, ru = 0, n = 0;
-  for (const v of b) {
-    if (v < 0x60 || v > 0x7F) continue;
-    en += Math.log((EN_FREQ[v - 0x60] + 0.02) / 100);
-    ru += Math.log((RU_FREQ[v - 0x60] + 0.02) / 100);
-    ++n;
-  }
-  return n >= 20 && (ru - en) / n >= 0.2 ? "koi7" : "ascii";
-}
 
 export class Commander {
   constructor(root, deps) {
@@ -1596,7 +1555,7 @@ export class Commander {
       view ? (v.repr === "text" ? [v.wrap ? "Unwrap" : "Wrap", "long lines at the machine's 80 columns", () => this.toggleWrap()] : [null])
            : ["Save", "the file written back", () => this.save()],
       ["Again", "the last search again, without asking - with Alt, backwards", () => this.search(false, true)],
-      [encLabel, "the encoding: ASCII, KOI-8R, KOI-7, KOI-7 with the РУС / ЛАТ shifts, CP866 in turn", () => this.cycleEncoding()],
+      [encLabel, "the encoding: ASCII, KOI-8, KOI-8 Rodionov, KOI-7, KOI-7 with the РУС / ЛАТ shifts, CP866 in turn", () => this.cycleEncoding()],
       ["Goto", "a line (text) or an offset (bytes)", () => this.goto()],
       [null],
       ["Search", (v.repr === "text" ? "a string, in the encoding" : "a byte sequence in the digits shown") + " - with Alt, backwards", () => this.search()],
@@ -1822,11 +1781,11 @@ const CANCEL = Symbol("cancel");     // a guard's "stop the whole operation"
 
 // A home block field (12 bytes: the volume id, the owner) as text: the
 // blanks and NULs at the end dropped, the terminal's encoding guessed as
-// for a text - KOI-8R above 0x7F, KOI-7 with the shifts on a ^N, else the
+// for a text - KOI-8 above 0x7F, KOI-7 with the shifts on a ^N, else the
 // letters as they are; the blank pattern (an INIT that wrote no id) or
 // other unreadable bytes give nothing.
 // The way back: a field typed in the dialog as the OS's terminal would
-// store it - KOI-8R when it has anything beyond ASCII.
+// store it - KOI-8 when it has anything beyond ASCII.
 // A file as text: the padding of its last block dropped, the machine's line
 // ends made the page's.
 const SPACES = /[\s,]+/;
@@ -1873,7 +1832,7 @@ function sameSource(x, y) {
 }
 
 function homeBytes(text) {
-  return encodeText(text, /[^\x00-\x7F]/.test(text) ? "koi8-r" : "ascii");
+  return encodeText(text, /[^\x00-\x7F]/.test(text) ? "koi8" : "ascii");
 }
 
 function homeField(bytes) {
@@ -1883,7 +1842,7 @@ function homeField(bytes) {
   if (!b.length) return "";
   if (b.every((v) => v === 0xB6 || v === 0x6D)) return "";                 // the blank pattern
   if (b.some((v) => v < 0x20 && v !== 0x0E && v !== 0x0F)) return "";      // not a text
-  const enc = b.some((v) => v >= 0x80) ? "koi8-r" : b.some((v) => v === 0x0E || v === 0x0F) ? "koi7s" : "ascii";
+  const enc = b.some((v) => v >= 0x80) ? "koi8" : b.some((v) => v === 0x0E || v === 0x0F) ? "koi7s" : "ascii";
   return decodeBytes(b, enc).replace(/[\x00-\x1F]/g, "");
 }
 
