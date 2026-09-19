@@ -78,9 +78,7 @@ after the kits and Mihin's and Rodionov's monitors were taken apart):
   slot is ROM-B's jump to its blink; on ROM-A (the cassette loader there)
   it does not, so the one monitor runs on either ROM.
 - **DEC's interrupt priorities** (4 for the terminal, 6 for the clock,
-  where the kits have 7).  They are the lines' own levels for 064 and 100,
-  so the emulator, which takes a request by its vector's PS
-  (`docs/kb/KNOWN_ISSUES.md`), acts on them as the iron does.
+  where the kits have 7) - the lines' own levels for 064 and 100.
 - The 8-bit terminal for Cyrillic (the owner's choice).
 
 Out of the kits' changes it leaves the decoding trap (no program of the
@@ -92,14 +90,11 @@ and prompt (`OM$RUS` = `RU$OSA`); its banner is DEC's too.
 Checked on the emulator (2026-09-19): both boot on ROM-A as dumped and on
 ROM-B; the cursor blinks on ROM-B only; `TIME` keeps running, but loses
 the ticks while the floppy handler waits (it takes vector 100 for itself)
-- Omega's does the same; a long `TYPE` types whole; `^S` holds it.  But
-`^Q` does not always resume it: pressed at each of 50 frames of a held
-`TYPE`, it sticks at a few - and so does Mihin's monitor, which lowers its
-priority inside the terminal service as DEC's does, while Omega's and
-OSA's, which stay at 7, never stick.  The emulator's interrupt logic is
-not the machine's (the NS4 schematic: a latch and a priority encoder,
-`docs/kb/KNOWN_ISSUES.md`); the priorities of this build are decided once
-it is.
+- Omega's does the same; a long `TYPE` types whole; `^S` holds it and
+`^Q` resumes it, pressed at any of 50 frames of the hold.  (Before the
+core took interrupts as the T-11 and the NS4 board do, DEC's priorities
+lost `^Q` at a few of them, as Mihin's monitor did: the old core took a
+request by its vector's PS - `docs/kb/KNOWN_ISSUES.md`.)
 
 Tried and kept from the kits: the five silenced vectors (070, 104, 110, 134,
 140).  Without them the emulator runs as well, but it raises no interrupt
