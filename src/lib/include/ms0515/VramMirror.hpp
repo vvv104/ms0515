@@ -48,21 +48,35 @@ public:
      * sees a clear "this glyph is OS-drawn / RAM-loaded font" marker. */
     static constexpr uint8_t kUnknownGlyph = 0x7F;
 
-    /* Cell code for OS-drawn glyphs that aren't part of KOI-8R (e.g.
-     * the © used by the Rodionov 1992 banner).  Re-uses Latin-1 0xA9
-     * so the emitter stack can stay byte-based. */
-    static constexpr uint8_t kCopyrightSign = 0xA9;
+    /* The cell codes are KOI-8R's: the letters, and at 0x80..0xBF the
+     * glyphs by what they draw - the lines, the blocks, the shades, the
+     * signs KOI-8R has there.  The machine draws those codes from its own
+     * tables (ROM-B's at 157000, Rodionov's monitor's in RAM), in another
+     * order: a cell holds the KOI-8R code of the glyph's shape, not the
+     * code the program printed.  The © of Rodionov's banner is KOI-8R's
+     * own 0xBF. */
+    static constexpr uint8_t kCopyrightSign = 0xBF;
 
-    /* Up/down arrows drawn by Rodionov ROSA Commander between the
-     * file panels.  KOI-8R has no codepoint for these so we steal
-     * unused control-char slots.  Two variants per direction:
-     *   pure triangle ▲ / ▼ — standalone shapes in OS dialogs.
-     *   thick stem-arrow ⬆ / ⬇ — the between-panel scroll hints
-     *   (triangle + vertical stem). */
+    /* The glyphs KOI-8R has no code for take unused control slots:
+     * Rodionov's and ROM-B's arrows and signs, ROM-B's round corners. */
+    static constexpr uint8_t kArrowRight      = 0x10;  /* → */
+    static constexpr uint8_t kArrowLeft       = 0x11;  /* ← */
+    static constexpr uint8_t kPlusMinus       = 0x12;  /* ± */
+    static constexpr uint8_t kNumeroSign      = 0x13;  /* № */
+    static constexpr uint8_t kCurrencySign    = 0x14;  /* ¤ */
+    static constexpr uint8_t kArcDownRight    = 0x15;  /* ╭ */
+    static constexpr uint8_t kArcDownLeft     = 0x16;  /* ╮ */
+    static constexpr uint8_t kArcUpLeft       = 0x17;  /* ╯ */
+    static constexpr uint8_t kArcUpRight      = 0x18;  /* ╰ */
+    static constexpr uint8_t kPointerRight    = 0x19;  /* ► */
+    static constexpr uint8_t kPointerLeft     = 0x1E;  /* ◄ */
+    /* The triangles and the arrows Rodionov's ROSA Commander draws
+     * between the file panels (a triangle on a stem: more files above
+     * or below). */
     static constexpr uint8_t kArrowDownTri    = 0x1A;  /* ▼ */
     static constexpr uint8_t kArrowUpTri      = 0x1B;  /* ▲ */
-    static constexpr uint8_t kArrowDownThick  = 0x1C;  /* ⬇ */
-    static constexpr uint8_t kArrowUpThick    = 0x1D;  /* ⬆ */
+    static constexpr uint8_t kArrowDownThick  = 0x1C;  /* ↓ */
+    static constexpr uint8_t kArrowUpThick    = 0x1D;  /* ↑ */
 
     VramMirror();
     ~VramMirror();
@@ -160,9 +174,10 @@ public:
     [[nodiscard]] Snapshot snapshot() const;
 
     /* Convert a single Snapshot cell code to its UTF-8 byte sequence.
-     * Returns "█" for kUnknownGlyph, "©" for kCopyrightSign,
-     * "▼"/"▲" for kArrowDown/kArrowUp, single ASCII char for printable
-     * 0x20..0x7E, and the kKoi8Hi[] codepoint for any byte 0x80..0xFF.
+     * Returns "█" for kUnknownGlyph, the sign for each of the control
+     * slots above (→ ← ± № ¤ ╭ ╮ ╯ ╰ ► ◄ ▼ ▲ ↓ ↑), single ASCII char for
+     * printable 0x20..0x7E, and the KOI-8R code point for any byte
+     * 0x80..0xFF (© among them, 0xBF).
      * Public so UI layers can render snapshots without re-implementing
      * the KOI-8 → Unicode table. */
     [[nodiscard]] static std::string utf8FromKoi8(uint8_t code);
