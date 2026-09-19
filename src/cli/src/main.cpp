@@ -45,17 +45,18 @@ other.
 options:
   --rom <path>            ROM image (assets/rom/ms0515-romb.rom by
                           default — pass ms0515-roma.rom for Rodionov).
-  --disk0 <path>          Mount double-sided image on drive 0.
-                          (alias: -d0)
-  --disk1 <path>          Mount double-sided image on drive 1.
-                          (alias: -d1)
+  --disk0 <path>          Mount an image on drive 0 by its size: 800 KB
+                          the whole drive, 400 KB its lower side (DZ0),
+                          as --disk0-side0.  (alias: -d0)
+  --disk1 <path>          The same for drive 1 (400 KB: DZ1).  (alias: -d1)
   --disk0-side0 <path>    Mount single-side image on drive 0 side 0.
                           (alias: -d0s0)
-  --disk0-side1 <path>    Mount single-side image on drive 0 side 1.
-                          (alias: -d0s1)
+  --disk0-side1 <path>    Mount single-side image on drive 0 side 1, the
+                          upper (DZ2) - with --disk0 <400 KB> two images
+                          on one drive.  (alias: -d0s1)
   --disk1-side0 <path>    Mount single-side image on drive 1 side 0.
                           (alias: -d1s0)
-  --disk1-side1 <path>    Mount single-side image on drive 1 side 1.
+  --disk1-side1 <path>    Mount single-side image on drive 1 side 1 (DZ3).
                           (alias: -d1s1)
   --hd <path>             Mount a paravirtual hard disk (HD:) image of
                           any size that is a 512-byte multiple.  Needs
@@ -170,6 +171,8 @@ int main(int argc, char **argv)
         app::Config cfg = app::Config::load();
         cli = app::mergeCliOverConfig(std::move(cli), cfg);
     }
+    for (const auto &w : app::placeDisksBySize(cli))
+        std::fprintf(stderr, "warning: %s\n", w.c_str());
 
     /* No disks?  Bail out — ms0515.exe would let the user pick from the
      * menu, but the CLI has no GUI fallback. */

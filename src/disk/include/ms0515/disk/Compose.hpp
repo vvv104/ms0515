@@ -2,9 +2,10 @@
  * Compose.hpp - a whole bootable diskette, made from scratch.
  *
  * The level under the disk wizards: it knows volumes, not manifests.  A
- * blank of the media is formatted; the exemplar system image gives only
- * what exists nowhere else - its SWAP.SYS, its monitor and the blocks it
- * protects; the groups bring everything else, the system's own handlers and
+ * blank of the media is formatted; the system gives only what exists
+ * nowhere else - its monitor, SWAP.SYS and the blocks it protects - as
+ * files (ComposeSystem) or out of an exemplar image; the groups bring
+ * everything else, the system's own handlers and
  * utilities first; then the startup command file and the bootstrap for the
  * media.  composeDisk() makes the image and planDisk() says, without
  * throwing, where every group would go and what is left - the same answer,
@@ -58,10 +59,30 @@ struct ComposeGroup {
 struct ReservedBlock {
     int side = 0;
     int lbn  = 0;
+    /* Its 512 bytes, for a system given as files; the side and block are
+     * then named as a double-sided DZ disk has them.  Empty: the block of
+     * the exemplar image. */
+    std::vector<uint8_t> data;
+};
+
+/* A system given as files, where no exemplar image is: its monitor file,
+ * and SWAP.SYS by its length alone - the file is scratch, which the monitor
+ * writes before it reads (the bootstrap only checks it is long enough), so
+ * it is made of zeros.  Both go on protected, as the systems' own disks
+ * have them.  The startup file is named by the monitor (its KMON line
+ * "@NAME") and dated startupDate. */
+struct ComposeSystem {
+    std::string          monitor;          /* its name on the disk: RT11SJ.SYS */
+    std::vector<uint8_t> monitorData;
+    uint16_t             monitorDate = 0;  /* encodeDate(); 0 = no date */
+    int                  swapBlocks = 0;
+    uint16_t             swapDate = 0;
+    uint16_t             startupDate = 0;
 };
 
 struct ComposeRecipe {
-    std::vector<uint8_t> system;       /* the exemplar image, whole */
+    std::vector<uint8_t> system;       /* the exemplar image, whole - unless `files` */
+    std::optional<ComposeSystem> files;   /* the system as files, no image needed */
     Media                media = Media::ss;
     std::vector<ComposeGroup> groups;  /* placed in this order */
     /* The startup command file's lines; nullopt copies the exemplar's. */

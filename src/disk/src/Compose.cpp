@@ -1,7 +1,8 @@
 /*
  * Compose.cpp - a whole bootable diskette made from scratch: SWAP and the
- * monitor from the exemplar, the groups, the startup file, the bootstrap,
- * the protected blocks.  The plan is the build: every group is put for real
+ * monitor - from the system's files or out of its exemplar image - the
+ * groups, the startup file, the bootstrap, the protected blocks.  The plan
+ * is the build: every group is put for real
  * on a scratch copy, so the answer to "does it fit" is RT-11's own - blocks,
  * directory entries, the first empty area that takes it.
  */
@@ -165,12 +166,24 @@ Spot spotOf(const ReservedBlock &b, bool srcDs, const Shape &s)
     return {byte, ph.side, lbnFromPhys(ph.track, ph.sector + 1)};
 }
 
-/* The exemplar's boot volume and the monitor it boots. */
+/* What the system gives the disk: the monitor it boots (its name without
+ * .SYS), the startup file the monitor names, SWAP.SYS and the monitor as
+ * they go on, and - out of an exemplar - that disk's own startup file, with
+ * its date. */
 struct Source {
-    Image       volume;
-    std::string monitor;
-    std::string startup;     /* the startup file the monitor names, "" none */
+    std::string                         monitor;
+    std::string                         startup;
+    std::vector<ComposeFile>            kept;
+    uint16_t                            startupDate = 0;
+    std::optional<std::vector<uint8_t>> startupData;
 };
+
+/* The startup file a monitor names; DEC's STARTS.COM where it names none. */
+std::string startupOf(const std::vector<uint8_t> &monitorFile)
+{
+    const std::string name = startupFile(monitorFile);
+    return name.empty() ? std::string("STARTS.COM") : name;
+}
 
 Source sourceOf(const std::vector<uint8_t> &system)
 {
@@ -181,12 +194,40 @@ Source sourceOf(const std::vector<uint8_t> &system)
     const std::string monitor = bootedMonitor(system, 0, s.ds, s.boot);
     if (!vol || !vol->hasDirectory || monitor.empty())
         throw std::runtime_error("the system image does not boot: no monitor behind its bootstrap");
-    std::string startup = startupFile(vol->readFile(monitor + ".SYS"));
-    if (startup.empty()) startup = "START.COM";
-    return {std::move(*vol), monitor, startup};
+    Source src{monitor, startupOf(vol->readFile(monitor + ".SYS")), {}, 0, std::nullopt};
+    for (const std::string &name : {std::string("SWAP.SYS"), monitor + ".SYS"}) {
+        const auto *e = vol->directory.find(name);
+        if (!e) throw std::runtime_error("the system image has no " + name);
+        src.kept.push_back({name, vol->readFile(name), e->date, (e->status & kStatusProtected) != 0});
+    }
+    if (const auto *e = vol->directory.find(src.startup)) {
+        src.startupDate = e->date;
+        src.startupData = vol->readFile(src.startup);
+    }
+    return src;
 }
 
-/* A formatted blank holding what only the exemplar has: SWAP.SYS and the
+Source sourceOf(const ComposeSystem &f)
+{
+    const auto dot = f.monitor.rfind('.');
+    if (dot == std::string::npos || f.monitor.substr(dot) != ".SYS" || !validName(f.monitor))
+        throw std::runtime_error("the monitor's name " + f.monitor + " is no RT-11 name of a .SYS file");
+    if (f.monitorData.empty()) throw std::runtime_error("the system's monitor file " + f.monitor + " is empty");
+    if (f.swapBlocks < 1) throw std::runtime_error("the system gives no length of SWAP.SYS");
+    Source src{f.monitor.substr(0, dot), startupOf(f.monitorData), {}, f.startupDate, std::nullopt};
+    src.kept.push_back({"SWAP.SYS", std::vector<uint8_t>(static_cast<std::size_t>(f.swapBlocks) * kBlock, 0),
+                        f.swapDate, true});
+    src.kept.push_back({f.monitor, f.monitorData, f.monitorDate, true});
+    return src;
+}
+
+Source sourceOf(const ComposeRecipe &r) { return r.files ? sourceOf(*r.files) : sourceOf(r.system); }
+
+/* How the reserved blocks are named: as the exemplar's media has them, or,
+ * given as files, as a double-sided disk has them. */
+bool reservedDs(const ComposeRecipe &r) { return r.files || r.system.size() == kDoubleSize; }
+
+/* A formatted blank holding what only the system has: SWAP.SYS and the
  * monitor, with their dates and protection; the free space of each volume
  * ends before the first block the system protects there. */
 std::vector<uint8_t> base(const Source &src, const Shape &s, const ComposeRecipe &r)
@@ -194,7 +235,7 @@ std::vector<uint8_t> base(const Source &src, const Shape &s, const ComposeRecipe
     auto img = blankImage(s.ds);
     initVolume(img, 0, s.ds, {}, s.boot);
     if (s.volumes == 2) initVolume(img, 1, s.ds);
-    const bool srcDs = r.system.size() == kDoubleSize;
+    const bool srcDs = reservedDs(r);
     std::vector<std::optional<int>> fence(static_cast<std::size_t>(s.volumes));
     for (const auto &b : r.reserved) {
         const Spot at = spotOf(b, srcDs, s);
@@ -204,12 +245,8 @@ std::vector<uint8_t> base(const Source &src, const Shape &s, const ComposeRecipe
     for (int v = 0; v < s.volumes; ++v)
         if (fence[static_cast<std::size_t>(v)])
             endFreeSpaceAt(img, v, s.ds, *fence[static_cast<std::size_t>(v)], volumeKind(s, v));
-    const std::string names[] = {"SWAP.SYS", src.monitor + ".SYS"};
-    for (const auto &name : names) {
-        const auto *e = src.volume.directory.find(name);
-        if (!e) throw std::runtime_error("the system image has no " + name);
-        putFile(img, 0, s.ds, name, src.volume.readFile(name), PutOptions{e->date, (e->status & kStatusProtected) != 0}, s.boot);
-    }
+    for (const auto &f : src.kept)
+        putFile(img, 0, s.ds, f.name, f.data, PutOptions{f.date, f.protect}, s.boot);
     return img;
 }
 
@@ -322,12 +359,11 @@ std::pair<std::vector<std::size_t>, std::size_t> readingOrder(const ComposeRecip
 void putStartup(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src,
                 const Shape &s, std::vector<GroupPlacement> &files)
 {
-    const auto *e = src.volume.directory.find(src.startup);
-    const PutOptions o{e ? e->date : uint16_t{0}, false};
+    const PutOptions o{src.startupDate, false};
     const std::optional<std::vector<std::string>> startup = startupLines(r);
     const bool banner = r.banner || r.clearScreen;
     if (startup) putOwn(img, s, src.startup, startupBytes(*startup), o, files);
-    else if (e) putOwn(img, s, src.startup, src.volume.readFile(src.startup), o, files);
+    else if (src.startupData) putOwn(img, s, src.startup, *src.startupData, o, files);
     if (banner) {
         std::vector<uint8_t> bytes;
         if (r.clearScreen) bytes = {0x1B, 'H', 0x1B, 'J'};
@@ -346,7 +382,7 @@ void finish(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src
         throw std::runtime_error(std::string("the disk cannot boot: ") + handler + " is not among its files");
     writeBoot(img, 0, s.ds, src.monitor, s.boot);
 
-    const bool srcDs = r.system.size() == kDoubleSize;
+    const bool srcDs = reservedDs(r);
     for (const auto &b : r.reserved) {
         const Spot at = spotOf(b, srcDs, s);
         const auto vol = openAt(img, s, at.volume);
@@ -354,7 +390,13 @@ void finish(std::vector<uint8_t> &img, const ComposeRecipe &r, const Source &src
             for (const auto &f : vol->directory.permanentFiles())
                 if (at.lbn >= f.startBlock && at.lbn < f.startBlock + f.length)
                     throw std::runtime_error(f.name + " would overwrite a reserved block of the system (its copy protection)");
-        std::memcpy(img.data() + at.byte, r.system.data() + lbnToByte(b.lbn, b.side, srcDs, Vol::floppy), kBlock);
+        if (!b.data.empty()) {
+            if (b.data.size() != kBlock) throw std::runtime_error("a protected block of the system is not 512 bytes");
+            std::memcpy(img.data() + at.byte, b.data.data(), kBlock);
+        } else {
+            if (r.files) throw std::runtime_error("a protected block of the system comes without its bytes");
+            std::memcpy(img.data() + at.byte, r.system.data() + lbnToByte(b.lbn, b.side, srcDs, Vol::floppy), kBlock);
+        }
     }
 }
 
@@ -417,7 +459,7 @@ std::vector<uint8_t> compose(const ComposeRecipe &r, ComposePlan &plan)
     std::vector<uint8_t> img;
     std::optional<Source> src;
     try {
-        src = sourceOf(r.system);
+        src = sourceOf(r);
         img = base(*src, s, r);
         label(img, s, 0, r.volumeId, r.owner);
         if (s.volumes == 2) label(img, s, 1, r.secondVolumeId, r.secondOwner);

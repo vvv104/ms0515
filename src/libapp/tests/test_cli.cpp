@@ -229,6 +229,32 @@ TEST_CASE("empty cli fields inherit from config") {
     CHECK(merged.hdPath    == "hd-from-cfg");
 }
 
+TEST_CASE("a drive the command line names is the command line's: none of the config's images for it") {
+    app::Config cfg;
+    cfg.dsPath[0] = "ds0-from-cfg";                 /* the whole drive 0, double-sided */
+    cfg.fdPath[app::fdcUnitFor(1, 0)] = "d1s0-from-cfg";
+    cfg.fdPath[app::fdcUnitFor(1, 1)] = "d1s1-from-cfg";
+
+    app::CliArgs cli;
+    cli.fdPath[app::fdcUnitFor(0, 0)] = "d0s0-from-cli";   /* one side of drive 0 */
+    cli.dsPath[1] = "ds1-from-cli";                        /* drive 1 whole */
+    const app::CliArgs merged = app::mergeCliOverConfig(std::move(cli), cfg);
+    CHECK(merged.dsPath[0].empty());                        /* not the config's: they would clash */
+    CHECK(merged.fdPath[app::fdcUnitFor(0, 0)] == "d0s0-from-cli");
+    CHECK(merged.fdPath[app::fdcUnitFor(0, 1)].empty());
+    CHECK(merged.dsPath[1] == "ds1-from-cli");
+    CHECK(merged.fdPath[app::fdcUnitFor(1, 0)].empty());
+    CHECK(merged.fdPath[app::fdcUnitFor(1, 1)].empty());
+
+    /* A drive the command line leaves alone still comes from the config. */
+    app::CliArgs none;
+    none.fdPath[app::fdcUnitFor(1, 0)] = "d1s0-from-cli";
+    const app::CliArgs kept = app::mergeCliOverConfig(std::move(none), cfg);
+    CHECK(kept.dsPath[0] == "ds0-from-cfg");
+    CHECK(kept.fdPath[app::fdcUnitFor(1, 0)] == "d1s0-from-cli");
+    CHECK(kept.fdPath[app::fdcUnitFor(1, 1)].empty());     /* drive 1 is the command line's */
+}
+
 TEST_CASE("non-empty cli hdPath wins over config") {
     app::Config cfg;
     cfg.hdPath = "hd-from-cfg";

@@ -142,6 +142,28 @@ std::vector<std::string> discoverRoms()
     return result;
 }
 
+std::vector<std::string> placeDisksBySize(CliArgs &cli)
+{
+    std::vector<std::string> said;
+    for (int drive = 0; drive < 2; ++drive) {
+        std::string &path = cli.dsPath[drive];
+        if (path.empty() || isRtfsDescriptor(path)) continue;
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(path, ec);
+        if (ec || size != ms0515::kFloppyDiskSize) continue;   /* whole, or the mount's to report */
+        std::string &lower = cli.fdPath[fdcUnitFor(drive, 0)];
+        if (!lower.empty()) {
+            said.push_back(fmt::format(
+                "--disk{0} '{1}' is a single-side image, and drive {0}'s lower side is "
+                "--disk{0}-side0's already; put one of them on --disk{0}-side1", drive, path));
+            continue;
+        }
+        lower = std::move(path);
+        path.clear();
+    }
+    return said;
+}
+
 bool mountDisksFromCli(ms0515::Emulator &emu, const CliArgs &cli)
 {
     for (int drive = 0; drive < 2; ++drive) {

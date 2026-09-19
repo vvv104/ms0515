@@ -125,7 +125,7 @@ void printPlacement(const GroupPlacement &g)
         std::printf("  %s %4d blocks  NOT PLACED: %s\n", title.c_str(), g.blocks, g.problem.c_str());
 }
 
-/* The groups, then the files the composition makes itself: START.COM, BANNER.TXT. */
+/* The groups, then the files the composition makes itself: STARTS.COM, BANNER.TXT. */
 void printPlan(const ComposePlan &plan)
 {
     for (const auto &g : plan.groups) printPlacement(g);

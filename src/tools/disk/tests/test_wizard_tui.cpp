@@ -234,7 +234,7 @@ TEST_CASE("Space on Pascal brings the preferred MACRO; picking the other swaps t
     std::string s = shown(tui);
     CHECK(s.find("2 selected, 8 blocks") != std::string::npos); /* the group says it */
     CHECK(s.find("Development 8") != std::string::npos);        /* and the plan its blocks: PAS1 5, MACRO 3 */
-    CHECK(s.find("START.COM  SET") == std::string::npos);
+    CHECK(s.find("STARTS.COM  SET") == std::string::npos);
     CHECK(s.find("[x] Pascal") != std::string::npos);
     CHECK(s.find("(\xE2\x80\xA2) MACRO build A") != std::string::npos);
     CHECK(s.find("for Pascal") != std::string::npos);
@@ -299,7 +299,7 @@ TEST_CASE("the buttons at the end of the list: save, open and build in a file wi
     CHECK(other.quit());
 }
 
-TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter keeps, Esc drops") {
+TEST_CASE("the label and STARTS.COM are fields in the list: typing edits, Enter keeps, Esc drops") {
     const Manifest m = parseManifest(kManifest);
     const Repository repo = repository();
     tools::WizardTui tui(m, repo, scratch());
@@ -316,7 +316,7 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     CHECK(tui.model().selection().owner == "VVV");
 
     choose(tui, "OMEGA");
-    downTo(tui, "START.COM");
+    downTo(tui, "STARTS.COM");
     press(tui, ftxui::Event::ArrowDown);                      /* the new line under the heading */
     type(tui, "R PAS1");
     press(tui, ftxui::Event::Escape);                         /* Esc finishes a line block */
@@ -325,9 +325,9 @@ TEST_CASE("the label and START.COM are fields in the list: typing edits, Enter k
     CHECK(s.find("\xE2\x94\x82 R PAS1") != std::string::npos);        /* a line behind the gutter, no brackets */
     CHECK(s.find("1 line") != std::string::npos);
     CHECK(s.find("7Startup") == std::string::npos);            /* no keys of their own any more */
-    CHECK(s.find("START.COM 1") != std::string::npos);         /* the plan counts the file it makes */
+    CHECK(s.find("STARTS.COM 1") != std::string::npos);         /* the plan counts the file it makes */
 
-    downTo(tui, "START.COM");
+    downTo(tui, "STARTS.COM");
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::Delete);                         /* Del on a line takes it out */
     CHECK_FALSE(tui.model().selection().startup.has_value());
@@ -355,7 +355,7 @@ TEST_CASE("a field takes Russian letters as letters: Backspace takes one, the bo
     press(tui, ftxui::Event::Return);                         /* past the volume id */
     press(tui, ftxui::Event::Return);                         /* and the owner */
     choose(tui, "OMEGA");
-    downTo(tui, "START.COM");
+    downTo(tui, "STARTS.COM");
     press(tui, ftxui::Event::ArrowDown);
     type(tui, "DATE 01-");
     for (const char *letter : {"\xD0\x90", "\xD0\x9F", "\xD0\xA0", "\xD0\x95"})   /* АПРЕ */
@@ -366,7 +366,7 @@ TEST_CASE("a field takes Russian letters as letters: Backspace takes one, the bo
     press(tui, ftxui::Event::Escape);
     CHECK(tui.model().selection().startup == std::vector<std::string>{"DATE 01-\xD0\x90\xD0\x9F\xD0\xA0-99"});
 
-    downTo(tui, "START.COM");                                 /* a line is as wide as the machine's screen: 80 letters */
+    downTo(tui, "STARTS.COM");                                 /* a line is as wide as the machine's screen: 80 letters */
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::ArrowDown);
     CHECK(shown(tui).find("a new line") != std::string::npos);                /* the empty line says what it is */
@@ -388,7 +388,7 @@ TEST_CASE("the cursor moves inside a field: Left, Right, Home, End; letters go i
     const Repository repo = repository();
     tools::WizardTui tui(m, repo, scratch());
     ready(tui);
-    downTo(tui, "START.COM");
+    downTo(tui, "STARTS.COM");
     press(tui, ftxui::Event::ArrowDown);
     type(tui, "R FSTX");
     press(tui, ftxui::Event::ArrowLeft);                      /* before the X */
@@ -430,7 +430,7 @@ TEST_CASE("a narrow terminal: the line's box takes what is left inside the frame
     const Repository repo = repository();
     tools::WizardTui tui(m, repo, scratch());
     ready(tui);
-    downTo(tui, "START.COM");
+    downTo(tui, "STARTS.COM");
     press(tui, ftxui::Event::ArrowDown);
     type(tui, "R FIST");
     press(tui, ftxui::Event::Return);
@@ -440,13 +440,13 @@ TEST_CASE("a narrow terminal: the line's box takes what is left inside the frame
     CHECK(s.find("\xE2\x94\x82 R FIST" + std::string(46, ' ')) != std::string::npos);   /* 60 - the frame - the indent of 4 - the gutter */
 }
 
-TEST_CASE("a banner: BANNER.TXT and START.COM counted in the plan; without PIP the plan stays and the refusal is under it") {
+TEST_CASE("a banner: BANNER.TXT and STARTS.COM counted in the plan; without PIP the plan stays and the refusal is under it") {
     const Manifest m = parseManifest(kManifest);
     const Repository repo = repository();
     tools::WizardTui tui(m, repo, scratch());
     ready(tui);
     std::string s = shown(tui);
-    CHECK(s.find("START.COM 1") == std::string::npos);         /* no lines typed: no file made */
+    CHECK(s.find("STARTS.COM 1") == std::string::npos);         /* no lines typed: no file made */
     REQUIRE(s.find(" free") != std::string::npos);
 
     enter(tui, "BANNER.TXT");                                 /* opened, and on its checkbox */
@@ -474,7 +474,7 @@ TEST_CASE("a banner: BANNER.TXT and START.COM counted in the plan; without PIP t
     s = shown(tui);
     CHECK(s.find("a banner needs PIP") == std::string::npos);
     CHECK(s.find("Utilities 2") != std::string::npos);
-    CHECK(s.find("START.COM 1") != std::string::npos);         /* TYPE BANNER.TXT, made for it */
+    CHECK(s.find("STARTS.COM 1") != std::string::npos);         /* TYPE BANNER.TXT, made for it */
     CHECK(s.find("BANNER.TXT 1") != std::string::npos);
 }
 
@@ -522,13 +522,13 @@ TEST_CASE("Enter on a field opens it with the text it holds; a line emptied goes
     CHECK(tui.cursorKey() == kOwnerField);
 
     choose(tui, "OMEGA");
-    downTo(tui, "START.COM");
+    downTo(tui, "STARTS.COM");
     press(tui, ftxui::Event::ArrowDown);                      /* the new line */
     type(tui, "R PAS1");
     press(tui, ftxui::Event::Escape);                         /* Esc finishes the block */
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1"});
 
-    downTo(tui, "START.COM");
+    downTo(tui, "STARTS.COM");
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::Return);                         /* R PAS1 opened, its own text there */
     CHECK(shown(tui).find("R PAS1_") != std::string::npos);
@@ -537,7 +537,7 @@ TEST_CASE("Enter on a field opens it with the text it holds; a line emptied goes
     press(tui, ftxui::Event::Escape);
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1", "R FIST"});
 
-    downTo(tui, "START.COM");                                 /* the new line, left empty, is passed */
+    downTo(tui, "STARTS.COM");                                 /* the new line, left empty, is passed */
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::ArrowDown);
@@ -547,7 +547,7 @@ TEST_CASE("Enter on a field opens it with the text it holds; a line emptied goes
     CHECK(tui.cursorKey() != std::string(kStartupField) + "2");
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R PAS1", "R FIST"});
 
-    downTo(tui, "START.COM");
+    downTo(tui, "STARTS.COM");
     press(tui, ftxui::Event::ArrowDown);
     press(tui, ftxui::Event::Delete);                         /* Del on a line takes it out */
     CHECK(tui.model().selection().startup == std::vector<std::string>{"R FIST"});

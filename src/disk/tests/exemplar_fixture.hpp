@@ -1,7 +1,7 @@
 /*
  * exemplar_fixture.hpp - a make-believe bootable system diskette for the
- * composition tests: a kit the size of a few blocks, a monitor naming START
- * as its startup file, DZ.SYS and DV.SYS with a primary driver each.
+ * composition tests: a kit the size of a few blocks, a monitor naming STARTS
+ * as its startup file (DEC's), DZ.SYS and DV.SYS with a primary driver each.
  */
 
 #ifndef MS0515_DISK_TESTS_EXEMPLAR_FIXTURE_HPP
@@ -29,13 +29,13 @@ inline std::vector<uint8_t> handler(uint8_t fill)
     return h;
 }
 
-/* A six-block monitor naming START as its startup file. */
+/* A six-block monitor naming STARTS as its startup file. */
 inline std::vector<uint8_t> monitor()
 {
     std::vector<uint8_t> m(6 * kBlock);
     for (std::size_t i = 0; i < m.size(); ++i) m[i] = static_cast<uint8_t>(i / kBlock * 16 + i % 16 + 1);
     for (std::size_t i = 4 * kBlock; i < 5 * kBlock; ++i) m[i] = 0;
-    const char line[] = "\0@START \0";
+    const char line[] = "\0@STARTS\0";
     std::copy(line, line + 9, m.begin() + 5 * kBlock + 100);
     return m;
 }
@@ -59,12 +59,12 @@ inline std::vector<uint8_t> exemplar(Media media)
     put("DZ.SYS", handler(0xA0), encodeDate(1991, 11, 4), true);
     put("TT.SYS", std::vector<uint8_t>(kBlock, 7), encodeDate(1991, 1, 31), true);
     put("PIP.SAV", std::vector<uint8_t>(3 * kBlock, 4), encodeDate(1991, 1, 31), true);
-    put("START.COM", text("SET TT QUIET\r\nSET SL ON\r\n"), encodeDate(1995, 4, 1), false);
+    put("STARTS.COM", text("SET TT QUIET\r\nSET SL ON\r\n"), encodeDate(1995, 4, 1), false);
     writeBoot(img, 0, ds, "RT11SJ", vol);
     return img;
 }
 
-inline const std::vector<std::string> kKit{"SWAP.SYS", "RT11SJ.SYS", "DV.SYS", "DZ.SYS", "TT.SYS", "PIP.SAV", "START.COM"};
+inline const std::vector<std::string> kKit{"SWAP.SYS", "RT11SJ.SYS", "DV.SYS", "DZ.SYS", "TT.SYS", "PIP.SAV", "STARTS.COM"};
 
 }  /* namespace ms0515::disk::fixture */
 

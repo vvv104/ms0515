@@ -39,6 +39,16 @@ validateHdImage(const std::string &path);
  * search root.  Sorted, deduplicated, normalised paths. */
 [[nodiscard]] std::vector<std::string> discoverRoms();
 
+/* Put each drive's --diskN image (or the config's diskN) where its size
+ * says: an 800 KB image stays the whole drive; a 400 KB one becomes the
+ * drive's lower side, as --diskN-side0 would have it (DZ0 on drive 0, DZ1
+ * on drive 1) - so one key mounts either, and --diskN-side1 puts a second
+ * 400 KB image on the upper side.  What it cannot place stays as it was,
+ * for the mount to report: a missing file, another size, a folder device,
+ * and a 400 KB image whose lower side --diskN-side0 already took (said in
+ * the returned warnings). */
+[[nodiscard]] std::vector<std::string> placeDisksBySize(CliArgs &cli);
+
 /* Mount the disks described by `cli` onto `emu`.  For each drive the
  * policy is:
  *   - dsPath set → mount as double-sided on units (drive, drive+2).

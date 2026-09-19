@@ -84,6 +84,8 @@ private:
      * `mountErrorMessage_` for the modal popup. */
     void mountDoubleSided(int drive, const std::string &path);
     void mountSingleSide(int unit, const std::string &path);
+    /* An image by its size: 800 KB the whole drive, 400 KB its lower side. */
+    void mountBySize(int drive, const std::string &path);
     void unmountDrive(int drive);
     void unmountUnit(int unit);
     /* Paravirtual hard disk (HD:).  setHdController toggles the controller

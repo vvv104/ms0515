@@ -77,6 +77,8 @@ bool App::initSdl()
      * and ms0515-cli use identical resolution. */
     config_ = Config::load();
     cli_ = ms0515::app::mergeCliOverConfig(std::move(cli_), config_);
+    for (const auto &w : ms0515::app::placeDisksBySize(cli_))
+        std::fprintf(stderr, "warning: %s\n", w.c_str());
     cli_.romPath = ms0515::app::resolveRom(cli_.romPath, config_.romPath);
     showDebugger_ = config_.showDebugger;
     showKeyboard_ = config_.showKeyboard;
@@ -221,6 +223,9 @@ void App::mountInitialDisks()
             config_.fdPath[u0].clear();
             config_.fdPath[u1].clear();
         } else {
+            /* Sides mounted: the drive's double-sided image goes, or the
+             * next start would find both in the config and mount neither. */
+            if (!cli_.fdPath[u0].empty() || !cli_.fdPath[u1].empty()) config_.dsPath[drive].clear();
             if (!cli_.fdPath[u0].empty()) config_.fdPath[u0] = cli_.fdPath[u0];
             if (!cli_.fdPath[u1].empty()) config_.fdPath[u1] = cli_.fdPath[u1];
         }
@@ -364,6 +369,16 @@ void App::mountDoubleSided(int drive, const std::string &path)
     config_.fdPath[u0].clear();
     config_.fdPath[u1].clear();
     config_.save();
+}
+
+void App::mountBySize(int drive, const std::string &path)
+{
+    /* The size tells: a 400 KB image is the drive's lower side; anything
+     * else goes as the whole drive, whose check says what is wrong. */
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(path, ec);
+    if (!ec && size == ms0515::kFloppyDiskSize) mountSingleSide(fdcUnitFor(drive, 0), path);
+    else mountDoubleSided(drive, path);
 }
 
 void App::mountSingleSide(int unit, const std::string &path)
@@ -777,48 +792,36 @@ void App::drawFileDiskMenu(int drive)
     if      (!any)                  summary = "empty";
     else if (mountedAsDs_[drive])   summary = "image";
     else if (side0 && side1)        summary = "both sides";
-    else if (side0)                 summary = "0 side";
-    else                            summary = "1 side";
+    else if (side0)                 summary = "lower side";
+    else                            summary = "upper side";
     auto driveLabel = fmt::format("Disk {}: {}", drive, summary);
     if (!ImGui::BeginMenu(driveLabel.c_str())) return;
 
-    /* Show the currently mounted DS file alongside "Mount image" so
-     * the user can see what's there at a glance. */
+    /* As the command line has it: an image by its size - 800 KB the whole
+     * drive, 400 KB its lower side (--diskN); once a single side is in, a
+     * second item puts a 400 KB image on the upper side (--diskN-side1).
+     * Each shows what it holds now. */
+    auto held = [&](int unit) {
+        return "    [" + std::filesystem::path(mountedFd_[unit]).filename().string() + "]";
+    };
     std::string mountImageLabel = "Mount image...";
-    if (mountedAsDs_[drive]) {
-        mountImageLabel += "    [" +
-            std::filesystem::path(mountedFd_[unit0]).filename().string() + "]";
-    }
+    if (!mountedFd_[unit0].empty()) mountImageLabel += held(unit0);
     if (ImGui::MenuItem(mountImageLabel.c_str())) {
         auto title = fmt::format(
-            "Select double-sided image for drive {}", drive);
+            "Select an image for drive {} (800 KB: the whole drive, 400 KB: its lower side)", drive);
         std::string p = openFileDialog(
             window_, title.c_str(),
             FileDialogKind::Disk, Paths::initialDirFor(FileDialogKind::Disk));
-        if (!p.empty()) mountDoubleSided(drive, p);
+        if (!p.empty()) mountBySize(drive, p);
     }
-
-    for (int side = 0; side < 2; ++side) {
-        int unit       = (side == 0) ? unit0 : unit1;
-        int otherUnit  = (side == 0) ? unit1 : unit0;
-        std::string label = fmt::format("Mount side {}...", side);
-        if (!mountedAsDs_[drive]) {
-            if (!mountedFd_[unit].empty()) {
-                label += "    [" +
-                    std::filesystem::path(mountedFd_[unit])
-                        .filename().string() + "]";
-            } else if (!mountedFd_[otherUnit].empty()) {
-                label += "    [empty]";
-            }
-        }
-        if (ImGui::MenuItem(label.c_str())) {
-            auto title = fmt::format(
-                "Select single-side image for disk {} side {}", drive, side);
-            std::string p = openFileDialog(
-                window_, title.c_str(),
-                FileDialogKind::Disk, Paths::initialDirFor(FileDialogKind::Disk));
-            if (!p.empty()) mountSingleSide(unit, p);
-        }
+    std::string upperLabel = "Mount upper side...";
+    if (!mountedFd_[unit1].empty()) upperLabel += held(unit1);
+    if (any && !mountedAsDs_[drive] && ImGui::MenuItem(upperLabel.c_str())) {
+        auto title = fmt::format("Select a 400 KB image for the upper side of drive {}", drive);
+        std::string p = openFileDialog(
+            window_, title.c_str(),
+            FileDialogKind::Disk, Paths::initialDirFor(FileDialogKind::Disk));
+        if (!p.empty()) mountSingleSide(unit1, p);
     }
     if (ImGui::MenuItem("Unmount", nullptr, false, any))
         unmountDrive(drive);

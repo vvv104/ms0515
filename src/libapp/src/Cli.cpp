@@ -143,10 +143,14 @@ CliArgs parseArgs(int argc, char **argv)
 CliArgs mergeCliOverConfig(CliArgs cli, const Config &cfg)
 {
     if (cli.romPath.empty()) cli.romPath = cfg.romPath;
-    for (int i = 0; i < 4; ++i)
-        if (cli.fdPath[i].empty()) cli.fdPath[i] = cfg.fdPath[i];
-    for (int i = 0; i < 2; ++i)
-        if (cli.dsPath[i].empty()) cli.dsPath[i] = cfg.dsPath[i];
+    for (int drive = 0; drive < 2; ++drive) {
+        const int u0 = fdcUnitFor(drive, 0), u1 = fdcUnitFor(drive, 1);
+        if (!cli.dsPath[drive].empty() || !cli.fdPath[u0].empty() || !cli.fdPath[u1].empty())
+            continue;                        /* the command line's drive, whole */
+        cli.dsPath[drive] = cfg.dsPath[drive];
+        cli.fdPath[u0] = cfg.fdPath[u0];
+        cli.fdPath[u1] = cfg.fdPath[u1];
+    }
     if (cli.hdPath.empty()) cli.hdPath = cfg.hdPath;
     if (!cli.hdEnabled) cli.hdEnabled = cfg.hdEnabled;
     return cli;

@@ -102,7 +102,7 @@ root) with the executable and all required assets.
 
 ```bash
 cd package
-ms0515.exe --disk0-side0 path/to/disk.dsk
+ms0515.exe --disk0 path/to/disk.dsk
 ```
 
 Command-line options:
@@ -110,19 +110,23 @@ Command-line options:
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--rom <path>` | | ROM image (default: `assets/rom/ms0515-roma.rom`) |
-| `--disk0 <path>` | `-d0` | Drive 0, both sides from a 819200-byte track-interleaved DS image |
+| `--disk0 <path>` | `-d0` | Drive 0 by the image's size: a 819200-byte track-interleaved DS image both sides, a 409600-byte SS image the lower side |
 | `--disk0-side0 <path>` | `-d0s0` | Drive 0, lower side (409600-byte SS image) |
-| `--disk0-side1 <path>` | `-d0s1` | Drive 0, upper side |
-| `--disk1 <path>` | `-d1` | Drive 1, both sides from a track-interleaved DS image |
+| `--disk0-side1 <path>` | `-d0s1` | Drive 0, upper side - with `--disk0 <SS image>`, two images on one drive |
+| `--disk1 <path>` | `-d1` | Drive 1 by the image's size, as `--disk0` |
 | `--disk1-side0 <path>` | `-d1s0` | Drive 1, lower side |
 | `--disk1-side1 <path>` | `-d1s1` | Drive 1, upper side |
 
-`--diskN` and `--diskN-sideM` for the same N are mutually exclusive.
+`--diskN` with a DS image and `--diskN-sideM` for the same N are mutually
+exclusive; with an SS image `--diskN` is `--diskN-side0`.  A drive named on
+the command line takes nothing from `ms0515.yaml`.
 Diagnostic flags for headless / debugging runs (`--frames`, `--history-*`)
 are documented in the source comment at the top of
 `src/frontend/src/main.cpp` and in `ms0515-cli --help`.
 
-Disks can also be mounted at runtime via the File menu.
+Disks can also be mounted at runtime via the File menu: Mount image takes
+either size the same way, and once one side is in, Mount upper side puts
+a second SS image on the drive.
 
 In `ms0515-cli`, Ctrl+\ brings a two-panel commander up over the running
 machine, the Midnight Commander way: the panels show the RT-11 volumes of

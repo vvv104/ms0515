@@ -33,8 +33,8 @@ struct WizardRow {
         bundle,     /* a checkbox, or a radio button under a radio heading */
         media,      /* a radio button under "Diskette" */
         system,     /* a radio button under "Operating system" */
-        field,      /* an edit box: the volume id, one of the user's START.COM lines */
-        line,       /* a START.COM line the system or a bundle brings: title the line */
+        field,      /* an edit box: the volume id, one of the user's STARTS.COM lines */
+        line,       /* a STARTS.COM line the system or a bundle brings: title the line */
     };
     enum class Mark : uint8_t {
         off,        /* [ ]  / ( ) */
@@ -65,7 +65,7 @@ inline constexpr const char *kLabelGroup = "#label";
 inline constexpr const char *kSystemGroup = "#system";
 inline constexpr const char *kStartupGroup = "#startup";
 inline constexpr const char *kBannerGroup = "#banner";
-/* The fields' keys: the volume id; START.COM's own line N ("#startup:N", N
+/* The fields' keys: the volume id; STARTS.COM's own line N ("#startup:N", N
  * one past the last: a new line); BANNER.TXT's line N the same way. */
 inline constexpr const char *kVolumeIdField = "#volume-id";
 inline constexpr const char *kOwnerField = "#owner";
@@ -85,7 +85,7 @@ inline constexpr const char *kClearRow = "#clear";
  *   volume_id, owner, second_volume_id, second_owner
  * Only the person's decisions: the system's parts and the dependencies are
  * derived again, by the rules of the collection that reads it.  `banner`
- * is the lines of a BANNER.TXT that START.COM types as the disk starts. */
+ * is the lines of a BANNER.TXT that STARTS.COM types as the disk starts. */
 struct SavedSelection {
     std::string collection;    /* disks.toml's version; "" unknown */
     Selection   selection;
@@ -142,7 +142,7 @@ public:
     void setVolumeId(std::optional<std::string> id);
     /* A field's text, as typed: "" when taken, else why not.  A volume id or
      * an owner keeps twelve characters, in capitals, and emptied is unset; a
-     * START.COM or BANNER.TXT line emptied goes, one typed into the new line
+     * STARTS.COM or BANNER.TXT line emptied goes, one typed into the new line
      * is added. */
     std::string setField(const std::string &key, const std::string &value);
 

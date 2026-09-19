@@ -74,9 +74,11 @@ CliArgs parseArgs(int argc, char **argv);
 
 class Config;
 
-/* Fold the persistent Config defaults into `cli` for any slot the
- * command line left empty: rom, fdPath[0..3], dsPath[0..1].  CLI args
- * always win.  Returns the merged CliArgs by value. */
+/* Fold the persistent Config defaults into `cli` for what the command
+ * line left empty: rom, hd, and the drives - a drive whole, since its
+ * double-sided image and its sides exclude each other: a drive the command
+ * line names in any way (--diskN or --diskN-sideM) takes nothing from the
+ * config.  CLI args always win.  Returns the merged CliArgs by value. */
 CliArgs mergeCliOverConfig(CliArgs cli, const Config &cfg);
 
 } /* namespace ms0515::app */
