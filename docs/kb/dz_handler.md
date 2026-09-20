@@ -108,6 +108,29 @@ address), runs at priority `340`, marks the drive used in the shadow
 register and hands the result back through the monitor's completion
 routine.
 
+## One track register, a head for every drive
+
+The controller keeps one track register; each drive's head is where that
+drive left it.  After another drive was used the register is wrong for
+this one, and a seek counted from it lands on the wrong track.  The kit
+handler deals with it at the start of every request, and the line that
+does it reads like a mistake until one knows why:
+
+    JSR  R0, command          ; with 300 inline: Read Address
+    ...
+    MOVB @#177644, @#177642   ; sector register -> track register
+
+Read Address reads the next sector header going by and, as a side effect,
+leaves its track number in the *sector* register; the handler copies it
+to where it belongs.  When no header can be read it restores the head to
+track 0 instead (command `3`), where register and head agree by
+construction.  The commands are issued through one routine that takes the
+command as a word after the call, so they appear in a listing as stray
+instructions: `SWAB R0` is `300`, `BPT` is `3`.
+
+Our handler learned this the hard way: reads of one drive worked, and the
+first copy from drive 0 to drive 1 failed with a directory I/O error.
+
 ## What our own handler has to do differently
 
 * fill the controller address into `176` and a FORMAT routine into `12`,

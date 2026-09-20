@@ -58,7 +58,9 @@ RA.USE	= 40000			;Bit 14 of the copy: the drive was just used,
 
 ; Controller commands and the status bits that matter.
 
+C.REST	= 3			;Restore: step out to track 0
 C.SEEK	= 20			;Seek to the track in the data register
+C.RDAD	= 300			;Read address: the next sector header
 C.READ	= 200			;Read sector
 C.WRIT	= 240			;Write sector
 C.STOP	= 320			;Force interrupt: drop what is running
@@ -122,6 +124,7 @@ RETRY	= 8.			;Tries before a request is given up
 	MOVB	@#REGAC,@#REGA
 	CALL	SPINUP
 30$:	MOVB	@#REGAC,@#REGA
+	CALL	WHERE			;Which track is this drive's head on?
 
 	.SBTTL	ONE BLOCK AFTER ANOTHER
 
@@ -135,7 +138,8 @@ NXTBLK:	CMP	BLOCK,#<SECTRK*TRACKS>	;Past the end of the side?
 	BCS	30$
 	CALL	MOVE
 	BCC	BLKOK
-30$:	DEC	TRIES			;It failed: again, from the seek
+30$:	CALL	HOME			;It failed: find the head again
+	DEC	TRIES			; and try from the seek
 	BNE	20$
 DZERR:	BIS	#HDERR$,@-(R4)
 	BR	DZDONE
@@ -188,6 +192,33 @@ ILV:	.BYTE	0,2,4,6,8.,1,3,5,7,9.	;2:1
 	.EVEN
 
 	.SBTTL	THE CONTROLLER
+
+;+
+; WHERE - learn which track the selected drive's head is on.
+;
+; The controller has one track register and every drive has a head of
+; its own, so after another drive was used the register is wrong for
+; this one, and a seek counted from it lands on the wrong track.  Read
+; Address reads the next sector header going by and leaves its track
+; number in the SECTOR register; from there it goes where it belongs.
+; If no header can be read the head is brought home instead.
+;-
+WHERE:	MOV	#DZ$CSR,R0
+	MOVB	#C.RDAD,(R0)
+	CALL	IDLE
+	BITB	#F.SEEK,(R0)
+	BNE	HOME
+	MOVB	DZ.SEC(R0),DZ.TRK(R0)
+	RETURN
+
+;+
+; HOME - step the head out to track 0, where the register and the head
+; agree by construction.
+;-
+HOME:	MOV	#DZ$CSR,R0
+	MOVB	#C.REST,(R0)
+	CALL	IDLE
+	RETURN
 
 ;+
 ; SEEK - bring the head to the track in R2.  Carry set if it failed.
