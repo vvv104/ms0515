@@ -98,6 +98,15 @@ Where the work stopped on 2026-09-20, for whoever picks it up:
   leaves `?2l`.  What the ROM's console obeys has to be read out of the ROM
   first.  Until then the `dec` systems take a kit's `SL.SYS` (ОСА's or
   ОМЕГА's load under them), and the prefix file was not kept.
+* **`HELP` and `VM:` do not get on**, and it is not ours: once `HELP` has
+  been run, a `COPY` onto `VM:` ends in `?PIP-F-Directory I/O error` and the
+  volume's directory is gone (`DIR VM:` said it was fine a command
+  earlier).  The same under ОМЕГА's monitor with the kits' own `VM.SYS`,
+  and with every `HELP` there is - ours from DEC's sources, DEC's original
+  found on diskette 062, Rodionov's Russian one - whether `HELP` runs
+  before `VM` is loaded or after.  `RESORC`, `EDIT`, `DIR`, `SL`, `NL`, `LD`
+  and `EM` do no such thing.  Not looked into: it may be what the real
+  machine did, or the emulator's banks.
 * **`VTCOM` / `VTHDLR` / `TRANSF`** - terminal mode and file transfer over
   the serial port.  They build.  Nobody has tried them on the machine's
   8251 (`177700`..`177722`); DEC's addresses and vectors are its own, so a
