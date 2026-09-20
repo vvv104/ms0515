@@ -2,7 +2,8 @@
 own sources, with the real MACRO and LINK inside the emulator.
 
     python build_handler.py [--sy FILE[,FILE...]] [--answers FILE]
-                            [--source DIR] DD [DD...] [OUTDIR]
+                            [--source DIR] [--patch FILE]
+                            DD [DD...] [OUTDIR]
 
 --sy puts host files on the system volume over the ones the toolset
 brings, the way build_util.py takes it: a handler belongs with the rest of
@@ -12,6 +13,11 @@ the kit, so it is assembled and linked with DEC's own tools and libraries.
 how this machine's own handlers are built with the same recipe and the
 same tools as DEC's: `--source ../dz DZ`.  It comes first on purpose -
 DEC's kit has a DZ.MAC too, and it is a terminal multiplexer.
+
+--patch names a diff applied to DEC's sources before they are staged,
+in the form the monitor's series has (rt11_devel/projects/omega/patches):
+what this machine changes in a handler of DEC's is kept as that, not as a
+copy of DEC's file - `--patch ../tt/TT.diff TT`.
 
 DD is a handler's two-letter name (NL, LD, SL, ...) whose source is in the
 software collection's sources/rt11-v5.4.  A handler has no command file of
@@ -30,6 +36,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -70,12 +77,15 @@ def main() -> int:
     answers = ANSWERS
     extra: list[Path] = []
     own: list[Path] = []
-    while args and args[0] in ("--answers", "--sy", "--source"):
+    patches: list[Path] = []
+    while args and args[0] in ("--answers", "--sy", "--source", "--patch"):
         which = args.pop(0)
         if which == "--answers":
             answers = Path(args.pop(0))
         elif which == "--source":
             own.append(Path(args.pop(0)))
+        elif which == "--patch":
+            patches.append(Path(args.pop(0)).resolve())
         else:
             extra += [Path(f) for f in args.pop(0).split(",")]
     if not args:
@@ -96,6 +106,16 @@ def main() -> int:
         raise SystemExit("no source for " + ", ".join(missing))
 
     tmp = Path(tempfile.mkdtemp(prefix="dec_hand_"))
+    if patches:
+        # The sources the patches touch, copied aside and patched there.
+        tree = tmp / "patched"
+        tree.mkdir()
+        for d in handlers:
+            shutil.copy(source_of(d), tree / f"{d}.MAC")
+        for diff in patches:
+            subprocess.run(["patch", "--quiet", "--forward", "-p1",
+                            "-d", str(tree), "-i", str(diff)], check=True)
+        own.insert(0, tree)
     boot = tmp / "boot"
     boot_volume(boot, extra)
     shutil.rmtree(out, ignore_errors=True)
