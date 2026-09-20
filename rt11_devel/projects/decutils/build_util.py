@@ -7,11 +7,15 @@ all staged first, then each command file is typed in turn.  One that fails
 is reported and left behind - the next utility is another program - so a
 kit build says at the end which of them came out and which did not.
 
-    python build_util.py [--sy FILE[,FILE...]] UTIL [UTIL...] [OUTDIR]
+    python build_util.py [--sy FILE[,FILE...]] [--with FILE[,FILE...]]
+                         UTIL [UTIL...] [OUTDIR]
 
 --sy puts host files on the system volume over the ones the toolset
 brings, which is how a tool built here takes over from the kit's: build
-LIBR, then `--sy .../LIBR.SAV` and the next build uses it.
+LIBR, then `--sy .../LIBR.SAV` and the next build uses it.  --with puts
+them on the work volume instead, beside the sources - for what a command
+file reads as OBJ: or SRC: and this kit has only as something built
+earlier.
 
 UTIL is the name of a build command file of the DEC kit (DUMP, DIR, ...);
 the sources and the command file come from the software collection
@@ -45,6 +49,12 @@ ROM = ROOT / "package/assets/rom/ms0515-romb.rom"   # the toolset system: ROM-B
 SYSTEM_DIR = TOOLSET / "system"
 TOOLS = TOOLSET / "build_tools"
 HD_SYS = HERE.parent / "hd" / "HD.SYS"
+# DEC's own, built here from its sources.  Only MACRO comes from the kit:
+# the V5.4 source distribution has no source for it.  This matters more
+# than it looks - the toolset's SYSLIB is not DEC's, and a utility linked
+# against it can come out broken (PIP, whose two overlay regions then fail
+# at run time with ?MON-F-Overlay error).
+DEC_TOOLS = HERE / "tools"
 CTRL_C = "\x03"
 
 
@@ -75,9 +85,18 @@ def recipe(com: Path) -> list[str]:
         line = line.rstrip()
         if line.startswith("!"):
             continue
+        # A command file meant for IND marks the lines it hands to the
+        # monitor with a dollar; the monitor itself takes them without it.
+        if line.startswith("$"):
+            line = line[1:]
         # A cross-reference - /C on a CSI listing, /CROSSREFERENCE on a
         # command - is made by running CREF.SAV, a program of the kit we do
         # not have, and goes into a listing nobody reads here.
+        # SYSLIB's two FORTRAN modules ask for threaded code, which is a
+        # choice of code generation this machine's FORTRAN does not offer
+        # ("?FORTRAN-F-Illegal value for /I switch").  The routines are the
+        # same either way.
+        line = re.sub(r"/I:THR", "", line)
         line = re.sub(r"/CRO[A-Z]*", "", line)
         line = re.sub(r"/C(?![:A-Z0-9])", "", line)
         out.append(CTRL_C if line == "^C" else shorten(line))
@@ -119,7 +138,7 @@ def sources_of(lines: list[str], src: Path) -> list[str]:
             if not re.fullmatch(r"[A-Z0-9$]+(\.[A-Z0-9]+)?", word or ""):
                 continue
             stem = word.split(".")[0]
-            for ext in (word[len(stem):], ".MAC", ".OBJ"):
+            for ext in (word[len(stem):], ".MAC", ".FOR", ".OBJ"):
                 if ext and (src / (stem + ext)).is_file() \
                         and stem + ext not in names:
                     names.append(stem + ext)
@@ -149,17 +168,20 @@ def included_by(names: list[str], src: Path) -> list[str]:
 
 
 def stage(image: Path, files: Path, names: list[str], src: Path,
-          extra: list[Path] | None = None) -> None:
+          extra: list[Path] | None = None,
+          given: list[Path] | None = None) -> None:
     files.mkdir(parents=True)
     for n in names:
         shutil.copy(src / n, files / n)
+    for f in given or []:                  # over the kit's, if it has one
+        shutil.copy(f, files / f.name.upper())
     # The command files run the toolchain both ways: `R MACRO` takes it
     # from the system volume, `RUN LIBR` from DK: - which here is the work
     # volume.  So the programs go on it as well, the ones built here over
     # the kit's, as they were on the disk DEC built from.
     for f in ("MACRO.SAV", "LINK.SAV", "LIBR.SAV"):
         over = next((e for e in extra or [] if e.name.upper() == f), None)
-        source = over or (TOOLS / f)
+        source = over or (TOOLS / f if f == "MACRO.SAV" else DEC_TOOLS / f)
         if source.is_file():
             shutil.copy(source, files / f)
     # A kit's worth of sources, objects, listings and maps at once: the
@@ -173,9 +195,9 @@ def stage(image: Path, files: Path, names: list[str], src: Path,
 def boot_volume(boot: Path, extra: list[Path] | None = None) -> None:
     shutil.copytree(SYSTEM_DIR, boot)
     # SYSLIB.OBJ too: LINK takes the system library from SY: by default.
-    for f in ("MACRO.SAV", "LINK.SAV", "LIBR.SAV", "SYSMAC.SML", "SYSLIB.OBJ"):
-        if (TOOLS / f).is_file():
-            shutil.copy(TOOLS / f, boot / f)
+    shutil.copy(TOOLS / "MACRO.SAV", boot / "MACRO.SAV")
+    for f in ("LINK.SAV", "LIBR.SAV", "SYSMAC.SML", "SYSLIB.OBJ"):
+        shutil.copy(DEC_TOOLS / f, boot / f)
     shutil.copy(HD_SYS, boot / "HD.SYS")
     for f in extra or []:
         shutil.copy(f, boot / f.name.upper())
@@ -317,9 +339,11 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = [a for a in sys.argv[1:]]
     extra: list[Path] = []
-    while args and args[0] == "--sy":
-        args.pop(0)
-        extra += [Path(f) for f in args.pop(0).split(",")]
+    given: list[Path] = []
+    while args and args[0] in ("--sy", "--with"):
+        which = args.pop(0)
+        target = extra if which == "--sy" else given
+        target += [Path(f) for f in args.pop(0).split(",")]
     if not args:
         raise SystemExit(__doc__)
     out = Path(args.pop()) if len(args) > 1 and not (dec_sources() / (args[-1] + ".COM")).is_file() \
@@ -335,7 +359,7 @@ def main() -> int:
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     image = out / "work.hd"
-    stage(image, tmp / "src", names, src, extra)
+    stage(image, tmp / "src", names, src, extra, given)
 
     emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
                           "--disk0-side0", boot / "device.rtfs", "--hd", str(image)])

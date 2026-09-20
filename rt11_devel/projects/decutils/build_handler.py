@@ -1,7 +1,12 @@
 """build_handler.py - build device handlers of DEC's RT-11 V5.4 from their
 own sources, with the real MACRO and LINK inside the emulator.
 
-    python build_handler.py [--answers FILE] DD [DD...] [OUTDIR]
+    python build_handler.py [--sy FILE[,FILE...]] [--answers FILE]
+                            DD [DD...] [OUTDIR]
+
+--sy puts host files on the system volume over the ones the toolset
+brings, the way build_util.py takes it: a handler belongs with the rest of
+the kit, so it is assembled and linked with DEC's own tools and libraries.
 
 DD is a handler's two-letter name (NL, LD, SL, ...) whose source is in the
 software collection's sources/rt11-v5.4.  A handler has no command file of
@@ -58,9 +63,13 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = list(sys.argv[1:])
     answers = ANSWERS
-    while args and args[0] == "--answers":
-        args.pop(0)
-        answers = Path(args.pop(0))
+    extra: list[Path] = []
+    while args and args[0] in ("--answers", "--sy"):
+        which = args.pop(0)
+        if which == "--answers":
+            answers = Path(args.pop(0))
+        else:
+            extra += [Path(f) for f in args.pop(0).split(",")]
     if not args:
         raise SystemExit(__doc__)
     src = dec_sources()
@@ -73,7 +82,7 @@ def main() -> int:
 
     tmp = Path(tempfile.mkdtemp(prefix="dec_hand_"))
     boot = tmp / "boot"
-    boot_volume(boot)
+    boot_volume(boot, extra)
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     image = out / "work.hd"
