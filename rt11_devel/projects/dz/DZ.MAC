@@ -25,11 +25,15 @@
 ; What it adds to them: the controller's address at offset 176 of the
 ; header, where DEC's FORMAT looks for it (.DRDEF's CSR argument).
 ;
+; The second half of the file is the primary driver, which COPY/BOOT puts
+; on block 0 of a volume.  It runs at address 0 with no monitor under it,
+; so it is a second, read-only telling of the same thing.
+;
 ; The controller does not interrupt on this machine - the interrupt
 ; encoder has no input for it - so a request is served to its end before
 ; the handler returns, as every kit's handler does.
 ;
-	.MCALL	.DRDEF,	.DRBEG,	.DRAST,	.DRFIN,	.DREND
+	.MCALL	.DRDEF,	.DRBEG,	.DRAST,	.DRFIN,	.DREND,	.DRBOT
 	.MCALL	.DRPTR,	.DREST,	.ASSUME
 
 .IIF NDF MMG$T,  MMG$T  =: 0
@@ -251,7 +255,9 @@ MOVE:	MOV	#DZ$CSR,R0
 	CMP	R2,#BLKSIZ
 	BLOS	10$
 	MOV	#BLKSIZ,R2
-10$:	MOVB	COMAND,(R0)		;The controller ends it after 512 bytes
+10$:	MFPS	-(SP)			;A byte not taken in time is a byte lost,
+	MTPS	#340			; so nothing interrupts a sector
+	MOVB	COMAND,(R0)		;The controller ends it after 512 bytes
 	CMPB	COMAND,#C.WRIT
 	BEQ	WRITE
 
@@ -281,7 +287,8 @@ WRITE:	BITB	#S.DRQ,(R0)
 20$:	CLRB	DZ.DAT(R0)		;Past the request: zeros
 	BR	WRITE
 
-ENDMOV:	BITB	FAILS,(R0)
+ENDMOV:	MTPS	(SP)+
+	BITB	FAILS,(R0)
 	BEQ	10$
 	SEC				;BUFFER stays: the retry starts over
 	RETURN
@@ -321,6 +328,114 @@ TRIES:	.WORD	0			;Tries left for this block
 
 	.DRAST	DZ,5
 	RETURN
+
+	.SBTTL	THE PRIMARY DRIVER
+
+; What the ROM reads off block 0 and enters.  It loads the four blocks
+; of the monitor's own bootstrap (2..5) at B$BOOT, tells it where to find
+; a read routine, which device it came from, and goes there.  The drive
+; and the side are the ROM's choice and are left as it set them.
+
+	.DRBOT	DZ,BOOT1,BREAD
+
+	. = DZBOOT+40
+BOOT1:	JMP	@#BOOT-DZBOOT
+
+	. = DZBOOT+140
+;+
+; BREAD - read R1 words from block R0 on into the memory at R2.
+;
+; The secondary bootstrap calls this through B$READ for everything it
+; loads.  Any failure that outlasts the retries ends in BIOERR, which
+; says so and halts - there is nothing to return to.
+;-
+BREAD:	ASL	R1			;Words to bytes
+10$:	MOV	#RETRY,BTRY
+20$:	MOV	R0,-(SP)		;The block, kept for the next round
+	CLR	R3			;R3 = track, R4 = sector: see LOCATE
+30$:	CMP	R0,#SECTRK
+	BLO	40$
+	SUB	#SECTRK,R0
+	INC	R3
+	BR	30$
+40$:	INC	R3
+	CMP	R3,#TRACKS
+	BLO	50$
+	CLR	R3
+50$:	MOVB	BILV-DZBOOT(R0),R4	;At address 0 a table is where it says
+	MOV	R3,R5
+	ASL	R5
+	ADD	R5,R4
+	ADD	#<SECTRK-2>,R4
+60$:	CMP	R4,#SECTRK
+	BLO	70$
+	SUB	#SECTRK,R4
+	BR	60$
+70$:	INC	R4
+	MOV	#DZ$CSR,R5
+	MOVB	#C.RDAD,(R5)		;Where is the head? (see WHERE)
+	CALL	BIDLE
+	BITB	#F.SEEK,(R5)
+	BEQ	80$
+	MOVB	#C.REST,(R5)
+	CALL	BIDLE
+	BR	90$
+80$:	MOVB	DZ.SEC(R5),DZ.TRK(R5)
+90$:	CMPB	R3,DZ.TRK(R5)
+	BEQ	100$
+	MOVB	R3,DZ.DAT(R5)
+	MOVB	#C.SEEK,(R5)
+	CALL	BIDLE
+100$:	MOVB	R4,DZ.SEC(R5)
+	MOV	R1,R3			;What this sector may bring: all that is
+	MOV	R2,R4			; left, and where it started, for a retry
+	MFPS	-(SP)
+	MTPS	#340
+	MOVB	#C.READ,(R5)
+110$:	BITB	#S.DRQ,(R5)
+	BNE	120$
+	BITB	#S.BUSY,(R5)
+	BNE	110$
+	BR	140$
+120$:	TST	R1
+	BEQ	130$
+	MOVB	DZ.DAT(R5),(R2)+
+	DEC	R1
+	BR	110$
+130$:	TSTB	DZ.DAT(R5)		;Past the request: dropped
+	BR	110$
+140$:	MTPS	(SP)+
+	MOV	(SP)+,R0		;The block again
+	BITB	#F.READ,(R5)
+	BEQ	150$
+	MOV	R3,R1			;It failed: the same block, from the top
+	MOV	R4,R2
+	DEC	BTRY
+	BNE	20$
+	JMP	BIOERR
+150$:	INC	R0
+	TST	R1
+	BNE	10$
+	CLC
+	RETURN
+
+BIDLE:	BITB	#S.BUSY,(R5)
+	BNE	BIDLE
+	RETURN
+
+BTRY:	.WORD	0
+BILV:	.BYTE	0,2,4,6,8.,1,3,5,7,9.
+	.EVEN
+
+BOOT:	MOV	#10000,SP
+	MOV	#2,R0			;Blocks 2..5: the monitor's bootstrap
+	MOV	#<4*256.>,R1
+	MOV	#B$BOOT,R2
+	CALL	BREAD
+	MOV	#BREAD-DZBOOT,@#B$READ
+	MOV	#B$DNAM,@#B$DEVN
+	CLR	@#B$DEVU
+	JMP	@#B$BOOT
 
 	.DREND	DZ
 	.END
