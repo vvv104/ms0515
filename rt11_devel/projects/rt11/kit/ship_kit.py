@@ -32,9 +32,9 @@ UTILS = ["DIR.SAV", "DUP.SAV", "PIP.SAV", "DUMP.SAV", "EDIT.SAV",
 # source for it, and the collection has the kits' own.
 DEVEL = ["LINK.SAV", "LIBR.SAV", "ODT.OBJ", "SYSMAC.SML", "SYSLIB.OBJ"]
 
-PLACES = {"software/system/handlers/rt11": HANDLERS,
-          "software/system/utils/rt11": UTILS,
-          "software/development/rt11": DEVEL}
+PLACES = {"kits/dec/handlers": HANDLERS,
+          "kits/dec/utils": UTILS,
+          "kits/dec/development": DEVEL}
 
 
 def main() -> int:
