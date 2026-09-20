@@ -29,8 +29,11 @@
  *       fields (state, cycles_remaining, step_pulses_left, ...).  v1
  *       snapshots still load — read_fdc detects the shorter chunk and
  *       defaults the new fields to FDC_STATE_IDLE.
+ *   3 — FDC WRITE TRACK: the formatter's stream as far as it has been
+ *       read (wt_*) follows the v2 trailer.  A shorter chunk loads with
+ *       those fields cleared.
  */
-#define SNAP_VERSION    2
+#define SNAP_VERSION    3
 
 /* ── I/O helpers ─────────────────────────────────────────────────────────── */
 
@@ -321,8 +324,13 @@ static bool read_kbd(snap_io_t *f, ms0515_keyboard_t *kbd)
  * v2 trailer:        state(4) + cycles_remaining(4) + step_pulses_left(4)
  *                  + step_direction(4) + step_rate_cycles(4) + settle_cycles(4)
  *                  + next_status(1) = 25
- * Total: 532 + 4*6 + 25 = 581 */
-#define FDC_CHUNK_SIZE (4 + 5 + 3 + FDC_SECTOR_SIZE + 2*4 + 4*6 + 6*4 + 1)
+ * v3 trailer:        wt_bytes_left(4) + wt_field(4) + wt_count(4)
+ *                  + wt_id(4) + wt_id_valid(1) + wt_sync(1)
+ *                  + wt_starved(4) = 22
+ * Total: 532 + 4*6 + 25 + 22 = 603 */
+#define FDC_V3_TRAILER (4 + 4 + 4 + 4 + 1 + 1 + 4)
+#define FDC_CHUNK_SIZE (4 + 5 + 3 + FDC_SECTOR_SIZE + 2*4 + 4*6 + 6*4 + 1 \
+                        + FDC_V3_TRAILER)
 
 static bool write_fdc(snap_io_t *f, const ms0515_floppy_t *fdc)
 {
@@ -351,6 +359,13 @@ static bool write_fdc(snap_io_t *f, const ms0515_floppy_t *fdc)
     if (!write_i32(f, fdc->step_rate_cycles)) return false;
     if (!write_i32(f, fdc->settle_cycles)) return false;
     if (!write_u8(f, fdc->next_status)) return false;
+    if (!write_i32(f, fdc->wt_bytes_left)) return false;
+    if (!write_i32(f, fdc->wt_field)) return false;
+    if (!write_i32(f, fdc->wt_count)) return false;
+    if (!write_bytes(f, fdc->wt_id, sizeof fdc->wt_id)) return false;
+    if (!write_bool(f, fdc->wt_id_valid)) return false;
+    if (!write_bool(f, fdc->wt_sync)) return false;
+    if (!write_i32(f, fdc->wt_starved)) return false;
     return true;
 }
 
@@ -368,6 +383,7 @@ static bool write_fdc(snap_io_t *f, const ms0515_floppy_t *fdc)
  * v2 trailer layout (after drives): i32 state, i32 cycles_remaining,
  *   i32 step_pulses_left, i32 step_direction, i32 step_rate_cycles,
  *   i32 settle_cycles, u8 next_status
+ * v3 trailer layout (after v2's): the WRITE TRACK fields, see write_fdc
  */
 static bool read_fdc(snap_io_t *f, ms0515_floppy_t *fdc, uint32_t chunk_size)
 {
@@ -394,10 +410,19 @@ static bool read_fdc(snap_io_t *f, ms0515_floppy_t *fdc, uint32_t chunk_size)
     const uint32_t v1_total     = common_size + drives_size + v1_trailer;
     const uint32_t v2_total     = common_size + drives_size + v2_trailer;
 
+    /* No WRITE TRACK under way unless a v3 trailer says otherwise. */
+    fdc->wt_bytes_left = 0;
+    fdc->wt_field      = 0;
+    fdc->wt_count      = 0;
+    memset(fdc->wt_id, 0, sizeof fdc->wt_id);
+    fdc->wt_id_valid   = false;
+    fdc->wt_sync       = false;
+    fdc->wt_starved    = 0;
+
     bool legacy_v1;
     if (chunk_size == v1_total)
         legacy_v1 = true;
-    else if (chunk_size == v2_total)
+    else if (chunk_size == v2_total || chunk_size == v2_total + FDC_V3_TRAILER)
         legacy_v1 = false;
     else
         /* Unknown size — fall back to v2 layout (most likely) and let
@@ -447,6 +472,20 @@ static bool read_fdc(snap_io_t *f, ms0515_floppy_t *fdc, uint32_t chunk_size)
     if (!read_i32(f, &fdc->step_rate_cycles)) return false;
     if (!read_i32(f, &fdc->settle_cycles)) return false;
     if (!read_u8(f, &fdc->next_status)) return false;
+    if (chunk_size < v2_total + FDC_V3_TRAILER)
+        return true;
+    if (!read_i32(f, &fdc->wt_bytes_left)) return false;
+    if (!read_i32(f, &fdc->wt_field)) return false;
+    if (!read_i32(f, &fdc->wt_count)) return false;
+    if (!read_bytes(f, fdc->wt_id, sizeof fdc->wt_id)) return false;
+    if (!read_bool(f, &fdc->wt_id_valid)) return false;
+    if (!read_bool(f, &fdc->wt_sync)) return false;
+    if (!read_i32(f, &fdc->wt_starved)) return false;
+    /* A snapshot is data from outside: keep the field index in range. */
+    if (fdc->wt_field < 0 || fdc->wt_field > 2 || fdc->wt_count < 0
+        || fdc->wt_count > FDC_SECTOR_SIZE + 1
+        || (fdc->wt_field == 1 && fdc->wt_count > 3))
+        return false;
     return true;
 }
 

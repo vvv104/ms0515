@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <random>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -96,6 +97,62 @@ void pumpWrite(ms0515_floppy_t *fdc, uint8_t fill)
         fdc_write(fdc, 3, fill);
     }
     runUntilIdle(fdc);
+}
+
+/* The byte stream a formatter hands WRITE TRACK for one track of the
+ * double-density IBM layout: F5 writes a sync byte, F6 an index sync,
+ * F7 the two CRC bytes; FE opens an ID field, FB a data field. */
+std::vector<uint8_t> trackStream(int track, int side, int firstSector,
+                                 int lastSector, uint8_t filler, int gap3 = 30)
+{
+    std::vector<uint8_t> t;
+    auto put = [&t](int n, uint8_t b) { t.insert(t.end(), n, b); };
+    put(80, 0x4E); put(12, 0x00); put(3, 0xF6); put(1, 0xFC); put(50, 0x4E);
+    for (int sector = firstSector; sector <= lastSector; ++sector) {
+        put(12, 0x00); put(3, 0xF5); put(1, 0xFE);
+        put(1, static_cast<uint8_t>(track));
+        put(1, static_cast<uint8_t>(side));
+        put(1, static_cast<uint8_t>(sector));
+        put(1, 0x02);                           /* 512 bytes */
+        put(1, 0xF7); put(22, 0x4E);
+        put(12, 0x00); put(3, 0xF5); put(1, 0xFB);
+        put(FDC_SECTOR_SIZE, filler);
+        /* Ten sectors of 512 leave a short gap: with the 54 of the
+         * textbook layout the tenth would run past the index. */
+        put(1, 0xF7); put(gap3, 0x4E);
+    }
+    return t;
+}
+
+/* Helper: feed a WRITE TRACK that has already been issued - the stream,
+ * then gap bytes for as long as the controller asks.  Returns how many
+ * bytes it took before the index came round and it let go. */
+int pumpTrack(ms0515_floppy_t *fdc, const std::vector<uint8_t> &stream)
+{
+    int taken = 0;
+    for (;;) {
+        for (int guard = 0; guard < 100000 && !fdc->drq
+                            && fdc->state != FDC_STATE_IDLE; ++guard)
+            fdc_tick(fdc, 100);
+        if (!fdc->drq)
+            break;
+        REQUIRE(taken < 20000);                 /* it must end by itself */
+        fdc_write(fdc, 3, taken < static_cast<int>(stream.size())
+                              ? stream[taken] : 0x4E);
+        ++taken;
+    }
+    REQUIRE(fdc->state == FDC_STATE_IDLE);
+    return taken;
+}
+
+/* Helper: the first byte of every sector of one track, read from the
+ * file. */
+std::array<uint8_t, FDC_SECTORS> trackHeads(const fs::path &path, long trackAt)
+{
+    std::array<uint8_t, FDC_SECTORS> heads{};
+    for (int s = 0; s < FDC_SECTORS; ++s)
+        heads[s] = sniffAt(path, trackAt + s * (long)FDC_SECTOR_SIZE)[0];
+    return heads;
 }
 
 } /* namespace */
@@ -235,6 +292,147 @@ TEST_CASE("Both sides of a drive share one head position (DV/MZ handler pattern)
 
     fdc_detach(&fdc, 1);
     fdc_detach(&fdc, 3);
+    std::error_code ec;
+    fs::remove(path, ec);
+}
+
+
+TEST_CASE("WRITE TRACK formats the track under the head and no other") {
+    auto path = makeImage(FDC_DISK_SIZE);
+    ms0515_floppy_t fdc;
+    fdc_init(&fdc);
+    REQUIRE(fdc_attach(&fdc, 0, path.string().c_str(), false));
+    fdc_select(&fdc, 0, 0, true);
+    fdc_write(&fdc, 3, 7);
+    fdc_write(&fdc, 0, 0x10);               /* SEEK to 7 */
+    runUntilIdle(&fdc);
+    fdc_write(&fdc, 2, 4);                  /* a sector register to keep */
+
+    fdc_write(&fdc, 0, 0xF0);               /* WRITE TRACK */
+    CHECK((fdc_read(&fdc, 0) & FDC_ST_BUSY) != 0);
+    const int taken = pumpTrack(&fdc, trackStream(7, 0, 1, FDC_SECTORS, 0xE5));
+
+    /* One revolution at 250 kbit/s and 300 rpm is 6250 bytes. */
+    CHECK(taken == 6250);
+    CHECK(fdc.intrq);
+    CHECK((fdc_read(&fdc, 0) & (FDC_ST_BUSY | FDC_ST_WRITE_PROT | FDC_ST_LOST_DATA)) == 0);
+    CHECK(fdc.sector_reg == 4);
+
+    for (uint8_t head : trackHeads(path, 7L * FDC_TRACK_SIZE))
+        CHECK(head == 0xE5);
+    /* The last byte of the track too, and the neighbours as they were. */
+    CHECK(sniffAt(path, 8L * FDC_TRACK_SIZE - 3)[2] == 0xE5);
+    CHECK(sniffAt(path, 6L * FDC_TRACK_SIZE)[1] == 6);
+    CHECK(sniffAt(path, 8L * FDC_TRACK_SIZE)[1] == 8);
+
+    fdc_detach(&fdc, 0);
+    std::error_code ec;
+    fs::remove(path, ec);
+}
+
+TEST_CASE("WRITE TRACK writes the sectors its ID fields name") {
+    auto path = makeImage(FDC_DISK_SIZE);
+    ms0515_floppy_t fdc;
+    fdc_init(&fdc);
+    REQUIRE(fdc_attach(&fdc, 0, path.string().c_str(), false));
+    fdc_select(&fdc, 0, 0, true);
+
+    fdc_write(&fdc, 0, 0xF0);
+    pumpTrack(&fdc, trackStream(0, 0, 3, 6, 0xAA));
+
+    const auto heads = trackHeads(path, 0);
+    for (int s = 1; s <= FDC_SECTORS; ++s)
+        CHECK(heads[s - 1] == ((s >= 3 && s <= 6) ? 0xAA : 0x00));
+
+    fdc_detach(&fdc, 0);
+    std::error_code ec;
+    fs::remove(path, ec);
+}
+
+TEST_CASE("WRITE TRACK stops at the index: a sector cut short is not written") {
+    auto path = makeImage(FDC_DISK_SIZE);
+    ms0515_floppy_t fdc;
+    fdc_init(&fdc);
+    REQUIRE(fdc_attach(&fdc, 0, path.string().c_str(), false));
+    fdc_select(&fdc, 0, 0, true);
+
+    /* With the textbook gap of 54 the stream is longer than a revolution
+     * and the tenth data field is still open when the index comes. */
+    fdc_write(&fdc, 0, 0xF0);
+    const int taken = pumpTrack(&fdc, trackStream(0, 0, 1, FDC_SECTORS, 0xE5, 54));
+    CHECK(taken == 6250);
+
+    const auto heads = trackHeads(path, 0);
+    for (int s = 1; s < FDC_SECTORS; ++s)
+        CHECK(heads[s - 1] == 0xE5);
+    CHECK(heads[FDC_SECTORS - 1] == 0x00);
+
+    fdc_detach(&fdc, 0);
+    std::error_code ec;
+    fs::remove(path, ec);
+}
+
+TEST_CASE("WRITE TRACK on side 1 lands in that side's half of the image") {
+    auto path = makeImage(2 * FDC_DISK_SIZE);
+    ms0515_floppy_t fdc;
+    fdc_init(&fdc);
+    REQUIRE(fdc_attach(&fdc, 0, path.string().c_str(), false));
+    REQUIRE(fdc_attach(&fdc, 2, path.string().c_str(), false));
+    fdc_select(&fdc, 0, 1, true);           /* drive 0, side 1 */
+    fdc_write(&fdc, 3, 2);
+    fdc_write(&fdc, 0, 0x10);
+    runUntilIdle(&fdc);
+
+    fdc_write(&fdc, 0, 0xF0);
+    pumpTrack(&fdc, trackStream(2, 1, 1, FDC_SECTORS, 0xE5));
+
+    for (uint8_t head : trackHeads(path, (2 * 2 + 1) * (long)FDC_TRACK_SIZE))
+        CHECK(head == 0xE5);
+    CHECK(sniffAt(path, (2 * 2) * (long)FDC_TRACK_SIZE)[1] == 2);  /* side 0 */
+
+    fdc_detach(&fdc, 0);
+    fdc_detach(&fdc, 2);
+    std::error_code ec;
+    fs::remove(path, ec);
+}
+
+TEST_CASE("WRITE TRACK refuses a write-protected diskette") {
+    auto path = makeImage(FDC_DISK_SIZE);
+    ms0515_floppy_t fdc;
+    fdc_init(&fdc);
+    REQUIRE(fdc_attach(&fdc, 0, path.string().c_str(), true));
+    fdc_select(&fdc, 0, 0, true);
+
+    fdc_write(&fdc, 0, 0xF0);
+    runUntilIdle(&fdc);
+    CHECK(!fdc.drq);
+    CHECK((fdc_read(&fdc, 0) & FDC_ST_WRITE_PROT) != 0);
+    CHECK(sniffAt(path, 0)[2] == 1);
+
+    fdc_detach(&fdc, 0);
+    std::error_code ec;
+    fs::remove(path, ec);
+}
+
+TEST_CASE("WRITE TRACK left without bytes ends with lost data, not a hang") {
+    auto path = makeImage(FDC_DISK_SIZE);
+    ms0515_floppy_t fdc;
+    fdc_init(&fdc);
+    REQUIRE(fdc_attach(&fdc, 0, path.string().c_str(), false));
+    fdc_select(&fdc, 0, 0, true);
+
+    fdc_write(&fdc, 0, 0xF0);
+    for (int i = 0; i < 100; ++i) {         /* a little, then nothing */
+        for (int guard = 0; guard < 100000 && !fdc.drq; ++guard)
+            fdc_tick(&fdc, 100);
+        REQUIRE(fdc.drq);
+        fdc_write(&fdc, 3, 0x4E);
+    }
+    runUntilIdle(&fdc);
+    CHECK((fdc_read(&fdc, 0) & FDC_ST_LOST_DATA) != 0);
+    CHECK(sniffAt(path, 0)[2] == 1);        /* no sector was completed */
+
+    fdc_detach(&fdc, 0);
     std::error_code ec;
     fs::remove(path, ec);
 }

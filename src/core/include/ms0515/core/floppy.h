@@ -62,9 +62,11 @@ extern "C" {
 #define FDC_ST_BUSY         0x01   /* Command in progress                   */
 #define FDC_ST_INDEX        0x02   /* Index pulse (Type I) / DRQ (Type II)  */
 #define FDC_ST_TRACK0       0x04   /* Head at track 0 (Type I)              */
+#define FDC_ST_LOST_DATA    0x04   /* Byte not served in time (Type II/III) */
 #define FDC_ST_CRC_ERROR    0x08   /* CRC error                             */
 #define FDC_ST_SEEK_ERROR   0x10   /* Seek error (track not found)          */
 #define FDC_ST_HEAD_LOADED  0x20   /* Head loaded (Type I)                  */
+#define FDC_ST_WRITE_FAULT  0x20   /* Write fault (Type II/III writes)      */
 #define FDC_ST_WRITE_PROT   0x40   /* Write protected                       */
 #define FDC_ST_NOT_READY    0x80   /* Drive not ready                       */
 
@@ -151,6 +153,7 @@ typedef enum {
     FDC_STATE_TYPE1_STEP,    /* Head stepping; cycles_remaining = until next pulse  */
     FDC_STATE_TYPE2_SEARCH,  /* Type II command-to-first-DRQ delay (sector search) */
     FDC_STATE_TYPE2_DATA,    /* Type II per-byte transfer; one byte per BYTE_CYCLES */
+    FDC_STATE_TYPE3_TRACK,   /* WRITE TRACK: a byte per BYTE_CYCLES until the index */
     FDC_STATE_FINISH,        /* BUSY held briefly before INTRQ asserts             */
 } fdc_state_t;
 
@@ -189,6 +192,19 @@ typedef struct ms0515_floppy {
     int         step_rate_cycles;  /* armed at command latch (cmd bits 1:0)  */
     int         settle_cycles;     /* head settle delay (h flag in Type I)   */
     uint8_t     next_status;       /* status to apply at FINISH expiry       */
+
+    /* WRITE TRACK.  An image keeps the sectors' data and nothing of a
+     * track's gaps and marks, so the formatter's byte stream is read as
+     * it arrives: an ID field names a sector, the data field after it
+     * is that sector's contents, and it is written when its CRC byte
+     * closes it. */
+    int         wt_bytes_left;     /* until the index comes round again      */
+    int         wt_field;          /* fdc_wt_field_t: what is being taken    */
+    int         wt_count;          /* bytes of that field so far             */
+    uint8_t     wt_id[4];          /* last ID: track, side, sector, length   */
+    bool        wt_id_valid;       /* an ID is waiting for its data field    */
+    bool        wt_sync;           /* the byte before was a sync (F5)        */
+    int         wt_starved;        /* cycles DRQ has gone unanswered         */
 
     /* The listener for mechanical events (see ms0515_fdc_mech_event), and
      * the spindles it has been told are turning - one per physical drive,
