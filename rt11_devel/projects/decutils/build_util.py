@@ -56,6 +56,10 @@ HD_SYS = HERE.parent / "hd" / "HD.SYS"
 # at run time with ?MON-F-Overlay error).
 DEC_TOOLS = HERE / "tools"
 CTRL_C = "\x03"
+# RT-11 aborts a running program on two ^C in quick succession; one alone
+# only stops its output, and a program with a prompt of its own (EDIT)
+# keeps it.  Sent as one string they arrive together.
+ABORT = CTRL_C * 2
 
 
 def dec_sources() -> Path:
@@ -227,8 +231,8 @@ def step(emu, line: str) -> str:
     ends the command line with "Duplicate symbol?" and reads names until an
     empty line.  These are 40-year old programs on a fast host: seconds,
     not minutes."""
-    at_dot = line == CTRL_C
-    label = "^C" if at_dot else repr(line)
+    at_dot = line in (CTRL_C, ABORT)
+    label = ("^C" if line == CTRL_C else "^C^C") if at_dot else repr(line)
     mark = emu.buffer_len()
     emu.send(line + ("" if at_dot else "\r"))
     wait_prompt(emu, f"after {label}")
@@ -272,7 +276,7 @@ def recover(emu) -> None:
     left standing on it would be read again as the next utility's."""
     for _ in range(3):
         try:
-            if step(emu, CTRL_C).rstrip().endswith("."):
+            if step(emu, ABORT).rstrip().endswith("."):
                 break
         except TimeoutError:
             pass
