@@ -1178,3 +1178,56 @@ TEST_CASE("re-INIT of a two-sided image erases the previous kind's traces") {
     initVolume(img, 1, true);                    /* side 1 made anew again */
     REQUIRE(detectVolumes(img).size() == 2);
 }
+
+TEST_CASE("putFile goes on into the next directory segment when one fills up") {
+    /* A segment holds 72 entries; a volume gets as many files as its whole
+     * directory has room for, not as many as its first segment does - the
+     * OS links the segments and so must the tool. */
+    auto img = blankLinear(600);
+    InitOptions four;
+    four.segments = 4;
+    initVolume(img, 0, false, four, Vol::linear);
+    const std::vector<uint8_t> one(kBlock, 0xAB);
+    for (int i = 0; i < 120; ++i) {
+        char name[16];
+        std::snprintf(name, sizeof name, "F%03d.DAT", i);
+        putFile(img, 0, false, name, one, {}, Vol::linear);
+    }
+    auto im = openLinearImage(img);
+    REQUIRE(im);
+    REQUIRE(im->hasDirectory);
+    CHECK(im->directory.segsTotal == 4);
+    REQUIRE(im->directory.find("F000.DAT"));
+    REQUIRE(im->directory.find("F071.DAT"));         /* past the first segment */
+    REQUIRE(im->directory.find("F119.DAT"));
+    CHECK(im->readFile("F119.DAT").size() == kBlock);
+    CHECK(im->readFile("F119.DAT")[0] == 0xAB);
+}
+
+TEST_CASE("a full directory says so and leaves the volume as it was") {
+    auto img = blankLinear(600);
+    InitOptions one;
+    one.segments = 1;
+    initVolume(img, 0, false, one, Vol::linear);
+    const std::vector<uint8_t> blk(kBlock, 7);
+    int put = 0;
+    for (; put < 200; ++put) {
+        char name[16];
+        std::snprintf(name, sizeof name, "G%03d.DAT", put);
+        try {
+            putFile(img, 0, false, name, blk, {}, Vol::linear);
+        } catch (const std::exception &) {
+            break;
+        }
+        /* every successful put must leave the volume readable */
+        auto step = openLinearImage(img);
+        REQUIRE_MESSAGE((step && step->hasDirectory),
+                        "the directory stopped parsing at file " << put);
+    }
+    CHECK(put > 60);                                 /* a segment's worth */
+    auto im = openLinearImage(img);
+    REQUIRE(im);
+    REQUIRE(im->hasDirectory);                       /* still readable */
+    REQUIRE(im->directory.find("G000.DAT"));
+    CHECK(im->readFile("G000.DAT").size() == kBlock);
+}

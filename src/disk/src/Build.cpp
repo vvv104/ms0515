@@ -196,6 +196,127 @@ static int directoryLbn(const std::vector<uint8_t> &image, int side, bool ds, Vo
     throw std::runtime_error("side is not initialised (run init first)");
 }
 
+/* A directory segment in memory: its two blocks and where they sit.  Every
+ * segment carries the same five header words; the chain's own are the next
+ * segment (word 1) and the block its files start at (word 4), while the
+ * count of segments and the highest one in use are read from the first. */
+struct Segment {
+    int index = 0;                     /* 1-based, as the chain numbers them */
+    int lbn   = 0;
+    std::vector<uint8_t> bytes;
+    uint16_t next() const       { return getw(&bytes[2]); }
+    uint16_t startBlock() const { return getw(&bytes[8]); }
+};
+
+static Segment readSegment(const std::vector<uint8_t> &image, int side, bool ds,
+                           Vol vol, int dirLbn, int index)
+{
+    Segment s;
+    s.index = index;
+    s.lbn   = dirLbn + (index - 1) * 2;
+    s.bytes.resize(2 * kBlock);
+    std::memcpy(s.bytes.data(),
+                image.data() + lbnToByte(s.lbn, side, ds, vol), kBlock);
+    std::memcpy(s.bytes.data() + kBlock,
+                image.data() + lbnToByte(s.lbn + 1, side, ds, vol), kBlock);
+    return s;
+}
+
+static void writeSegment(std::vector<uint8_t> &image, int side, bool ds, Vol vol,
+                         const Segment &s)
+{
+    std::memcpy(image.data() + lbnToByte(s.lbn, side, ds, vol),
+                s.bytes.data(), kBlock);
+    std::memcpy(image.data() + lbnToByte(s.lbn + 1, side, ds, vol),
+                s.bytes.data() + kBlock, kBlock);
+}
+
+/* Where a new file can go: the first empty entry that holds it, looked for
+ * through the whole chain as the OS looks (first fit, earliest segment). */
+struct Slot {
+    int segIndex   = 0;
+    std::size_t at = 0;        /* the empty entry's offset in its segment */
+    int startBlock = 0;
+    int length     = -1;       /* < 0: none found */
+    int biggest    = 0;        /* the largest empty seen, for the message */
+};
+
+static Slot findSlot(const std::vector<uint8_t> &image, int side, bool ds, Vol vol,
+                     int dirLbn, std::size_t entrySize, int nblk)
+{
+    Slot best;
+    for (int index = 1; index != 0; ) {
+        const Segment seg = readSegment(image, side, ds, vol, dirLbn, index);
+        int cur = seg.startBlock();
+        for (std::size_t p = 10; p + entrySize <= seg.bytes.size(); p += entrySize) {
+            const uint16_t status = getw(&seg.bytes[p]);
+            if (status == 0 || (status & kStatusEndOfSeg)) break;
+            const uint16_t len = getw(&seg.bytes[p + 8]);
+            if (status & kStatusEmpty) {
+                if (static_cast<int>(len) > best.biggest) best.biggest = len;
+                if (best.length < 0 && static_cast<int>(len) >= nblk) {
+                    best.segIndex = index;
+                    best.at = p;
+                    best.startBlock = cur;
+                    best.length = len;
+                }
+            }
+            cur += len;
+        }
+        if (best.length >= 0) break;
+        index = seg.next();
+    }
+    return best;
+}
+
+/* Make room in a full segment the way the OS does: take the next segment
+ * that is not in use yet, move the tail of this one's entries into it, and
+ * link it in.  Returns false when every segment is in use. */
+static bool splitSegment(std::vector<uint8_t> &image, int side, bool ds, Vol vol,
+                         int dirLbn, int index, std::size_t entrySize)
+{
+    Segment first = readSegment(image, side, ds, vol, dirLbn, 1);
+    const uint16_t total   = getw(&first.bytes[0]);
+    const uint16_t highest = getw(&first.bytes[4]);
+    if (highest >= total) return false;
+    const int fresh = highest + 1;
+
+    Segment seg = readSegment(image, side, ds, vol, dirLbn, index);
+    /* The entries, and the block each one's file starts at. */
+    std::vector<std::pair<std::size_t, int>> entries;
+    int cur = seg.startBlock();
+    for (std::size_t p = 10; p + entrySize <= seg.bytes.size(); p += entrySize) {
+        const uint16_t status = getw(&seg.bytes[p]);
+        if (status == 0 || (status & kStatusEndOfSeg)) break;
+        entries.emplace_back(p, cur);
+        cur += getw(&seg.bytes[p + 8]);
+    }
+    if (entries.size() < 2) return false;
+
+    const std::size_t half = entries.size() / 2;
+    const std::size_t from = entries[half].first;
+    const int movedStart   = entries[half].second;
+    const std::size_t moved = (entries.back().first + entrySize) - from;
+
+    Segment fill = readSegment(image, side, ds, vol, dirLbn, fresh);
+    std::memcpy(fill.bytes.data(), seg.bytes.data(), 10);          /* the header */
+    putw(&fill.bytes[2], seg.next());                              /* its own chain */
+    putw(&fill.bytes[8], static_cast<uint16_t>(movedStart));
+    std::memcpy(fill.bytes.data() + 10, seg.bytes.data() + from, moved);
+    putw(&fill.bytes[10 + moved], kStatusEndOfSeg);
+
+    std::memset(seg.bytes.data() + from, 0, seg.bytes.size() - from);
+    putw(&seg.bytes[from], kStatusEndOfSeg);
+    putw(&seg.bytes[2], static_cast<uint16_t>(fresh));
+
+    putw(&first.bytes[4], static_cast<uint16_t>(fresh));
+    if (index == 1) putw(&seg.bytes[4], static_cast<uint16_t>(fresh));
+    else            writeSegment(image, side, ds, vol, first);
+    writeSegment(image, side, ds, vol, seg);
+    writeSegment(image, side, ds, vol, fill);
+    return true;
+}
+
 /* Add `name` as a new entry; a file already of the name is the caller's. */
 static void putNewFile(std::vector<uint8_t> &image, int side, bool ds,
                        const std::string &name, std::span<const uint8_t> data,
@@ -203,82 +324,70 @@ static void putNewFile(std::vector<uint8_t> &image, int side, bool ds,
 {
     requireValidSize(image, ds, vol);
 
-    auto off =[&](int lbn) { return lbnToByte(lbn, side, ds, vol); };
+    auto off = [&](int lbn) { return lbnToByte(lbn, side, ds, vol); };
     const int dirLbn = directoryLbn(image, side, ds, vol);
 
-    std::vector<uint8_t> seg(2 * kBlock);
-    std::memcpy(seg.data(),          image.data() + off(dirLbn),     kBlock);
-    std::memcpy(seg.data() + kBlock, image.data() + off(dirLbn + 1), kBlock);
-
-    const uint16_t extra = getw(&seg[6]);
+    const Segment firstSeg = readSegment(image, side, ds, vol, dirLbn, 1);
+    const uint16_t extra = getw(&firstSeg.bytes[6]);
     if (extra & 1) throw std::runtime_error("unsupported directory (odd extra bytes)");
     const std::size_t entrySize = 14 + extra;
 
     const int nblk = static_cast<int>((data.size() + kBlock - 1) / kBlock);
 
-    /* Walk every entry until EOS, picking the first empty slot that fits
-     * (first-fit).  Greedy "use whatever's first" is what the original
-     * append-only put did, but the moment removeFile starts leaving holes
-     * we must scan past undersized empties to find a usable one, AND prefer
-     * a freed mid-disk slot over the tail empty whenever both fit (so the
-     * tool reuses the hole the OS left behind, the same as PIP). */
-    int cur = getw(&seg[8]);
-    std::size_t p = 10, emptyP = 0;
-    int emptyStart = 0, emptyLen = -1, biggest = 0;
-    while (p + entrySize <= seg.size()) {
-        const uint16_t status = getw(&seg[p]);
-        if (status == 0 || (status & kStatusEndOfSeg)) break;
-        const uint16_t len = getw(&seg[p + 8]);
-        if ((status & kStatusEmpty) && static_cast<int>(len) > biggest)
-            biggest = len;
-        if ((status & kStatusEmpty) && emptyLen < 0 && static_cast<int>(len) >= nblk) {
-            emptyP = p; emptyStart = cur; emptyLen = len;
-        }
-        cur += len;
-        p   += entrySize;
-    }
-    if (emptyLen < 0) {
-        if (biggest == 0)
-            throw std::runtime_error("directory has no free area for " + name);
-        throw std::runtime_error("file " + name + " does not fit: needs " +
-                                 std::to_string(nblk) + " blocks, biggest free is " +
-                                 std::to_string(biggest));
-    }
-
-    /* Is the slot we're filling at the end of the directory (the canonical
-     * shape PIP leaves after a freshly-INIT'd volume, and after any
-     * append-only add) or in the middle (e.g. just freed by removeFile)?
-     * The shape after the write must preserve any tail entries unchanged. */
-    const std::size_t afterEmpty = emptyP + entrySize;
-    const uint16_t nextStatus = (afterEmpty + 2 <= seg.size())
-                              ? getw(&seg[afterEmpty]) : 0;
-    const bool hasTail = nextStatus != 0 && !(nextStatus & kStatusEndOfSeg);
-
-    if (hasTail && nblk < emptyLen) {
-        /* Need to insert a residual empty entry between the new file and the
-         * tail.  Shift the tail right by entrySize to make room.  Find the
-         * tail's end first (EOS marker or null status), then enforce that
-         * the shifted tail still fits in the segment. */
-        std::size_t tailEnd = afterEmpty;
-        while (tailEnd + entrySize <= seg.size()) {
-            const uint16_t st = getw(&seg[tailEnd]);
-            if (st == 0 || (st & kStatusEndOfSeg)) { tailEnd += 2; break; }
-            tailEnd += entrySize;
-        }
-        const std::size_t tailSize = tailEnd - afterEmpty;
-        if (afterEmpty + entrySize + tailSize > seg.size())
-            throw std::runtime_error("directory segment is full (cannot add " + name + ")");
-        std::memmove(seg.data() + afterEmpty + entrySize,
-                     seg.data() + afterEmpty, tailSize);
-    } else if (!hasTail && emptyP + 2 * entrySize + 2 > seg.size()) {
-        throw std::runtime_error("directory segment is full (cannot add " + name + ")");
-    }
-
     char nm[6], ex[3];
     splitName(name, nm, ex);   /* validates 6.3 + RAD50 before we touch data */
 
+    Slot slot = findSlot(image, side, ds, vol, dirLbn, entrySize, nblk);
+    if (slot.length < 0) {
+        if (slot.biggest == 0)
+            throw std::runtime_error("directory has no free area for " + name);
+        throw std::runtime_error("file " + name + " does not fit: needs " +
+                                 std::to_string(nblk) + " blocks, biggest free is " +
+                                 std::to_string(slot.biggest));
+    }
+
+    Segment seg = readSegment(image, side, ds, vol, dirLbn, slot.segIndex);
+    auto &bytes = seg.bytes;
+
+    /* Is the slot we're filling at the end of this segment's entries (the
+     * shape an append-only add leaves) or in the middle (e.g. just freed by
+     * removeFile)?  The shape after the write must keep any tail as it is. */
+    const std::size_t afterEmpty = slot.at + entrySize;
+    const uint16_t nextStatus = (afterEmpty + 2 <= bytes.size())
+                              ? getw(&bytes[afterEmpty]) : 0;
+    const bool hasTail = nextStatus != 0 && !(nextStatus & kStatusEndOfSeg);
+    const bool residual = nblk < slot.length;
+
+    std::size_t tailSize = 0;
+    if (hasTail && residual) {
+        std::size_t tailEnd = afterEmpty;
+        while (tailEnd + entrySize <= bytes.size()) {
+            const uint16_t st = getw(&bytes[tailEnd]);
+            if (st == 0 || (st & kStatusEndOfSeg)) { tailEnd += 2; break; }
+            tailEnd += entrySize;
+        }
+        tailSize = tailEnd - afterEmpty;
+    }
+    /* What the write needs at the end of the segment: the residual empty
+     * entry when the file leaves room over, and the end-of-segment marker
+     * when there is no tail of its own to keep. */
+    const std::size_t needed = slot.at + entrySize * (residual ? 2 : 1)
+                             + (hasTail ? tailSize : entrySize);
+    const bool noRoom = needed > bytes.size();
+    if (noRoom) {
+        /* The segment is full: give it a fresh one to share its entries
+         * with, then look again - the slot has moved. */
+        if (!splitSegment(image, side, ds, vol, dirLbn, slot.segIndex, entrySize))
+            throw std::runtime_error("directory segment is full (cannot add " + name + ")");
+        putNewFile(image, side, ds, name, data, opts, vol);
+        return;
+    }
+    if (hasTail && residual)
+        std::memmove(bytes.data() + afterEmpty + entrySize,
+                     bytes.data() + afterEmpty, tailSize);
+
     for (int i = 0; i < nblk; ++i) {
-        const std::size_t o = off(emptyStart + i);
+        const std::size_t o = off(slot.startBlock + i);
         const std::size_t srcOff = static_cast<std::size_t>(i) * kBlock;
         const std::size_t n = (srcOff < data.size())
                             ? std::min<std::size_t>(kBlock, data.size() - srcOff) : 0;
@@ -288,23 +397,19 @@ static void putNewFile(std::vector<uint8_t> &image, int side, bool ds,
 
     const uint16_t newStatus = static_cast<uint16_t>(
         kStatusPermanent | (opts.readOnly ? kStatusProtected : 0));
-    putEntry(seg.data(), emptyP, newStatus, encodeRad50(nm),
+    putEntry(bytes.data(), slot.at, newStatus, encodeRad50(nm),
              encodeRad50(nm + 3), encodeRad50(ex), static_cast<uint16_t>(nblk));
-    putw(&seg[emptyP + 12], opts.date);
-    if (nblk < emptyLen) {
-        putEntry(seg.data(), afterEmpty, kStatusEmpty, 0x00D5, 0x6739, 0x26F4,
-                 static_cast<uint16_t>(emptyLen - nblk));
-    }
+    putw(&bytes[slot.at + 12], opts.date);
+    if (residual)
+        putEntry(bytes.data(), afterEmpty, kStatusEmpty, 0x00D5, 0x6739, 0x26F4,
+                 static_cast<uint16_t>(slot.length - nblk));
     if (!hasTail) {
-        /* Append-only case: rewrite the EOS marker after our entries.  When
-         * there IS a tail we leave it as-is — its own EOS is preserved. */
-        const std::size_t eosAt = (nblk < emptyLen) ? (afterEmpty + entrySize)
-                                                    : afterEmpty;
-        putw(&seg[eosAt], kStatusEndOfSeg);
+        /* Append-only case: rewrite the end-of-segment marker after our
+         * entries.  When there IS a tail we leave it - its own is kept. */
+        putw(&bytes[residual ? afterEmpty + entrySize : afterEmpty], kStatusEndOfSeg);
     }
 
-    std::memcpy(image.data() + off(dirLbn),     seg.data(),          kBlock);
-    std::memcpy(image.data() + off(dirLbn + 1), seg.data() + kBlock, kBlock);
+    writeSegment(image, side, ds, vol, seg);
 }
 
 void putFile(std::vector<uint8_t> &image, int side, bool ds,
