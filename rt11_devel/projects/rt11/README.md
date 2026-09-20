@@ -51,3 +51,29 @@ A monitor takes only handlers whose sysgen word is its own, so the
 conditionals of a system (`monitor/SYC*.MAC`) are the handlers'
 conditionals too — `kit/build_handler.py` assembles every handler behind
 the answers of the profile it is for.
+
+## Handlers DEC already has
+
+`LD`, `LP`, `LS`, `SL`, `NL`, `SP` come from DEC's sources as they are
+(`kit/build_handler.py LD LP ...`); they get no project here.  What the
+kits' copies of them turned out to be, for the record:
+
+* **`LD` (omega)** is the `LD.MAC` of FODOS-3 (audit `B03`), the same
+  code.  The words that differ are its table of mounted logical disks,
+  which `MOUNT` writes back into the handler's file: `LD0` = `MZ:MARKET.DSK`,
+  `LD1` = `MZ:VERA.DSK`, `LD2` = `MZ:SY7.DSK` - someone's working session,
+  not a modification.  Mihin's is DEC's V5 `LD`, version 04.
+* **`LP` (omega)** carries DEC's audit (`V05`, version 06) but is not a
+  driver of the parallel printer port: it prints through the machine's
+  serial interface (`177700`/`177702` in, `177720`/`177722` out, vectors
+  `110`/`114`), programs the 8251 itself and obeys XON/XOFF.  `SET LP
+  HANG`, `CSR`, `VECTOR` and `BIT8` are gone; `SET LP WAIT` (the delay
+  between the 8251's commands) and `SET LP ROBOT` are added.  DEC's own
+  answer to a serial printer is `LS`.  Note that the emulator's
+  paravirtual disk takes `177720`/`177722` while it is enabled.
+* **`SL`**: osa's and Mihin's are V8.00 (RT-11 V5.6, no source in the
+  V5.4 kit), omega's is `B03` version 7 with no `SL.MAC` in the FODOS-3
+  sources either.  DEC's V5.4 `SL` (version 46) builds and is what goes
+  into the kit.
+* **`NL` (rodionov)** is not a handler at all - a scrap of a command
+  file under the name.
