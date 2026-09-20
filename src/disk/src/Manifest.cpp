@@ -149,6 +149,7 @@ ManifestSystem readSystem(const std::string &key, const toml::table &t, int form
     ManifestSystem s;
     s.key = key;
     s.title = str(t, "title", where, true);
+    s.kit = str(t, "kit", where, false);
     if (format == 1) s.image = str(t, "image", where, true);
     else readSystemFiles(s, t, where);
     s.media = medias(t, "media", where);
@@ -206,6 +207,7 @@ ManifestBundle readBundle(const std::string &key, const toml::table &t)
     b.date = str(t, "date", where, false);
     b.protect = t["protect"].value_or(false);
     b.group = str(t, "group", where, false);
+    b.kit = str(t, "kit", where, false);
     b.provides = strings(t, "provides", where);
     b.dependsOn = strings(t, "requires", where);
     if (const auto *table = t["prefer"].as_table()) {
@@ -390,6 +392,12 @@ const ManifestBundle *Manifest::bundle(std::string_view key) const
     return nullptr;
 }
 
+std::string Manifest::kitTitle(std::string_view key) const
+{
+    for (const auto &k : kits) if (k.first == key) return k.second;
+    return std::string(key);
+}
+
 const ManifestPreset *Manifest::preset(std::string_view key) const
 {
     for (const auto &p : presets) if (p.key == key) return &p;
@@ -425,6 +433,8 @@ Manifest parseManifest(std::string_view text)
     };
     for (const auto &[k, t] : inOrder(section(root, "system"))) m.systems.push_back(readSystem(k, *t, m.format));
     for (const auto &[k, t] : inOrder(section(root, "bundle"))) m.bundles.push_back(readBundle(k, *t));
+    for (const auto &[k, t] : inOrder(section(root, "kit")))
+        m.kits.emplace_back(k, str(*t, "title", "kit." + k, true));
     for (const auto &[k, t] : inOrder(section(root, "preset"))) m.presets.push_back(readPreset(k, *t));
     crossCheck(m);
     return m;

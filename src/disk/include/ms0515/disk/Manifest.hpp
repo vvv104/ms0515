@@ -38,6 +38,9 @@ struct ManifestReserved {
  * the dates, and each protected block's file. */
 struct ManifestSystem {
     std::string                key, title;
+    /* The kit it belongs to (TOML `kit`): what came together with the
+     * monitor - its handlers, its utilities.  "" none. */
+    std::string                kit;
     std::string                image;          /* format 1: the exemplar */
     std::string                monitor;        /* format 2: the monitor's file */
     std::optional<std::string> monitorDate;    /* YYYY-MM-DD */
@@ -80,6 +83,11 @@ struct ManifestBundle {
     bool                      protect = false;
     /* Where the wizard lists it: "Development / Pascal", "" at the top. */
     std::string               group;
+    /* The kit it is a part of (TOML `kit`), "" none.  A kit's bundles are
+     * listed by the system chosen: under "System" when the kit is the
+     * system's own, under "Other kits" and the kit's title when not; `group`
+     * is then the place inside the kit ("Handlers", "Utilities"). */
+    std::string               kit;
     /* Names this bundle satisfies besides its own key.  The bundles that
      * provide one name are alternatives: one of them goes on a disk. */
     std::vector<std::string>  provides;
@@ -113,9 +121,13 @@ struct Manifest {
     std::vector<ManifestSystem> systems;       /* in the file's order */
     std::vector<ManifestBundle> bundles;
     std::vector<ManifestPreset> presets;
+    /* The kits' titles ([kit.<key>] title), in the file's order. */
+    std::vector<std::pair<std::string, std::string>> kits;
 
     [[nodiscard]] const ManifestSystem *system(std::string_view key) const;
     [[nodiscard]] const ManifestBundle *bundle(std::string_view key) const;
+    /* A kit's title; its key when the file gives it none. */
+    [[nodiscard]] std::string kitTitle(std::string_view key) const;
     [[nodiscard]] const ManifestPreset *preset(std::string_view key) const;
 };
 

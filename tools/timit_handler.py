@@ -18,8 +18,8 @@ itself: .DRAST and .FORK do (JSR R5,@X(PC), whose displacement would need
 fixing), so a handler that uses them is refused.  The MS-0515 floppy
 handlers poll the controller and use neither.
 
-    python tools/timit_handler.py <collection>/software/system/handlers/omega/DV.SYS \
-                                  <collection>/software/system/handlers/mihin/DV.SYS
+    python tools/timit_handler.py <collection>/kits/omega/handlers/DV.SYS \
+                                  <collection>/kits/mihin/handlers/DV.SYS
 """
 from __future__ import annotations
 

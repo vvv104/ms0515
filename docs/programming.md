@@ -334,7 +334,7 @@ program needs of it:
   before them `$TIMIT` on a monitor generated with time-outs (Mihin's
   OS-16SJ).  Flipping the bit alone makes the monitor overwrite the
   handler's last code word; `tools/timit_handler.py` inserts the word
-  properly.  `ms0515-software/software/system/handlers/README.md` tells
+  properly.  `ms0515-software/kits/HANDLERS.md` tells
   the story.
 - The floppy handlers poll the controller; they use neither `.DRAST` nor
   `.FORK`.

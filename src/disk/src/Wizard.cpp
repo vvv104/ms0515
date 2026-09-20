@@ -491,6 +491,22 @@ void DiskWizard::stepRows(std::vector<WizardRow> &out, bool everything) const
     }
 }
 
+/* Where a bundle is listed.  One that is part of a kit goes by the system
+ * chosen: the system's own kit is its "System" group, and what the other
+ * kits have stays to be had under "Other kits" and the kit's name - so that
+ * what belongs to a system is found in one place, whichever system it is. */
+std::vector<std::string> DiskWizard::groupOf(const ManifestBundle &b) const
+{
+    auto path = groupPath(b.group);
+    if (b.kit.empty()) return path;
+    const auto *sys = ready() ? m_.system(sel_.system) : nullptr;
+    std::vector<std::string> out;
+    if (!sys || sys->kit == b.kit) out = {kOwnKitGroup};
+    else out = {kOtherKitsGroup, m_.kitTitle(b.kit)};
+    if (!b.group.empty()) out.insert(out.end(), path.begin(), path.end());
+    return out;
+}
+
 DiskWizard::Branch DiskWizard::tree() const
 {
     Branch root;
@@ -498,7 +514,7 @@ DiskWizard::Branch DiskWizard::tree() const
         if (ready() && !b.systems.empty() && !contains(b.systems, sel_.system)) continue;
         Branch *at = &root;
         std::string key;
-        for (const auto &part : groupPath(b.group)) {
+        for (const auto &part : groupOf(b)) {
             key += (key.empty() ? "" : " / ") + part;
             auto it = std::find_if(at->children.begin(), at->children.end(), [&](const Branch &c) { return c.title == part; });
             if (it == at->children.end()) {
@@ -509,6 +525,15 @@ DiskWizard::Branch DiskWizard::tree() const
         }
         at->bundles.push_back(&b);
     }
+    /* The system's own first, the other kits last, whatever the file's order. */
+    auto top = [&](const char *title) {
+        return std::find_if(root.children.begin(), root.children.end(),
+                            [&](const Branch &c) { return c.title == title; });
+    };
+    if (auto it = top(kOwnKitGroup); it != root.children.end())
+        std::rotate(root.children.begin(), it, it + 1);
+    if (auto it = top(kOtherKitsGroup); it != root.children.end())
+        std::rotate(it, it + 1, root.children.end());
     return root;
 }
 
@@ -601,7 +626,7 @@ void DiskWizard::labelRows(std::vector<WizardRow> &out, bool everything) const
 std::string DiskWizard::startupHome() const
 {
     for (const auto &key : res_.bundles)
-        if (isSystemPart(key)) return groupPath(m_.bundle(key)->group).front();
+        if (isSystemPart(key)) return groupOf(*m_.bundle(key)).front();
     return "";
 }
 
@@ -730,7 +755,7 @@ std::vector<std::pair<std::string, int>> DiskWizard::blocksByGroup() const
     std::vector<std::pair<std::string, int>> out;
     for (const auto &key : res_.bundles) {
         const auto *b = m_.bundle(key);
-        const std::string top = groupPath(b->group).front();
+        const std::string top = groupOf(*b).front();
         const int n = blocksOf_ ? blocksOf_(*b) : 0;
         const auto it = std::find_if(out.begin(), out.end(), [&](const auto &g) { return g.first == top; });
         if (it == out.end()) out.emplace_back(top, n); else it->second += n;
@@ -748,9 +773,9 @@ void DiskWizard::openWhatIsChosen()
     if (!ready()) return;
     open_.insert(kSystemGroup);
     const auto *sys = m_.system(sel_.system);
-    auto pathOf = [](const ManifestBundle &b) {
+    auto pathOf = [this](const ManifestBundle &b) {
         std::string key;
-        for (const auto &part : groupPath(b.group)) key += (key.empty() ? "" : " / ") + part;
+        for (const auto &part : groupOf(b)) key += (key.empty() ? "" : " / ") + part;
         return key;
     };
     for (const auto &key : res_.bundles) {

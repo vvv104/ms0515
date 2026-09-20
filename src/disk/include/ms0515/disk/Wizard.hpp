@@ -64,6 +64,10 @@ inline constexpr const char *kDisketteGroup = "#diskette";
 inline constexpr const char *kLabelGroup = "#label";
 inline constexpr const char *kSystemGroup = "#system";
 inline constexpr const char *kStartupGroup = "#startup";
+/* The titles of the two top groups a kit's bundles are listed under: the
+ * chosen system's own kit, and every other. */
+inline constexpr const char *kOwnKitGroup = "System";
+inline constexpr const char *kOtherKitsGroup = "Other kits";
 inline constexpr const char *kBannerGroup = "#banner";
 /* The fields' keys: the volume id; STARTS.COM's own line N ("#startup:N", N
  * one past the last: a new line); BANNER.TXT's line N the same way. */
@@ -176,6 +180,7 @@ private:
     [[nodiscard]] std::string systemRefusal(const ManifestSystem &s) const;
     [[nodiscard]] WizardRow::Mark markOf(const ManifestBundle &b) const;
     [[nodiscard]] WizardRow bundleRow(const ManifestBundle &b, int depth, bool radio) const;
+    [[nodiscard]] std::vector<std::string> groupOf(const ManifestBundle &b) const;
     [[nodiscard]] Branch tree() const;
     void stepRows(std::vector<WizardRow> &out, bool everything) const;
     void labelRows(std::vector<WizardRow> &out, bool everything) const;
