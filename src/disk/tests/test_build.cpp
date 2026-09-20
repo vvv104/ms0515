@@ -1180,9 +1180,10 @@ TEST_CASE("re-INIT of a two-sided image erases the previous kind's traces") {
 }
 
 TEST_CASE("putFile goes on into the next directory segment when one fills up") {
-    /* A segment holds 72 entries; a volume gets as many files as its whole
-     * directory has room for, not as many as its first segment does - the
-     * OS links the segments and so must the tool. */
+    /* A segment holds 71 entries and the end-of-segment marker; a volume
+     * gets as many files as its whole directory has room for, not as many
+     * as its first segment does - the OS links the segments and so must
+     * the tool. */
     auto img = blankLinear(600);
     InitOptions four;
     four.segments = 4;
@@ -1202,6 +1203,30 @@ TEST_CASE("putFile goes on into the next directory segment when one fills up") {
     REQUIRE(im->directory.find("F119.DAT"));
     CHECK(im->readFile("F119.DAT").size() == kBlock);
     CHECK(im->readFile("F119.DAT")[0] == 0xAB);
+}
+
+TEST_CASE("a second segment is read on a volume larger than a floppy") {
+    /* The segments after the first start where their files start, and on a
+     * hard disk that is a block number no floppy could hold.  Reading one
+     * must go by the volume in hand, not by a floppy's 800 blocks - the
+     * machine's own RT-11 filled a work image past that, and the whole
+     * chain after the first segment went missing. */
+    auto img = blankLinear(4000);
+    InitOptions four;
+    four.segments = 4;
+    initVolume(img, 0, false, four, Vol::linear);
+    const std::vector<uint8_t> big(20 * kBlock, 0x5A);
+    for (int i = 0; i < 100; ++i) {
+        char name[16];
+        std::snprintf(name, sizeof name, "H%03d.DAT", i);
+        putFile(img, 0, false, name, big, {}, Vol::linear);
+    }
+    auto im = openLinearImage(img);
+    REQUIRE(im);
+    REQUIRE(im->hasDirectory);
+    REQUIRE(im->directory.find("H099.DAT"));
+    CHECK(im->directory.find("H099.DAT")->startBlock > kSsBlocks);
+    CHECK(im->readFile("H099.DAT").size() == 20 * kBlock);
 }
 
 TEST_CASE("a full directory says so and leaves the volume as it was") {

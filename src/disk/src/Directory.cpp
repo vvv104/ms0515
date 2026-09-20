@@ -4,6 +4,7 @@
 
 #include "ms0515/disk/Directory.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstring>
@@ -75,7 +76,7 @@ const DirEntry *Directory::find(std::string_view name) const
     return nullptr;
 }
 
-std::optional<Directory> parseSegment(std::span<const uint8_t> seg)
+std::optional<Directory> parseSegment(std::span<const uint8_t> seg, int maxBlock)
 {
     if (seg.size() < 1024) return std::nullopt;
 
@@ -88,7 +89,7 @@ std::optional<Directory> parseSegment(std::span<const uint8_t> seg)
     if (segTotal == 0 || segTotal > 31)        return std::nullopt;
     if (segHigh == 0 || segHigh > segTotal)    return std::nullopt;
     if ((extra & 1) || extra > 64)             return std::nullopt;
-    if (dataBlk < 1 || dataBlk > kSsBlocks)    return std::nullopt;
+    if (dataBlk < 1 || dataBlk > maxBlock)     return std::nullopt;
 
     Directory dir;
     dir.segsTotal  = segTotal;
@@ -139,10 +140,15 @@ parseDirectory(std::span<const uint8_t> data, int side, bool ds, Vol vol)
         }
     };
 
+    /* How far the files can reach: a floppy read through the FDC geometry
+     * is 800 or 1600 blocks, an HD image as many as it holds. */
+    const int maxBlock = static_cast<int>(
+        std::min<std::size_t>(data.size() / kBlock, 65535));
+
     for (int start : kDirCandidates) {
         std::array<uint8_t, 1024> buf{};
         readSegmentBytes(start, buf);
-        auto first = parseSegment(buf);
+        auto first = parseSegment(buf, maxBlock);
         if (!first) continue;
 
         Directory dir = *first;
@@ -155,7 +161,7 @@ parseDirectory(std::span<const uint8_t> data, int side, bool ds, Vol vol)
         while (next != 0 && guard++ < 31) {
             const int segLbn = start + (next - 1) * 2;
             readSegmentBytes(segLbn, buf);
-            auto more = parseSegment(buf);
+            auto more = parseSegment(buf, maxBlock);
             if (!more) break;
             for (const auto &e : more->entries)
                 dir.entries.push_back(e);
