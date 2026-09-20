@@ -17,8 +17,15 @@ driver on block 0 is ours too - and the machine has to:
 Build DZ.SYS first:
     python rt11_devel/projects/decutils/build_handler.py \\
            --source rt11_devel/projects/dz DZ OUTDIR
-and copy OUTDIR/DZ.SYS here.  The programs used (DUMP, PIP) are the dec
-kit's, from the folder given as the argument (built by decutils).
+and copy OUTDIR/DZ.SYS here.
+
+    python validate.py KIT [SYSTEM-FILE ...]
+
+KIT is the folder of the dec kit's programs (DUMP, PIP, DUP, built by
+decutils).  Each SYSTEM-FILE replaces the file of its name on the composed
+diskette - a monitor refuses a handler whose sysgen word is not its own,
+so a DZ.SYS built with ERL$G needs the monitor and TT.SYS built with it
+too, and they are given here until the collection carries them.
 """
 from __future__ import annotations
 
@@ -56,12 +63,16 @@ def collection() -> Path:
     return root
 
 
-def make_disks(work: Path, kit: Path, files: list[Path]) -> tuple[Path, Path, Path]:
+def make_disks(work: Path, kit: Path, files: list[Path],
+               system: list[Path]) -> tuple[Path, Path, Path]:
     boot = work / "boot.dsk"
     disk("compose", "--repo", collection(), "--system", "dec", "--media", "ss", boot)
-    disk("unprotect", boot, "DZ.SYS")
-    disk("rm", boot, "DZ.SYS")
-    disk("put", boot, HERE / "DZ.SYS", kit / "DUMP.SAV", *files)
+    ours = [HERE / "DZ.SYS"] + system
+    for f in ours:
+        disk("unprotect", boot, f.name)
+        disk("rm", boot, f.name)
+    disk("squeeze", boot)                    # the monitor goes back in one piece
+    disk("put", boot, *ours, kit / "DUMP.SAV", *files)
     disk("boot", boot)                       # block 0 becomes our primary driver
 
     marked = work / "marked.dsk"             # block n is full of the word n;
@@ -146,15 +157,16 @@ def check_writes(boot: Path, target: Path, files: list[Path], work: Path) -> int
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    if len(sys.argv) < 2:
         raise SystemExit(__doc__)
     kit = Path(sys.argv[1])
+    system = [Path(a) for a in sys.argv[2:]]
     if not (HERE / "DZ.SYS").is_file():
         raise SystemExit("DZ.SYS is not built - see the top of this file")
     files = [kit / "PIP.SAV", kit / "DUP.SAV"]
     work = Path(tempfile.mkdtemp(prefix="dz_oracle_"))
     try:
-        boot, marked, target = make_disks(work, kit, files)
+        boot, marked, target = make_disks(work, kit, files, system)
         bad = check_reads(boot, marked) + check_writes(boot, target, files, work)
     finally:
         shutil.rmtree(work, ignore_errors=True)

@@ -33,6 +33,16 @@
 ; encoder has no input for it - so a request is served to its end before
 ; the handler returns, as every kit's handler does.
 ;
+	.SBTTL	CONDITIONAL ASSEMBLY SUMMARY
+;+
+;COND
+;
+;	ERL$G		error logging: every failed try goes to the error
+;			logger with the controller's registers, and a
+;			request that came through is reported as well
+;	MMG$T		not supported: an error at assembly
+;	TIM$IT		std conditional (no code effects)
+;-
 	.MCALL	.DRDEF,	.DRBEG,	.DRAST,	.DRFIN,	.DREND,	.DRBOT
 	.MCALL	.DRPTR,	.DREST,	.ASSUME
 
@@ -83,6 +93,9 @@ SECTRK	= 10.			;Sectors on a track
 TRACKS	= 80.			;Tracks on a side
 BLKSIZ	= 512.			;Bytes in a sector, and in a block
 RETRY	= 8.			;Tries before a request is given up
+ERNREG	= 4			;Registers a logged error carries: the
+				; controller's status, track and sector,
+				; and the copy of Register A
 
 	.DRDEF	DZ,52,FILST$,<SECTRK*TRACKS>,DZ$CSR,0
 	.DRPTR
@@ -142,7 +155,11 @@ NXTBLK:	CMP	BLOCK,#<SECTRK*TRACKS>	;Past the end of the side?
 	BCS	30$
 	CALL	MOVE
 	BCC	BLKOK
-30$:	CALL	HOME			;It failed: find the head again
+30$:
+.IF NE ERL$G
+	CALL	LOGERR			;It failed: say so while the registers
+.ENDC ;NE ERL$G				; still show why,
+	CALL	HOME			; find the head again
 	DEC	TRIES			; and try from the seek
 	BNE	20$
 DZERR:	BIS	#HDERR$,@-(R4)
@@ -150,6 +167,13 @@ DZERR:	BIS	#HDERR$,@-(R4)
 BLKOK:	INC	BLOCK
 	SUB	#BLKSIZ,COUNT
 	BHI	NXTBLK
+.IF NE ERL$G
+	MOV	R4,-(SP)		;The request came through: the logger
+	MOV	#DZ$COD*400+377,R4	; hears that too, as ID/-1
+	MOV	DZCQE,R5
+	CALL	@$ELPTR
+	MOV	(SP)+,R4
+.ENDC ;NE ERL$G
 DZDONE:	BIS	#RA.USE,@#REGAC		;For the clock: the drive was just used
 	.DRFIN	DZ
 
@@ -311,6 +335,48 @@ SPINUP:	MOV	#3,R1
 20$:	SOB	R0,20$
 	SOB	R1,10$
 	RETURN
+
+.IF NE ERL$G
+	.SBTTL	THE ERROR LOGGER
+
+;+
+; LOGERR - hand a failed try to the error logger, as DEC's handlers do:
+;
+;	R2 -> the registers, ERNREG words of them
+;	R3 =  the most tries a request gets / how many registers
+;	R4 =  the device's code / the tries still left after this one
+;	R5 -> the queue element
+;
+; The monitor's $ERLOG, where $ELPTR leads, returns at once when no
+; logger is loaded, so the call costs nothing then.  R4 is kept for the
+; caller; the rest is recomputed on a retry anyway.
+;-
+LOGERR:	MOV	R4,-(SP)
+	MOV	PC,R3
+	ADD	#ERBUF-.,R3
+	MOV	R3,R2
+	MOV	#DZ$CSR,R0
+	CLR	R1
+	BISB	(R0),R1			;The status, which holds the reason
+	MOV	R1,(R3)+
+	CLR	R1
+	BISB	DZ.TRK(R0),R1
+	MOV	R1,(R3)+
+	CLR	R1
+	BISB	DZ.SEC(R0),R1
+	MOV	R1,(R3)+
+	MOV	@#REGAC,(R3)		;Which drive and side, and the motor
+	MOV	#<RETRY*400>+ERNREG,R3
+	MOV	#DZ$COD*400,R4
+	BISB	TRIES,R4
+	DECB	R4
+	MOV	DZCQE,R5
+	CALL	@$ELPTR
+	MOV	(SP)+,R4
+	RETURN
+
+ERBUF:	.BLKW	ERNREG
+.ENDC ;NE ERL$G
 
 	.SBTTL	WHAT A REQUEST KEEPS
 

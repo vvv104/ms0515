@@ -142,6 +142,44 @@ first copy from drive 0 to drive 1 failed with a directory I/O error.
 * assemble with `ERL$G` so failures reach the error logger, the way our
   own `HD.MAC` already does.
 
+## Error logging works, and what stands in the way of switching it on
+
+Our `DZ.MAC` carries DEC's error logging under `ERL$G`, by the convention
+read out of DEC's `DX.MAC`: on a failed try `R2` points at the device's
+registers, `R3` is the most tries a request gets over the number of
+registers, `R4` the device's code over the tries left, `R5` the queue
+element, then `CALL @$ELPTR`; a request that came through is reported as
+code over `377`.  Ours logs four registers: the controller's status,
+track and sector, and the copy of Register A.
+
+Tried on the machine with the monitor, `DZ`, `EL` and DEC's `TT` all built
+with `ERL$G`, drive 1 left empty and `DIR DZ1:` asked for, `ERROUT` said:
+
+    DISK DEVICE ERROR            UNIT 000001   TYPE RX/PRO
+      MAXIMUM RETRIES 8.   REMAINING RETRIES 0.
+      OCCURRANCES OF THIS ERROR WITH IDENTICAL REGISTERS 8.
+      REGISTERS: 000240 000001 000003 120031
+      ACTIVE FUNCTION READ   BLOCK 1.   TRANSFER SIZE IN BYTES 512.
+    unit 0: READ SUCCESSES 11.  WRITE SUCCESSES 2.
+    TOTAL ERRORS LOGGED 8.
+
+(`RX/PRO` because device code 52 is DEC's own DZ, the Professional's
+RX50.)  `SET EL LOG` starts it; the `RUN` of the handler's own comments is
+an older spelling.
+
+It is not switched on in the dec profile, and cannot be yet.  A monitor
+takes only handlers whose sysgen word is its own, so `ERL$G` in the
+monitor asks it of every handler, and two of the machine's exist only as
+kit binaries without it: `TT` and `VM`.  DEC's own `TT.MAC` builds and
+loads, and output through it hangs - `DUMP` to `TT:` never prints, while
+the same `DUMP` to a file finishes - because the machine's console goes
+through the ROM and DEC's handler waits for a DL11 transmitter interrupt
+that does not exist here; ОМЕГА's `TT.SYS` is a reworked one.  The word
+cannot be patched in either: with `ERL$G` the monitor fills one more
+pointer (`$ELPTR`) at a handler's end, and a handler without the slot gets
+it written over something else - the `$TIMIT` story again.  So `TT` is the
+next handler to write, and the switch comes after it.
+
 ## DV and MZ are one handler with one constant changed
 
 Their listings are the same instruction for instruction but for three
