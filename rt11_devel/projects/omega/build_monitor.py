@@ -43,6 +43,11 @@ DISKTOOL = ROOT / "package/ms0515-disk.exe"
 ROM = ROOT / "package/assets/rom/ms0515-romb.rom"   # the toolset system is the vvv104 Omega: ROM-B
 SYSTEM_DIR = TOOLSET / "system"
 TOOLS = TOOLSET / "build_tools"
+# DEC's own LINK and SYSMAC, built from its sources (../decutils).  Only
+# MACRO comes from the kit - the V5.4 source distribution has no source
+# for it.  The toolset's libraries are not all DEC's, and which of them a
+# build was standing on cannot be told from the outside.
+DEC_TOOLS = HERE.parent / "decutils" / "tools"
 HD_SYS = HERE.parent / "hd" / "HD.SYS"
 
 # The monitor's four parts, as MONBLD assembles them for SJ.
@@ -142,8 +147,9 @@ def stage(image: Path, files: Path, profile: str) -> None:
 
 def boot_volume(boot: Path) -> None:
     shutil.copytree(SYSTEM_DIR, boot)
-    for f in ("MACRO.SAV", "LINK.SAV", "SYSMAC.SML"):
-        shutil.copy(TOOLS / f, boot / f)
+    shutil.copy(TOOLS / "MACRO.SAV", boot / "MACRO.SAV")
+    for f in ("LINK.SAV", "SYSMAC.SML"):
+        shutil.copy(DEC_TOOLS / f, boot / f)
     shutil.copy(HD_SYS, boot / "HD.SYS")
     (boot / "STARTS.COM").write_bytes(b"SET TT QUIET\r\nASSIGN HD DK\r\nASSIGN HD SRC\r\n")
 
