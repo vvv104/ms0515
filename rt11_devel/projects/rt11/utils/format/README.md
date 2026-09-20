@@ -31,11 +31,23 @@ stands — that part goes through the handler.
   side (bit 0 the drive, bit 1 the side); `DV` and `MZ` take the diskette
   whole, so both sides of every track are written.
 * **The root finds a device by the code its handler answers `.DSTATUS`
-  with, not by its name**, and `DV` answers with `DZ`'s 52.  So `DV` needs
-  no entry of its own and cannot have one; the module tells a side from a
-  diskette by the size of the volume in the same answer (800 blocks, or
-  more), which the root keeps at the global `OUTSPC`.  `MZ` has a code of
-  its own (55) and a line of its own in the table.
+  with, not by its name**, and the machine's handlers were given their
+  codes carelessly: `DV` answers with `DZ`'s 52, and so does the memory
+  disk `VM`.  The codes stay as the kits have them - nothing but FORMAT
+  looks at them, and the same `FORMAT.SAV` then serves the kits' `DV.SYS`
+  as well as ours - so `DV` has no entry of its own in the table and
+  cannot have one.  What comes in as `DZ` is told apart by the size of the
+  volume in the same answer, which the root keeps at the global `OUTSPC`:
+  800 blocks are a side, 1600 the diskette, anything else is not a
+  diskette and the routine refuses without touching the drive.  `MZ` has
+  a code of its own (55) and a line of its own in the table, for 1600
+  blocks only.
+* **The name in the question comes from the table too** ("`DZ1:/FORMAT-Are
+  you sure?`" for `DV1:`).  The root calls a module's load point before it
+  asks, so ours is not the empty `RTS PC` of DEC's macro: it puts the
+  entry's name right for a diskette that came in as `DV`.
+* `FORMAT VM:` from a system booted off `DZ0:` never reaches the module:
+  same code, same unit, and the root takes it for the system volume.
 * **The gap after a data field is 30 bytes.**  With the 54 of the textbook
   layout ten sectors of 512 are longer than a revolution (6250 bytes at
   250 kbit/s and 300 rpm) and the index cuts the tenth short — on the

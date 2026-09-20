@@ -24,9 +24,17 @@
 ;		sides of every track are written
 ;
 ; The root finds a device by the code its handler answers .DSTATUS with,
-; and DV answers with DZ's, so it is not the entry that tells them apart
-; but the size of the volume, which the same answer carries: 800 blocks
-; are a side, more than that the diskette.
+; not by its name, and the machine's handlers were given their codes
+; carelessly: DV answers with DZ's 52, and so does the memory disk VM.  So
+; DV has no entry of its own in the root's table and cannot have one; what
+; comes in as DZ is told apart by the size of the volume, which the same
+; answer carries - 800 blocks are a side, 1600 the diskette, and anything
+; else is not a diskette and the routine will not touch the drive.  MZ has
+; a code of its own and an entry of its own.
+;
+; The root also takes the name it prints from its table ("DZ1:/FORMAT-Are
+; you sure?").  It calls a module's load point before it asks, which is
+; where the entry's name is put right for a diskette that came in as DV.
 ;
 ; A track's image is built once in the free memory the root hands over
 ; and only the track and side bytes of its ten ID fields change from one
@@ -100,23 +108,45 @@ ONESID	= TRACKS*SECTRK		;Blocks on a side
 
 	.SBTTL	ROOT INTERFACE
 
-	LDPT$	DZ
+; What LDPT$ DZ lays out, with a load point that does something: R5 ->
+; the root's entry for DZ, whose name is DV's if the volume is a diskette.
+
+	.PSECT	PATCH,RW,I
+	.BLKW	32.
+	.PSECT	$OP,RW,D,GBL
+$DZTAB::
+	.PSECT	DATA,RW,D
+	.PSECT	PUREDATA,RO,D
+	.PSECT	DZ,I,RW
+DZLD::	MOVB	#'Z,ASCNAM+1(R5)
+	CMP	OUTSPC+DS.SIZ,#ONESID*2
+	BNE	10$
+	MOVB	#'V,ASCNAM+1(R5)
+10$:	RETURN
+	.PSECT	DZEND,RO,D
+$DZEND::
+	.PSECT	DZ,I,RW
+$DZDCK::
 
 ;+
 ; DZCHK - is there a diskette to work on?  R1 = the unit.  Carry set if
 ; the drive is not ready or the diskette is write protected.
 ;-
-DZCHK:	BR	CHECK
+DZCHK:	CLR	BLOCKS			;A side or a diskette: the size says
+	BR	CHECK
 
 	ENTRY$	DZ
 
-DZFORM::BR	FORM
+DZFORM::CLR	BLOCKS
+	BR	FORM
 
-; MZ has a code of its own, and so an entry of its own in the table.
+; MZ is a whole diskette and nothing else.
 
 	LDPT$	MZ
+	MOV	#ONESID*2,BLOCKS
 	JMP	CHECK
 	ENTRY$	MZ
+	MOV	#ONESID*2,BLOCKS
 	JMP	FORM
 
 	.PSECT	DZ
@@ -125,17 +155,27 @@ DZFORM::BR	FORM
 
 ;+
 ; CHECK - select the unit's drive and side, start the motor, and ask the
-; controller what it sees.  R1 = the unit.  On return R4 -> the
-; controller; carry set, and STATUS says why, if it cannot be written.
+; controller what it sees.  R1 = the unit, BLOCKS = the size the volume
+; has to have, or 0 if it may be a side or a diskette.  On return R4 ->
+; the controller; carry set, and STATUS says why (0 = not a diskette of
+; ours), if it cannot be written.
 ;-
 CHECK:	MOV	#FD$CSR,R4
+	CLR	STATUS
 	MOV	R1,R0
 	CLR	SIDE
 	CLR	WHOLE
-	CMP	OUTSPC+DS.SIZ,#ONESID	;More than a side is the diskette,
-	BLOS	10$
-	INC	WHOLE			; which starts on side 0
+	MOV	OUTSPC+DS.SIZ,R3
+	CMP	R3,#ONESID*2		;The diskette, which starts on side 0?
+	BNE	5$
+	INC	WHOLE
 	BR	20$
+5$:	CMP	R3,#ONESID		;A side, where an entry allows one?
+	BNE	7$
+	TST	BLOCKS
+	BEQ	10$
+7$:	SEC				;Somebody else with the same code
+	RETURN
 10$:	BIT	#2,R0			;A side of one: bit 1 of the unit
 	BEQ	20$
 	INC	SIDE
@@ -188,7 +228,11 @@ FORM:	MOV	R2,IMAGE
 	BR	FAILED
 20$:	CALL	CHECK
 	BCC	40$
-	BITB	#S.NRDY,STATUS
+	TST	STATUS
+	BNE	25$
+	$ERROR	#NOTOUR,F
+	BR	FAILED
+25$:	BITB	#S.NRDY,STATUS
 	BEQ	30$
 	$ERROR	#$SERR1,F		;Device not ready
 	BR	FAILED
@@ -351,6 +395,8 @@ IMAGE:	.WORD	0			;-> the track's image
 TRACK:	.WORD	0
 SIDE:	.WORD	0
 WHOLE:	.WORD	0			;Both sides of every track
+BLOCKS:	.WORD	0			;The size a volume of this entry has to
+					; have; 0 = a side will do as well
 STATUS:	.WORD	0			;What CHECK saw
 
 	.PSECT	PUREDATA,RO,D
@@ -360,6 +406,7 @@ STATUS:	.WORD	0			;What CHECK saw
 
 NOROOM:	.ASCIZ	/Not enough memory for a track/
 LOCKED:	.ASCIZ	/Diskette is write protected/
+NOTOUR:	.ASCIZ	/Invalid device for FORMAT/
 	.EVEN
 
 	.LIST	BEX

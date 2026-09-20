@@ -8,8 +8,9 @@ time, so the root is DEC's as it is and two files change:
               with, which are taken from DEC's file: all of it that
               stands before its routine.
   FMTDEV.MAC  the table of devices gets MZ beside DZ.  DV needs no
-              entry: it answers .DSTATUS with DZ's code and is found
-              as DZ; the module tells them apart by the volume's size.
+              entry and cannot have one: it answers .DSTATUS with
+              DZ's code and is found as DZ; the module tells them
+              apart by the volume's size.
 
 Both are made in a temporary directory and handed to ../../kit/build_util.py
 over the kit's own, which then follows DEC's FORMAT.COM line for line.
