@@ -135,6 +135,15 @@ Where the work stopped on 2026-09-20, for whoever picks it up:
   Professional 350's tables - nothing of it fits the machine), `MDUP`,
   `FILEX`, `TERMID`, `MSCPCK`, `GIDIS`, `PI`; `ERRLOG`, `ERROUT` and
   `EL.SYS` stay out of the collection with `ERL$G`.
+* **Seen once, not again**: on a DV diskette just made by the wizard the
+  first `DIR` in the GUI answered `?KMON-U-Overlay read error` - the system
+  handler (our `DV.SYS`) failing a read of the monitor's file.  The same
+  image boots and lists in the text mode under either ROM, with the motor
+  timed out between commands, and the GUI did not do it again.  The likely
+  cause is the image being rewritten by the wizard while the GUI had the
+  old one open.  If it comes back on an image nobody touched, it is the
+  handler under the GUI's real keyboard and pacing, and that is where to
+  look.
 * **Real hardware.**  Everything here is proved on the emulator.  The
   floppy handlers and FORMAT keep to what the controller's data sheet and
   the kits' handlers do, but no real KR1818VG93 has seen them.
