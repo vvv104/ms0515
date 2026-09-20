@@ -89,6 +89,15 @@ Where the work stopped on 2026-09-20, for whoever picks it up:
   and the monitor as built answers `@file` with "Invalid command".  Wanted;
   the cause is not known.  `BATCH` and `BA.SYS` build, but are of little
   use without it.
+* **DEC's `SL`** edits the line rightly and draws it wrongly.  It asks the
+  terminal what it is, gets no answer from the ROM's console and talks
+  VT100; built for VT52 alone (`VT100$ = 0`, `VT102$ = 0` in a prefix file,
+  linked as DEC's `SL.COM` links it) it asks nothing, but the console still
+  does not do its cursor-left and erase-to-end-of-line: `DTE`, two lefts
+  and `A` runs `DATE` and leaves `DTEATE` on the screen, and `SET SL ON`
+  leaves `?2l`.  What the ROM's console obeys has to be read out of the ROM
+  first.  Until then the `dec` systems take a kit's `SL.SYS` (ОСА's or
+  ОМЕГА's load under them), and the prefix file was not kept.
 * **`VTCOM` / `VTHDLR` / `TRANSF`** - terminal mode and file transfer over
   the serial port.  They build.  Nobody has tried them on the machine's
   8251 (`177700`..`177722`); DEC's addresses and vectors are its own, so a
