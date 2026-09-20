@@ -78,3 +78,45 @@ kits' copies of them turned out to be, for the record:
   into the kit.
 * **`NL` (rodionov)** is not a handler at all - a scrap of a command
   file under the name.
+
+## Not done yet
+
+Where the work stopped on 2026-09-20, for whoever picks it up:
+
+* **`IND`** - the command-file processor with variables and conditions,
+  which no kit of the machine had.  It builds unreliably (some thirty
+  MACRO runs in a row, and the session has gone quiet on the thirtieth)
+  and the monitor as built answers `@file` with "Invalid command".  Wanted;
+  the cause is not known.  `BATCH` and `BA.SYS` build, but are of little
+  use without it.
+* **`VTCOM` / `VTHDLR` / `TRANSF`** - terminal mode and file transfer over
+  the serial port.  They build.  Nobody has tried them on the machine's
+  8251 (`177700`..`177722`); DEC's addresses and vectors are its own, so a
+  patch is likely.  Note that the emulator's paravirtual disk takes
+  `177720`/`177722` while it is enabled.
+* **Printing** - `LP`, `LS`, `SP`, `SPOOL`, `QUEMAN`, `QUEUE` build and are
+  kept, untried.  DEC's `LP` expects an LP11 at `177514`, which the
+  machine has not; its printer port is `177540` with the strobe in the
+  dispatcher's register (the kits' `HP.SYS` drives it), and ОМЕГА's `LP`
+  printed through the serial port instead.
+* **`HP` and `VS`** - the kits' printer and sound handlers have no source
+  here: what they drive is not documented well enough to write one that
+  could be called authoritative.  Low priority.
+* **`DZ`: what DEC's disk handlers have and ours has not** - an
+  installation check (`.DRINS`), `SET DZ RETRY=n` and `[NO]WRITE`
+  (`.DRSET`), special functions for absolute sector access.  FORMAT needed
+  none of them.
+* **`EM.SYS`** (the EIS/FIS emulator "EM v1.4 by I.NYS", in the ОСА kit)
+  works under `dec` as it is - `SET EM SYSGEN`, `SET EM ON`; a deposited
+  `FADD` and `MUL` give 3.0 and 15, `CMOV` prints its matrix.  It stays a
+  binary by the owner's decision.  In the collection it belongs with the
+  handlers every system can use, not with ОСА's.
+* **`LIBCOM`** is not built yet (kept, for the development set).
+* **`BUP`** cannot be built: DEC's kit has no `BUPHOM.MAC`.
+* **Dropped for good**: `SETUP` (VT100 and LA50 escape sequences and the
+  Professional 350's tables - nothing of it fits the machine), `MDUP`,
+  `FILEX`, `TERMID`, `MSCPCK`, `GIDIS`, `PI`; `ERRLOG`, `ERROUT` and
+  `EL.SYS` stay out of the collection with `ERL$G`.
+* **Real hardware.**  Everything here is proved on the emulator.  The
+  floppy handlers and FORMAT keep to what the controller's data sheet and
+  the kits' handlers do, but no real KR1818VG93 has seen them.
