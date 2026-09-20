@@ -119,6 +119,37 @@ routine.
 * assemble with `ERL$G` so failures reach the error logger, the way our
   own `HD.MAC` already does.
 
-`DV` and `MZ` address the same drive with a different block-to-track
-mapping (`src/disk/include/ms0515/disk/Layout.hpp`), so they are the same
-handler with another conversion, not another device.
+## DV and MZ are one handler with one constant changed
+
+Their listings are the same instruction for instruction but for three
+things: the seed of the division loop (`MOV #770,R4` against `#771`), the
+branch that ends it (`BNE` against `BLE`, which only makes both run eight
+rounds and leave a different value behind), and the device status word
+(`100055` against `100052`).  The seed is also the addend: `ADD R4,R5`
+afterwards adds one cylinder more for DV than for MZ.
+
+Where they both differ from `DZ` is the side.  `DZ` takes it from the
+unit number - bit 1, shifted into the side bit of the shadow register, so
+`DZ0:`/`DZ1:` are one side and `DZ2:`/`DZ3:` the other, 800 blocks each.
+`DV` and `MZ` keep only the two drive-select bits and work out the side
+from the address instead: the index runs 0..159 over the whole diskette,
+is wrapped (`CMPB R3,#237` / `SUB #240`) and halved (`RORB R3`), the bit
+that falls out being the side and the rest the cylinder - 1600 blocks,
+one volume.
+
+Measured on the machine, with a diskette whose every block says which
+block it is, dumped through each handler:
+
+| handler | its block 0 | block 1 | block 10 |
+|---|---|---|---|
+| `MZ1:` | 0 | 1 | 10 |
+| `DV1:` | 20 | 21 | 30 |
+| `DZ1:` | 20 | 22 | 42 |
+
+So `MZ` is the identity over a track-interleaved image and `DV` is that
+rotated by a constant twenty blocks - one cylinder - which is what
+`kDvRotate` in `Layout.hpp` has always said.  Reading the code alone the
+addend looks like one unit; the unit is a cylinder, because the divisor
+`2400` is twenty shifted left six, not ten shifted left seven.  `DZ`'s
+step of two between consecutive blocks is the 2:1 interleave, and block
+10 landing on 42 rather than 40 is the skew of the next track.
