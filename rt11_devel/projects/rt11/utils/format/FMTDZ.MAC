@@ -1,0 +1,367 @@
+	.SBTTL	MS 0515 DISKETTE FORMATTING ROUTINE
+;
+; FMTDZ.MAC - FORMAT's module for the diskettes of the MS 0515.
+;
+; DEC's FMTDZ is for the RX50 of the Professional 350 and formats
+; nothing: its controller could not, and the routine answers "Invalid
+; device".  The MS 0515 has a WD1793 (KR1818VG93) that the processor
+; drives itself, so here the routine is written: every track gets the
+; double-density IBM layout the machine's diskettes have - 80 tracks, 10
+; sectors of 512 bytes numbered 1 to 10 - through the controller's WRITE
+; TRACK.
+;
+; This file is the module's body only.  The macros every FORMAT module
+; opens with (DEVIC$, LDPT$, OPTN$, ENTRY$ - DEC calls them the prefix
+; file and repeats them in each module) are taken from DEC's own
+; FMTDZ.MAC when the utility is built: build_format.py puts what stands
+; before DEC's routine in front of this file.
+;
+; One routine serves the three handlers, which differ in how they number
+; the blocks and not in what is on a track:
+;
+;	DZ	a side is a volume: unit bit 0 is the drive, bit 1 the side
+;	DV, MZ	the diskette is a volume: the unit is the drive, and both
+;		sides of every track are written
+;
+; The root finds a device by the code its handler answers .DSTATUS with,
+; and DV answers with DZ's, so it is not the entry that tells them apart
+; but the size of the volume, which the same answer carries: 800 blocks
+; are a side, more than that the diskette.
+;
+; A track's image is built once in the free memory the root hands over
+; and only the track and side bytes of its ten ID fields change from one
+; track to the next.  The gap after a data field is 30 bytes, not the 54
+; of the textbook: ten sectors of 512 with 54 are longer than a
+; revolution, and the index would cut the tenth short.
+;
+	.MCALL	.SETTOP
+	.GLOBL	PREMSG,	$SERR1,	$SERR2,	OUTSPC
+
+	.IRPC	X,<IWEFU>
+	.GLOBL	ERR$$'X
+	.ENDR
+
+	.MACRO	$ERROR	ADDR,CODE
+		MOV	#ERR$$'CODE',R0
+		MOV	ADDR,-(SP)
+		CALL	PREMSG
+	.ENDM
+
+; The controller.  Its address is not asked of the root: for a device
+; with DZ's code the root asks the monitor of a Professional 350.
+
+FD$CSR	= 177640		;Command (write), status (read)
+FD.TRK	= 2			;Track register
+FD.SEC	= 4			;Sector register
+FD.DAT	= 6			;Data register
+
+C.REST	= 3			;Restore: step out to track 0
+C.SEEK	= 20			;Seek to the track in the data register
+C.WRTK	= 360			;Write track, index to index
+C.STOP	= 320			;Force interrupt: gives the drive's status
+S.BUSY	= 1			;Command in progress
+S.DRQ	= 2			;A byte is wanted
+S.PROT	= 100			;Write protected
+S.NRDY	= 200			;Not ready
+F.SEEK	= 220			;Not ready, seek error
+F.WRTK	= 344			;Not ready, protected, write fault, lost data
+
+; System Register A and the copy the ROM keeps of it.
+
+REGA	= 177600		;Write only
+REGAC	= 157720		;The copy: change it, then push it out
+RA.DRV	= 3			;Bits 0-1: the drive
+RA.MOT	= 4			;Bit 2: the motor, on when CLEAR
+RA.SID	= 10			;Bit 3: the side, side 0 when SET
+RA.USE	= 40000			;Bit 14 of the copy: the drive was just used,
+				; which the clock counts the motor's
+				; time-out from
+
+; The track.
+
+TRACKS	= 80.
+SECTRK	= 10.
+SECSIZ	= 512.
+FILLER	= 345			;What a new sector is full of
+GAPBYT	= 116			;What a gap is full of
+GAP4A	= 80.			;Before the index mark
+GAP1	= 50.			;After it
+GAP2	= 22.			;Between an ID field and its data
+GAP3	= 30.			;After a data field
+SYNLEN	= 12.			;Zeros before the sync bytes
+IDPOS	= GAP4A+SYNLEN+4+GAP1+SYNLEN+4	;The first ID's track byte
+SECLEN	= SYNLEN+4+4+1+GAP2+SYNLEN+4+SECSIZ+1+GAP3  ;From one ID to the next
+TRKLEN	= 6400.			;The image: a revolution is 6250 bytes, and
+				; what is over is gap for a slow drive
+
+DS.SIZ	= 6			;The volume's size in the root's .DSTATUS
+				; answer, which OUTSPC begins with
+ONESID	= TRACKS*SECTRK		;Blocks on a side
+
+	.SBTTL	ROOT INTERFACE
+
+	LDPT$	DZ
+
+;+
+; DZCHK - is there a diskette to work on?  R1 = the unit.  Carry set if
+; the drive is not ready or the diskette is write protected.
+;-
+DZCHK:	BR	CHECK
+
+	ENTRY$	DZ
+
+DZFORM::BR	FORM
+
+; MZ has a code of its own, and so an entry of its own in the table.
+
+	LDPT$	MZ
+	JMP	CHECK
+	ENTRY$	MZ
+	JMP	FORM
+
+	.PSECT	DZ
+
+	.SBTTL	CHECK - THE DRIVE AND THE DISKETTE
+
+;+
+; CHECK - select the unit's drive and side, start the motor, and ask the
+; controller what it sees.  R1 = the unit.  On return R4 -> the
+; controller; carry set, and STATUS says why, if it cannot be written.
+;-
+CHECK:	MOV	#FD$CSR,R4
+	MOV	R1,R0
+	CLR	SIDE
+	CLR	WHOLE
+	CMP	OUTSPC+DS.SIZ,#ONESID	;More than a side is the diskette,
+	BLOS	10$
+	INC	WHOLE			; which starts on side 0
+	BR	20$
+10$:	BIT	#2,R0			;A side of one: bit 1 of the unit
+	BEQ	20$
+	INC	SIDE
+20$:	BIC	#^C1,R0			;Bit 0 of the unit is the drive
+	BIC	#RA.DRV,@#REGAC
+	BIS	R0,@#REGAC
+	CALL	SETSID
+	BIT	#RA.MOT,@#REGAC		;Is the motor off?
+	BEQ	30$
+	BIC	#RA.MOT,@#REGAC		; Start it and let it come up to speed
+	MOVB	@#REGAC,@#REGA
+	CALL	SPINUP
+30$:	MOVB	#C.STOP,(R4)		;Nothing is running: this is for the
+	CALL	SPINUP			; status it leaves
+	MOVB	(R4),STATUS
+	BITB	#<S.NRDY!S.PROT>,STATUS
+	BEQ	40$
+	SEC
+	RETURN
+40$:	CLC
+	RETURN
+
+;+
+; SETSID - put SIDE into Register A.  The bit is SET for side 0.
+;-
+SETSID:	BIS	#RA.SID,@#REGAC
+	TST	SIDE
+	BEQ	10$
+	BIC	#RA.SID,@#REGAC
+10$:	BIS	#RA.USE,@#REGAC		;The motor's time-out starts over
+	MOVB	@#REGAC,@#REGA
+	RETURN
+
+	.SBTTL	FORM - THE FORMAT ROUTINE
+
+;+
+; FORM - R1 = the unit, R2 -> free memory.  Carry set on an error, which
+; has been reported.
+;-
+FORM:	MOV	R2,IMAGE
+	ADD	#TRKLEN,R2		;Room for a track.  The root has asked
+	BCS	10$			; for no memory when it formats, so it
+	MOV	R1,-(SP)		; is asked for here
+	MOV	R2,R0
+	.SETTOP
+	MOV	(SP)+,R1
+	CMP	R0,R2			;R0 = how far the monitor let us go
+	BHIS	20$
+10$:	$ERROR	#NOROOM,F
+	BR	FAILED
+20$:	CALL	CHECK
+	BCC	40$
+	BITB	#S.NRDY,STATUS
+	BEQ	30$
+	$ERROR	#$SERR1,F		;Device not ready
+	BR	FAILED
+30$:	$ERROR	#LOCKED,F
+	BR	FAILED
+40$:	CALL	BUILD
+	MOVB	#C.REST,(R4)
+	CALL	IDLE
+	BITB	#F.SEEK,(R4)
+	BNE	DEVERR
+	CLR	TRACK
+
+NXTTRK:	CALL	STAMP			;This track's number into the ID fields
+	CALL	WRTRK
+	BCS	DEVERR
+	TST	WHOLE			;The other side of the same track?
+	BEQ	10$
+	COM	SIDE
+	BIC	#^C1,SIDE
+	CALL	SETSID
+	TST	SIDE
+	BNE	NXTTRK
+10$:	INC	TRACK
+	CMP	TRACK,#TRACKS
+	BHIS	DONE
+	MOVB	TRACK,FD.DAT(R4)
+	MOVB	#C.SEEK,(R4)
+	CALL	IDLE
+	BITB	#F.SEEK,(R4)
+	BEQ	NXTTRK
+
+DEVERR:	$ERROR	#$SERR2,F		;Device error
+FAILED:	SEC
+	RETURN
+
+DONE:	MOVB	#C.REST,(R4)		;The head back where a handler expects it
+	CALL	IDLE
+	CLC
+	RETURN
+
+	.SBTTL	BUILD - A TRACK'S IMAGE
+
+;+
+; BUILD - lay a track out at IMAGE, as WRITE TRACK wants it: 365 writes
+; a sync byte and 366 an index sync, 367 the two CRC bytes; 376 opens an
+; ID field, 373 a data field.
+;-
+BUILD:	MOV	IMAGE,R2
+	MOV	#TRKLEN,R3		;Gap everywhere to begin with, so that
+	MOV	#GAPBYT,R0		; the gaps need no writing
+	CALL	FILL
+	MOV	IMAGE,R2
+	ADD	#GAP4A,R2
+	MOV	#366,R1			;The index mark
+	CALL	SYNC
+	MOVB	#374,(R2)+
+	ADD	#GAP1,R2
+	MOV	#1,R5			;R5 = the sector
+10$:	MOV	#365,R1			;Its ID field
+	CALL	SYNC
+	MOVB	#376,(R2)+
+	CLRB	(R2)+			;Track and side: STAMP
+	CLRB	(R2)+
+	MOVB	R5,(R2)+
+	MOVB	#2,(R2)+		;512 bytes
+	MOVB	#367,(R2)+
+	ADD	#GAP2,R2
+	CALL	SYNC			;Its data field
+	MOVB	#373,(R2)+
+	MOV	#SECSIZ,R3
+	MOV	#FILLER,R0
+	CALL	FILL
+	MOVB	#367,(R2)+
+	ADD	#GAP3,R2
+	INC	R5
+	CMP	R5,#SECTRK
+	BLOS	10$
+	RETURN
+
+; SYNC - twelve zeros and three of the sync byte in R1, at R2.
+
+SYNC:	CLR	R0
+	MOV	#SYNLEN,R3
+	CALL	FILL
+	MOVB	R1,(R2)+
+	MOVB	R1,(R2)+
+	MOVB	R1,(R2)+
+	RETURN
+
+; FILL - R3 bytes of R0 at R2.
+
+FILL:	MOVB	R0,(R2)+
+	SOB	R3,FILL
+	RETURN
+
+;+
+; STAMP - TRACK and SIDE into the ten ID fields of the image.
+;-
+STAMP:	MOV	IMAGE,R2
+	ADD	#IDPOS,R2
+	MOV	#SECTRK,R3
+10$:	MOVB	TRACK,(R2)
+	MOVB	SIDE,1(R2)
+	ADD	#SECLEN,R2
+	SOB	R3,10$
+	RETURN
+
+	.SBTTL	WRTRK - WRITE THE TRACK
+
+;+
+; WRTRK - hand the image to WRITE TRACK, a byte each time one is wanted,
+; until the index comes round and the controller lets go.  Carry set if
+; it failed.
+;-
+WRTRK:	BIS	#RA.USE,@#REGAC
+	MOV	IMAGE,R1
+	MOV	#TRKLEN,R2
+	MFPS	-(SP)			;A byte not given in time is a byte lost,
+	MTPS	#340			; so nothing interrupts a track
+	MOVB	#C.WRTK,(R4)
+10$:	BITB	#S.DRQ,(R4)
+	BNE	20$
+	BITB	#S.BUSY,(R4)
+	BNE	10$
+	BR	40$
+20$:	TST	R2
+	BEQ	30$
+	MOVB	(R1)+,FD.DAT(R4)
+	DEC	R2
+	BR	10$
+30$:	MOVB	#GAPBYT,FD.DAT(R4)	;Past the image: gap
+	BR	10$
+40$:	MTPS	(SP)+
+	BITB	#F.WRTK,(R4)
+	BEQ	50$
+	SEC
+	RETURN
+50$:	CLC
+	RETURN
+
+;+
+; IDLE - wait for the controller to finish what it was told.
+;-
+IDLE:	BITB	#S.BUSY,(R4)
+	BNE	IDLE
+	RETURN
+
+;+
+; SPINUP - the time a motor takes to come up to speed.
+;-
+SPINUP:	MOV	#3,R1
+10$:	CLR	R0
+20$:	SOB	R0,20$
+	SOB	R1,10$
+	RETURN
+
+	.SBTTL	DATA AREA
+
+IMAGE:	.WORD	0			;-> the track's image
+TRACK:	.WORD	0
+SIDE:	.WORD	0
+WHOLE:	.WORD	0			;Both sides of every track
+STATUS:	.WORD	0			;What CHECK saw
+
+	.PSECT	PUREDATA,RO,D
+
+	.ENABL	LC
+	.NLIST	BEX
+
+NOROOM:	.ASCIZ	/Not enough memory for a track/
+LOCKED:	.ASCIZ	/Diskette is write protected/
+	.EVEN
+
+	.LIST	BEX
+	.DSABL	LC
+	.END
