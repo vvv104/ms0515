@@ -89,12 +89,12 @@ then:
   negative, `|#240` (write sector), stored into the cell the FDC command
   is later issued from;
 * the drive number and side go into the shadow register as above;
-* the block number is divided by ten — the sectors on a track — by
-  shift-and-subtract, eight rounds against `2400` (ten shifted left
-  seven), leaving the track in the low byte and the sector in the high;
-* the sector is then doubled modulo ten (`ASL` then subtract `12` while
-  positive), which is the 2:1 interleave, and adjusted per track for the
-  skew;
+* the block number is divided by shift-and-subtract, eight rounds
+  against `2400` — twenty shifted left six, twenty being the blocks on a
+  cylinder — which leaves the cylinder and the block within it;
+* what came out is doubled modulo ten (`ASL` then subtract `12` while
+  positive) to give the sector, which is the 2:1 interleave, and adjusted
+  per track for the skew;
 * buffer address, track and count are saved by storing registers into the
   instruction stream itself (`MOV R0,(PC)+`), and read back later as
   PC-relative data — a space-saving idiom, not a disassembly artefact;
