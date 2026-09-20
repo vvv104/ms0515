@@ -494,17 +494,15 @@ void DiskWizard::stepRows(std::vector<WizardRow> &out, bool everything) const
 /* Where a bundle is listed.  One that is part of a kit goes by the system
  * chosen: the system's own kit is its "System" group, and what the other
  * kits have stays to be had under "Other kits" and the kit's name - so that
- * what belongs to a system is found in one place, whichever system it is. */
+ * what belongs to a system is found in one place, whichever system it is.
+ * A kit is one flat list, handlers before utilities as the manifest has
+ * them: the collection took its Handlers group out on purpose. */
 std::vector<std::string> DiskWizard::groupOf(const ManifestBundle &b) const
 {
-    auto path = groupPath(b.group);
-    if (b.kit.empty()) return path;
+    if (b.kit.empty()) return groupPath(b.group);
     const auto *sys = ready() ? m_.system(sel_.system) : nullptr;
-    std::vector<std::string> out;
-    if (!sys || sys->kit == b.kit) out = {kOwnKitGroup};
-    else out = {kOtherKitsGroup, m_.kitTitle(b.kit)};
-    if (!b.group.empty()) out.insert(out.end(), path.begin(), path.end());
-    return out;
+    if (!sys || sys->kit == b.kit) return {kOwnKitGroup};
+    return {kOtherKitsGroup, m_.kitTitle(b.kit)};
 }
 
 DiskWizard::Branch DiskWizard::tree() const

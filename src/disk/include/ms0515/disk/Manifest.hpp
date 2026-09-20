@@ -85,8 +85,9 @@ struct ManifestBundle {
     std::string               group;
     /* The kit it is a part of (TOML `kit`), "" none.  A kit's bundles are
      * listed by the system chosen: under "System" when the kit is the
-     * system's own, under "Other kits" and the kit's title when not; `group`
-     * is then the place inside the kit ("Handlers", "Utilities"). */
+     * system's own, under "Other kits" and the kit's title when not - one
+     * flat list either way, in the manifest's order, and `group` is not
+     * read for them. */
     std::string               kit;
     /* Names this bundle satisfies besides its own key.  The bundles that
      * provide one name are alternatives: one of them goes on a disk. */

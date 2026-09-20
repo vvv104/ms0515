@@ -136,21 +136,18 @@ requires = ["dz-dec"]
 [bundle.dz-omega]
 title    = "DZ.SYS (OMEGA)"
 kit      = "omega"
-group    = "Handlers"
 provides = ["dz"]
 files    = ["kits/omega/handlers/DZ.SYS"]
 
 [bundle.dz-dec]
 title    = "DZ.SYS (from sources)"
 kit      = "dec"
-group    = "Handlers"
 provides = ["dz"]
 files    = ["kits/dec/handlers/DZ.SYS"]
 
 [bundle.resorc-omega]
 title = "RESORC (OMEGA)"
 kit   = "omega"
-group = "Utilities"
 files = ["kits/omega/utils/RESORC.SAV"]
 
 [bundle.game]
@@ -161,7 +158,6 @@ files = ["g/GAME.SAV"]
 [bundle.resorc-dec]
 title = "RESORC (from sources)"
 kit   = "dec"
-group = "Utilities"
 files = ["kits/dec/utils/RESORC.SAV"]
 )toml";
 
@@ -775,7 +771,7 @@ TEST_CASE("the saved choice: its own file, tied to the collection's version") {
     CHECK_THROWS_AS((void)parseSelection("format = 1\nmedia = \"dz\"\n"), std::runtime_error);
 }
 
-TEST_CASE("a kit's bundles are the system's own group; the other kits' fold away at the end") {
+TEST_CASE("a kit is one flat group: the system's own, the other kits folded at the end") {
     const Manifest m = parseManifest(kKits);
     CHECK(m.system("dec")->kit == "dec");
     CHECK(m.bundle("resorc-dec")->kit == "dec");
@@ -786,13 +782,13 @@ TEST_CASE("a kit's bundles are the system's own group; the other kits' fold away
     auto rows = w.rows(true);
     /* The system's kit under "System", whatever the file's order is. */
     REQUIRE(row(rows, "resorc-dec"));
-    CHECK(row(rows, "resorc-dec")->parent == "System / Utilities");
-    CHECK(row(rows, "dz-dec")->parent == "System / Handlers");
+    CHECK(row(rows, "resorc-dec")->parent == "System");
+    CHECK(row(rows, "dz-dec")->parent == "System");
     CHECK(row(rows, "dz-dec")->mark == WizardRow::Mark::system);
     /* Another kit's builds stay to be had, out of the way. */
     REQUIRE(row(rows, "resorc-omega"));
-    CHECK(row(rows, "resorc-omega")->parent == "Other kits / OMEGA / Utilities");
-    CHECK(row(rows, "dz-omega")->parent == "Other kits / OMEGA / Handlers");
+    CHECK(row(rows, "resorc-omega")->parent == "Other kits / OMEGA");
+    CHECK(row(rows, "dz-omega")->parent == "Other kits / OMEGA");
     CHECK(row(rows, "game")->parent == "Games");
 
     /* The top groups: the system's first, the other kits last. */
@@ -804,8 +800,8 @@ TEST_CASE("a kit's bundles are the system's own group; the other kits' fold away
     /* The same manifest, the other system: the kits change places. */
     DiskWizard o(m, "omega", Media::ss);
     rows = o.rows(true);
-    CHECK(row(rows, "resorc-omega")->parent == "System / Utilities");
-    CHECK(row(rows, "resorc-dec")->parent == "Other kits / RT-11 V5.4 from sources / Utilities");
+    CHECK(row(rows, "resorc-omega")->parent == "System");
+    CHECK(row(rows, "resorc-dec")->parent == "Other kits / RT-11 V5.4 from sources");
 
     /* The blocks are counted with the group a bundle is shown in. */
     const auto by = w.blocksByGroup();
