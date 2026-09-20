@@ -26,7 +26,7 @@ HANDLERS = ["DZ.SYS", "DV.SYS", "MZ.SYS", "TT.SYS", "VM.SYS", "EX.SYS",
 UTILS = ["DIR.SAV", "DUP.SAV", "PIP.SAV", "DUMP.SAV", "EDIT.SAV",
          "SRCCOM.SAV", "BINCOM.SAV", "SLP.SAV", "PAT.SAV", "SIPP.SAV",
          "STRIP.SAV", "SPLIT.SAV", "HELP.SAV", "HELP.MLB", "RESORC.SAV",
-         "DATIME.SAV", "UCL.SAV", "LET.SAV", "FORMAT.SAV", "SPEED.SAV",
+         "DATIME.SAV", "UCL.SAV", "LET.SAV", "FORMAT.SAV",
          "BATCH.SAV", "QUEMAN.SAV", "QUEUE.REL", "SPOOL.REL"]
 # What programs are built with.  MACRO is not here: DEC's V5.4 kit has no
 # source for it, and the collection has the kits' own.

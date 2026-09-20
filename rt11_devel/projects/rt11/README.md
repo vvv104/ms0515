@@ -132,7 +132,9 @@ Where the work stopped on 2026-09-20, for whoever picks it up:
 * **`LIBCOM`** is not built yet (kept, for the development set).
 * **`BUP`** cannot be built: DEC's kit has no `BUPHOM.MAC`.
 * **Dropped for good**: `SETUP` (VT100 and LA50 escape sequences and the
-  Professional 350's tables - nothing of it fits the machine), `MDUP`,
+  Professional 350's tables - nothing of it fits the machine), `SPEED`
+  (not a speed meter: it sets the baud rates of a PDT-11/150 by writing
+  to `177420`), `MDUP`,
   `FILEX`, `TERMID`, `MSCPCK`, `GIDIS`, `PI`; `ERRLOG`, `ERROUT` and
   `EL.SYS` stay out of the collection with `ERL$G`.
 * **Seen once, not again**: on a DV diskette just made by the wizard the
