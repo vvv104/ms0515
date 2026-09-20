@@ -17,9 +17,9 @@ found by laying its words against a build of DEC's:
   at `157700` (`docs/programming.md`).
 
 `TT.diff` is those two changes, in the form the monitor's patch series has
-(`../omega/patches`).  Built from it the handler is ОМЕГА's `TT.SYS` **to the
+(`../../monitor/patches`).  Built from it the handler is ОМЕГА's `TT.SYS` **to the
 byte**, which is the whole of its verification — and unlike the kit's
 binary it can be built with the profile's conditionals (`ERL$G`), which a
 monitor insists on matching its own:
 
-    python ../decutils/build_handler.py --patch TT.diff TT OUTDIR
+    python ../../kit/build_handler.py --patch TT.diff TT OUTDIR

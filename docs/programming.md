@@ -79,7 +79,7 @@ the staging of files); this covers the program.
 The kits' monitors (ОМЕГА, ОСА and those made from them) are SYSGENs of
 DEC's RT-11 V5.4 sources with the machine's own code added; their
 additions, rebuilt as modules over DEC's sources (both ОМЕГА builds and
-ОСА, byte for byte), are in `rt11_devel/projects/omega/`.  What a program
+ОСА, byte for byte), are in `rt11_devel/projects/rt11/monitor/`.  What a program
 meets of them - the same in both kits where not said otherwise:
 
 - **The console is the ROM's.**  RT-11's console registers (`TTKS`...,

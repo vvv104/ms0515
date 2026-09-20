@@ -1,4 +1,4 @@
-# decutils — DEC's RT-11 V5.4 utilities and handlers, built from their sources
+# The kit — DEC's RT-11 V5.4 utilities and handlers, built from their sources
 
 The MS 0515 kits that survived carry a handful of programs: `DIR`, `DUMP`,
 `DUP`, `PIP`, `DATIME`, `HELP`, `RESORC`, `TERM`, `BINCOM`.  DEC's own
@@ -33,7 +33,7 @@ The sources come from the software collection (`$MS0515_SOFTWARE`, else
 
 ## The system volume is DEC's, except MACRO
 
-`tools/` holds what the build runs on, all of it built here from DEC's
+`../tools/` holds what the build runs on, all of it built here from DEC's
 sources: `LINK.SAV`, `LIBR.SAV`, `SYSMAC.SML`, `SYSLIB.OBJ`.  Only
 `MACRO.SAV` comes from the toolset's kit, because the V5.4 source
 distribution has no source for it (`BINKIT.DAT` lists `MACRO.SAV` and

@@ -23,7 +23,7 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent.parent.parent
+ROOT = HERE.parents[3]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "rt11_devel" / "toolset"))
 from emu_driver import EmulatorDriver  # noqa: E402

@@ -15,14 +15,13 @@ driver on block 0 is ours too - and the machine has to:
      - then reads back out of the image identical to the byte.
 
 Build DZ.SYS first:
-    python rt11_devel/projects/decutils/build_handler.py \\
-           --source rt11_devel/projects/dz DZ OUTDIR
+    python ../../kit/build_handler.py --source . DZ OUTDIR
 and copy OUTDIR/DZ.SYS here.
 
     python validate.py KIT [SYSTEM-FILE ...]
 
 KIT is the folder of the dec kit's programs (DUMP, PIP, DUP, built by
-decutils).  Each SYSTEM-FILE replaces the file of its name on the composed
+../../kit).  Each SYSTEM-FILE replaces the file of its name on the composed
 diskette - a monitor refuses a handler whose sysgen word is not its own,
 so a DZ.SYS built with ERL$G needs the monitor and TT.SYS built with it
 too, and they are given here until the collection carries them.
@@ -40,9 +39,9 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent.parent.parent
+ROOT = HERE.parents[4]
 sys.path.insert(0, str(ROOT / "rt11_devel" / "toolset"))
-sys.path.insert(0, str(HERE.parent / "decutils"))
+sys.path.insert(0, str(HERE.parents[1] / "kit"))
 from emu_driver import EmulatorDriver  # noqa: E402
 import build_util as bu  # noqa: E402
 

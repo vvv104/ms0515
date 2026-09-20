@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-TOOLSET = HERE.parent.parent / "toolset"
+TOOLSET = HERE.parent.parent.parent / "toolset"
 ROOT = TOOLSET.parent.parent
 sys.path.insert(0, str(TOOLSET))
 from emu_driver import EmulatorDriver  # noqa: E402
@@ -43,12 +43,12 @@ DISKTOOL = ROOT / "package/ms0515-disk.exe"
 ROM = ROOT / "package/assets/rom/ms0515-romb.rom"   # the toolset system is the vvv104 Omega: ROM-B
 SYSTEM_DIR = TOOLSET / "system"
 TOOLS = TOOLSET / "build_tools"
-# DEC's own LINK and SYSMAC, built from its sources (../decutils).  Only
+# DEC's own LINK and SYSMAC, built from its sources (../kit).  Only
 # MACRO comes from the kit - the V5.4 source distribution has no source
 # for it.  The toolset's libraries are not all DEC's, and which of them a
 # build was standing on cannot be told from the outside.
-DEC_TOOLS = HERE.parent / "decutils" / "tools"
-HD_SYS = HERE.parent / "hd" / "HD.SYS"
+DEC_TOOLS = HERE.parent / "tools"
+HD_SYS = HERE.parent.parent / "hd" / "HD.SYS"
 
 # The monitor's four parts, as MONBLD assembles them for SJ.
 PREFIX = ["SJ", "SYCND", "EDTGBL", "OMEGA"]   # OMEGA: the Omega modules' macros

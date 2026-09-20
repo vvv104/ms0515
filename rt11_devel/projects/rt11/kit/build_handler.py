@@ -11,13 +11,13 @@ the kit, so it is assembled and linked with DEC's own tools and libraries.
 
 --source names a folder looked in for <DD>.MAC before DEC's kit, which is
 how this machine's own handlers are built with the same recipe and the
-same tools as DEC's: `--source ../dz DZ`.  It comes first on purpose -
+same tools as DEC's: `--source ../handlers/dz DZ`.  It comes first on purpose -
 DEC's kit has a DZ.MAC too, and it is a terminal multiplexer.
 
 --patch names a diff applied to DEC's sources before they are staged,
-in the form the monitor's series has (rt11_devel/projects/omega/patches):
+in the form the monitor's series has (../monitor/patches):
 what this machine changes in a handler of DEC's is kept as that, not as a
-copy of DEC's file - `--patch ../tt/TT.diff TT`.
+copy of DEC's file - `--patch ../handlers/tt/TT.diff TT`.
 
 DD is a handler's two-letter name (NL, LD, SL, ...) whose source is in the
 software collection's sources/rt11-v5.4.  A handler has no command file of
@@ -47,7 +47,7 @@ sys.path.insert(0, str(HERE))
 from build_util import (CLI, CTRL_C, EmulatorDriver, ROM, RT11Session,  # noqa: E402
                         boot_volume, dec_sources, disk, run_job)
 
-ANSWERS = HERE.parent / "omega" / "SYCDEC.MAC"
+ANSWERS = HERE.parent / "monitor" / "SYCDEC.MAC"
 
 
 def recipe(dd: str, answers: str) -> list[str]:

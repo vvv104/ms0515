@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-TOOLSET = HERE.parent.parent / "toolset"
+TOOLSET = HERE.parent.parent.parent / "toolset"
 ROOT = TOOLSET.parent.parent
 sys.path.insert(0, str(TOOLSET))
 from emu_driver import EmulatorDriver  # noqa: E402
@@ -48,13 +48,13 @@ DISKTOOL = ROOT / "package/ms0515-disk.exe"
 ROM = ROOT / "package/assets/rom/ms0515-romb.rom"   # the toolset system: ROM-B
 SYSTEM_DIR = TOOLSET / "system"
 TOOLS = TOOLSET / "build_tools"
-HD_SYS = HERE.parent / "hd" / "HD.SYS"
+HD_SYS = HERE.parent.parent / "hd" / "HD.SYS"
 # DEC's own, built here from its sources.  Only MACRO comes from the kit:
 # the V5.4 source distribution has no source for it.  This matters more
 # than it looks - the toolset's SYSLIB is not DEC's, and a utility linked
 # against it can come out broken (PIP, whose two overlay regions then fail
 # at run time with ?MON-F-Overlay error).
-DEC_TOOLS = HERE / "tools"
+DEC_TOOLS = HERE.parent / "tools"
 CTRL_C = "\x03"
 # RT-11 aborts a running program on two ^C in quick succession; one alone
 # only stops its output, and a program with a prompt of its own (EDIT)
