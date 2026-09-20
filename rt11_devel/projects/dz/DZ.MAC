@@ -1,0 +1,295 @@
+	.TITLE	DZ	THE MS 0515 FLOPPY HANDLER
+;
+; DZ.MAC - the floppy-disk handler of the MS 0515, written for it.
+;
+; Every kit of the machine carries a DZ.SYS and none carries its source.
+; This one is written from what those binaries do (docs/kb/dz_handler.md):
+; it drives the WD1793-type controller itself, the way OMEGA's handler
+; does, not through the ROM the way OSA's does - the ROM's disk routine
+; reads and writes sectors and nothing else, and a handler of DEC's
+; shape has more to offer than that.
+;
+; What it keeps exactly as the kits have it, because diskettes depend on
+; it:
+;   - a volume is one side of a diskette, 800 blocks; DZ0: and DZ1: are
+;     side 0 of drives 0 and 1, DZ2: and DZ3: their side 1;
+;   - block n lives on track (n/10 + 1) mod 80 - cylinder 0 comes last -
+;     in sector (ILV[n mod 10] + 2*track - 2) mod 10, counted from 1 in
+;     the controller: the 2:1 interleave and the skew of two sectors a
+;     track.  The same formula is in src/disk/src/Layout.cpp and was
+;     measured on the machine.
+;   - System Register A is write only and the ROM keeps its copy at
+;     157720; the copy is changed and pushed out, never the register
+;     alone, or the ROM's motor time-out undoes it.
+;
+; What it adds to them: the controller's address at offset 176 of the
+; header, where DEC's FORMAT looks for it (.DRDEF's CSR argument).
+;
+; The controller does not interrupt on this machine - the interrupt
+; encoder has no input for it - so a request is served to its end before
+; the handler returns, as every kit's handler does.
+;
+	.MCALL	.DRDEF,	.DRBEG,	.DRAST,	.DRFIN,	.DREND
+	.MCALL	.DRPTR,	.DREST,	.ASSUME
+
+.IIF NDF MMG$T,  MMG$T  =: 0
+.IIF NDF ERL$G,  ERL$G  =: 0
+.IIF NDF TIM$IT, TIM$IT =: 0
+
+.IIF NE MMG$T, .ERROR	;DZ is written for the SJ monitor (no MMG$T)
+
+; The controller: a WD1793 at four addresses.
+
+DZ$CSR	= 177640		;Command (write), status (read)
+DZ.TRK	= 2			;Track register
+DZ.SEC	= 4			;Sector register
+DZ.DAT	= 6			;Data register
+
+; System Register A and the copy the ROM keeps of it.
+
+REGA	= 177600		;Write only
+REGAC	= 157720		;The copy: change it, then push it out
+RA.DRV	= 3			;Bits 0-1: the drive
+RA.MOT	= 4			;Bit 2: the motor, on when CLEAR
+RA.SID	= 10			;Bit 3: the side, side 0 when SET
+RA.USE	= 40000			;Bit 14 of the copy: the drive was just used,
+				; which is what the clock counts the
+				; motor's time-out from
+
+; Controller commands and the status bits that matter.
+
+C.SEEK	= 20			;Seek to the track in the data register
+C.READ	= 200			;Read sector
+C.WRIT	= 240			;Write sector
+C.STOP	= 320			;Force interrupt: drop what is running
+S.BUSY	= 1			;Command in progress
+S.DRQ	= 2			;A byte is wanted or waiting
+; What counts as a failure depends on the command: bit 6 is "write
+; protected" after a seek or a write and must not fail a read of a
+; protected diskette.
+F.SEEK	= 220			;Not ready, seek error
+F.READ	= 234			;Not ready, not found, CRC, lost data
+F.WRIT	= 334			;The same and write protected
+
+; The diskette.
+
+SECTRK	= 10.			;Sectors on a track
+TRACKS	= 80.			;Tracks on a side
+BLKSIZ	= 512.			;Bytes in a sector, and in a block
+RETRY	= 8.			;Tries before a request is given up
+
+	.DRDEF	DZ,52,FILST$,<SECTRK*TRACKS>,DZ$CSR,0
+	.DRPTR
+	.DREST	CLASS=DVC.DK
+
+	.SBTTL	THE REQUEST
+
+	.DRBEG	DZ
+
+	MOV	DZCQE,R4		;R4 -> the queue element (Q.BLKN)
+	MOV	R4,R5
+	MOV	(R5)+,BLOCK		;The block to start at
+	TSTB	(R5)+			;A special function?
+	BNE	DZERR			; There are none here
+	MOVB	(R5)+,R0		;The unit, with the job number above it
+	BIC	#^C3,R0			; 0..3
+	MOV	(R5)+,BUFFER		;Where the data goes or comes from
+	MOV	(R5),R1			;Words to move: + read, - write
+	BEQ	DZDONE			; None: a seek, and we have no use of it
+	MOV	#C.READ,COMAND
+	MOV	#F.READ,FAILS
+	TST	R1
+	BPL	10$
+	MOV	#C.WRIT,COMAND
+	MOV	#F.WRIT,FAILS
+	NEG	R1
+10$:	ASL	R1			;Words to bytes
+	MOV	R1,COUNT
+
+; The drive and the side go into the copy of Register A.  The side bit
+; is SET for side 0, and the unit's bit 1 is the side.
+
+	MOV	R0,R1
+	BIC	#^C1,R1			;Bit 0 of the unit is the drive
+	BIT	#2,R0
+	BNE	20$
+	BIS	#RA.SID,R1		;Side 0
+20$:	BIC	#<RA.DRV!RA.SID>,@#REGAC
+	BIS	R1,@#REGAC
+	BIT	#RA.MOT,@#REGAC		;Is the motor off?
+	BEQ	30$
+	BIC	#RA.MOT,@#REGAC		; Start it and let it come up to speed
+	MOVB	@#REGAC,@#REGA
+	CALL	SPINUP
+30$:	MOVB	@#REGAC,@#REGA
+
+	.SBTTL	ONE BLOCK AFTER ANOTHER
+
+NXTBLK:	CMP	BLOCK,#<SECTRK*TRACKS>	;Past the end of the side?
+	BLO	10$
+	BIS	#EOF$,@-(R4)
+	BR	DZDONE
+10$:	MOV	#RETRY,TRIES
+20$:	CALL	LOCATE			;R2 = track, R3 = sector
+	CALL	SEEK
+	BCS	30$
+	CALL	MOVE
+	BCC	BLKOK
+30$:	DEC	TRIES			;It failed: again, from the seek
+	BNE	20$
+DZERR:	BIS	#HDERR$,@-(R4)
+	BR	DZDONE
+BLKOK:	INC	BLOCK
+	SUB	#BLKSIZ,COUNT
+	BHI	NXTBLK
+DZDONE:	BIS	#RA.USE,@#REGAC		;For the clock: the drive was just used
+	.DRFIN	DZ
+
+	.SBTTL	WHERE A BLOCK IS
+
+;+
+; LOCATE - the track and the sector of BLOCK
+;
+;	track  = (BLOCK/10 + 1) mod 80
+;	sector = (ILV[BLOCK mod 10] + 2*track - 2) mod 10, from 1
+;
+; The machine has no divide, and ten into at most 799 by subtraction is
+; eighty rounds at the worst - nothing beside a sector's turn.
+;
+;	R2 = track, R3 = sector on return; R0, R1 are used.
+;-
+LOCATE:	MOV	BLOCK,R0
+	CLR	R2
+10$:	CMP	R0,#SECTRK
+	BLO	20$
+	SUB	#SECTRK,R0
+	INC	R2
+	BR	10$
+20$:	INC	R2			;Cylinder 0 comes last
+	CMP	R2,#TRACKS
+	BLO	30$
+	CLR	R2
+30$:	MOV	PC,R3			;The handler runs wherever it was put,
+	ADD	#ILV-.,R3		; so the table is found from here
+	ADD	R0,R3
+	MOVB	(R3),R3			;The interleave of this position
+	MOV	R2,R1
+	ASL	R1			;Two sectors of skew a track
+	ADD	R1,R3
+	ADD	#<SECTRK-2>,R3		;The -2, kept from going negative
+40$:	CMP	R3,#SECTRK
+	BLO	50$
+	SUB	#SECTRK,R3
+	BR	40$
+50$:	INC	R3			;The controller counts from 1
+	RETURN
+
+ILV:	.BYTE	0,2,4,6,8.,1,3,5,7,9.	;2:1
+	.EVEN
+
+	.SBTTL	THE CONTROLLER
+
+;+
+; SEEK - bring the head to the track in R2.  Carry set if it failed.
+;-
+SEEK:	MOV	#DZ$CSR,R0
+	CMPB	R2,DZ.TRK(R0)		;There already?
+	BEQ	20$
+	MOVB	R2,DZ.DAT(R0)
+	MOVB	#C.SEEK,(R0)
+	CALL	IDLE
+	BITB	#F.SEEK,(R0)
+	BEQ	20$
+	SEC
+	RETURN
+20$:	CLC
+	RETURN
+
+;+
+; MOVE - read or write the sector in R3, a block's worth or what is left
+; of the request if that is less.  Carry set if it failed.
+;
+; A short write fills the rest of the sector with zeros, as the
+; controller must be given all 512 bytes; a short read drops what is
+; over.
+;-
+MOVE:	MOV	#DZ$CSR,R0
+	MOVB	R3,DZ.SEC(R0)
+	MOV	BUFFER,R1
+	MOV	COUNT,R2
+	CMP	R2,#BLKSIZ
+	BLOS	10$
+	MOV	#BLKSIZ,R2
+10$:	MOVB	COMAND,(R0)		;The controller ends it after 512 bytes
+	CMPB	COMAND,#C.WRIT
+	BEQ	WRITE
+
+READ:	BITB	#S.DRQ,(R0)
+	BNE	10$
+	BITB	#S.BUSY,(R0)
+	BNE	READ
+	BR	ENDMOV
+10$:	TST	R2			;Room left in the request?
+	BEQ	20$
+	MOVB	DZ.DAT(R0),(R1)+
+	DEC	R2
+	BR	READ
+20$:	TSTB	DZ.DAT(R0)		;No: take the byte and drop it
+	BR	READ
+
+WRITE:	BITB	#S.DRQ,(R0)
+	BNE	10$
+	BITB	#S.BUSY,(R0)
+	BNE	WRITE
+	BR	ENDMOV
+10$:	TST	R2
+	BEQ	20$
+	MOVB	(R1)+,DZ.DAT(R0)
+	DEC	R2
+	BR	WRITE
+20$:	CLRB	DZ.DAT(R0)		;Past the request: zeros
+	BR	WRITE
+
+ENDMOV:	BITB	FAILS,(R0)
+	BEQ	10$
+	SEC				;BUFFER stays: the retry starts over
+	RETURN
+10$:	MOV	R1,BUFFER		;Where the next block goes
+	CLC
+	RETURN
+
+;+
+; IDLE - wait for the controller to finish what it was told.
+;-
+IDLE:	BITB	#S.BUSY,@#DZ$CSR
+	BNE	IDLE
+	RETURN
+
+;+
+; SPINUP - the time a stopped motor takes to reach its speed.
+;-
+SPINUP:	MOV	#3,R1
+10$:	CLR	R0
+20$:	SOB	R0,20$
+	SOB	R1,10$
+	RETURN
+
+	.SBTTL	WHAT A REQUEST KEEPS
+
+BLOCK:	.WORD	0			;The block being moved
+BUFFER:	.WORD	0			;Where in memory
+COUNT:	.WORD	0			;Bytes still to move
+COMAND:	.WORD	0			;C.READ or C.WRIT
+FAILS:	.WORD	0			;The status bits that fail this command
+TRIES:	.WORD	0			;Tries left for this block
+
+	.SBTTL	THE INTERRUPT THAT NEVER COMES
+
+; The controller has no line into the interrupt encoder, so nothing
+; enters here; QMANGR wants the entry all the same.
+
+	.DRAST	DZ,5
+	RETURN
+
+	.DREND	DZ
+	.END

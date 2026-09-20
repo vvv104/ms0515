@@ -2,11 +2,16 @@
 own sources, with the real MACRO and LINK inside the emulator.
 
     python build_handler.py [--sy FILE[,FILE...]] [--answers FILE]
-                            DD [DD...] [OUTDIR]
+                            [--source DIR] DD [DD...] [OUTDIR]
 
 --sy puts host files on the system volume over the ones the toolset
 brings, the way build_util.py takes it: a handler belongs with the rest of
 the kit, so it is assembled and linked with DEC's own tools and libraries.
+
+--source names a folder looked in for <DD>.MAC before DEC's kit, which is
+how this machine's own handlers are built with the same recipe and the
+same tools as DEC's: `--source ../dz DZ`.  It comes first on purpose -
+DEC's kit has a DZ.MAC too, and it is a terminal multiplexer.
 
 DD is a handler's two-letter name (NL, LD, SL, ...) whose source is in the
 software collection's sources/rt11-v5.4.  A handler has no command file of
@@ -64,19 +69,29 @@ def main() -> int:
     args = list(sys.argv[1:])
     answers = ANSWERS
     extra: list[Path] = []
-    while args and args[0] in ("--answers", "--sy"):
+    own: list[Path] = []
+    while args and args[0] in ("--answers", "--sy", "--source"):
         which = args.pop(0)
         if which == "--answers":
             answers = Path(args.pop(0))
+        elif which == "--source":
+            own.append(Path(args.pop(0)))
         else:
             extra += [Path(f) for f in args.pop(0).split(",")]
     if not args:
         raise SystemExit(__doc__)
     src = dec_sources()
-    out = Path(args.pop()) if len(args) > 1 and not (src / (args[-1] + ".MAC")).is_file() \
+    out = Path(args.pop()) if len(args) > 1 and len(args[-1]) > 3 \
         else Path(tempfile.gettempdir()) / "dec_handlers"
     handlers = [a.upper() for a in args]
-    missing = [d for d in handlers if not (src / f"{d}.MAC").is_file()]
+
+    def source_of(dd: str) -> Path | None:
+        for folder in own + [src]:
+            if (folder / f"{dd}.MAC").is_file():
+                return folder / f"{dd}.MAC"
+        return None
+
+    missing = [d for d in handlers if source_of(d) is None]
     if missing:
         raise SystemExit("no source for " + ", ".join(missing))
 
@@ -87,7 +102,7 @@ def main() -> int:
     out.mkdir(parents=True)
     image = out / "work.hd"
     stage(image, tmp / "src",
-          [answers] + [src / f"{d}.MAC" for d in handlers])
+          [answers] + [source_of(d) for d in handlers])
 
     emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
                           "--disk0-side0", boot / "device.rtfs", "--hd", str(image)])
