@@ -1,0 +1,5 @@
+;
+; DVPRE.MAC - DZ.MAC as DV.  DV: the whole diskette, turned one cylinder on.
+; Assembled before DZ.MAC, which is all three floppy handlers.
+;
+FL$KND	= 2

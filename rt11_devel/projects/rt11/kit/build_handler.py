@@ -19,6 +19,11 @@ in the form the monitor's series has (../monitor/patches):
 what this machine changes in a handler of DEC's is kept as that, not as a
 copy of DEC's file - `--patch ../handlers/tt/TT.diff TT`.
 
+A handler made of more than one file - a prefix that sets a conditional,
+then the source all the variants share, DEC's own way of building them -
+is given as `DD=FILE,FILE`: `--source ../handlers/dz DV=DVPRE,DZ` builds
+DV.SYS from DVPRE.MAC and DZ.MAC.
+
 DD is a handler's two-letter name (NL, LD, SL, ...) whose source is in the
 software collection's sources/rt11-v5.4.  A handler has no command file of
 its own - SYSGEN built them - so the recipe is the standard one: assemble
@@ -50,13 +55,13 @@ from build_util import (CLI, CTRL_C, EmulatorDriver, ROM, RT11Session,  # noqa: 
 ANSWERS = HERE.parent / "monitor" / "SYCDEC.MAC"
 
 
-def recipe(dd: str, answers: str) -> list[str]:
+def recipe(dd: str, answers: str, parts: list[str]) -> list[str]:
     """What builds one handler: MACRO over the conditional file and the
-    source, then LINK with no bitmap - a handler is not a program and must
-    not carry one - into the .SYS file the monitor loads."""
+    source or sources, then LINK with no bitmap - a handler is not a
+    program and must not carry one - into the .SYS file the monitor loads."""
     return [
         "R MACRO",
-        f"OBJ:{dd},LST:{dd}={answers},{dd}",
+        f"OBJ:{dd},LST:{dd}={answers},{','.join(parts)}",
         CTRL_C,
         f"LINK/NOBITMAP/EXECUTE:{dd}.SYS {dd}",
     ]
@@ -93,7 +98,13 @@ def main() -> int:
     src = dec_sources()
     out = Path(args.pop()) if len(args) > 1 and len(args[-1]) > 3 \
         else Path(tempfile.gettempdir()) / "dec_handlers"
-    handlers = [a.upper() for a in args]
+    # DD or DD=FILE,FILE: the handler, and the sources it is made of.
+    made_of: dict[str, list[str]] = {}
+    for a in args:
+        name, _, files = a.upper().partition("=")
+        made_of[name] = files.split(",") if files else [name]
+    handlers = list(made_of)
+    sources = [f for parts in made_of.values() for f in parts]
 
     def source_of(dd: str) -> Path | None:
         for folder in own + [src]:
@@ -101,7 +112,7 @@ def main() -> int:
                 return folder / f"{dd}.MAC"
         return None
 
-    missing = [d for d in handlers if source_of(d) is None]
+    missing = [d for d in sources if source_of(d) is None]
     if missing:
         raise SystemExit("no source for " + ", ".join(missing))
 
@@ -110,7 +121,7 @@ def main() -> int:
         # The sources the patches touch, copied aside and patched there.
         tree = tmp / "patched"
         tree.mkdir()
-        for d in handlers:
+        for d in sources:
             shutil.copy(source_of(d), tree / f"{d}.MAC")
         for diff in patches:
             subprocess.run(["patch", "--quiet", "--forward", "-p1",
@@ -122,7 +133,7 @@ def main() -> int:
     out.mkdir(parents=True)
     image = out / "work.hd"
     stage(image, tmp / "src",
-          [answers] + [source_of(d) for d in handlers])
+          [answers] + [source_of(d) for d in dict.fromkeys(sources)])
 
     emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
                           "--disk0-side0", boot / "device.rtfs", "--hd", str(image)])
@@ -133,7 +144,7 @@ def main() -> int:
         rt.boot(timeout=90)
         for dd in handlers:
             started = time.time()
-            why = run_job(emu, dd, recipe(dd, answers.stem.upper()),
+            why = run_job(emu, dd, recipe(dd, answers.stem.upper(), made_of[dd]),
                           bool(os.environ.get("DECUTIL_VERBOSE")))
             print(f"{dd:4s} {'ok' if not why else why}  "
                   f"({time.time() - started:.0f}s)", flush=True)

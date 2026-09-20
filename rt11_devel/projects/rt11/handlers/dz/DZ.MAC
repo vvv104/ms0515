@@ -29,6 +29,22 @@
 ; on block 0 of a volume.  It runs at address 0 with no monitor under it,
 ; so it is a second, read-only telling of the same thing.
 ;
+; DV and MZ are this same handler seeing the diskette another way: the
+; whole of it as one volume of 1600 blocks, the side worked out from the
+; block instead of taken from the unit, and no interleave.  FL$KND picks
+; the kind; a prefix file sets it (MZPRE.MAC, DVPRE.MAC) and none means
+; DZ.  The labels stay DZ's whatever is built - they are nobody's
+; business but this file's.
+;
+;	kind	volume	a block's place
+;	DZ  0	 800	track (n/10+1) mod 80, interleave and skew, the
+;			 side by the unit
+;	MZ  1	1600	index n/10 over both sides: cylinder index/2,
+;			 side its low bit, sector n mod 10
+;	DV  2	1600	the same with the index two further on, mod 160 -
+;			 one cylinder - which puts block 0 on cylinder 1,
+;			 where the ROM looks for a bootstrap
+;
 ; The controller does not interrupt on this machine - the interrupt
 ; encoder has no input for it - so a request is served to its end before
 ; the handler returns, as every kit's handler does.
@@ -97,7 +113,26 @@ ERNREG	= 4			;Registers a logged error carries: the
 				; controller's status, track and sector,
 				; and the copy of Register A
 
-	.DRDEF	DZ,52,FILST$,<SECTRK*TRACKS>,DZ$CSR,0
+.IIF NDF FL$KND, FL$KND = 0	;0 = DZ, 1 = MZ, 2 = DV
+
+.IF EQ FL$KND
+VOLBLK	= SECTRK*TRACKS		;One side
+DEVCOD	= 52
+.IFF
+VOLBLK	= SECTRK*TRACKS*2	;The whole diskette
+INDEXS	= TRACKS*2		;Track-sides on it
+ .IF EQ FL$KND-1
+DEVCOD	= 55			;MZ, as the kits' has it
+ROTATE	= 0
+B$DNAM	= ^RMZ
+ .IFF
+DEVCOD	= 52			;DV
+ROTATE	= 2			;One cylinder on
+B$DNAM	= ^RDV
+ .ENDC
+.ENDC
+
+	.DRDEF	DZ,DEVCOD,FILST$,VOLBLK,DZ$CSR,0
 	.DRPTR
 	.DREST	CLASS=DVC.DK
 
@@ -126,12 +161,15 @@ ERNREG	= 4			;Registers a logged error carries: the
 	MOV	R1,COUNT
 
 ; The drive and the side go into the copy of Register A.  The side bit
-; is SET for side 0, and the unit's bit 1 is the side.
+; is SET for side 0.  For DZ the unit's bit 1 is the side; the whole-disk
+; kinds take the unit for the drive and set the side block by block.
 
 	MOV	R0,R1
+.IF EQ FL$KND
 	BIC	#^C1,R1			;Bit 0 of the unit is the drive
 	BIT	#2,R0
 	BNE	20$
+.ENDC
 	BIS	#RA.SID,R1		;Side 0
 20$:	BIC	#<RA.DRV!RA.SID>,@#REGAC
 	BIS	R1,@#REGAC
@@ -145,7 +183,7 @@ ERNREG	= 4			;Registers a logged error carries: the
 
 	.SBTTL	ONE BLOCK AFTER ANOTHER
 
-NXTBLK:	CMP	BLOCK,#<SECTRK*TRACKS>	;Past the end of the side?
+NXTBLK:	CMP	BLOCK,#VOLBLK		;Past the end of the volume?
 	BLO	10$
 	BIS	#EOF$,@-(R4)
 	BR	DZDONE
@@ -197,6 +235,7 @@ LOCATE:	MOV	BLOCK,R0
 	SUB	#SECTRK,R0
 	INC	R2
 	BR	10$
+.IF EQ FL$KND
 20$:	INC	R2			;Cylinder 0 comes last
 	CMP	R2,#TRACKS
 	BLO	30$
@@ -218,6 +257,20 @@ LOCATE:	MOV	BLOCK,R0
 
 ILV:	.BYTE	0,2,4,6,8.,1,3,5,7,9.	;2:1
 	.EVEN
+.IFF
+20$:	MOV	R0,R3			;The sectors run as the blocks do
+	INC	R3			; and the controller counts from 1
+	ADD	#ROTATE,R2		;DV's turn of a cylinder; nothing for MZ
+	CMP	R2,#INDEXS
+	BLO	30$
+	SUB	#INDEXS,R2
+30$:	BIS	#RA.SID,@#REGAC		;The index's low bit is the side:
+	ASR	R2			; R2 becomes the cylinder,
+	BCC	40$
+	BIC	#RA.SID,@#REGAC		; and an odd index is side 1
+40$:	MOVB	@#REGAC,@#REGA
+	RETURN
+.ENDC
 
 	.SBTTL	THE CONTROLLER
 
@@ -424,6 +477,7 @@ BREAD:	ASL	R1			;Words to bytes
 	SUB	#SECTRK,R0
 	INC	R3
 	BR	30$
+.IF EQ FL$KND
 40$:	INC	R3
 	CMP	R3,#TRACKS
 	BLO	50$
@@ -438,6 +492,19 @@ BREAD:	ASL	R1			;Words to bytes
 	SUB	#SECTRK,R4
 	BR	60$
 70$:	INC	R4
+.IFF
+40$:	MOV	R0,R4			;See LOCATE: the whole-disk kinds
+	INC	R4
+	ADD	#ROTATE,R3
+	CMP	R3,#INDEXS
+	BLO	50$
+	SUB	#INDEXS,R3
+50$:	BIS	#RA.SID,@#REGAC		;The drive is the ROM's choice; the side
+	ASR	R3			; is the block's
+	BCC	60$
+	BIC	#RA.SID,@#REGAC
+60$:	MOVB	@#REGAC,@#REGA
+.ENDC
 	MOV	#DZ$CSR,R5
 	MOVB	#C.RDAD,(R5)		;Where is the head? (see WHERE)
 	CALL	BIDLE
@@ -490,8 +557,10 @@ BIDLE:	BITB	#S.BUSY,(R5)
 	RETURN
 
 BTRY:	.WORD	0
+.IF EQ FL$KND
 BILV:	.BYTE	0,2,4,6,8.,1,3,5,7,9.
 	.EVEN
+.ENDC
 
 BOOT:	MOV	#10000,SP
 	MOV	#2,R0			;Blocks 2..5: the monitor's bootstrap
