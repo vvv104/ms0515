@@ -9,6 +9,7 @@
  *   TYPE1_STEP  ──(N pulses, step_rate_cycles each)──►  FINISH
  *   TYPE2_SEARCH  ──(SEARCH_CYCLES)──►  TYPE2_DATA
  *   TYPE2_DATA  ──(BYTE_CYCLES per byte * 512)──►  FINISH
+ *   TYPE3_TRACK  ──(BYTE_CYCLES per byte, one revolution)──►  FINISH
  *   FINISH  ──(MIN_CMD_CYCLES)──►  IDLE (clears BUSY, asserts INTRQ)
  *
  * BUSY is held naturally throughout the active states so the CPU's
@@ -36,6 +37,21 @@
 #define CMD_WRITE_SECTOR  0xA0
 #define CMD_READ_ADDRESS  0xC0
 #define CMD_FORCE_INT     0xD0
+#define CMD_WRITE_TRACK   0xF0
+
+/* ── WRITE TRACK: the bytes the controller does not write as they are ───── */
+
+#define WT_SYNC           0xF5   /* writes a sync byte, presets the CRC     */
+#define WT_CRC            0xF7   /* writes the two CRC bytes                */
+#define WT_ID_MARK        0xFE   /* after syncs: an ID field follows        */
+#define WT_DATA_MARK      0xFB   /* after syncs: a data field follows       */
+#define WT_DELETED_MARK   0xF8   /* ... or a deleted-data field             */
+
+typedef enum {
+    WT_FIELD_GAP = 0,            /* gaps, syncs, marks                      */
+    WT_FIELD_ID,                 /* track, side, sector, length             */
+    WT_FIELD_DATA                /* a sector's contents, up to its CRC      */
+} fdc_wt_field_t;
 
 /* ── Timing constants (CPU cycles at 7.5 MHz) ────────────────────────────── */
 
@@ -55,6 +71,16 @@ static const int step_rate_table[4] = { 45000, 90000, 150000, 225000 };
 
 /* Time per Type II data byte at 250 kbit/s MFM = 32 µs = 240 cycles. */
 #define BYTE_CYCLES          240
+
+/* One revolution - 200 ms at 300 rpm - is what WRITE TRACK writes, index
+ * to index: 6250 bytes at 250 kbit/s. */
+#define TRACK_BYTES          6250
+
+/* WRITE TRACK is the one command that cannot wait for the CPU for ever:
+ * it ends at the index, and a formatter that has stopped feeding it would
+ * otherwise hold BUSY for good.  A byte left unserved for a whole
+ * revolution ends the command with LOST DATA. */
+#define TRACK_STARVE_CYCLES  (TRACK_BYTES * BYTE_CYCLES)
 
 /* Post-data delay before INTRQ asserts (CRC + post-amble window). */
 #define TYPE2_FINISH_CYCLES  240
@@ -148,28 +174,35 @@ static bool read_sector(ms0515_floppy_t *fdc)
     return true;
 }
 
-/* Flush the buffer to a sector on the disk image. */
-static bool write_sector(ms0515_floppy_t *fdc)
+/* Write one sector of the track under the head. */
+static bool write_sector_at(ms0515_floppy_t *fdc, int sector,
+                            const uint8_t *data)
 {
     fdc_drive_t *drv = current_drive(fdc);
     if (drv->read_only)
         return false;
-    if (fdc->sector_reg < 1 || fdc->sector_reg > FDC_SECTORS)
+    if (sector < 1 || sector > FDC_SECTORS)
         return false;
 
     if (drv->backend_write)
         return drv->backend_write(drv->backend_ud, current_track(fdc),
-                                  fdc->sector_reg, fdc->buffer);
+                                  sector, data);
     if (!drv->image)
         return false;
 
-    long offset = disk_offset(drv, current_track(fdc), fdc->sector_reg);
+    long offset = disk_offset(drv, current_track(fdc), sector);
     if (fseek(drv->image, offset, SEEK_SET) != 0)
         return false;
 
-    size_t n = fwrite(fdc->buffer, 1, FDC_SECTOR_SIZE, drv->image);
+    size_t n = fwrite(data, 1, FDC_SECTOR_SIZE, drv->image);
     fflush(drv->image);
     return n == FDC_SECTOR_SIZE;
+}
+
+/* Flush the buffer to the sector the sector register names. */
+static bool write_sector(ms0515_floppy_t *fdc)
+{
+    return write_sector_at(fdc, fdc->sector_reg, fdc->buffer);
 }
 
 /* Schedule the FINISH phase: BUSY stays asserted for `cycles` more CPU
@@ -239,6 +272,101 @@ static void start_type2(ms0515_floppy_t *fdc, bool writing)
     fdc->state            = FDC_STATE_TYPE2_SEARCH;
     fdc->cycles_remaining = TYPE2_SEARCH_CYCLES;
     fdc->status           = FDC_ST_BUSY;
+}
+
+/* Begin WRITE TRACK.  DRQ comes up when the index does; from then on
+ * every byte the CPU gives is a byte of the track. */
+static void start_write_track(ms0515_floppy_t *fdc)
+{
+    if (!drive_ready(fdc)) {
+        schedule_finish(fdc, FDC_ST_NOT_READY, MIN_CMD_CYCLES);
+        return;
+    }
+    if (current_drive(fdc)->read_only) {
+        schedule_finish(fdc, FDC_ST_WRITE_PROT, MIN_CMD_CYCLES);
+        return;
+    }
+
+    fdc->wt_bytes_left = TRACK_BYTES;
+    fdc->wt_field      = WT_FIELD_GAP;
+    fdc->wt_count      = 0;
+    fdc->wt_id_valid   = false;
+    fdc->wt_sync       = false;
+    fdc->wt_starved    = 0;
+    fdc->next_status   = 0;
+
+    fdc->state            = FDC_STATE_TYPE3_TRACK;
+    fdc->cycles_remaining = TYPE2_SEARCH_CYCLES;
+    fdc->status           = FDC_ST_BUSY;
+}
+
+/* A data field has been closed by its CRC byte: if it is a whole sector
+ * of this machine's format, it goes to the image.  The ID's track and
+ * side are not looked at - an image has nowhere to keep an ID, so a
+ * sector is always found where the head is. */
+static void wt_close_data(ms0515_floppy_t *fdc)
+{
+    const bool whole = fdc->wt_id[3] == 2 && fdc->wt_count == FDC_SECTOR_SIZE;
+    if (whole && fdc->wt_id[2] >= 1 && fdc->wt_id[2] <= FDC_SECTORS
+        && !write_sector_at(fdc, fdc->wt_id[2], fdc->buffer))
+        fdc->next_status |= FDC_ST_WRITE_FAULT;
+    fdc->wt_id_valid = false;
+    fdc->wt_field    = WT_FIELD_GAP;
+}
+
+/* One byte of the formatter's stream. */
+static void wt_take_byte(ms0515_floppy_t *fdc, uint8_t b)
+{
+    switch ((fdc_wt_field_t)fdc->wt_field) {
+    case WT_FIELD_ID:
+        fdc->wt_id[fdc->wt_count++] = b;
+        if (fdc->wt_count == 4) {
+            fdc->wt_id_valid = true;
+            fdc->wt_field    = WT_FIELD_GAP;
+        }
+        break;
+
+    case WT_FIELD_DATA:
+        if (b == WT_CRC)
+            wt_close_data(fdc);
+        else if (fdc->wt_count < FDC_SECTOR_SIZE)
+            fdc->buffer[fdc->wt_count++] = b;
+        else
+            fdc->wt_count = FDC_SECTOR_SIZE + 1;    /* too long to be ours */
+        break;
+
+    case WT_FIELD_GAP:
+        if (fdc->wt_sync && b == WT_ID_MARK) {
+            fdc->wt_field = WT_FIELD_ID;
+            fdc->wt_count = 0;
+        } else if (fdc->wt_sync && fdc->wt_id_valid
+                   && (b == WT_DATA_MARK || b == WT_DELETED_MARK)) {
+            fdc->wt_field = WT_FIELD_DATA;
+            fdc->wt_count = 0;
+        }
+        fdc->wt_sync = (b == WT_SYNC);
+        break;
+    }
+    fdc->wt_bytes_left--;
+}
+
+/* WRITE TRACK, a byte time later. */
+static void tick_write_track(ms0515_floppy_t *fdc)
+{
+    if (fdc->drq) {
+        fdc->wt_starved += BYTE_CYCLES;
+        if (fdc->wt_starved >= TRACK_STARVE_CYCLES)
+            schedule_finish(fdc, fdc->next_status | FDC_ST_LOST_DATA,
+                            MIN_CMD_CYCLES);
+        else
+            fdc->cycles_remaining += BYTE_CYCLES;
+    } else if (fdc->wt_bytes_left > 0) {
+        fdc->drq               = true;
+        fdc->wt_starved        = 0;
+        fdc->cycles_remaining += BYTE_CYCLES;
+    } else {
+        schedule_finish(fdc, fdc->next_status, TYPE2_FINISH_CYCLES);
+    }
 }
 
 /* Force Interrupt — abort any running command immediately. */
@@ -313,6 +441,12 @@ void fdc_reset(ms0515_floppy_t *fdc)
     fdc->step_rate_cycles = step_rate_table[0];
     fdc->settle_cycles    = 0;
     fdc->next_status      = 0;
+    fdc->wt_bytes_left    = 0;
+    fdc->wt_field         = WT_FIELD_GAP;
+    fdc->wt_count         = 0;
+    fdc->wt_id_valid      = false;
+    fdc->wt_sync          = false;
+    fdc->wt_starved       = 0;
 }
 
 bool fdc_attach(ms0515_floppy_t *fdc, int unit, const char *path,
@@ -502,6 +636,10 @@ void fdc_write(ms0515_floppy_t *fdc, int reg, uint8_t value)
             break;
         }
 
+        case CMD_WRITE_TRACK:
+            start_write_track(fdc);
+            break;
+
         default:
             /* Unsupported command — finish quickly so the BIOS poll
              * (BUSY high, then low) can make progress. */
@@ -531,6 +669,9 @@ void fdc_write(ms0515_floppy_t *fdc, int reg, uint8_t value)
             fdc->buf_pos < FDC_SECTOR_SIZE) {
             fdc->buffer[fdc->buf_pos] = value;
         }
+        /* WRITE TRACK takes the byte as it comes. */
+        if (fdc->state == FDC_STATE_TYPE3_TRACK && fdc->wt_bytes_left > 0)
+            wt_take_byte(fdc, value);
         break;
     }
 }
@@ -741,6 +882,10 @@ void fdc_tick(ms0515_floppy_t *fdc, int cycles)
             }
             break;
         }
+
+        case FDC_STATE_TYPE3_TRACK:
+            tick_write_track(fdc);
+            break;
 
         case FDC_STATE_FINISH:
             fdc->status           = fdc->next_status;
