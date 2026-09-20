@@ -75,12 +75,27 @@ def recipe(com: Path) -> list[str]:
         line = line.rstrip()
         if line.startswith("!"):
             continue
-        # /C on a listing asks MACRO for a cross-reference, which it makes
-        # by running CREF.SAV - a program of the kit we do not have, and a
-        # listing nobody reads here.
+        # A cross-reference - /C on a CSI listing, /CROSSREFERENCE on a
+        # command - is made by running CREF.SAV, a program of the kit we do
+        # not have, and goes into a listing nobody reads here.
+        line = re.sub(r"/CRO[A-Z]*", "", line)
         line = re.sub(r"/C(?![:A-Z0-9])", "", line)
-        out.append(CTRL_C if line == "^C" else line)
+        out.append(CTRL_C if line == "^C" else shorten(line))
     return out
+
+
+def shorten(line: str) -> str:
+    """A command KMON reads is 80 characters; past that it takes what fits
+    and refuses the rest as an invalid command.  IND's link line is 90.
+    The names it spells out are all logical devices this build assigns to
+    the one work volume, so dropping them says exactly the same thing in
+    fewer characters."""
+    if len(line) <= 80:
+        return line
+    # Only where a file specification starts - after the colon of a switch
+    # or a separator.  `/MAP:MAP:IND` names the switch and then the device,
+    # and taking the switch for a device leaves `/IND`, an invalid option.
+    return re.sub(r"(?<=[:,= ])(?:DK|SRC|OBJ|BIN|LST|MAP):", "", line)
 
 
 def sources_of(lines: list[str], src: Path) -> list[str]:
@@ -88,13 +103,19 @@ def sources_of(lines: list[str], src: Path) -> list[str]:
     inputs are a comma-separated list where only the first may name its
     device (`SRC:DUPPRE,DUPSCN,DUPMRG`) and the last may end the command
     (`,ULBLIB//`).  A name is taken from the kit as its source, else as the
-    object library it is."""
+    object library it is; a word that names no file of the kit is not one
+    of its files and is passed over, which is what keeps a command line's
+    own switches out of the staging."""
     names: list[str] = []
     for line in lines:
+        # A CSI line is `outputs=inputs`; a command line carries its files
+        # in its switches (`LINK/LINK:OBJ:ULBLIB`), so all of it is read.
         rest = line.split("=", 1)[1] if "=" in line else (
-            line if not re.match(r"^(R |\^C|[A-Z]+/)", line) else "")
-        for word in re.split(r"[,\s]+", rest.replace("//", "")):
-            word = re.sub(r"^[A-Z]{2,3}:", "", word.strip()).split("/")[0]
+            line if not re.match(r"^(R |\^C)", line) else "")
+        for word in re.split(r"[,\s/]+", rest.replace("//", "")):
+            # What is left of a word once its switch and device names are
+            # off it: `/LINK:OBJ:ULBLIB` is the library ULBLIB.
+            word = word.strip().rsplit(":", 1)[-1]
             if not re.fullmatch(r"[A-Z0-9$]+(\.[A-Z0-9]+)?", word or ""):
                 continue
             stem = word.split(".")[0]
@@ -104,6 +125,27 @@ def sources_of(lines: list[str], src: Path) -> list[str]:
                     names.append(stem + ext)
                     break
     return names
+
+
+def included_by(names: list[str], src: Path) -> list[str]:
+    """The sources a source reads for itself.  A command file names only
+    what it assembles; what that in turn pulls in with .INCLUDE or takes
+    macros from with .LIBRARY has to be on the volume too, and may pull in
+    more, so this follows the trail to its end."""
+    out = list(names)
+    seen = 0
+    while seen < len(out):
+        name = out[seen]
+        seen += 1
+        f = src / name
+        if not f.is_file() or f.suffix.upper() != ".MAC":
+            continue
+        text = f.read_bytes().decode("latin-1")
+        for m in re.finditer(r'\.(?:INCLUDE|LIBRARY)\s+"([^"]+)"', text, re.I):
+            word = re.sub(r"^[A-Z]{2,3}:", "", m.group(1).strip().upper())
+            if (src / word).is_file() and word not in out:
+                out.append(word)
+    return out
 
 
 def stage(image: Path, files: Path, names: list[str], src: Path,
@@ -164,12 +206,41 @@ def step(emu, line: str) -> str:
     empty line.  These are 40-year old programs on a fast host: seconds,
     not minutes."""
     at_dot = line == CTRL_C
+    label = "^C" if at_dot else repr(line)
     mark = emu.buffer_len()
     emu.send(line + ("" if at_dot else "\r"))
-    emu.wait_for(PROMPT, f"after {'^C' if at_dot else line!r}",
-                 timeout=float(os.environ.get("DECUTIL_TIMEOUT", 60)))
+    wait_prompt(emu, f"after {label}")
     with emu._buf_lock:
         return emu._decode(bytes(emu._buf[mark:]))
+
+
+def wait_prompt(emu, label: str) -> None:
+    """Wait for a prompt by watching the machine, not the clock.
+
+    A big assembly can take a minute and a small one a second, so a fixed
+    timeout is either too short for the one or a minute wasted on the
+    other.  What tells the two apart is the screen: while the machine is
+    working it keeps writing, and a step that has gone quiet without
+    prompting is a step that is waiting for something that will not come.
+    DECUTIL_QUIET is how long that silence may last, DECUTIL_CAP the most
+    any one step may take."""
+    quiet = float(os.environ.get("DECUTIL_QUIET", 20))
+    cap = float(os.environ.get("DECUTIL_CAP", 600))
+    start = last_change = time.monotonic()
+    seen = emu.buffer_len()
+    while True:
+        try:
+            emu.wait_for(PROMPT, label, timeout=1.0)
+            return
+        except TimeoutError:
+            pass
+        now = time.monotonic()
+        if emu.buffer_len() != seen:
+            seen, last_change = emu.buffer_len(), now
+        if now - last_change > quiet:
+            raise TimeoutError(f"{label}: quiet for {quiet:.0f}s with no prompt")
+        if now - start > cap:
+            raise TimeoutError(f"{label}: still going after {cap:.0f}s")
 
 
 def recover(emu) -> None:
@@ -256,6 +327,7 @@ def main() -> int:
     verbose = bool(os.environ.get("DECUTIL_VERBOSE"))
     src = dec_sources()
     jobs, names = jobs_of([a.upper() for a in args], src)
+    names = included_by(names, src)
 
     tmp = Path(tempfile.mkdtemp(prefix="dec_util_"))
     boot = tmp / "boot"
@@ -283,7 +355,10 @@ def main() -> int:
         emu.dump(out / "session.log")
         emu.kill()
         shutil.rmtree(tmp, ignore_errors=True)
-    disk("get", image, "--hd", "--out", out, "*.SAV", "*.MAP", "*.OBJ")
+    # Not everything a utility builds is a .SAV: a foreground program is a
+    # .REL, a handler a .SYS, HELP's text a .MLB.
+    disk("get", image, "--hd", "--out", out,
+         "*.SAV", "*.REL", "*.SYS", "*.MLB", "*.MAP", "*.OBJ")
     print("outputs in", out)
     if failed:
         print("failed:", ", ".join(sorted(failed)))
