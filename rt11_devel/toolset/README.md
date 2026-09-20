@@ -218,7 +218,7 @@ prompts, sends a type-ahead `DIR` whose "Free blocks" line marks completion
 (it executes only after `STARTS.COM` finishes), and scans the transcript for
 `?xxx-F-`/`-E-` diagnostics.
 
-Direct boots that are not builds (`projects/hd/validate.py`, the demo disk)
+Direct boots that are not builds (`projects/rt11/handlers/hd/validate.py`, the demo disk)
 stage the toolset's default `STARTS.COM` (`SET TT QUIET`) themselves so they
 start cleanly.  See also `GOTCHAS.md`.
 

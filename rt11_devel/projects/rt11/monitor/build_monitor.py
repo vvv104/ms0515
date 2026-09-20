@@ -48,7 +48,7 @@ TOOLS = TOOLSET / "build_tools"
 # for it.  The toolset's libraries are not all DEC's, and which of them a
 # build was standing on cannot be told from the outside.
 DEC_TOOLS = HERE.parent / "tools"
-HD_SYS = HERE.parent.parent / "hd" / "HD.SYS"
+HD_SYS = HERE.parent / "handlers" / "hd" / "HD.SYS"
 
 # The monitor's four parts, as MONBLD assembles them for SJ.
 PREFIX = ["SJ", "SYCND", "EDTGBL", "OMEGA"]   # OMEGA: the Omega modules' macros

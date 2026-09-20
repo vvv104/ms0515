@@ -48,7 +48,7 @@ DISKTOOL = ROOT / "package/ms0515-disk.exe"
 ROM = ROOT / "package/assets/rom/ms0515-romb.rom"   # the toolset system: ROM-B
 SYSTEM_DIR = TOOLSET / "system"
 TOOLS = TOOLSET / "build_tools"
-HD_SYS = HERE.parent.parent / "hd" / "HD.SYS"
+HD_SYS = HERE.parent / "handlers" / "hd" / "HD.SYS"
 # DEC's own, built here from its sources.  Only MACRO comes from the kit:
 # the V5.4 source distribution has no source for it.  This matters more
 # than it looks - the toolset's SYSLIB is not DEC's, and a utility linked

@@ -33,7 +33,7 @@ Two localized changes from the upstream source, both for `$$SILENT`:
 ## Build
 
 ```
-python rt11_devel/toolset/build.py rt11_devel/projects/hd/build.toml
+python rt11_devel/toolset/build.py rt11_devel/projects/rt11/handlers/hd/build.toml
 ```
 
 Produces `HD.SYS` here, assembled and linked by the real RT-11 SJ V5.04
@@ -46,7 +46,7 @@ template carries none of them.  See `../../toolset/GOTCHAS.md`.
 ## Validate (OS oracle)
 
 ```
-python rt11_devel/projects/hd/validate.py
+python rt11_devel/projects/rt11/handlers/hd/validate.py
 ```
 
 Boots RT-11 from a temp copy of the toolset's `system/` folder template

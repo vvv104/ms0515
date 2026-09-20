@@ -93,7 +93,7 @@ until a remount.
 
 ## Status
 
-Implemented and OS-validated end to end (`rt11_devel/projects/hd/
+Implemented and OS-validated end to end (`rt11_devel/projects/rt11/handlers/hd/
 validate_rtfs.py` and `validate_rtfs_floppy.py`): folder-as-HD, folder-as-
 floppy with boot file (RT-11 boots standalone from a host folder), guest
 create/delete/rename/protect, volume-id/owner round-trip including guest
