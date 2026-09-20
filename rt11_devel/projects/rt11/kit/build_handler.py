@@ -2,7 +2,7 @@
 own sources, with the real MACRO and LINK inside the emulator.
 
     python build_handler.py [--sy FILE[,FILE...]] [--answers FILE]
-                            [--source DIR] [--patch FILE]
+                            [--source DIR] [--patch FILE] [--bitmap]
                             DD [DD...] [OUTDIR]
 
 --sy puts host files on the system volume over the ones the toolset
@@ -18,6 +18,11 @@ DEC's kit has a DZ.MAC too, and it is a terminal multiplexer.
 in the form the monitor's series has (../monitor/patches):
 what this machine changes in a handler of DEC's is kept as that, not as a
 copy of DEC's file - `--patch ../handlers/tt/TT.diff TT`.
+
+--bitmap links with the block bitmap left in (offset 360 of the header).
+A handler should not carry one and the default is LINK/NOBITMAP, but some
+of the kits' were linked plainly and have it, and a build that is to be
+compared with them byte for byte has to be made the way they were.
 
 A handler made of more than one file - a prefix that sets a conditional,
 then the source all the variants share, DEC's own way of building them -
@@ -55,7 +60,8 @@ from build_util import (CLI, CTRL_C, EmulatorDriver, ROM, RT11Session,  # noqa: 
 ANSWERS = HERE.parent / "monitor" / "SYCDEC.MAC"
 
 
-def recipe(dd: str, answers: str, parts: list[str]) -> list[str]:
+def recipe(dd: str, answers: str, parts: list[str],
+           bitmap: bool = False) -> list[str]:
     """What builds one handler: MACRO over the conditional file and the
     source or sources, then LINK with no bitmap - a handler is not a
     program and must not carry one - into the .SYS file the monitor loads."""
@@ -63,7 +69,7 @@ def recipe(dd: str, answers: str, parts: list[str]) -> list[str]:
         "R MACRO",
         f"OBJ:{dd},LST:{dd}={answers},{','.join(parts)}",
         CTRL_C,
-        f"LINK/NOBITMAP/EXECUTE:{dd}.SYS {dd}",
+        f"LINK{'' if bitmap else '/NOBITMAP'}/EXECUTE:{dd}.SYS {dd}",
     ]
 
 
@@ -83,9 +89,13 @@ def main() -> int:
     extra: list[Path] = []
     own: list[Path] = []
     patches: list[Path] = []
-    while args and args[0] in ("--answers", "--sy", "--source", "--patch"):
+    bitmap = False
+    while args and args[0] in ("--answers", "--sy", "--source", "--patch",
+                               "--bitmap"):
         which = args.pop(0)
-        if which == "--answers":
+        if which == "--bitmap":
+            bitmap = True
+        elif which == "--answers":
             answers = Path(args.pop(0))
         elif which == "--source":
             own.append(Path(args.pop(0)))
@@ -144,7 +154,7 @@ def main() -> int:
         rt.boot(timeout=90)
         for dd in handlers:
             started = time.time()
-            why = run_job(emu, dd, recipe(dd, answers.stem.upper(), made_of[dd]),
+            why = run_job(emu, dd, recipe(dd, answers.stem.upper(), made_of[dd], bitmap),
                           bool(os.environ.get("DECUTIL_VERBOSE")))
             print(f"{dd:4s} {'ok' if not why else why}  "
                   f"({time.time() - started:.0f}s)", flush=True)

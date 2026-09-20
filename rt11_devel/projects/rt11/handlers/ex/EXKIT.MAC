@@ -1,0 +1,6 @@
+;
+; EXKIT.MAC - EX.MAC as the kits' handler: the redirection table of the
+; board it was made for, four bad pages, and the 1022 blocks that leaves.
+; Assembled before EX.MAC.
+;
+EX$KIT	= 1
