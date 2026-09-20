@@ -66,7 +66,9 @@ def make_disks(work: Path, kit: Path, files: list[Path],
                system: list[Path]) -> tuple[Path, Path, Path]:
     boot = work / "boot.dsk"
     disk("compose", "--repo", collection(), "--system", "dec", "--media", "ss", boot)
-    ours = [HERE / "DZ.SYS"] + system
+    # A DZ.SYS among the system files stands in for the one kept here.
+    given = {f.name.upper() for f in system}
+    ours = ([] if "DZ.SYS" in given else [HERE / "DZ.SYS"]) + system
     for f in ours:
         disk("unprotect", boot, f.name)
         disk("rm", boot, f.name)

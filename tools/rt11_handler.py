@@ -91,7 +91,7 @@ def targets(text: str, after: int) -> tuple[list[int], bool]:
     mnemonic = text.split()[0] if text.split() else ""
     addrs = [int(m, 8) for m in re.findall(r"\b([0-7]{6})\b", text)]
     goes: list[int] = []
-    if mnemonic in COND or mnemonic in ("JMP", "JSR"):
+    if mnemonic in COND or mnemonic in ("JMP", "JSR", "CALL"):
         # The last number of a branch or a jump is where it goes; for JSR
         # the target is the second operand.
         if addrs:
