@@ -28,6 +28,15 @@
 ; turned to a bank while it works, and an interrupt then would find the
 ; wrong memory under it.
 ;
+	.SBTTL	CONDITIONAL ASSEMBLY SUMMARY
+;+
+;COND
+;
+;	ERL$G		std conditional (no code effects): memory has no
+;			tries to count, and DEC's own VM logs nothing either
+;	MMG$T		std conditional (no code effects)
+;	TIM$IT		std conditional (no code effects)
+;-
 	.MCALL	.DRDEF,	.DRBEG,	.DRFIN,	.DREND,	.DRPTR,	.DREST
 
 .IIF NDF MMG$T,  MMG$T  =: 0

@@ -10,7 +10,7 @@ they are built with.
 | [`handlers/dz/`](handlers/dz/DZ.MAC) | The floppy handlers - `DZ`, and `DV` and `MZ` from the same source (a prefix file picks the kind), written for the machine from what the kits' binaries do (`docs/kb/dz_handler.md`): the first `DZ` here with a source, a primary driver of its own, the controller's address where DEC's FORMAT looks for it, and DEC's error logging. `validate.py` is its oracle. |
 | [`handlers/tt/`](handlers/tt/README.md) | The terminal handler: DEC's `TT.MAC` and a patch of six lines, which is ОМЕГА's `TT.SYS` to the byte. |
 | [`handlers/vm/`](handlers/vm/README.md) | The memory disk: seven of the extra banks as a 112-block volume through the ROM's bank routines.  Its source written back from the kits' binary, which it builds to the byte. |
-| [`handlers/hd/`](handlers/hd/README.md) | The paravirtual hard disk `HD:` of the emulator: Patron's HD driver kit v2.0 adapted to the machine, with its own oracles.  It already carries `ERL$G`. |
+| [`handlers/hd/`](handlers/hd/README.md) | The paravirtual hard disk `HD:` of the emulator: Patron's HD driver kit v2.0 adapted to the machine, with its own oracles.  It logs nothing, and `SET HD ERLG=`/`TIMIT=` turn its sysgen word to whatever monitor it is loaded under. |
 | [`kit/`](kit/README.md) | The builders of the kit: `build_util.py` types DEC's own command files into a running machine, `build_handler.py` builds handlers — DEC's, DEC's with a patch, or the machine's own — and `verify_kit.py` uses what came out on a real system. |
 | `tools/` | What all of it is built with, itself built from DEC's sources: `LINK`, `LIBR`, `SYSMAC.SML`, `SYSLIB.OBJ`.  Only `MACRO` comes from the toolset's kit, the V5.4 source distribution having no source for it.  Not bookkeeping: the toolset's `SYSLIB` is not DEC's, and a `PIP` linked against it builds without a complaint and dies of an overlay error. |
 
@@ -18,6 +18,33 @@ DEC's sources are not here: they come from the software collection
 (`$MS0515_SOFTWARE`, else `../ms0515-software` beside this repository),
 `sources/rt11-v5.4`.  What the machine changes in a file of DEC's is kept
 as a patch over it, never as a copy.
+
+## Error logging: in the sources, not in the collection
+
+`ERL$G` is a SYSGEN conditional, all or nothing: the monitor and every
+handler are built with it or none is, because the monitor fills one more
+pointer at a handler's end and the layout has to agree.  DEC's distributed
+monitors did not have it - none of the answer files of the distribution
+sets it - and neither do `dec` and `dec-ru`: a monitor with it refuses
+every kit handler, which is too much to pay for a log that stays empty on
+sound media and needs `LOAD EL` and `SET EL LOG` to fill at all.
+
+The support is here all the same, where there is hardware to fail: the
+floppy handlers report every failed try with the controller's registers,
+and a request that came through, as DEC's disk handlers do (`DX.MAC`).
+The rest carry the conditional with no code, as DEC's `VM`, `TT`, `NL`,
+`LD` do.  A diagnostic set for a real machine is a copy of the answers
+with `ERL$G = 1` and one command:
+
+    python monitor/build_monitor.py OUT --profile dec      # with the answers edited
+    python kit/build_handler.py --answers ANSWERS.MAC \
+           --source handlers/dz --source handlers/vm --source handlers/hd \
+           --patch handlers/tt/TT.diff \
+           DZ MZ=MZPRE,DZ DV=DVPRE,DZ VM TT HD EL NL LD OUT
+
+It was tried: with all of it built that way and an empty drive asked for a
+directory, `ERROUT` reported the eight tries, the registers, the function
+and the block (`docs/kb/dz_handler.md`).
 
 A monitor takes only handlers whose sysgen word is its own, so the
 conditionals of a system (`monitor/SYC*.MAC`) are the handlers'
