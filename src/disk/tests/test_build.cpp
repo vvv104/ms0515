@@ -1190,8 +1190,10 @@ TEST_CASE("putFile goes on into the next directory segment when one fills up") {
     initVolume(img, 0, false, four, Vol::linear);
     const std::vector<uint8_t> one(kBlock, 0xAB);
     for (int i = 0; i < 120; ++i) {
-        char name[16];
-        std::snprintf(name, sizeof name, "F%03d.DAT", i);
+        const std::string name = std::string("F")
+                               + char('0' + i / 100 % 10)
+                               + char('0' + i / 10 % 10)
+                               + char('0' + i % 10) + ".DAT";
         putFile(img, 0, false, name, one, {}, Vol::linear);
     }
     auto im = openLinearImage(img);
@@ -1217,8 +1219,10 @@ TEST_CASE("a second segment is read on a volume larger than a floppy") {
     initVolume(img, 0, false, four, Vol::linear);
     const std::vector<uint8_t> big(20 * kBlock, 0x5A);
     for (int i = 0; i < 100; ++i) {
-        char name[16];
-        std::snprintf(name, sizeof name, "H%03d.DAT", i);
+        const std::string name = std::string("H")
+                               + char('0' + i / 100 % 10)
+                               + char('0' + i / 10 % 10)
+                               + char('0' + i % 10) + ".DAT";
         putFile(img, 0, false, name, big, {}, Vol::linear);
     }
     auto im = openLinearImage(img);
@@ -1237,8 +1241,10 @@ TEST_CASE("a full directory says so and leaves the volume as it was") {
     const std::vector<uint8_t> blk(kBlock, 7);
     int put = 0;
     for (; put < 200; ++put) {
-        char name[16];
-        std::snprintf(name, sizeof name, "G%03d.DAT", put);
+        const std::string name = std::string("G")
+                               + char('0' + put / 100 % 10)
+                               + char('0' + put / 10 % 10)
+                               + char('0' + put % 10) + ".DAT";
         try {
             putFile(img, 0, false, name, blk, {}, Vol::linear);
         } catch (const std::exception &) {
