@@ -19,7 +19,7 @@ earlier.
 
 UTIL is the name of a build command file of the DEC kit (DUMP, DIR, ...);
 the sources and the command file come from the software collection
-($MS0515_SOFTWARE, else ../ms0515-software beside this repository), in
+($MS0515_RT11_SOURCES, else $MS0515_SOFTWARE's or ../ms0515-software's), in
 sources/rt11-v5.4.  The command file is followed line for line: its
 `R PROG` runs the program, the lines after it are its CSI input, `^C`
 ends it.  The devices it names are all the work volume, an HD image, so
@@ -63,11 +63,20 @@ ABORT = CTRL_C * 2
 
 
 def dec_sources() -> Path:
-    base = os.environ.get("MS0515_SOFTWARE")
-    root = Path(base) if base else ROOT.parent / "ms0515-software"
-    src = root / "sources" / "rt11-v5.4"
+    """DEC's V5.4 source kit: $MS0515_RT11_SOURCES names its folder outright;
+    else it is sources/rt11-v5.4 of the software collection ($MS0515_SOFTWARE,
+    else ../ms0515-software beside this repository)."""
+    direct = os.environ.get("MS0515_RT11_SOURCES")
+    if direct:
+        src = Path(direct)
+    else:
+        base = os.environ.get("MS0515_SOFTWARE")
+        root = Path(base) if base else ROOT.parent / "ms0515-software"
+        src = root / "sources" / "rt11-v5.4"
     if not (src / "DUMP.COM").is_file():
-        raise SystemExit(f"no DEC sources in {src} (set MS0515_SOFTWARE)")
+        raise SystemExit(f"no DEC sources in {src} "
+                         "(set MS0515_RT11_SOURCES to the rt11-v5.4 folder, "
+                         "or MS0515_SOFTWARE to a collection that has it)")
     return src
 
 
@@ -250,7 +259,7 @@ def wait_prompt(emu, label: str) -> None:
     prompting is a step that is waiting for something that will not come.
     DECUTIL_QUIET is how long that silence may last, DECUTIL_CAP the most
     any one step may take."""
-    quiet = float(os.environ.get("DECUTIL_QUIET", 20))
+    quiet = float(os.environ.get("DECUTIL_QUIET", 120))
     cap = float(os.environ.get("DECUTIL_CAP", 600))
     start = last_change = time.monotonic()
     seen = emu.buffer_len()
