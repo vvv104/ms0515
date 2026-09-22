@@ -149,6 +149,7 @@ ManifestSystem readSystem(const std::string &key, const toml::table &t, int form
     ManifestSystem s;
     s.key = key;
     s.title = str(t, "title", where, true);
+    s.kit = str(t, "kit", where, false);
     if (format == 1) s.image = str(t, "image", where, true);
     else readSystemFiles(s, t, where);
     s.media = medias(t, "media", where);
@@ -206,8 +207,10 @@ ManifestBundle readBundle(const std::string &key, const toml::table &t)
     b.date = str(t, "date", where, false);
     b.protect = t["protect"].value_or(false);
     b.group = str(t, "group", where, false);
+    b.kit = str(t, "kit", where, false);
     b.provides = strings(t, "provides", where);
     b.dependsOn = strings(t, "requires", where);
+    b.suggests = strings(t, "suggests", where);
     if (const auto *table = t["prefer"].as_table()) {
         for (const auto &[k, v] : *table) {
             (void)v;
@@ -298,6 +301,11 @@ void crossCheck(const Manifest &m)
     for (const auto &b : m.bundles)
         for (const auto &s : b.systems)
             if (!m.system(s)) fail("bundle." + b.key + " is for system " + s + ", which is not there");
+    for (const auto &b : m.bundles)
+        for (const auto &need : b.suggests)
+            if (std::none_of(m.bundles.begin(), m.bundles.end(),
+                             [&](const auto &o) { return satisfies(o, need); }))
+                fail("bundle." + b.key + " suggests " + need + ", which no bundle is or provides");
     auto satisfiable = [&](const std::string &need) {
         return std::any_of(m.bundles.begin(), m.bundles.end(), [&](const auto &o) { return satisfies(o, need); });
     };
@@ -390,6 +398,18 @@ const ManifestBundle *Manifest::bundle(std::string_view key) const
     return nullptr;
 }
 
+std::string Manifest::kitTitle(std::string_view key) const
+{
+    for (const auto &k : kits) if (k.key == key) return k.title;
+    return std::string(key);
+}
+
+bool Manifest::kitIsCommon(std::string_view key) const
+{
+    for (const auto &k : kits) if (k.key == key) return k.common;
+    return false;
+}
+
 const ManifestPreset *Manifest::preset(std::string_view key) const
 {
     for (const auto &p : presets) if (p.key == key) return &p;
@@ -425,6 +445,9 @@ Manifest parseManifest(std::string_view text)
     };
     for (const auto &[k, t] : inOrder(section(root, "system"))) m.systems.push_back(readSystem(k, *t, m.format));
     for (const auto &[k, t] : inOrder(section(root, "bundle"))) m.bundles.push_back(readBundle(k, *t));
+    for (const auto &[k, t] : inOrder(section(root, "kit")))
+        m.kits.push_back({k, str(*t, "title", "kit." + k, true),
+                          (*t)["common"].value_or(false)});
     for (const auto &[k, t] : inOrder(section(root, "preset"))) m.presets.push_back(readPreset(k, *t));
     crossCheck(m);
     return m;
@@ -443,13 +466,18 @@ Selection selectionOf(const ManifestPreset &preset)
     return s;
 }
 
-std::vector<std::string> suggestedBundles(const Manifest &m, const ManifestSystem &sys, Media media,
-                                          const std::vector<std::string> &chosen)
+namespace {
+
+/* The builds to tick for a list of suggested names: for each name none of
+ * `chosen` satisfies (nor stands in for, providing what the suggested
+ * bundle provides), the preferred build among those that can, else the
+ * first; a name nothing provides here adds nothing. */
+std::vector<std::string> suggestionsFor(const Manifest &m, const std::vector<std::string> &needs,
+                                        const std::vector<std::string> &prefer,
+                                        const std::string &system, Media media,
+                                        const std::vector<std::string> &chosen)
 {
     std::vector<std::string> out;
-    /* Satisfied by a chosen bundle that is or provides the name - or, the
-     * name being a bundle's key, one that provides what that bundle
-     * provides: another build of DIR in the suggested one's place. */
     auto satisfied = [&](const std::string &need) {
         const auto *asBundle = m.bundle(need);
         for (const auto &list : {chosen, out})
@@ -463,12 +491,12 @@ std::vector<std::string> suggestedBundles(const Manifest &m, const ManifestSyste
             }
         return false;
     };
-    for (const auto &need : sys.suggests) {
+    for (const auto &need : needs) {
         if (satisfied(need)) continue;
-        const auto cands = candidatesFor(m, need, sys.key, media);
+        const auto cands = candidatesFor(m, need, system, media);
         if (cands.empty()) continue;
         const ManifestBundle *pick = cands.front();
-        for (const auto &pref : sys.prefer)
+        for (const auto &pref : prefer)
             if (const auto it = std::find_if(cands.begin(), cands.end(), [&](const auto *c) { return c->key == pref; }); it != cands.end()) {
                 pick = *it;
                 break;
@@ -476,6 +504,24 @@ std::vector<std::string> suggestedBundles(const Manifest &m, const ManifestSyste
         out.push_back(pick->key);
     }
     return out;
+}
+
+}  // namespace
+
+std::vector<std::string> suggestedBundles(const Manifest &m, const ManifestSystem &sys, Media media,
+                                          const std::vector<std::string> &chosen)
+{
+    return suggestionsFor(m, sys.suggests, sys.prefer, sys.key, media, chosen);
+}
+
+std::vector<std::string> suggestedBundles(const Manifest &m, const ManifestBundle &b,
+                                          const std::string &system, Media media,
+                                          const std::vector<std::string> &chosen)
+{
+    const auto bySystem = b.preferBySystem.find(system);
+    return suggestionsFor(m, b.suggests,
+                          bySystem == b.preferBySystem.end() ? b.prefer : bySystem->second,
+                          system, media, chosen);
 }
 
 std::vector<const ManifestBundle *> candidatesFor(const Manifest &m, std::string_view need,

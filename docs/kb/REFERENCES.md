@@ -2,9 +2,16 @@
 
 External resources for the MS0515 emulator project.
 
+## The plant and the machine's origin
+- zx-pk.ru thread 24333, «История завода "Процессор" г. Воронеж»: https://zx-pk.ru/threads/24333-istoriya-zavoda-quot-protsessor-quot-g-voronezh/
+  (read in full 2026-09-22; what it gives is in [zavod-processor.md](zavod-processor.md), its attachments in `ms0515_data/docs/zavod-processor/`)
+- CodeMaster's scans of the plant's documentation: http://retro.codemaster.ru/Processor/ — the frames point at retro.hostronavt.ru, which does not answer.  The Wayback Machine crawled it once, 23-25 October 2016 (https://web.archive.org/web/20161024100032/http://retro.codemaster.ru/Processor/): the listings of `Docs`, `PCBs` and `Photos` survived whole - 127 files - but the pages were a gallery and only 27 of the files themselves came through.  Those 25 and `INDEX.md`, the list of everything that was there, are in `ms0515_data/docs/codemaster-processor/`; the `Diskette` folder was already empty when the crawler saw it.  Worth asking him for the rest
+
 ## Board scans
-- NS4 board: https://radon.su/files/scan/brd/processor/NS4/
-- NS5 board: https://radon.su/files/scan/brd/processor/NS5/
+- NS4 board — the MS 0515 itself (revision 3A), both sides: https://radon.su/files/scan/brd/processor/NS4/
+- NS5 board — the same board redrawn for the UKNC case, dated April 1990: https://radon.su/files/scan/brd/processor/NS5/
+  (both fetched 2026-09-22 into `ms0515_data/scans/boards/`, ~185 MB; bare boards, no chips fitted)
+- the same directory also holds NS1 (MS 0585), NS3 (the «Кондор» whose case the MS 0515 got), NS8, M5, M7, M10, K1
 
 ## CPU and instruction set
 - T-11 Engineering Spec: http://www.bitsavers.org/pdf/dec/pdp11/t11/T11_Engineering_Specification_Rev_E_Mar82.pdf

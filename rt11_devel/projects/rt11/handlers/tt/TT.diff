@@ -1,0 +1,30 @@
+# The terminal handler through the ROM
+#
+# DEC's TT: handler is driven by the transmitter's interrupt: it enables it
+# and the monitor's terminal service calls back for each character.  The
+# MS 0515 has no DL11 - the console is the ROM's, behind pseudo-registers -
+# so nothing ever interrupts and output through TT: stands still.  The kits'
+# TT.SYS is DEC's with two things added, and these are they: the character
+# written to the pseudo-register is handed to the ROM (160000), and where
+# DEC sets the interrupt enable the monitor's own interrupt is asked for
+# instead (bit 8 of the memory dispatcher, through its copy at 157700).
+# Built from this, TT.SYS comes out the kits' to the byte.
+
+--- a/TT.MAC
++++ b/TT.MAC
+@@ -204,9 +204,15 @@
+ 	TST	@TTCQE		;Is this for block 0?
+ 	BNE	3$		;Branch if not
+ 	MOV	#'^,@TTPB(R3)	;YES. GENERATE AN ^
++	MOV	R0,-(SP)	;MS 0515: THE CONSOLE IS THE ROM'S, AND A
++	MOV	@TTPB(R3),R0	; CHARACTER LEFT IN THE PSEUDO-REGISTER
++	CALL	@#160000	; GOES NOWHERE UNTIL THE ROM IS GIVEN IT
++	MOV	(SP)+,R0
+ 3$:
+ .IF EQ	PDT$OP							;DB1+
+ 	BIS	#100,@TTPS(R3)	;SET INTERRUPTS
++	BIS	#400,@#157700	;MS 0515: NO TRANSMITTER TO INTERRUPT, SO
++	MOV	@#157700,@#177400 ; THE MONITOR'S OWN INTERRUPT IS ASKED FOR
+ .IFF
+ 	MOV	#100,@TTPS(R3)	;SET INTERRUPTS
+ .ENDC ;EQ PDT$OP						;DB1-

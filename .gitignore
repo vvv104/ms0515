@@ -12,6 +12,7 @@ cmake-build-*/
 *.lib
 # RT-11 toolchain libraries (PDP-11 object modules, not MSVC build output)
 !rt11_devel/toolset/build_tools/*.OBJ
+!rt11_devel/projects/rt11/tools/*.OBJ
 
 # Conan
 CMakeUserPresets.json
@@ -43,7 +44,7 @@ disk_recovery/decisions.tsv
 
 # RT-11 build outputs — regenerate with:
 #   python rt11_devel/toolset/build.py rt11_devel/projects/<name>/build.toml
-rt11_devel/projects/hd/HD.SYS
+rt11_devel/projects/rt11/handlers/hd/HD.SYS
 rt11_devel/projects/saper/SAPER.SAV
 rt11_devel/projects/saper/SAPER.MAC
 rt11_devel/projects/saper/SAPER.DAT

@@ -88,6 +88,7 @@ files    = ["handlers/DUP.SAV"]
 [bundle.pip]
 title    = "PIP"
 provides = ["pip"]
+suggests = ["dup"]
 files    = ["handlers/PIP.SAV"]
 
 [preset.games]
@@ -254,7 +255,8 @@ TEST_CASE("what disks.toml must not say") {
     refused(replaced(good, "volume  = \"any\"", "volume  = \"side1\""), "a volume word that is none");
     refused(replaced(good, "image = \"systems/osa.dsk\"\n", ""), "a system with no image");
     refused(replaced(good, "requires = [\"dz\", \"tt\"]\nrequires_by_media", "requires = [\"dz\", \"xx\"]\nrequires_by_media"), "a system requiring what nothing provides");
-    refused(replaced(good, "suggests = [\"dup\"]", "suggests = [\"xx\"]"), "a system suggesting what nothing provides");
+    refused(replaced(good, "suggests = [\"dup\"]\nstartup", "suggests = [\"xx\"]\nstartup"), "a system suggesting what nothing provides");
+    refused(replaced(good, "suggests = [\"dup\"]\nfiles", "suggests = [\"xx\"]\nfiles"), "a bundle suggesting what nothing provides");
     refused(replaced(good, "{ dv = [\"dv\"] }", "{ hd = [\"dv\"] }"), "a media word that is none, by media");
 }
 
@@ -337,6 +339,8 @@ TEST_CASE("a preset's recipe: the system read, every file named, dated and place
 TEST_CASE("a system's suggestions are the wizard's to tick, never a preset's: a preset is exactly what it names") {
     const Manifest m = parseManifest(kToml);
     CHECK(m.system("osa")->suggests == std::vector<std::string>{"dup"});
+    CHECK(m.bundle("pip")->suggests == std::vector<std::string>{"dup"});   /* a bundle suggests too */
+    CHECK(m.bundle("pacman")->suggests.empty());
     CHECK(m.system("rodionov")->suggests.empty());
     Selection games = selectionOf(*m.preset("games"));
     CHECK(games.bundles == std::vector<std::string>{"sabot2", "pacman", "docs", "pip"});   /* no DUP: a 51-block DUP would not fit a games disk */

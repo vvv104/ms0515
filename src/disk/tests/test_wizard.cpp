@@ -108,6 +108,68 @@ needs = ["ss", "dz"]
 files = ["g/SABOT2.SAV"]
 )toml";
 
+/* Kits: what came together with a monitor - its handlers, its utilities. */
+const char kKits[] = R"toml(
+format  = 1
+version = "2026.09.20"
+
+[kit.omega]
+title = "OMEGA"
+
+[kit.dec]
+title = "RT-11 V5.4 from sources"
+
+[kit.common]
+title  = "common to every system"
+common = true
+
+[system.omega]
+title    = "OMEGA"
+kit      = "omega"
+image    = "kits/omega.dsk"
+media    = ["ss"]
+requires = ["dz-omega"]
+
+[system.dec]
+title    = "RT-11SJ"
+kit      = "dec"
+image    = "kits/dec.dsk"
+media    = ["ss"]
+requires = ["dz-dec"]
+
+[bundle.dz-omega]
+title    = "DZ.SYS (OMEGA)"
+kit      = "omega"
+provides = ["dz"]
+files    = ["kits/omega/handlers/DZ.SYS"]
+
+[bundle.dz-dec]
+title    = "DZ.SYS (from sources)"
+kit      = "dec"
+provides = ["dz"]
+files    = ["kits/dec/handlers/DZ.SYS"]
+
+[bundle.resorc-omega]
+title = "RESORC (OMEGA)"
+kit   = "omega"
+files = ["kits/omega/utils/RESORC.SAV"]
+
+[bundle.game]
+title = "A game"
+group = "Games"
+files = ["g/GAME.SAV"]
+
+[bundle.edit]
+title = "EDIT - one build, every system"
+kit   = "common"
+files = ["kits/common/utils/EDIT.SAV"]
+
+[bundle.resorc-dec]
+title = "RESORC (from sources)"
+kit   = "dec"
+files = ["kits/dec/utils/RESORC.SAV"]
+)toml";
+
 const WizardRow *row(const std::vector<WizardRow> &rows, const std::string &key,
                      WizardRow::Kind kind = WizardRow::Kind::bundle)
 {
@@ -718,4 +780,101 @@ TEST_CASE("the saved choice: its own file, tied to the collection's version") {
     CHECK_THROWS_AS((void)parseSelection("format = 1\nmedia = \"dz\"\n"), std::runtime_error);
 }
 
+TEST_CASE("a kit is one flat group: the system's own, the other kits folded at the end") {
+    const Manifest m = parseManifest(kKits);
+    CHECK(m.system("dec")->kit == "dec");
+    CHECK(m.bundle("resorc-dec")->kit == "dec");
+    CHECK(m.kitTitle("dec") == "RT-11 V5.4 from sources");
+    CHECK(m.kitTitle("nobody") == "nobody");
+
+    DiskWizard w(m, "dec", Media::ss);
+    auto rows = w.rows(true);
+    /* The system's kit under "System", whatever the file's order is. */
+    REQUIRE(row(rows, "resorc-dec"));
+    CHECK(row(rows, "resorc-dec")->parent == "System");
+    CHECK(row(rows, "dz-dec")->parent == "System");
+    CHECK(row(rows, "dz-dec")->mark == WizardRow::Mark::system);
+    /* Another kit's builds stay to be had, out of the way. */
+    REQUIRE(row(rows, "resorc-omega"));
+    CHECK(row(rows, "resorc-omega")->parent == "Other kits / OMEGA");
+    CHECK(row(rows, "dz-omega")->parent == "Other kits / OMEGA");
+    CHECK(row(rows, "game")->parent == "Games");
+    /* A kit that is every system's is under "System" whichever it is. */
+    CHECK(m.kitIsCommon("common"));
+    CHECK(row(rows, "edit")->parent == "System");
+
+    /* The top groups: the system's first, the other kits last. */
+    std::vector<std::string> top;
+    for (const auto &r : w.rows())
+        if (r.kind == WizardRow::Kind::group && r.depth == 0 && r.key.front() != '#') top.push_back(r.title);
+    CHECK(top == std::vector<std::string>{"System", "Games", "Other kits"});
+
+    /* The same manifest, the other system: the kits change places. */
+    DiskWizard o(m, "omega", Media::ss);
+    rows = o.rows(true);
+    CHECK(row(rows, "resorc-omega")->parent == "System");
+    CHECK(row(rows, "resorc-dec")->parent == "Other kits / RT-11 V5.4 from sources");
+    CHECK(row(rows, "edit")->parent == "System");
+
+    /* The blocks are counted with the group a bundle is shown in. */
+    const auto by = w.blocksByGroup();
+    REQUIRE(by.size() == 1);
+    CHECK(by[0].first == "System");
+}
+
 }  /* TEST_SUITE */
+
+TEST_CASE("a bundle's own suggestion is ticked with it, and can be unticked: it is no need") {
+    static constexpr const char *kSuggest = R"toml(
+format  = 1
+version = "x"
+
+[system.omega]
+title    = "OMEGA"
+image    = "systems/omega.dsk"
+media    = ["ss"]
+requires = ["dz"]
+
+[bundle.dz]
+title = "DZ.SYS"
+group = "System"
+files = ["h/DZ.SYS"]
+
+[bundle.forlib]
+title = "FORLIB.OBJ"
+group = "Development"
+files = ["d/FORLIB.OBJ"]
+
+[bundle.pascal]
+title    = "Pascal"
+group    = "Development"
+suggests = ["forlib"]
+files    = ["d/PAS1.SAV"]
+
+[bundle.game]
+title = "A game"
+group = "Games"
+files = ["g/GAME.SAV"]
+)toml";
+    const Manifest m = parseManifest(kSuggest);
+    DiskWizard w(m, "omega", Media::ss);
+
+    REQUIRE(w.toggle("pascal").empty());
+    auto rows = w.rows(true);
+    CHECK(row(rows, "pascal")->mark == WizardRow::Mark::on);
+    CHECK(row(rows, "forlib")->mark == WizardRow::Mark::on);        /* came with it, ticked */
+    CHECK(mentions(w.notices(), "FORLIB.OBJ"));                     /* and said so */
+
+    REQUIRE(w.toggle("forlib").empty());                            /* no need: it goes */
+    rows = w.rows(true);
+    CHECK(row(rows, "forlib")->mark == WizardRow::Mark::off);
+    CHECK(row(rows, "pascal")->mark == WizardRow::Mark::on);
+
+    REQUIRE(w.toggle("pascal").empty());                            /* off and on again */
+    REQUIRE(w.toggle("pascal").empty());
+    CHECK(row(w.rows(true), "forlib")->mark == WizardRow::Mark::on);
+
+    DiskWizard other(m, "omega", Media::ss);
+    REQUIRE(other.toggle("game").empty());
+    CHECK(row(other.rows(true), "forlib")->mark == WizardRow::Mark::off);
+}

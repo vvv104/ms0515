@@ -92,8 +92,10 @@ void list(const Manifest &m)
     };
     std::string group = "\x01";
     for (const auto &b : m.bundles) {
-        if (b.group != group) {
-            group = b.group;
+        /* A kit's bundles under the kit's name: no system is chosen here. */
+        const std::string heading = b.kit.empty() ? b.group : m.kitTitle(b.kit);
+        if (heading != group) {
+            group = heading;
             if (!group.empty()) std::printf(" %s\n", group.c_str());
         }
         std::string notes;

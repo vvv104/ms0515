@@ -1,0 +1,130 @@
+	.MCALL	.MODULE
+	.MODULE	VM,VERSION=08,COMMENT=<MS 0515 memory disk>,AUDIT=YES
+;
+; VM.MAC - the memory disk of the MS 0515: seven of the machine's extra
+; 8 KB banks served as a volume of 112 blocks.
+;
+; The kits carry it as a binary only; this is its source, written back
+; from that binary, and built from this it is the kits' VM.SYS to the
+; byte (OMEGA's, OSA's and Rodionov's are one file).  Unlike the binary
+; it can be built behind a profile's conditionals, which a monitor wants
+; to match its own.
+;
+; It does not touch the memory dispatcher itself.  The ROM has a pair of
+; routines for the banks and the handler only feeds them:
+;
+;	160020	put the word in R3 into the bank, and step on
+;	160024	get the next word of the bank into R3, and step on
+;
+; with	R0 = the bank, as a mask with one bit set
+;	R1 = the dispatcher as the ROM's copy (157700) had it on entry,
+;	     for the ROM to put back
+;	R2 = where in the disk, in bytes; the ROM steps it
+;
+; A bank holds sixteen blocks, so the bank of a block is the block over
+; sixteen and its mask is 1 shifted left that many times; the byte
+; address is the block times 512, the ROM taking what it needs of it.
+; The transfer runs with interrupts held off - the ROM has the dispatcher
+; turned to a bank while it works, and an interrupt then would find the
+; wrong memory under it.
+;
+	.SBTTL	CONDITIONAL ASSEMBLY SUMMARY
+;+
+;COND
+;
+;	ERL$G		std conditional (no code effects): memory has no
+;			tries to count, and DEC's own VM logs nothing either
+;	MMG$T		std conditional (no code effects)
+;	TIM$IT		std conditional (no code effects)
+;-
+	.MCALL	.DRDEF,	.DRBEG,	.DRFIN,	.DREND,	.DRPTR,	.DREST
+
+.IIF NDF MMG$T,  MMG$T  =: 0
+.IIF NDF ERL$G,  ERL$G  =: 0
+.IIF NDF TIM$IT, TIM$IT =: 0
+
+DISPC	= 157700		;The ROM's copy of the memory dispatcher
+BNKPUT	= 160020		;ROM: R3 into the bank, step on
+BNKGET	= 160024		;ROM: the bank's next word into R3, step on
+
+BNKBLK	= 16.			;Blocks in a bank
+BANKS	= 7			;Banks the disk is made of
+WDSBLK	= 256.			;Words in a block
+
+	.DRDEF	VM,52,FILST$,<BNKBLK*BANKS>,*NO*,0
+	.DRPTR
+	.DREST	CLASS=DVC.DK
+
+	.DRBEG	VM
+
+	MOV	VMCQE,R5		;R5 -> the queue element
+	MOV	@#DISPC,R1		;The dispatcher, for the ROM to restore
+	MOV	(R5)+,R2		;The block ...
+	SWAB	R2
+	ASL	R2			; ... times 512: where in the disk
+	TST	(R5)+			;Past the function and the unit
+	MOV	(R5)+,R4		;R4 -> the buffer
+	MFPS	-(SP)
+	MTPS	#340			;Nothing interrupts while a bank is in
+	MOV	VMCQE,R5
+	TST	6(R5)			;Words to move: + read, - write
+	BEQ	VMOUT
+	BMI	VMWRIT
+
+VMREAD:	CALL	BANK			;R0 = the bank of this block
+	MOV	#WDSBLK,-(SP)
+10$:	CALL	@#BNKGET
+	MOV	R3,(R4)+
+	DEC	6(R5)			;The request is done when its count is
+	BEQ	VMPOP
+	DEC	(SP)			; and a block when its 256 words are
+	BNE	10$
+	TST	(SP)+
+	INC	(R5)			;The next block, maybe the next bank
+	BR	VMREAD
+
+VMPOP:	TST	(SP)+
+VMOUT:	MTPS	(SP)+
+	BR	VMINT
+
+VMWRIT:	CALL	BANK
+	MOV	#WDSBLK,-(SP)
+10$:	MOV	(R4)+,R3
+	CALL	@#BNKPUT
+	INC	6(R5)			;A write's count is negative: up to zero
+	BEQ	30$
+	DEC	(SP)
+	BNE	10$
+	TST	(SP)+
+	INC	(R5)
+	BR	VMWRIT
+30$:	CLR	R3			;The rest of the last block is zeros
+40$:	DEC	(SP)
+	BEQ	VMPOP
+	CALL	@#BNKPUT
+	BR	40$
+
+;+
+; BANK - the mask of the bank that holds the block at (R5).
+;-
+BANK:	MOV	(R5),-(SP)
+	ASR	(SP)			;The block over sixteen ...
+	ASR	(SP)
+	ASR	(SP)
+	ASR	(SP)
+	INC	(SP)
+	CLR	R0
+	SEC
+10$:	ROL	R0			; ... is how far the one bit goes
+	DEC	(SP)
+	BNE	10$
+	TST	(SP)+
+	RETURN
+
+; There is nothing to interrupt; QMANGR is given the way out for an
+; interrupt entry, as the kits' handler gives it.
+
+VMINT::	.DRFIN	VM
+
+	.DREND	VM
+	.END

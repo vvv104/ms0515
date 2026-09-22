@@ -6,7 +6,7 @@ HD.SYS dropped in) and a blank HD image on --hd, then:
 If the directory comes back with our file, the t2 device + driver work.
 
 Build HD.SYS first:  python rt11_devel/toolset/build.py \
-                            rt11_devel/projects/hd/build.toml
+                            rt11_devel/projects/rt11/handlers/hd/build.toml
 """
 import shutil, sys, tempfile
 from pathlib import Path
@@ -14,7 +14,7 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 HERE = Path(__file__).resolve().parent
-TOOLSET = HERE.parent.parent / "toolset"
+TOOLSET = HERE.parents[3] / "toolset"
 ROOT = TOOLSET.parent.parent
 sys.path.insert(0, str(TOOLSET))
 from emu_driver import EmulatorDriver

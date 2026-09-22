@@ -38,6 +38,9 @@ struct ManifestReserved {
  * the dates, and each protected block's file. */
 struct ManifestSystem {
     std::string                key, title;
+    /* The kit it belongs to (TOML `kit`): what came together with the
+     * monitor - its handlers, its utilities.  "" none. */
+    std::string                kit;
     std::string                image;          /* format 1: the exemplar */
     std::string                monitor;        /* format 2: the monitor's file */
     std::optional<std::string> monitorDate;    /* YYYY-MM-DD */
@@ -80,9 +83,20 @@ struct ManifestBundle {
     bool                      protect = false;
     /* Where the wizard lists it: "Development / Pascal", "" at the top. */
     std::string               group;
+    /* The kit it is a part of (TOML `kit`), "" none.  A kit's bundles are
+     * listed by the system chosen: under "System" when the kit is the
+     * system's own, under "Other kits" and the kit's title when not - one
+     * flat list either way, in the manifest's order, and `group` is not
+     * read for them. */
+    std::string               kit;
     /* Names this bundle satisfies besides its own key.  The bundles that
      * provide one name are alternatives: one of them goes on a disk. */
     std::vector<std::string>  provides;
+    /* Bundles ticked along with it and left to the person to untick (TOML
+     * `suggests`): what the thing is usually wanted with - FORLIB with
+     * Pascal, for the programs that call RAN - where requiring it would put
+     * it on every disk.  Keys, or names other bundles provide. */
+    std::vector<std::string>  suggests;
     /* What it needs installed with it: bundle keys or provided names
      * (TOML `requires`). */
     std::vector<std::string>  dependsOn;
@@ -113,9 +127,18 @@ struct Manifest {
     std::vector<ManifestSystem> systems;       /* in the file's order */
     std::vector<ManifestBundle> bundles;
     std::vector<ManifestPreset> presets;
+    /* The kits, in the file's order: what each is called, and whether it is
+     * a kit of a machine at all - [kit.<key>] common = true says the files
+     * are every system's, of which the collection has one build. */
+    struct Kit { std::string key, title; bool common = false; };
+    std::vector<Kit>            kits;
 
     [[nodiscard]] const ManifestSystem *system(std::string_view key) const;
     [[nodiscard]] const ManifestBundle *bundle(std::string_view key) const;
+    /* A kit's title; its key when the file gives it none. */
+    [[nodiscard]] std::string kitTitle(std::string_view key) const;
+    /* Is this kit every system's? */
+    [[nodiscard]] bool kitIsCommon(std::string_view key) const;
     [[nodiscard]] const ManifestPreset *preset(std::string_view key) const;
 };
 
@@ -157,6 +180,12 @@ struct Selection {
  * the suggested bundle provides), the build the system prefers among those
  * that do, else the first; a name nothing provides here adds nothing. */
 [[nodiscard]] std::vector<std::string> suggestedBundles(const Manifest &m, const ManifestSystem &sys, Media media,
+                                                        const std::vector<std::string> &chosen);
+
+/* The same for what a bundle suggests: the builds to tick with it, none of
+ * which `chosen` already satisfies. */
+[[nodiscard]] std::vector<std::string> suggestedBundles(const Manifest &m, const ManifestBundle &b,
+                                                        const std::string &system, Media media,
                                                         const std::vector<std::string> &chosen);
 
 /* The bundles that can satisfy `need` on this system and media, in the

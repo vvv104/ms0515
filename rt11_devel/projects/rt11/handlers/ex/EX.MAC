@@ -1,0 +1,319 @@
+	.TITLE	EX	THE MS 0515 ELECTRONIC DISK
+;
+; EX.MAC - the electronic disk of the MS 0515's expansion board: 512 KB
+; of dynamic memory behind a parallel interface, served as a volume.  A
+; system copied onto it frees the floppy drive for the work diskette, and
+; the machine can be booted from it.
+;
+; The kits carry it as a binary only; this is its source, written back
+; from that binary (docs/kb/dz_handler.md has the method).  Built behind
+; EXKIT.MAC it is the kit's EX.SYS to the byte.
+;
+; The board (src/core/include/ms0515/core/ramdisk.h, from its schematic):
+; the memory is reached a page of 256 bytes at a time.  The page number
+; goes to a parallel interface - its low eight bits to port A, the three
+; above them to port B along with the control bits - and then every
+; access to the data port gives the next byte of the page, a counter on
+; the board stepping by itself.  A block is two pages.
+;
+;	177530	port A, write: the page, bits 8-15 of the address
+;	177532	port B, write: bits 16-18 of the address, bit 5 RESET
+;		(the counter to 0), bit 7 START (let data move)
+;	177536	the interface's control word
+;	177510	port A, read back
+;	177550	the data port; 177570 is the same port
+;
+; The memory is dynamic and an access must not be kept waiting, so a page
+; is moved with interrupts held off, and they are let in between pages.
+;
+; A board with bad cells is lived with by a table: a page in it is
+; redirected to a spare page at the top, and the volume is that much
+; shorter.  EX$KIT gives the table the kits' handler carries - four pages
+; of the board it was made for, 1022 blocks; without it the board is taken
+; to be sound, no table and all 1024.
+;
+	.MCALL	.DRDEF,	.DRBEG,	.DRFIN,	.DREND,	.DRINS,	.DRBOT
+
+.IIF NDF MMG$T,  MMG$T  =: 0
+.IIF NDF ERL$G,  ERL$G  =: 0
+.IIF NDF TIM$IT, TIM$IT =: 0
+.IIF NDF EX$KIT, EX$KIT = 0	;1 = the kits' board, with its four bad pages
+
+	.SBTTL	CONDITIONAL ASSEMBLY SUMMARY
+;+
+;COND
+;
+;	EX$KIT		the redirection table of the kits' handler, and
+;			its 1022 blocks
+;	ERL$G		std conditional (no code effects)
+;	MMG$T		std conditional (no code effects)
+;	TIM$IT		std conditional (no code effects)
+;-
+
+EX.PPI	= 177530		;The interface, as written: port A here,
+EX.B	= 2			; port B,
+EX.CTL	= 6			; and its control word
+EX.RDA	= 177510		;Port A as read back
+EX.DAT	= 177550		;The data port
+EX.ALS	= 20			; and how far off its other address is
+
+P.MODE	= 210			;Control word: all three ports out
+P.STRT	= 100000		;START, where the page word keeps it for port B
+P.RSET	= 240			;START and RESET: the counter to 0
+PAGMSK	= 174000		;A page number has eleven bits
+PAGBYT	= 400			;Bytes in a page
+
+.IF NE EX$KIT
+EXSIZE	= 1022.			;Four pages are spares: two blocks less
+.IFF
+EXSIZE	= 1024.
+.ENDC
+
+	.DRDEF	EX,0,FILST$,EXSIZE,EX.DAT,0
+
+	.SBTTL	INSTALLATION CHECK
+
+; Is the board there?  A value written to port A has to read back.
+
+	.DRINS	EX
+	NOP				;The same check for a system device
+	MOV	#EX.PPI,R5
+	MOV	#P.MODE,EX.CTL(R5)
+	MOV	#1,(R5)
+	MOV	#0,EX.B(R5)
+	MOV	#EX.RDA,R5
+	CMPB	#1,(R5)
+	BNE	O.BAD
+	BR	O.GOOD
+
+FINDRV:	MOV	PC,R0			;R0 -> the device's name
+	ADD	#DEVNAM-.,R0
+	MOV	PC,-(SP)		;(SP) -> where .DSTATUS answers
+	ADD	#DAREA-.,(SP)
+	EMT	342			;.DSTATUS
+	BCS	O.BAD
+	MOV	DAREA+4,R1		;Where the handler is, if it is loaded
+	BEQ	O.BAD
+	BR	O.GOOD
+
+DAREA:	.BLKW	4
+DEVNAM:	.RAD50	/EX /
+BAREA:	.BYTE	17,10			;Channel 17, read
+	.WORD	256.
+	.WORD	0
+
+O.GOOD:	TST	(PC)+
+O.BAD:	SEC
+	RETURN
+
+	.SBTTL	THE REQUEST
+
+	.DRBEG	EX
+
+	MOV	EXCQE,R5		;R5 -> the queue element
+	MOV	#EX.PPI,R4
+	MOV	(R5)+,R2		;The block ...
+	ASL	R2			; ... is two pages: R2 = the first
+	MOV	(R5)+,R0
+	TSTB	R0			;A special function?  There are none
+	BNE	EXOUT
+	MOV	(R5)+,R3		;R3 -> the buffer
+	MOV	(R5),R0			;Words to move: + read, - write
+	BEQ	EXOUT
+	BPL	EXREAD
+
+	.SBTTL	WRITING
+
+	NEG	R0
+	ASL	R0			;Bytes
+	MOV	#EX.DAT,R5
+EXWPAG:	BIC	#PAGMSK,R2
+	CLR	WASPAG
+	MOV	PC,R1			;Is this page one of the redirected?
+	ADD	#REMAP-.,R1
+10$:	TST	(R1)
+	BEQ	30$
+	CMP	R2,(R1)+
+	BEQ	20$
+	TST	(R1)+
+	BR	10$
+20$:	MOV	R2,WASPAG		;Yes: remember it, to go on from,
+	MOV	(R1),R2			; and use its spare
+30$:	BIS	#P.STRT,R2
+	MOV	R2,(R4)			;The page's low eight bits to port A,
+	SWAB	R2
+	MOV	#P.RSET,EX.B(R4)	; the counter to the page's start,
+	MOV	R2,EX.B(R4)		; and the high bits with START to port B
+	SWAB	R2
+	MOV	#PAGBYT-1,R1
+	MTPS	#340
+	MOVB	(R3)+,EX.ALS(R5)	;The page's first byte, by the other address
+	DEC	R0
+	BEQ	EXWPAD
+	CMP	R0,R1			;A whole page left to write?
+	BHI	50$
+	SUB	R0,R1			;No: what is left, and R1 = the page's rest
+40$:	MOVB	(R3)+,(R5)
+	SOB	R0,40$
+	BR	EXWPAD
+50$:	MOVB	(R3)+,(R5)
+	SOB	R1,50$
+	SUB	#PAGBYT-1,R0
+	BEQ	EXWPAD
+	MTPS	#0			;Between pages an interrupt may come in
+	MOV	WASPAG,R1		;Back from a spare to where we were
+	BEQ	60$
+	MOV	R1,R2
+60$:	INC	R2
+	BR	EXWPAG
+
+; The request is written.  The rest of its last page is zeros, and if
+; that page was a block's first the block's second is zeros too.
+
+EXWPAD:	CLR	R3
+	TST	R1
+	BEQ	20$
+	MTPS	#340
+10$:	MOVB	R3,(R5)
+	SOB	R1,10$
+	MTPS	#0
+20$:	MOV	WASPAG,R1
+	BEQ	30$
+	MOV	R1,R2
+30$:	BIT	#1,R2			;An odd page ends a block
+	BNE	EXOUT
+	INC	R2
+	BIC	#PAGMSK,R2
+	CLR	WASPAG
+	MOV	PC,R1
+	ADD	#REMAP-.,R1
+40$:	TST	(R1)
+	BEQ	60$
+	CMP	R2,(R1)+
+	BEQ	50$
+	TST	(R1)+
+	BR	40$
+50$:	MOV	(R1),R2
+60$:	BIS	#P.STRT,R2
+	MOV	R2,(R4)
+	MOV	#PAGBYT,R1
+	MTPS	#340
+70$:	MOVB	R3,(R5)
+	SOB	R1,70$
+	MTPS	#0
+EXOUT:	BR	EXINT
+
+	.SBTTL	READING
+
+EXREAD:	ASL	R0			;Bytes
+	MOV	#EX.DAT,R5
+EXRPAG:	BIC	#PAGMSK,R2
+	CLR	WASPAG
+	MOV	PC,R1
+	ADD	#REMAP-.,R1
+10$:	TST	(R1)
+	BEQ	30$
+	CMP	R2,(R1)+
+	BEQ	20$
+	TST	(R1)+
+	BR	10$
+20$:	MOV	R2,WASPAG
+	MOV	(R1),R2
+30$:	BIS	#P.STRT,R2
+	MOV	R2,(R4)
+	SWAB	R2
+	MOV	#P.RSET,EX.B(R4)
+	MOV	R2,EX.B(R4)
+	SWAB	R2
+	MOV	#PAGBYT,R1
+	MTPS	#340
+	CMP	R0,R1			;A whole page left to read?
+	BHIS	50$
+40$:	MOVB	(R5),(R3)+		;No: what is left, and done
+	SOB	R0,40$
+	BR	EXINT
+50$:	MOVB	(R5),(R3)+
+	SOB	R1,50$
+	SUB	#PAGBYT,R0
+	BEQ	EXINT
+	MTPS	#0
+	MOV	WASPAG,R1
+	BEQ	60$
+	MOV	R1,R2
+60$:	INC	R2
+	BR	EXRPAG
+
+	.SBTTL	THE PAGES THAT ARE REDIRECTED
+
+WASPAG:	.WORD	0			;The page a spare is standing in for
+
+; Pairs: a bad page, and the spare that takes its place; a zero ends it.
+
+REMAP:
+.IF NE EX$KIT
+	.WORD	2103,3774
+	.WORD	2460,3775
+	.WORD	2663,3776
+	.WORD	3151,3777
+.ENDC
+	.WORD	0,0
+
+	.SBTTL	THE WAY OUT
+
+; Nothing interrupts here; this is where a request ends, and QMANGR is
+; given it for the interrupt entry.
+
+EXINT::	MOV	EXCQE,R5
+	CLR	6(R5)
+	MOV	#0,EX.B(R4)		;START off: the board lets go
+	MTPS	#0
+	.DRFIN	EX
+
+	.SBTTL	THE PRIMARY DRIVER
+
+; The machine can be booted from the electronic disk.  The bootstrap
+; reads no redirected page: what it loads lies at the volume's start.
+
+	.DRBOT	EX,BOOT1,READ
+
+	. = EXBOOT+40
+BOOT1:	JMP	@#BOOT-EXBOOT
+
+	. = EXBOOT+210
+;+
+; READ - R1 words from block R0 on into the memory at R2.
+;-
+READ:	MOV	#EX.PPI,R4
+	MOV	#EX.DAT,R5
+	ASL	R0			;The block's first page
+	ASL	R1			;Bytes
+10$:	BIS	#P.STRT,R0
+	MOV	R0,(R4)
+	SWAB	R0
+	MOV	#P.RSET,EX.B(R4)
+	MOV	R0,EX.B(R4)
+	SWAB	R0
+	MOV	#PAGBYT,R3
+20$:	MOVB	(R5),(R2)+
+	DEC	R1
+	BEQ	30$
+	SOB	R3,20$
+	INC	R0
+	BIC	#PAGMSK,R0
+	BR	10$
+30$:	MOV	#0,EX.B(R4)
+	RETURN
+
+	. = EXBOOT+574
+BOOT:	MOV	#10000,SP
+	ADD	#2,R0			;Blocks 2..5: the monitor's bootstrap
+	MOV	#<4*256.>,R1
+	MOV	#B$BOOT,R2
+	CALL	READ
+	MOV	#READ-EXBOOT,@#B$READ
+	MOV	#B$DNAM,@#B$DEVN
+	CLR	@#B$DEVU
+	JMP	@#B$BOOT
+
+	.DREND	EX
+	.END

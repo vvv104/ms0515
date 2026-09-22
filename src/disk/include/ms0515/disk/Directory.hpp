@@ -56,10 +56,13 @@ struct Directory {
 };
 
 /* Decode one 1024-byte segment buffer.  Returns nullopt if it does not
- * structurally validate as an RT-11 directory segment.  Exposed for
- * unit-testing against synthetic segments. */
+ * structurally validate as an RT-11 directory segment.  `maxBlock` is the
+ * highest block the volume has, which bounds the segment's start block; the
+ * default lets any block a 16-bit word can name through, for a caller that
+ * does not know the size.  Exposed for unit-testing against synthetic
+ * segments. */
 [[nodiscard]] std::optional<Directory>
-parseSegment(std::span<const uint8_t> segment);
+parseSegment(std::span<const uint8_t> segment, int maxBlock = 65535);
 
 /* Locate and parse the directory in `data` read through the FDC geometry
  * for `side` (0/1) of a single- or double-sided image (`ds`), following the

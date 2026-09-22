@@ -1,0 +1,5 @@
+;
+; MZPRE.MAC - DZ.MAC as MZ.  MZ: the whole diskette, block 0 on cylinder 0.
+; Assembled before DZ.MAC, which is all three floppy handlers.
+;
+FL$KND	= 1
