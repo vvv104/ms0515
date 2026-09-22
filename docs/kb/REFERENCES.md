@@ -2,6 +2,11 @@
 
 External resources for the MS0515 emulator project.
 
+## The plant and the machine's origin
+- zx-pk.ru thread 24333, «История завода "Процессор" г. Воронеж»: https://zx-pk.ru/threads/24333-istoriya-zavoda-quot-protsessor-quot-g-voronezh/
+  (read in full 2026-09-22; what it gives is in [zavod-processor.md](zavod-processor.md), its attachments in `ms0515_data/docs/zavod-processor/`)
+- CodeMaster's scans of the plant's documentation: http://retro.codemaster.ru/Processor/ — the frames point at retro.hostronavt.ru, which does not answer; no Wayback copy
+
 ## Board scans
 - NS4 board: https://radon.su/files/scan/brd/processor/NS4/
 - NS5 board: https://radon.su/files/scan/brd/processor/NS5/
