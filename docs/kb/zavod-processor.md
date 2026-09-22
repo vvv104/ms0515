@@ -28,7 +28,10 @@ name.  The forum's own engineers say it plainly - «УБПК это и есть 
 ОСА-1, на УБПК ОС-16 и ПРОС (Д)».  ОС-16 is the monitor of the kit the
 collection calls `mihin`.
 
-Scans of the НС4 and НС5 boards are on radon.su (see `REFERENCES.md`).
+Both boards have been scanned, bare and from both sides, and the scans are
+kept in `ms0515_data/scans/boards/` (from radon.su - see `REFERENCES.md`).
+They carry their own silkscreen - «НС4 ред 3А», «НС5 ред 01» - and the НС5
+one is hand-dated 05.04.90, which agrees with the «~1990» above.
 
 ## Who made it
 
