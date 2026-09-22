@@ -27,14 +27,15 @@ UTILS = ["DIR.SAV", "DUP.SAV", "PIP.SAV", "DUMP.SAV",
          "SRCCOM.SAV", "BINCOM.SAV",
          "HELP.SAV", "HELP.MLB", "RESORC.SAV",
          "DATIME.SAV", "UCL.SAV", "LET.SAV",
-         "BATCH.SAV", "QUEMAN.SAV", "QUEUE.REL", "SPOOL.REL", "IND.SAV"]
+         "BATCH.SAV", "QUEMAN.SAV", "QUEUE.REL", "SPOOL.REL", "IND.SAV",
+         "FILEX.SAV", "MDUP.SAV", "TERMID.SAV", "MSCPCK.SAV"]
 # The ones any system runs, which the collection keeps once, with the
 # kits' common utilities: the editors, FORMAT, the patchers.
 COMMON = ["EDIT.SAV", "K52.SAV", "FORMAT.SAV",
           "SLP.SAV", "PAT.SAV", "SIPP.SAV", "STRIP.SAV", "SPLIT.SAV"]
 # What programs are built with.  MACRO is not here: DEC's V5.4 kit has no
 # source for it, and the collection has the kits' own.
-DEVEL = ["LINK.SAV", "LIBR.SAV", "ODT.OBJ", "SYSMAC.SML", "SYSLIB.OBJ"]
+DEVEL = ["LINK.SAV", "SYSMAC.SML", "SYSLIB.OBJ", "LIBCOM.SAV"]
 
 PLACES = {"kits/dec/handlers": HANDLERS,
           "kits/dec/utils": UTILS,

@@ -373,6 +373,7 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="dec_util_"))
     boot = tmp / "boot"
     boot_volume(boot, extra)
+    system = {f.name for f in boot.iterdir()}
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     image = out / "work.hd"
@@ -395,6 +396,11 @@ def main() -> int:
     finally:
         emu.dump(out / "session.log")
         emu.kill()
+        # A command file that links to SY: (LIBCOM) leaves its program on
+        # the boot volume, a folder: what was not there before comes along.
+        for f in boot.iterdir():
+            if f.is_file() and f.name not in system:
+                shutil.copy(f, out / f.name)
         shutil.rmtree(tmp, ignore_errors=True)
     # Not everything a utility builds is a .SAV: a foreground program is a
     # .REL, a handler a .SYS, HELP's text a .MLB.

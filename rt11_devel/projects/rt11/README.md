@@ -95,13 +95,36 @@ otherwise, and KMON reads an IND directive as an invalid command.
 says so, so on a `dec` disk `@TEST` with `.SETS`, `.IF`, `.GOTO` and `$`
 lines runs as DEC meant it to.
 
-Under ROM-A, that is.  Under ROM-B the same `@TEST` on the same disk ends
-in the ROM's debugger at some address or other (`103734`, `074104`,
-`000022` on three runs) before IND has printed a line, and so does the
-`IND` built here on the toolset's ОМЕГА system, which lives under ROM-B
-(`?MON-F-Trap to 10 000106`).  Nothing else built here minds the ROM -
-K52 runs under either.  What IND does that ROM-B's console cannot take is
-not known yet.
+Under ROM-A, that is - see the next section.
+
+## IND and ROM-B
+
+Under ROM-B the same `@TEST` on the same disk ends in the ROM's debugger
+or in `?MON-F-Trap to 10` at some address or other (`103734`, `074104`,
+`000022`, `037002` on four runs) before IND has printed a line, and so
+does IND on the toolset's ОМЕГА system.  The machine's event history
+(`ms0515-cli --history-size`, `tools/dump_state.py`) shows what happens.
+Every sixteenth clock tick the monitor calls the ROM's slot `160014`
+(`OMBLNK.MAC`, `OM$BLK`), which in ROM-B is the cursor blink at `163440`.
+That routine puts the VRAM window over `040000..077777`, inverts the
+cursor's cell, and calls its own subroutine (`163510`, `163522`) on the
+stack it was entered with - the interrupted program's.  IND is the one
+program here whose stack is not under `1000`: it keeps it in its symbol
+table overlay, at `041606` in the run recorded, under the window.  So the
+pushed return address lands in the video memory, the `RETURN` takes what
+the RAM held before, and the ROM goes on writing the cursor's `0377`
+bytes into `061140` and `061260` with the window off - KMON's memory.
+Sixty-eight such writes in one run, and KMON's next step is anywhere.
+Under ROM-A the monitor does not blink (`160014` is the cassette loader
+there), and nothing is touched.
+
+The fault is shared: ROM-B's blink pushes on a stack it does not own
+while the window hides that stack, and the monitor - DEC's build here as
+the vvv104 ОМЕГА's (`OM$BLK = 1`) - hands it the interrupted program's.
+The cure is in the monitor: `OMBLNK` should switch to a stack of its own
+above `140000` around the `CALL` and switch back.  Not done yet; until
+then `build_ind.py` boots the dec disk under ROM-A, and a `dec` disk
+under ROM-B runs everything but IND.
 
 ## K52: DEC's build files run by DEC's IND
 
@@ -168,14 +191,16 @@ Where the work stopped on 2026-09-20, for whoever picks it up:
   `FADD` and `MUL` give 3.0 and 15, `CMOV` prints its matrix.  It stays a
   binary by the owner's decision.  In the collection it belongs with the
   handlers every system can use, not with ОСА's.
-* **`LIBCOM`** is not built yet (kept, for the development set).
 * **`BUP`** cannot be built: DEC's kit has no `BUPHOM.MAC`.
 * **Dropped for good**: `SETUP` (VT100 and LA50 escape sequences and the
   Professional 350's tables - nothing of it fits the machine), `SPEED`
   (not a speed meter: it sets the baud rates of a PDT-11/150 by writing
-  to `177420`), `MDUP`,
-  `FILEX`, `TERMID`, `MSCPCK`, `GIDIS`, `PI`; `ERRLOG`, `ERROUT` and
-  `EL.SYS` stay out of the collection with `ERL$G`.
+  to `177420`),
+  `GIDIS`, `PI`; `ERRLOG`, `ERROUT` and `EL.SYS` stay out of the
+  collection with `ERL$G`.  `MDUP`, `FILEX`, `TERMID` and `MSCPCK` were
+  dropped once and are built now, since the sources build them: FILEX,
+  MDUP and LIBCOM run to their prompts, TERMID and MSCPCK find nothing to
+  identify or check.
 * **Seen once, not again**: on a DV diskette just made by the wizard the
   first `DIR` in the GUI answered `?KMON-U-Overlay read error` - the system
   handler (our `DV.SYS`) failing a read of the monitor's file.  The same
