@@ -274,6 +274,26 @@ std::string DiskWizard::setSystem(const std::string &key)
     return "";
 }
 
+/* What a bundle suggests is ticked with it and said out loud: the person
+ * unticks it if the program does not want it.  A suggestion already on the
+ * disk, or one this system or media cannot take, adds nothing. */
+void DiskWizard::tickSuggestionsOf(const ManifestBundle &b)
+{
+    if (!media_) return;
+    for (const auto &need : suggestedBundles(m_, b, sel_.system, *media_, res_.bundles)) {
+        const auto *s = m_.bundle(need);
+        if (!s || contains(sel_.bundles, need)) continue;
+        sel_.bundles.push_back(need);
+        resolve();
+        if (!contains(res_.bundles, need)) {           /* refused after all */
+            std::erase(sel_.bundles, need);
+            resolve();
+            continue;
+        }
+        notices_.push_back(s->title + " came with " + b.title + " - untick it if it is not wanted");
+    }
+}
+
 /* A system's suggestions are its own builds of the utilities - never
  * ticked by themselves.  Coming from another system, a build ticked for
  * that one - OSA's DIR under Mihin's monitor - gives way to the new
@@ -344,6 +364,7 @@ std::string DiskWizard::toggle(const std::string &key)
         }
         resolve();
         if (!contains(res_.bundles, key)) sel_.bundles.push_back(key);
+        tickSuggestionsOf(*b);
     }
     resolve();
     if (!res_.ok) {

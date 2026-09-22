@@ -174,6 +174,7 @@ private:
 
     void resolve();
     void dropWhatDoesNotFit();
+    void tickSuggestionsOf(const ManifestBundle &b);  /* a bundle's own suggestions, ticked with it */
     void adoptOwnBuilds();         /* another system: its own builds in place of the alternatives ticked before */
     [[nodiscard]] std::vector<std::string> alternativesOf(const ManifestBundle &b) const;
     [[nodiscard]] bool isSystemPart(const std::string &key) const;

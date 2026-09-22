@@ -823,3 +823,58 @@ TEST_CASE("a kit is one flat group: the system's own, the other kits folded at t
 }
 
 }  /* TEST_SUITE */
+
+TEST_CASE("a bundle's own suggestion is ticked with it, and can be unticked: it is no need") {
+    static constexpr const char *kSuggest = R"toml(
+format  = 1
+version = "x"
+
+[system.omega]
+title    = "OMEGA"
+image    = "systems/omega.dsk"
+media    = ["ss"]
+requires = ["dz"]
+
+[bundle.dz]
+title = "DZ.SYS"
+group = "System"
+files = ["h/DZ.SYS"]
+
+[bundle.forlib]
+title = "FORLIB.OBJ"
+group = "Development"
+files = ["d/FORLIB.OBJ"]
+
+[bundle.pascal]
+title    = "Pascal"
+group    = "Development"
+suggests = ["forlib"]
+files    = ["d/PAS1.SAV"]
+
+[bundle.game]
+title = "A game"
+group = "Games"
+files = ["g/GAME.SAV"]
+)toml";
+    const Manifest m = parseManifest(kSuggest);
+    DiskWizard w(m, "omega", Media::ss);
+
+    REQUIRE(w.toggle("pascal").empty());
+    auto rows = w.rows(true);
+    CHECK(row(rows, "pascal")->mark == WizardRow::Mark::on);
+    CHECK(row(rows, "forlib")->mark == WizardRow::Mark::on);        /* came with it, ticked */
+    CHECK(mentions(w.notices(), "FORLIB.OBJ"));                     /* and said so */
+
+    REQUIRE(w.toggle("forlib").empty());                            /* no need: it goes */
+    rows = w.rows(true);
+    CHECK(row(rows, "forlib")->mark == WizardRow::Mark::off);
+    CHECK(row(rows, "pascal")->mark == WizardRow::Mark::on);
+
+    REQUIRE(w.toggle("pascal").empty());                            /* off and on again */
+    REQUIRE(w.toggle("pascal").empty());
+    CHECK(row(w.rows(true), "forlib")->mark == WizardRow::Mark::on);
+
+    DiskWizard other(m, "omega", Media::ss);
+    REQUIRE(other.toggle("game").empty());
+    CHECK(row(other.rows(true), "forlib")->mark == WizardRow::Mark::off);
+}
