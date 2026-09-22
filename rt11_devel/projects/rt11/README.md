@@ -79,16 +79,26 @@ kits' copies of them turned out to be, for the record:
 * **`NL` (rodionov)** is not a handler at all - a scrap of a command
   file under the name.
 
+## IND, and what its build took
+
+`IND` - the command-file processor with variables, conditions and
+`@<EOF>` - builds and runs.  Two things stood in its way, neither of them
+IND's.  Its build is five command files run on one machine in this order -
+`AINDLB` (its macro library), `NV2ASM` and `NV2OLB` (the NV2 object
+library), `AIND` (thirty modules), `LIND` (the link, whose 90-character
+line the builder shortens) - four minutes in all; and the builder took a
+MACRO run that printed nothing for twenty seconds for a hang, which the
+larger modules are, so the quiet limit is 120 s now (`DECUTIL_QUIET`).
+Then the monitor: `@file` goes to KMON's own processor unless told
+otherwise, and KMON reads an IND directive as an invalid command.
+`SET KMON IND` sends the files to `SY:IND.SAV`, and the kit's startup file
+says so, so on a `dec` disk `@TEST` with `.SETS`, `.IF`, `.GOTO` and `$`
+lines runs as DEC meant it to.
+
 ## Not done yet
 
 Where the work stopped on 2026-09-20, for whoever picks it up:
 
-* **`IND`** - the command-file processor with variables and conditions,
-  which no kit of the machine had.  It builds unreliably (some thirty
-  MACRO runs in a row, and the session has gone quiet on the thirtieth)
-  and the monitor as built answers `@file` with "Invalid command".  Wanted;
-  the cause is not known.  `BATCH` and `BA.SYS` build, but are of little
-  use without it.
 * **DEC's `SL`** edits the line rightly and draws it wrongly.  It asks the
   terminal what it is, gets no answer from the ROM's console and talks
   VT100; built for VT52 alone (`VT100$ = 0`, `VT102$ = 0` in a prefix file,
