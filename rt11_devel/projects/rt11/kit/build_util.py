@@ -62,17 +62,18 @@ CTRL_C = "\x03"
 ABORT = CTRL_C * 2
 
 
+def collection() -> Path:
+    """The software collection: $MS0515_SOFTWARE, else ../ms0515-software
+    beside this repository."""
+    base = os.environ.get("MS0515_SOFTWARE")
+    return Path(base) if base else ROOT.parent / "ms0515-software"
+
+
 def dec_sources() -> Path:
     """DEC's V5.4 source kit: $MS0515_RT11_SOURCES names its folder outright;
-    else it is sources/rt11-v5.4 of the software collection ($MS0515_SOFTWARE,
-    else ../ms0515-software beside this repository)."""
+    else it is sources/rt11-v5.4 of the software collection."""
     direct = os.environ.get("MS0515_RT11_SOURCES")
-    if direct:
-        src = Path(direct)
-    else:
-        base = os.environ.get("MS0515_SOFTWARE")
-        root = Path(base) if base else ROOT.parent / "ms0515-software"
-        src = root / "sources" / "rt11-v5.4"
+    src = Path(direct) if direct else collection() / "sources" / "rt11-v5.4"
     if not (src / "DUMP.COM").is_file():
         raise SystemExit(f"no DEC sources in {src} "
                          "(set MS0515_RT11_SOURCES to the rt11-v5.4 folder, "
@@ -202,7 +203,10 @@ def stage(image: Path, files: Path, names: list[str], src: Path,
     # segments enough for all of them (71 entries to a segment).
     disk("create", image, "--hd", "--blocks", 64000)
     disk("init", image, "--hd", "--segments", 24)
-    disk("put", image, "--hd", *sorted(files.iterdir()))
+    # A whole kit at once is more than a Windows command line holds.
+    staged = sorted(files.iterdir())
+    for i in range(0, len(staged), 100):
+        disk("put", image, "--hd", *staged[i:i + 100])
 
 
 def boot_volume(boot: Path, extra: list[Path] | None = None) -> None:

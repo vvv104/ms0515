@@ -95,6 +95,35 @@ otherwise, and KMON reads an IND directive as an invalid command.
 says so, so on a `dec` disk `@TEST` with `.SETS`, `.IF`, `.GOTO` and `$`
 lines runs as DEC meant it to.
 
+Under ROM-A, that is.  Under ROM-B the same `@TEST` on the same disk ends
+in the ROM's debugger at some address or other (`103734`, `074104`,
+`000022` on three runs) before IND has printed a line, and so does the
+`IND` built here on the toolset's ОМЕГА system, which lives under ROM-B
+(`?MON-F-Trap to 10 000106`).  Nothing else built here minds the ROM -
+K52 runs under either.  What IND does that ROM-B's console cannot take is
+not known yet.
+
+## K52: DEC's build files run by DEC's IND
+
+`K52.COM` is not a list of commands but a program for IND: it sets
+`$Varnt` and `$DoK52` and runs `ALLDEV.COM`, which parses its models,
+asks "What modules are new" with a default and a ten-second timeout,
+assembles the KED modules with `VT52C.MAC` in front of them and links
+`K52LNK.COM`.  `build_ind.py` gives it the machine it needs: a `dec` disk
+composed from the collection (DEC's monitor, its utilities, IND, the
+tools; ROM-A, see above), the whole source kit on the work volume, `SET
+KMON IND` in the startup file, and instead of following the file line by
+line it types `@K52` and waits for the end - a dot the screen has stayed
+on for a while.  A question that stands past its timeout gets Enter, the
+default.  `live.txt` beside the outputs shows the screen as it goes.  The
+run is four minutes; every `$Macro` line ends in `?KMON-F-File not found
+SY:CREF.SAV`, the cross-reference of a listing nobody reads, after the
+object file is written, and `$Edit/TECo/Execute Src:KedErr.Tec` in the
+same way - the `KEDERR.MAC` it would have made is in the kit.  `K52.SAV`
+starts, creates a file, takes text, and under `SET EDIT K52` is what the
+monitor's `EDIT` command runs.  The VT100 `KED` has no terminal here,
+`KEX` needs the XM monitor: `K52` is the one for the machine.
+
 ## Not done yet
 
 Where the work stopped on 2026-09-20, for whoever picks it up:
