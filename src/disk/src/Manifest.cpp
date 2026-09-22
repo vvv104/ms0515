@@ -394,8 +394,14 @@ const ManifestBundle *Manifest::bundle(std::string_view key) const
 
 std::string Manifest::kitTitle(std::string_view key) const
 {
-    for (const auto &k : kits) if (k.first == key) return k.second;
+    for (const auto &k : kits) if (k.key == key) return k.title;
     return std::string(key);
+}
+
+bool Manifest::kitIsCommon(std::string_view key) const
+{
+    for (const auto &k : kits) if (k.key == key) return k.common;
+    return false;
 }
 
 const ManifestPreset *Manifest::preset(std::string_view key) const
@@ -434,7 +440,8 @@ Manifest parseManifest(std::string_view text)
     for (const auto &[k, t] : inOrder(section(root, "system"))) m.systems.push_back(readSystem(k, *t, m.format));
     for (const auto &[k, t] : inOrder(section(root, "bundle"))) m.bundles.push_back(readBundle(k, *t));
     for (const auto &[k, t] : inOrder(section(root, "kit")))
-        m.kits.emplace_back(k, str(*t, "title", "kit." + k, true));
+        m.kits.push_back({k, str(*t, "title", "kit." + k, true),
+                          (*t)["common"].value_or(false)});
     for (const auto &[k, t] : inOrder(section(root, "preset"))) m.presets.push_back(readPreset(k, *t));
     crossCheck(m);
     return m;

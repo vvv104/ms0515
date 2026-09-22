@@ -496,12 +496,13 @@ void DiskWizard::stepRows(std::vector<WizardRow> &out, bool everything) const
  * kits have stays to be had under "Other kits" and the kit's name - so that
  * what belongs to a system is found in one place, whichever system it is.
  * A kit is one flat list, handlers before utilities as the manifest has
- * them: the collection took its Handlers group out on purpose. */
+ * them: the collection took its Handlers group out on purpose.  A kit that
+ * says it is common is every system's, and is listed under "System" too. */
 std::vector<std::string> DiskWizard::groupOf(const ManifestBundle &b) const
 {
     if (b.kit.empty()) return groupPath(b.group);
     const auto *sys = ready() ? m_.system(sel_.system) : nullptr;
-    if (!sys || sys->kit == b.kit) return {kOwnKitGroup};
+    if (!sys || sys->kit == b.kit || m_.kitIsCommon(b.kit)) return {kOwnKitGroup};
     return {kOtherKitsGroup, m_.kitTitle(b.kit)};
 }
 

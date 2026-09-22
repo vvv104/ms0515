@@ -119,6 +119,10 @@ title = "OMEGA"
 [kit.dec]
 title = "RT-11 V5.4 from sources"
 
+[kit.common]
+title  = "common to every system"
+common = true
+
 [system.omega]
 title    = "OMEGA"
 kit      = "omega"
@@ -154,6 +158,11 @@ files = ["kits/omega/utils/RESORC.SAV"]
 title = "A game"
 group = "Games"
 files = ["g/GAME.SAV"]
+
+[bundle.edit]
+title = "EDIT - one build, every system"
+kit   = "common"
+files = ["kits/common/utils/EDIT.SAV"]
 
 [bundle.resorc-dec]
 title = "RESORC (from sources)"
@@ -790,6 +799,9 @@ TEST_CASE("a kit is one flat group: the system's own, the other kits folded at t
     CHECK(row(rows, "resorc-omega")->parent == "Other kits / OMEGA");
     CHECK(row(rows, "dz-omega")->parent == "Other kits / OMEGA");
     CHECK(row(rows, "game")->parent == "Games");
+    /* A kit that is every system's is under "System" whichever it is. */
+    CHECK(m.kitIsCommon("common"));
+    CHECK(row(rows, "edit")->parent == "System");
 
     /* The top groups: the system's first, the other kits last. */
     std::vector<std::string> top;
@@ -802,6 +814,7 @@ TEST_CASE("a kit is one flat group: the system's own, the other kits folded at t
     rows = o.rows(true);
     CHECK(row(rows, "resorc-omega")->parent == "System");
     CHECK(row(rows, "resorc-dec")->parent == "Other kits / RT-11 V5.4 from sources");
+    CHECK(row(rows, "edit")->parent == "System");
 
     /* The blocks are counted with the group a bundle is shown in. */
     const auto by = w.blocksByGroup();
