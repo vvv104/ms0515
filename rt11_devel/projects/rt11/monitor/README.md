@@ -122,6 +122,7 @@ DUP) with the monitor put in its place and the bootstrap written for it.
 | 10 | - | **`SPL` as `MTPS`** (Mihin's): each priority change an `MTPS` in place, off the `PSWLST` chain |
 | 11 | `OMRODC.MAC` | **Rodionov's clock interrupt**: his code ahead of DEC's, JMPs to `EXINT` and `TIMER`, no clock restart in `ZAP`, TIME's 72 ticks a second (a display at 72 Hz; never reached) |
 | 12 | `OMRODT.MAC` | **Rodionov's terminal driver**: in the middle of `TTOINT`, JMPs past it |
+| 13 | `OMBLNK.MAC` (`OMSTKS`), `OMCONS.MAC` (`OMROM`) | **the stacks the ROM is called on** (DEC's build only): ROM-B's character out, key in and cursor blink open the VRAM window over 040000..077777 and call their own routines on the stack they were entered with - IND keeps its stack up there and died of it.  DEC's build calls the console entries and the blink on two stacks of RMON's own, laid out after RMON's stack, at the end of RMON |
 
 Patches 02-06 carry Mihin's and Rodionov's variants too (see [Mihin's
 monitor](#mihins-monitor), [Rodionov's monitor](#rodionovs-monitor)).
@@ -357,7 +358,12 @@ builds as DEC's.
   slot is the cursor blink (163440): it inverts the cursor cell and flips
   bit 5 of the ROM's flags word (157760).  The ROM's own timer does not
   call it; it is there for the monitor to call once RT-11 owns vector 100.
-  The 059 Omega (`omega`) has no blink.
+  The 059 Omega (`omega`) has no blink.  DEC's build (`dec`, `dec-ru`)
+  calls it, and the console entries, on stacks of RMON's own (patch 13):
+  the ROM's routines open the VRAM window over 040000..077777 and push
+  on the caller's stack, which IND keeps up there (`../README.md`, "IND
+  and ROM-B").  The vvv104 build keeps the call as it was: it is a
+  reproduction, and its programs' stacks were under 1000.
 - **SET TT HOLD's flipped bit.**  The first word of `SETTTH` in the KMON
   overlays is `045303` where DEC has `DEC R3` (`005303`): bit 14 set.  The
   word makes no sense as a change: `BIC -(R3),R3` turns the `'\` from the

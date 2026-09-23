@@ -95,36 +95,43 @@ otherwise, and KMON reads an IND directive as an invalid command.
 says so, so on a `dec` disk `@TEST` with `.SETS`, `.IF`, `.GOTO` and `$`
 lines runs as DEC meant it to.
 
-Under ROM-A, that is - see the next section.
+## IND and ROM-B: the stacks the ROM is called on
 
-## IND and ROM-B
+Until the monitor's build of 2026-09-23 the same `@TEST` on the same
+disk under ROM-B ended in the ROM's debugger or in `?MON-F-Trap to 10`
+at some address or other (`103734`, `074104`, `000022`, `037002` on four
+runs) before IND had printed a line, and so did IND on the toolset's
+ОМЕГА system.  The machine's event history (`ms0515-cli --history-size`,
+`tools/dump_state.py`) showed what happened.  Every sixteenth clock tick
+the monitor calls the ROM's slot `160014` (`OMBLNK.MAC`, `OM$BLK`), which
+in ROM-B is the cursor blink at `163440`.  That routine puts the VRAM
+window over `040000..077777`, inverts the cursor's cell, and calls its
+own subroutines (`163510`, `163522`) on the stack it was entered with -
+the interrupted program's.  IND is the one program here whose stack is
+not under `1000`: it keeps it in its symbol table overlay, at `041606`
+in the run recorded, under the window.  So the pushed return address
+landed in the video memory, the `RETURN` took what the RAM held before,
+and the ROM went on writing the cursor's `0377` bytes into `061140` and
+`061260` with the window off - KMON's memory.  Sixty-eight such writes
+in one run, and KMON's next step was anywhere.  With the blink alone
+cured, the same happened once more at IND's prompt: the character out
+and the key in (`160000`, `160004`, called from the terminal interrupts,
+`OMCONS.MAC`) open the window the same way, and IND's `*` ended in a
+return to `0` - `EMT 350`, a silent exit.  Under ROM-A the monitor does
+not blink (`160014` is the cassette loader there) and the console
+routines leave the low half alone, and nothing was touched.
 
-Under ROM-B the same `@TEST` on the same disk ends in the ROM's debugger
-or in `?MON-F-Trap to 10` at some address or other (`103734`, `074104`,
-`000022`, `037002` on four runs) before IND has printed a line, and so
-does IND on the toolset's ОМЕГА system.  The machine's event history
-(`ms0515-cli --history-size`, `tools/dump_state.py`) shows what happens.
-Every sixteenth clock tick the monitor calls the ROM's slot `160014`
-(`OMBLNK.MAC`, `OM$BLK`), which in ROM-B is the cursor blink at `163440`.
-That routine puts the VRAM window over `040000..077777`, inverts the
-cursor's cell, and calls its own subroutine (`163510`, `163522`) on the
-stack it was entered with - the interrupted program's.  IND is the one
-program here whose stack is not under `1000`: it keeps it in its symbol
-table overlay, at `041606` in the run recorded, under the window.  So the
-pushed return address lands in the video memory, the `RETURN` takes what
-the RAM held before, and the ROM goes on writing the cursor's `0377`
-bytes into `061140` and `061260` with the window off - KMON's memory.
-Sixty-eight such writes in one run, and KMON's next step is anywhere.
-Under ROM-A the monitor does not blink (`160014` is the cassette loader
-there), and nothing is touched.
-
-The fault is shared: ROM-B's blink pushes on a stack it does not own
-while the window hides that stack, and the monitor - DEC's build here as
-the vvv104 ОМЕГА's (`OM$BLK = 1`) - hands it the interrupted program's.
-The cure is in the monitor: `OMBLNK` should switch to a stack of its own
-above `140000` around the `CALL` and switch back.  Not done yet; until
-then `build_ind.py` boots the dec disk under ROM-A, and a `dec` disk
-under ROM-B runs everything but IND.
+The fault is shared: ROM-B's routines push on a stack they do not own
+while the window hides it, and the monitor hands them the interrupted
+program's.  The cure is in DEC's build of the monitor (`OM$KIT = 0`:
+`dec`, `dec-ru`): the blink and the console entries are called on stacks
+of RMON's own (`OMBLNK`, `OMROM` in `OMCONS.MAC`), laid out after RMON's
+stack by `OMSTKS` - patch `13`, at the end of RMON, since a hundred words
+of data in `LKINT` put DEC's branches out of their reach.  RMON is above
+`140000`, out of the window's way.  The monitor is a block longer (81),
+the other kits' builds are byte for byte what they were (`omega` checked),
+and a `dec` disk under either ROM runs IND, K52 and the rest.  The vvv104
+ОМЕГА (`OM$BLK = 1`) keeps its blink as it was: it is a reproduction.
 
 ## K52: DEC's build files run by DEC's IND
 
@@ -134,7 +141,7 @@ asks "What modules are new" with a default and a ten-second timeout,
 assembles the KED modules with `VT52C.MAC` in front of them and links
 `K52LNK.COM`.  `build_ind.py` gives it the machine it needs: a `dec` disk
 composed from the collection (DEC's monitor, its utilities, IND, the
-tools; ROM-A, see above), the whole source kit on the work volume, `SET
+tools), the whole source kit on the work volume, `SET
 KMON IND` in the startup file, and instead of following the file line by
 line it types `@K52` and waits for the end - a dot the screen has stayed
 on for a while.  A question that stands past its timeout gets Enter, the

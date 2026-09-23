@@ -16,8 +16,7 @@ has stayed on for a while.
 
 The machine is DEC's own: the `dec` disk the collection's preset
 composes - its monitor, its utilities, IND, the tools - with the builder's
-startup file over the preset's - and under ROM-A, since under ROM-B the
-monitor's cursor blink through the ROM wrecks IND's stack (below).
+startup file over the preset's.
 
 The whole source kit goes on the work volume: what an IND file reads is
 decided as it runs, and the volume is big enough for all of it.  Every
@@ -35,13 +34,6 @@ import time
 from pathlib import Path
 
 import build_util as bu
-
-# The dec disk boots under ROM-A.  Under ROM-B the monitor blinks the
-# cursor through the ROM every sixteenth tick, and ROM-B's blink pushes on
-# the interrupted program's stack with the VRAM window over 040000..077777
-# - where IND keeps its stack.  The push lands in the video memory and
-# the return goes astray (the project's README, "IND and ROM-B").
-ROM_A = bu.ROOT / "package/assets/rom/ms0515-roma.rom"
 
 STARTS = b"""SET TT NOQUIET
 SET KMON IND
@@ -141,7 +133,7 @@ def main() -> int:
     image = out / "work.hd"
     bu.stage(image, tmp / "src", names, src, extra, given)
 
-    emu = bu.EmulatorDriver([bu.CLI, "--no-config", "--rom", ROM_A,
+    emu = bu.EmulatorDriver([bu.CLI, "--no-config",    # the CLI's ROM: ROM-A
                              "--disk0", str(boot), "--hd", str(image)])
     emu.start()
     failed: dict[str, str] = {}

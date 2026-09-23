@@ -68,6 +68,18 @@ TT$8BI	= 1		; to eight bits - Mihin's does none of it,
 .ENDM	OMKBRL
 
 .IF NE	IN$RM		;(the rest: RMON's alone)
+.MACRO	OMROM	ENTRY		;Call the ROM's entry.  DEC's build does it on
+.IF EQ	OM$KIT			; a stack of RMON's own (CN$STK, OMBLNK.MAC):
+	MOV	SP,CN$SAV	; the ROM opens the VRAM window over
+	MOV	PC,SP		; 040000..077777 and calls its own routines
+	ADD	#CN$TOP-.,SP	; on the stack it was entered with, which is
+	CALL	@#ENTRY		; the interrupted program's - IND keeps its
+	MOV	CN$SAV,SP	; stack up there.  MOV leaves C as the ROM
+.IFF	;EQ OM$KIT		; set it (the key entry: C when there is none).
+	CALL	@#ENTRY
+.ENDC	;EQ OM$KIT
+.ENDM	OMROM
+
 .MACRO	OMTTON			;Turn the output interrupt on
 	MOV	#IENABL,@TTPS
 	BIS	#MI$REQ,@#DSPCPY
@@ -92,7 +104,7 @@ TT$8BI	= 1		; to eight bits - Mihin's does none of it,
 .IF EQ	OM$KIT-KT$ROD
 	CALL	ROPRNT		;(Rodionov: his driver, OMRODT)
 .IFF	;EQ OM$KIT-KT$ROD
-	CALL	@#TT$OUT
+	OMROM	TT$OUT
 .ENDC	;EQ OM$KIT-KT$ROD
 	MOV	(SP)+,R0
 .ENDM	OMTTPB
@@ -101,7 +113,7 @@ TT$8BI	= 1		; to eight bits - Mihin's does none of it,
 .IF EQ	OM$KIT-KT$ROD
 	CALL	ROKEY		;(Rodionov: his driver, OMRODT)
 .IFF	;EQ OM$KIT-KT$ROD
-	CALL	@#TT$IN
+	OMROM	TT$IN
 .ENDC	;EQ OM$KIT-KT$ROD
 .ENDM	OMTTKY
 
@@ -116,7 +128,7 @@ TTINXT:	MOV	R0,@TTKB	;(OMTTIX takes the next one here)
 	BEQ	A
 	CMPB	#17,R0		; show at once
 	BNE	B
-A:	CALL	@#CN$OUT
+A:	OMROM	CN$OUT
 B:
 .ENDC	;NE TT$SOS
 .IIF NE TT$8BI,	BIC	#177400,R0	;Eight bits: KOI-8 letters kept

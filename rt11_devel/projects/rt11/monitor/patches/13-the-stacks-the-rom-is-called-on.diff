@@ -1,0 +1,20 @@
+# The stacks the ROM is called on
+#
+# DEC's build calls ROM-B's cursor blink and the ROM's console entries on
+# stacks of RMON's own (OMBLNK.MAC, OMCONS.MAC): the ROM opens the VRAM
+# window over 040000..077777 and calls its own routines on the stack it
+# was entered with, and IND keeps its stack up there.  The areas are laid
+# out after RMON's own stack, where no branch of DEC's has to reach over
+# them; the other builds lay out nothing.
+
+diff --git a/RMONSJ.MAC b/RMONSJ.MAC
+--- a/RMONSJ.MAC
++++ b/RMONSJ.MAC
+@@ -3212,6 +3212,7 @@ SPTR	==	.
+
+ RMSTAK::
+
++	OMSTKS			;DEC's build: the stacks the ROM is called on (OMBLNK.MAC)
+ .PSECT	PATCH$
+
+ ; PATCH SPACE FOR RESIDENT MONITOR

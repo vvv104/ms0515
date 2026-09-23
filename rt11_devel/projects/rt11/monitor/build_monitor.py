@@ -66,11 +66,20 @@ PART_NO = {"BTSJ": 1, "RMSJ": 2, "KMSJ": 3, "TBSJ": 4}
 
 
 def dec_sources() -> Path:
-    base = os.environ.get("MS0515_SOFTWARE")
-    root = Path(base) if base else ROOT.parent / "ms0515-software"
-    src = root / "sources" / "rt11-v5.4"
+    """DEC's V5.4 source kit: $MS0515_RT11_SOURCES names its folder outright;
+    else sources/rt11-v5.4 of the collection ($MS0515_SOFTWARE, else
+    ../ms0515-software beside this repository), as kit/build_util.py."""
+    direct = os.environ.get("MS0515_RT11_SOURCES")
+    if direct:
+        src = Path(direct)
+    else:
+        base = os.environ.get("MS0515_SOFTWARE")
+        root = Path(base) if base else ROOT.parent / "ms0515-software"
+        src = root / "sources" / "rt11-v5.4"
     if not (src / "RMONSJ.MAC").is_file():
-        raise SystemExit(f"no DEC sources in {src} (set MS0515_SOFTWARE)")
+        raise SystemExit(f"no DEC sources in {src} "
+                         "(set MS0515_RT11_SOURCES to the rt11-v5.4 folder, "
+                         "or MS0515_SOFTWARE to a collection that has it)")
     return src
 
 
