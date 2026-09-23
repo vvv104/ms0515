@@ -8,7 +8,8 @@
    "system": "osa",
    "media": "ss",
    "image": "../../lib/tests/disks/originals/test_osa_games.dsk",
-   "hint": ". is the OS prompt: DIR lists the files"
+   "hint": ". is the OS prompt: DIR lists the files",
+   "rom": "b"
   }
  ]
 }
