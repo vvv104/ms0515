@@ -14,12 +14,16 @@ they are built with.
 | [`handlers/hd/`](handlers/hd/README.md) | The paravirtual hard disk `HD:` of the emulator: Patron's HD driver kit v2.0 adapted to the machine, with its own oracles.  It logs nothing, and `SET HD ERLG=`/`TIMIT=` turn its sysgen word to whatever monitor it is loaded under. |
 | [`utils/format/`](utils/format/README.md) | `FORMAT` for the machine's diskettes: DEC's root as it is and a module of our own in the place of DEC's stub for the Professional 350 - WRITE TRACK on the WD1793, one routine for `DZ`, `DV` and `MZ`. `validate.py` formats a diskette of rubbish on the machine and reads the image. |
 | [`kit/`](kit/README.md) | The builders of the kit: `build_util.py` types DEC's own command files into a running machine, `build_handler.py` builds handlers — DEC's, DEC's with a patch, or the machine's own — and `verify_kit.py` uses what came out on a real system. |
-| `tools/` | What all of it is built with, itself built from DEC's sources: `LINK`, `LIBR`, `SYSMAC.SML`, `SYSLIB.OBJ`.  Only `MACRO` comes from the toolset's kit, the V5.4 source distribution having no source for it.  Not bookkeeping: the toolset's `SYSLIB` is not DEC's, and a `PIP` linked against it builds without a complaint and dies of an overlay error. |
 
-DEC's sources are not here: they come from the software collection
-(`$MS0515_SOFTWARE`, else `../ms0515-software` beside this repository),
-`sources/rt11-v5.4`.  What the machine changes in a file of DEC's is kept
-as a patch over it, never as a copy.
+DEC's sources are not here: `$MS0515_RT11_SOURCES` names the `rt11-v5.4`
+folder (else it is `sources/rt11-v5.4` of the software collection,
+`$MS0515_SOFTWARE` or `../ms0515-software` beside this repository).  What
+the machine changes in a file of DEC's is kept as a patch over it, never
+as a copy.  The machine every builder runs on is the collection's `dec`
+disk - DEC's RT-11 built here, its LINK, LIBR, SYSLIB, SYSMAC, ODT and
+the FODOS kit's MACRO - composed by `rt11_devel/toolset/decsys.py`; the
+tools are kept once, in the collection, and a build stands on what it
+ships.
 
 ## Error logging: in the sources, not in the collection
 
@@ -95,6 +99,74 @@ otherwise, and KMON reads an IND directive as an invalid command.
 says so, so on a `dec` disk `@TEST` with `.SETS`, `.IF`, `.GOTO` and `$`
 lines runs as DEC meant it to.
 
+## IND and ROM-B: the stacks the ROM is called on
+
+Until the monitor's build of 2026-09-23 the same `@TEST` on the same
+disk under ROM-B ended in the ROM's debugger or in `?MON-F-Trap to 10`
+at some address or other (`103734`, `074104`, `000022`, `037002` on four
+runs) before IND had printed a line, and so did IND on the toolset's
+ОМЕГА system.  The machine's event history (`ms0515-cli --history-size`,
+`tools/dump_state.py`) showed what happened.  Every sixteenth clock tick
+the monitor calls the ROM's slot `160014` (`OMBLNK.MAC`, `OM$BLK`), which
+in ROM-B is the cursor blink at `163440`.  That routine puts the VRAM
+window over `040000..077777`, inverts the cursor's cell, and calls its
+own subroutines (`163510`, `163522`) on the stack it was entered with -
+the interrupted program's.  IND is the one program here whose stack is
+not under `1000`: it keeps it in its symbol table overlay, at `041606`
+in the run recorded, under the window.  So the pushed return address
+landed in the video memory, the `RETURN` took what the RAM held before,
+and the ROM went on writing the cursor's `0377` bytes into `061140` and
+`061260` with the window off - KMON's memory.  Sixty-eight such writes
+in one run, and KMON's next step was anywhere.  With the blink alone
+cured, the same happened once more at IND's prompt: the character out
+and the key in (`160000`, `160004`, called from the terminal interrupts,
+`OMCONS.MAC`) open the window the same way, and IND's `*` ended in a
+return to `0` - `EMT 350`, a silent exit.  Under ROM-A the monitor does
+not blink (`160014` is the cassette loader there) and the console
+routines leave the low half alone, and nothing was touched.
+
+The fault is shared: ROM-B's routines push on a stack they do not own
+while the window hides it, and the monitor hands them the interrupted
+program's.  The cure is in DEC's build of the monitor (`OM$KIT = 0`:
+`dec`, `dec-ru`): the blink and the console entries are called on stacks
+of RMON's own (`OMBLNK`, `OMROM` in `OMCONS.MAC`), laid out after RMON's
+stack by `OMSTKS` - patch `13`, at the end of RMON, since a hundred words
+of data in `LKINT` put DEC's branches out of their reach.  RMON is above
+`140000`, out of the window's way.  The monitor is a block longer (81),
+the other kits' builds are byte for byte what they were (`omega` checked),
+and a `dec` disk under either ROM runs IND, K52 and the rest.  The vvv104
+ОМЕГА (`OM$BLK = 1`) keeps its blink as it was: it is a reproduction.
+
+One more thing came with it.  DEC's build ran its terminal interrupts at
+DEC's priority 4, and the machine raises every interrupt at one level:
+with the screen busy (MANICM's build) the keyboard interrupt came in on
+top of the output in the middle of the ROM's character, the inner `OMROM`
+took `CN$SAV` over and the outer returned to nowhere - `?MON-F-Trap to 10`
+in `TTOINT`.  The terminal interrupts run at 7 now, as the kits' always
+did (`TT$PRI`, `TV$PRI` in `OMCONS.MAC`); the ROM masks everything
+itself while it works, so nothing is lost.
+
+## K52: DEC's build files run by DEC's IND
+
+`K52.COM` is not a list of commands but a program for IND: it sets
+`$Varnt` and `$DoK52` and runs `ALLDEV.COM`, which parses its models,
+asks "What modules are new" with a default and a ten-second timeout,
+assembles the KED modules with `VT52C.MAC` in front of them and links
+`K52LNK.COM`.  `build_ind.py` gives it the machine it needs: a `dec` disk
+composed from the collection (DEC's monitor, its utilities, IND, the
+tools), the whole source kit on the work volume, `SET
+KMON IND` in the startup file, and instead of following the file line by
+line it types `@K52` and waits for the end - a dot the screen has stayed
+on for a while.  A question that stands past its timeout gets Enter, the
+default.  `live.txt` beside the outputs shows the screen as it goes.  The
+run is four minutes; every `$Macro` line ends in `?KMON-F-File not found
+SY:CREF.SAV`, the cross-reference of a listing nobody reads, after the
+object file is written, and `$Edit/TECo/Execute Src:KedErr.Tec` in the
+same way - the `KEDERR.MAC` it would have made is in the kit.  `K52.SAV`
+starts, creates a file, takes text, and under `SET EDIT K52` is what the
+monitor's `EDIT` command runs.  The VT100 `KED` has no terminal here,
+`KEX` needs the XM monitor: `K52` is the one for the machine.
+
 ## Not done yet
 
 Where the work stopped on 2026-09-20, for whoever picks it up:
@@ -139,14 +211,16 @@ Where the work stopped on 2026-09-20, for whoever picks it up:
   `FADD` and `MUL` give 3.0 and 15, `CMOV` prints its matrix.  It stays a
   binary by the owner's decision.  In the collection it belongs with the
   handlers every system can use, not with ОСА's.
-* **`LIBCOM`** is not built yet (kept, for the development set).
 * **`BUP`** cannot be built: DEC's kit has no `BUPHOM.MAC`.
 * **Dropped for good**: `SETUP` (VT100 and LA50 escape sequences and the
   Professional 350's tables - nothing of it fits the machine), `SPEED`
   (not a speed meter: it sets the baud rates of a PDT-11/150 by writing
-  to `177420`), `MDUP`,
-  `FILEX`, `TERMID`, `MSCPCK`, `GIDIS`, `PI`; `ERRLOG`, `ERROUT` and
-  `EL.SYS` stay out of the collection with `ERL$G`.
+  to `177420`),
+  `GIDIS`, `PI`; `ERRLOG`, `ERROUT` and `EL.SYS` stay out of the
+  collection with `ERL$G`.  `MDUP`, `FILEX`, `TERMID` and `MSCPCK` were
+  dropped once and are built now, since the sources build them: FILEX,
+  MDUP and LIBCOM run to their prompts, TERMID and MSCPCK find nothing to
+  identify or check.
 * **Seen once, not again**: on a DV diskette just made by the wizard the
   first `DIR` in the GUI answered `?KMON-U-Overlay read error` - the system
   handler (our `DV.SYS`) failing a read of the monitor's file.  The same

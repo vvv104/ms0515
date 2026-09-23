@@ -14,12 +14,13 @@ the lines in error and "?MACRO-E-Errors detected: n" on the terminal, and
 the build takes about 95 s instead of 115.  PARTs (BTSJ,
 RMSJ, KMSJ, TBSJ) assemble just those, without the LINK.
 
-The DEC sources come from the ms0515-software collection: $MS0515_SOFTWARE,
-else ../ms0515-software beside this repository (sources/rt11-v5.4).  Files
-of this folder with a DEC file's name take its place (the Omega changes).
-The work volume is a folder mounted as HD:, so every object, listing, map
-and the monitor itself land in OUTDIR (default: a temp folder) as host
-files.
+The DEC sources: $MS0515_RT11_SOURCES names the rt11-v5.4 folder, else it
+is sources/rt11-v5.4 of the ms0515-software collection ($MS0515_SOFTWARE,
+else ../ms0515-software beside this repository).  Files of this folder
+with a DEC file's name take its place (the Omega changes).  The machine
+is the collection's dec disk (toolset/decsys.py); the work volume is an
+HD image, and every object, listing, map and the monitor itself land in
+OUTDIR (default: a temp folder) as host files.
 """
 from __future__ import annotations
 
@@ -35,20 +36,12 @@ HERE = Path(__file__).resolve().parent
 TOOLSET = HERE.parent.parent.parent / "toolset"
 ROOT = TOOLSET.parent.parent
 sys.path.insert(0, str(TOOLSET))
+import decsys  # noqa: E402
 from emu_driver import EmulatorDriver  # noqa: E402
 from rt11 import RT11Session  # noqa: E402
 
-CLI = ROOT / "package/ms0515-cli.exe"
-DISKTOOL = ROOT / "package/ms0515-disk.exe"
-ROM = ROOT / "package/assets/rom/ms0515-romb.rom"   # the toolset system is the vvv104 Omega: ROM-B
-SYSTEM_DIR = TOOLSET / "system"
-TOOLS = TOOLSET / "build_tools"
-# DEC's own LINK and SYSMAC, built from its sources (../kit).  Only
-# MACRO comes from the kit - the V5.4 source distribution has no source
-# for it.  The toolset's libraries are not all DEC's, and which of them a
-# build was standing on cannot be told from the outside.
-DEC_TOOLS = HERE.parent / "tools"
-HD_SYS = HERE.parent / "handlers" / "hd" / "HD.SYS"
+CLI = decsys.CLI
+DISKTOOL = decsys.DISKTOOL
 
 # The monitor's four parts, as MONBLD assembles them for SJ.
 PREFIX = ["SJ", "SYCND", "EDTGBL", "OMEGA"]   # OMEGA: the Omega modules' macros
@@ -66,11 +59,15 @@ PART_NO = {"BTSJ": 1, "RMSJ": 2, "KMSJ": 3, "TBSJ": 4}
 
 
 def dec_sources() -> Path:
-    base = os.environ.get("MS0515_SOFTWARE")
-    root = Path(base) if base else ROOT.parent / "ms0515-software"
-    src = root / "sources" / "rt11-v5.4"
+    """DEC's V5.4 source kit: $MS0515_RT11_SOURCES names its folder outright;
+    else sources/rt11-v5.4 of the collection ($MS0515_SOFTWARE, else
+    ../ms0515-software beside this repository), as kit/build_util.py."""
+    direct = os.environ.get("MS0515_RT11_SOURCES")
+    src = Path(direct) if direct else decsys.collection() / "sources" / "rt11-v5.4"
     if not (src / "RMONSJ.MAC").is_file():
-        raise SystemExit(f"no DEC sources in {src} (set MS0515_SOFTWARE)")
+        raise SystemExit(f"no DEC sources in {src} "
+                         "(set MS0515_RT11_SOURCES to the rt11-v5.4 folder, "
+                         "or MS0515_SOFTWARE to a collection that has it)")
     return src
 
 
@@ -146,12 +143,8 @@ def stage(image: Path, files: Path, profile: str) -> None:
 
 
 def boot_volume(boot: Path) -> None:
-    shutil.copytree(SYSTEM_DIR, boot)
-    shutil.copy(TOOLS / "MACRO.SAV", boot / "MACRO.SAV")
-    for f in ("LINK.SAV", "SYSMAC.SML"):
-        shutil.copy(DEC_TOOLS / f, boot / f)
-    shutil.copy(HD_SYS, boot / "HD.SYS")
-    (boot / "STARTS.COM").write_bytes(b"SET TT QUIET\r\nASSIGN HD DK\r\nASSIGN HD SRC\r\n")
+    """The dec disk: DEC's monitor and tools, the kit's MACRO, HD: the work."""
+    decsys.compose(boot, startup=["ASSIGN HD DK", "ASSIGN HD SRC"])
 
 
 def link(emu: EmulatorDriver, rt: RT11Session) -> str:
@@ -185,9 +178,8 @@ def main() -> int:
     if profile not in ANSWERS:
         raise SystemExit(f"no profile {profile!r}: {', '.join(ANSWERS)}")
     out = Path(args[0]) if args else Path(tempfile.gettempdir()) / "omega_monitor"
-    for need in (CLI, ROM, HD_SYS):
-        if not need.exists():
-            raise SystemExit(f"missing {need}")
+    if not CLI.exists():
+        raise SystemExit(f"missing {CLI}")
     tmp = Path(tempfile.mkdtemp(prefix="omega_boot_"))
     boot = tmp / "boot"
     boot_volume(boot)
@@ -196,9 +188,7 @@ def main() -> int:
     image = out / "work.hd"
     stage(image, tmp / "src", profile)
 
-    emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
-                          "--disk0-side0", boot / "device.rtfs",
-                          "--hd", str(image)])
+    emu = EmulatorDriver([CLI, "--no-config", "--disk0-side0", boot / decsys.DESCRIPTOR, "--hd", str(image)])
     emu.start()
     log = []
     try:

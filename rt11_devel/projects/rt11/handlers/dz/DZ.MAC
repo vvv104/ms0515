@@ -173,6 +173,15 @@ B$DNAM	= ^RDV
 	BIS	#RA.SID,R1		;Side 0
 20$:	BIC	#<RA.DRV!RA.SID>,@#REGAC
 	BIS	R1,@#REGAC
+; The clock turns the motor off a hundred ticks after the drive was last
+; used, and takes the use from RA.USE in the copy.  Marked at the end of
+; a request alone, a request that started on the ninety-ninth tick and
+; took longer than one had the motor stopped under it: the next sector
+; failed, and so did every retry, the motor being off for all of them -
+; LINK's eight-block reads of a library lost that race one time in a
+; hundred (?LINK-F-Input error in SY:SYSLIB.OBJ).  So the drive is in
+; use from the request's first word, and again at every block.
+	BIS	#RA.USE,@#REGAC
 	BIT	#RA.MOT,@#REGAC		;Is the motor off?
 	BEQ	30$
 	BIC	#RA.MOT,@#REGAC		; Start it and let it come up to speed
@@ -188,6 +197,7 @@ NXTBLK:	CMP	BLOCK,#VOLBLK		;Past the end of the volume?
 	BIS	#EOF$,@-(R4)
 	BR	DZDONE
 10$:	MOV	#RETRY,TRIES
+	BIS	#RA.USE,@#REGAC		;Still in use: the clock counts afresh
 20$:	CALL	LOCATE			;R2 = track, R3 = sector
 	CALL	SEEK
 	BCS	30$

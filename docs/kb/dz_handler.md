@@ -77,7 +77,14 @@ handler observes that discipline throughout:
 Bits 13-15 are the ROM's motor flags (15 time-out armed, 14 drive just
 used, 13 counting); the monitor's clock interrupt stops the motor 100
 ticks after the last access.  ОМЕГА touches the copy in 11 places,
-Rodionov in 12, Mihin in 9, ОСА in none.
+Rodionov in 12, Mihin in 9, ОСА in none.  Note where ОМЕГА sets "just
+used": in the interrupt, every sector.  Our handler set it once, at the
+end of a request, and a request that began on the ninety-ninth tick and
+took longer than one had the motor stopped under it by the clock - the
+next sector failed and so did every retry, the motor being off for all
+of them.  LINK's eight-block reads of a library lost that race about
+once in a hundred (`?LINK-F-Input error in SY:SYSLIB.OBJ`, 2026-09-23);
+the handler marks the use at the request's start and at every block now.
 
 ## How ОМЕГА's handler serves a request
 

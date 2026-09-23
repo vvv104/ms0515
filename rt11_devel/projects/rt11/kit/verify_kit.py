@@ -87,7 +87,7 @@ def make_disk(out: Path, system: str, programs: list[Path]) -> Path:
     staged.mkdir(parents=True)
     for p in programs:
         shutil.copy(p, staged / p.name.upper())
-    (staged / "TRY.COM").write_bytes(bu.crlf(TRY_COM))
+    (staged / "TRY.COM").write_bytes(TRY_COM.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
     disk("put", floppy, *sorted(staged.iterdir()))
     return floppy
 
@@ -108,8 +108,7 @@ def main() -> int:
     out.mkdir(parents=True)
     floppy = make_disk(out, system, programs)
 
-    emu = EmulatorDriver([bu.CLI, "--no-config", "--rom", bu.ROM,
-                          "--disk0", str(floppy)])
+    emu = EmulatorDriver([bu.CLI, "--no-config", "--disk0", str(floppy)])
     emu.start()
     failed: dict[str, str] = {}
     try:

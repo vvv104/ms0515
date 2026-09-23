@@ -43,8 +43,9 @@ directory; either binary's last-used disks / ROM are picked up by the
 other.
 
 options:
-  --rom <path>            ROM image (assets/rom/ms0515-romb.rom by
-                          default — pass ms0515-roma.rom for Rodionov).
+  --rom <path>            ROM image (assets/rom/ms0515-roma.rom by
+                          default; ms0515-romb.rom for the systems
+                          made on ROM-B - see README).
   --disk0 <path>          Mount an image on drive 0 by its size: 800 KB
                           the whole drive, 400 KB its lower side (DZ0),
                           as --disk0-side0.  (alias: -d0)

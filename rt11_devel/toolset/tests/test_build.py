@@ -111,11 +111,31 @@ class TestBuildPlan:
             libs = ["MYLIB.OBJ"]
         """)
         plan = load_manifest(m)
-        sy = {Path(f).name for f in plan.sy_files()}
         dk = {Path(f).name for f in plan.dk_files()}
         assert "MYLIB.OBJ" in dk          # extra lib -> DK: (linked from there)
-        assert "MACRO.SAV" in sy           # compiler  -> SY:
         assert "QUX.MAC" in dk             # source    -> DK:
+        assert plan.bundles == []          # the toolchain is the system disk's own
+
+    def test_extra_lib_of_the_project_beats_the_collections(self, tmp_path):
+        (tmp_path / "QUX.MAC").write_bytes(b"")
+        (tmp_path / "MYLIB.OBJ").write_bytes(b"")
+        m = write_manifest(tmp_path, """
+            [project]
+            name     = "QUX"
+            language = "macro11"
+            [build]
+            libs = ["MYLIB.OBJ"]
+        """)
+        plan = load_manifest(m)
+        assert tmp_path / "MYLIB.OBJ" in plan.dk_files()
+
+    def test_pascal_plan_adds_the_pascal_bundle(self, tmp_path):
+        m = write_manifest(tmp_path, """
+            [project]
+            name     = "P"
+            language = "pascal"
+        """)
+        assert load_manifest(m).bundles == ["pascal"]
 
     def test_hook_paths_stay_relative_to_manifest_dir(self, tmp_path):
         m = write_manifest(tmp_path, """
@@ -202,17 +222,19 @@ class TestRepoManifests:
 # ── pristine template invariant ─────────────────────────────────────────────
 
 class TestSystemFolderIsPristine:
-    """system/ is the bootable folder template: the
-    base RT-11 set + the boot file + the descriptor, nothing else.  build.py
-    copies it per build and stages everything onto the copy."""
+    """system/ is the vvv104 ОМЕГА as a bootable folder: what the games'
+    tests (fist, manicm) boot to run them - the base RT-11 set + the boot
+    file + the descriptor, nothing else.  Builds no longer run on it (the
+    system disk is composed from the collection, decsys.py), and nothing
+    may be staged into it."""
 
     EXPECTED = {"RT11SJ.SYS", "SWAP.SYS", "DZ.SYS", "TT.SYS",
                 "PIP.SAV", "DUP.SAV", "DIR.SAV",
                 "BOOT.BIN", "DEVICE.RTFS"}
 
     def test_folder_holds_only_the_base_system(self):
-        from build import SYSTEM_DIR
-        if not SYSTEM_DIR.is_dir():
+        system = TOOLSET / "system"
+        if not system.is_dir():
             pytest.skip("toolset/system not present")
-        names = {p.name.upper() for p in SYSTEM_DIR.iterdir() if p.is_file()}
+        names = {p.name.upper() for p in system.iterdir() if p.is_file()}
         assert names == self.EXPECTED, f"system/ template polluted: {names}"

@@ -54,8 +54,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from build_util import (CLI, CTRL_C, EmulatorDriver, ROM, RT11Session,  # noqa: E402
-                        boot_volume, dec_sources, disk, run_job)
+from build_util import (CLI, CTRL_C, EmulatorDriver, RT11Session,  # noqa: E402
+                        boot_volume, dec_sources, decsys, disk, run_job)
 
 ANSWERS = HERE.parent / "monitor" / "SYCDEC.MAC"
 
@@ -145,8 +145,8 @@ def main() -> int:
     stage(image, tmp / "src",
           [answers] + [source_of(d) for d in dict.fromkeys(sources)])
 
-    emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
-                          "--disk0-side0", boot / "device.rtfs", "--hd", str(image)])
+    emu = EmulatorDriver([CLI, "--no-config", "--disk0-side0", boot / decsys.DESCRIPTOR,
+                          "--hd", str(image)])
     emu.start()
     failed: dict[str, str] = {}
     try:

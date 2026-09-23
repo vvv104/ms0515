@@ -179,6 +179,14 @@ program needs of it:
   clock service behind the window is not (FIST masked everything at
   priority 7 for that reason).  A VRAM row is 40 words = 80 bytes, 200
   rows; a word is the attribute over the pixels (`hardware/video.md`).
+  **The ROM opens the window itself, at 040000, on your stack**: ROM-B's
+  character out (160000), key in (160004) and cursor blink (160014) put
+  the window over 040000..077777 and call their own routines on the
+  stack they were entered with, so a program whose stack lies there
+  loses the pushed return addresses to the video memory.  Keep the stack
+  under 040000 (LINK's default is under 1000), or call the ROM on one
+  that is - the `dec` monitor does the latter for its terminal
+  interrupts and the blink (`rt11_devel/projects/rt11/monitor/OMBLNK.MAC`).
 - **Do not mask interrupts across a long section** if you count them: an
   interrupt that arrives while masked merges with the next of its kind
   (the core keeps one pending flag), and a 35 ms copy with the frame

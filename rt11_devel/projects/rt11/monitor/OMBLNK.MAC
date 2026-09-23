@@ -13,12 +13,35 @@
 ; blink (163440, the offset 3420 in the word after the JMP); anything else
 ; there - ROM-A's loader, a patched RTS - and it does not call.
 ;
+; DEC's build calls it on a stack of its own.  ROM-B's blink saves the
+; registers on the stack it is entered with, puts the VRAM window over
+; 040000..077777 and calls its window routines (165034, 165052) on that
+; stack still; a program whose stack is under the window - IND keeps its
+; in its symbol table overlay, at 041606 in one run - has the pushed
+; return addresses land in the video memory, the returns take what the
+; RAM held, and the ROM writes the cursor's bytes into KMON with the
+; window off.  ROM-B's console entries (OMCONS: the character out, the
+; key in) open the window the same way, from the terminal interrupts,
+; and IND's prompt ended in a return to 0 - EMT 350, a silent exit.
+; RMON is above 140000, out of the window's way, so DEC's build gives
+; the ROM stacks of RMON's own: BL$STK for the blink, called from the
+; clock interrupt, and CN$STK for the console, called from the terminal
+; interrupts (OMROM, OMCONS.MAC).  The blink masks everything while its
+; window is on and the clock interrupt masks its own level, so the blink
+; never nests; the clock interrupt can come in on CN$STK, and BL$STK is
+; another area for that reason.  Both areas are laid out by OMSTKS at
+; the end of RMON, after its own stack: in LKINT, where the blink is,
+; a hundred words of data would put DEC's branches out of their reach.
+;
 BL$ROM	= 2		;OM$BLK: blink only where the ROM is ROM-B
 BL$SLT	= 160014	;The ROM's slot: ROM-B's cursor blink
 BL$OFS	= 3420		;ROM-B's JMP offset there (to 163440)
+BL$DEP	= 32.		;Words of the blink's stack: it pushes ten
+CN$DEP	= 64.		;Words of the console's: the ROM's, and a clock
+			; interrupt's frame and handler over it
 
 .IF NE	IN$RM		;(macros for the part that calls them)
-.MACRO	OMBLNK	?A,?B
+.MACRO	OMBLNK	?A,?B,?C,?D
 .IF NE	OM$BLK
 	INC	(PC)+		;Omega's own tick count
 A:	 .WORD	0
@@ -27,9 +50,26 @@ A:	 .WORD	0
 .IF EQ	OM$BLK-BL$ROM
 	CMP	@#BL$SLT+2,#BL$OFS ;ROM-B's blink in the slot?
 	BNE	B		;No: leave the cursor alone
-.ENDC	;EQ OM$BLK-BL$ROM
+	MOV	SP,BL$SAV	;The program's stack may be under the VRAM
+	MOV	PC,SP		; window the blink opens: give it RMON's own
+	ADD	#BL$TOP-.,SP	; (RMON is moved to the top of memory at
+	CALL	@#BL$SLT	;ROM-B: blink the cursor	 boot: no #BL$TOP)
+	MOV	BL$SAV,SP
+.IFF	;EQ OM$BLK-BL$ROM
 	CALL	@#BL$SLT	;ROM-B: blink the cursor
+.ENDC	;EQ OM$BLK-BL$ROM
 B:
 .ENDC	;NE OM$BLK
 .ENDM	OMBLNK
+
+.MACRO	OMSTKS			;The stacks the ROM is called on, laid out
+.IF EQ	OM$KIT			; after RMON's own stack (DEC's build alone):
+BL$SAV:	.WORD	0		; the stack pointer the blink was entered with,
+	.BLKW	BL$DEP		; the blink's stack,
+BL$TOP:
+CN$SAV:	.WORD	0		; the same for the console (OMROM, OMCONS.MAC)
+	.BLKW	CN$DEP
+CN$TOP:
+.ENDC	;EQ OM$KIT
+.ENDM	OMSTKS
 .ENDC	;NE IN$RM

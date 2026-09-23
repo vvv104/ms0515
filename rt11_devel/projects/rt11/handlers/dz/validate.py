@@ -88,8 +88,7 @@ def make_disks(work: Path, kit: Path, files: list[Path],
 
 
 def session(boot: Path, other: Path, how: str = "--disk1-side0"):
-    emu = EmulatorDriver([bu.CLI, "--no-config", "--rom", bu.ROM,
-                          "--disk0-side0", str(boot), how, str(other)])
+    emu = EmulatorDriver([bu.CLI, "--no-config", "--disk0-side0", str(boot), how, str(other)])
     emu.start()
     emu.wait_for(r"[.*]\s*$", "something on the screen", timeout=90)
     for _ in range(3):
