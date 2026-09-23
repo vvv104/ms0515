@@ -14,12 +14,16 @@ they are built with.
 | [`handlers/hd/`](handlers/hd/README.md) | The paravirtual hard disk `HD:` of the emulator: Patron's HD driver kit v2.0 adapted to the machine, with its own oracles.  It logs nothing, and `SET HD ERLG=`/`TIMIT=` turn its sysgen word to whatever monitor it is loaded under. |
 | [`utils/format/`](utils/format/README.md) | `FORMAT` for the machine's diskettes: DEC's root as it is and a module of our own in the place of DEC's stub for the Professional 350 - WRITE TRACK on the WD1793, one routine for `DZ`, `DV` and `MZ`. `validate.py` formats a diskette of rubbish on the machine and reads the image. |
 | [`kit/`](kit/README.md) | The builders of the kit: `build_util.py` types DEC's own command files into a running machine, `build_handler.py` builds handlers — DEC's, DEC's with a patch, or the machine's own — and `verify_kit.py` uses what came out on a real system. |
-| `tools/` | What all of it is built with, itself built from DEC's sources: `LINK`, `LIBR`, `SYSMAC.SML`, `SYSLIB.OBJ`.  Only `MACRO` comes from the toolset's kit, the V5.4 source distribution having no source for it.  Not bookkeeping: the toolset's `SYSLIB` is not DEC's, and a `PIP` linked against it builds without a complaint and dies of an overlay error. |
 
-DEC's sources are not here: they come from the software collection
-(`$MS0515_SOFTWARE`, else `../ms0515-software` beside this repository),
-`sources/rt11-v5.4`.  What the machine changes in a file of DEC's is kept
-as a patch over it, never as a copy.
+DEC's sources are not here: `$MS0515_RT11_SOURCES` names the `rt11-v5.4`
+folder (else it is `sources/rt11-v5.4` of the software collection,
+`$MS0515_SOFTWARE` or `../ms0515-software` beside this repository).  What
+the machine changes in a file of DEC's is kept as a patch over it, never
+as a copy.  The machine every builder runs on is the collection's `dec`
+disk - DEC's RT-11 built here, its LINK, LIBR, SYSLIB, SYSMAC, ODT and
+the FODOS kit's MACRO - composed by `rt11_devel/toolset/decsys.py`; the
+tools are kept once, in the collection, and a build stands on what it
+ships.
 
 ## Error logging: in the sources, not in the collection
 
@@ -132,6 +136,15 @@ of data in `LKINT` put DEC's branches out of their reach.  RMON is above
 the other kits' builds are byte for byte what they were (`omega` checked),
 and a `dec` disk under either ROM runs IND, K52 and the rest.  The vvv104
 ОМЕГА (`OM$BLK = 1`) keeps its blink as it was: it is a reproduction.
+
+One more thing came with it.  DEC's build ran its terminal interrupts at
+DEC's priority 4, and the machine raises every interrupt at one level:
+with the screen busy (MANICM's build) the keyboard interrupt came in on
+top of the output in the middle of the ROM's character, the inner `OMROM`
+took `CN$SAV` over and the outer returned to nowhere - `?MON-F-Trap to 10`
+in `TTOINT`.  The terminal interrupts run at 7 now, as the kits' always
+did (`TT$PRI`, `TV$PRI` in `OMCONS.MAC`); the ROM masks everything
+itself while it works, so nothing is lost.
 
 ## K52: DEC's build files run by DEC's IND
 

@@ -36,10 +36,9 @@ side (DZ2 / DK) is not enough: the macros silently resolve to nothing and
 you get a flood of undefined-symbol errors (e.g. `.DRDEF`, `.DRBEG`,
 `.DREND` show as `****** GX` in the listing's symbol table).
 
-Fix: `build.py` stages `SYSMAC.SML` (and the compilers, for the CCL command
-form) into the per-build `boot/` folder (= SY:) — NOT baked into the
-pristine `system/` template.  Driver builds (`.DRDEF` and friends) and any
-program that `.MCALL`s system macros need it on SY:.
+Fix: the system disk `decsys.compose()` makes carries `SYSMAC.SML` (and
+the compilers, for the CCL command form) on SY:.  Driver builds (`.DRDEF`
+and friends) and any program that `.MCALL`s system macros need it there.
 
 ## STARTS.COM — the SJ startup command file (like autoexec.bat)
 
@@ -50,9 +49,9 @@ toolchain's fatal-error detector.
 
 Do **not** filter the error in `rt11.py` (the toolchain must keep
 catching real `?...-F-...` diagnostics).  Instead provide the file:
-`build.py` stages a `STARTS.COM` (the build recipe) on every build, and
-non-build direct boots stage the toolset's default `STARTS.COM`
-(`SET TT QUIET`).  The `system/` template itself carries none.
+`decsys.compose()` puts a `STARTS.COM` on every system disk it makes (the
+build recipe, `SET TT QUIET` ahead of it), and the games' tests, which
+boot the `system/` folder, stage one of their own.
 
 ## LINK with switches via `RUN DZ2:LINK`
 

@@ -10,12 +10,14 @@ kit build says at the end which of them came out and which did not.
     python build_util.py [--sy FILE[,FILE...]] [--with FILE[,FILE...]]
                          UTIL [UTIL...] [OUTDIR]
 
---sy puts host files on the system volume over the ones the toolset
-brings, which is how a tool built here takes over from the kit's: build
-LIBR, then `--sy .../LIBR.SAV` and the next build uses it.  --with puts
-them on the work volume instead, beside the sources - for what a command
-file reads as OBJ: or SRC: and this kit has only as something built
-earlier.
+The machine is the dec disk of the collection (toolset/decsys.py): DEC's
+monitor, its DIR, PIP and DUP, its LINK, LIBR, SYSLIB, SYSMAC and ODT, and
+the FODOS kit's MACRO.  --sy puts host files on that disk over the ones
+composed, which is how a tool built here takes over from the collection's:
+build LIBR, then `--sy .../LIBR.SAV` and the next build uses it.  --with
+puts them on the work volume instead, beside the sources - for what a
+command file reads as OBJ: or SRC: and this kit has only as something
+built earlier.
 
 UTIL is the name of a build command file of the DEC kit (DUMP, DIR, ...);
 the sources and the command file come from the software collection
@@ -40,21 +42,15 @@ HERE = Path(__file__).resolve().parent
 TOOLSET = HERE.parent.parent.parent / "toolset"
 ROOT = TOOLSET.parent.parent
 sys.path.insert(0, str(TOOLSET))
+import decsys  # noqa: E402
 from emu_driver import EmulatorDriver  # noqa: E402
 from rt11 import RT11Session  # noqa: E402
 
-CLI = ROOT / "package/ms0515-cli.exe"
-DISKTOOL = ROOT / "package/ms0515-disk.exe"
-ROM = ROOT / "package/assets/rom/ms0515-romb.rom"   # the toolset system: ROM-B
-SYSTEM_DIR = TOOLSET / "system"
-TOOLS = TOOLSET / "build_tools"
-HD_SYS = HERE.parent / "handlers" / "hd" / "HD.SYS"
-# DEC's own, built here from its sources.  Only MACRO comes from the kit:
-# the V5.4 source distribution has no source for it.  This matters more
-# than it looks - the toolset's SYSLIB is not DEC's, and a utility linked
-# against it can come out broken (PIP, whose two overlay regions then fail
-# at run time with ?MON-F-Overlay error).
-DEC_TOOLS = HERE.parent / "tools"
+CLI = decsys.CLI
+DISKTOOL = decsys.DISKTOOL
+# HD: is every device the command files name.
+STARTS = ["INSTALL HD", "LOAD HD", "ASSIGN HD DK", "ASSIGN HD SRC", "ASSIGN HD OBJ",
+          "ASSIGN HD BIN", "ASSIGN HD LST", "ASSIGN HD MAP"]
 CTRL_C = "\x03"
 # RT-11 aborts a running program on two ^C in quick succession; one alone
 # only stops its output, and a program with a prompt of its own (EDIT)
@@ -62,27 +58,16 @@ CTRL_C = "\x03"
 ABORT = CTRL_C * 2
 
 
-def collection() -> Path:
-    """The software collection: $MS0515_SOFTWARE, else ../ms0515-software
-    beside this repository."""
-    base = os.environ.get("MS0515_SOFTWARE")
-    return Path(base) if base else ROOT.parent / "ms0515-software"
-
-
 def dec_sources() -> Path:
     """DEC's V5.4 source kit: $MS0515_RT11_SOURCES names its folder outright;
     else it is sources/rt11-v5.4 of the software collection."""
     direct = os.environ.get("MS0515_RT11_SOURCES")
-    src = Path(direct) if direct else collection() / "sources" / "rt11-v5.4"
+    src = Path(direct) if direct else decsys.collection() / "sources" / "rt11-v5.4"
     if not (src / "DUMP.COM").is_file():
         raise SystemExit(f"no DEC sources in {src} "
                          "(set MS0515_RT11_SOURCES to the rt11-v5.4 folder, "
                          "or MS0515_SOFTWARE to a collection that has it)")
     return src
-
-
-def crlf(data: bytes) -> bytes:
-    return data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
 
 
 def disk(*args) -> None:
@@ -113,7 +98,13 @@ def recipe(com: Path) -> list[str]:
         line = re.sub(r"/I:THR", "", line)
         line = re.sub(r"/CRO[A-Z]*", "", line)
         line = re.sub(r"/C(?![:A-Z0-9])", "", line)
-        out.append(CTRL_C if line == "^C" else shorten(line))
+        # A recipe's ^C ends a program at its prompt.  One ^C does that only
+        # when the monitor has already seen the program wait for input, and
+        # after a long assembly MACRO prompts a moment before it waits: the
+        # ^C then echoes and is swallowed, and the program stays.  Two in
+        # quick succession abort it whatever it is doing, and at a prompt
+        # there is nothing left to lose.
+        out.append(ABORT if line == "^C" else shorten(line))
     return out
 
 
@@ -181,8 +172,7 @@ def included_by(names: list[str], src: Path) -> list[str]:
     return out
 
 
-def stage(image: Path, files: Path, names: list[str], src: Path,
-          extra: list[Path] | None = None,
+def stage(image: Path, files: Path, names: list[str], src: Path, boot: Path,
           given: list[Path] | None = None) -> None:
     files.mkdir(parents=True)
     for n in names:
@@ -191,13 +181,9 @@ def stage(image: Path, files: Path, names: list[str], src: Path,
         shutil.copy(f, files / f.name.upper())
     # The command files run the toolchain both ways: `R MACRO` takes it
     # from the system volume, `RUN LIBR` from DK: - which here is the work
-    # volume.  So the programs go on it as well, the ones built here over
-    # the kit's, as they were on the disk DEC built from.
-    for f in ("MACRO.SAV", "LINK.SAV", "LIBR.SAV"):
-        over = next((e for e in extra or [] if e.name.upper() == f), None)
-        source = over or (TOOLS / f if f == "MACRO.SAV" else DEC_TOOLS / f)
-        if source.is_file():
-            shutil.copy(source, files / f)
+    # volume.  So the programs go on it as well, off the system disk, where
+    # a --sy file has already taken over from the collection's.
+    decsys.take(boot, files, "MACRO.SAV", "LINK.SAV", "LIBR.SAV")
     # A kit's worth of sources, objects, listings and maps at once: the
     # volume is as big as RT-11 lets a device be, and its directory has
     # segments enough for all of them (71 entries to a segment).
@@ -210,25 +196,8 @@ def stage(image: Path, files: Path, names: list[str], src: Path,
 
 
 def boot_volume(boot: Path, extra: list[Path] | None = None) -> None:
-    shutil.copytree(SYSTEM_DIR, boot)
-    # SYSLIB.OBJ too: LINK takes the system library from SY: by default.
-    shutil.copy(TOOLS / "MACRO.SAV", boot / "MACRO.SAV")
-    for f in ("LINK.SAV", "LIBR.SAV", "SYSMAC.SML", "SYSLIB.OBJ"):
-        shutil.copy(DEC_TOOLS / f, boot / f)
-    shutil.copy(HD_SYS, boot / "HD.SYS")
-    for f in extra or []:
-        shutil.copy(f, boot / f.name.upper())
-    # HD: is every device the command files name.
-    (boot / "STARTS.COM").write_bytes(crlf(b"""SET TT QUIET
-INSTALL HD
-LOAD HD
-ASSIGN HD DK
-ASSIGN HD SRC
-ASSIGN HD OBJ
-ASSIGN HD BIN
-ASSIGN HD LST
-ASSIGN HD MAP
-"""))
+    """The dec disk with the --sy files over its own."""
+    decsys.compose(boot, startup=STARTS, over=list(extra or []))
 
 
 PROMPT = r"(?:[.*]|\?)\s*$"
@@ -318,7 +287,7 @@ def run_job(emu, name: str, lines: list[str], verbose: bool) -> str:
     wrong.  A failure never stops the kit - the next utility is another
     program and mostly another set of sources."""
     for line in lines:
-        label = "^C" if line == CTRL_C else line
+        label = "^C" if line in (CTRL_C, ABORT) else line
         try:
             text = step(emu, line)
         except TimeoutError as e:
@@ -373,14 +342,13 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="dec_util_"))
     boot = tmp / "boot"
     boot_volume(boot, extra)
-    system = {f.name for f in boot.iterdir()}
+    system = decsys.names(boot)
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     image = out / "work.hd"
-    stage(image, tmp / "src", names, src, extra, given)
+    stage(image, tmp / "src", names, src, boot, given)
 
-    emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
-                          "--disk0-side0", boot / "device.rtfs", "--hd", str(image)])
+    emu = EmulatorDriver([CLI, "--no-config", "--disk0-side0", boot / decsys.DESCRIPTOR, "--hd", str(image)])
     emu.start()
     failed: dict[str, str] = {}
     try:
@@ -397,10 +365,8 @@ def main() -> int:
         emu.dump(out / "session.log")
         emu.kill()
         # A command file that links to SY: (LIBCOM) leaves its program on
-        # the boot volume, a folder: what was not there before comes along.
-        for f in boot.iterdir():
-            if f.is_file() and f.name not in system:
-                shutil.copy(f, out / f.name)
+        # the system disk: what was not there before comes along.
+        decsys.take(boot, out, "*.SAV", "*.REL", "*.SYS", "*.MLB", but=system)
         shutil.rmtree(tmp, ignore_errors=True)
     # Not everything a utility builds is a .SAV: a foreground program is a
     # .REL, a handler a .SYS, HELP's text a .MLB.

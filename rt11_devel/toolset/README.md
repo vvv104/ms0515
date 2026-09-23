@@ -10,34 +10,37 @@ V5.04 on this hardware.
 ```
 rt11_devel/toolset/
 ├── build.py         universal driver: read build.toml, drive the pipeline
+├── decsys.py        the system every build runs on: a `dec` disk composed
+│                    from the software collection (see below)
 ├── emu_driver.py    generic stdio bridge to ms0515-cli (or any subprocess)
 ├── rt11.py          RT-11 monitor session (boot, dot prompt, command + errors)
-├── system/          bootable RT-11 SJ V5 FOLDER template (.rtfs device):
-│                    the 7 base system files + boot.bin + device.rtfs
-├── build_tools/     compilers and libraries
-│   ├── MACRO.SAV    MACRO-11 assembler
-│   ├── LINK.SAV     linker
-│   ├── SYSMAC.SML   system macros for MACRO-11
-│   ├── SYSLIB.OBJ   RT-11 system library
-│   ├── PAS1.SAV     Pascal pass 1
-│   ├── PAS1.OBJ     Pascal pass-1 object module
-│   ├── PASLIB.OBJ   Pascal runtime library
-│   ├── FORTRA.SAV   FORTRAN-IV compiler
-│   ├── FORLIB.OBJ   FORTRAN runtime library
-│   ├── BASICO.SAV   BASIC
-│   └── GRAPH.P1U    Pascal graphics include
+├── system/          the vvv104 ОМЕГА as a bootable FOLDER (.rtfs device):
+│                    what the games' tests (fist, manicm) boot to run them;
+│                    no build runs on it
 └── tests/           pytest tests for the Python modules
 ```
 
 Projects that use this toolset live under `rt11_devel/projects/<name>/`
 and declare a `build.toml` (see "Declarative builds" below).
 
-The build pipeline itself runs entirely on **folder-backed devices**
-(`.rtfs`, see `docs/folder-device.md`): staging is plain file copies into
-two temp folders, outputs are host files the guest materializes — no
-`ms0515-disk` calls anywhere.  The binary remains available for disk-image
-work outside the pipeline (`create`, `init`, `put`, `get`, `dir`, `split`,
-`merge`).
+**The build system is DEC's RT-11 as built for the machine** - the `dec`
+kit of the software collection (`rt11_devel/projects/rt11` builds it from
+DEC's V5.4 sources): its monitor and DZ/DV/HD handlers, DIR, PIP and DUP,
+and DEC's own LINK, LIBR, SYSLIB, SYSMAC and ODT.  Only MACRO is not
+DEC's: the V5.4 source kit has no source for it, and the collection's is
+the FODOS kit's (`macro-vvv`).  `decsys.compose()` has `ms0515-disk`
+compose that disk from the collection (`$MS0515_SOFTWARE`, else
+`../ms0515-software` beside this repository) with the language's
+toolchain added (`pascal`, `fortran`, `basico` - the kits' own, since DEC
+never made those for this machine) and the build recipe as its
+`STARTS.COM`, so what a build stands on is what the collection ships and
+nothing is kept here twice.  The system disk is a DV image on drive 0;
+the sources and any extra object library go on a **folder-backed
+device** (`.rtfs`, see `docs/folder-device.md`) on drive 1, and the
+outputs are host files the guest materializes there.  One volume holds
+one `SYSLIB.OBJ`: DEC's for MACRO-11 projects, the Pascal kit's where
+the toolchain is that kit's (its `requires` brings it), because PAS1's
+output links against that one and a DEC utility against DEC's.
 
 ## How `system/` was built
 
@@ -159,22 +162,16 @@ sys.path.insert(0, "rt11_devel/toolset")
 from emu_driver import EmulatorDriver
 from rt11 import RT11Session
 
-CLI  = "package/ms0515-cli.exe"
-ROM  = "package/assets/rom/ms0515-romb.rom"   # system/ is the vvv104 Omega: ROM-B
+import decsys
 
-boot = Path(tempfile.gettempdir()) / "myboot"      # folder devices: just
-work = Path(tempfile.gettempdir()) / "mywork"      # copy files around
-shutil.copytree("rt11_devel/toolset/system", boot)
-for tool in ("MACRO.SAV", "LINK.SAV", "SYSMAC.SML"):
-    shutil.copy(f"rt11_devel/toolset/build_tools/{tool}", boot / tool)
-(boot / "STARTS.COM").write_bytes(b"SET TT QUIET\r\n")
-work.mkdir()
+boot = decsys.compose(Path(tempfile.gettempdir()) / "myboot.dsk",   # the dec
+                      startup=["ASSIGN DZ1 DK"])                     # system
+work = Path(tempfile.gettempdir()) / "mywork"      # a folder device: just
+work.mkdir()                                       # copy files around
 shutil.copy("MYPROG.MAC", work / "MYPROG.MAC")
-shutil.copy("rt11_devel/toolset/build_tools/SYSLIB.OBJ", work / "SYSLIB.OBJ")
 (work / "device.rtfs").write_bytes(b"device: floppy\nblocks: 800\n")
 
-emu = EmulatorDriver([CLI, "--no-config", "--rom", ROM,
-                      "--disk0-side0", boot / "device.rtfs",
+emu = EmulatorDriver([decsys.CLI, "--no-config", "--disk0", str(boot),
                       "--disk1-side0", work / "device.rtfs"])
 emu.start()
 try:

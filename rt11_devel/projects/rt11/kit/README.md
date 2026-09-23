@@ -28,17 +28,19 @@ bitmap into `<DD>.SYS`:
     python build_handler.py [--sy FILE[,FILE...]] [--answers FILE]
                             DD [DD...] [OUTDIR]
 
-The sources come from the software collection (`$MS0515_SOFTWARE`, else
-`../ms0515-software` beside this repository), in `sources/rt11-v5.4`.
+The sources: `$MS0515_RT11_SOURCES` names the `rt11-v5.4` folder, else it
+is `sources/rt11-v5.4` of the software collection (`$MS0515_SOFTWARE`,
+else `../ms0515-software` beside this repository).
 
 ## The system volume is DEC's, except MACRO
 
-`../tools/` holds what the build runs on, all of it built here from DEC's
-sources: `LINK.SAV`, `LIBR.SAV`, `SYSMAC.SML`, `SYSLIB.OBJ`.  Only
-`MACRO.SAV` comes from the toolset's kit, because the V5.4 source
-distribution has no source for it (`BINKIT.DAT` lists `MACRO.SAV` and
-`CREF.SAV` as binaries; DEC did publish MACRO's sources, but for V02C, ten
-years older).
+The machine is the collection's `dec` disk (`toolset/decsys.py`): DEC's
+monitor and what the build runs on, all of it built here from DEC's
+sources and shipped to the collection - `LINK.SAV`, `LIBR.SAV`,
+`SYSMAC.SML`, `SYSLIB.OBJ`, `ODT.OBJ`.  Only `MACRO.SAV` is the FODOS
+kit's, because the V5.4 source distribution has no source for it
+(`BINKIT.DAT` lists `MACRO.SAV` and `CREF.SAV` as binaries; DEC did
+publish MACRO's sources, but for V02C, ten years older).
 
 That distinction is not bookkeeping.  Against the kit's own libraries the
 build looks fine and comes out broken: `PIP`, the one utility with two

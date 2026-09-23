@@ -35,27 +35,13 @@ from pathlib import Path
 
 import build_util as bu
 
-STARTS = b"""SET TT NOQUIET
-SET KMON IND
-INSTALL HD
-LOAD HD
-ASSIGN HD DK
-ASSIGN HD SRC
-ASSIGN HD OBJ
-ASSIGN HD BIN
-ASSIGN HD LST
-ASSIGN HD MAP
-"""
-
-
 def dec_boot_disk(image: Path, extra: list[Path]) -> None:
-    """The dec preset's disk, with this builder's startup file: the echo on,
-    for the run's record is the commands IND hands the monitor; @file to IND;
-    HD: every device the build files name.  --sy files go over the preset's."""
-    bu.disk("compose", "--repo", bu.collection(), "--preset", "dec", image)
-    starts = image.parent / "STARTS.COM"
-    starts.write_bytes(bu.crlf(STARTS))
-    bu.disk("put", image, "--dv", starts, *extra)
+    """The dec disk with IND, and this builder's startup file: the echo on,
+    for the run's record is the commands IND hands the monitor; @file to
+    IND; HD: every device the build files name.  --sy files go over the
+    collection's."""
+    bu.decsys.compose(image, add=["ind-rt11"], quiet=False,
+                      startup=["SET KMON IND", *bu.STARTS], over=list(extra))
 
 
 def wait_done(emu, label: str, live: Path) -> list[str]:
@@ -126,15 +112,15 @@ def main() -> int:
 
     names = sorted(p.name for p in src.iterdir() if p.is_file())
     tmp = Path(tempfile.mkdtemp(prefix="dec_ind_"))
-    boot = tmp / "boot.dsk"
+    boot = tmp / "boot"
     dec_boot_disk(boot, extra)
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     image = out / "work.hd"
-    bu.stage(image, tmp / "src", names, src, extra, given)
+    bu.stage(image, tmp / "src", names, src, boot, given)
 
-    emu = bu.EmulatorDriver([bu.CLI, "--no-config",    # the CLI's ROM: ROM-A
-                             "--disk0", str(boot), "--hd", str(image)])
+    emu = bu.EmulatorDriver([bu.CLI, "--no-config",
+                             "--disk0-side0", boot / bu.decsys.DESCRIPTOR, "--hd", str(image)])
     emu.start()
     failed: dict[str, str] = {}
     try:
