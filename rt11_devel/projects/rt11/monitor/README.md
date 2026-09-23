@@ -122,7 +122,7 @@ DUP) with the monitor put in its place and the bootstrap written for it.
 | 10 | - | **`SPL` as `MTPS`** (Mihin's): each priority change an `MTPS` in place, off the `PSWLST` chain |
 | 11 | `OMRODC.MAC` | **Rodionov's clock interrupt**: his code ahead of DEC's, JMPs to `EXINT` and `TIMER`, no clock restart in `ZAP`, TIME's 72 ticks a second (a display at 72 Hz; never reached) |
 | 12 | `OMRODT.MAC` | **Rodionov's terminal driver**: in the middle of `TTOINT`, JMPs past it |
-| 13 | `OMBLNK.MAC` (`OMSTKS`), `OMCONS.MAC` (`OMROM`) | **the stacks the ROM is called on** (DEC's build only): ROM-B's character out, key in and cursor blink open the VRAM window over 040000..077777 and call their own routines on the stack they were entered with - IND keeps its stack up there and died of it.  DEC's build calls the console entries and the blink on two stacks of RMON's own, laid out after RMON's stack, at the end of RMON |
+| 13 | `OMBLNK.MAC` (`OMSTKS`), `OMCONS.MAC` (`OMROM`) | **the stacks the ROM is called on** (DEC's build only): ROM-B's character out, key in and cursor blink open the VRAM window over 040000..077777 and call their own routines on the stack they were entered with - IND keeps its stack up there and died of it.  DEC's build calls the console entries and the blink on two stacks of RMON's own, laid out after RMON's stack, at the end of RMON; its terminal interrupts run at priority 7 like the kits', since at DEC's 4 the keyboard came in on top of the output inside the ROM and the two calls shared one saved SP |
 
 Patches 02-06 carry Mihin's and Rodionov's variants too (see [Mihin's
 monitor](#mihins-monitor), [Rodionov's monitor](#rodionovs-monitor)).

@@ -11,9 +11,9 @@
 ;   The keyboard interrupt takes every key the ROM holds before it leaves.
 ; - A character is written with the ROM's output entry (CN$OUT), in 8
 ;   bits too (TTSCRL and the output interrupt strip the high byte only).
-; - The kits run the terminal interrupts at priority 7, not DEC's 4
-;   (TT$PRI: the output vector, and Omega's $INTEN words); DEC's 4 works
-;   as well (the dec profile keeps it).
+; - The terminal interrupts run at priority 7, not DEC's 4 (TT$PRI: the
+;   output vector, and Omega's $INTEN words) - the kits', and DEC's build's
+;   since its ROM calls run on a stack of RMON's own (below, OMROM).
 ; - There is no output-ready interrupt: the monitor interrupt (vector 064),
 ;   a level raised by bit 8 of the dispatcher, stands in for it.  Turning the
 ;   output interrupt on sets that bit (through the ROM's copy of the
@@ -45,11 +45,15 @@ DISPAT	= 177400	;The dispatcher (write only)
 DSPCPY	= 157700	;The ROM's copy of it
 MI$REQ	= 400		;Its bit 8: raise the monitor interrupt
 KBROWS	= 177540	;MS 7007 matrix rows (PPI port A)
-TT$PRI	= PR4		;The terminal interrupts' priority: DEC's 4,
-.IIF NE OM$KIT, TT$PRI = PR7	; the kits' 7,
+; The terminal interrupts run at priority 7 - the kits' choice, and DEC's
+; build's too since the ROM is called on a stack of RMON's own (OMROM):
+; the machine raises every interrupt at one level, so at DEC's 4 the
+; keyboard came in on top of the output in the middle of the ROM's
+; character, the inner OMROM took CN$SAV over and the outer returned to
+; nowhere (?MON-F-Trap to 10 in TTOINT, in a build with the screen busy).
+TT$PRI	= PR7		;The terminal interrupts' priority: 7,
 .IIF EQ OM$KIT-KT$MIH, TT$PRI = PR5	; Mihin's 5 -
-TV$PRI	= PR4		;The output vector's PS: DEC's 4,
-.IIF NE OM$KIT, TV$PRI = PR7	; the kits' 7
+TV$PRI	= PR7		;The output vector's PS: 7
 TO$PRI	= TT$PRI	;The output interrupt's priority the same,
 .IIF EQ OM$KIT-KT$MIH, TO$PRI = PR4	; but Mihin's DEC's 4
 TT$MSK	= 377		;Characters are eight bits (KOI-8),
