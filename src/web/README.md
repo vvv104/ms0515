@@ -104,7 +104,10 @@ own images persist in localStorage, the image bytes in IndexedDB.
 
 The disks offered are the software collection's released ones, listed by
 its `index.json` and fetched from its Pages
-(<https://vvv104.github.io/ms0515-software/>); `?disks=URL` takes the list
+(<https://vvv104.github.io/ms0515-software/>).  An entry may name the ROM
+the disk runs on alone (`"rom": "a"` or `"b"` - the vvv104 ОМЕГА hangs on
+ROM-A, Rodionov's needs it); when such a disk goes into drive A, the ROM
+selector follows it and the page says so.  `?disks=URL` takes the list
 from elsewhere - the CI serves `src/` and points it at `web/test-disks/`, a
 test fixture, so the checks do not depend on the network.
 

@@ -103,6 +103,10 @@ console.log(`after boot: frames ${peek.frames}, running ${peek.running}, colours
 if (!peek.driveSounds) throw new Error("the machine started before the drive's recordings were in");
 if (await evaluate('document.getElementById("spin").hidden') !== true)
   throw new Error("the spinner is still over a running machine");
+// The fixture's index says the disk runs on ROM-B alone: the selector
+// followed the disk into drive A, whatever the page had before.
+if (await evaluate('document.getElementById("rom").value') !== "b")
+  throw new Error("the ROM did not follow the disk in drive A (the index says b)");
 
 // Sound is on when the page opens.  Before anything has been touched a
 // browser allows no more than a suspended context, so that is what this

@@ -27,7 +27,7 @@ import { DiskComposer } from "./wizard.js?v=@STAMP@";
 // points elsewhere (a local copy, the CI's fixture).
 const DISK_SITE = new URL(new URLSearchParams(location.search).get("disks")
                           ?? "https://vvv104.github.io/ms0515-software/", location.href);
-let DISKS = [];                       // { name, sides, title, hint, url }
+let DISKS = [];                       // { name, sides, title, hint, rom, url }
 let SHIPPED = new Map();              // name -> the entry above
 let DISK_INDEX = null;                // the collection's index.json: the wizard composes from its files
 async function loadDiskList() {
@@ -35,7 +35,7 @@ async function loadDiskList() {
     const index = DISK_INDEX = JSON.parse(new TextDecoder().decode(await fetchBytes(new URL("index.json", DISK_SITE))));
     DISKS = index.presets.map((p) => ({
       name: p.image.split("/").pop(), sides: p.media === "ss" ? 1 : 2,
-      title: p.title, hint: p.hint ?? "", url: new URL(p.image, DISK_SITE).href,
+      title: p.title, hint: p.hint ?? "", rom: p.rom ?? "", url: new URL(p.image, DISK_SITE).href,
     }));
   } catch (e) {
     say(`no disk list from ${DISK_SITE.href}: ${e?.message ?? e} - Open… takes an image from your computer`);
@@ -44,6 +44,15 @@ async function loadDiskList() {
 }
 const sidesLabel = (n) => n === 2 ? "two-sided" : "one-sided";
 const ROMS = { a: "rom/ms0515-roma.rom", b: "rom/ms0515-romb.rom" };
+// A shipped disk may run on one ROM alone (the collection's index says
+// which: the vvv104 ОМЕГА hangs on ROM-A, Rodionov's needs it).  When such
+// a disk goes into drive A, the ROM follows it, and the user hears why.
+function followRom(name) {
+  const need = SHIPPED.get(name)?.rom;
+  if (!need || !ROMS[need] || $("rom").value === need) return;
+  $("rom").value = need;
+  say(`ROM ${need.toUpperCase()}: ${name} runs on it alone`);
+}
 const SS_SIZE = 409600, DS_SIZE = 2 * SS_SIZE;
 const FRAME_MS = 20;
 // The speed control: the machine's frames per second of ours, 20% to 500%
@@ -205,6 +214,7 @@ async function mountFd(unit, name) {
       throw new Error(`${name}: mount failed`);
     }
     slots.fd[unit] = name;
+    if (unit === unitOf(0, 0)) followRom(name);   // the boot disk picks the ROM
   }
   saveMounts();
   renderDevices();
@@ -532,6 +542,7 @@ async function boot() {
   say("loading…");
   stop();
   keyboard.reset();
+  followRom(slots.fd[unitOf(0, 0)]);       // a mount restored from the last visit, or ?disk=
   const rom = $("rom").value;
   M.FS.writeFile("/rom.bin", await fetchBytes(ROMS[rom]));
   if (!api.loadRom(h, "/rom.bin")) throw new Error("ROM load failed");
