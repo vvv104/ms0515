@@ -18,8 +18,8 @@ that moment is - a TOML file:
     [run]
     script = ["R SABOT2"]                 # typed after the boot, one line at a time
     settle = 2.0                          # seconds of a still screen between the lines
-    wait   = 6.0                          # seconds after the last line, at the machine's
-                                          # pace, before the moment is kept
+    wait   = 4.0                          # seconds from the last line's Return, at the
+                                          # machine's pace, to the moment that is kept
 
     [sound]                               # what the page turns on; a game start
     speaker = true                        # wants the speaker and nothing else
@@ -117,9 +117,14 @@ def run_to_the_moment(card: dict, image: Path, workdir: Path) -> None:
     try:
         settle = float(run.get("settle", 2.0))
         answer_startup(emu, settle)
-        for line in run["script"]:
+        *lines, last = run["script"]
+        for line in lines:
             emu.send(line + "\r")
             wait_quiet(emu, settle, float(run.get("timeout", 60.0)))
+        # The last line is the game: its screens are graphics, which the
+        # terminal mirror does not show, so the moment is a count of
+        # seconds from the Return, at the machine's own pace.
+        emu.send(last + "\r")
         time.sleep(float(run.get("wait", 6.0)))
         emu.send(QUIT_HOTKEY)
         emu._proc.wait(timeout=30)       # noqa: SLF001 - the driver has no public waiter

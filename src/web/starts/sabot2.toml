@@ -1,4 +1,4 @@
-# Saboteur II at its title screen: the OSA system with the game alone on
+# Saboteur II at its loading screen: the OSA system with the game alone on
 # the diskette, R SABOT2 typed, the loader through - tools/make_start.py
 # turns this into sabot2.zip beside it (see ../README.md, "Start files").
 title = "Saboteur II - the moment after R SABOT2"
@@ -13,7 +13,7 @@ name   = "sabot2.dsk"
 [run]
 script = ["R SABOT2"]
 settle = 2.0
-wait   = 8.0
+wait   = 4.0            # the loading screen: it gives way to the menu at about 8.5 s
 
 [sound]
 speaker = true
