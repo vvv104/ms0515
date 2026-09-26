@@ -8,8 +8,14 @@
 // (see the CI job) and a server for src/, so that the page can take its disk
 // list from web/test-disks/ (a test fixture) instead of the collection's Pages.
 //
-//   node src/web/browser_check.mjs "http://localhost:8515/build/emscripten-release/web/dist/?disks=/web/test-disks/" [ws port]
+//   node src/web/browser_check.mjs "http://localhost:8515/build/emscripten-release/web/dist/?disks=/web/test-disks/" [ws port] [dist dir]
+//
+// The dist dir on disk is where start_check.mjs left test-start.zip and its
+// json (the page is served from it): the last part opens that start file.
+import { readFileSync } from "node:fs";
 const url = process.argv[2] ?? "http://localhost:8515/";
+// dist/ on disk, for what start_check.mjs left there (the page is served from it).
+const pageDir = new URL(process.argv[4] ?? "build/emscripten-release/web/dist/", `file:///${process.cwd().replace(/\\/g, "/")}/`);
 const port = process.argv[3] ?? "9222";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -315,6 +321,57 @@ if (named.length !== 2 || named[0] === named[1])
 await key("Escape", "Escape", 27);
 await sleep(300);
 await evaluate('document.getElementById("files").click()');
+
+// A start file (start_check.mjs left test-start.zip in dist/: the fixture
+// after DIR) opened in a frame's clothes: `?start=` brings the machine to
+// that moment - the listing on the screen, without a boot - and `embed=1`
+// shows the screen alone.  Whatever the page remembered from the visit
+// above (ROM-B in drive A's wake, the mounts) must not get in the way, and
+// nothing of this visit may be remembered either.
+{
+  const remembered = await evaluate('localStorage.getItem("ms0515.mounts")');
+  const want = JSON.parse(readFileSync(new URL("./test-start.json", pageDir), "utf-8"));
+  const wantWhite = want.hist[0xffffffff] ?? 0;
+  await send("Page.navigate", { url: url + (url.includes("?") ? "&" : "?") + "start=test-start.zip&embed=1" });
+  // The arrow, unless the browser trusts the page by now (it has been
+  // touched above) and the machine starts on its own.
+  let go = null, up = null;
+  for (let i = 0; i < 60 && !go && !up; ++i) {
+    await sleep(500);
+    go = await arrow();
+    const p = await evaluate("window.__ms ? window.__ms() : null").catch(() => null);
+    if (p && (p.frames > 0 || /^error/.test(p.status))) up = p;
+  }
+  if (up && /^error/.test(up.status)) throw new Error("the start page failed: " + up.status);
+  if (!go && !up) throw new Error("the start page neither offered to start the machine nor started it");
+  if (await evaluate('getComputedStyle(document.querySelector("header")).display') !== "none")
+    throw new Error("embed=1 left the header on the page");
+  if (go) {
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: go.x, y: go.y, button: "left", clickCount: 1 });
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: go.x, y: go.y, button: "left", clickCount: 1 });
+  }
+  const at = await settle("the start file's moment", (p) => p.frames > 0 && Math.abs(white(p) - wantWhite) <= want.cursor);
+  console.log(`start file: white ${white(at)} (the file's ${wantWhite}), frames ${at.frames}, status "${at.status}", `
+              + `start ${JSON.stringify(at.start)}`);
+  if (!at.embed || !at.start) throw new Error("the page does not say it is embedded at a start file");
+  if (at.start.disks[0] !== "test-start.dsk" || at.mounts.fd[0] !== "test-start.dsk")
+    throw new Error("the start file's image is not in drive A: " + JSON.stringify(at.mounts));
+  if (await evaluate('document.getElementById("rom").value') !== "a")
+    throw new Error("the start file's ROM (a) was not taken over the remembered one");
+  if (!at.joystick?.on) throw new Error("the start file's joystick is not on");
+  if (at.frames > 200) throw new Error(`the machine booted (${at.frames} frames) instead of resuming`);
+  // The machine goes on from there: the keys reach it (a run of Returns
+  // scrolls the listing off, leaving the prompts' dots), and the disk
+  // answers it (DIR fills the screen again).  A second listing straight
+  // away would not do: it scrolls the first and the colours stay as they are.
+  await evaluate('window.__ms.type("\\r".repeat(30))');
+  const bare = await settle("the listing scrolled off", (p) => white(p) < wantWhite / 3);
+  await evaluate('window.__ms.type("DIR\\r")');
+  const more = await settle("a listing after the start", (p) => white(p) > white(bare) * 3);
+  console.log(`after 30 Returns white ${white(bare)}, after DIR from the start white ${white(more)}`);
+  if (await evaluate('localStorage.getItem("ms0515.mounts")') !== remembered)
+    throw new Error("a start visit changed the remembered mounts");
+}
 
 ws.close();
 if (!/state restored/.test(restored.status))

@@ -63,8 +63,10 @@ started with `--remote-debugging-port=9222` (the page exposes
 also has the page pack a bug report and looks at what went in.
 `node src/web/zip_check.mjs` reads the page's archive writer (`www/zip.js`)
 back: the central directory, every local header, the CRC of each entry and
-the deflated ones inflated again - no build needed.  CI runs all three in
-the `web / emscripten` job.
+the deflated ones inflated again - no build needed.
+`node src/web/start_check.mjs build/emscripten-release/web/dist` makes a
+start file of the fixture after DIR, reads it back and resumes it on a
+fresh machine.  CI runs them all in the `web / emscripten` job.
 
 ## The C API
 
@@ -228,6 +230,54 @@ to is copied to IndexedDB (checked every 64 frames by its mtime in the
 module's file system); "Download" saves the live image, "Revert" drops
 what was written to a shipped image and mounts the original again,
 "Delete" removes one of the user's own.
+
+## Start files
+
+A game is a boot, a date prompt, a command and a loading screen away, and
+whoever is shown the machine in somebody else's page should see none of
+that.  A start file (`www/start.js`) is one `.zip` with the machine at
+the moment the game begins:
+
+```
+start.json      title, rom ("a" / "b"), disks { fd: [A0, A1, B0, B1], hd },
+                sound { speaker, drive, kbd }, joystick, speed, made { by, command }
+state.ms0515    the snapshot of that moment (ms_save_state)
+disks/<name>    the images the drives held - a game that keeps its scores
+                writes to its disk, so the disk travels with the file
+screen.png      the picture at that moment (a preview; the page does not read it)
+```
+
+`?start=URL` opens the page at it: the images go into the module's file
+system straight from the file, the ROM, the sounds, the joystick and the
+speed are the file's for the visit (remembered by nobody - the page's own mounts and
+settings stay as they were), the snapshot is loaded and the images mounted
+over its paths (a snapshot names the paths of the machine it was taken on),
+and every Reset is that moment again.  `embed=1` shows the screen alone,
+for an `<iframe>`; the play arrow still comes first, since a browser lets
+no page make a sound before it has been touched.  `www/embed.html` is the
+page such a frame goes into:
+
+```html
+<iframe src="https://vvv104.github.io/ms0515/?start=starts/sabot2.zip&embed=1"
+        width="640" height="400" allow="autoplay; fullscreen"></iframe>
+```
+
+The URL is resolved against the page, so a start file hosted elsewhere is
+given in full, and its server must allow the page's origin to fetch it
+(CORS).  `starts/*.zip` in this directory are published beside the page.
+
+`tools/make_start.py` makes one from a card - a TOML file naming the
+title, the disk (composed from the software collection, or an image), the
+script typed after the boot and the sounds - by running `ms0515-cli` to
+that moment and packing what it saved:
+
+```
+python tools/make_start.py src/web/starts/sabot2.toml
+```
+
+`start_check.mjs` does the same under Node with the test fixture and
+leaves `test-start.zip` in `dist/`, which the browser check then opens
+with `?start=`.
 
 ## The bug report
 

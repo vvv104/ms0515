@@ -4,7 +4,7 @@
 // deflated entries inflated again and compared byte for byte.
 //
 //   node src/web/zip_check.mjs
-import { makeZip, makeZipDeflated, crc32 } from "./www/zip.js";
+import { makeZip, makeZipDeflated, readZip, crc32 } from "./www/zip.js";
 
 const u16 = (b, at) => b[at] | (b[at + 1] << 8);
 const u32 = (b, at) => (b[at] | (b[at + 1] << 8) | (b[at + 2] << 16) | (b[at + 3] << 24)) >>> 0;
@@ -87,5 +87,32 @@ const tiny = new Uint8Array([1, 2, 3]);
 
 // An archive of nothing is still an archive.
 eq((await unzip(await makeZipDeflated([]))).length, 0, "an empty archive");
+
+// The page's own reader (a start file, a bug report brought back): the
+// stored and the deflated archive read back whole, in order, and an
+// archive that is not one is refused with a reason.
+{
+  const entries = [{ name: "start.json", bytes: text }, { name: "disks/osa.dsk", bytes: image }, { name: "small", bytes: tiny }];
+  for (const zip of [makeZip(entries), await makeZipDeflated(entries)]) {
+    const files = await readZip(zip);
+    eq(files.map((f) => f.name).join(","), "start.json,disks/osa.dsk,small", "the reader's names");
+    for (const [i, want] of [text, image, tiny].entries())
+      if (Buffer.compare(Buffer.from(files[i].bytes), Buffer.from(want)) !== 0) fail(`the reader changed entry ${i}`);
+  }
+  eq((await readZip(makeZip([]))).length, 0, "the reader on an empty archive");
+  let refused = "";
+  await readZip(text).catch((e) => { refused = e.message; });
+  if (!/not a zip/.test(refused)) fail(`a text was read as an archive: ${refused}`);
+  const broken = makeZip(entries);
+  broken[broken.length - 1] ^= 0xFF;         // not the data: the end record's comment length
+  refused = "";
+  await readZip(broken.subarray(0, broken.length - 22).slice()).catch((e) => { refused = e.message; });
+  if (!/not a zip/.test(refused)) fail(`a truncated archive was read: ${refused}`);
+  const corrupt = makeZip(entries);
+  corrupt[40] ^= 0x01;                       // one bit of the first entry's bytes
+  refused = "";
+  await readZip(corrupt).catch((e) => { refused = e.message; });
+  if (!/start.json does not read back whole/.test(refused)) fail(`a corrupt entry passed: ${refused}`);
+}
 
 console.log("zip check OK");

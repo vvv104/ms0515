@@ -183,14 +183,21 @@ jobs:
       - name: Encoding check (Node)
         run: node src/web/encoding_check.mjs
 
+      # A start file (www/start.js) made under Node the way a tool makes one -
+      # the fixture booted, DIR typed, the moment kept - read back and left in
+      # dist/ for the browser check to open.
+      - name: Start file check (Node)
+        run: node src/web/start_check.mjs src/build/emscripten-release/web/dist
+
       # The page itself in the runner's Chrome (headless, DevTools protocol):
-      # boot, the date prompt answered, RT-11's text on the canvas.
+      # boot, the date prompt answered, RT-11's text on the canvas; then the
+      # page opened at the start file above, embedded.
       - name: Browser check (Chrome)
         run: |
           (cd src && python3 -m http.server 8515 > /dev/null 2>&1 &)
           google-chrome --headless=new --disable-gpu --no-sandbox --remote-debugging-port=9222             --user-data-dir=/tmp/chrome-profile about:blank > /dev/null 2>&1 &
           sleep 3
-          node src/web/browser_check.mjs "http://localhost:8515/build/emscripten-release/web/dist/?disks=/web/test-disks/" 9222
+          node src/web/browser_check.mjs "http://localhost:8515/build/emscripten-release/web/dist/?disks=/web/test-disks/" 9222 src/build/emscripten-release/web/dist/
 
       - uses: actions/upload-artifact@v4
         with:

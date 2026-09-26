@@ -52,6 +52,46 @@ export async function makeZipDeflated(entries) {
   return build(out);
 }
 
+// ── reading ────────────────────────────────────────────────────────────────
+// An archive read the way a reader reads it: the end record, the central
+// directory, each entry at the offset it names.  Stored and deflated
+// entries (the browser inflates; Node has the same DecompressionStream),
+// nothing else - a start file or a bug report is one of ours, or as plain
+// as one.  Returns [{ name, bytes }] in the directory's order; a bad CRC or
+// an unknown method throws with the entry's name.
+export async function readZip(zip) {
+  const u16 = (at) => zip[at] | (zip[at + 1] << 8);
+  const u32 = (at) => (zip[at] | (zip[at + 1] << 8) | (zip[at + 2] << 16) | (zip[at + 3] << 24)) >>> 0;
+  const dec = new TextDecoder();
+  let end = -1;
+  for (let at = zip.length - 22; at >= 0 && at >= zip.length - 22 - 65535; --at)
+    if (u32(at) === 0x06054B50) { end = at; break; }
+  if (end < 0) throw new Error("not a zip: no end record");
+  const count = u16(end + 10);
+  let at = u32(end + 16);
+  const out = [];
+  for (let i = 0; i < count; ++i) {
+    if (u32(at) !== 0x02014B50) throw new Error("zip: a central header is missing");
+    const method = u16(at + 10), crc = u32(at + 16), packedSize = u32(at + 20), size = u32(at + 24);
+    const nameLen = u16(at + 28), extraLen = u16(at + 30), commentLen = u16(at + 32);
+    const name = dec.decode(zip.subarray(at + 46, at + 46 + nameLen));
+    const local = u32(at + 42);
+    if (u32(local) !== 0x04034B50) throw new Error(`zip: ${name} has no local header`);
+    const data = local + 30 + u16(local + 26) + u16(local + 28);
+    const packed = zip.subarray(data, data + packedSize);
+    let bytes;
+    if (method === 0) bytes = packed;
+    else if (method === 8) {
+      const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    } else throw new Error(`zip: ${name} is compressed a way this reader does not know (${method})`);
+    if (bytes.length !== size || crc32(bytes) !== crc) throw new Error(`zip: ${name} does not read back whole`);
+    out.push({ name, bytes });
+    at += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
+
 // entries: [{ name, bytes, packed, method }] - `bytes` gives the CRC and
 // the uncompressed size, `packed` is what goes into the file.
 function build(entries) {

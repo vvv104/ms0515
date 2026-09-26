@@ -19,6 +19,7 @@ import { SoftKeyboard, isTouchDevice } from "./softkeys.js?v=@STAMP@";
 import { Commander } from "./fm.js?v=@STAMP@";
 import * as bugreport from "./bugreport.js?v=@STAMP@";
 import { DiskComposer } from "./wizard.js?v=@STAMP@";
+import { parseStart } from "./start.js?v=@STAMP@";
 
 // The floppy images offered: the software collection's released disks, as
 // its index.json lists them - title, media (a two-sided image takes both
@@ -87,10 +88,13 @@ let halted = false;                        // the CPU stopped on a HALT: the bug
 let joystick = null;                       // the MS7007-port joystick (joystick.js)
 let softkbd = null;                        // the OS's on-screen keyboard (softkeys.js)
 let commander = null;                      // the files of the mounted images (fm.js)
+const QUERY = new URLSearchParams(location.search);
+const EMBED = QUERY.get("embed") === "1";   // the screen alone: the page in somebody's frame
+let startFile = null;                      // ?start=URL: the moment the page opens at (start.js)
 const K = (name) => KEY_ID[name];
 
 function say(s) { status.textContent = s; }
-const fail = (e) => say("error: " + (e?.message ?? e));
+const fail = (e) => { say("error: " + (e?.message ?? e)); document.body.classList.add("failed"); };
 const hint = (s) => say("hint: " + s);
 
 async function fetchBytes(url) {
@@ -142,6 +146,7 @@ const staged = new Map();                          // FS path -> mtime at the la
 const pathOf = (name) => "/disks/" + name;
 
 function saveMounts() {
+  if (startFile) return;                   // a start visit leaves the remembered mounts alone
   localStorage.setItem("ms0515.mounts", JSON.stringify({ rom: $("rom").value, fd: slots.fd, hd: slots.hd }));
 }
 function loadMounts() {
@@ -332,6 +337,7 @@ function select(kind, value, onchange) {
   add("", "— empty —");
   if (kind === "fd")
     for (const d of DISKS) add(d.name, `${d.title} (${sidesLabel(d.sides)})`);
+  if (startFile) for (const name of startFile.disks.keys()) add(name, `${name} (from the start file)`);
   for (const [name, size] of own) {
     const floppy = size === SS_SIZE || size === DS_SIZE;
     if (floppy === (kind === "fd")) add(name, `${name} (${floppy ? sidesLabel(size / SS_SIZE) : fmtSize(size)}, local copy)`);
@@ -550,9 +556,45 @@ async function boot() {
   setHalted(false);
   saveMounts();
   const disk = slots.fd[unitOf(0, 0)];
-  if (!disk) hint("nothing in drive A: open its panel, pick an image, Reset");
+  if (startFile) await resumeStart();
+  else if (!disk) hint("nothing in drive A: open its panel, pick an image, Reset");
   else hint(SHIPPED.get(disk)?.hint || "the machine boots from drive A side 0");
   start();
+}
+
+// ── a start file: the machine at a chosen moment (start.js) ───────────────
+// `?start=URL` opens the page at it - a game just started, say.  The file
+// carries the snapshot, the images the drives held and the settings; the
+// images go into the module's file system under their names, straight
+// from the file (not into IndexedDB: a start is the same every time it is
+// opened, and what the guest writes stays with the visit), the ROM and the
+// settings are the page's for this visit and remembered by nobody, and
+// every boot - the first, a Reset - is the snapshot again.
+async function loadStart(url) {
+  say("loading the start file…");
+  const start = await parseStart(await fetchBytes(url));
+  M.FS.mkdirTree("/disks");
+  for (const [name, bytes] of start.disks) M.FS.writeFile(pathOf(name), bytes);
+  return start;
+}
+
+// The snapshot in, then the images by the drives start.json names: a
+// snapshot mounts by the paths of the machine it was taken on, which are
+// not this one's.
+async function resumeStart() {
+  M.FS.writeFile(STATE_PATH, startFile.state);
+  if (!api.load(h, STATE_PATH)) throw new Error("the start file's snapshot does not load on this ROM");
+  api.history(h, HISTORY_EVENTS);   // the state brought its own ring: ours again
+  for (let unit = 0; unit < 4; ++unit) {
+    const name = slots.fd[unit];
+    if (!name) continue;
+    const path = pathOf(name), drive = driveOf(unit);
+    const ok = ds[drive] ? api.mount(h, unitOf(drive, 0), path) && api.mount(h, unitOf(drive, 1), path)
+                         : api.mount(h, unit, path);
+    if (!ok) throw new Error(`${name}: mount after the snapshot failed`);
+  }
+  if (slots.hd && !api.mountHd(h, pathOf(slots.hd))) throw new Error(`${slots.hd}: mount after the snapshot failed`);
+  say(startFile.meta.title || "the start file's moment");
 }
 
 function start() {
@@ -784,6 +826,7 @@ function soundWish() {
   try { return { ...d, ...JSON.parse(localStorage.getItem(SOUND_KEY) ?? "{}") }; } catch { return d; }
 }
 function saveSound() {
+  if (startFile) return;                   // the file's choice, for this visit only
   localStorage.setItem(SOUND_KEY, JSON.stringify({
     on: !!audio, speaker: $("sndSpeaker").checked,
     drive: $("sndDrive").checked, kbd: $("sndKbd").checked }));
@@ -1058,6 +1101,11 @@ function bindApi() {
 }
 
 // The drives' panels: one open at a time; the ROM and the buttons.
+function setJoystick(on) {
+  joystick.enable(on);
+  $("joystick").textContent = on ? "Joystick: on" : "Joystick: off";
+}
+
 function bindControls() {
   const panels = [...document.querySelectorAll("details.dev")];
   for (const d of panels)
@@ -1087,10 +1135,7 @@ function bindControls() {
     });
   }
   joystick = new Joystick((bits) => { if (h) api.joystick(h, bits); }, $("joy"));
-  $("joystick").onclick = () => {
-    joystick.enable(!joystick.enabled);
-    $("joystick").textContent = joystick.enabled ? "Joystick: on" : "Joystick: off";
-  };
+  $("joystick").onclick = () => setJoystick(!joystick.enabled);
   $("boot").onclick = () => boot().catch(fail);
   $("sound").onclick = () => toggleSound().catch(fail);
   $("sndSpeaker").onchange = () => { soundBoxes(!!audio); saveSound(); };
@@ -1132,6 +1177,7 @@ function bindControls() {
 }
 
 async function main() {
+  if (EMBED) document.body.classList.add("embed");
   fit();
   window.addEventListener("resize", fit);
   M = await createMs0515({ locateFile: (f) => f + "?v=@STAMP@" });
@@ -1142,20 +1188,24 @@ async function main() {
   api.history(h, HISTORY_EVENTS);   // the machine's own trail, for a bug report
 
   await loadDiskList();
-  const m = loadMounts();
+  if (QUERY.get("start")) startFile = await loadStart(new URL(QUERY.get("start"), location.href));
+  const m = startFile ? { rom: startFile.meta.rom, fd: [...startFile.meta.disks.fd], hd: startFile.meta.disks.hd }
+                      : loadMounts();
   $("rom").value = m.rom;
   bindControls();
+  if (startFile) setJoystick(startFile.meta.joystick);   // the game's word: the arrows and Space are the port's
   renderDevices();
   // A remembered image that is neither offered any more nor the user's own
   // (the disks the site used to carry) gives way to the first one offered.
   const known = async (name) => SHIPPED.has(name) || own.has(name) || !!(await dbGet(name));
-  for (let unit = 0; unit < 4; ++unit)
+  if (!startFile) for (let unit = 0; unit < 4; ++unit)
     if (m.fd[unit] && !(await known(m.fd[unit]))) m.fd[unit] = unit === 0 ? DISKS[0]?.name ?? "" : "";
   for (let unit = 0; unit < 4; ++unit)
     if (m.fd[unit]) await mountFd(unit, m.fd[unit]).catch(fail);
   if (m.hd) await mountHd(m.hd).catch(fail);
 
   const wish = soundWish();
+  if (startFile) Object.assign(wish, startFile.meta.sound);   // the file's word on which sounds, the visitor's on whether
   $("sndSpeaker").checked = wish.speaker;
   $("sndDrive").checked = wish.drive;
   $("sndKbd").checked = wish.kbd;
@@ -1169,7 +1219,8 @@ async function main() {
   if (wish.on) toggleSound().catch((e) => say("no sound: " + e.message));
 
   say("ready");
-  const q = new URLSearchParams(location.search);
+  const q = QUERY;
+  if (startFile) setSpeed(startFile.meta.speed, false);
   if (q.get("speed")) setSpeed(q.get("speed"), false);   // `speed=200`: for this visit only
   if (q.get("autostart") !== "0") {
     autostart().then(() => {
@@ -1231,7 +1282,8 @@ window.__ms = () => {
            speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
            joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null,
            fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null,
-           halted };
+           halted, embed: EMBED,
+           start: startFile ? { title: startFile.meta.title, disks: [...startFile.disks.keys()] } : null };
 };
 window.__ms.type = (text) => typing.type(text);
 window.__ms.speed = (pct) => setSpeed(pct);   // the control, for scripted checks
