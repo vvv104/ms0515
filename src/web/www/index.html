@@ -344,8 +344,14 @@
   // a local build, a copy opened from disk and anybody's fork count nothing
   // and fetch nothing, because none of them is served from here.  A fork that
   // wants its own numbers puts its own host and its own site in.
+  //
+  // A page in somebody's frame (?start=...&embed=1) is a visit too: the
+  // script skips frames unless told otherwise, and the path it records
+  // keeps the query, so each start file - and, by the referrer, each site
+  // that embeds it - counts on its own.
   const COUNTER = location.hostname === "vvv104.github.io" ? "vvv104" : "";
   if (COUNTER && location.protocol !== "file:") {
+    window.goatcounter = { allow_frame: true };
     const count = document.createElement("script");
     count.async = true;
     count.dataset.goatcounter = `https://${COUNTER}.goatcounter.com/count`;
