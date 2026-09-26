@@ -30,16 +30,15 @@ UTILS = ["DIR.SAV", "DUP.SAV", "PIP.SAV", "DUMP.SAV",
          "FILEX.SAV", "MDUP.SAV", "TERMID.SAV", "MSCPCK.SAV"]
 # The ones any system runs, which the collection keeps once, each in the
 # folder of its kind under software/: the editors, the formatter, and what
-# programs are built with - the linker, the system libraries, the library
-# comparer; and, in a folder of their own, the patchers and the file
-# comparers.  MACRO is not here: DEC's V5.4 kit has no
-# source for it, and the collection has the kits' own.  The development
-# software lives outside the kit because every build in the collection goes
-# through it.
+# programs are built with - the linker and the system libraries; and, in a
+# folder of their own, the programmer's utilities: the patchers and the
+# comparers.  MACRO is not here: DEC's V5.4 kit has no source for it, and
+# the collection has the kits' own.  The development software lives outside
+# the kit because every build in the collection goes through it.
 EDITORS = ["EDIT.SAV", "K52.SAV"]
 FORMATTERS = ["FORMAT.SAV"]
-DEVEL = ["LINK.SAV", "SYSMAC.SML", "SYSLIB.OBJ", "LIBCOM.SAV"]
-PROGRAMMERS = ["SLP.SAV", "PAT.SAV", "SIPP.SAV", "STRIP.SAV", "SPLIT.SAV",
+DEVEL = ["LINK.SAV", "SYSMAC.SML", "SYSLIB.OBJ"]
+PROGRAMMERS = ["SLP.SAV", "PAT.SAV", "SIPP.SAV", "STRIP.SAV", "SPLIT.SAV", "LIBCOM.SAV",
                "SRCCOM.SAV", "BINCOM.SAV"]
 
 PLACES = {"kits/dec/handlers": HANDLERS,
