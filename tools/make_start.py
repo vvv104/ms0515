@@ -53,6 +53,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -136,7 +137,13 @@ def run_to_the_moment(card: dict, image: Path, workdir: Path, wait: float, keep:
         # terminal mirror does not show, so the moment is a count of
         # seconds from the Return, at the machine's own pace.
         emu.send(last + "\r")
-        time.sleep(wait)
+        # Not before the keys are in: the bridge types them at the machine's
+        # pace (after a pause for the guest to be ready), and a quit sent at
+        # once would take the line with it.  The echo says the text is typed
+        # - the mirror keeps no spaces, so they are not looked for - and the
+        # Return follows within a frame.
+        emu.expect(r"\s*".join(re.escape(ch) for ch in last if ch != " "), timeout=30)
+        time.sleep(0.3 + wait)
         emu.send(QUIT_HOTKEY)
         emu._proc.wait(timeout=30)       # noqa: SLF001 - the driver has no public waiter
     finally:
