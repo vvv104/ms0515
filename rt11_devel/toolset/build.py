@@ -31,7 +31,8 @@ Manifest schema (TOML)
     [build]
     libs     = ["EXTRA.OBJ"]        # optional, extra files staged + linked:
                                     # the project's own, else the collection's
-                                    # (kits/common/development)
+                                    # (software/development and its folders,
+                                    # kits/common/development)
     commands = ["MACRO {name}/LIST"]  # optional, overrides the language recipe
 
 Usage
@@ -173,9 +174,21 @@ class BuildPlan:
         files = [self.manifest_dir / s for s in self.sources]
         for lib in self.extra_libs:
             own = self.manifest_dir / lib
-            files.append(own if own.is_file()
-                         else decsys.collection() / "kits" / "common" / "development" / lib)
+            files.append(own if own.is_file() else collection_lib(lib))
         return files
+
+
+def collection_lib(name: str) -> Path:
+    """The collection's copy of a library to link against: the development
+    software's folders - DEC's system libraries, the linker and librarian
+    in the root, Pascal's and FORTRAN's in theirs, the kits' own system
+    libraries in fodos/."""
+    root = decsys.collection()
+    for folder in ("software/development", "software/development/pascal", "software/development/fortran",
+                   "software/development/fodos"):
+        if (root / folder / name).is_file():
+            return root / folder / name
+    return root / "software" / "development" / name      # a name it has not: reported as missing
 
 
 def load_manifest(path: Path) -> BuildPlan:
