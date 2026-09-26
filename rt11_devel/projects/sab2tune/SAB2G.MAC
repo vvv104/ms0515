@@ -1,0 +1,53 @@
+        .TITLE  SAB2G
+        .SBTTL  The tune inside the game
+;-----------------------------------------------------------------------
+; SAB2G.MAC - the blob source/pack.py appends to the game's body: the
+; engine with this wrapper round it, linked as SAB2G.SAV and taken out
+; of that file from 1000 to its high limit.  The game's loader loads
+; the whole file, so the blob lands right after the body, at 125000;
+; the game's start is patched to jump there, and the blob first copies
+; itself up to 140000 - RAM the game never touches (RT-11's monitor was
+; there) - and runs from there, where the second entry finds it later.
+; Everything is position-independent, so the copy just works.
+;
+; The head of the blob is the packer's interface (offsets it relies on):
+;    0  BR to the start entry: play until a key, then continue the game
+;    2  BR to the second entry: play once; if the tune ended by itself,
+;       wait for a key the game's own way; return (the game's JSR)
+;    4  CFWAIT  the game's wait-for-a-key
+;    6  CFCONT  where the game goes on after the start
+;   10  CFLEN   the blob's length in bytes
+; The packer fills the three words for each build of the game.
+;-----------------------------------------------------------------------
+        .GLOBL  TNPLAY
+
+HOME   = 140000
+
+BLOB:   BR      MOVEUP
+        BR      PLAYB
+CFWAIT: .WORD   0
+CFCONT: .WORD   0
+CFLEN:  .WORD   0
+
+; the start, at 125000: the blob goes up to HOME and continues there
+MOVEUP: MOV     PC,R0
+        ADD     #BLOB-.,R0
+        MOV     #HOME,R1
+        MOV     CFLEN,R2
+        ASR     R2
+1$:     MOV     (R0)+,(R1)+
+        SOB     R2,1$
+        MOV     #HOME+<STARTA-BLOB>,R0
+        JMP     (R0)
+
+STARTA: MOV     #1,R0           ; the tune, again and again, until a key
+        JSR     PC,TNPLAY
+        JMP     @CFCONT
+
+PLAYB:  CLR     R0              ; the tune once
+        JSR     PC,TNPLAY
+        TST     R0
+        BNE     1$              ; a key stopped it: that is the key
+        JSR     PC,@CFWAIT      ; it ended: the key the game waits for
+1$:     RTS     PC
+        .END

@@ -1,0 +1,14 @@
+[project]
+name      = "SABTUN"
+language  = "macro11"
+pre_build = "source/gen_data.py"          # SAB2DT.MAC and SAB2TN.REF from the tape
+sources   = ["SABTUN.MAC", "SAB2G.MAC", "SAB2TN.MAC", "SAB2DT.MAC"]
+outputs   = ["SABTUN.SAV", "SABTUN.MAP", "SAB2G.SAV", "SAB2G.MAP"]
+
+[build]
+commands  = ["MACRO SAB2TN",
+             "MACRO SAB2DT",
+             "MACRO SABTUN",
+             "MACRO SAB2G",
+             "LINK/MAP:SABTUN SABTUN,SAB2TN,SAB2DT",
+             "LINK/MAP:SAB2G SAB2G,SAB2TN,SAB2DT"]

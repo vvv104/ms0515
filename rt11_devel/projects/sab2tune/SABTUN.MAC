@@ -1,0 +1,13 @@
+        .TITLE  SABTUN
+        .SBTTL  The Saboteur II title tune from the RT-11 prompt
+;-----------------------------------------------------------------------
+; SABTUN.MAC - the tune as a program: R SABTUN plays it until a key is
+; pressed.  The engine is SAB2TN.MAC; this is the RT-11 side of it.
+;-----------------------------------------------------------------------
+        .MCALL  .EXIT
+        .GLOBL  TNPLAY
+
+START:  MOV     #1,R0           ; again and again, until a key
+        JSR     PC,TNPLAY
+        .EXIT
+        .END    START

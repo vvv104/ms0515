@@ -4,3 +4,4 @@
 # own tests/ directory and skips itself when its artifacts are not built.
 add_subdirectory(projects/fist/tests)
 add_subdirectory(projects/manicm/tests)
+add_subdirectory(projects/sab2tune/tests)

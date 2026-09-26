@@ -1,0 +1,703 @@
+        .TITLE  SAB2TN
+        .SBTTL  The Saboteur II title tune, as the 48K Spectrum played it
+;-----------------------------------------------------------------------
+; SAB2TN.MAC - the beeper engine of Saboteur II (Durell, 1987; the tune
+; is Rob Hubbard's) re-expressed for the MS-0515's one-bit speaker.
+;
+; The original lives at 0xfb00..0xffff of the 48K game: a score
+; interpreter, a software tone generator and a 50 Hz interrupt.  It is
+; self-modifying code - every parameter is an immediate patched in
+; place - so this is the same machine written with named variables; the
+; comments give the Spectrum address of each piece.  The behaviour was
+; pinned first by a Python model of the original that reproduces the
+; Spectrum's speaker output to the T-state (source/engine_model.py);
+; this file follows that model, and the tests compare its output with
+; the model's.
+;
+; What the engine does.  The score is a byte code: commands (bit 7 set)
+; and note records (a count, then that many pitch bytes).  A pitch byte
+; holds the semitone in bits 3-7 and a duration index in bits 0-2.  A
+; note is a square wave whose two halves are not equal: the half period
+; is the period plus a "duty" offset while the speaker is high and the
+; period minus it while low, and the offset drifts by one every so many
+; passes - the timbre.  The period itself moves every so many half
+; periods: vibrato bouncing between two limits round the note, or a
+; slide that stops at a target, by the instrument.  The interrupt counts
+; the note's frames, steps a 16-step drum pattern every fifth frame (a
+; drum is a burst of twenty clicks whose spacing is a run of ROM bytes),
+; and stops everything at a key.
+;
+; Timing.  The tone's pitch is the time the original's loops take, so
+; every path here is charged what the Spectrum's path cost, in T-states,
+; and the wait makes up the difference: WACC accumulates the half period
+; in units of 1/16 of a 30-clock turn (MOV R0,R0 / SOB - 14 T-states
+; exactly, since one T-state at 3.5 MHz is 15/7 clocks at 7.5 MHz).  A
+; branch adds its Spectrum cost less its own cost here, both known at
+; assembly time (the Z.. and P.. symbols below); the delay loop's 2048
+; T-states per H and 16 per L/2 come from a table.  The fraction left
+; after the whole turns carries over to the next half period.
+;
+; Interface (the wrapper links it; every routine is position-independent,
+; the blob can be copied anywhere):
+;   TNPLAY  play the tune: R0 = 1 to replay it until a key, 0 to play
+;           it once.  Returns R0 = 1 when a key stopped it, 0 at its end.
+;           Takes the frame interrupt (vector 100, dispatcher bit 9) and
+;           the speaker for the time it runs, and gives both back.
+; A key is looked for straight at the keyboard's USART (a code waiting
+; there ends the tune and is consumed), so no ROM routine is involved.
+; Data (SAB2DT.MAC, generated from the tape): TNDATA the original's
+; tables and score, TNQTAB the delay table, TNDRUM the drums' click
+; spacings (from the twenty ROM bytes the original reads).
+;-----------------------------------------------------------------------
+        .GLOBL  TNPLAY
+        .GLOBL  TNDATA,TNQTAB,TNDRUM
+        .GLOBL  PERIOD,DUTY,WACC,LEVEL,AALT,BALT,SPTR,STEP,LIMLO,LIMHI ; for the tests
+        .GLOBL  SHIFT,DMASK,SMASK,MODE,NOTEND,STOPF,PASS,SCNT,ECHO,JRALW
+
+; --- the machine ------------------------------------------------------
+SYSC   = 177604         ; system register C: bits 5-7 the speaker line
+KBDATA = 177440         ; the keyboard USART: a code, and its status -
+KBSTAT = 177442         ;   bit 1 = a code waiting
+RCSHAD = 157706         ; the ROM's copy of it (register C is write-only)
+DISPAT = 177400         ; the memory dispatcher: bit 9 = frame interrupt
+DSHAD  = 157700         ; the ROM's copy of it
+FRVEC  = 100            ; the frame interrupt's vector, 50 Hz
+SPKON  = 140            ; the Spectrum ports' "high": bits 5, 6, gate off
+SPKOFF = 200            ; and "low": the gate on, the line off
+SPKMSK = 340
+PRI5   = 240            ; the tone plays at priority 5: the frame
+PRI7   = 340            ;   interrupt (6) in, the keyboard (5) out
+
+; --- the original's data (TNDATA is 0xfe24 of the Spectrum) -----------
+ZBASE  = 177044         ; 0xfe24: the addresses in the score are these
+INSOFF = 24.            ; 0xfe3c: the instruments, 4 bytes each
+SCROFF = 234.           ; 0xff0e: the score
+DUROFF = 281.           ; 0xff3d: the durations, in frames, by index 0-7
+PRCOFF = 289.           ; 0xff45: the drum sequence: pattern, repeats
+
+; --- timing (see the header) ------------------------------------------
+; Each path of the tone loop is charged the Spectrum's cost in T-states
+; (the Z figure, from the original's instructions) less its own cost
+; here in clocks (the P figure, from the core's instruction times: the
+; fetch is 9, a register operand 0 (3 when written), an immediate 6, a
+; PC-relative operand 15 (21 written), a branch 12, SOB 18), both in
+; sixteenths of a 30-clock turn: T-states x 16/14, clocks x 16/30.
+; MACRO-11 evaluates left to right, hence the brackets.
+; the head of the tone loop (0xfc6e): the pass counter and the drift
+ZHEAD  = 53.            ; no drift this pass
+PHEAD  = 129.
+ZHEADD = 54.            ; INC DE / DEC DE
+PHEADD = 186.
+; the phase (0xfc7c)
+ZHI    = 139.           ; the high half: period + duty
+PHI    = 138.
+ZLO    = 144.           ; the low half: period - duty
+PLO    = 146.
+ZCLAMP = 145.           ; the duty caught up: 1, the drift reversed
+PCLAMP = 280.
+; the delay (0xfcb4): its head, the per-H turns, the wait's own code
+ZDLY   = 36.
+PDLY   = 378.
+ZPERH  = 2048.
+PPERH  = 54.
+; the toggle (0xfcc5), high or low
+ZTOG   = 38.
+PTOGH  = 204.
+PTOGL  = 186.
+; after the toggle (0xfcce): the step counter, then one of
+ZPAD   = 273.           ; no step: the JR, sixteen DJNZ turns, the JP
+PPADA  = 120.           ;   because the effect is delayed (JMP back: 21)
+PPADM  = 182.           ;   because the counter says so
+ZSLIDN = 268.           ; the step down, no limit
+ZSLIDP = 267.           ; the step up, no limit
+PSLID  = 359.
+ZLIMN  = 273.           ; the step down reached its limit, reversed
+PLIMN  = 438.
+ZLIMP  = 274.           ; the step up reached its limit, reversed
+PLIMP  = 444.
+ZSTOP  = 1.             ; stopped at the limit instead: one more T-state
+PSTOP  = 36.            ;   and CLR instead of NEG here
+UHEAD  = ZHEAD*16.+7./14. - <PHEAD*16.+15./30.>
+UHEADD = ZHEADD*16.+7./14. - <PHEADD*16.+15./30.>
+UHI    = ZHI*16.+7./14. - <PHI*16.+15./30.>
+ULO    = ZLO*16.+7./14. - <PLO*16.+15./30.>
+UCLAMP = ZCLAMP*16.+7./14. - <PCLAMP*16.+15./30.>
+UDLY   = ZDLY*16.+7./14. - <PDLY*16.+15./30.>
+UPERH  = ZPERH*8.+3./7. - <PPERH*16.+15./30.>   ; x16/14 would overflow
+UTOGH  = ZTOG*16.+7./14. - <PTOGH*16.+15./30.>
+UTOGL  = ZTOG*16.+7./14. - <PTOGL*16.+15./30.>
+UPADA  = ZPAD*16.+7./14. - <PPADA*16.+15./30.>
+UPADM  = ZPAD*16.+7./14. - <PPADM*16.+15./30.>
+USLIDN = ZSLIDN*16.+7./14. - <PSLID*16.+15./30.>
+USLIDP = ZSLIDP*16.+7./14. - <PSLID*16.+15./30.>
+ULIMN  = ZLIMN*16.+7./14. - <PLIMN*16.+15./30.>
+ULIMP  = ZLIMP*16.+7./14. - <PLIMP*16.+15./30.>
+USTOP  = ZSTOP*16.+7./14. - <PSTOP*16.+15./30.>
+
+; --- the state: the original's patched immediates -------------------
+; (words first, then bytes; the initial values are the code's)
+DOFF:   .WORD   0       ; TNDATA - ZBASE: score addresses to ours
+INSBAS: .WORD   0       ; TNDATA + INSOFF
+DURBAS: .WORD   0       ; TNDATA + DUROFF
+QBASE:  .WORD   0       ; TNQTAB
+DRMBAS: .WORD   0       ; TNDRUM
+ONWORD: .WORD   0       ; register C with the speaker high, and low
+OFWORD: .WORD   0
+SPTR:   .WORD   0       ; the score pointer (HL)
+RSP:    .WORD   0       ; the score's return stack
+RSTACK: .BLKW   8.
+INSTR:  .WORD   0       ; the instrument (0xfe06)
+RESUME: .WORD   0       ; the note record's next pitch byte (0xfb44)
+LIMLO:  .WORD   1130.   ; the period's limits (0xfcf2, 0xfce6)
+LIMHI:  .WORD   900.
+STEP:   .WORD   -1      ; the period's step (0xfcdc)
+PERIOD: .WORD   1000.   ; the period (0xfccf)
+DUTY:   .WORD   0       ; the duty offset (0xfc6f)
+DIRW:   .WORD   1       ; the drift: +1, -1 or 0 (0xfc7b as a word)
+PERCP:  .WORD   0       ; the drum pattern (0xfd58)
+PERCN:  .WORD   0       ; the next drum record (0xfd96)
+WACC:   .WORD   0       ; the wait accumulator
+FRSAVE: .BLKW   2       ; the vector, the priority and the speaker
+PSSAVE: .WORD   0       ;   as found
+RCSAVE: .WORD   0
+LOOPF:  .WORD   0       ; replay until a key
+TRANSP: .BYTE   0       ; the transposition (0xfdcf)
+MODE:   .BYTE   0       ; 0 plain, 1 vibrato, 2 slide (0xfbd8)
+SHIFT:  .BYTE   0       ; the duty offset's start: period >> (shift-1) (0xfc50)
+DMASK:  .BYTE   377     ; drift every (DMASK+1) passes (0xfc78)
+DIRI:   .BYTE   0       ; the drift a note starts with (0xfc69)
+LOOPC:  .BYTE   0       ; the score's loop counter (0xfb6c)
+NREP:   .BYTE   1       ; pitch bytes left in the record (0xfdbd)
+ATLIM:  .BYTE   0       ; at a limit: 24 reverse the step, 0 stop (0xfd0b)
+ECHO:   .BYTE   0       ; frames of the note after the effect starts (0xfda7)
+JRALW:  .BYTE   0       ; 1: no step yet, the effect is delayed (0xfcd9 = JR)
+SMASK:  .BYTE   0       ; step every (SMASK+1) half periods (0xfcd8)
+PASS:   .BYTE   0       ; the pass counter (0xfc72)
+LEVEL:  .BYTE   0       ; the speaker: 0 low, 20 high (0xfcc6)
+SCNT:   .BYTE   0       ; the step counter (0xfcd2)
+AALT:   .BYTE   0       ; frames left in the note (A')
+BALT:   .BYTE   0       ; frames to the next drum step (B')
+CALT:   .BYTE   0       ; the drum step (C')
+PERCC:  .BYTE   0       ; repeats left of the drum pattern (0xfd4d)
+NOTEND: .BYTE   0       ; the interrupt ended the note
+STOPF:  .BYTE   0       ; a key stopped the tune
+SYNCF:  .BYTE   0       ; a frame tick came
+        .EVEN
+
+; --- TNPLAY -------------------------------------------------------------
+TNPLAY: MOV     R1,-(SP)
+        MOV     R2,-(SP)
+        MOV     R3,-(SP)
+        MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        MOV     R0,LOOPF
+        MFPS    PSSAVE
+        MTPS    #PRI7
+        MOV     PC,R0           ; the tables, wherever this blob sits
+        ADD     #TNDATA-.,R0
+        MOV     R0,INSBAS
+        ADD     #INSOFF,INSBAS
+        MOV     R0,DURBAS
+        ADD     #DUROFF,DURBAS
+        SUB     #ZBASE,R0
+        MOV     R0,DOFF
+        MOV     PC,R0
+        ADD     #TNQTAB-.,R0
+        MOV     R0,QBASE
+        MOV     PC,R0
+        ADD     #TNDRUM-.,R0
+        MOV     R0,DRMBAS
+        MOV     @#FRVEC,FRSAVE  ; the frame interrupt is ours
+        MOV     @#FRVEC+2,FRSAVE+2
+        MOV     PC,R0
+        ADD     #FRISR-.,R0
+        MOV     R0,@#FRVEC
+        MOV     #PRI7,@#FRVEC+2
+        BIS     #1000,@#DSHAD
+        MOV     @#DSHAD,@#DISPAT
+        MOV     @#RCSHAD,RCSAVE ; the speaker's two states, the border
+        MOV     RCSAVE,R0       ;   and the rest of register C kept
+        BIC     #SPKMSK,R0
+        MOV     R0,ONWORD
+        BIS     #SPKON,ONWORD
+        MOV     R0,OFWORD
+        BIS     #SPKOFF,OFWORD
+        MOV     OFWORD,@#RCSHAD ; low to start with, the gate on
+        MOV     OFWORD,@#SYSC
+        CLRB    SYNCF           ; start right after a frame tick, so the
+        MTPS    #PRI5           ;   tune's phase in the frame is fixed
+3$:     TSTB    SYNCF           ;   (the tests count on it): the second
+        BEQ     3$              ;   tick, since a request may be pending
+        CLRB    SYNCF           ;   from before and come at once
+4$:     TSTB    SYNCF
+        BEQ     4$
+        MTPS    #PRI7
+1$:     JSR     PC,ENGINE       ; 0xfb10; R0 = 1 at a key
+        BNE     2$
+        TST     LOOPF           ; ended: again?
+        BNE     1$
+2$:     MOV     R0,-(SP)
+        MTPS    #PRI7
+        BIC     #1000,@#DSHAD   ; the frame interrupt off, the vector back
+        MOV     @#DSHAD,@#DISPAT
+        MOV     FRSAVE,@#FRVEC
+        MOV     FRSAVE+2,@#FRVEC+2
+        MOV     RCSAVE,@#RCSHAD ; the speaker as it was
+        MOV     @#RCSHAD,@#SYSC
+        MTPS    PSSAVE
+        MOV     (SP)+,R0
+        MOV     (SP)+,R5
+        MOV     (SP)+,R4
+        MOV     (SP)+,R3
+        MOV     (SP)+,R2
+        MOV     (SP)+,R1
+        RTS     PC
+
+; --- ENGINE: 0xfb10, one play of the score ------------------------------
+; Returns R0 = 1 when a key stopped it, 0 at the score's end.
+ENGINE: MOV     INSBAS,R3       ; the first drum record
+        ADD     #PRCOFF-INSOFF,R3
+        JSR     PC,PRCREC
+        MOVB    #4,BALT
+        CLRB    CALT
+        CLRB    STOPF
+        CLR     RSP
+        MOV     INSBAS,R3       ; the score follows the instruments
+        ADD     #SCROFF-INSOFF,R3
+        MOV     R3,SPTR
+; the interpreter, 0xfb46: R3 = the score pointer
+NEXTC:  MOVB    (R3)+,R0
+        BMI     CMD
+        MOVB    R0,NREP         ; a note record: R0 pitch bytes follow
+        JSR     PC,NOTE
+        TSTB    STOPF
+        BEQ     NEXTC
+        MOV     #1,R0
+        RTS     PC
+CMD:    BIC     #177600,R0
+        BNE     10$
+        CLR     R0              ; 0x80: the end
+        RTS     PC
+10$:    DEC     R0
+        BNE     20$
+        JSR     PC,GETW         ; 0x81: call a pattern
+        JSR     PC,RSTOP
+        MOV     R3,(R0)
+        ADD     #2,RSP
+        MOV     R2,R3
+        BR      NEXTC
+20$:    DEC     R0
+        BNE     30$
+        SUB     #2,RSP          ; 0x82: return
+        JSR     PC,RSTOP
+        MOV     (R0),R3
+        BR      NEXTC
+30$:    DEC     R0
+        BNE     40$
+        JSR     PC,GETW         ; 0x83: loop back n times (one counter
+        MOVB    (R3)+,R1        ;   for all loops, as the original's)
+        MOVB    LOOPC,R0
+        BIC     #177400,R0
+        BNE     31$
+        MOV     R1,R0           ; a fresh loop: the count
+        BIC     #177400,R0
+31$:    DEC     R0
+        BIC     #177400,R0
+        MOVB    R0,LOOPC
+        BEQ     NEXTC           ; done
+        MOV     R2,R3
+        BR      NEXTC
+40$:    DEC     R0
+        BNE     50$
+        MOVB    (R3)+,TRANSP    ; 0x84: transposition
+        BR      NEXTC
+50$:    DEC     R0
+        BNE     60$
+        MOV     #1,R1           ; 0x85: instrument, vibrato
+        BR      INSSET
+60$:    DEC     R0
+        BNE     70$
+        MOV     #2,R1           ; 0x86: instrument, slide
+        BR      INSSET
+70$:    MOVB    (R3)+,R0        ; 0x87 (and above): the duty's parameters
+        BIC     #177400,R0
+        ADD     INSBAS,R0
+        MOVB    (R0)+,SHIFT
+        MOVB    (R0)+,DMASK
+        MOVB    (R0),DIRI
+        BR      NEXTC
+INSSET: MOVB    (R3)+,R0
+        BIC     #177400,R0
+        BNE     1$
+        CLRB    MODE            ; instrument 0: plain notes
+        BR      NEXTC
+1$:     ADD     INSBAS,R0
+        MOV     R0,INSTR
+        MOVB    R1,MODE
+        BR      NEXTC
+
+; RSTOP: R0 = the score's return stack at its pointer (position-independent)
+RSTOP:  MOV     PC,R0
+        ADD     #RSTACK-.,R0
+        ADD     RSP,R0
+        RTS     PC
+
+; GETW: R2 = the little-endian word at (R3), R3 past it (any alignment)
+GETW:   MOVB    (R3)+,R2
+        BIC     #177400,R2
+        MOVB    (R3)+,R0
+        SWAB    R0
+        BIC     #377,R0
+        BIS     R0,R2
+        ADD     DOFF,R2         ; a score address, made ours
+        RTS     PC
+
+; PRCREC: the drum record at R3: the pattern and its repeats (0xfd98)
+PRCREC: JSR     PC,GETW
+        MOV     R2,PERCP
+        MOVB    (R3)+,PERCC
+        MOV     R3,PERCN
+        RTS     PC
+
+; --- NOTE: a record's pitch bytes, one after the other (0xfbc4) ---------
+; R3 = the score pointer.  Interrupts are held off between the notes,
+; as the original's are: a frame that falls there is lost.
+NOTE:   MOVB    (R3)+,R0        ; the pitch byte
+        MOV     R3,RESUME
+        BIC     #177400,R0
+        MOV     R0,R4           ; R4 = the pitch byte, kept
+        JSR     PC,PITCH        ; R2 = the period, R0 = the frames
+        BEQ     REST
+        MOVB    R0,AALT
+        JSR     PC,SETUP
+        MTPS    #PRI5
+        JSR     PC,TONE
+        MTPS    #PRI7
+        TSTB    STOPF
+        BNE     9$
+        MOV     RESUME,R3
+        DECB    NREP
+        BNE     NOTE
+9$:     RTS     PC
+REST:   MOVB    R0,AALT         ; a silent note (0xfd30): the frames pass
+        CLRB    NOTEND
+        MTPS    #PRI5
+1$:     TSTB    NOTEND
+        BEQ     1$
+        MTPS    #PRI7
+        TSTB    STOPF
+        BNE     2$
+        MOV     RESUME,R3
+        DECB    NREP
+        BNE     NOTE
+2$:     RTS     PC
+
+; PITCH: R0 = the pitch byte -> R2 = the period, R0 = the frames,
+; Z set for a rest (0xfdc8).  R4 is kept.
+PITCH:  MOV     R0,-(SP)
+        ASR     R0
+        ASR     R0
+        ASR     R0              ; the semitone, 0-31
+        MOVB    TRANSP,R1
+        BIC     #177400,R1
+        ADD     R1,R0
+        BIC     #177400,R0      ; an 8-bit sum
+        MOV     #-1,R1
+1$:     INC     R1              ; R1 = octaves, R0 = the note
+        SUB     #12.,R0
+        BCC     1$
+        ADD     #12.,R0
+        ASL     R0
+        MOV     PC,R2
+        ADD     #TNDATA-.,R2
+        ADD     R0,R2
+        MOV     (R2),R2         ; the table's period
+        TST     R1
+        BEQ     3$
+2$:     ASR     R2
+        SOB     R1,2$
+3$:     SUB     #70.,R2
+        MOV     (SP)+,R0
+        BIT     #370,R0         ; Z: no pitch, a rest
+        MOV     R0,-(SP)
+        BIC     #177770,R0
+        ADD     DURBAS,R0
+        MOVB    (R0),R0
+        BIC     #177400,R0
+        BIT     #370,(SP)+
+        RTS     PC
+
+; --- SETUP: the note's effects (0xfbd7..0xfc6d) -------------------------
+; R2 = the period.  Sets the limits and the step by the mode, splits the
+; note when the instrument delays the effect, starts the duty offset.
+SETUP:  MOV     R2,R5           ; R5 = the period
+        CLR     R1              ; R1 = the instrument's byte 2 address, or 0
+        MOVB    MODE,R0
+        BIT     #1,R0
+        BEQ     10$
+        MOVB    #24,ATLIM       ; vibrato: bounce between period +- byte 2
+        JSR     PC,INSRD
+        MOV     R5,LIMLO
+        SUB     R0,LIMLO
+        MOV     R5,LIMHI
+        ADD     R0,LIMHI
+        BR      30$
+10$:    BIT     #2,R0
+        BEQ     20$
+        CLRB    ATLIM           ; slide: stop at note 0x90's period
+        JSR     PC,INSRD
+        MOV     R4,-(SP)
+        MOV     R1,-(SP)
+        MOV     #220,R0
+        JSR     PC,PITCH
+        MOV     (SP)+,R1
+        MOV     (SP)+,R4
+        MOV     R2,LIMLO
+        MOV     R2,LIMHI
+        BR      30$
+20$:    MOV     R5,LIMLO        ; plain: no step at all
+        MOV     R5,LIMHI
+        CLR     STEP
+        CLRB    ATLIM
+30$:    TST     R1
+        BEQ     40$
+        MOVB    1(R1),R0        ; byte 3: the effect starts after so many
+        BIC     #177400,R0      ;   frames, if the note is longer
+        BEQ     40$
+        MOVB    AALT,R1
+        BIC     #177400,R1
+        CMP     R1,R0
+        BLOS    40$
+        SUB     R0,R1
+        MOVB    R1,ECHO
+        MOVB    R0,AALT
+        MOVB    #1,JRALW
+40$:    MOV     R5,PERIOD
+        CLR     R2              ; the duty offset (0xfc4c)
+        MOVB    SHIFT,R0
+        BIC     #177400,R0
+        BEQ     50$
+        MOV     R5,R2
+        SUB     #2,R2
+        DEC     R0
+        BEQ     50$
+45$:    ADD     #2,R2
+        ASR     R2
+        SOB     R0,45$
+50$:    MOV     R2,DUTY
+        MOVB    DIRI,R0         ; the drift: INC DE, DEC DE or nothing
+        JSR     PC,DIRSET
+        RTS     PC
+
+; INSRD: the instrument (0xfe04): SMASK = byte 0, STEP = byte 1 signed,
+; R0 = byte 2, R1 = its address
+INSRD:  MOV     INSTR,R1
+        MOVB    (R1)+,SMASK
+        MOVB    (R1)+,R0        ; sign-extended, as the original's (a
+        MOV     R0,STEP         ;   MOVB into memory would move a byte)
+        MOVB    (R1),R0
+        BIC     #177400,R0
+        RTS     PC
+
+; DIRSET: R0 = the drift opcode (023 INC DE, 033 DEC DE) -> DIRW
+DIRSET: MOV     #1,DIRW
+        CMPB    R0,#23
+        BEQ     1$
+        MOV     #-1,DIRW
+        CMPB    R0,#33
+        BEQ     1$
+        CLR     DIRW
+1$:     RTS     PC
+
+; --- TONE: the tone loop (0xfc6e), until the interrupt ends the note ----
+; R1 is the wait's turn counter and nothing else: the interrupt sets it
+; to 1 to cut the wait short when the note is over.
+TONE:   CLRB    NOTEND
+        CLR     WACC
+        MOV     #1,R1
+LOOP:   INCB    PASS            ; every DMASK+1 passes the duty drifts
+        MOVB    PASS,R0
+        BITB    DMASK,R0
+        BNE     1$
+        ADD     DIRW,DUTY
+        ADD     #UHEADD,WACC
+        BR      2$
+1$:     ADD     #UHEAD,WACC
+2$:     MOV     PERIOD,R2       ; the half period by the phase (0xfc7c)
+        TSTB    LEVEL
+        BEQ     3$
+        ADD     DUTY,R2         ; high: period + duty
+        ADD     #UHI,WACC
+        BR      5$
+3$:     SUB     DUTY,R2         ; low: period - duty
+        BGT     4$
+        MOV     #1,R2           ; the duty caught up: 1, and the drift
+        NEG     DIRW            ;   turns round, one step taken (0xfc92)
+        ADD     DIRW,DUTY
+        ADD     #UCLAMP,WACC
+        BR      5$
+4$:     ADD     #ULO,WACC
+5$:     MOV     R2,R0           ; the delay (0xfcb4): 2048 T-states an H
+        CLRB    R0
+        SWAB    R0
+        BEQ     7$
+6$:     ADD     #UPERH,WACC
+        SOB     R0,6$
+7$:     MOV     R2,R0           ; and 16 a half L, plus 32 - the table
+        BIC     #177401,R0
+        ADD     QBASE,R0
+        ADD     (R0),WACC
+        ADD     #UDLY,WACC
+        MOV     WACC,R1         ; the wait: whole turns, the rest kept
+        BIC     #17,R1
+        SUB     R1,WACC
+        ASR     R1
+        ASR     R1
+        ASR     R1
+        ASR     R1
+        TST     R1              ; (ASR leaves V = N xor C: TST for the branch)
+        BLE     9$
+8$:     MOV     R0,R0
+        SOB     R1,8$
+9$:     MOV     #1,R1
+        TSTB    NOTEND          ; the interrupt ended the note in the wait
+        BNE     TDONE
+        TSTB    LEVEL           ; the toggle (0xfcc5)
+        BNE     10$
+        MOVB    #20,LEVEL
+        MOV     ONWORD,@#RCSHAD
+        MOV     ONWORD,@#SYSC
+        ADD     #UTOGH,WACC
+        BR      11$
+10$:    CLRB    LEVEL
+        MOV     OFWORD,@#RCSHAD
+        MOV     OFWORD,@#SYSC
+        ADD     #UTOGL,WACC
+11$:    DECB    SCNT            ; then the step, every SMASK+1 half
+        TSTB    JRALW           ;   periods - or none while the effect
+        BEQ     12$             ;   is delayed (0xfcce)
+        ADD     #UPADA,WACC
+        BR      LOOP
+12$:    MOVB    SCNT,R0
+        BITB    SMASK,R0
+        BEQ     SLIDE
+        ADD     #UPADM,WACC
+        BR      LOOP
+TDONE:  RTS     PC
+
+; the step (0xfcdb): the period moves by STEP; at a limit it turns round
+; (vibrato) or stops (a slide)
+SLIDE:  MOV     PERIOD,R2
+        ADD     STEP,R2
+        TST     STEP
+        BMI     20$
+        CMP     R2,LIMHI        ; up: past the high limit?
+        BHI     25$
+        MOV     R2,PERIOD
+        ADD     #USLIDP,WACC
+        JMP     LOOP
+20$:    CMP     R2,LIMLO        ; down: below the low limit?
+        BLO     27$
+        MOV     R2,PERIOD
+        ADD     #USLIDN,WACC
+        JMP     LOOP
+25$:    MOV     LIMHI,PERIOD
+        ADD     #ULIMP,WACC
+        BR      28$
+27$:    MOV     LIMLO,PERIOD
+        ADD     #ULIMN,WACC
+28$:    TSTB    ATLIM
+        BEQ     29$
+        NEG     STEP
+        JMP     LOOP
+29$:    CLR     STEP
+        ADD     #USTOP,WACC
+        JMP     LOOP
+
+; --- FRISR: the frame interrupt, 50 Hz (0xfd34) --------------------------
+; Counts the note down; every fifth frame looks for a key and steps the
+; drum pattern.  Only R0 is saved on the quick path.
+FRISR:  MOV     R0,-(SP)
+        MOVB    #1,SYNCF
+        DECB    BALT
+        BNE     50$
+        MOV     R1,-(SP)        ; the fifth frame (0xfd38)
+        MOV     R2,-(SP)
+        MOV     R3,-(SP)
+        MOV     R4,-(SP)
+        MOV     R5,-(SP)
+        BIT     #2,@#KBSTAT     ; a key stops the tune: its code is taken
+        BEQ     10$
+        MOVB    @#KBDATA,R0
+        MOVB    #1,STOPF
+        MOVB    #1,NOTEND
+        BR      45$
+10$:    BIS     #1000,@#DSHAD   ; the frame interrupt stays on, whatever
+        MOV     @#DSHAD,@#DISPAT ;  the ROM's key reader did to the copy
+        INCB    CALT            ; the drum step; a pattern is 16 of them,
+        CMPB    CALT,#16.       ;   played PERCC times (0xfd46)
+        BNE     20$
+        DECB    PERCC
+        BNE     15$
+        MOV     PERCN,R3
+        JSR     PC,PRCREC
+15$:    CLRB    CALT
+20$:    MOVB    CALT,R0
+        BIC     #177400,R0
+        ADD     PERCP,R0
+        MOVB    (R0),R0         ; the drum at this step, 0 for none
+        BIC     #177400,R0
+        BEQ     40$
+        JSR     PC,DRUM
+40$:    MOVB    #5,BALT
+45$:    MOV     (SP)+,R5
+        MOV     (SP)+,R4
+        MOV     (SP)+,R3
+        MOV     (SP)+,R2
+        MOV     (SP)+,R1
+        TSTB    NOTEND
+        BNE     55$
+50$:    DECB    AALT            ; the note's frames (0xfd8e)
+        BNE     90$
+        TSTB    ECHO
+        BEQ     55$
+        MOVB    ECHO,AALT       ; the effect starts: the rest of the
+        CLRB    ECHO            ;   note with the step on (0xfdab)
+        CLRB    JRALW
+        BR      90$
+55$:    MOVB    #1,NOTEND       ; the note is over (0xfdb8): the wait
+        MOV     #1,R1           ;   ends at its next turn
+90$:    MOV     (SP)+,R0
+        RTI
+
+; DRUM: R0 = the drum, 1-5: twenty clicks, high first, spaced by the
+; table for that drum (0xfd60).  The speaker ends where the last click
+; left it, as the original's does.
+DRUM:   DEC     R0
+        MOV     R0,R1
+        ASL     R0
+        ASL     R0
+        ASL     R0              ; 8 per drum
+        ASL     R1
+        ASL     R1
+        ASL     R1
+        ASL     R1
+        ASL     R1              ; + 32 = 40 bytes: 20 words a drum
+        ADD     R1,R0
+        ADD     DRMBAS,R0
+        MOV     R0,R3
+        MOV     ONWORD,R4       ; R4 the next click's level, R5 the other
+        MOV     OFWORD,R5
+        MOV     #20.,R2
+1$:     MOV     (R3)+,R1        ; the click's spacing, in 30-clock turns
+        BLE     3$
+2$:     MOV     R0,R0
+        SOB     R1,2$
+3$:     MOV     R4,@#SYSC
+        MOV     R4,R1
+        MOV     R5,R4
+        MOV     R1,R5
+        SOB     R2,1$
+        MOV     R5,@#RCSHAD     ; the level the last click set
+        RTS     PC
+        .END

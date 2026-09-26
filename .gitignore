@@ -77,3 +77,8 @@ fp-info-cache
 
 # what src/web/browser_check.mjs leaves behind when it runs
 browser_check.png
+rt11_devel/projects/sab2tune/*.SAV
+rt11_devel/projects/sab2tune/*.MAP
+rt11_devel/projects/sab2tune/SAB2DT.MAC
+rt11_devel/projects/sab2tune/SAB2TN.REF
+rt11_devel/projects/sab2tune/source/__pycache__/
