@@ -14,7 +14,7 @@ name   = "sabot2.dsk"
 [run]
 script = ["R SABOT2"]
 settle = 2.0
-wait   = 1.0            # the start: the Return just taken, the loading itself
+wait   = 2.0            # the start: the loading screen just up
 screen = 4.0            # the picture: the loading screen, 1.5 s to 8.5 s
 
 [sound]
