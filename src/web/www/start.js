@@ -5,7 +5,8 @@
 //
 //   start.json      what it is (title), the ROM it runs on ("a" / "b"),
 //                   the images by drive, the settings the page applies
-//                   (which sounds, the speed), and how it was made
+//                   (which sounds, the joystick, the speed), and how it
+//                   was made
 //   state.ms0515    the snapshot (ms_save_state) of that moment
 //   disks/<name>    the images the drives held - the guest may write them
 //                   (a game keeps its scores), so they travel with the file
@@ -43,7 +44,8 @@ export async function parseStart(bytes) {
   }
   return {
     meta: { ...meta, disks: { fd: [0, 1, 2, 3].map((u) => fd[u] ?? ""), hd },
-            sound: { ...DEFAULT_SOUND, ...(meta.sound ?? {}) }, speed: meta.speed ?? 100 },
+            sound: { ...DEFAULT_SOUND, ...(meta.sound ?? {}) }, joystick: !!meta.joystick,
+            speed: meta.speed ?? 100 },
     state: files.get(STATE), disks, screen: files.get(SCREEN) ?? null,
   };
 }

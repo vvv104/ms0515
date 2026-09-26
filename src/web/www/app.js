@@ -1101,6 +1101,11 @@ function bindApi() {
 }
 
 // The drives' panels: one open at a time; the ROM and the buttons.
+function setJoystick(on) {
+  joystick.enable(on);
+  $("joystick").textContent = on ? "Joystick: on" : "Joystick: off";
+}
+
 function bindControls() {
   const panels = [...document.querySelectorAll("details.dev")];
   for (const d of panels)
@@ -1130,10 +1135,7 @@ function bindControls() {
     });
   }
   joystick = new Joystick((bits) => { if (h) api.joystick(h, bits); }, $("joy"));
-  $("joystick").onclick = () => {
-    joystick.enable(!joystick.enabled);
-    $("joystick").textContent = joystick.enabled ? "Joystick: on" : "Joystick: off";
-  };
+  $("joystick").onclick = () => setJoystick(!joystick.enabled);
   $("boot").onclick = () => boot().catch(fail);
   $("sound").onclick = () => toggleSound().catch(fail);
   $("sndSpeaker").onchange = () => { soundBoxes(!!audio); saveSound(); };
@@ -1191,6 +1193,7 @@ async function main() {
                       : loadMounts();
   $("rom").value = m.rom;
   bindControls();
+  if (startFile) setJoystick(startFile.meta.joystick);   // the game's word: the arrows and Space are the port's
   renderDevices();
   // A remembered image that is neither offered any more nor the user's own
   // (the disks the site used to carry) gives way to the first one offered.

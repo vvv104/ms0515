@@ -1,8 +1,9 @@
 # Saboteur II at its loading screen: the OSA system with the game alone on
 # the diskette, R SABOT2 typed, the loader through - tools/make_start.py
 # turns this into sabot2.zip beside it (see ../README.md, "Start files").
-title = "Saboteur II - the moment after R SABOT2"
+title = "Saboteur II"
 rom   = "a"
+joystick = true         # J in the game's menu takes the Kempston port
 
 [disk]
 system = "osa"

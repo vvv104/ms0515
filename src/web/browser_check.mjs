@@ -358,6 +358,7 @@ await evaluate('document.getElementById("files").click()');
     throw new Error("the start file's image is not in drive A: " + JSON.stringify(at.mounts));
   if (await evaluate('document.getElementById("rom").value') !== "a")
     throw new Error("the start file's ROM (a) was not taken over the remembered one");
+  if (!at.joystick?.on) throw new Error("the start file's joystick is not on");
   if (at.frames > 200) throw new Error(`the machine booted (${at.frames} frames) instead of resuming`);
   // The machine goes on from there: the keys reach it (a run of Returns
   // scrolls the listing off, leaving the prompts' dots), and the disk

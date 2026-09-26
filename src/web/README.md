@@ -240,7 +240,7 @@ the moment the game begins:
 
 ```
 start.json      title, rom ("a" / "b"), disks { fd: [A0, A1, B0, B1], hd },
-                sound { speaker, drive, kbd }, speed, made { by, command }
+                sound { speaker, drive, kbd }, joystick, speed, made { by, command }
 state.ms0515    the snapshot of that moment (ms_save_state)
 disks/<name>    the images the drives held - a game that keeps its scores
                 writes to its disk, so the disk travels with the file
@@ -248,8 +248,8 @@ screen.png      the picture at that moment (a preview; the page does not read it
 ```
 
 `?start=URL` opens the page at it: the images go into the module's file
-system straight from the file, the ROM, the sounds and the speed are the
-file's for the visit (remembered by nobody - the page's own mounts and
+system straight from the file, the ROM, the sounds, the joystick and the
+speed are the file's for the visit (remembered by nobody - the page's own mounts and
 settings stay as they were), the snapshot is loaded and the images mounted
 over its paths (a snapshot names the paths of the machine it was taken on),
 and every Reset is that moment again.  `embed=1` shows the screen alone,

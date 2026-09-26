@@ -7,6 +7,8 @@ that moment is - a TOML file:
 
     title = "Saboteur II"                 # what the page says
     rom   = "a"                           # "a" (default) or "b"
+    joystick = true                       # the page's joystick on: the arrows, Space
+                                          # and the touch stick drive the MS7007 port
 
     [disk]                                # drive A, side 0
     system = "osa"                        # composed from the software collection
@@ -143,6 +145,7 @@ def pack(card: dict, card_path: Path, image: Path, workdir: Path, out: Path) -> 
         "rom": card.get("rom", "a"),
         "disks": {"fd": [image.name, "", "", ""], "hd": ""},
         "sound": sound,
+        "joystick": bool(card.get("joystick", False)),
         "speed": int((card.get("sound") or {}).get("speed", 100)),
         "made": {"by": "tools/make_start.py", "card": card_path.name,
                  "command": " / ".join(card["run"]["script"]),

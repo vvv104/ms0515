@@ -95,7 +95,7 @@ api.save(h, "/start.state") || fail("save state failed");
 const meta = {
   title: "the test disk after DIR", rom: "a",
   disks: { fd: [name, "", "", ""], hd: "" },
-  sound: { speaker: true, drive: false, kbd: false }, speed: 100,
+  sound: { speaker: true, drive: false, kbd: false }, joystick: true, speed: 100,
   made: { by: "start_check.mjs", command: "DIR" },
 };
 const zip = await buildStart({ meta, state: M.FS.readFile("/start.state"), disks: new Map([[name, M.FS.readFile("/disks/" + name)]]) });
@@ -105,6 +105,7 @@ const zip = await buildStart({ meta, state: M.FS.readFile("/start.state"), disks
 const start = await parseStart(zip);
 start.meta.title === meta.title || fail("the title did not survive");
 start.meta.disks.fd[0] === name || fail("drive A is not named");
+start.meta.joystick === true || fail("the joystick setting did not survive");
 start.disks.get(name)?.length === 409600 || fail("the image did not survive");
 start.state.length > 100000 || fail(`the snapshot is ${start.state.length} bytes`);
 const h2 = api.create();
