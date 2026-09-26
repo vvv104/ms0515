@@ -180,12 +180,12 @@ class BuildPlan:
 
 def collection_lib(name: str) -> Path:
     """The collection's copy of a library to link against: the development
-    software's folders (the linker and librarian in the root, Pascal's and
-    FORTRAN's in theirs), then the kits' common development folder, where
-    the system library of the kits stays."""
+    software's folders - DEC's system libraries, the linker and librarian
+    in the root, Pascal's and FORTRAN's in theirs, the kits' own system
+    libraries in fodos/."""
     root = decsys.collection()
     for folder in ("software/development", "software/development/pascal", "software/development/fortran",
-                   "kits/common/development"):
+                   "software/development/fodos"):
         if (root / folder / name).is_file():
             return root / folder / name
     return root / "software" / "development" / name      # a name it has not: reported as missing

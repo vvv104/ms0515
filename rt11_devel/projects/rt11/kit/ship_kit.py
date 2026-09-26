@@ -34,17 +34,15 @@ UTILS = ["DIR.SAV", "DUP.SAV", "PIP.SAV", "DUMP.SAV",
 COMMON = ["EDIT.SAV", "K52.SAV", "FORMAT.SAV",
           "SLP.SAV", "PAT.SAV", "SIPP.SAV", "STRIP.SAV", "SPLIT.SAV"]
 # What programs are built with.  MACRO is not here: DEC's V5.4 kit has no
-# source for it, and the collection has the kits' own.  LINK is the one
-# every build in the collection goes through, so it lives with the
-# development software rather than in the kit.
-DEVEL = ["SYSMAC.SML", "SYSLIB.OBJ", "LIBCOM.SAV"]
-LINKER = ["LINK.SAV"]
+# source for it, and the collection has the kits' own.  These live with
+# the development software rather than in the kit: every build in the
+# collection goes through them.
+DEVEL = ["LINK.SAV", "SYSMAC.SML", "SYSLIB.OBJ", "LIBCOM.SAV"]
 
 PLACES = {"kits/dec/handlers": HANDLERS,
           "kits/dec/utils": UTILS,
           "kits/common/utils": COMMON,
-          "kits/dec/development": DEVEL,
-          "software/development": LINKER}
+          "software/development": DEVEL}
 
 
 def main() -> int:
