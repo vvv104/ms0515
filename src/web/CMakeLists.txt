@@ -46,7 +46,7 @@ foreach(f index.html app.js)
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/stamp.cmake"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${CMAKE_CURRENT_SOURCE_DIR}/stamp.cmake")
 endforeach()
-foreach(f keys.js joystick.js softkeys.js fm.js edit.js diff.js zip.js bugreport.js audio-worklet.js wizard.js)
+foreach(f keys.js joystick.js softkeys.js fm.js edit.js diff.js zip.js bugreport.js audio-worklet.js wizard.js start.js embed.html)
     list(APPEND WEB_COPIES "${WEB_DIST}/${f}")
     add_custom_command(OUTPUT "${WEB_DIST}/${f}"
         COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/www/${f}" "${WEB_DIST}/${f}"
@@ -73,6 +73,16 @@ foreach(f ${WEB_SOUND_FILES})
     add_custom_command(OUTPUT "${WEB_DIST}/sounds/${f}"
         COMMAND ${CMAKE_COMMAND} -E copy "${WEB_ASSETS_DIR}/sounds/${f}" "${WEB_DIST}/sounds/${f}"
         DEPENDS "${WEB_ASSETS_DIR}/sounds/${f}")
+endforeach()
+
+# The start files (starts/*.zip, made by tools/make_start.py): a game at the
+# moment it begins, opened by ?start= - see README.md, "Start files".
+file(GLOB WEB_START_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/starts" "${CMAKE_CURRENT_SOURCE_DIR}/starts/*.zip")
+foreach(f ${WEB_START_FILES})
+    list(APPEND WEB_COPIES "${WEB_DIST}/starts/${f}")
+    add_custom_command(OUTPUT "${WEB_DIST}/starts/${f}"
+        COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/starts/${f}" "${WEB_DIST}/starts/${f}"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/starts/${f}")
 endforeach()
 
 add_custom_target(ms0515_web_dist ALL DEPENDS ms0515_web ${WEB_COPIES})
