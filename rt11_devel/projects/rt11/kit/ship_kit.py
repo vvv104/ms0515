@@ -29,21 +29,20 @@ UTILS = ["DIR.SAV", "DUP.SAV", "PIP.SAV", "DUMP.SAV",
          "DATIME.SAV", "UCL.SAV", "LET.SAV",
          "BATCH.SAV", "QUEMAN.SAV", "QUEUE.REL", "SPOOL.REL", "IND.SAV",
          "FILEX.SAV", "MDUP.SAV", "TERMID.SAV", "MSCPCK.SAV"]
-# The ones any system runs, which the collection keeps once, with the
-# kits' common utilities: the patchers; and the editors and the formatter,
-# which have a folder of their own.
-COMMON = ["SLP.SAV", "PAT.SAV", "SIPP.SAV", "STRIP.SAV", "SPLIT.SAV"]
+# The ones any system runs, which the collection keeps once, each in the
+# folder of its kind under software/: the editors, the formatter, and what
+# programs are built with - the linker, the system libraries, the library
+# comparer and the patchers.  MACRO is not here: DEC's V5.4 kit has no
+# source for it, and the collection has the kits' own.  The development
+# software lives outside the kit because every build in the collection goes
+# through it.
 EDITORS = ["EDIT.SAV", "K52.SAV"]
 FORMATTERS = ["FORMAT.SAV"]
-# What programs are built with.  MACRO is not here: DEC's V5.4 kit has no
-# source for it, and the collection has the kits' own.  These live with
-# the development software rather than in the kit: every build in the
-# collection goes through them.
-DEVEL = ["LINK.SAV", "SYSMAC.SML", "SYSLIB.OBJ", "LIBCOM.SAV"]
+DEVEL = ["LINK.SAV", "SYSMAC.SML", "SYSLIB.OBJ", "LIBCOM.SAV",
+         "SLP.SAV", "PAT.SAV", "SIPP.SAV", "STRIP.SAV", "SPLIT.SAV"]
 
 PLACES = {"kits/dec/handlers": HANDLERS,
           "kits/dec/utils": UTILS,
-          "kits/common/utils": COMMON,
           "software/editors": EDITORS,
           "software/format": FORMATTERS,
           "software/development": DEVEL}
