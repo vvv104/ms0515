@@ -22,6 +22,7 @@ that moment is - a TOML file:
     settle = 2.0                          # seconds of a still screen between the lines
     wait   = 10.0                         # seconds from the last line's Return, at the
                                           # machine's pace, to the moment that is kept
+                                          # (1 at least: the Return must be in)
     screen = 4.0                          # the picture's second, when it is not the
                                           # snapshot's (a loading screen before the menu)
 
@@ -84,8 +85,12 @@ def load_card(path: Path) -> dict:
     disk = card.get("disk") or {}
     if bool(disk.get("image")) == bool(disk.get("system")):
         raise SystemExit(f"{path}: [disk] names either an image or a system to compose")
-    if not (card.get("run") or {}).get("script"):
+    run = card.get("run") or {}
+    if not run.get("script"):
         raise SystemExit(f"{path}: [run] script is empty - nothing to start")
+    for key in ("wait", "screen"):
+        if key in run and float(run[key]) < 1.0:
+            raise SystemExit(f"{path}: [run] {key} is at least 1 s - the Return takes a moment to be typed")
     return card
 
 
@@ -141,9 +146,10 @@ def run_to_the_moment(card: dict, image: Path, workdir: Path, wait: float, keep:
         # pace (after a pause for the guest to be ready), and a quit sent at
         # once would take the line with it.  The echo says the text is typed
         # - the mirror keeps no spaces, so they are not looked for - and the
-        # Return follows within a frame.
+        # Return follows within a frame; `wait` is at least a second, so it
+        # is in before the quit.
         emu.expect(r"\s*".join(re.escape(ch) for ch in last if ch != " "), timeout=30)
-        time.sleep(0.3 + wait)
+        time.sleep(wait)
         emu.send(QUIT_HOTKEY)
         emu._proc.wait(timeout=30)       # noqa: SLF001 - the driver has no public waiter
     finally:
