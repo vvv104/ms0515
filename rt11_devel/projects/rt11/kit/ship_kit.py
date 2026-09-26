@@ -24,7 +24,6 @@ HANDLERS = ["DZ.SYS", "DV.SYS", "MZ.SYS", "TT.SYS", "VM.SYS", "EX.SYS",
             "SP.SYS", "BA.SYS"]
 # The utilities of a working system.
 UTILS = ["DIR.SAV", "DUP.SAV", "PIP.SAV", "DUMP.SAV",
-         "SRCCOM.SAV", "BINCOM.SAV",
          "HELP.SAV", "HELP.MLB", "RESORC.SAV",
          "DATIME.SAV", "UCL.SAV", "LET.SAV",
          "BATCH.SAV", "QUEMAN.SAV", "QUEUE.REL", "SPOOL.REL", "IND.SAV",
@@ -32,14 +31,15 @@ UTILS = ["DIR.SAV", "DUP.SAV", "PIP.SAV", "DUMP.SAV",
 # The ones any system runs, which the collection keeps once, each in the
 # folder of its kind under software/: the editors, the formatter, and what
 # programs are built with - the linker, the system libraries, the library
-# comparer and the patchers.  MACRO is not here: DEC's V5.4 kit has no
+# comparer, the patchers and the file comparers.  MACRO is not here: DEC's V5.4 kit has no
 # source for it, and the collection has the kits' own.  The development
 # software lives outside the kit because every build in the collection goes
 # through it.
 EDITORS = ["EDIT.SAV", "K52.SAV"]
 FORMATTERS = ["FORMAT.SAV"]
 DEVEL = ["LINK.SAV", "SYSMAC.SML", "SYSLIB.OBJ", "LIBCOM.SAV",
-         "SLP.SAV", "PAT.SAV", "SIPP.SAV", "STRIP.SAV", "SPLIT.SAV"]
+         "SLP.SAV", "PAT.SAV", "SIPP.SAV", "STRIP.SAV", "SPLIT.SAV",
+         "SRCCOM.SAV", "BINCOM.SAV"]
 
 PLACES = {"kits/dec/handlers": HANDLERS,
           "kits/dec/utils": UTILS,
