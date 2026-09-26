@@ -20,8 +20,10 @@ that moment is - a TOML file:
     [run]
     script = ["R SABOT2"]                 # typed after the boot, one line at a time
     settle = 2.0                          # seconds of a still screen between the lines
-    wait   = 4.0                          # seconds from the last line's Return, at the
+    wait   = 10.0                         # seconds from the last line's Return, at the
                                           # machine's pace, to the moment that is kept
+    screen = 4.0                          # the picture's second, when it is not the
+                                          # snapshot's (a loading screen before the menu)
 
     [sound]                               # what the page turns on; a game start
     speaker = true                        # wants the speaker and nothing else
@@ -34,7 +36,10 @@ pace with the terminal mirrored to stdio, the startup questions are
 answered, the script typed, and the CLI's quit key makes it save the
 snapshot and the screen on the way out; the parts are packed as start.js
 reads them.  The snapshot is taken in a scratch directory by the image's
-bare name, so that no path of this machine goes into the file.
+bare name, so that no path of this machine goes into the file.  A card
+whose `screen` is not its `wait` gets its picture from a second run of
+the same script, quit at that second instead - a separate boot, so the
+picture is of about that moment, not of the frame.
 
     python tools/make_start.py src/web/starts/sabot2.toml [-o sabot2.zip]
 
@@ -106,14 +111,18 @@ def make_disk(card: dict, card_path: Path, workdir: Path) -> Path:
     return out
 
 
-def run_to_the_moment(card: dict, image: Path, workdir: Path) -> None:
-    """Boot, type the script, keep the moment: state.ms0515 and screen.png
-    in the scratch directory."""
+def run_to_the_moment(card: dict, image: Path, workdir: Path, wait: float, keep: tuple[str, ...]) -> None:
+    """Boot, type the script, quit `wait` seconds after the last line: the
+    CLI leaves what `keep` names (state.ms0515, screen.png) in the scratch
+    directory on the way out."""
     run = card["run"]
     cmd = [str(CLI), "--no-config", "--disk0-side0", image.name, "--realtime", "--frames", "6000000",
            "--drive-sounds", "off", "--keyboard-sounds", "off",
-           "--save-state", "state.ms0515", "--screenshot", "screen.png",
            "--rom", str(PACKAGE / "assets" / "rom" / ROMS[card.get("rom", "a")])]
+    if "state.ms0515" in keep:
+        cmd += ["--save-state", "state.ms0515"]
+    if "screen.png" in keep:
+        cmd += ["--screenshot", "screen.png"]
     emu = EmulatorDriver(cmd, cwd=workdir, encoding="utf-8")
     emu.start()
     try:
@@ -127,14 +136,31 @@ def run_to_the_moment(card: dict, image: Path, workdir: Path) -> None:
         # terminal mirror does not show, so the moment is a count of
         # seconds from the Return, at the machine's own pace.
         emu.send(last + "\r")
-        time.sleep(float(run.get("wait", 6.0)))
+        time.sleep(wait)
         emu.send(QUIT_HOTKEY)
         emu._proc.wait(timeout=30)       # noqa: SLF001 - the driver has no public waiter
     finally:
         emu.kill()
-    for part in ("state.ms0515", "screen.png"):
+    for part in keep:
         if not (workdir / part).exists():
             raise SystemExit(f"the CLI left no {part}: did the guest take the quit key?")
+
+
+def keep_the_moments(card: dict, image: Path, workdir: Path) -> None:
+    """The snapshot at `wait`; the picture with it, or from a run of its
+    own at `screen` (on a copy of the pristine image, in a directory of
+    its own, so that the snapshot's disk is untouched)."""
+    run = card["run"]
+    wait, screen = float(run.get("wait", 6.0)), run.get("screen")
+    if screen is None or float(screen) == wait:
+        run_to_the_moment(card, image, workdir, wait, ("state.ms0515", "screen.png"))
+        return
+    shot = workdir / "shot"
+    shot.mkdir()
+    shutil.copyfile(image, shot / image.name)
+    run_to_the_moment(card, shot / image.name, shot, float(screen), ("screen.png",))
+    run_to_the_moment(card, image, workdir, wait, ("state.ms0515",))
+    shutil.move(shot / "screen.png", workdir / "screen.png")
 
 
 def pack(card: dict, card_path: Path, image: Path, workdir: Path, out: Path) -> None:
@@ -171,10 +197,12 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="ms0515-start-") as tmp:
         workdir = Path(tmp)
         image = make_disk(card, args.card.resolve(), workdir)
-        run_to_the_moment(card, image, workdir)
+        keep_the_moments(card, image, workdir)
         pack(card, args.card, image, workdir, out)
+    run = card["run"]
     print(f"{out}: {out.stat().st_size} bytes - {card['title']}, {image.name}, "
-          f"after {' / '.join(card['run']['script'])}")
+          f"{run.get('wait', 6.0)} s after {' / '.join(run['script'])}"
+          + (f", the picture at {run['screen']} s" if run.get("screen") is not None else ""))
     return 0
 
 
