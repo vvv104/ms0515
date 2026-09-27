@@ -47,7 +47,7 @@ and `numpy`; the scans themselves stay outside the repository).
 
 Checked with KiCad 10.0.5 (`kicad-cli`): the file loads, ERC reports **no
 errors**, and the netlist KiCad derives from the drawing is identical to the
-CSV — every pin set the same (176 parts, 1307 pins, 330 nets at the time of writing). Remaining ERC warnings are
+CSV — every pin set the same (176 parts, 1001 pins, 331 nets at the time of writing). Remaining ERC warnings are
 expected: `lib_symbol_issues` (the symbols are embedded, there is no `MC1702`
 library on disk) and `isolated_pin_label` for nets that so far have only one
 recorded end (placeholders and the latch/transceiver/counter sides still to

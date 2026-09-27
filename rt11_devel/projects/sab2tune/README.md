@@ -23,7 +23,9 @@ rt11_devel/projects/sab2tune/
 │   ├── tap48.py          the tape's blocks, the game's code as memory
 │   ├── engine_model.py   the model of the original's engine (the spec)
 │   ├── gen_data.py       pre_build: SAB2DT.MAC and SAB2TN.REF from the tape
-│   └── pack.py           the blob into the collection's fixed bodies
+│   ├── pack.py           the blob into the collection's fixed bodies
+│   ├── diff_ours.py      side-by-side listing of our level changes vs SAB2TN.REF
+│   └── fit_costs.py      per-frame pairing + least-squares fit of the path costs
 └── tests/           the harness: the program booted through the emulator
                      library, its speaker against the model's rendering
 ```

@@ -37,7 +37,7 @@ The emulator is structured as a stack of libraries with two binaries on top:
                                      │
                 ┌────────────────────┴────────────────────┐
                 │  Core (C11)                             │
-                │  - CPU emulation (66 instructions)      │
+                │  - CPU emulation (81 instructions)      │
                 │  - Memory (128K RAM, bank switching)    │
                 │  - Timer (8253 PIT, 3 channels)         │
                 │  - Keyboard (MS7004 model + 8251 USART) │
@@ -60,7 +60,7 @@ Pure emulation logic with zero OS dependencies.  Only uses `<stdint.h>`,
 portable and can be compiled for any platform.
 
 Files:
-- `src/core/include/ms0515/` — public headers
+- `src/core/include/ms0515/core/` — public headers
 - `src/core/src/cpu.c`, `cpu_ops.c` — CPU core and instruction handlers
 - `src/core/src/memory.c` — address translation and bank switching
 - `src/core/src/timer.c` — Intel 8253 PIT emulation
@@ -68,8 +68,11 @@ Files:
 - `src/core/src/ms7004.c` — MS7004 keyboard microcontroller model
 - `src/core/src/floppy.c` — WD1793 floppy disk controller
 - `src/core/src/ramdisk.c` — 512 KB RAM disk expansion
+- `src/core/src/hd.c` — paravirtual hard disk
+- `src/core/src/cassette.c` — cassette-tape interface
 - `src/core/src/board.c` — system integration and I/O dispatch
 - `src/core/src/snapshot.c` — machine state snapshot serialization
+- `src/core/src/trace.c` — instruction/memory trace ring for the debugger
 
 ### Lib Layer (C++)
 
@@ -290,6 +293,7 @@ is kept out of these primitives — its knowledge base lives in `disk_recovery/`
 - [floppy.md](hardware/floppy.md) — FDC commands, disk geometry, image format
 - [filesystem.md](hardware/filesystem.md) — RT-11 disk layout, sector interleave
 - [ramdisk.md](hardware/ramdisk.md) — 512 KB RAM disk expansion board
+- [hd.md](hardware/hd.md) — paravirtual hard disk registers
 - [programming.md](programming.md) — the handbook: what a program running on the machine under RT-11 has to know, from the ports
 
 ## Key Sources
@@ -299,4 +303,4 @@ is kept out of these primitives — its knowledge base lives in `disk_recovery/`
 3. T-11 User's Guide (EK-DCT11-UG)
 4. Intel 8253, 8251, 8255 datasheets
 5. WD1793 datasheet
-6. MAME driver: `src/mame/drivers/ms0515.cpp`
+6. MAME driver: <https://github.com/mamedev/mame/blob/master/src/mame/drivers/ms0515.cpp>

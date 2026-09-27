@@ -71,12 +71,12 @@ The BIOS programs the keyboard port as:
 ```
    7    6    5    4    3    2    1    0
  ┌────┬────┬────┬────┬────┬────┬────┬────┐
- │ DSR│BRKD│ FE │ OE │ PE │TxE │TxRD│RxRD│
+ │ DSR│BRKD│ FE │ OE │ PE │TxE │RxRD│TxRD│
  └────┴────┴────┴────┴────┴────┴────┴────┘
 ```
 
-- **RxRDY** (bit 0): Receiver has data ready for CPU to read
-- **TxRDY** (bit 1): Transmitter ready for next byte
+- **TxRDY** (bit 0): Transmitter ready for next byte
+- **RxRDY** (bit 1): Receiver has data ready for CPU to read
 - **TxEMPTY** (bit 2): Transmitter completely empty
 - **PE** (bit 3): Parity error
 - **OE** (bit 4): Overrun error

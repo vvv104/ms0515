@@ -98,7 +98,8 @@ timer service.  Added IO_HALT_TIMER constant (not yet handled).
 - [x] KR1818VG93 (WD1793 clone)
 - [x] Addresses: 177640 (status/cmd), 177642 (track), 177644 (sector), 177646 (data)
 - [x] 80 tracks, 2 sides, 10 sectors/track, 512 bytes/sector
-- [x] Type I/II/IV commands
+- [x] Type I/II/III/IV commands (III added 2026-09-20: Write Track, so a
+      diskette can be formatted on the machine; Read Address was already there)
 - [x] DRQ/INTRQ signals readable via System Register B
 
 ### System Registers (board.h, board.c)

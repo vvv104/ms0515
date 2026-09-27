@@ -72,6 +72,7 @@ above `src/`):
   assets/
     rom/          ROM images
     keyboard/     Keyboard layout data
+    sounds/       Drive/keyboard sound recordings
 ```
 
 ## Project structure
@@ -82,9 +83,22 @@ CMakeLists.txt    Top-level CMake project
 core/             Hardware emulation in pure C11 (no OS dependencies)
                   Includes snapshot serialization (snapshot.c)
 lib/              C++ wrapper (Emulator, Debugger, Disassembler, GDB stub)
+libapp/           Shared host-app utilities (paths, YAML config, CLI parser,
+                  disk-mount helpers, screen composition + PNG screenshots)
+platform/         Host OS abstractions kept out of the binaries: cli/ (raw
+                  stdin, signals, UTF-8 console), gui/ (file dialogs, fonts)
+cli/              ms0515-cli.exe - the text-mode binary
 frontend/         SDL2 + Dear ImGui application
+disk/             Offline RT-11 / MS-0515 disk-image library and tool
+files/            The RT-11 file manager (model + FTXUI panels)
+tools/            ms0515-disk and other standalone offline binaries
+web/              The Emscripten browser build (see src/web/README.md)
+profiles/         Conan host profiles (emscripten)
 assets/           Runtime resources copied into package/
 ```
+
+See `docs/architecture.md` and the repository's own `CLAUDE.md` for what
+each layer does and how they depend on one another.
 
 ## CMake options
 

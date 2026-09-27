@@ -76,10 +76,10 @@ absolute, relative, and relative-deferred addressing respectively.
 For byte instructions, autoincrement/decrement step is 1 for R0–R5 and
 2 for SP/PC (to maintain word alignment).
 
-## Instruction Set (66 instructions)
+## Instruction Set (81 instructions)
 
 ### Zero-operand
-HALT, WAIT, RTI, RTT, BPT, IOT, RESET, MFPT
+HALT, WAIT, RTI, RTT, BPT, IOT, RESET, MFPT, NOP
 
 ### Single-operand (word)
 CLR, COM, INC, DEC, NEG, ADC, SBC, TST, ROR, ROL, ASR, ASL, SXT, SWAB,
@@ -102,6 +102,9 @@ JMP, JSR, RTS, SOB
 
 ### Condition codes
 CCC (clear all), SCC (set all), and individual CLC/CLV/CLZ/CLN, SEC/SEV/SEZ/SEN
+
+### Traps
+EMT, TRAP
 
 ### Not supported
 MARK, MUL, DIV, ASH, ASHC (FIS instructions), and all MMU/FPP instructions.

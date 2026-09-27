@@ -15,7 +15,7 @@ T-11), produced in the late 1980s.
 ![The browser build: the two-pane file manager over the mounted RT-11 disks](docs/images/web-files.png)
 
 
-- KR1807VM1 CPU emulation (PDP-11 instruction set, 66 instructions)
+- KR1807VM1 CPU emulation (PDP-11 instruction set, 81 instructions)
 - Full memory subsystem with bank switching and 512 KB RAM-disk expansion
 - WD1793 / KR1818VG93 floppy controller (2 physical drives × 2 sides,
   400 KB per side; reads single-side and track-interleaved double-side
@@ -120,9 +120,10 @@ Command-line options:
 `--diskN` with a DS image and `--diskN-sideM` for the same N are mutually
 exclusive; with an SS image `--diskN` is `--diskN-side0`.  A drive named on
 the command line takes nothing from `ms0515.yaml`.
-Diagnostic flags for headless / debugging runs (`--frames`, `--history-*`)
-are documented in the source comment at the top of
-`src/frontend/src/main.cpp` and in `ms0515-cli --help`.
+Diagnostic flags for headless / debugging runs: `--frames` is `ms0515-cli`
+only, documented in its own `--help` (`src/cli/src/main.cpp`); `--history-*`
+is documented in the source comment at the top of
+`src/frontend/src/main.cpp`.
 
 Disks can also be mounted at runtime via the File menu: Mount image takes
 either size the same way, and once one side is in, Mount upper side puts
