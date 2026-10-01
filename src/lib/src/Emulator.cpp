@@ -469,6 +469,11 @@ bool Emulator::mountHdInMemory(std::string_view folderPath,
     return true;
 }
 
+bool Emulator::admitHdFile(std::string_view rt11Name)
+{
+    return impl_->hdFolder && impl_->hdFolder->admit(std::string{rt11Name});
+}
+
 void Emulator::unmountHd()
 {
     board_hd_set_write_through(&impl_->board, nullptr, nullptr);

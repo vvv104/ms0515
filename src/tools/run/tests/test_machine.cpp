@@ -219,17 +219,36 @@ TEST_CASE("DK: holds the program and the files the line names, nothing else") {
     const fs::path asTyped =
         fs::exists(dir / "dir.sav") ? dir / "dir.sav" : dir / "DIR.SAV";
 
-    {   /* A wildcard finds the program alone. */
+    {   /* With no file named, the program alone. */
+        Machine machine;
+        const std::vector<std::string> args{"/b"};
+        REQUIRE(machine.start(asTyped, args));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CAPTURE(printed);
+        CHECK(printed.find("DIR   .SAV") != std::string::npos);
+        CHECK(printed.find("MS0515") == std::string::npos);
+        CHECK(printed.find("PRIMER") == std::string::npos);
+    }
+    {   /* A wildcard brings what it matches. */
         Machine machine;
         const std::vector<std::string> args{"*.*"};
         REQUIRE(machine.start(asTyped, args));
         std::string printed;
         REQUIRE(runToEnd(machine, &printed));
         CAPTURE(printed);
-        CHECK(printed.find("DIR   .SAV") != std::string::npos);
-        CHECK(printed.find(" 1 Files, 19 Blocks") != std::string::npos);
-        CHECK(printed.find("MS0515") == std::string::npos);
-        CHECK(printed.find("PRIMER") == std::string::npos);
+        CHECK(printed.find("MS0515.EXE") != std::string::npos);
+        CHECK(printed.find("OTHER .TXT") != std::string::npos);
+        CHECK(printed.find(" 5 Files") != std::string::npos);
+    }
+    {   /* One with an extension, only that extension's. */
+        Machine machine;
+        const std::vector<std::string> args{"pr%mer.o*", "*.*"};
+        REQUIRE(machine.start(asTyped, {args.data(), 1}));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CHECK(printed.find("PRIMER.OBJ") != std::string::npos);
+        CHECK(printed.find(" 1 Files") != std::string::npos);
     }
     {   /* A name brings its files of every extension - and the program
          * itself may be named without its .SAV, as for RUN. */
@@ -279,6 +298,57 @@ TEST_CASE("a program the monitor stops is over too, and has failed") {
     CHECK(printed == "\n?MON-F-Trap to 10 001002\n");
     CHECK(machine.failed());
     CHECK(screenText(machine.emulator()).find("?MON-F-") != std::string::npos);
+}
+
+namespace {
+
+/* .LOOKUP a file on channel 0 and say whether it was there.  `device`
+ * and the name DATA.BIN in RAD50. */
+std::vector<uint8_t> lookupProgram(uint16_t device)
+{
+    return program({
+        0012700, 01030,     /* 1000  MOV #AREA,R0          */
+        0104375,            /* 1004  EMT 375               */
+        0103404,            /* 1006  BCS 1020              */
+        0012700, 01050,     /* 1010  MOV #FOUND,R0         */
+        0104351,            /* 1014  .PRINT                */
+        0104350,            /* 1016  .EXIT                 */
+        0012700, 01056,     /* 1020  MOV #MISSING,R0       */
+        0104351,            /* 1024  .PRINT                */
+        0104350,            /* 1026  .EXIT                 */
+        0000400, 01040, 0,  /* 1030  AREA: channel 0, .LOOKUP, the name */
+        0,
+        device, 0014474, 0003100, 0006766,      /* 1040  dev:DATA.BIN */
+    }, std::string("FOUND\0MISSING\0", 14));
+}
+
+constexpr uint16_t kRad50Dk = 0015270, kRad50Sy = 0075250;
+
+}  /* namespace */
+
+TEST_CASE("a file the program asks for by name is given from its folder") {
+    for (const uint16_t device : {kRad50Dk, kRad50Sy}) {
+        CAPTURE(device);
+        const auto dir = freshDir("asked");
+        writeFile(dir / "ask.sav", lookupProgram(device));
+        {
+            Machine machine;                    /* not in the folder */
+            REQUIRE(machine.start(dir / "ask.sav", {}));
+            std::string printed;
+            REQUIRE(runToEnd(machine, &printed));
+            CHECK(printed == "MISSING\n");
+        }
+        writeFile(dir / "data.bin", std::vector<uint8_t>(1500, 'D'));
+        {
+            Machine machine;                    /* there, though not named */
+            REQUIRE(machine.start(dir / "ask.sav", {}));
+            std::string printed;
+            REQUIRE(runToEnd(machine, &printed));
+            CHECK(printed == "FOUND\n");
+        }
+        CHECK(filesIn(dir) == std::set<std::string>{"ask.sav", "data.bin"});
+        CHECK(fs::file_size(dir / "data.bin") == 1500);
+    }
 }
 
 TEST_CASE("a file a program opened and never closed is not left in the folder") {

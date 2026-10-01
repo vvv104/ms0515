@@ -9,9 +9,14 @@
 #include "Starter.hpp"
 #include "ZeroRun.hpp"
 
+#include <ms0515/disk/Build.hpp>
+#include <ms0515/disk/Image.hpp>
 #include <ms0515/disk/Rtfs.hpp>
 
 #include <cctype>
+#include <exception>
+#include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <system_error>
 #include <vector>
@@ -21,6 +26,10 @@ namespace fs = std::filesystem;
 namespace ms0515::run {
 
 namespace {
+
+/* BLKEY (RMON + this): the directory segment the monitor holds in memory;
+ * 0 is none, and the next lookup reads the directory from the volume. */
+constexpr uint16_t kDirectoryInMemory = 0256;
 
 std::vector<uint8_t> carried(std::span<const uint8_t> packed, const char *what)
 {
@@ -38,36 +47,74 @@ std::string lower(std::string_view s)
     return out;
 }
 
-/* The file names a command line speaks of, without device or extension,
- * in lower case: the line is cut at the characters RT-11's command
- * syntax separates file specifications with, and an option (/X, /X:n)
- * names no file. */
-std::vector<std::string> namesSpokenOf(std::span<const std::string> arguments)
+/* A file specification of a command line: name and extension in lower
+ * case, the device dropped; no extension given is an empty one. */
+struct Spoken {
+    std::string name, extension;
+};
+
+/* The file specifications a command line holds: the line is cut at the
+ * characters RT-11's command syntax separates them with, and an option
+ * (/X, /X:n) or a size ([n]) names no file. */
+std::vector<Spoken> spokenOf(std::span<const std::string> arguments)
 {
-    std::vector<std::string> names;
+    std::vector<Spoken> spoken;
     for (const auto &argument : arguments) {
         std::size_t at = 0;
         while (at < argument.size()) {
             const std::size_t end = argument.find_first_of("=,<>[/ ", at);
-            std::string token = argument.substr(at, end - at);
+            std::string token = lower(argument.substr(at, end - at));
             if (const auto colon = token.rfind(':'); colon != std::string::npos)
                 token.erase(0, colon + 1);
-            if (const auto dot = token.find('.'); dot != std::string::npos)
-                token.erase(dot);
-            if (!token.empty()) names.push_back(lower(token));
+            const auto dot = token.find('.');
+            if (!token.empty() && dot != 0)
+                spoken.push_back({token.substr(0, dot),
+                                  dot == std::string::npos ? std::string{}
+                                                           : token.substr(dot + 1)});
             if (end == std::string::npos) break;
             at = end + 1;
-            if (argument[end] == '/' || argument[end] == '[')   /* an option, a size */
+            if (argument[end] == '/' || argument[end] == '[')
                 at = argument.find_first_of("=,<> ", at);
         }
     }
-    return names;
+    return spoken;
 }
 
-/* The volume RT-11 will see: the program and the files its command line
- * speaks of - by name, whatever the extension, since a program adds its
- * own (MACRO reads PRIMER.MAC for PRIMER and writes PRIMER.OBJ).  The
- * folder's other files stay out.  `rt11Name` receives the program's. */
+/* RT-11's wildcards: `*` for any run of characters, `%` for any one. */
+bool matches(std::string_view pattern, std::string_view text)
+{
+    if (pattern.empty()) return text.empty();
+    if (pattern.front() == '*')
+        return matches(pattern.substr(1), text) ||
+               (!text.empty() && matches(pattern, text.substr(1)));
+    return !text.empty() &&
+           (pattern.front() == '%' || pattern.front() == text.front()) &&
+           matches(pattern.substr(1), text.substr(1));
+}
+
+/* A host file the command line speaks of.  A plain name brings its files
+ * of every extension, since a program adds its own (MACRO reads
+ * PRIMER.MAC for PRIMER and writes PRIMER.OBJ over an earlier one); a
+ * name with a wildcard brings what the specification matches. */
+bool spokenOfFile(const std::vector<Spoken> &spoken, const fs::path &file)
+{
+    const std::string name = lower(file.stem().string());
+    std::string extension = lower(file.extension().string());
+    if (!extension.empty()) extension.erase(0, 1);
+    for (const auto &s : spoken) {
+        const bool wild = s.name.find_first_of("*%") != std::string::npos;
+        if (!wild ? s.name == name
+                  : matches(s.name, name) &&
+                    (s.extension.empty() || matches(s.extension, extension)))
+            return true;
+    }
+    return false;
+}
+
+/* The volume RT-11 will see at the start: the program and the files its
+ * command line speaks of.  The folder's other files stay out - a folder
+ * may hold more than a volume takes - until the program asks for one by
+ * name (Machine::fileAsked).  `rt11Name` receives the program's. */
 disk::RtfsDescriptor describeVolume(const fs::path &program,
                                     std::span<const std::string> arguments,
                                     std::string &rt11Name)
@@ -76,7 +123,7 @@ disk::RtfsDescriptor describeVolume(const fs::path &program,
     desc.device = disk::RtfsDescriptor::Device::Hd;
     desc.blocks = disk::kRtfsMaxBlocks;
 
-    const auto names = namesSpokenOf(arguments);
+    const auto spoken = spokenOf(arguments);
     const std::string programFile = lower(program.filename().string());
     std::string programHost;
 
@@ -89,10 +136,7 @@ disk::RtfsDescriptor describeVolume(const fs::path &program,
          * dir.sav from DIR.SAV, the volume's list does. */
         const bool isProgram = fs::equivalent(de.path(), program, ec) ||
                                (programHost.empty() && lower(host) == programFile);
-        bool spoken = false;
-        for (const auto &name : names)
-            if (lower(de.path().stem().string()) == name) spoken = true;
-        if (!isProgram && !spoken) continue;
+        if (!isProgram && !spokenOfFile(spoken, de.path())) continue;
         if (isProgram) programHost = host;
         listing.push_back({host, de.file_size(ec), 0});
     }
@@ -100,6 +144,17 @@ disk::RtfsDescriptor describeVolume(const fs::path &program,
     for (const auto &f : desc.files)
         if (f.hostName == programHost) rt11Name = f.rt11Name;
     return desc;
+}
+
+/* The folder's file RT-11 would call `rt11Name`; empty when none. */
+fs::path folderFile(const fs::path &folder, const std::string &rt11Name)
+{
+    std::error_code ec;
+    for (const auto &de : fs::directory_iterator(folder, ec))
+        if (de.is_regular_file(ec) &&
+            disk::mangleRt11Name(de.path().filename().string()) == rt11Name)
+            return de.path();
+    return {};
 }
 
 } /* namespace */
@@ -165,10 +220,54 @@ Status Machine::start(const fs::path &program,
         return r;
     if (!emu_.mountHdInMemory(folder.string(), std::move(desc)))
         return Status{"cannot serve the folder " + folder.string()};
+    folder_ = folder;
     installMonitorWatch(emu_);
+    setFileAsked([this](const std::string &device, const std::string &name) {
+        fileAsked(device, name);
+    });
     if (!handCommand(emu_, command))
         return Status{"the starter does not take the command"};
     return {};
+}
+
+Machine::~Machine()
+{
+    setFileAsked({});
+}
+
+/*
+ * A program asks the monitor for a file by name.  If the folder has it
+ * and the volume asked does not, it is put there before the monitor
+ * looks: on DK: taken into the folder volume, on SY: written onto the
+ * system diskette's copy in memory (where MACRO looks for SYSMAC.SML and
+ * LINK for SYSLIB.OBJ).  The monitor is then made to read the directory
+ * from the volume instead of the segment it holds in memory.
+ */
+void Machine::fileAsked(const std::string &device, const std::string &name)
+{
+    bool given = false;
+    if (device.empty() || device == "DK" || device == "HD" || device == "HD0") {
+        given = emu_.admitHdFile(name);
+    } else if (device == "SY" || device == "DZ" || device == "DZ0") {
+        const auto mounted = emu_.diskImage(0);
+        std::vector<uint8_t> image(mounted.begin(), mounted.end());
+        const auto opened = disk::openImage(image);
+        const fs::path file = folderFile(folder_, name);
+        if (!opened || opened->directory.find(name) || file.empty())
+            return;
+        std::ifstream in(file, std::ios::binary);
+        const std::vector<uint8_t> data{std::istreambuf_iterator<char>(in), {}};
+        try {
+            disk::putFile(image, 0, false, name, data);
+        } catch (const std::exception &) {
+            return;                             /* no room on the diskette */
+        }
+        given = emu_.mountDiskImage(0, std::move(image));
+    }
+    if (given) {
+        const uint16_t rmon = emu_.readWord(kRmonPointer);
+        emu_.writeWord(static_cast<uint16_t>(rmon + kDirectoryInMemory), 0);
+    }
 }
 
 bool Machine::step()

@@ -96,6 +96,36 @@ FolderVolume::~FolderVolume()
         if (slot.tentative) fs::remove(hostPath(host), ec);
 }
 
+bool FolderVolume::admit(const std::string &rt11Name)
+{
+    for (const auto &f : desc_.files)
+        if (!f.deleted && f.rt11Name == rt11Name) return false;
+
+    std::error_code ec;
+    for (const auto &de : fs::directory_iterator(folder_, ec)) {
+        if (!de.is_regular_file(ec)) continue;
+        const std::string host = de.path().filename().string();
+        if (host == descriptorName_ || host == desc_.bootHost) continue;
+        if (mangleRt11Name(host) != rt11Name) continue;
+        bool listed = false;
+        for (const auto &f : desc_.files)
+            if (f.hostName == host) { listed = true; break; }
+        if (listed) continue;
+
+        RtfsFile nf;
+        nf.rt11Name = rt11Name;
+        nf.hostName = host;
+        desc_.files.push_back(std::move(nf));
+        saveDescriptor();
+        rescan();
+        if (slots_[host].start >= 0) return true;
+        desc_.files.pop_back();                 /* no room for it */
+        rescan();
+        return false;
+    }
+    return false;
+}
+
 void FolderVolume::noteDescriptorStamp()
 {
     std::error_code ec;

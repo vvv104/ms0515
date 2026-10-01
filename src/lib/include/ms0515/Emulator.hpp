@@ -217,6 +217,12 @@ public:
     [[nodiscard]] bool mountHdInMemory(std::string_view folderPath,
                                        disk::RtfsDescriptor desc);
 
+    /* For a folder mounted with its files listed: take in the folder's
+     * file RT-11 would call `rt11Name` ("SYSMAC.SML"), as when a program
+     * asks for it by name.  False when there is no such folder volume,
+     * no such file, a file of that name already, or no room. */
+    bool admitHdFile(std::string_view rt11Name);
+
     /* Flush a dirty image back to its file and eject it.  The controller
      * stays enabled (an empty drive). */
     void unmountHd();

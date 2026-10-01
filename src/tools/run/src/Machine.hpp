@@ -26,16 +26,23 @@ public:
     /* Throws std::runtime_error when the carried data does not make a
      * machine (a build fault, not a user's). */
     Machine();
+    ~Machine();
+
+    Machine(const Machine &)            = delete;
+    Machine &operator=(const Machine &) = delete;
 
     [[nodiscard]] ms0515::Emulator &emulator() noexcept { return emu_; }
 
     /* DK: becomes a volume over the program's folder and the monitor is
      * told to run the program with `arguments` as its command line
      * (joined by spaces, in upper case as RT-11 reads them).  The volume
-     * holds the program and the files the command line names - whatever
-     * their extension, so that PRIMER brings PRIMER.MAC and an earlier
-     * PRIMER.OBJ - and nothing else of the folder: a wildcard finds only
-     * those.  Files the program creates appear in the folder. */
+     * starts with the program and the files the command line speaks of:
+     * a name with its files of every extension (PRIMER brings PRIMER.MAC
+     * and an earlier PRIMER.OBJ), a wildcard with what it matches.  The
+     * rest of the folder is not there - it may be more than a volume
+     * takes - but a file the program asks the monitor for by name is
+     * given to it, on DK: or on SY:.  Files the program creates appear
+     * in the folder. */
     [[nodiscard]] Status start(const std::filesystem::path &program,
                                std::span<const std::string> arguments);
 
@@ -60,7 +67,10 @@ public:
     [[nodiscard]] bool failed() const noexcept;
 
 private:
-    ms0515::Emulator emu_;
+    void fileAsked(const std::string &device, const std::string &name);
+
+    ms0515::Emulator      emu_;
+    std::filesystem::path folder_;      /* the program's */
 };
 
 /* The RUN command for a program file and its arguments, or an error

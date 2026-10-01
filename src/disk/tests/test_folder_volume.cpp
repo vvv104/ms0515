@@ -591,6 +591,18 @@ TEST_CASE("openInMemory serves a folder without ever writing a descriptor") {
     CHECK(im3->directory.find("LATER.DAT") == nullptr);
     REQUIRE(only->descriptor().files.size() == 1);
 
+    /* A file asked for by name comes in; the one there keeps its place. */
+    const int helloAt = im3->directory.find("HELLO.TXT")->startBlock;
+    CHECK(only->admit("LATER.DAT"));
+    CHECK_FALSE(only->admit("LATER.DAT"));          /* there already   */
+    CHECK_FALSE(only->admit("NOSUCH.DAT"));         /* not in the folder */
+    auto im4 = openLinearImage(assemble(*only));
+    REQUIRE(im4.has_value());
+    REQUIRE(im4->directory.find("LATER.DAT") != nullptr);
+    CHECK(im4->readFile("LATER.DAT")[0] == 'l');
+    CHECK(im4->directory.find("HELLO.TXT")->startBlock == helloAt);
+    CHECK(im4->directory.find("LATE.DAT") == nullptr);
+
     /* A size the device cannot have is refused. */
     RtfsDescriptor bad;
     bad.blocks = 0;

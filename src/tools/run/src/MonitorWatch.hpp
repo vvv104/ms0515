@@ -29,12 +29,21 @@
 #include <ms0515/Emulator.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 namespace ms0515::run {
 
 /* Start watching `emu`, with nothing seen yet and no error stored. */
 void installMonitorWatch(ms0515::Emulator &emu);
+
+/* Called when a program asks the monitor for a file by name (.LOOKUP),
+ * before the monitor looks: `device` as the program wrote it ("DK", "SY",
+ * "" for none), `name` as "SYSMAC.SML".  The one who serves the volumes
+ * can put the file there in time.  An empty handler: nobody is told. */
+using FileAsked = std::function<void(const std::string &device,
+                                     const std::string &name)>;
+void setFileAsked(FileAsked handler);
 
 /* KMON has come to its prompt since the watch was installed. */
 [[nodiscard]] bool monitorPrompted() noexcept;

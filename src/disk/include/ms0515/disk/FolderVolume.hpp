@@ -80,6 +80,16 @@ public:
      */
     void writeRange(int lbn, int count, const uint8_t *in);
 
+    /*
+     * admit — Take into the volume the folder's file RT-11 would call
+     * `rt11Name` ("SYSMAC.SML"), for a volume that lists its files and
+     * leaves the folder's others out: the way a file comes in when it is
+     * asked for by name.  The files already there keep their places.
+     * False when the volume has a file of that name already, the folder
+     * has none, or it does not fit.
+     */
+    bool admit(const std::string &rt11Name);
+
     /* A volume opened with openInMemory() takes with it the files the
      * guest entered and never closed: on RT-11 such a file does not
      * exist, and its host file is the whole space the monitor set aside
