@@ -125,6 +125,11 @@ bool stdinIsTerminal()
     return isatty(STDIN_FILENO) != 0;
 }
 
+bool stdoutIsTerminal()
+{
+    return isatty(STDOUT_FILENO) != 0;
+}
+
 void writeStdout(const char *data, size_t n)
 {
     if (n == 0) return;

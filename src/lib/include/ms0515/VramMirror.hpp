@@ -182,6 +182,13 @@ public:
      * the KOI-8 → Unicode table. */
     [[nodiscard]] static std::string utf8FromKoi8(uint8_t code);
 
+    /* The character ROM-B's console draws for a code a program prints
+     * (not a cell code): ASCII as it is, 200-277 the ROM's own
+     * pseudographics, 300-377 the KOI-8R letters.  Empty for the control
+     * codes.  For a host that takes the console's character stream
+     * rather than the screen. */
+    [[nodiscard]] static std::string utf8FromRomBCode(uint8_t code);
+
 private:
     void onVramWrite(uint16_t offset, uint8_t value);
     void rebuildFontIfNeeded();

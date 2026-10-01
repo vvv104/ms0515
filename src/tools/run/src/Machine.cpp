@@ -126,6 +126,25 @@ bool Machine::ended() const noexcept
     return monitorPrompted();
 }
 
+std::string Machine::takeOutput()
+{
+    return takeConsoleOutput();
+}
+
+std::string Machine::drainOutput()
+{
+    constexpr int kQuietFrames = 5, kMostFrames = 500;
+    std::string rest = takeConsoleOutput();
+    int quiet = 0;
+    for (int f = 0; f < kMostFrames && quiet < kQuietFrames; ++f) {
+        (void)emu_.stepFrame();
+        const std::string more = takeConsoleOutput();
+        quiet = more.empty() ? quiet + 1 : 0;
+        rest += more;
+    }
+    return rest;
+}
+
 bool Machine::failed() const noexcept
 {
     return (endSeverity() &

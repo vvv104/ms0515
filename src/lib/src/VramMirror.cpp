@@ -433,6 +433,14 @@ std::string VramMirror::utf8FromKoi8(uint8_t code)
     return ".";
 }
 
+std::string VramMirror::utf8FromRomBCode(uint8_t code)
+{
+    if (code < 0x20 || code == 0x7F) return {};
+    if (code < 0x7F) return std::string(1, static_cast<char>(code));
+    if (code < 0xC0) return encodeUtf8(kRomBGraph[code - 0x80]);
+    return encodeUtf8(kKoi8Hi[code - 0x80]);
+}
+
 void VramMirror::emitAnsi(std::string_view s)
 {
     if (out_) std::fwrite(s.data(), 1, s.size(), out_);

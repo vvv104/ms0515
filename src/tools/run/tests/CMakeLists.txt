@@ -10,6 +10,7 @@ find_package(doctest REQUIRED)
 add_executable(ms0515_run_tests
     test_main.cpp
     test_zero_run.cpp
+    test_console_text.cpp
     test_machine.cpp
 )
 

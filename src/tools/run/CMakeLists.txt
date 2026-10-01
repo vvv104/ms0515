@@ -82,6 +82,7 @@ add_custom_command(
 
 # ── The machine ──────────────────────────────────────────────────────────────
 add_library(ms0515_run_core STATIC
+    src/ConsoleText.cpp
     src/Machine.cpp
     src/MonitorWatch.cpp
     "${RUN_EMBEDDED}"
@@ -91,6 +92,25 @@ target_link_libraries(ms0515_run_core
     PUBLIC ms0515_run_base
 )
 
+add_executable(ms0515-run
+    src/main.cpp
+)
+
+target_link_libraries(ms0515-run
+    PRIVATE ms0515_run_core
+    PRIVATE ms0515_platform_cli
+    PRIVATE ms0515_win7compat
+)
+
 if(MS0515_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
+
+# ── Package output ──────────────────────────────────────────────────────────
+# Next to the other binaries, though it needs nothing of what lies there.
+set(PACKAGE_DIR "${CMAKE_SOURCE_DIR}/../package")
+add_custom_command(TARGET ms0515-run POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ms0515-run>" "${PACKAGE_DIR}/"
+    COMMENT "Copying ms0515-run into ${PACKAGE_DIR}"
+)

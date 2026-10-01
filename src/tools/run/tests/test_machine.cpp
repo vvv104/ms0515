@@ -6,6 +6,7 @@
 
 #include <doctest/doctest.h>
 
+#include "ConsoleText.hpp"
 #include "Embedded.hpp"
 #include "Machine.hpp"
 #include "Starter.hpp"
@@ -115,13 +116,18 @@ std::string screenText(const ms0515::Emulator &emu)
 
 /* Run to the program's end, then the few frames the last of its output
  * takes to reach the screen. */
-bool runToEnd(Machine &machine, int frames = 20000)
+/* `printed` receives what the program printed, as a file would get it. */
+bool runToEnd(Machine &machine, std::string *printed = nullptr,
+              int frames = 20000)
 {
-    while (frames-- > 0 && machine.step()) {}
+    ms0515::run::ConsoleText text(ms0515::run::ConsoleText::Reader::plain);
+    std::string all;
+    while (frames-- > 0 && machine.step())
+        all += text.convert(machine.takeOutput());
     if (!machine.ended())
         return false;
-    for (int i = 0; i < 25; ++i)
-        (void)machine.emulator().stepFrame();
+    all += text.convert(machine.drainOutput());
+    if (printed) *printed = all;
     return true;
 }
 
@@ -163,8 +169,12 @@ TEST_CASE("a program runs from its folder, prints, and the run is over") {
 
     Machine machine;
     REQUIRE(machine.start(dir / "hello.sav", {}));
-    REQUIRE(runToEnd(machine));
+    std::string printed;
+    REQUIRE(runToEnd(machine, &printed));
     CHECK_FALSE(machine.failed());
+
+    /* What a file gets: the program's line, to the character. */
+    CHECK(printed == "HELLO FROM THE FOLDER\n");
 
     /* The program's line and nothing of the monitor's: no command echoed,
      * no prompt after. */
@@ -224,10 +234,9 @@ TEST_CASE("a program the monitor stops is over too, and has failed") {
 
     Machine machine;
     REQUIRE(machine.start(dir / "trap.sav", {}));
-    const bool over = runToEnd(machine);
-    CAPTURE(screenText(machine.emulator()));
-    CAPTURE(machine.emulator().pc());
-    REQUIRE(over);
+    std::string printed;
+    REQUIRE(runToEnd(machine, &printed));
+    CHECK(printed == "\n?MON-F-Trap to 10 001002\n");
     CHECK(machine.failed());
     CHECK(screenText(machine.emulator()).find("?MON-F-") != std::string::npos);
 }
@@ -239,9 +248,10 @@ TEST_CASE("a utility that reports an error has failed") {
     Machine machine;
     const std::vector<std::string> args{"copy.txt=nosuch.txt"};
     REQUIRE(machine.start(dir / "pip.sav", args));
-    REQUIRE(runToEnd(machine));
+    std::string printed;
+    REQUIRE(runToEnd(machine, &printed));
     CHECK(machine.failed());
-    CHECK(screenText(machine.emulator()).find("?PIP-F-") != std::string::npos);
+    CHECK(printed == "?PIP-F-File not found DK:NOSUCH.TXT\n");
     CHECK(filesIn(dir) == std::set<std::string>{"pip.sav"});
 }
 

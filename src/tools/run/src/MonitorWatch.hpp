@@ -7,8 +7,13 @@
  * prints its prompt.  The watch sits on the processor's programmed
  * requests (Emulator::setTrapThunk) and sees that one: a .PRINT of KMON's
  * dot while the monitor's own KMONIN says KMON has control.  It keeps the
- * dot off the screen, since nobody is going to type after it; everything
- * else goes to the monitor untouched.
+ * dot and the new line before it off the screen, since nobody is going to
+ * type after it; everything else goes to the monitor untouched.
+ *
+ * It also takes the console's output as characters: the monitor and the
+ * programs print through the ROM's output entry (160000, the character
+ * in R0), where an execution hook collects them - the text itself, in
+ * the order printed, which the screen does not keep once it scrolls.
  *
  * At that moment it also reads the monitor's own verdict on the program:
  * the user error byte, which utilities and the monitor's error paths set
@@ -23,6 +28,9 @@
 
 #include <ms0515/Emulator.hpp>
 
+#include <cstdint>
+#include <string>
+
 namespace ms0515::run {
 
 /* Start watching `emu`, with nothing seen yet and no error stored. */
@@ -35,6 +43,10 @@ void installMonitorWatch(ms0515::Emulator &emu);
  * monitor's stored error byte (EXTIND, RMON+416), into which KMON gathers
  * the user error byte (USERRB, 53) each time it gets control back. */
 [[nodiscard]] uint8_t endSeverity() noexcept;
+
+/* The bytes the console was given since the last call (KOI-8, control
+ * codes and sequences included; ConsoleText.hpp makes text of them). */
+[[nodiscard]] std::string takeConsoleOutput();
 
 /* USERRB's bits that mean the program did not end well. */
 inline constexpr uint8_t kSeverityError = 004;

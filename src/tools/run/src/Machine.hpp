@@ -41,6 +41,15 @@ public:
 
     [[nodiscard]] bool ended() const noexcept;
 
+    /* What the console was given since the last call: the program's
+     * output as it printed it (KOI-8 bytes; see ConsoleText.hpp). */
+    [[nodiscard]] std::string takeOutput();
+
+    /* The output still on its way when the program ended: the monitor
+     * prints from a ring, a character at a time.  Runs the machine until
+     * the console has been quiet for a few frames and returns what came. */
+    [[nodiscard]] std::string drainOutput();
+
     /* The program did not end well by the monitor's own account: it
      * reported an error, the monitor stopped it, or RUN refused it.
      * Meaningful once ended(). */

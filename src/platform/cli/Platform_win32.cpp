@@ -330,6 +330,11 @@ bool stdinIsTerminal()
     return GetFileType(GetStdHandle(STD_INPUT_HANDLE)) == FILE_TYPE_CHAR;
 }
 
+bool stdoutIsTerminal()
+{
+    return GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) == FILE_TYPE_CHAR;
+}
+
 void writeStdout(const char *data, size_t n)
 {
     if (n == 0) return;
