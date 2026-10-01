@@ -278,6 +278,8 @@ int cpu_step(ms0515_cpu_t *cpu)
 
     /* Fetch instruction */
     cpu->instruction_pc = cpu->r[CPU_REG_PC];
+    if (cpu->exec_hook && cpu->instruction_pc == cpu->exec_hook_pc)
+        cpu->exec_hook(cpu);
     cpu_sample_requests(cpu);   /* the fetch's read cycle */
     cpu->instruction    = board_read_word(cpu->board, cpu->r[CPU_REG_PC]);
     cpu->r[CPU_REG_PC] += 2;

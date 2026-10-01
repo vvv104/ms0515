@@ -714,6 +714,12 @@ void Emulator::setTrapThunk(TrapThunkFn thunk)
     impl_->board.cpu.trap_thunk = thunk;
 }
 
+void Emulator::setExecHook(uint16_t address, ExecHookFn hook)
+{
+    impl_->board.cpu.exec_hook_pc = address;
+    impl_->board.cpu.exec_hook    = hook;
+}
+
 void Emulator::setVramWriteCallback(VramWriteCallback cb)
 {
     impl_->vramWriteCb = std::move(cb);
