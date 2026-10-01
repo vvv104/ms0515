@@ -30,6 +30,7 @@
 #include <array>
 #include <memory>
 #include <span>
+#include <vector>
 
 extern "C" {
 #include "ms0515/core/board.h"
@@ -54,6 +55,10 @@ struct Emulator::Impl {
 
     /* Folder-backed floppy volumes, one slot per FDC unit (FD0..FD3). */
     std::array<std::unique_ptr<ms0515::disk::FolderVolume>, 4> fdFolder;
+
+    /* Diskettes mounted from memory (mountDiskImage), one slot per FDC
+     * unit; empty when the unit holds a file, a folder or nothing. */
+    std::array<std::vector<uint8_t>, 4> fdImage;
 };
 
 namespace internal {

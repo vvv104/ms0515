@@ -28,6 +28,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 /* Forward declaration of the C-side CPU struct.  Visible at namespace
  * scope so the public TrapThunkFn typedef below can name it without
@@ -167,6 +168,16 @@ public:
 
     [[nodiscard]] bool mountDisk(int drive, std::string_view path);
 
+    /* Mount a single-sided diskette held in memory: `image` is the whole
+     * image (kFloppyDiskSize bytes), the machine reads and writes this
+     * copy and no file is involved.  diskPath() stays empty; diskImage()
+     * shows the copy as it is now. */
+    [[nodiscard]] bool mountDiskImage(int drive, std::vector<uint8_t> image);
+
+    /* The diskette mounted from memory in `drive`, with everything the
+     * machine wrote to it; empty when there is none. */
+    [[nodiscard]] std::span<const uint8_t> diskImage(int drive) const noexcept;
+
     void unmountDisk(int drive);
 
     [[nodiscard]] const std::string &diskPath(int drive) const noexcept
@@ -226,6 +237,13 @@ public:
     [[nodiscard]] Status saveState(std::string_view path);
 
     [[nodiscard]] Status loadState(std::string_view path);
+
+    /* The same state as a byte buffer instead of a file.  A diskette
+     * mounted from memory has no path for the state to name: loading
+     * leaves its drive empty and the caller mounts the media again. */
+    [[nodiscard]] Status saveState(std::vector<uint8_t> &out);
+
+    [[nodiscard]] Status loadState(std::span<const uint8_t> data);
 
     [[nodiscard]] uint32_t romCrc32() const noexcept;
 

@@ -8,7 +8,9 @@
 
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <utility>
 
@@ -18,27 +20,68 @@ extern "C" {
 
 namespace {
 
-/* snap_io_t adapter for std::fstream */
+/* snap_io_t adapters for a state held in memory: a vector that grows as
+ * it is written, a span read through a cursor. */
 
-bool fstreamWrite(void *ctx, const void *data, size_t n)
+bool memoryWrite(void *ctx, const void *data, size_t n)
 {
-    auto *s = static_cast<std::ofstream *>(ctx);
-    s->write(static_cast<const char *>(data), static_cast<std::streamsize>(n));
-    return s->good();
+    auto *out = static_cast<std::vector<uint8_t> *>(ctx);
+    const auto *bytes = static_cast<const uint8_t *>(data);
+    out->insert(out->end(), bytes, bytes + n);
+    return true;
 }
 
-bool fstreamRead(void *ctx, void *data, size_t n)
+struct MemoryReader {
+    std::span<const uint8_t> data;
+    std::size_t              pos = 0;
+};
+
+bool memoryRead(void *ctx, void *data, size_t n)
 {
-    auto *s = static_cast<std::ifstream *>(ctx);
-    s->read(static_cast<char *>(data), static_cast<std::streamsize>(n));
-    return s->good();
+    auto *in = static_cast<MemoryReader *>(ctx);
+    if (n > in->data.size() - in->pos)
+        return false;
+    std::memcpy(data, in->data.data() + in->pos, n);
+    in->pos += n;
+    return true;
 }
 
-bool fstreamSeekIn(void *ctx, long offset)
+bool memorySeek(void *ctx, long offset)
 {
-    auto *s = static_cast<std::ifstream *>(ctx);
-    s->seekg(offset, std::ios::cur);
-    return s->good();
+    auto *in = static_cast<MemoryReader *>(ctx);
+    if (offset < 0 ? static_cast<std::size_t>(-offset) > in->pos
+                   : static_cast<std::size_t>(offset) > in->data.size() - in->pos)
+        return false;
+    in->pos = static_cast<std::size_t>(static_cast<long>(in->pos) + offset);
+    return true;
+}
+
+/* A diskette held in memory: the image is the single-sided layout of a
+ * .dsk file, tracks one after another.  userdata is the image's vector. */
+std::size_t sectorOffset(int track, int sector)
+{
+    return static_cast<std::size_t>(track) * FDC_TRACK_SIZE
+         + static_cast<std::size_t>(sector - 1) * FDC_SECTOR_SIZE;
+}
+
+bool cFdcImageRead(void *userdata, int track, int sector, uint8_t *out)
+{
+    const auto *image = static_cast<const std::vector<uint8_t> *>(userdata);
+    const std::size_t at = sectorOffset(track, sector);
+    if (sector < 1 || at + FDC_SECTOR_SIZE > image->size())
+        return false;
+    std::memcpy(out, image->data() + at, FDC_SECTOR_SIZE);
+    return true;
+}
+
+bool cFdcImageWrite(void *userdata, int track, int sector, const uint8_t *data)
+{
+    auto *image = static_cast<std::vector<uint8_t> *>(userdata);
+    const std::size_t at = sectorOffset(track, sector);
+    if (sector < 1 || at + FDC_SECTOR_SIZE > image->size())
+        return false;
+    std::memcpy(image->data() + at, data, FDC_SECTOR_SIZE);
+    return true;
 }
 
 void cSoundTrampoline(void *userdata, int value)
@@ -282,6 +325,7 @@ bool Emulator::mountDisk(int drive, std::string_view path)
     if (drive < 0 || drive >= 4)
         return false;
     std::string pathStr{path};
+    impl_->fdImage[drive] = {};     /* the attach below ejects it anyway */
 
     /* A `.rtfs` descriptor mounts a folder-backed diskette. */
     std::string lower = pathStr;
@@ -305,6 +349,25 @@ bool Emulator::mountDisk(int drive, std::string_view path)
     return true;
 }
 
+bool Emulator::mountDiskImage(int drive, std::vector<uint8_t> image)
+{
+    if (drive < 0 || drive >= 4 || image.size() != kFloppyDiskSize)
+        return false;
+    unmountDisk(drive);
+    impl_->fdImage[drive] = std::move(image);
+    fdc_attach_backend(&impl_->board.fdc, drive, &cFdcImageRead,
+                       &cFdcImageWrite, &impl_->fdImage[drive],
+                       /*read_only=*/false);
+    return true;
+}
+
+std::span<const uint8_t> Emulator::diskImage(int drive) const noexcept
+{
+    if (drive < 0 || drive >= 4)
+        return {};
+    return impl_->fdImage[drive];
+}
+
 bool Emulator::diskActive(int unit) const noexcept
 {
     if (unit < 0 || unit >= 4) return false;
@@ -317,6 +380,7 @@ void Emulator::unmountDisk(int drive)
         return;
     fdc_detach(&impl_->board.fdc, drive);
     impl_->fdFolder[drive].reset();
+    impl_->fdImage[drive] = {};
     diskPath_[drive].clear();
 }
 
@@ -705,13 +769,26 @@ Status Emulator::saveState(std::string_view path)
     if (!f)
         return Status{"Cannot open file for writing"};
 
+    std::vector<uint8_t> data;
+    if (auto r = saveState(data); !r)
+        return r;
+    f.write(reinterpret_cast<const char *>(data.data()),
+            static_cast<std::streamsize>(data.size()));
+    if (!f)
+        return Status{"Failed to write snapshot data"};
+    return {};
+}
+
+Status Emulator::saveState(std::vector<uint8_t> &out)
+{
     const char *paths[4] = {};
     for (int i = 0; i < 4; i++) {
         if (!diskPath_[i].empty())
             paths[i] = diskPath_[i].c_str();
     }
 
-    snap_io_t io{fstreamWrite, nullptr, nullptr, &f};
+    out.clear();
+    snap_io_t io{memoryWrite, nullptr, nullptr, &out};
     snap_error_t err = snap_save(&impl_->board, &impl_->kbd7004,
                                  romCrc32(), paths, &io);
 
@@ -725,16 +802,25 @@ Status Emulator::loadState(std::string_view path)
     std::ifstream f(std::string{path}, std::ios::binary);
     if (!f)
         return Status{"Cannot open snapshot file"};
+    const std::vector<uint8_t> data{std::istreambuf_iterator<char>(f), {}};
+    return loadState(std::span<const uint8_t>{data});
+}
 
+Status Emulator::loadState(std::span<const uint8_t> data)
+{
     uint32_t expected_crc = romCrc32();
 
     /* Detach all disks before overwriting FDC state */
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 4; i++) {
         fdc_detach(&impl_->board.fdc, i);
+        impl_->fdFolder[i].reset();
+        impl_->fdImage[i] = {};
+    }
 
     uint32_t saved_crc = 0;
     char *disk_paths[4] = {};
-    snap_io_t io{nullptr, fstreamRead, fstreamSeekIn, &f};
+    MemoryReader reader{data};
+    snap_io_t io{nullptr, memoryRead, memorySeek, &reader};
     snap_error_t err = snap_load(&impl_->board, &impl_->kbd7004,
                                  &saved_crc, disk_paths, &io);
 
