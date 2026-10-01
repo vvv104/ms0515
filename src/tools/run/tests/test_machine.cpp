@@ -281,6 +281,30 @@ TEST_CASE("a program the monitor stops is over too, and has failed") {
     CHECK(screenText(machine.emulator()).find("?MON-F-") != std::string::npos);
 }
 
+TEST_CASE("a file a program opened and never closed is not left in the folder") {
+    const auto dir = freshDir("unclosed");
+    /* .ENTER DK:JUNK.TMP on channel 0 with the size left to the monitor
+     * (half the largest free area), then .EXIT with the file open: on
+     * RT-11 such a file is gone. */
+    writeFile(dir / "enter.sav", program({
+        0012700, 01010,     /* MOV #AREA,R0             */
+        0104375,            /* EMT 375                  */
+        0104350,            /* .EXIT                    */
+        0001000,            /* AREA: channel 0, .ENTER  */
+        0001020,            /*       the file's name    */
+        0, 0,               /*       size, sequence     */
+        0015270, 0040726, 0042300, 0077430,     /* .RAD50 /DK JUNK  TMP/ */
+    }));
+    {
+        Machine machine;
+        REQUIRE(machine.start(dir / "enter.sav", {}));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CHECK(printed.empty());
+    }
+    CHECK(filesIn(dir) == std::set<std::string>{"enter.sav"});
+}
+
 TEST_CASE("a utility that reports an error has failed") {
     const auto dir = freshDir("pip-error");
     fs::copy_file(fs::path(RT11_SYSTEM_DIR) / "PIP.SAV", dir / "pip.sav");

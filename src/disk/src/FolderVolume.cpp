@@ -86,6 +86,15 @@ FolderVolume::openInMemory(const std::string &folderPath, RtfsDescriptor desc)
     return vol;
 }
 
+FolderVolume::~FolderVolume()
+{
+    if (!descriptorPath_.empty())
+        return;
+    std::error_code ec;
+    for (const auto &host : unclosed_)
+        fs::remove(hostPath(host), ec);
+}
+
 void FolderVolume::noteDescriptorStamp()
 {
     std::error_code ec;
@@ -479,6 +488,8 @@ void FolderVolume::reparseDirectory()
             matched = true;
             desc_.files[fi].isProtected = (p.status & kStatusProtected) != 0;
             desc_.files[fi].date = p.date;
+            if (p.status & kStatusPermanent)        /* the guest closed it */
+                unclosed_.erase(desc_.files[fi].hostName);
             if (const Extent *e = extentAt(p.start);
                 e && p.length < e->blocks) {
                 std::error_code ec;       /* guest shrank it (PIP .CLOSE) */
@@ -506,6 +517,8 @@ void FolderVolume::reparseDirectory()
         nf.hostName    = materializeHostName(p.name);
         nf.date        = p.date;
         nf.isProtected = (p.status & kStatusProtected) != 0;
+        if (!(p.status & kStatusPermanent))
+            unclosed_.insert(nf.hostName);          /* entered, not closed yet */
         std::ofstream out(hostPath(nf.hostName), std::ios::binary);
         for (int b = 0; b < p.length; ++b) {
             std::vector<uint8_t> blk(kBlock, 0);

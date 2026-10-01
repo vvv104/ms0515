@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -80,6 +81,12 @@ public:
      */
     void writeRange(int lbn, int count, const uint8_t *in);
 
+    /* A volume opened with openInMemory() takes with it the files the
+     * guest entered and never closed: on RT-11 such a file does not
+     * exist, and its host file is the whole space the monitor set aside
+     * for it (half the volume when the program named no size). */
+    ~FolderVolume();
+
 private:
     FolderVolume() = default;
 
@@ -109,6 +116,7 @@ private:
     std::string folder_;
     std::string descriptorName_;    /* descriptor's own file name           */
     bool listedOnly_ = false;       /* host files not listed are not taken in */
+    std::set<std::string> unclosed_;/* host files of entries still tentative */
     RtfsDescriptor desc_;
     std::vector<Extent>  extents_;
     std::vector<uint8_t> dirImage_; /* generated segments, kDirLbn..        */
