@@ -141,9 +141,17 @@ Status Machine::start(const fs::path &program,
                       std::span<const std::string> arguments)
 {
     std::error_code ec;
-    if (!fs::is_regular_file(program, ec))
+    /* A name without an extension is a .SAV, as it is for RUN. */
+    fs::path found = program;
+    if (!fs::is_regular_file(found, ec) && !program.has_extension())
+        for (const char *extension : {".SAV", ".sav"}) {
+            found = program;
+            found += extension;
+            if (fs::is_regular_file(found, ec)) break;
+        }
+    if (!fs::is_regular_file(found, ec))
         return Status{"no such program: " + program.string()};
-    const fs::path absolute = fs::absolute(program, ec);
+    const fs::path absolute = fs::absolute(found, ec);
     const fs::path folder = absolute.parent_path();
 
     std::string rt11Name;

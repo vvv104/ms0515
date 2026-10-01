@@ -231,10 +231,11 @@ TEST_CASE("DK: holds the program and the files the line names, nothing else") {
         CHECK(printed.find("MS0515") == std::string::npos);
         CHECK(printed.find("PRIMER") == std::string::npos);
     }
-    {   /* A name brings its files of every extension. */
+    {   /* A name brings its files of every extension - and the program
+         * itself may be named without its .SAV, as for RUN. */
         Machine machine;
         const std::vector<std::string> args{"primer/b"};
-        REQUIRE(machine.start(asTyped, args));
+        REQUIRE(machine.start(dir / "DIR", args));
         std::string printed;
         REQUIRE(runToEnd(machine, &printed));
         CAPTURE(printed);
