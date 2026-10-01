@@ -23,7 +23,6 @@
 #include <filesystem>
 #include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -96,9 +95,34 @@ private:
         int  blocks = 0;
     };
 
+    /* Where a file lies, by its host name.  The guest's directory is the
+     * authority once it has written one: a file stays at its start block,
+     * and one entered and not yet closed is tentative, holding the space
+     * and the job/channel word of the guest's entry. */
+    struct Slot {
+        int      start = -1;        /* first LBN; -1 = not placed yet       */
+        int      blocks = 0;
+        bool     tentative = false;
+        uint16_t jobChannel = 0;
+    };
+
+    /* One permanent or tentative entry of the directory the guest wrote. */
+    struct GuestEntry {
+        std::string name;
+        int         start, length;
+        uint16_t    status, date, jobChannel;
+        bool        taken;          /* matched to a file of ours            */
+    };
+
     void rescan();                  /* folder -> descriptor + extents       */
+    void layOut();                  /* slots -> extents                     */
     void saveDescriptor();
     void generateDirectory();
+    [[nodiscard]] bool readGuestEntries(std::vector<GuestEntry> &entries) const;
+    void adoptGuestEntry(RtfsFile &f, const GuestEntry &e);
+    [[nodiscard]] RtfsFile createGuestFile(const GuestEntry &e);
+    void dropGoneFiles(const std::vector<bool> &seen,
+                       std::vector<RtfsFile> &created);
     /* Manual `.rtfs` edits: a guest directory read stats the descriptor
      * (no polling — piggybacked on guest activity, the earliest moment a
      * change could become visible inside anyway) and reloads it when the
@@ -116,7 +140,7 @@ private:
     std::string folder_;
     std::string descriptorName_;    /* descriptor's own file name           */
     bool listedOnly_ = false;       /* host files not listed are not taken in */
-    std::set<std::string> unclosed_;/* host files of entries still tentative */
+    std::map<std::string, Slot> slots_;
     RtfsDescriptor desc_;
     std::vector<Extent>  extents_;
     std::vector<uint8_t> dirImage_; /* generated segments, kDirLbn..        */

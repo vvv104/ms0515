@@ -12,6 +12,7 @@
 
 #include "Internal.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -91,8 +92,8 @@ FolderVolume::~FolderVolume()
     if (!descriptorPath_.empty())
         return;
     std::error_code ec;
-    for (const auto &host : unclosed_)
-        fs::remove(hostPath(host), ec);
+    for (const auto &[host, slot] : slots_)
+        if (slot.tentative) fs::remove(hostPath(host), ec);
 }
 
 void FolderVolume::noteDescriptorStamp()
@@ -193,20 +194,7 @@ void FolderVolume::rescan()
         if (changed) saveDescriptor();
     }
 
-    /* Extents from current host sizes. */
-    extents_.clear();
-    int cur = rtfsDataStart(kSegments);
-    for (std::size_t i = 0; i < desc_.files.size(); ++i) {
-        if (desc_.files[i].deleted) continue;
-        uint64_t size = 0;
-        if (auto sz = hostSize(hostPath(desc_.files[i].hostName)))
-            size = *sz;
-        const int nblk = static_cast<int>(
-            (size + kBlock - 1) / static_cast<uint64_t>(kBlock));
-        if (cur + nblk > desc_.blocks) continue;       /* doesn't fit */
-        extents_.push_back({i, cur, nblk});
-        cur += nblk;
-    }
+    layOut();
     generateDirectory();
 }
 
@@ -223,17 +211,88 @@ void FolderVolume::saveDescriptor()
 }
 
 /*
- * generateDirectory — render the descriptor's live extents as RT-11
- * directory segments (chained, kSegments reserved), one permanent entry
- * per extent, then a single empty entry covering the free tail, then the
+ * layOut — give every live file its place on the volume and derive the
+ * extent table.  A file keeps the start block it has: the guest holds the
+ * directory in its memory between reads, and a file that moved under it
+ * would be written to where it no longer is.  So space freed in the
+ * middle stays a hole (an empty entry, as on RT-11), and only a file
+ * with no place yet - at open, or new in the folder - is put into the
+ * first hole that takes it.  A closed file is as long as its host file;
+ * a tentative one holds the space the guest's entry says, whatever has
+ * been written of it.  A file that outgrew its place into the next one
+ * (a host edit) is placed anew.
+ */
+void FolderVolume::layOut()
+{
+    for (auto it = slots_.begin(); it != slots_.end();) {
+        bool live = false;
+        for (const auto &f : desc_.files)
+            if (!f.deleted && f.hostName == it->first) { live = true; break; }
+        it = live ? std::next(it) : slots_.erase(it);
+    }
+
+    std::vector<Slot *> placed;
+    for (const auto &f : desc_.files) {
+        if (f.deleted) continue;
+        Slot &s = slots_[f.hostName];
+        if (!s.tentative) {
+            const uint64_t size = hostSize(hostPath(f.hostName)).value_or(0);
+            s.blocks = static_cast<int>(
+                (size + kBlock - 1) / static_cast<uint64_t>(kBlock));
+        }
+        if (s.start >= 0) placed.push_back(&s);
+    }
+    const auto byStart = [](const Slot *a, const Slot *b) {
+        return a->start < b->start;
+    };
+    std::stable_sort(placed.begin(), placed.end(), byStart);
+    for (std::size_t i = 0; i < placed.size(); ++i) {
+        Slot &s = *placed[i];
+        const int limit = i + 1 < placed.size() ? placed[i + 1]->start
+                                                : desc_.blocks;
+        if (s.start < rtfsDataStart(kSegments) || s.start + s.blocks > limit)
+            s.start = -1;
+    }
+    std::erase_if(placed, [](const Slot *s) { return s->start < 0; });
+
+    for (const auto &f : desc_.files) {
+        if (f.deleted) continue;
+        Slot &s = slots_[f.hostName];
+        if (s.start >= 0) continue;
+        int cur = rtfsDataStart(kSegments);
+        for (const Slot *other : placed) {
+            if (other->start - cur >= s.blocks) break;
+            cur = std::max(cur, other->start + other->blocks);
+        }
+        if (cur + s.blocks > desc_.blocks) continue;        /* doesn't fit */
+        s.start = cur;
+        placed.insert(std::upper_bound(placed.begin(), placed.end(), &s, byStart),
+                      &s);
+    }
+
+    extents_.clear();
+    for (std::size_t i = 0; i < desc_.files.size(); ++i) {
+        if (desc_.files[i].deleted) continue;
+        const Slot &s = slots_[desc_.files[i].hostName];
+        if (s.start >= 0) extents_.push_back({i, s.start, s.blocks});
+    }
+    std::stable_sort(extents_.begin(), extents_.end(),
+                     [](const Extent &a, const Extent &b) { return a.start < b.start; });
+}
+
+/*
+ * generateDirectory — render the extents as RT-11 directory segments
+ * (chained, kSegments reserved): an entry per file - permanent, or
+ * tentative with the job and channel the guest gave it - an empty entry
+ * for every hole between files and for the free tail, then the
  * end-of-segment marker.
  */
 void FolderVolume::generateDirectory()
 {
     dirImage_.assign(static_cast<std::size_t>(kSegments) * 2 * kBlock, 0);
 
-    std::size_t seg = 0, p = 10;
-    int segFirstBlock = rtfsDataStart(kSegments);
+    std::size_t seg = 0, p = 10, inSeg = 0;
+    int cur = rtfsDataStart(kSegments);
     auto segBase = [&](std::size_t s) { return s * 2 * kBlock; };
 
     auto openSegment = [&](std::size_t s, int firstBlock) {
@@ -243,38 +302,52 @@ void FolderVolume::generateDirectory()
         putw(h + 8, static_cast<uint16_t>(firstBlock));/* first data block */
         p = 10;
     };
-    openSegment(0, segFirstBlock);
+    openSegment(0, cur);
 
-    std::size_t inSeg = 0;
-    for (const auto &e : extents_) {
-        if (inSeg == kMaxPerSegment && seg + 1 < kSegments) {
+    /* One entry; false when the directory has no room for it. */
+    auto emit = [&](uint16_t status, uint16_t n1, uint16_t n2, uint16_t ext,
+                    int length, uint16_t jobChannel, uint16_t date) {
+        if (inSeg >= kMaxPerSegment) {
+            if (seg + 1 >= kSegments) return false;
             putw(dirImage_.data() + segBase(seg) + 2,
                  static_cast<uint16_t>(seg + 2));      /* link (1-based)   */
             putw(dirImage_.data() + segBase(seg) + p, kStatusEndOfSeg);
             ++seg;
-            openSegment(seg, e.start);
+            openSegment(seg, cur);
             inSeg = 0;
         }
-        const auto &f = desc_.files[e.fileIndex];
-        char nm[6], ex[3];
-        splitName(f.rt11Name, nm, ex);
         uint8_t *s = dirImage_.data() + segBase(seg);
-        const uint16_t status = static_cast<uint16_t>(
-            kStatusPermanent | (f.isProtected ? kStatusProtected : 0));
-        putEntry(s, p, status, encodeRad50(nm), encodeRad50(nm + 3),
-                 encodeRad50(ex), static_cast<uint16_t>(e.blocks));
-        putw(s + p + 12, f.date);
+        putEntry(s, p, status, n1, n2, ext, static_cast<uint16_t>(length));
+        putw(s + p + 10, jobChannel);
+        putw(s + p + 12, date);
         p += kEntrySize;
         ++inSeg;
+        cur += length;
+        return true;
+    };
+    auto emitEmpty = [&](int length) {
+        return emit(kStatusEmpty, 0x00D5, 0x6739, 0x26F4, length, 0, 0);
+    };
+
+    for (const auto &e : extents_) {
+        if (e.start > cur && !emitEmpty(e.start - cur)) break;
+        const auto &f = desc_.files[e.fileIndex];
+        const Slot &slot = slots_[f.hostName];
+        char nm[6], ex[3];
+        splitName(f.rt11Name, nm, ex);
+        const uint16_t status = slot.tentative
+            ? kStatusTentative
+            : static_cast<uint16_t>(kStatusPermanent |
+                                    (f.isProtected ? kStatusProtected : 0));
+        if (!emit(status, encodeRad50(nm), encodeRad50(nm + 3), encodeRad50(ex),
+                  e.blocks, slot.jobChannel, f.date))
+            break;
     }
 
-    /* Free-space entry + end-of-segment in the last used segment. */
-    const int used = extents_.empty()
-        ? rtfsDataStart(kSegments)
-        : extents_.back().start + extents_.back().blocks;
+    /* The free tail (one slot is kept spare for it) + end-of-segment. */
     uint8_t *s = dirImage_.data() + segBase(seg);
     putEntry(s, p, kStatusEmpty, 0x00D5, 0x6739, 0x26F4,
-             static_cast<uint16_t>(desc_.blocks - used));
+             static_cast<uint16_t>(desc_.blocks - cur));
     putw(s + p + kEntrySize, kStatusEndOfSeg);
     putw(dirImage_.data() + 4, static_cast<uint16_t>(seg + 1)); /* highest */
 }
@@ -449,96 +522,190 @@ std::string FolderVolume::materializeHostName(const std::string &rt11) const
 
 /*
  * reparseDirectory — read the guest-edited segments back, diff against
- * the descriptor, and make the folder match: created entries materialize
- * host files (content taken from scratch blocks the guest staged), gone
- * entries turn `deleted`, renames are tracked by the entry's start block,
- * shrunk lengths truncate the host file.  Ends with a rescan, which also
- * rebuilds the canonical directory image.
+ * the descriptor, and make the folder match.  Every entry of the guest's
+ * - permanent or tentative - is a file, at the start block the guest gave
+ * it:
+ *
+ *   - an entry of a file we know (the same name at the same place, else
+ *     the same name) updates it; one that turned permanent is a .CLOSE,
+ *     and its host file becomes exactly the length closed at;
+ *   - an entry at a known file's place under another name is a rename;
+ *   - any other is a new file: a tentative one (.ENTER) gets a host file
+ *     holding what the guest has staged so far, to be written on; a
+ *     permanent one gets its whole length.
+ *
+ * Files the guest's directory no longer has are gone (dropGoneFiles).
+ * Ends with a rescan, which rebuilds the directory image - now the same
+ * layout the guest wrote.
  */
 void FolderVolume::reparseDirectory()
 {
-    struct Parsed { std::string name; int start, length; uint16_t status, date; };
-    std::vector<Parsed> parsed;
+    std::vector<GuestEntry> entries;
+    if (!readGuestEntries(entries))
+        return;                    /* mid-edit garbage: wait for more writes */
 
+    std::vector<bool> seen(desc_.files.size(), false);
+    auto live = [&](std::size_t fi) {
+        return !desc_.files[fi].deleted && !seen[fi];
+    };
+    auto startOf = [&](std::size_t fi) {
+        return slots_[desc_.files[fi].hostName].start;
+    };
+    auto adopt = [&](std::size_t fi, GuestEntry &e) {
+        seen[fi] = true;
+        e.taken = true;
+        adoptGuestEntry(desc_.files[fi], e);
+    };
+
+    for (auto &e : entries)                     /* the name at its place */
+        for (std::size_t fi = 0; fi < seen.size() && !e.taken; ++fi)
+            if (live(fi) && desc_.files[fi].rt11Name == e.name &&
+                startOf(fi) == e.start)
+                adopt(fi, e);
+    for (auto &e : entries)                     /* the name, moved */
+        for (std::size_t fi = 0; fi < seen.size() && !e.taken; ++fi)
+            if (live(fi) && desc_.files[fi].rt11Name == e.name)
+                adopt(fi, e);
+    for (auto &e : entries)                     /* the place, renamed */
+        for (std::size_t fi = 0; fi < seen.size() && !e.taken; ++fi)
+            if (live(fi) && startOf(fi) == e.start) {
+                desc_.files[fi].rt11Name = e.name;
+                adopt(fi, e);
+            }
+
+    std::vector<RtfsFile> created;
+    for (const auto &e : entries)
+        if (!e.taken) created.push_back(createGuestFile(e));
+
+    dropGoneFiles(seen, created);
+    for (auto &nf : created) desc_.files.push_back(std::move(nf));
+
+    saveDescriptor();
+    rescan();
+}
+
+/* The guest's directory as written: its permanent and tentative entries.
+ * False when a segment does not parse. */
+bool FolderVolume::readGuestEntries(std::vector<GuestEntry> &entries) const
+{
     std::size_t seg = 0;
     for (int guard = 0; guard < kSegments; ++guard) {
         std::span<const uint8_t> buf(dirImage_.data() + seg * 2 * kBlock,
                                      2 * static_cast<std::size_t>(kBlock));
         auto d = parseSegment(buf);
-        if (!d) return;            /* mid-edit garbage: wait for more writes */
+        if (!d) return false;
         for (const auto &e : d->entries)
             if (e.isPermanent() || (e.status & kStatusTentative))
-                parsed.push_back({e.name, e.startBlock, e.length,
-                                  e.status, e.date});
+                entries.push_back({e.name, e.startBlock, e.length, e.status,
+                                   e.date, e.jobChannel, false});
         const uint16_t next = getw(dirImage_.data() + seg * 2 * kBlock + 2);
         if (next == 0 || next > kSegments) break;
         seg = next - 1;
     }
+    return true;
+}
 
-    std::vector<bool> seen(desc_.files.size(), false);
-    std::vector<RtfsFile> created;
-
-    for (const auto &p : parsed) {
-        /* match by name */
-        bool matched = false;
-        for (std::size_t fi = 0; fi < desc_.files.size(); ++fi) {
-            if (desc_.files[fi].deleted || seen[fi]) continue;
-            if (desc_.files[fi].rt11Name != p.name) continue;
-            seen[fi] = true;
-            matched = true;
-            desc_.files[fi].isProtected = (p.status & kStatusProtected) != 0;
-            desc_.files[fi].date = p.date;
-            if (p.status & kStatusPermanent)        /* the guest closed it */
-                unclosed_.erase(desc_.files[fi].hostName);
-            if (const Extent *e = extentAt(p.start);
-                e && p.length < e->blocks) {
-                std::error_code ec;       /* guest shrank it (PIP .CLOSE) */
-                fs::resize_file(hostPath(desc_.files[fi].hostName),
-                                static_cast<uint64_t>(p.length) * kBlock, ec);
-            }
-            break;
+/* The guest's entry `e` is the known file `f`: its flags, date and place;
+ * a permanent entry fixes the host file's length - closed at it, or
+ * shrunk to it (PIP .CLOSE). */
+void FolderVolume::adoptGuestEntry(RtfsFile &f, const GuestEntry &e)
+{
+    Slot &s = slots_[f.hostName];
+    const bool permanent = (e.status & kStatusPermanent) != 0;
+    f.isProtected = (e.status & kStatusProtected) != 0;
+    f.date = e.date;
+    if (permanent) {
+        const uint64_t want = static_cast<uint64_t>(e.length) * kBlock;
+        const uint64_t have = hostSize(hostPath(f.hostName)).value_or(0);
+        if (s.tentative ? have != want : have > want) {
+            std::error_code ec;
+            fs::resize_file(hostPath(f.hostName), want, ec);
         }
-        if (matched) continue;
-
-        /* rename: an existing extent starts exactly here */
-        if (const Extent *e = extentAt(p.start);
-            e && !seen[e->fileIndex] && p.start == e->start) {
-            seen[e->fileIndex] = true;
-            desc_.files[e->fileIndex].rt11Name = p.name;
-            desc_.files[e->fileIndex].isProtected =
-                (p.status & kStatusProtected) != 0;
-            desc_.files[e->fileIndex].date = p.date;
-            continue;
-        }
-
-        /* new file: materialize from scratch blocks (zeros elsewhere) */
-        RtfsFile nf;
-        nf.rt11Name    = p.name;
-        nf.hostName    = materializeHostName(p.name);
-        nf.date        = p.date;
-        nf.isProtected = (p.status & kStatusProtected) != 0;
-        if (!(p.status & kStatusPermanent))
-            unclosed_.insert(nf.hostName);          /* entered, not closed yet */
-        std::ofstream out(hostPath(nf.hostName), std::ios::binary);
-        for (int b = 0; b < p.length; ++b) {
-            std::vector<uint8_t> blk(kBlock, 0);
-            if (auto it = scratch_.find(p.start + b); it != scratch_.end()) {
-                blk = it->second;
-                scratch_.erase(it);
-            }
-            out.write(reinterpret_cast<const char *>(blk.data()), kBlock);
-        }
-        created.push_back(std::move(nf));
     }
+    s.start      = e.start;
+    s.blocks     = e.length;
+    s.tentative  = !permanent;
+    s.jobChannel = permanent ? uint16_t{0} : e.jobChannel;
+}
 
-    /* Entries the guest dropped turn `deleted` (host files kept). */
-    for (std::size_t fi = 0; fi < desc_.files.size(); ++fi)
-        if (!desc_.files[fi].deleted && !seen[fi])
-            desc_.files[fi].deleted = true;
-    for (auto &nf : created) desc_.files.push_back(std::move(nf));
+/* A file of the guest's we do not know: its host file, made from the
+ * scratch blocks the guest staged.  A file being written (.ENTER) holds
+ * what has been written so far; a finished one its whole length, zeros
+ * where nothing was staged. */
+RtfsFile FolderVolume::createGuestFile(const GuestEntry &e)
+{
+    const bool permanent = (e.status & kStatusPermanent) != 0;
+    RtfsFile nf;
+    nf.rt11Name    = e.name;
+    nf.hostName    = materializeHostName(e.name);
+    nf.date        = e.date;
+    nf.isProtected = (e.status & kStatusProtected) != 0;
 
-    saveDescriptor();
-    rescan();
+    int blocks = permanent ? e.length : 0;
+    if (!permanent)
+        for (int b = 0; b < e.length; ++b)
+            if (scratch_.count(e.start + b)) blocks = b + 1;
+    std::ofstream out(hostPath(nf.hostName), std::ios::binary);
+    for (int b = 0; b < blocks; ++b) {
+        std::vector<uint8_t> blk(kBlock, 0);
+        if (auto it = scratch_.find(e.start + b); it != scratch_.end()) {
+            blk = it->second;
+            scratch_.erase(it);
+        }
+        out.write(reinterpret_cast<const char *>(blk.data()), kBlock);
+    }
+    slots_[nf.hostName] = {e.start, e.length, !permanent,
+                           permanent ? uint16_t{0} : e.jobChannel};
+    return nf;
+}
+
+/*
+ * dropGoneFiles — the files the guest's directory no longer has (not
+ * `seen`).  With a descriptor file they are marked `deleted` there and
+ * their host files kept.  With the descriptor in memory nothing would
+ * remember them: the host file is removed, and when the file was written
+ * over - a closed file of the same name is there, in the descriptor or
+ * among the `created` - that one takes the host name the old one had.
+ */
+void FolderVolume::dropGoneFiles(const std::vector<bool> &seen,
+                                 std::vector<RtfsFile> &created)
+{
+    std::vector<RtfsFile> kept;
+    std::vector<RtfsFile> gone;
+    for (std::size_t fi = 0; fi < desc_.files.size(); ++fi) {
+        RtfsFile &f = desc_.files[fi];
+        if (f.deleted || seen[fi]) {
+            kept.push_back(std::move(f));
+        } else if (!descriptorPath_.empty()) {
+            f.deleted = true;
+            kept.push_back(std::move(f));
+        } else {
+            gone.push_back(std::move(f));
+        }
+    }
+    desc_.files = std::move(kept);
+
+    for (const auto &old : gone) {
+        std::error_code ec;
+        fs::remove(hostPath(old.hostName), ec);
+        auto takeOver = [&](RtfsFile &f) {
+            if (f.deleted || f.rt11Name != old.rt11Name ||
+                f.hostName == old.hostName || slots_[f.hostName].tentative)
+                return false;
+            fs::rename(hostPath(f.hostName), hostPath(old.hostName), ec);
+            if (ec) return false;
+            slots_[old.hostName] = slots_[f.hostName];
+            slots_.erase(f.hostName);
+            f.hostName = old.hostName;
+            return true;
+        };
+        bool taken = false;
+        for (auto &f : desc_.files)
+            if (!taken) taken = takeOver(f);
+        for (auto &f : created)
+            if (!taken) taken = takeOver(f);
+        if (!taken) slots_.erase(old.hostName);
+    }
 }
 
 } /* namespace ms0515::disk */
