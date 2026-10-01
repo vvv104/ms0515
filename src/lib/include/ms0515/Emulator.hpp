@@ -2,7 +2,9 @@
  * Emulator.hpp — High-level C++ wrapper around the MS0515 core board.
  *
  * Deliberately self-contained: the public header pulls in no C-side
- * core symbols (no `<ms0515/core/...>` header, no scancode macros).
+ * core symbols (no `<ms0515/core/...>` header, no scancode macros); the
+ * one other header it needs is the disk lib's plain-data descriptor of a
+ * folder volume.
  * Everything frontend-visible is expressed in plain C++ —
  * the strong `Key` enum mirrors the MS-7004 scancode set; ROM/disk
  * sizes and snapshot APIs use `std::span` / `Status`; pixel
@@ -20,6 +22,7 @@
 #include <array>
 #include <cstdint>
 #include "ms0515/Status.hpp"
+#include "ms0515/disk/Rtfs.hpp"
 #include <functional>
 #include <memory>
 #include <span>
@@ -195,6 +198,13 @@ public:
      * unmountHd() / destruction.  Size must be a positive multiple of 512. */
     [[nodiscard]] bool mountHd(std::string_view path);
 
+    /* Mount the folder `folderPath` as the HD media with a descriptor that
+     * lives in memory only: no `.rtfs` file is read and none is written.
+     * `desc` must be a hard-disk descriptor; with no files listed it is
+     * filled from the folder.  hdPath() stays empty. */
+    [[nodiscard]] bool mountHdInMemory(std::string_view folderPath,
+                                       disk::RtfsDescriptor desc);
+
     /* Flush a dirty image back to its file and eject it.  The controller
      * stays enabled (an empty drive). */
     void unmountHd();
@@ -224,6 +234,11 @@ public:
     [[nodiscard]] bool stepFrame();
 
     void stepInstruction();
+
+    /* Point the processor somewhere else: the next instruction is fetched
+     * from `address`, the stack continues at `address`. */
+    void setPc(uint16_t address);
+    void setSp(uint16_t address);
 
     /* ── Input ──────────────────────────────────────────────────────────── */
 
@@ -267,6 +282,7 @@ public:
     [[nodiscard]] bool                     isHires()       const noexcept;
     [[nodiscard]] uint8_t                  borderColor()   const noexcept;
     [[nodiscard]] uint16_t                 pc()            const noexcept;
+    [[nodiscard]] uint16_t                 sp()            const noexcept;
     [[nodiscard]] uint32_t                 frameCyclePos() const noexcept;
     [[nodiscard]] bool                     halted()        const noexcept;
     [[nodiscard]] bool                     waiting()       const noexcept;

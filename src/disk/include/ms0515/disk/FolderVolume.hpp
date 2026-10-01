@@ -10,7 +10,8 @@
  * guest can stage data there before committing a directory entry.
  *
  * The descriptor file is auto-filled on open when it lists no files, and
- * saved back whenever the folder scan discovers changes.
+ * saved back whenever the folder scan discovers changes.  A volume opened
+ * with openInMemory() has no descriptor file at all.
  */
 
 #ifndef MS0515_DISK_FOLDERVOLUME_HPP
@@ -37,6 +38,17 @@ public:
      */
     static std::unique_ptr<FolderVolume>
     open(const std::string &descriptorPath, std::string *error = nullptr);
+
+    /*
+     * openInMemory — The same volume over `folderPath` with the descriptor
+     * given by the caller and kept in memory only: no `.rtfs` file is read
+     * and none is ever written, whatever the guest does to the volume.  An
+     * empty `desc.files` is auto-filled from the folder.  Returns nullptr
+     * when the folder is missing or the geometry is one parseRtfs would
+     * refuse.
+     */
+    static std::unique_ptr<FolderVolume>
+    openInMemory(const std::string &folderPath, RtfsDescriptor desc);
 
     [[nodiscard]] int blocks() const noexcept { return desc_.blocks; }
     [[nodiscard]] RtfsDescriptor::Device deviceType() const noexcept
@@ -91,7 +103,7 @@ private:
     [[nodiscard]] const Extent *extentAt(int lbn) const;
     [[nodiscard]] std::string hostPath(const std::string &name) const;
 
-    std::string descriptorPath_;
+    std::string descriptorPath_;    /* empty: the descriptor is in memory   */
     std::string folder_;
     std::string descriptorName_;    /* descriptor's own file name           */
     RtfsDescriptor desc_;

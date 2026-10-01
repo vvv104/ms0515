@@ -388,6 +388,23 @@ bool Emulator::mountHd(std::string_view path)
     return true;
 }
 
+bool Emulator::mountHdInMemory(std::string_view folderPath,
+                               disk::RtfsDescriptor desc)
+{
+    if (desc.device != disk::RtfsDescriptor::Device::Hd)
+        return false;
+    auto vol = disk::FolderVolume::openInMemory(std::string{folderPath},
+                                                std::move(desc));
+    if (!vol)
+        return false;
+    impl_->hdFolder = std::move(vol);
+    board_hd_set_backend(&impl_->board, &cHdFolderRead, &cHdFolderWrite,
+                         static_cast<uint32_t>(impl_->hdFolder->blocks()),
+                         this);
+    hdPath_.clear();
+    return true;
+}
+
 void Emulator::unmountHd()
 {
     board_hd_set_write_through(&impl_->board, nullptr, nullptr);
@@ -417,6 +434,16 @@ bool Emulator::stepFrame()
 void Emulator::stepInstruction()
 {
     board_step_cpu(&impl_->board);
+}
+
+void Emulator::setPc(uint16_t address)
+{
+    impl_->board.cpu.r[CPU_REG_PC] = address;
+}
+
+void Emulator::setSp(uint16_t address)
+{
+    impl_->board.cpu.r[CPU_REG_SP] = address;
 }
 
 /* ── Input ──────────────────────────────────────────────────────────────── */
@@ -486,6 +513,11 @@ uint8_t Emulator::borderColor() const noexcept
 uint16_t Emulator::pc() const noexcept
 {
     return impl_->board.cpu.r[CPU_REG_PC];
+}
+
+uint16_t Emulator::sp() const noexcept
+{
+    return impl_->board.cpu.r[CPU_REG_SP];
 }
 
 uint32_t Emulator::frameCyclePos() const noexcept

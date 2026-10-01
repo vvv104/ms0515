@@ -67,6 +67,24 @@ FolderVolume::open(const std::string &descriptorPath, std::string *error)
     return vol;
 }
 
+std::unique_ptr<FolderVolume>
+FolderVolume::openInMemory(const std::string &folderPath, RtfsDescriptor desc)
+{
+    std::error_code ec;
+    if (!fs::is_directory(folderPath, ec))
+        return nullptr;
+    const bool floppy = desc.device == RtfsDescriptor::Device::Floppy;
+    if (desc.blocks <= rtfsDataStart(kSegments) || desc.blocks > kRtfsMaxBlocks ||
+        (floppy && desc.blocks != kRtfsFloppyBlocks))
+        return nullptr;
+
+    auto vol = std::unique_ptr<FolderVolume>(new FolderVolume);
+    vol->folder_ = folderPath;
+    vol->desc_ = std::move(desc);
+    vol->rescan();
+    return vol;
+}
+
 void FolderVolume::noteDescriptorStamp()
 {
     std::error_code ec;
@@ -76,6 +94,8 @@ void FolderVolume::noteDescriptorStamp()
 
 void FolderVolume::maybeReloadDescriptor()
 {
+    if (descriptorPath_.empty())
+        return;                     /* in memory: nothing outside to reload */
     std::error_code ec;
     const auto stamp = fs::last_write_time(descriptorPath_, ec);
     const auto size  = fs::file_size(descriptorPath_, ec);
@@ -176,6 +196,8 @@ void FolderVolume::rescan()
 
 void FolderVolume::saveDescriptor()
 {
+    if (descriptorPath_.empty())
+        return;                     /* in memory: the descriptor has no file */
     {
         std::ofstream f(descriptorPath_, std::ios::binary | std::ios::trunc);
         const std::string text = serializeRtfs(desc_);

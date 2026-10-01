@@ -356,4 +356,56 @@ TEST_CASE("guest boot-block writes materialize the hidden boot file") {
     CHECK(im->directory.find("F.DAT") != nullptr);
 }
 
+TEST_CASE("openInMemory serves a folder without ever writing a descriptor") {
+    auto dir = freshDir("inmemory");
+    writeFile(dir / "swap.sys", std::string(600, 'S'));      /* 2 blocks */
+    writeFile(dir / "hello.txt", "hello rtfs");              /* 1 block  */
+
+    RtfsDescriptor desc;
+    desc.device = RtfsDescriptor::Device::Hd;
+    desc.blocks = 100;
+    auto vol = FolderVolume::openInMemory(dir.string(), desc);
+    REQUIRE(vol != nullptr);
+    CHECK(vol->blocks() == 100);
+    CHECK(vol->deviceType() == RtfsDescriptor::Device::Hd);
+    REQUIRE(vol->descriptor().files.size() == 2);
+    CHECK(vol->descriptor().files[0].rt11Name == "SWAP.SYS");
+
+    auto im = openLinearImage(assemble(*vol));
+    REQUIRE(im.has_value());
+    CHECK(im->directory.find("HELLO.TXT") != nullptr);
+
+    /* Everything that saves a file-backed descriptor: a new home block,
+     * a host file appearing, a guest directory rewrite. */
+    std::vector<uint8_t> home(kBlock, 0);
+    vol->readBlock(1, home.data());
+    std::memcpy(home.data() + 0x1D8, "NEWVOL      ", 12);
+    vol->writeBlock(1, home.data());
+    CHECK(vol->descriptor().volumeId == "NEWVOL");
+
+    writeFile(dir / "late.dat", "late");
+    auto im2 = openLinearImage(assemble(*vol));
+    REQUIRE(im2.has_value());
+    CHECK(im2->directory.find("LATE.DAT") != nullptr);
+
+    const int dirLbn = 6;                    /* first directory segment */
+    std::vector<uint8_t> seg(2 * kBlock, 0);
+    vol->readBlock(dirLbn, seg.data());
+    vol->readBlock(dirLbn + 1, seg.data() + kBlock);
+    vol->writeRange(dirLbn, 2, seg.data());
+
+    int files = 0;
+    for (const auto &de : fs::directory_iterator(dir)) {
+        ++files;
+        CHECK(de.path().extension() != ".rtfs");
+    }
+    CHECK(files == 3);
+
+    /* A size the device cannot have is refused. */
+    RtfsDescriptor bad;
+    bad.blocks = 0;
+    CHECK(FolderVolume::openInMemory(dir.string(), bad) == nullptr);
+    CHECK(FolderVolume::openInMemory((dir / "missing").string(), desc) == nullptr);
+}
+
 } /* TEST_SUITE */

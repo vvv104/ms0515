@@ -892,4 +892,24 @@ TEST_CASE("small loop: sum 1..5 using SOB") {
     CHECK(ms0515::internal::cpu(emu).r[1] == 15);  /* 5+4+3+2+1 = 15 */
 }
 
+/* ── Register setters (public API) ───────────────────────────────────────── */
+
+TEST_CASE("setPc and setSp move the registers and execution follows") {
+    ms0515::Emulator emu;
+    emu.reset();
+
+    emu.setSp(0x0F00);
+    CHECK(emu.sp() == 0x0F00);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_SP] == 0x0F00);
+
+    emit(emu, BASE, {012700, 042});            /* MOV #042, R0 */
+    emu.setPc(BASE);
+    CHECK(emu.pc() == BASE);
+
+    emu.stepInstruction();
+    CHECK(ms0515::internal::cpu(emu).r[0] == 042);
+    CHECK(emu.pc() == BASE + 4);
+    CHECK(emu.sp() == 0x0F00);
+}
+
 } /* TEST_SUITE */
