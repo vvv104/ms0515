@@ -351,6 +351,55 @@ TEST_CASE("a file the program asks for by name is given from its folder") {
     }
 }
 
+/* The games of the RT-11 development tree, when they are built there
+ * (their data files are not in the repository): graphics programs that
+ * read a data file of their own and never come back to the monitor. */
+TEST_CASE("a graphics game starts the same way and takes the screen") {
+    const fs::path projects = fs::path(RT11_SYSTEM_DIR) / ".." / ".." / "projects";
+    for (const char *game : {"manicm/MANICM", "saper/SAPER"}) {
+        const fs::path sav = projects / (std::string{game} + ".SAV");
+        const fs::path dat = projects / (std::string{game} + ".DAT");
+        if (!fs::exists(sav) || !fs::exists(dat)) continue;
+        const std::string name = sav.stem().string();
+        CAPTURE(name);
+        const auto dir = freshDir(name.c_str());
+        for (const char *extension : {".SAV", ".DAT", ".HLP"}) {
+            const fs::path file = projects / (std::string{game} + extension);
+            if (fs::exists(file)) fs::copy_file(file, dir / file.filename());
+        }
+
+        Machine machine;
+        REQUIRE(machine.start(dir / sav.filename(), {}));
+        std::string printed;
+        for (int f = 0; f < 1500 && machine.step(); ++f)
+            printed += machine.takeOutput();
+        CAPTURE(printed);
+        CHECK_FALSE(machine.ended());
+
+        /* It drew: the picture is kept beside the fixture for the eye
+         * (MANICM in the colour mode, SAPER in the console's 640x200). */
+        auto &emu = machine.emulator();
+        int lit = 0;
+        std::ofstream ppm(dir / "screen.ppm", std::ios::binary);
+        ppm << "P6\n" << (emu.isHires() ? 640 : 320) << " 200\n255\n";
+        emu.forEachLoResPixel([&](int, int, bool on, const ms0515::LoResAttr &a) {
+            lit += on;
+            const uint8_t grb = on ? a.fgGrb : a.bgGrb;
+            const char level = static_cast<char>(a.bright ? 255 : 170);
+            const char rgb[3] = {grb & 2 ? level : '\0', grb & 4 ? level : '\0',
+                                 grb & 1 ? level : '\0'};
+            ppm.write(rgb, 3);
+        });
+        emu.forEachHiResPixel([&](int, int, bool on) {
+            lit += on;
+            const char rgb[3] = {on ? '\xFF' : '\0', on ? '\xFF' : '\0',
+                                 on ? '\xFF' : '\0'};
+            ppm.write(rgb, 3);
+        });
+        CHECK(lit > 1000);
+    }
+}
+
 TEST_CASE("a file a program opened and never closed is not left in the folder") {
     const auto dir = freshDir("unclosed");
     /* .ENTER DK:JUNK.TMP on channel 0 with the size left to the monitor
