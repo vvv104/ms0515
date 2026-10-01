@@ -30,26 +30,75 @@ std::vector<uint8_t> carried(std::span<const uint8_t> packed, const char *what)
     return std::move(*data);
 }
 
-/* The folder as RT-11 will see it, every file under the name the volume
- * gives it; `rt11Name` receives the program's. */
-disk::RtfsDescriptor describeFolder(const fs::path &folder,
-                                    const std::string &programFile,
+std::string lower(std::string_view s)
+{
+    std::string out{s};
+    for (auto &c : out)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return out;
+}
+
+/* The file names a command line speaks of, without device or extension,
+ * in lower case: the line is cut at the characters RT-11's command
+ * syntax separates file specifications with, and an option (/X, /X:n)
+ * names no file. */
+std::vector<std::string> namesSpokenOf(std::span<const std::string> arguments)
+{
+    std::vector<std::string> names;
+    for (const auto &argument : arguments) {
+        std::size_t at = 0;
+        while (at < argument.size()) {
+            const std::size_t end = argument.find_first_of("=,<>[/ ", at);
+            std::string token = argument.substr(at, end - at);
+            if (const auto colon = token.rfind(':'); colon != std::string::npos)
+                token.erase(0, colon + 1);
+            if (const auto dot = token.find('.'); dot != std::string::npos)
+                token.erase(dot);
+            if (!token.empty()) names.push_back(lower(token));
+            if (end == std::string::npos) break;
+            at = end + 1;
+            if (argument[end] == '/' || argument[end] == '[')   /* an option, a size */
+                at = argument.find_first_of("=,<> ", at);
+        }
+    }
+    return names;
+}
+
+/* The volume RT-11 will see: the program and the files its command line
+ * speaks of - by name, whatever the extension, since a program adds its
+ * own (MACRO reads PRIMER.MAC for PRIMER and writes PRIMER.OBJ).  The
+ * folder's other files stay out.  `rt11Name` receives the program's. */
+disk::RtfsDescriptor describeVolume(const fs::path &program,
+                                    std::span<const std::string> arguments,
                                     std::string &rt11Name)
 {
     disk::RtfsDescriptor desc;
     desc.device = disk::RtfsDescriptor::Device::Hd;
     desc.blocks = disk::kRtfsMaxBlocks;
 
+    const auto names = namesSpokenOf(arguments);
+    const std::string programFile = lower(program.filename().string());
+    std::string programHost;
+
     std::vector<disk::RtfsHostFile> listing;
     std::error_code ec;
-    for (const auto &de : fs::directory_iterator(folder, ec)) {
+    for (const auto &de : fs::directory_iterator(program.parent_path(), ec)) {
         if (!de.is_regular_file(ec)) continue;
-        if (de.path().extension() == disk::kRtfsExtension) continue;
-        listing.push_back({de.path().filename().string(), de.file_size(ec), 0});
+        const std::string host = de.path().filename().string();
+        /* The program as the folder spells it: the host may not tell
+         * dir.sav from DIR.SAV, the volume's list does. */
+        const bool isProgram = fs::equivalent(de.path(), program, ec) ||
+                               (programHost.empty() && lower(host) == programFile);
+        bool spoken = false;
+        for (const auto &name : names)
+            if (lower(de.path().stem().string()) == name) spoken = true;
+        if (!isProgram && !spoken) continue;
+        if (isProgram) programHost = host;
+        listing.push_back({host, de.file_size(ec), 0});
     }
     disk::autoFillRtfs(desc, listing);
     for (const auto &f : desc.files)
-        if (f.hostName == programFile) rt11Name = f.rt11Name;
+        if (f.hostName == programHost) rt11Name = f.rt11Name;
     return desc;
 }
 
@@ -94,10 +143,11 @@ Status Machine::start(const fs::path &program,
     std::error_code ec;
     if (!fs::is_regular_file(program, ec))
         return Status{"no such program: " + program.string()};
-    const fs::path folder = fs::absolute(program, ec).parent_path();
+    const fs::path absolute = fs::absolute(program, ec);
+    const fs::path folder = absolute.parent_path();
 
     std::string rt11Name;
-    auto desc = describeFolder(folder, program.filename().string(), rt11Name);
+    auto desc = describeVolume(absolute, arguments, rt11Name);
     if (rt11Name.empty())
         return Status{"the program does not fit an RT-11 volume: " +
                       program.string()};

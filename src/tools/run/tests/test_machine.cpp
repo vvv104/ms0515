@@ -191,13 +191,12 @@ TEST_CASE("the rest of the command line is the program's") {
     writeFile(dir / "other.txt", std::vector<uint8_t>(10, 'T'));
 
     Machine machine;
-    const std::vector<std::string> args{"*.mac"};
+    const std::vector<std::string> args{"primer.mac"};
     REQUIRE(machine.start(dir / "dir.sav", args));
     REQUIRE(runToEnd(machine));
     CHECK_FALSE(machine.failed());
 
-    /* DIR listed DK: - the folder - by the pattern, with the date the
-     * state was saved at. */
+    /* DIR listed the file named, with the date the state was saved at. */
     const std::string text = screenText(machine.emulator());
     CAPTURE(text);
     CHECK(text.find("31-Dec-99") != std::string::npos);
@@ -205,6 +204,46 @@ TEST_CASE("the rest of the command line is the program's") {
     CHECK(text.find("OTHER") == std::string::npos);
     CHECK(text.find("DIR   .SAV") == std::string::npos);
     CHECK(text.find("1 Files, 2 Blocks") != std::string::npos);
+}
+
+TEST_CASE("DK: holds the program and the files the line names, nothing else") {
+    const auto dir = freshDir("volume");
+    fs::copy_file(fs::path(RT11_SYSTEM_DIR) / "DIR.SAV", dir / "DIR.SAV");
+    writeFile(dir / "primer.mac", std::vector<uint8_t>(700, 'M'));
+    writeFile(dir / "PRIMER.OBJ", std::vector<uint8_t>(100, 'O'));
+    writeFile(dir / "other.txt", std::vector<uint8_t>(10, 'T'));
+    writeFile(dir / "ms0515.exe", std::vector<uint8_t>(5000, 'E'));
+
+    /* The program is found as the host finds it: where the host does not
+     * tell dir.sav from DIR.SAV, neither spelling is refused. */
+    const fs::path asTyped =
+        fs::exists(dir / "dir.sav") ? dir / "dir.sav" : dir / "DIR.SAV";
+
+    {   /* A wildcard finds the program alone. */
+        Machine machine;
+        const std::vector<std::string> args{"*.*"};
+        REQUIRE(machine.start(asTyped, args));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CAPTURE(printed);
+        CHECK(printed.find("DIR   .SAV") != std::string::npos);
+        CHECK(printed.find(" 1 Files, 19 Blocks") != std::string::npos);
+        CHECK(printed.find("MS0515") == std::string::npos);
+        CHECK(printed.find("PRIMER") == std::string::npos);
+    }
+    {   /* A name brings its files of every extension. */
+        Machine machine;
+        const std::vector<std::string> args{"primer/b"};
+        REQUIRE(machine.start(asTyped, args));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CAPTURE(printed);
+        CHECK(printed.find("PRIMER.MAC") != std::string::npos);
+        CHECK(printed.find("PRIMER.OBJ") != std::string::npos);
+        CHECK(printed.find("OTHER") == std::string::npos);
+        CHECK(printed.find("MS0515") == std::string::npos);
+    }
+    CHECK(filesIn(dir).size() == 5);
 }
 
 TEST_CASE("an overlaid program reads its overlays and writes into the folder") {

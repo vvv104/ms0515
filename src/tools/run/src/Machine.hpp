@@ -29,9 +29,13 @@ public:
 
     [[nodiscard]] ms0515::Emulator &emulator() noexcept { return emu_; }
 
-    /* The program's folder becomes DK: and the monitor is told to run
-     * the program with `arguments` as its command line (joined by
-     * spaces, in upper case as RT-11 reads them). */
+    /* DK: becomes a volume over the program's folder and the monitor is
+     * told to run the program with `arguments` as its command line
+     * (joined by spaces, in upper case as RT-11 reads them).  The volume
+     * holds the program and the files the command line names - whatever
+     * their extension, so that PRIMER brings PRIMER.MAC and an earlier
+     * PRIMER.OBJ - and nothing else of the folder: a wildcard finds only
+     * those.  Files the program creates appear in the folder. */
     [[nodiscard]] Status start(const std::filesystem::path &program,
                                std::span<const std::string> arguments);
 

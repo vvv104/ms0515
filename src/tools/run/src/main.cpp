@@ -3,8 +3,10 @@
  *
  *     ms0515-run PROGRAM.SAV [the program's command line]
  *
- * The program's folder is DK:; what follows the program on the line is
- * the program's, as after RUN at the monitor's prompt.  What it prints
+ * What follows the program on the line is the program's, as after RUN at
+ * the monitor's prompt.  DK: holds the program and the files that line
+ * names, taken from the program's folder; the folder's other files are
+ * not there.  What the program writes lands in the folder.  What it prints
  * goes to stdout - as text alone when stdout is a file or a pipe.  The
  * exit status is 0 when the program ended well by the monitor's account,
  * 1 when it did not, 2 when it could not be started.

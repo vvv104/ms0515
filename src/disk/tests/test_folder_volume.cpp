@@ -401,6 +401,22 @@ TEST_CASE("openInMemory serves a folder without ever writing a descriptor") {
     }
     CHECK(files == 3);
 
+    /* A descriptor that names its files is the whole volume: the folder's
+     * other files stay out, now and when they appear later; what the
+     * guest creates comes in. */
+    RtfsDescriptor listed = desc;
+    listed.files.push_back({"HELLO.TXT", "hello.txt"});
+    auto only = FolderVolume::openInMemory(dir.string(), listed);
+    REQUIRE(only != nullptr);
+    writeFile(dir / "later.dat", "later");
+    auto im3 = openLinearImage(assemble(*only));
+    REQUIRE(im3.has_value());
+    CHECK(im3->directory.find("HELLO.TXT") != nullptr);
+    CHECK(im3->directory.find("SWAP.SYS") == nullptr);
+    CHECK(im3->directory.find("LATE.DAT") == nullptr);
+    CHECK(im3->directory.find("LATER.DAT") == nullptr);
+    REQUIRE(only->descriptor().files.size() == 1);
+
     /* A size the device cannot have is refused. */
     RtfsDescriptor bad;
     bad.blocks = 0;

@@ -80,6 +80,7 @@ FolderVolume::openInMemory(const std::string &folderPath, RtfsDescriptor desc)
 
     auto vol = std::unique_ptr<FolderVolume>(new FolderVolume);
     vol->folder_ = folderPath;
+    vol->listedOnly_ = !desc.files.empty();
     vol->desc_ = std::move(desc);
     vol->rescan();
     return vol;
@@ -135,6 +136,12 @@ void FolderVolume::rescan()
         const std::string name = de.path().filename().string();
         if (name == descriptorName_ || name == desc_.bootHost) continue;
         if (de.path().extension() == kRtfsExtension) continue;
+        if (listedOnly_) {          /* the folder's other files stay out */
+            bool listed = false;
+            for (const auto &df : desc_.files)
+                if (df.hostName == name) { listed = true; break; }
+            if (!listed) continue;
+        }
         listing.push_back({name, de.file_size(ec), 0});
     }
     auto inFolder = [&](const std::string &host) {
@@ -412,7 +419,17 @@ std::string FolderVolume::materializeHostName(const std::string &rt11) const
     for (auto &c : base)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     std::string name = base;
-    for (int n = 2; fs::exists(hostPath(name)); ++n) {
+    /* A host file of that name is in the way - unless the volume lists
+     * its files and this one is not among them: then the guest never saw
+     * it, and writes over it as it would over its own earlier output. */
+    const auto taken = [&](const std::string &host) {
+        if (!fs::exists(hostPath(host))) return false;
+        if (!listedOnly_) return true;
+        for (const auto &df : desc_.files)
+            if (df.hostName == host) return true;
+        return false;
+    };
+    for (int n = 2; taken(name); ++n) {
         const auto dot = base.rfind('.');
         name = (dot == std::string::npos)
              ? base + "-" + std::to_string(n)

@@ -212,7 +212,8 @@ public:
     /* Mount the folder `folderPath` as the HD media with a descriptor that
      * lives in memory only: no `.rtfs` file is read and none is written.
      * `desc` must be a hard-disk descriptor; with no files listed it is
-     * filled from the folder.  hdPath() stays empty. */
+     * filled from the folder, with files listed those are the volume and
+     * the folder's other files stay out.  hdPath() stays empty. */
     [[nodiscard]] bool mountHdInMemory(std::string_view folderPath,
                                        disk::RtfsDescriptor desc);
 

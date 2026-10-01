@@ -43,7 +43,9 @@ public:
      * openInMemory — The same volume over `folderPath` with the descriptor
      * given by the caller and kept in memory only: no `.rtfs` file is read
      * and none is ever written, whatever the guest does to the volume.  An
-     * empty `desc.files` is auto-filled from the folder.  Returns nullptr
+     * empty `desc.files` is auto-filled from the folder; a `desc.files`
+     * that names files is the whole volume - the folder's other files
+     * stay out of it, and only what the guest creates is added.  Returns nullptr
      * when the folder is missing or the geometry is one parseRtfs would
      * refuse.
      */
@@ -106,6 +108,7 @@ private:
     std::string descriptorPath_;    /* empty: the descriptor is in memory   */
     std::string folder_;
     std::string descriptorName_;    /* descriptor's own file name           */
+    bool listedOnly_ = false;       /* host files not listed are not taken in */
     RtfsDescriptor desc_;
     std::vector<Extent>  extents_;
     std::vector<uint8_t> dirImage_; /* generated segments, kDirLbn..        */
