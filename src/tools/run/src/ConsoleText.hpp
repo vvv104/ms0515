@@ -3,10 +3,13 @@
  *
  * What the machine prints goes through the ROM's output entry a byte at a
  * time: KOI-8 letters, the ROM's pseudographics, CR and LF, and the
- * console's control sequences.  Those are read here as the VT52's: ESC H
- * and ESC J are seen to home and erase on ROM-B, the rest of the set
- * (ESC A-D, ESC K, ESC Y row column) is taken to follow and is not
- * proven.  ConsoleText turns the bytes into UTF-8 for one of two readers:
+ * console's control sequences.  Those are of two kinds.  The VT52's:
+ * ESC H and ESC J are seen to home and erase on ROM-B, the rest of the
+ * set (ESC A-D, ESC K, ESC Y row column) is taken to follow and is not
+ * proven.  And ANSI ones, ESC [ parameters letter: the editors K52 and
+ * KED open with ESC [ ? 2 l and the console takes it without printing
+ * any of it.  ConsoleText turns the bytes into UTF-8 for one of two
+ * readers:
  *
  *   plain     a file or a pipe (`ms0515-run PROG > out.txt`): the text
  *             and its line ends, nothing else - no carriage returns, no
@@ -39,7 +42,7 @@ public:
     [[nodiscard]] std::string convert(std::string_view bytes);
 
 private:
-    enum class State { text, escape, row, column };
+    enum class State { text, escape, row, column, ansi };
 
     void control(uint8_t code, std::string &out) const;
     void escape(uint8_t code, std::string &out);
@@ -47,6 +50,7 @@ private:
     Reader  reader_;
     State   state_ = State::text;
     uint8_t row_ = 0;
+    std::string ansi_;          /* an ANSI sequence's bytes so far */
 };
 
 } /* namespace ms0515::run */

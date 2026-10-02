@@ -34,6 +34,18 @@ TEST_CASE("a terminal keeps the cursor movement, as ANSI") {
     CHECK(text.convert("\033?") == "");                      /* not one it knows */
 }
 
+TEST_CASE("an ANSI sequence is the terminal's as it is, and nothing to a file") {
+    /* What K52 and KED open with, then text. */
+    ConsoleText plain(ConsoleText::Reader::plain);
+    CHECK(plain.convert("\033[?2lfirst\033[12;40Hsecond\033[K") == "firstsecond");
+
+    ConsoleText terminal(ConsoleText::Reader::terminal);
+    CHECK(terminal.convert("\033[?2lfirst\033[12;40Hsecond\033[K") ==
+          "\033[?2lfirst\033[12;40Hsecond\033[K");
+    CHECK(terminal.convert("\033[1") == "");            /* cut */
+    CHECK(terminal.convert(";2Hx") == "\033[1;2Hx");
+}
+
 TEST_CASE("a sequence cut between two calls is finished by the next") {
     ConsoleText text(ConsoleText::Reader::terminal);
     CHECK(text.convert("AB\033") == "AB");

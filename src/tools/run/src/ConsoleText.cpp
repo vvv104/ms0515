@@ -41,6 +41,11 @@ void ConsoleText::escape(uint8_t code, std::string &out)
         state_ = State::row;
         return;
     }
+    if (code == '[') {                      /* ESC [ ... : an ANSI sequence */
+        state_ = State::ansi;
+        ansi_.clear();
+        return;
+    }
     if (reader_ != Reader::terminal)
         return;
     switch (code) {
@@ -74,6 +79,15 @@ std::string ConsoleText::convert(std::string_view bytes)
             if (reader_ == Reader::terminal && row_ >= 040 && code >= 040)
                 out += "\x1B[" + std::to_string(row_ - 037) + ';' +
                        std::to_string(code - 037) + 'H';
+            break;
+        case State::ansi:
+            /* Parameters, then one byte from @ to ~ that ends it.  A host
+             * terminal reads the sequence as the machine's console does. */
+            ansi_ += static_cast<char>(code);
+            if (code >= 0x40 && code <= 0x7E) {
+                state_ = State::text;
+                if (reader_ == Reader::terminal) out += "\x1B[" + ansi_;
+            }
             break;
         case State::text:
             if (code == kEscape)
