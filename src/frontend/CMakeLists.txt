@@ -22,13 +22,28 @@ if(WIN32)
     set(VERSION_RC "${CMAKE_CURRENT_BINARY_DIR}/version.rc")
 endif()
 
+# The machine's sound through SDL and the host keyboard's events as its
+# keys: what any SDL front end of the machine needs, apart from this one's
+# ImGui.  ms0515-run links it for its window.
+add_library(ms0515_sdl_io STATIC
+    src/Audio.cpp
+    src/Keymap.cpp
+    src/PhysicalKeyboard.cpp
+)
+
+target_include_directories(ms0515_sdl_io PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(ms0515_sdl_io
+    PUBLIC ms0515_lib
+    PUBLIC SDL2::SDL2
+)
+
 add_executable(ms0515 WIN32
     src/main.cpp
     src/App.cpp
-    src/Audio.cpp
     src/Config.cpp
-    src/Keymap.cpp
-    src/PhysicalKeyboard.cpp
     src/Joystick.cpp
     src/OnScreenKeyboard.cpp
     src/Ui.cpp
@@ -44,6 +59,7 @@ target_include_directories(ms0515 PRIVATE
 
 target_link_libraries(ms0515
     PRIVATE ms0515_lib
+    PRIVATE ms0515_sdl_io
     PRIVATE ms0515_libapp
     PRIVATE ms0515_platform_gui
     PRIVATE ms0515_win7compat

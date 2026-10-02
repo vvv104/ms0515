@@ -342,6 +342,13 @@ bool stdoutIsTerminal()
     return GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) == FILE_TYPE_CHAR;
 }
 
+void releaseOwnConsole()
+{
+    DWORD processes[2];
+    if (GetConsoleProcessList(processes, 2) == 1)
+        FreeConsole();
+}
+
 void writeStdout(const char *data, size_t n)
 {
     if (n == 0) return;

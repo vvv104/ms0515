@@ -93,8 +93,19 @@ target_link_libraries(ms0515_run_core
     PUBLIC ms0515_run_base
 )
 
+# The window and the sound are SDL's, through the frontend's SDL library
+# and libapp's composition of the screen (nothing of libapp's settings or
+# paths).  A build without the frontend has neither and says so when a
+# program draws.
+if(TARGET ms0515_sdl_io)
+    set(RUN_DISPLAY src/DisplaySdl.cpp)
+else()
+    set(RUN_DISPLAY src/DisplayNone.cpp)
+endif()
+
 add_executable(ms0515-run
     src/main.cpp
+    ${RUN_DISPLAY}
 )
 
 target_link_libraries(ms0515-run
@@ -102,6 +113,13 @@ target_link_libraries(ms0515-run
     PRIVATE ms0515_platform_cli
     PRIVATE ms0515_win7compat
 )
+
+if(TARGET ms0515_sdl_io)
+    target_link_libraries(ms0515-run
+        PRIVATE ms0515_sdl_io
+        PRIVATE ms0515_libapp
+    )
+endif()
 
 if(MS0515_BUILD_TESTS)
     add_subdirectory(tests)

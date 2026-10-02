@@ -230,7 +230,11 @@ Status Machine::start(const fs::path &program,
     emu_.setVramWriteCallback([this](uint16_t, uint8_t) {
         if (emu_.pc() < rmon_) drewItself_ = true;
     });
-    emu_.setSoundCallback([this](int) { sounded_ = true; });
+    emu_.setSoundCallback([this](int level) {
+        sounded_ = true;
+        if (speaker_) speaker_(emu_.frameCyclePos(), level);
+    });
+    graphics_ = false;
     installMonitorWatch(emu_);
     setFileAsked([this](const std::string &device, const std::string &name) {
         fileAsked(device, name);
@@ -289,7 +293,9 @@ bool Machine::step()
     keyFrames_  = asked ? keyFrames_ + 1 : 0;
     sinceAsked_ = asked ? 0 : sinceAsked_ + 1;
     if (waitingForKey()) everAsked_ = true;
-    if (waitingForKey() || drewItself_ || sounded_ || !emu_.isHires())
+    if (drewItself_ || !emu_.isHires())
+        graphics_ = true;
+    if (waitingForKey() || graphics_ || sounded_)
         interactive_ = true;
     return !ended();
 }

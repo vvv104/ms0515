@@ -15,7 +15,9 @@
 #include <ms0515/Emulator.hpp>
 #include <ms0515/Status.hpp>
 
+#include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <string>
 
@@ -58,6 +60,17 @@ public:
      * for one that does its work and ends - an assembler, a linker - and
      * may run as fast as the host does.  Once true, it stays. */
     [[nodiscard]] bool interactive() const noexcept { return interactive_; }
+
+    /* The program makes its picture itself: it has put bytes into video
+     * memory past the console, or left the console's video mode.  Its
+     * screen is to be shown as a picture from now on, not printed as
+     * text.  Once true, it stays. */
+    [[nodiscard]] bool graphics() const noexcept { return graphics_; }
+
+    /* Where the speaker's level changes go: the cycle of the frame and
+     * the new level.  Empty: nowhere. */
+    using Speaker = std::function<void(uint32_t cycle, int level)>;
+    void setSpeaker(Speaker speaker) { speaker_ = std::move(speaker); }
 
     /* The program is asking for a key and has been for some frames. */
     [[nodiscard]] bool waitingForKey() const noexcept
@@ -105,6 +118,8 @@ private:
     bool                  drewItself_ = false;
     bool                  sounded_ = false;
     bool                  interactive_ = false;
+    bool                  graphics_ = false;
+    Speaker               speaker_;
 };
 
 /* The RUN command for a program file and its arguments, or an error

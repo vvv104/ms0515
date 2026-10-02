@@ -12,6 +12,11 @@
  * machine's keyboard.  Ctrl-C is the machine's (two of them stop a
  * program, as on RT-11); Ctrl-] leaves at once.
  *
+ * A program that makes its picture itself - a game - gets a window the
+ * moment it starts drawing: the screen is shown there, the keys come
+ * from there, and closing it ends the run.  The speaker sounds in either
+ * case.
+ *
  * A program that does its work and ends runs as fast as the host does;
  * one a person sits at runs at the machine's own pace (Machine.hpp says
  * how the two are told apart).
@@ -24,6 +29,7 @@
  */
 
 #include "ConsoleText.hpp"
+#include "Display.hpp"
 #include "HostKeys.hpp"
 #include "Machine.hpp"
 
@@ -36,6 +42,8 @@
 #include <chrono>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -110,10 +118,35 @@ int run(const std::string &program, const std::vector<std::string> &arguments)
     ConsoleText text(ms0515::cli::stdoutIsTerminal()
                          ? ConsoleText::Reader::terminal
                          : ConsoleText::Reader::plain);
-    Keyboard keyboard;
+    ms0515::run::Display display;
+    machine.setSpeaker([&display](uint32_t cycle, int level) {
+        display.speaker(cycle, level);
+    });
+    std::optional<Keyboard> keyboard{std::in_place};
+
     auto next = Clock::now();
-    while (keyboard.pump(machine) && machine.step()) {
-        print(text.convert(machine.takeOutput()));
+    while (true) {
+        /* The terminal is the keyboard until there is a window. */
+        if (keyboard && !keyboard->pump(machine))
+            return 1;                   /* left by Ctrl-] */
+        if (!machine.step())
+            break;
+
+        if (machine.graphics() && !display.isOpen()) {
+            /* The program draws: from here on its screen is a picture. */
+            keyboard.reset();
+            if (!display.open(std::filesystem::path{program}.stem().string())) {
+                std::fprintf(stderr, "ms0515-run: %s\n", display.error().c_str());
+                return 2;
+            }
+            ms0515::cli::releaseOwnConsole();
+        }
+        const std::string printed = machine.takeOutput();
+        if (!display.isOpen())
+            print(text.convert(printed));
+        if (!display.frame(machine.emulator()))
+            return 0;                   /* the window was closed */
+
         if (!machine.interactive()) {
             next = Clock::now();
             continue;
@@ -122,9 +155,8 @@ int run(const std::string &program, const std::vector<std::string> &arguments)
         next = std::max(next + kFrame, Clock::now());
         std::this_thread::sleep_until(next);
     }
-    if (!machine.ended())
-        return 1;                       /* left by Ctrl-] */
-    print(text.convert(machine.drainOutput()));
+    if (!display.isOpen())
+        print(text.convert(machine.drainOutput()));
     return machine.failed() ? 1 : 0;
 }
 
