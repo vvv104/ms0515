@@ -147,14 +147,15 @@ TEST_CASE("the carried diskette holds the system and the starter, nothing else")
 
     /* It is carried as what is on it, not as a diskette's 400 KB: the
      * bound is there for growth to be seen. */
-    CHECK(volume->held() <= 110);
+    CHECK(volume->held() <= 115);
     CHECK(ms0515::run::embedded::disk.size() < 60 * 1024);
 
     std::set<std::string> names;
     for (const auto &e : opened->directory.entries)
         if (e.isPermanent()) names.insert(e.name);
     CHECK(names == std::set<std::string>{"RT11SJ.SYS", "SWAP.SYS", "DZ.SYS",
-                                         "TT.SYS", "HD.SYS", "START.SAV"});
+                                         "TT.SYS", "HD.SYS", "EM.SYS",
+                                         "START.SAV"});
 }
 
 TEST_CASE("the carried state is the starter waiting on a blank screen") {
@@ -297,8 +298,8 @@ TEST_CASE("an overlaid program reads its overlays and writes into the folder") {
 
 TEST_CASE("a program the monitor stops is over too, and has failed") {
     const auto dir = freshDir("trap");
-    /* MUL: the processor has no EIS, a reserved instruction. */
-    writeFile(dir / "trap.sav", program({0070001}));
+    /* JMP R0: no such instruction, on this processor or with EM. */
+    writeFile(dir / "trap.sav", program({0000100}));
 
     Machine machine;
     REQUIRE(machine.start(dir / "trap.sav", {}));
@@ -571,6 +572,27 @@ TEST_CASE("a file a program opened and never closed is not left in the folder") 
         CHECK(printed.empty());
     }
     CHECK(filesIn(dir) == std::set<std::string>{"enter.sav"});
+}
+
+TEST_CASE("the instructions the processor lacks are emulated") {
+    /* The machine has no EIS; EM, switched on in the carried state, does
+     * MUL for a program built for a PDP-11 that has it. */
+    const auto dir = freshDir("eis");
+    writeFile(dir / "mul.sav", program({
+        0012701, 5,         /* MOV  #5,R1          */
+        0070127, 3,         /* MUL  #3,R1          */
+        0062701, 060,       /* ADD  #60,R1    15 + '0' = '?' */
+        0010100,            /* MOV  R1,R0          */
+        0104341,            /* .TTYOUT             */
+        0104350,            /* .EXIT               */
+    }));
+
+    Machine machine;
+    REQUIRE(machine.start(dir / "mul.sav", {}));
+    std::string printed;
+    REQUIRE(runToEnd(machine, &printed));
+    CHECK(printed == "?");
+    CHECK_FALSE(machine.failed());
 }
 
 TEST_CASE("a utility that reports an error has failed") {

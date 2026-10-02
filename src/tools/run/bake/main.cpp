@@ -6,8 +6,8 @@
  *
  * SYSTEM.dsk is the dec system diskette as `ms0515-disk compose` makes
  * it.  The startup file is taken off it and the starter put on; the
- * machine is booted from it, the date set, HD loaded and made DK:, and
- * the starter run.  With the starter waiting on a cleared screen the
+ * machine is booted from it, the date set, HD loaded and made DK:, the
+ * instruction emulator EM switched on, and the starter run.  With the starter waiting on a cleared screen the
  * state is saved; the diskette is taken as the monitor left it, so that
  * the two agree, and as a sparse volume - the blocks in use, not an
  * image of the medium.  ROM, volume and state go into OUT.cpp packed
@@ -226,6 +226,11 @@ void bake(const std::string &romPath, const std::string &diskPath,
         throw std::runtime_error("the date did not take:\n" + screenText(emu));
     command(emu, "LOAD HD");
     command(emu, "ASSIGN HD DK");
+    /* The emulator of the instructions the processor has not (MUL, DIV,
+     * ASH, ASHC, the FIS four): programs built for a PDP-11 with them
+     * run, the others do not notice. */
+    command(emu, "SET EM SYSGEN");
+    command(emu, "SET EM ON");
     runStarter(emu);
 
     std::vector<uint8_t> state;

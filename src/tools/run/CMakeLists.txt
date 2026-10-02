@@ -55,19 +55,22 @@ set(RUN_ROM       "${CMAKE_SOURCE_DIR}/assets/rom/ms0515-romb.rom")
 set(RUN_SYSTEM    "${CMAKE_CURRENT_BINARY_DIR}/system.dsk")
 set(RUN_EMBEDDED  "${CMAKE_CURRENT_BINARY_DIR}/Embedded.cpp")
 
-# The diskette: the monitor, the swap file and the three handlers, nothing
-# of the system's suggested utilities.
+# The diskette: the monitor, the swap file, the three handlers and EM, the
+# emulator of the EIS/FIS instructions the processor lacks - nothing of
+# the system's suggested utilities.
 add_custom_command(
     OUTPUT  "${RUN_SYSTEM}"
     COMMAND ${CMAKE_COMMAND} -E rm -f "${RUN_SYSTEM}"
     COMMAND ms0515-disk compose --repo "${MS0515_SOFTWARE_DIR}"
-            --system dec --media ss --add hd-rt11 "${RUN_SYSTEM}"
+            --system dec --media ss --add hd-rt11 --add em "${RUN_SYSTEM}"
     DEPENDS ms0515-disk
             "${MS0515_SOFTWARE_DIR}/kits/dec/bundles.toml"
             "${MS0515_SOFTWARE_DIR}/kits/dec/RT11SJ.SYS"
             "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/DZ.SYS"
             "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/TT.SYS"
             "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/HD.SYS"
+            "${MS0515_SOFTWARE_DIR}/kits/osa/handlers/EM.SYS"
+            "${MS0515_SOFTWARE_DIR}/kits/osa/bundles.toml"
     COMMENT "Composing the dec system diskette for ms0515-run"
     VERBATIM
 )
