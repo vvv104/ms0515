@@ -252,4 +252,67 @@ TEST_CASE("a .rtfs descriptor mounts a folder-backed HD volume") {
     fs::remove_all(dir);
 }
 
+TEST_CASE("mountHdInMemory serves a folder and leaves no descriptor behind") {
+    fs::path dir = fs::temp_directory_path() / "ms0515_rtfs_inmemory";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    {
+        std::ofstream(dir / "hello.dat", std::ios::binary)
+            << std::string(16, '!');
+    }
+
+    ms0515::disk::RtfsDescriptor desc;
+    desc.device = ms0515::disk::RtfsDescriptor::Device::Hd;
+    desc.blocks = 200;
+
+    ms0515::Emulator emu;
+    REQUIRE(emu.mountHdInMemory(dir.string(), desc));
+    CHECK(emu.hdMounted());
+    CHECK(emu.hdEnabled());
+    emu.writeWord(kDispatcher, 0x007F);
+
+    hdCmd(emu, 0, HD_CMD_SET_UNIT);
+    hdCmd(emu, 0, HD_CMD_GET_SIZE);
+    CHECK(emu.readWord(kHdData) == 200);
+
+    const uint16_t buf = 0x2000;
+    hdCmd(emu, 14, HD_CMD_SET_BLOCK);            /* first data block */
+    hdCmd(emu, buf, HD_CMD_SET_BUF);
+    hdCmd(emu, 8, HD_CMD_SET_WCNT);
+    hdCmd(emu, 0, HD_CMD_READ);
+    CHECK((emu.readWord(kHdCsr) & HD_CS_ERROR) == 0);
+    CHECK(emu.readWord(buf) == (uint16_t)('!' | ('!' << 8)));
+
+    emu.writeWord(buf, (uint16_t)('A' | ('B' << 8)));
+    hdCmd(emu, 14, HD_CMD_SET_BLOCK);
+    hdCmd(emu, buf, HD_CMD_SET_BUF);
+    hdCmd(emu, 1, HD_CMD_SET_WCNT);
+    hdCmd(emu, 0, HD_CMD_WRITE);
+    CHECK((emu.readWord(kHdCsr) & HD_CS_ERROR) == 0);
+    {
+        std::ifstream f(dir / "hello.dat", std::ios::binary);
+        char two[2]{};
+        f.read(two, 2);
+        CHECK(two[0] == 'A');
+        CHECK(two[1] == 'B');
+    }
+
+    emu.unmountHd();
+    int files = 0;
+    for (const auto &de : fs::directory_iterator(dir)) {
+        ++files;
+        CHECK(de.path().filename() == "hello.dat");
+    }
+    CHECK(files == 1);
+
+    /* A floppy descriptor is not a hard disk. */
+    desc.device = ms0515::disk::RtfsDescriptor::Device::Floppy;
+    desc.blocks = 800;
+    ms0515::Emulator emu2;
+    CHECK_FALSE(emu2.mountHdInMemory(dir.string(), desc));
+    CHECK_FALSE(emu2.hdMounted());
+
+    fs::remove_all(dir);
+}
+
 } /* TEST_SUITE("HD disk (lib)") */

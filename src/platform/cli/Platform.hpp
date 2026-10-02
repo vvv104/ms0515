@@ -63,6 +63,16 @@ bool isStdinEof();
  * a pipe or a file.  The commander over the machine exists only then. */
 bool stdinIsTerminal();
 
+/* True when stdout is the console / a tty, false when it was redirected
+ * to a file or a pipe - where cursor movement and colours are noise. */
+bool stdoutIsTerminal();
+
+/* Let go of a console window the system opened for this process alone
+ * (started from a file manager, not from a shell): a program that has a
+ * window of its own from now on has no use for it.  A console shared with
+ * a shell is left as it is.  A no-op where there are no such consoles. */
+void releaseOwnConsole();
+
 /* Write a buffer to stdout.  Used by the .TTYOUT / .PRINT hooks.
  * Does NOT flush — callers must invoke flushStdout() at meaningful
  * boundaries (end of each .TTYOUT / .PRINT call) so each guest-side

@@ -36,6 +36,7 @@ struct DirEntry {
     int         startBlock = 0; /* LBN of the file's first data block */
     int         length     = 0; /* file length in blocks */
     uint16_t    date       = 0;
+    uint16_t    jobChannel = 0; /* a tentative entry's job and channel */
 
     [[nodiscard]] bool isPermanent() const noexcept
     { return (status & kStatusPermanent) != 0; }

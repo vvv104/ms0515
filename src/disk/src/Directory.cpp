@@ -110,6 +110,7 @@ std::optional<Directory> parseSegment(std::span<const uint8_t> seg, int maxBlock
         e.name       = decodeRad50Name(rd16(seg, p + 2), rd16(seg, p + 4),
                                        rd16(seg, p + 6));
         e.length     = rd16(seg, p + 8);
+        e.jobChannel = rd16(seg, p + 10);
         e.date       = rd16(seg, p + 12);
         e.startBlock = curBlock;
         dir.entries.push_back(e);

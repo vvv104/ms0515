@@ -10,7 +10,8 @@
  * guest can stage data there before committing a directory entry.
  *
  * The descriptor file is auto-filled on open when it lists no files, and
- * saved back whenever the folder scan discovers changes.
+ * saved back whenever the folder scan discovers changes.  A volume opened
+ * with openInMemory() has no descriptor file at all.
  */
 
 #ifndef MS0515_DISK_FOLDERVOLUME_HPP
@@ -37,6 +38,19 @@ public:
      */
     static std::unique_ptr<FolderVolume>
     open(const std::string &descriptorPath, std::string *error = nullptr);
+
+    /*
+     * openInMemory — The same volume over `folderPath` with the descriptor
+     * given by the caller and kept in memory only: no `.rtfs` file is read
+     * and none is ever written, whatever the guest does to the volume.  An
+     * empty `desc.files` is auto-filled from the folder; a `desc.files`
+     * that names files is the whole volume - the folder's other files
+     * stay out of it, and only what the guest creates is added.  Returns nullptr
+     * when the folder is missing or the geometry is one parseRtfs would
+     * refuse.
+     */
+    static std::unique_ptr<FolderVolume>
+    openInMemory(const std::string &folderPath, RtfsDescriptor desc);
 
     [[nodiscard]] int blocks() const noexcept { return desc_.blocks; }
     [[nodiscard]] RtfsDescriptor::Device deviceType() const noexcept
@@ -66,6 +80,22 @@ public:
      */
     void writeRange(int lbn, int count, const uint8_t *in);
 
+    /*
+     * admit — Take into the volume the folder's file RT-11 would call
+     * `rt11Name` ("SYSMAC.SML"), for a volume that lists its files and
+     * leaves the folder's others out: the way a file comes in when it is
+     * asked for by name.  The files already there keep their places.
+     * False when the volume has a file of that name already, the folder
+     * has none, or it does not fit.
+     */
+    bool admit(const std::string &rt11Name);
+
+    /* A volume opened with openInMemory() takes with it the files the
+     * guest entered and never closed: on RT-11 such a file does not
+     * exist, and its host file is the whole space the monitor set aside
+     * for it (half the volume when the program named no size). */
+    ~FolderVolume();
+
 private:
     FolderVolume() = default;
 
@@ -75,9 +105,34 @@ private:
         int  blocks = 0;
     };
 
+    /* Where a file lies, by its host name.  The guest's directory is the
+     * authority once it has written one: a file stays at its start block,
+     * and one entered and not yet closed is tentative, holding the space
+     * and the job/channel word of the guest's entry. */
+    struct Slot {
+        int      start = -1;        /* first LBN; -1 = not placed yet       */
+        int      blocks = 0;
+        bool     tentative = false;
+        uint16_t jobChannel = 0;
+    };
+
+    /* One permanent or tentative entry of the directory the guest wrote. */
+    struct GuestEntry {
+        std::string name;
+        int         start, length;
+        uint16_t    status, date, jobChannel;
+        bool        taken;          /* matched to a file of ours            */
+    };
+
     void rescan();                  /* folder -> descriptor + extents       */
+    void layOut();                  /* slots -> extents                     */
     void saveDescriptor();
     void generateDirectory();
+    [[nodiscard]] bool readGuestEntries(std::vector<GuestEntry> &entries) const;
+    void adoptGuestEntry(RtfsFile &f, const GuestEntry &e);
+    [[nodiscard]] RtfsFile createGuestFile(const GuestEntry &e);
+    void dropGoneFiles(const std::vector<bool> &seen,
+                       std::vector<RtfsFile> &created);
     /* Manual `.rtfs` edits: a guest directory read stats the descriptor
      * (no polling — piggybacked on guest activity, the earliest moment a
      * change could become visible inside anyway) and reloads it when the
@@ -91,9 +146,11 @@ private:
     [[nodiscard]] const Extent *extentAt(int lbn) const;
     [[nodiscard]] std::string hostPath(const std::string &name) const;
 
-    std::string descriptorPath_;
+    std::string descriptorPath_;    /* empty: the descriptor is in memory   */
     std::string folder_;
     std::string descriptorName_;    /* descriptor's own file name           */
+    bool listedOnly_ = false;       /* host files not listed are not taken in */
+    std::map<std::string, Slot> slots_;
     RtfsDescriptor desc_;
     std::vector<Extent>  extents_;
     std::vector<uint8_t> dirImage_; /* generated segments, kDirLbn..        */

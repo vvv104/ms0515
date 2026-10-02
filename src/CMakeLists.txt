@@ -92,10 +92,12 @@ else()
     add_subdirectory(platform)
     add_subdirectory(files)
     add_subdirectory(cli)
-    add_subdirectory(tools)
+    # Before the tools: ms0515-run takes its window from the frontend's
+    # SDL library when there is one.
     if(MS0515_BUILD_FRONTEND)
         add_subdirectory(frontend)
     endif()
+    add_subdirectory(tools)
 endif()
 
 # The RT-11 development tree's program harnesses (rt11_devel/projects/*/tests)

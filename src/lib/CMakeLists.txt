@@ -9,7 +9,9 @@ add_library(ms0515_lib STATIC
     src/Disassembler.cpp
     src/GdbStub.cpp
     src/KeyboardLayout.cpp
+    src/Koi8.cpp
     src/Terminal.cpp
+    src/Typist.cpp
     src/VramMirror.cpp
 )
 
@@ -23,8 +25,9 @@ target_include_directories(ms0515_lib
 
 target_link_libraries(ms0515_lib
     PUBLIC ms0515_core
-    # Folder-backed HD volumes (.rtfs) are served by the offline disk lib.
-    PRIVATE ms0515_disk
+    # Folder-backed HD volumes (.rtfs) are served by the offline disk lib;
+    # public because Emulator.hpp names its descriptor (mountHdInMemory).
+    PUBLIC ms0515_disk
     PRIVATE fmt::fmt
 )
 

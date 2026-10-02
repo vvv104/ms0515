@@ -356,4 +356,258 @@ TEST_CASE("guest boot-block writes materialize the hidden boot file") {
     CHECK(im->directory.find("F.DAT") != nullptr);
 }
 
+/* ── files open for output (the way MACRO and LINK write) ────────────────── */
+
+namespace {
+
+constexpr std::size_t kEntry0 = 10, kEntrySize = 14;
+
+void setStatus(std::vector<uint8_t> &dirBlocks, int entry, uint16_t status,
+               uint16_t jobChannel = 0)
+{
+    uint8_t *e = dirBlocks.data() + kEntry0 + static_cast<std::size_t>(entry) * kEntrySize;
+    e[0] = static_cast<uint8_t>(status & 0xFF);
+    e[1] = static_cast<uint8_t>(status >> 8);
+    e[10] = static_cast<uint8_t>(jobChannel & 0xFF);
+    e[11] = static_cast<uint8_t>(jobChannel >> 8);
+}
+
+RtfsDescriptor memoryHd(int blocks = 100)
+{
+    RtfsDescriptor d;
+    d.device = RtfsDescriptor::Device::Hd;
+    d.blocks = blocks;
+    return d;
+}
+
+std::string hostBytes(const fs::path &p)
+{
+    std::ifstream f(p, std::ios::binary);
+    return {std::istreambuf_iterator<char>(f), {}};
+}
+
+}  /* namespace */
+
+TEST_CASE("two files open for output at once are written and closed apart") {
+    auto dir = freshDir("twoout");
+    auto vol = FolderVolume::openInMemory(dir.string(), memoryHd());
+    REQUIRE(vol != nullptr);
+    (void)assemble(*vol);
+    const int first = rtfsDataStart();
+
+    /* .ENTER twice: A.OBJ gets 40 blocks at the start, A.LST 30 after it. */
+    auto entered = dirBlocksFor({{"A.OBJ", 40}, {"A.LST", 30}});
+    setStatus(entered, 0, kStatusTentative, 0x0103);
+    setStatus(entered, 1, kStatusTentative, 0x0104);
+    vol->writeRange(6, 8, entered.data());
+
+    /* The host files are there, and not the size of the space set aside. */
+    REQUIRE(fs::exists(dir / "a.obj"));
+    REQUIRE(fs::exists(dir / "a.lst"));
+    CHECK(fs::file_size(dir / "a.obj") == 0);
+    CHECK(fs::file_size(dir / "a.lst") == 0);
+
+    /* The monitor reads the directory again before it closes a file: the
+     * entries must still be its own - tentative, with job and channel. */
+    {
+        auto im = openLinearImage(assemble(*vol));
+        REQUIRE(im.has_value());
+        const auto &es = im->directory.entries;
+        REQUIRE(es.size() >= 2);
+        CHECK(es[0].name == "A.OBJ");
+        CHECK(es[0].status == kStatusTentative);
+        CHECK(es[0].jobChannel == 0x0103);
+        CHECK(es[0].startBlock == first);
+        CHECK(es[0].length == 40);
+        CHECK(es[1].name == "A.LST");
+        CHECK(es[1].status == kStatusTentative);
+        CHECK(es[1].jobChannel == 0x0104);
+        CHECK(es[1].startBlock == first + 40);
+        CHECK(es[1].length == 30);
+    }
+
+    std::vector<uint8_t> a(kBlock, 0xAA), b(kBlock, 0xBB), c(kBlock, 0xCC);
+    vol->writeBlock(first, a.data());
+    vol->writeBlock(first + 1, a.data());
+    vol->writeBlock(first + 40, b.data());
+
+    /* .CLOSE A.OBJ at two blocks: the rest of its space is free again,
+     * A.LST stays where it is. */
+    auto closedObj = dirBlocksFor({{"A.OBJ", 2}, {"GAP.TMP", 38}, {"A.LST", 30}});
+    setStatus(closedObj, 1, kStatusEmpty);
+    setStatus(closedObj, 2, kStatusTentative, 0x0104);
+    vol->writeRange(6, 8, closedObj.data());
+    CHECK(hostBytes(dir / "a.obj") == std::string(2 * kBlock, '\xAA'));
+    {
+        auto im = openLinearImage(assemble(*vol));
+        REQUIRE(im.has_value());
+        const DirEntry *lst = im->directory.find("A.OBJ");
+        REQUIRE(lst != nullptr);
+        CHECK(lst->length == 2);
+        bool tentativeKept = false;
+        for (const auto &e : im->directory.entries)
+            if (e.name == "A.LST" && e.status == kStatusTentative &&
+                e.startBlock == first + 40 && e.length == 30)
+                tentativeKept = true;
+        CHECK(tentativeKept);
+    }
+
+    vol->writeBlock(first + 41, c.data());
+    auto closedLst = dirBlocksFor({{"A.OBJ", 2}, {"GAP.TMP", 38}, {"A.LST", 2}});
+    setStatus(closedLst, 1, kStatusEmpty);
+    vol->writeRange(6, 8, closedLst.data());
+    CHECK(hostBytes(dir / "a.lst") ==
+          std::string(kBlock, '\xBB') + std::string(kBlock, '\xCC'));
+
+    auto im = openLinearImage(assemble(*vol));
+    REQUIRE(im.has_value());
+    const DirEntry *lst = im->directory.find("A.LST");
+    REQUIRE(lst != nullptr);
+    CHECK(lst->startBlock == first + 40);
+    CHECK(lst->length == 2);
+
+    /* Both were closed: both stay when the volume goes. */
+    vol.reset();
+    CHECK(fs::exists(dir / "a.obj"));
+    CHECK(fs::exists(dir / "a.lst"));
+}
+
+TEST_CASE("a file written over an existing one takes its place on the host") {
+    auto dir = freshDir("replace");
+    writeFile(dir / "a.obj", std::string(kBlock, 'O'));
+    auto vol = FolderVolume::openInMemory(dir.string(), memoryHd());
+    REQUIRE(vol != nullptr);
+    (void)assemble(*vol);
+    const int first = rtfsDataStart();
+
+    /* .ENTER A.OBJ while A.OBJ exists: a second, tentative entry. */
+    auto entered = dirBlocksFor({{"A.OBJ", 1}, {"B.OBJ", 10}});
+    std::memcpy(entered.data() + kEntry0 + kEntrySize + 2,
+                entered.data() + kEntry0 + 2, 6);           /* the same name */
+    setStatus(entered, 1, kStatusTentative, 0x0101);
+    vol->writeRange(6, 8, entered.data());
+    CHECK(hostBytes(dir / "a.obj") == std::string(kBlock, 'O'));   /* not yet */
+
+    std::vector<uint8_t> n(kBlock, 'N');
+    vol->writeBlock(first + 1, n.data());
+
+    /* .CLOSE: the old entry is gone, the new one is the file. */
+    auto closed = dirBlocksFor({{"GAP.TMP", 1}, {"A.OBJ", 1}});
+    setStatus(closed, 0, kStatusEmpty);
+    vol->writeRange(6, 8, closed.data());
+
+    CHECK(hostBytes(dir / "a.obj") == std::string(kBlock, 'N'));
+    int files = 0;
+    for (const auto &de : fs::directory_iterator(dir)) { (void)de; ++files; }
+    CHECK(files == 1);
+    auto im = openLinearImage(assemble(*vol));
+    REQUIRE(im.has_value());
+    const DirEntry *e = im->directory.find("A.OBJ");
+    REQUIRE(e != nullptr);
+    CHECK(e->startBlock == first + 1);
+    CHECK(im->readFile("A.OBJ")[0] == 'N');
+}
+
+TEST_CASE("an in-memory volume has no descriptor to remember a deleted file in") {
+    auto dir = freshDir("memdelete");
+    writeFile(dir / "doomed.dat", std::string(512, 'D'));
+    writeFile(dir / "kept.dat", std::string(512, 'K'));
+    auto vol = FolderVolume::openInMemory(dir.string(), memoryHd());
+    REQUIRE(vol != nullptr);
+    (void)assemble(*vol);
+
+    /* The guest deletes DOOMED.DAT: the host file goes with it. */
+    auto im = openLinearImage(assemble(*vol));
+    REQUIRE(im.has_value());
+    const bool doomedFirst = im->directory.entries[0].name == "DOOMED.DAT";
+    auto blocks = dirBlocksFor({{"DOOMED.DAT", 1}, {"KEPT.DAT", 1}});
+    if (!doomedFirst) blocks = dirBlocksFor({{"KEPT.DAT", 1}, {"DOOMED.DAT", 1}});
+    setStatus(blocks, doomedFirst ? 0 : 1, kStatusEmpty);
+    vol->writeRange(6, 8, blocks.data());
+
+    CHECK_FALSE(fs::exists(dir / "doomed.dat"));
+    CHECK(fs::exists(dir / "kept.dat"));
+    CHECK(vol->descriptor().files.size() == 1);
+}
+
+TEST_CASE("openInMemory serves a folder without ever writing a descriptor") {
+    auto dir = freshDir("inmemory");
+    writeFile(dir / "swap.sys", std::string(600, 'S'));      /* 2 blocks */
+    writeFile(dir / "hello.txt", "hello rtfs");              /* 1 block  */
+
+    RtfsDescriptor desc;
+    desc.device = RtfsDescriptor::Device::Hd;
+    desc.blocks = 100;
+    auto vol = FolderVolume::openInMemory(dir.string(), desc);
+    REQUIRE(vol != nullptr);
+    CHECK(vol->blocks() == 100);
+    CHECK(vol->deviceType() == RtfsDescriptor::Device::Hd);
+    REQUIRE(vol->descriptor().files.size() == 2);
+    CHECK(vol->descriptor().files[0].rt11Name == "SWAP.SYS");
+
+    auto im = openLinearImage(assemble(*vol));
+    REQUIRE(im.has_value());
+    CHECK(im->directory.find("HELLO.TXT") != nullptr);
+
+    /* Everything that saves a file-backed descriptor: a new home block,
+     * a host file appearing, a guest directory rewrite. */
+    std::vector<uint8_t> home(kBlock, 0);
+    vol->readBlock(1, home.data());
+    std::memcpy(home.data() + 0x1D8, "NEWVOL      ", 12);
+    vol->writeBlock(1, home.data());
+    CHECK(vol->descriptor().volumeId == "NEWVOL");
+
+    writeFile(dir / "late.dat", "late");
+    auto im2 = openLinearImage(assemble(*vol));
+    REQUIRE(im2.has_value());
+    CHECK(im2->directory.find("LATE.DAT") != nullptr);
+
+    const int dirLbn = 6;                    /* first directory segment */
+    std::vector<uint8_t> seg(2 * kBlock, 0);
+    vol->readBlock(dirLbn, seg.data());
+    vol->readBlock(dirLbn + 1, seg.data() + kBlock);
+    vol->writeRange(dirLbn, 2, seg.data());
+
+    int files = 0;
+    for (const auto &de : fs::directory_iterator(dir)) {
+        ++files;
+        CHECK(de.path().extension() != ".rtfs");
+    }
+    CHECK(files == 3);
+
+    /* A descriptor that names its files is the whole volume: the folder's
+     * other files stay out, now and when they appear later; what the
+     * guest creates comes in. */
+    RtfsDescriptor listed = desc;
+    listed.files.push_back({"HELLO.TXT", "hello.txt"});
+    auto only = FolderVolume::openInMemory(dir.string(), listed);
+    REQUIRE(only != nullptr);
+    writeFile(dir / "later.dat", "later");
+    auto im3 = openLinearImage(assemble(*only));
+    REQUIRE(im3.has_value());
+    CHECK(im3->directory.find("HELLO.TXT") != nullptr);
+    CHECK(im3->directory.find("SWAP.SYS") == nullptr);
+    CHECK(im3->directory.find("LATE.DAT") == nullptr);
+    CHECK(im3->directory.find("LATER.DAT") == nullptr);
+    REQUIRE(only->descriptor().files.size() == 1);
+
+    /* A file asked for by name comes in; the one there keeps its place. */
+    const int helloAt = im3->directory.find("HELLO.TXT")->startBlock;
+    CHECK(only->admit("LATER.DAT"));
+    CHECK_FALSE(only->admit("LATER.DAT"));          /* there already   */
+    CHECK_FALSE(only->admit("NOSUCH.DAT"));         /* not in the folder */
+    auto im4 = openLinearImage(assemble(*only));
+    REQUIRE(im4.has_value());
+    REQUIRE(im4->directory.find("LATER.DAT") != nullptr);
+    CHECK(im4->readFile("LATER.DAT")[0] == 'l');
+    CHECK(im4->directory.find("HELLO.TXT")->startBlock == helloAt);
+    CHECK(im4->directory.find("LATE.DAT") == nullptr);
+
+    /* A size the device cannot have is refused. */
+    RtfsDescriptor bad;
+    bad.blocks = 0;
+    CHECK(FolderVolume::openInMemory(dir.string(), bad) == nullptr);
+    CHECK(FolderVolume::openInMemory((dir / "missing").string(), desc) == nullptr);
+}
+
 } /* TEST_SUITE */

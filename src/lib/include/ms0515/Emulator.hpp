@@ -2,7 +2,9 @@
  * Emulator.hpp — High-level C++ wrapper around the MS0515 core board.
  *
  * Deliberately self-contained: the public header pulls in no C-side
- * core symbols (no `<ms0515/core/...>` header, no scancode macros).
+ * core symbols (no `<ms0515/core/...>` header, no scancode macros); the
+ * other headers it needs are the disk lib's plain-data descriptor of a
+ * folder volume and its sparse volume.
  * Everything frontend-visible is expressed in plain C++ —
  * the strong `Key` enum mirrors the MS-7004 scancode set; ROM/disk
  * sizes and snapshot APIs use `std::span` / `Status`; pixel
@@ -20,11 +22,14 @@
 #include <array>
 #include <cstdint>
 #include "ms0515/Status.hpp"
+#include "ms0515/disk/Rtfs.hpp"
+#include "ms0515/disk/SparseVolume.hpp"
 #include <functional>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 /* Forward declaration of the C-side CPU struct.  Visible at namespace
  * scope so the public TrapThunkFn typedef below can name it without
@@ -164,6 +169,27 @@ public:
 
     [[nodiscard]] bool mountDisk(int drive, std::string_view path);
 
+    /* Mount a single-sided diskette held in memory: `image` is the whole
+     * image (kFloppyDiskSize bytes), the machine reads and writes this
+     * copy and no file is involved.  diskPath() stays empty; diskImage()
+     * shows the copy as it is now. */
+    [[nodiscard]] bool mountDiskImage(int drive, std::vector<uint8_t> image);
+
+    /* The diskette mounted from memory in `drive`, with everything the
+     * machine wrote to it; empty when there is none. */
+    [[nodiscard]] std::span<const uint8_t> diskImage(int drive) const noexcept;
+
+    /* Mount a sparse volume as a single-sided diskette: block n of the
+     * volume is the diskette's logical block n, as the system's floppy
+     * handler numbers them.  The machine reads and writes the volume
+     * given, which grows by what is written; no file is involved.  The
+     * volume must be a diskette's size, 800 blocks. */
+    [[nodiscard]] bool mountDiskVolume(int drive, disk::SparseVolume volume);
+
+    /* The sparse volume mounted in `drive`, as it is now, to read or to
+     * change between the machine's frames; null when there is none. */
+    [[nodiscard]] disk::SparseVolume *diskVolume(int drive) noexcept;
+
     void unmountDisk(int drive);
 
     [[nodiscard]] const std::string &diskPath(int drive) const noexcept
@@ -195,6 +221,20 @@ public:
      * unmountHd() / destruction.  Size must be a positive multiple of 512. */
     [[nodiscard]] bool mountHd(std::string_view path);
 
+    /* Mount the folder `folderPath` as the HD media with a descriptor that
+     * lives in memory only: no `.rtfs` file is read and none is written.
+     * `desc` must be a hard-disk descriptor; with no files listed it is
+     * filled from the folder, with files listed those are the volume and
+     * the folder's other files stay out.  hdPath() stays empty. */
+    [[nodiscard]] bool mountHdInMemory(std::string_view folderPath,
+                                       disk::RtfsDescriptor desc);
+
+    /* For a folder mounted with its files listed: take in the folder's
+     * file RT-11 would call `rt11Name` ("SYSMAC.SML"), as when a program
+     * asks for it by name.  False when there is no such folder volume,
+     * no such file, a file of that name already, or no room. */
+    bool admitHdFile(std::string_view rt11Name);
+
     /* Flush a dirty image back to its file and eject it.  The controller
      * stays enabled (an empty drive). */
     void unmountHd();
@@ -217,6 +257,13 @@ public:
 
     [[nodiscard]] Status loadState(std::string_view path);
 
+    /* The same state as a byte buffer instead of a file.  A diskette
+     * mounted from memory has no path for the state to name: loading
+     * leaves its drive empty and the caller mounts the media again. */
+    [[nodiscard]] Status saveState(std::vector<uint8_t> &out);
+
+    [[nodiscard]] Status loadState(std::span<const uint8_t> data);
+
     [[nodiscard]] uint32_t romCrc32() const noexcept;
 
     /* ── Execution ──────────────────────────────────────────────────────── */
@@ -224,6 +271,11 @@ public:
     [[nodiscard]] bool stepFrame();
 
     void stepInstruction();
+
+    /* Point the processor somewhere else: the next instruction is fetched
+     * from `address`, the stack continues at `address`. */
+    void setPc(uint16_t address);
+    void setSp(uint16_t address);
 
     /* ── Input ──────────────────────────────────────────────────────────── */
 
@@ -267,6 +319,7 @@ public:
     [[nodiscard]] bool                     isHires()       const noexcept;
     [[nodiscard]] uint8_t                  borderColor()   const noexcept;
     [[nodiscard]] uint16_t                 pc()            const noexcept;
+    [[nodiscard]] uint16_t                 sp()            const noexcept;
     [[nodiscard]] uint32_t                 frameCyclePos() const noexcept;
     [[nodiscard]] bool                     halted()        const noexcept;
     [[nodiscard]] bool                     waiting()       const noexcept;
@@ -326,6 +379,22 @@ public:
      * Pass `nullptr` to clear a previously-installed thunk. */
     using TrapThunkFn = bool (*)(struct ms0515_cpu *cpu, uint16_t vector);
     void setTrapThunk(TrapThunkFn thunk);
+
+    /* Install an observer of one address: `hook` is called each time the
+     * processor is about to execute the instruction at `address`, with
+     * the registers as that instruction will find them (`cpu->r[]`,
+     * through `<ms0515/core/cpu.h>` as for a trap thunk).  It only looks:
+     * the instruction then executes as ever.  One hook at a time;
+     * `nullptr` takes it off.
+     *
+     * For routines that leave no other trace - the ROM's character
+     * output at 160000 is entered with the character in R0. */
+    using ExecHookFn = void (*)(struct ms0515_cpu *cpu);
+    void setExecHook(uint16_t address, ExecHookFn hook);
+
+    /* The same hook on several addresses, four at most; which one it was
+     * called at, `cpu->instruction_pc` says. */
+    void setExecHook(std::span<const uint16_t> addresses, ExecHookFn hook);
 
 private:
     void rewirePointers();

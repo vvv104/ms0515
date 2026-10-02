@@ -892,4 +892,59 @@ TEST_CASE("small loop: sum 1..5 using SOB") {
     CHECK(ms0515::internal::cpu(emu).r[1] == 15);  /* 5+4+3+2+1 = 15 */
 }
 
+/* ── Register setters (public API) ───────────────────────────────────────── */
+
+TEST_CASE("setPc and setSp move the registers and execution follows") {
+    ms0515::Emulator emu;
+    emu.reset();
+
+    emu.setSp(0x0F00);
+    CHECK(emu.sp() == 0x0F00);
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_SP] == 0x0F00);
+
+    emit(emu, BASE, {012700, 042});            /* MOV #042, R0 */
+    emu.setPc(BASE);
+    CHECK(emu.pc() == BASE);
+
+    emu.stepInstruction();
+    CHECK(ms0515::internal::cpu(emu).r[0] == 042);
+    CHECK(emu.pc() == BASE + 4);
+    CHECK(emu.sp() == 0x0F00);
+}
+
+/* ── Execution hook (public API) ─────────────────────────────────────────── */
+
+static int      g_hookCalls = 0;
+static uint16_t g_hookR0    = 0;
+
+static void countingHook(ms0515_cpu *cpu)
+{
+    ++g_hookCalls;
+    g_hookR0 = cpu->r[0];
+}
+
+TEST_CASE("setExecHook sees the instruction at its address about to run") {
+    ms0515::Emulator emu;
+    emu.reset();
+    g_hookCalls = 0;
+
+    emit(emu, BASE, {012700, 0101,              /* MOV #101, R0 */
+                     0005200,                   /* INC R0       */
+                     0000240});                 /* NOP          */
+    emu.setPc(BASE);
+    emu.setExecHook(BASE + 4, &countingHook);
+
+    emu.stepInstruction();
+    CHECK(g_hookCalls == 0);
+    emu.stepInstruction();
+    CHECK(g_hookCalls == 1);
+    CHECK(g_hookR0 == 0101);                    /* before the INC */
+    CHECK(ms0515::internal::cpu(emu).r[0] == 0102);
+
+    emu.setExecHook(0, nullptr);
+    emu.setPc(BASE + 4);
+    emu.stepInstruction();
+    CHECK(g_hookCalls == 1);
+}
+
 } /* TEST_SUITE */

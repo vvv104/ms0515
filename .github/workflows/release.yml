@@ -25,6 +25,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # The software collection: ms0515-run carries the dec system inside,
+      # and its build step composes and boots that system's diskette from
+      # the collection's kit (src/tools/run).
+      - uses: actions/checkout@v6
+        with:
+          repository: vvv104/ms0515-software
+          path: ms0515-software
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -72,6 +80,7 @@ jobs:
         env:
           CC: ${{ runner.os == 'Linux' && 'gcc-13' || '' }}
           CXX: ${{ runner.os == 'Linux' && 'g++-13' || '' }}
+          MS0515_SOFTWARE_DIR: ${{ github.workspace }}/ms0515-software
         run: conan build . --build=missing
 
       - name: Pack artifact
@@ -83,6 +92,14 @@ jobs:
           # a local build left: the disks come from the software collection.
           rm -f package/ms0515.yaml
           rm -rf package/assets/disks
+
+          # ms0515-run is left out of a build that has no software
+          # collection, without an error: a release must not go out so.
+          EXE=""
+          if [ "${{ runner.os }}" = "Windows" ]; then EXE=".exe"; fi
+          for binary in ms0515 ms0515-cli ms0515-disk ms0515-run; do
+            test -f "package/${binary}${EXE}" || { echo "missing: ${binary}${EXE}"; exit 1; }
+          done
 
           if [ "${{ runner.os }}" = "Windows" ]; then
             (cd package && 7z a -tzip "../${NAME}.zip" .)
