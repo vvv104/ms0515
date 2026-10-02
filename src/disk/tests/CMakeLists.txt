@@ -11,6 +11,7 @@ add_executable(ms0515_disk_tests
     test_layout.cpp
     test_rtfs.cpp
     test_folder_volume.cpp
+    test_sparse_volume.cpp
     test_directory.cpp
     test_build.cpp
     test_compose.cpp
