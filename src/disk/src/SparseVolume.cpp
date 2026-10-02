@@ -4,6 +4,9 @@
 
 #include "ms0515/disk/SparseVolume.hpp"
 
+#include "ms0515/disk/Image.hpp"
+#include "ms0515/disk/Layout.hpp"
+
 #include <algorithm>
 #include <cstring>
 
@@ -103,6 +106,29 @@ SparseVolume SparseVolume::fromLinear(std::span<const uint8_t> linear)
     SparseVolume vol(static_cast<int>(linear.size() / kBlockSize));
     for (int lbn = 0; lbn < vol.blocks_; ++lbn)
         vol.writeBlock(lbn, linear.data() + static_cast<std::size_t>(lbn) * kBlockSize);
+    return vol;
+}
+
+SparseVolume SparseVolume::fromImage(const Image &image)
+{
+    int blocks = static_cast<int>(image.data.size() / kBlockSize);
+    if (image.vol == Vol::floppy)
+        blocks = kSsBlocks;                         /* one side */
+    SparseVolume vol(blocks);
+    const auto take = [&](int from, int count) {
+        for (int lbn = from; lbn < from + count && lbn < blocks; ++lbn)
+            if (const auto block = image.block(lbn); !block.empty())
+                vol.writeBlock(lbn, block.data());
+    };
+    if (!image.hasDirectory) {
+        take(0, blocks);
+        return vol;
+    }
+    /* Everything before the first file - boot, home, directory - and
+     * each file's blocks. */
+    take(0, image.directory.dataStart);
+    for (const auto &e : image.directory.entries)
+        if (e.isPermanent()) take(e.startBlock, e.length);
     return vol;
 }
 

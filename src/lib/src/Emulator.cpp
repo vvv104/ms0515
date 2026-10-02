@@ -193,6 +193,22 @@ bool cFdcFolderWrite(void *userdata, int track, int sector,
     return true;
 }
 
+/* A sparse volume as a diskette: the same mapping of sectors to logical
+ * blocks.  userdata is the SparseVolume. */
+bool cFdcVolumeRead(void *userdata, int track, int sector, uint8_t *out)
+{
+    auto *vol = static_cast<ms0515::disk::SparseVolume *>(userdata);
+    vol->readBlock(ms0515::disk::lbnFromPhys(track, sector), out);
+    return true;
+}
+
+bool cFdcVolumeWrite(void *userdata, int track, int sector, const uint8_t *data)
+{
+    auto *vol = static_cast<ms0515::disk::SparseVolume *>(userdata);
+    vol->writeBlock(ms0515::disk::lbnFromPhys(track, sector), data);
+    return true;
+}
+
 /* Folder-backed HD volume: serve / accept whole blocks. */
 void cHdFolderRead(void *userdata, uint32_t lbn, uint32_t nblocks,
                    uint8_t *out)
@@ -326,6 +342,7 @@ bool Emulator::mountDisk(int drive, std::string_view path)
         return false;
     std::string pathStr{path};
     impl_->fdImage[drive] = {};     /* the attach below ejects it anyway */
+    impl_->fdVolume[drive].reset();
 
     /* A `.rtfs` descriptor mounts a folder-backed diskette. */
     std::string lower = pathStr;
@@ -361,6 +378,26 @@ bool Emulator::mountDiskImage(int drive, std::vector<uint8_t> image)
     return true;
 }
 
+bool Emulator::mountDiskVolume(int drive, disk::SparseVolume volume)
+{
+    if (drive < 0 || drive >= 4 || volume.blocks() != disk::kSsBlocks)
+        return false;
+    unmountDisk(drive);
+    impl_->fdVolume[drive] =
+        std::make_unique<disk::SparseVolume>(std::move(volume));
+    fdc_attach_backend(&impl_->board.fdc, drive, &cFdcVolumeRead,
+                       &cFdcVolumeWrite, impl_->fdVolume[drive].get(),
+                       /*read_only=*/false);
+    return true;
+}
+
+disk::SparseVolume *Emulator::diskVolume(int drive) noexcept
+{
+    if (drive < 0 || drive >= 4)
+        return nullptr;
+    return impl_->fdVolume[drive].get();
+}
+
 std::span<const uint8_t> Emulator::diskImage(int drive) const noexcept
 {
     if (drive < 0 || drive >= 4)
@@ -381,6 +418,7 @@ void Emulator::unmountDisk(int drive)
     fdc_detach(&impl_->board.fdc, drive);
     impl_->fdFolder[drive].reset();
     impl_->fdImage[drive] = {};
+    impl_->fdVolume[drive].reset();
     diskPath_[drive].clear();
 }
 
@@ -826,6 +864,7 @@ Status Emulator::loadState(std::span<const uint8_t> data)
         fdc_detach(&impl_->board.fdc, i);
         impl_->fdFolder[i].reset();
         impl_->fdImage[i] = {};
+        impl_->fdVolume[i].reset();
     }
 
     uint32_t saved_crc = 0;

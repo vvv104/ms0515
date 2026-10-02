@@ -59,6 +59,10 @@ struct Emulator::Impl {
     /* Diskettes mounted from memory (mountDiskImage), one slot per FDC
      * unit; empty when the unit holds a file, a folder or nothing. */
     std::array<std::vector<uint8_t>, 4> fdImage;
+
+    /* Diskettes that are sparse volumes (mountDiskVolume), one slot per
+     * FDC unit; null when the unit holds anything else or nothing. */
+    std::array<std::unique_ptr<ms0515::disk::SparseVolume>, 4> fdVolume;
 };
 
 namespace internal {

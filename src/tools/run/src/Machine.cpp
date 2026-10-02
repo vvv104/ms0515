@@ -186,8 +186,9 @@ Machine::Machine()
     emu_.setHdEnabled(true);
     if (auto r = emu_.loadState(carried(embedded::state, "state")); !r)
         throw std::runtime_error("the carried state does not load: " + r.error());
-    if (!emu_.mountDiskImage(0, carried(embedded::disk, "system diskette")))
-        throw std::runtime_error("the carried system diskette does not mount");
+    auto system = disk::SparseVolume::parse(carried(embedded::disk, "system volume"));
+    if (!system || !emu_.mountDiskVolume(0, std::move(*system)))
+        throw std::runtime_error("the carried system volume does not mount");
     if (!starterWaiting(emu_))
         throw std::runtime_error("the carried state is not the starter's wait");
 }
@@ -263,20 +264,23 @@ void Machine::fileAsked(const std::string &device, const std::string &name)
     if (device.empty() || device == "DK" || device == "HD" || device == "HD0") {
         given = emu_.admitHdFile(name);
     } else if (device == "SY" || device == "DZ" || device == "DZ0") {
-        const auto mounted = emu_.diskImage(0);
-        std::vector<uint8_t> image(mounted.begin(), mounted.end());
-        const auto opened = disk::openImage(image);
+        disk::SparseVolume *system = emu_.diskVolume(0);
+        if (!system)
+            return;
+        std::vector<uint8_t> blocks = system->toLinear();
+        const auto opened = disk::openLinearImage(blocks);
         const fs::path file = folderFile(folder_, name);
         if (!opened || opened->directory.find(name) || file.empty())
             return;
         std::ifstream in(file, std::ios::binary);
         const std::vector<uint8_t> data{std::istreambuf_iterator<char>(in), {}};
         try {
-            disk::putFile(image, 0, false, name, data);
+            disk::putFile(blocks, 0, false, name, data, {}, disk::Vol::linear);
         } catch (const std::exception &) {
             return;                             /* no room on the diskette */
         }
-        given = emu_.mountDiskImage(0, std::move(image));
+        *system = disk::SparseVolume::fromLinear(blocks);
+        given = true;
     }
     if (given) {
         const uint16_t rmon = emu_.readWord(kRmonPointer);

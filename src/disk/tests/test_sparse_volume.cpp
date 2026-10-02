@@ -121,6 +121,37 @@ TEST_CASE("what is not a volume is refused, with the reason") {
     CHECK_FALSE(refused(good));
 }
 
+TEST_CASE("a diskette image gives up its files and not its free space") {
+    /* A formatted diskette: the formatter's pattern in every free block. */
+    auto dsk = blankImage(false);
+    initVolume(dsk, 0, false, {});
+    putFile(dsk, 0, false, "A.DAT", std::vector<uint8_t>(3 * kBlock, 0x11));
+    putFile(dsk, 0, false, "GONE.DAT", std::vector<uint8_t>(5 * kBlock, 0x33));
+    putFile(dsk, 0, false, "B.DAT", std::vector<uint8_t>(700, 0x22));
+    removeFile(dsk, 0, false, "GONE.DAT");
+    const auto image = openImage(dsk);
+    REQUIRE(image.has_value());
+
+    const auto vol = SparseVolume::fromImage(*image);
+    CHECK(vol.blocks() == kSsBlocks);
+    CHECK(vol.held() < 30);                 /* of 800 */
+    CHECK(vol.serialize().size() < dsk.size() / 20);
+
+    /* The same volume to RT-11: the same files with the same content. */
+    const auto back = openLinearImage(vol.toLinear());
+    REQUIRE(back.has_value());
+    CHECK(back->directory.find("GONE.DAT") == nullptr);
+    CHECK(back->readFile("A.DAT") == image->readFile("A.DAT"));
+    CHECK(back->readFile("B.DAT") == image->readFile("B.DAT"));
+    CHECK(back->directory.find("A.DAT")->startBlock ==
+          image->directory.find("A.DAT")->startBlock);
+
+    /* The deleted file's blocks and the free tail are not there. */
+    const int gone = image->directory.find("A.DAT")->startBlock + 3;
+    CHECK_FALSE(vol.holds(gone));
+    CHECK_FALSE(vol.holds(kSsBlocks - 1));
+}
+
 TEST_CASE("an RT-11 volume goes into a sparse one and back, block for block") {
     auto linear = blankLinear(200);
     initVolume(linear, 0, false, {}, Vol::linear);

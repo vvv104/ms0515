@@ -9,6 +9,7 @@
 
 #include <ms0515/Emulator.hpp>
 #include <ms0515/Terminal.hpp>
+#include <ms0515/disk/Image.hpp>
 
 #include <cstdint>
 #include <fstream>
@@ -98,6 +99,43 @@ TEST_CASE("a diskette mounted from memory boots, and writes stay in memory") {
     CHECK_FALSE(emu.mountDiskImage(0, std::vector<uint8_t>(1000)));
     CHECK_FALSE(emu.mountDiskImage(4, original));
     CHECK(emu.diskImage(0).empty());
+}
+
+TEST_CASE("a sparse volume boots as a diskette and takes the machine's writes") {
+    const auto rom = readAll(kRomB);
+    const auto image = ms0515::disk::openImage(readAll(kSystemDisk));
+    REQUIRE(image.has_value());
+    auto volume = ms0515::disk::SparseVolume::fromImage(*image);
+    const std::size_t heldAtFirst = volume.held();
+    CHECK(heldAtFirst < 800);
+
+    ms0515::Emulator emu;
+    emu.loadRom(rom);
+    CHECK(emu.diskVolume(0) == nullptr);
+    REQUIRE(emu.mountDiskVolume(0, std::move(volume)));
+    REQUIRE(emu.diskVolume(0) != nullptr);
+    CHECK(emu.diskImage(0).empty());
+    emu.reset();
+    stepFrames(emu, 1500);
+    REQUIRE(atPrompt(screenRows(emu)));
+
+    /* The monitor reads the diskette: DIR. */
+    press(emu, ms0515::Key::D);
+    press(emu, ms0515::Key::I);
+    press(emu, ms0515::Key::R);
+    press(emu, ms0515::Key::Return);
+    int guard = 0;
+    while (!(shows(screenRows(emu), ".SYS") && atPrompt(screenRows(emu)))
+           && guard++ < 600)
+        stepFrames(emu, 5);
+    CHECK(shows(screenRows(emu), ".SYS"));
+
+    /* Only a diskette's size is a diskette. */
+    CHECK_FALSE(emu.mountDiskVolume(1, ms0515::disk::SparseVolume(801)));
+    CHECK_FALSE(emu.mountDiskVolume(4, ms0515::disk::SparseVolume(800)));
+
+    emu.unmountDisk(0);
+    CHECK(emu.diskVolume(0) == nullptr);
 }
 
 TEST_CASE("a state saved to memory continues in another machine") {

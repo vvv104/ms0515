@@ -137,10 +137,18 @@ bool runToEnd(Machine &machine, std::string *printed = nullptr,
 TEST_SUITE("ms0515-run machine") {
 
 TEST_CASE("the carried diskette holds the system and the starter, nothing else") {
-    auto image = ms0515::run::unpackZeroRuns(ms0515::run::embedded::disk);
-    REQUIRE(image.has_value());
-    const auto opened = ms0515::disk::openImage(*image);
+    const auto serial = ms0515::run::unpackZeroRuns(ms0515::run::embedded::disk);
+    REQUIRE(serial.has_value());
+    const auto volume = ms0515::disk::SparseVolume::parse(*serial);
+    REQUIRE(volume.has_value());
+    CHECK(volume->blocks() == 800);
+    const auto opened = ms0515::disk::openLinearImage(volume->toLinear());
     REQUIRE(opened.has_value());
+
+    /* It is carried as what is on it, not as a diskette's 400 KB: the
+     * bound is there for growth to be seen. */
+    CHECK(volume->held() <= 110);
+    CHECK(ms0515::run::embedded::disk.size() < 60 * 1024);
 
     std::set<std::string> names;
     for (const auto &e : opened->directory.entries)

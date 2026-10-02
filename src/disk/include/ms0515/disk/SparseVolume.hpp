@@ -39,6 +39,8 @@
 
 namespace ms0515::disk {
 
+struct Image;
+
 class SparseVolume {
 public:
     /* An empty volume of `blocks` blocks. */
@@ -55,6 +57,13 @@ public:
      * back.  Blocks of zeros are not held. */
     [[nodiscard]] static SparseVolume fromLinear(std::span<const uint8_t> linear);
     [[nodiscard]] std::vector<uint8_t> toLinear() const;
+
+    /* An RT-11 volume out of an image, whatever its medium: the blocks
+     * the volume uses - the boot blocks, the home block, the directory
+     * and the files - and none of its free space, which on an image holds
+     * whatever the formatter or deleted files left.  An image without a
+     * directory is taken whole. */
+    [[nodiscard]] static SparseVolume fromImage(const Image &image);
 
     [[nodiscard]] int blocks() const noexcept { return blocks_; }
 

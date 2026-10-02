@@ -3,8 +3,8 @@
  *
  * Deliberately self-contained: the public header pulls in no C-side
  * core symbols (no `<ms0515/core/...>` header, no scancode macros); the
- * one other header it needs is the disk lib's plain-data descriptor of a
- * folder volume.
+ * other headers it needs are the disk lib's plain-data descriptor of a
+ * folder volume and its sparse volume.
  * Everything frontend-visible is expressed in plain C++ —
  * the strong `Key` enum mirrors the MS-7004 scancode set; ROM/disk
  * sizes and snapshot APIs use `std::span` / `Status`; pixel
@@ -23,6 +23,7 @@
 #include <cstdint>
 #include "ms0515/Status.hpp"
 #include "ms0515/disk/Rtfs.hpp"
+#include "ms0515/disk/SparseVolume.hpp"
 #include <functional>
 #include <memory>
 #include <span>
@@ -177,6 +178,17 @@ public:
     /* The diskette mounted from memory in `drive`, with everything the
      * machine wrote to it; empty when there is none. */
     [[nodiscard]] std::span<const uint8_t> diskImage(int drive) const noexcept;
+
+    /* Mount a sparse volume as a single-sided diskette: block n of the
+     * volume is the diskette's logical block n, as the system's floppy
+     * handler numbers them.  The machine reads and writes the volume
+     * given, which grows by what is written; no file is involved.  The
+     * volume must be a diskette's size, 800 blocks. */
+    [[nodiscard]] bool mountDiskVolume(int drive, disk::SparseVolume volume);
+
+    /* The sparse volume mounted in `drive`, as it is now, to read or to
+     * change between the machine's frames; null when there is none. */
+    [[nodiscard]] disk::SparseVolume *diskVolume(int drive) noexcept;
 
     void unmountDisk(int drive);
 
