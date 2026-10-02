@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <set>
 #include <span>
 #include <string>
 
@@ -53,7 +54,9 @@ public:
      * rest of the folder is not there - it may be more than a volume
      * takes - but a file the program asks the monitor for by name is
      * given to it, on DK: or on SY:.  Files the program creates appear
-     * in the folder. */
+     * in the folder.  A device name the monitor does not know - on the
+     * command line or named by the program - stands for the folder
+     * (DeviceNames.hpp). */
     [[nodiscard]] Status start(const std::filesystem::path &program,
                                std::span<const std::string> arguments,
                                Options options = {});
@@ -121,6 +124,7 @@ public:
 
 private:
     void fileAsked(const std::string &device, const std::string &name);
+    void deviceNamed(uint16_t device);
     [[nodiscard]] bool giveFile(const std::string &device, const std::string &name);
 
     /* A line handed over by RUN is read in a frame or two; a program
@@ -132,6 +136,7 @@ private:
 
     ms0515::Emulator      emu_;
     std::filesystem::path folder_;      /* the program's */
+    std::set<uint16_t>    folderNames_; /* device names made to stand for it */
     uint16_t              rmon_ = 0;    /* where the resident monitor starts */
     int                   keyFrames_ = 0;   /* frames on end with a key asked */
     int                   sinceAsked_ = 0;  /* frames since one last was     */

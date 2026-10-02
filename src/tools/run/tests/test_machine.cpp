@@ -333,6 +333,7 @@ std::vector<uint8_t> lookupProgram(uint16_t device)
 }
 
 constexpr uint16_t kRad50Dk = 0015270, kRad50Sy = 0075250;
+constexpr uint16_t kRad50C = 0011300;       /* "C  ": a name of the program's own */
 
 }  /* namespace */
 
@@ -548,6 +549,47 @@ TEST_CASE("the host's bytes become characters and keys") {
     CHECK(typist.pending() == 8);                   /* РУС/ЛАТ and the letter */
     CHECK(feed("A\035" "B"));                       /* Ctrl-] is the host's */
     CHECK(typist.pending() == 11);                  /* РУС/ЛАТ, A, B */
+}
+
+TEST_CASE("a device name the monitor does not know stands for the folder") {
+    /* Named by the program: DECUS C reads its headers from C:, and on a
+     * system somebody has typed ASSIGN DK C for it. */
+    {
+        const auto dir = freshDir("device");
+        writeFile(dir / "ask.sav", lookupProgram(kRad50C));
+        writeFile(dir / "data.bin", std::vector<uint8_t>(600, 'D'));
+        Machine machine;
+        REQUIRE(machine.start(dir / "ask.sav", {}));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CHECK(printed == "FOUND\n");
+        CHECK_FALSE(machine.failed());
+    }
+    /* Named on the command line, where the monitor reads the name itself. */
+    {
+        const auto dir = freshDir("device-line");
+        fs::copy_file(fs::path(RT11_SYSTEM_DIR) / "PIP.SAV", dir / "pip.sav");
+        const std::string content = "through a device of its own\r\n";
+        writeFile(dir / "source.txt", {content.begin(), content.end()});
+        Machine machine;
+        const std::vector<std::string> args{"out:copy.txt=inp:source.txt"};
+        REQUIRE(machine.start(dir / "pip.sav", args));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CHECK(printed.empty());
+        CHECK_FALSE(machine.failed());
+        CHECK(readText(dir / "copy.txt").substr(0, content.size()) == content);
+    }
+    /* A name the monitor knows is left alone: SY: stays the system's. */
+    {
+        const auto dir = freshDir("device-known");
+        writeFile(dir / "ask.sav", lookupProgram(kRad50Sy));
+        Machine machine;
+        REQUIRE(machine.start(dir / "ask.sav", {}));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CHECK(printed == "MISSING\n");
+    }
 }
 
 TEST_CASE("a file a program opened and never closed is not left in the folder") {

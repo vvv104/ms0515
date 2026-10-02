@@ -22,7 +22,12 @@ namespace {
 constexpr uint16_t kEmtPrint  = 0104351;    /* .PRINT, the text at R0     */
 constexpr uint16_t kEmtTtyin  = 0104340;    /* .TTYIN / .TTINR            */
 constexpr uint16_t kEmtRequest = 0104375;   /* the requests with an area at R0 */
-constexpr uint8_t  kCodeLookup = 1;         /* .LOOKUP among them         */
+constexpr uint8_t  kCodeDelete = 0;         /* among them: .DELETE,       */
+constexpr uint8_t  kCodeLookup = 1;         /* .LOOKUP,                   */
+constexpr uint8_t  kCodeEnter  = 2;         /* .ENTER,                    */
+constexpr uint8_t  kCodeRename = 4;         /* .RENAME                    */
+constexpr uint16_t kEmtDstatus = 0104342;   /* .DSTATUS, the device's name at R0 */
+constexpr uint16_t kEmtFetch   = 0104343;   /* .FETCH, the same           */
 constexpr uint16_t kExtind    = 0416;       /* RMON + this: EXTIND        */
 constexpr uint16_t kRomOutput = 0160000;    /* ROM: write the character in R0 */
 constexpr uint16_t kRomInput  = 0160004;    /* ROM: the next key into R0  */
@@ -36,16 +41,20 @@ struct {
     std::string output;
 } seen;
 
-FileAsked fileAsked;
+FileAsked   fileAsked;
+DeviceNamed deviceNamed;
 
-/* A .LOOKUP (EMT 375, R0 at an area whose second byte is 1, its second
- * word at the file's name in four RAD50 words): tell who serves files. */
-void noteLookup(ms0515_cpu *cpu)
+/* The requests with an area at R0 (EMT 375) that name a file - .DELETE,
+ * .LOOKUP, .ENTER, .RENAME, the area's second byte 0, 1, 2 or 4, its
+ * second word at the name in four RAD50 words, the device first: tell
+ * of the device, and for a .LOOKUP of the file, who serves them. */
+void noteFileRequest(ms0515_cpu *cpu)
 {
-    static constexpr char kRad50[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ$.%0123456789";
     ms0515_board_t *board = cpu->board;
     const uint16_t area = cpu->r[0];
-    if (board_read_byte(board, static_cast<uint16_t>(area + 1)) != kCodeLookup)
+    const uint8_t code = board_read_byte(board, static_cast<uint16_t>(area + 1));
+    if (code != kCodeDelete && code != kCodeLookup && code != kCodeEnter &&
+        code != kCodeRename)
         return;
     const uint16_t name = board_read_word(board, static_cast<uint16_t>(area + 2));
     uint16_t w[4];
@@ -53,17 +62,26 @@ void noteLookup(ms0515_cpu *cpu)
         w[i] = board_read_word(board, static_cast<uint16_t>(name + 2 * i));
     if (w[0] >= 40 * 40 * 40)
         return;
-    std::string device{kRad50[w[0] / 1600], kRad50[w[0] / 40 % 40], kRad50[w[0] % 40]};
-    while (!device.empty() && device.back() == ' ') device.pop_back();
-    fileAsked(device, disk::decodeRad50Name(w[1], w[2], w[3]));
+    if (deviceNamed) deviceNamed(w[0]);
+    if (code == kCodeLookup && fileAsked)
+        fileAsked(rad50Text(w[0]), disk::decodeRad50Name(w[1], w[2], w[3]));
+}
+
+/* .DSTATUS and .FETCH (EMT 342, 343): R0 at the device's name. */
+void noteDeviceRequest(ms0515_cpu *cpu)
+{
+    const uint16_t device = board_read_word(cpu->board, cpu->r[0]);
+    if (deviceNamed && device < 40 * 40 * 40) deviceNamed(device);
 }
 
 bool monitorWatchThunk(ms0515_cpu *cpu, uint16_t vector)
 {
     if (vector != CPU_VEC_EMT)
         return false;
-    if (cpu->instruction == kEmtRequest && fileAsked)
-        noteLookup(cpu);
+    if (cpu->instruction == kEmtRequest)
+        noteFileRequest(cpu);
+    if (cpu->instruction == kEmtDstatus || cpu->instruction == kEmtFetch)
+        noteDeviceRequest(cpu);
     if (cpu->instruction != kEmtPrint && cpu->instruction != kEmtTtyin)
         return false;
     ms0515_board_t *board = cpu->board;
@@ -123,6 +141,37 @@ void installMonitorWatch(ms0515::Emulator &emu)
 void setFileAsked(FileAsked handler)
 {
     fileAsked = std::move(handler);
+}
+
+void setDeviceNamed(DeviceNamed handler)
+{
+    deviceNamed = std::move(handler);
+}
+
+std::string rad50Text(uint16_t word)
+{
+    static constexpr char kRad50[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ$.%0123456789";
+    if (word >= 40 * 40 * 40)
+        return {};
+    std::string text{kRad50[word / 1600], kRad50[word / 40 % 40], kRad50[word % 40]};
+    while (!text.empty() && text.back() == ' ') text.pop_back();
+    return text;
+}
+
+uint16_t rad50Word(std::string_view text)
+{
+    static constexpr std::string_view kRad50 = " ABCDEFGHIJKLMNOPQRSTUVWXYZ$.%0123456789";
+    if (text.empty() || text.size() > 3)
+        return 0;
+    uint16_t word = 0;
+    for (std::size_t i = 0; i < 3; ++i) {
+        const char c = i < text.size() ? text[i] : ' ';
+        const auto code = kRad50.find(c >= 'a' && c <= 'z' ? static_cast<char>(c - 32) : c);
+        if (code == std::string_view::npos || c == '%')
+            return 0;
+        word = static_cast<uint16_t>(word * 40 + code);
+    }
+    return word;
 }
 
 bool monitorPrompted() noexcept { return seen.prompted; }

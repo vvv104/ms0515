@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 
 namespace ms0515::run {
 
@@ -44,6 +45,19 @@ void installMonitorWatch(ms0515::Emulator &emu);
 using FileAsked = std::function<void(const std::string &device,
                                      const std::string &name)>;
 void setFileAsked(FileAsked handler);
+
+/* Called when a program names a device to the monitor - in a .LOOKUP,
+ * .ENTER, .DELETE, .RENAME, .DSTATUS or .FETCH - before the monitor
+ * looks the name up: `device` is the name's RAD50 word.  The one who
+ * keeps the monitor's device names can make the name known in time. */
+using DeviceNamed = std::function<void(uint16_t device)>;
+void setDeviceNamed(DeviceNamed handler);
+
+/* A RAD50 word as its text without trailing blanks ("DK", "SY", ""),
+ * and a name of up to three characters as its word; 0 for a name RAD50
+ * cannot spell. */
+[[nodiscard]] std::string rad50Text(uint16_t word);
+[[nodiscard]] uint16_t rad50Word(std::string_view text);
 
 /* KMON has come to its prompt since the watch was installed. */
 [[nodiscard]] bool monitorPrompted() noexcept;

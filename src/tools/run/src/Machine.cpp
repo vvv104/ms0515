@@ -4,6 +4,7 @@
 
 #include "Machine.hpp"
 
+#include "DeviceNames.hpp"
 #include "Embedded.hpp"
 #include "MonitorWatch.hpp"
 #include "Starter.hpp"
@@ -31,6 +32,9 @@ namespace {
  * 0 is none, and the next lookup reads the directory from the volume. */
 constexpr uint16_t kDirectoryInMemory = 0256;
 
+/* HD, the device the program's folder is: RAD50 "HD ". */
+constexpr uint16_t kFolderDevice = 8 * 1600 + 4 * 40;
+
 /* The keyboard's interrupt vector. */
 constexpr uint16_t kKeyboardVector = 0130;
 
@@ -50,10 +54,10 @@ std::string lower(std::string_view s)
     return out;
 }
 
-/* A file specification of a command line: name and extension in lower
- * case, the device dropped; no extension given is an empty one. */
+/* A file specification of a command line, in lower case: the device it
+ * names, if any, the name and the extension; one not given is empty. */
 struct Spoken {
-    std::string name, extension;
+    std::string device, name, extension;
 };
 
 /* The file specifications a command line holds: the line is cut at the
@@ -67,11 +71,14 @@ std::vector<Spoken> spokenOf(std::span<const std::string> arguments)
         while (at < argument.size()) {
             const std::size_t end = argument.find_first_of("=,<>[/ ", at);
             std::string token = lower(argument.substr(at, end - at));
-            if (const auto colon = token.rfind(':'); colon != std::string::npos)
+            std::string device;
+            if (const auto colon = token.rfind(':'); colon != std::string::npos) {
+                device = token.substr(0, colon);
                 token.erase(0, colon + 1);
+            }
             const auto dot = token.find('.');
-            if (!token.empty() && dot != 0)
-                spoken.push_back({token.substr(0, dot),
+            if (!device.empty() || (!token.empty() && dot != 0))
+                spoken.push_back({device, token.substr(0, dot),
                                   dot == std::string::npos ? std::string{}
                                                            : token.substr(dot + 1)});
             if (end == std::string::npos) break;
@@ -105,6 +112,7 @@ bool spokenOfFile(const std::vector<Spoken> &spoken, const fs::path &file)
     std::string extension = lower(file.extension().string());
     if (!extension.empty()) extension.erase(0, 1);
     for (const auto &s : spoken) {
+        if (s.name.empty()) continue;               /* a device alone */
         const bool wild = s.name.find_first_of("*%") != std::string::npos;
         if (!wild ? s.name == name
                   : matches(s.name, name) &&
@@ -243,6 +251,13 @@ Status Machine::start(const fs::path &program,
     setFileAsked([this](const std::string &device, const std::string &name) {
         fileAsked(device, name);
     });
+    /* A device name the monitor does not know stands for the folder
+     * (DeviceNames.hpp): when a program names it - and now, for the names
+     * on the command line, which the monitor reads where no one sees. */
+    folderNames_.clear();
+    setDeviceNamed([this](uint16_t device) { deviceNamed(device); });
+    for (const auto &s : spokenOf(arguments))
+        if (!s.device.empty()) deviceNamed(rad50Word(s.device));
     /* What KMON is to do, in order: the system's switches asked for,
      * then the program. */
     std::vector<std::string> commands;
@@ -257,6 +272,16 @@ Status Machine::start(const fs::path &program,
 Machine::~Machine()
 {
     setFileAsked({});
+    setDeviceNamed({});
+}
+
+void Machine::deviceNamed(uint16_t device)
+{
+    DeviceNames names(emu_);
+    if (device == 0 || names.known(device))
+        return;
+    if (names.assign(device, kFolderDevice))
+        folderNames_.insert(device);
 }
 
 /*
@@ -281,7 +306,8 @@ void Machine::fileAsked(const std::string &device, const std::string &name)
  * none, there is no room, or the device is another. */
 bool Machine::giveFile(const std::string &device, const std::string &name)
 {
-    if (device.empty() || device == "DK" || device == "HD" || device == "HD0")
+    if (device.empty() || device == "DK" || device == "HD" || device == "HD0" ||
+        folderNames_.count(rad50Word(device)) != 0)
         return emu_.admitHdFile(name);
     if (device != "SY" && device != "DZ" && device != "DZ0")
         return false;
