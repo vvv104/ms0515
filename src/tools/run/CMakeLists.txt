@@ -121,6 +121,17 @@ if(TARGET ms0515_sdl_io)
     )
 endif()
 
+# ms0515-run-probe: the same run without a terminal or a window, reported -
+# for going through a library of programs.  Stays in the build tree.
+add_executable(ms0515-run-probe
+    probe/main.cpp
+)
+
+target_link_libraries(ms0515-run-probe
+    PRIVATE ms0515_run_core
+    PRIVATE ms0515_libapp
+)
+
 if(MS0515_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

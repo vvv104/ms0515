@@ -256,39 +256,47 @@ Machine::~Machine()
 /*
  * A program asks the monitor for a file by name.  If the folder has it
  * and the volume asked does not, it is put there before the monitor
- * looks: on DK: taken into the folder volume, on SY: written onto the
- * system diskette's copy in memory (where MACRO looks for SYSMAC.SML and
- * LINK for SYSLIB.OBJ).  The monitor is then made to read the directory
- * from the volume instead of the segment it holds in memory.
+ * looks, and the monitor is made to read the directory from the volume
+ * instead of the segment it holds in memory.
  */
 void Machine::fileAsked(const std::string &device, const std::string &name)
 {
-    bool given = false;
-    if (device.empty() || device == "DK" || device == "HD" || device == "HD0") {
-        given = emu_.admitHdFile(name);
-    } else if (device == "SY" || device == "DZ" || device == "DZ0") {
-        disk::SparseVolume *system = emu_.diskVolume(0);
-        if (!system)
-            return;
-        std::vector<uint8_t> blocks = system->toLinear();
-        const auto opened = disk::openLinearImage(blocks);
-        const fs::path file = folderFile(folder_, name);
-        if (!opened || opened->directory.find(name) || file.empty())
-            return;
-        std::ifstream in(file, std::ios::binary);
-        const std::vector<uint8_t> data{std::istreambuf_iterator<char>(in), {}};
-        try {
-            disk::putFile(blocks, 0, false, name, data, {}, disk::Vol::linear);
-        } catch (const std::exception &) {
-            return;                             /* no room on the diskette */
-        }
-        *system = disk::SparseVolume::fromLinear(blocks);
-        given = true;
-    }
+    const bool given = giveFile(device, name);
     if (given) {
         const uint16_t rmon = emu_.readWord(kRmonPointer);
         emu_.writeWord(static_cast<uint16_t>(rmon + kDirectoryInMemory), 0);
     }
+    if (asked_) asked_(device, name, given);
+}
+
+/* On DK: the file is taken into the folder volume; on SY: it is written
+ * into the system volume in memory (where MACRO looks for SYSMAC.SML and
+ * LINK for SYSLIB.OBJ).  False when it was there already, the folder has
+ * none, there is no room, or the device is another. */
+bool Machine::giveFile(const std::string &device, const std::string &name)
+{
+    if (device.empty() || device == "DK" || device == "HD" || device == "HD0")
+        return emu_.admitHdFile(name);
+    if (device != "SY" && device != "DZ" && device != "DZ0")
+        return false;
+
+    disk::SparseVolume *system = emu_.diskVolume(0);
+    if (!system)
+        return false;
+    std::vector<uint8_t> blocks = system->toLinear();
+    const auto opened = disk::openLinearImage(blocks);
+    const fs::path file = folderFile(folder_, name);
+    if (!opened || opened->directory.find(name) || file.empty())
+        return false;
+    std::ifstream in(file, std::ios::binary);
+    const std::vector<uint8_t> data{std::istreambuf_iterator<char>(in), {}};
+    try {
+        disk::putFile(blocks, 0, false, name, data, {}, disk::Vol::linear);
+    } catch (const std::exception &) {
+        return false;                           /* no room on the diskette */
+    }
+    *system = disk::SparseVolume::fromLinear(blocks);
+    return true;
 }
 
 bool Machine::step()

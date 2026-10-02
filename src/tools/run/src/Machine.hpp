@@ -101,8 +101,17 @@ public:
      * Meaningful once ended(). */
     [[nodiscard]] bool failed() const noexcept;
 
+    /* Told of every file a program asks the monitor for by name: the
+     * device and the name as asked, and whether the file was given from
+     * the folder just then (false also when it was there already).  For
+     * finding out what a program needs beside it. */
+    using Asked = std::function<void(const std::string &device,
+                                     const std::string &name, bool given)>;
+    void setAsked(Asked asked) { asked_ = std::move(asked); }
+
 private:
     void fileAsked(const std::string &device, const std::string &name);
+    [[nodiscard]] bool giveFile(const std::string &device, const std::string &name);
 
     /* A line handed over by RUN is read in a frame or two; a program
      * that asks for a key for this many frames on end is waiting. */
@@ -122,6 +131,7 @@ private:
     bool                  interactive_ = false;
     bool                  graphics_ = false;
     Speaker               speaker_;
+    Asked                 asked_;
 };
 
 /* The RUN command for a program file and its arguments, or an error
