@@ -24,6 +24,17 @@
 
 namespace ms0515::run {
 
+/* What of the system is switched on for the program (Machine::Options;
+ * it stands outside the class so that an empty one can be the default
+ * of an argument inside it). */
+struct MachineOptions {
+    /* EM, the emulator of the instructions the processor lacks (MUL,
+     * DIV, ASH, ASHC, the FIS four), for a program built for a PDP-11
+     * that has them.  It is on the system diskette; resident it takes
+     * about 1.3 KB of the program's memory, so it is not on unasked. */
+    bool instructionEmulator = false;
+};
+
 class Machine {
 public:
     /* Throws std::runtime_error when the carried data does not make a
@@ -36,14 +47,7 @@ public:
 
     [[nodiscard]] ms0515::Emulator &emulator() noexcept { return emu_; }
 
-    /* What of the system is switched on for the program. */
-    struct Options {
-        /* EM, the emulator of the instructions the processor lacks (MUL,
-         * DIV, ASH, ASHC, the FIS four), for a program built for a PDP-11
-         * that has them.  It is on the system diskette; resident it takes
-         * about 1.3 KB of the program's memory, so it is not on unasked. */
-        bool instructionEmulator = false;
-    };
+    using Options = MachineOptions;
 
     /* DK: becomes a volume over the program's folder and the monitor is
      * told to run the program with `arguments` as its command line
