@@ -13,7 +13,7 @@
  *
  * So the state is saved with a small program running: START.SAV, on the
  * system diskette.  It clears the screen through the console and waits
- * for a word in its own memory to become non-zero.  handCommand() writes
+ * for a word in its own memory to become non-zero.  handCommands() writes
  * the command into the chain area and sets that word; the starter exits,
  * and the monitor does the rest.
  */
@@ -24,7 +24,8 @@
 #include <ms0515/Emulator.hpp>
 
 #include <cstdint>
-#include <string_view>
+#include <span>
+#include <string>
 #include <vector>
 
 namespace ms0515::run {
@@ -48,9 +49,12 @@ inline constexpr uint16_t kKmoninOffset = 0450;
 /* The machine is in the starter's wait and no command has been handed. */
 [[nodiscard]] bool starterWaiting(ms0515::Emulator &emu);
 
-/* Hand `line` (a KMON command, no line end) to the waiting starter.
- * False when the starter is not waiting or the line does not fit. */
-[[nodiscard]] bool handCommand(ms0515::Emulator &emu, std::string_view line);
+/* Hand `lines` (KMON commands, no line ends) to the waiting starter; the
+ * monitor runs them in order, as the lines of an indirect file.  False
+ * when the starter is not waiting, a line is longer than KMON takes, or
+ * they do not fit the chain area together. */
+[[nodiscard]] bool handCommands(ms0515::Emulator &emu,
+                                std::span<const std::string> lines);
 
 /* The monitor's own word for who runs: true while KMON has control,
  * false while a program does (KMONIN, RMONSJ.MAC).  It turns true again

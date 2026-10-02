@@ -3,7 +3,7 @@
  * without a terminal or a window: a tool for going through a library of
  * programs, not a shipped one.
  *
- *     ms0515-run-probe [--frames N] [--type TEXT]... [--png FILE]
+ *     ms0515-run-probe [--em] [--frames N] [--type TEXT]... [--png FILE]
  *                      PROGRAM[.SAV] [the program's command line]
  *
  * The program is run as ms0515-run runs it, for N frames at most (1500,
@@ -34,6 +34,7 @@ struct Options {
     std::string              png;
     std::string              program;
     std::vector<std::string> arguments;
+    ms0515::run::Machine::Options machine;
 };
 
 /* `\r` and `\n` written out become the characters. */
@@ -57,6 +58,11 @@ bool parse(int argc, char **argv, Options &o)
     int i = 1;
     for (; i + 1 < argc; i += 2) {
         const std::string flag = argv[i];
+        if (flag == "--em") {       /* ms0515-run's own switch: no value */
+            o.machine.instructionEmulator = true;
+            --i;
+            continue;
+        }
         if (flag == "--frames")     o.frames = std::atoi(argv[i + 1]);
         else if (flag == "--type")  o.typed.push_back(unescape(argv[i + 1]));
         else if (flag == "--png")   o.png = argv[i + 1];
@@ -80,7 +86,7 @@ int probe(const Options &o)
         asked += "  " + (device.empty() ? std::string{"(none)"} : device) + ":" +
                  name + (given ? "  <- given from the folder" : "") + "\n";
     });
-    if (auto r = machine.start(o.program, o.arguments); !r) {
+    if (auto r = machine.start(o.program, o.arguments, o.machine); !r) {
         std::printf("could not start: %s\n", r.error().c_str());
         return 2;
     }

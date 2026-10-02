@@ -574,9 +574,11 @@ TEST_CASE("a file a program opened and never closed is not left in the folder") 
     CHECK(filesIn(dir) == std::set<std::string>{"enter.sav"});
 }
 
-TEST_CASE("the instructions the processor lacks are emulated") {
-    /* The machine has no EIS; EM, switched on in the carried state, does
-     * MUL for a program built for a PDP-11 that has it. */
+TEST_CASE("the instructions the processor lacks are emulated when asked for") {
+    /* The machine has no EIS; EM, on the system diskette and switched on
+     * for the run that asks, does MUL for a program built for a PDP-11
+     * that has it.  Unasked it is off, and the program is stopped as on
+     * the machine itself. */
     const auto dir = freshDir("eis");
     writeFile(dir / "mul.sav", program({
         0012701, 5,         /* MOV  #5,R1          */
@@ -587,12 +589,24 @@ TEST_CASE("the instructions the processor lacks are emulated") {
         0104350,            /* .EXIT               */
     }));
 
-    Machine machine;
-    REQUIRE(machine.start(dir / "mul.sav", {}));
-    std::string printed;
-    REQUIRE(runToEnd(machine, &printed));
-    CHECK(printed == "?");
-    CHECK_FALSE(machine.failed());
+    {
+        Machine machine;
+        Machine::Options options;
+        options.instructionEmulator = true;
+        REQUIRE(machine.start(dir / "mul.sav", {}, options));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CHECK(printed == "?");
+        CHECK_FALSE(machine.failed());
+    }
+    {
+        Machine machine;
+        REQUIRE(machine.start(dir / "mul.sav", {}));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CHECK(printed.find("?MON-F-Trap to 10") != std::string::npos);
+        CHECK(machine.failed());
+    }
 }
 
 TEST_CASE("a utility that reports an error has failed") {

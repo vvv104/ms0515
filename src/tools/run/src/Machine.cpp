@@ -197,7 +197,7 @@ Machine::Machine()
 }
 
 Status Machine::start(const fs::path &program,
-                      std::span<const std::string> arguments)
+                      std::span<const std::string> arguments, Options options)
 {
     std::error_code ec;
     /* A name without an extension is a .SAV, as it is for RUN. */
@@ -243,7 +243,13 @@ Status Machine::start(const fs::path &program,
     setFileAsked([this](const std::string &device, const std::string &name) {
         fileAsked(device, name);
     });
-    if (!handCommand(emu_, command))
+    /* What KMON is to do, in order: the system's switches asked for,
+     * then the program. */
+    std::vector<std::string> commands;
+    if (options.instructionEmulator)
+        commands.push_back("SET EM ON");
+    commands.push_back(command);
+    if (!handCommands(emu_, commands))
         return Status{"the starter does not take the command"};
     return {};
 }

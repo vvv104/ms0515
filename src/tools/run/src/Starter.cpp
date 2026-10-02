@@ -17,6 +17,7 @@ constexpr uint16_t kJobLimit   = 050;      /* highest address in use      */
 constexpr uint16_t kLoadBitmap = 0360;     /* the blocks RUN loads        */
 constexpr uint16_t kChainCount = 0510;     /* bytes of commands for KMON  */
 constexpr uint16_t kChainText  = 0512;     /* the commands, ASCIZ         */
+constexpr std::size_t kChainRoom = 01000 - kChainText;  /* the area ends at 777 */
 
 constexpr uint16_t kBase = 01000;
 
@@ -86,14 +87,22 @@ bool starterWaiting(ms0515::Emulator &emu)
     return true;
 }
 
-bool handCommand(ms0515::Emulator &emu, std::string_view line)
+bool handCommands(ms0515::Emulator &emu, std::span<const std::string> lines)
 {
-    if (line.empty() || line.size() > kMaxCommand || !starterWaiting(emu))
+    std::size_t bytes = 0;
+    for (const auto &line : lines) {
+        if (line.empty() || line.size() > kMaxCommand)
+            return false;
+        bytes += line.size() + 1;
+    }
+    if (lines.empty() || bytes > kChainRoom || !starterWaiting(emu))
         return false;
     uint16_t at = kChainText;
-    for (char c : line)
-        emu.writeByte(at++, static_cast<uint8_t>(c));
-    emu.writeByte(at++, 0);
+    for (const auto &line : lines) {
+        for (char c : line)
+            emu.writeByte(at++, static_cast<uint8_t>(c));
+        emu.writeByte(at++, 0);
+    }
     emu.writeWord(kChainCount, static_cast<uint16_t>(at - kChainText));
     emu.writeWord(kFlag, 1);
     return true;

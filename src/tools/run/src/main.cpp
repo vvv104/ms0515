@@ -1,7 +1,15 @@
 /*
  * ms0515-run - run one RT-11 program on the MS 0515.
  *
- *     ms0515-run PROGRAM[.SAV] [the program's command line]
+ *     ms0515-run [switches] PROGRAM[.SAV] [the program's command line]
+ *
+ * What stands before the program is the tool's - its switches, each
+ * beginning with a dash:
+ *
+ *     --em    switch on EM, the emulator of the instructions the
+ *             processor lacks (MUL, DIV, ASH, ASHC, the FIS four), for a
+ *             program built for a PDP-11 that has them; it takes about
+ *             1.3 KB of the program's memory
  *
  * What follows the program on the line is the program's, as after RUN at
  * the monitor's prompt.  DK: holds the program and the files that line
@@ -24,8 +32,8 @@
  * The exit status is 0 when the program ended well by the monitor's
  * account, 1 when it did not, 2 when it could not be started.
  *
- * There are no switches and no settings: everything the machine needs is
- * compiled in (Embedded.hpp).
+ * There are no settings and no files of the tool's own: everything the
+ * machine needs is compiled in (Embedded.hpp).
  */
 
 #include "ConsoleText.hpp"
@@ -104,12 +112,13 @@ struct Keyboard {
     int                   starvedFrames = 0;
 };
 
-int run(const std::string &program, const std::vector<std::string> &arguments)
+int run(const std::string &program, const std::vector<std::string> &arguments,
+        ms0515::run::Machine::Options options)
 {
     using ms0515::run::ConsoleText;
 
     ms0515::run::Machine machine;
-    if (auto r = machine.start(program, arguments); !r) {
+    if (auto r = machine.start(program, arguments, options); !r) {
         std::fprintf(stderr, "ms0515-run: %s\n", r.error().c_str());
         return 2;
     }
@@ -162,15 +171,32 @@ int run(const std::string &program, const std::vector<std::string> &arguments)
 
 } /* namespace */
 
+constexpr const char *kUsage =
+    "usage: ms0515-run [switches] PROGRAM[.SAV] [the program's command line]\n"
+    "  --em    switch on the emulator of the EIS/FIS instructions\n";
+
 int main(int argc, char **argv)
 {
-    if (argc < 2) {
-        std::fprintf(stderr,
-                     "usage: ms0515-run PROGRAM[.SAV] [the program's command line]\n");
+    /* The tool's switches come before the program; from the program on,
+     * the line is the program's. */
+    ms0515::run::Machine::Options options;
+    int at = 1;
+    for (; at < argc && argv[at][0] == '-'; ++at) {
+        const std::string flag = argv[at];
+        if (flag == "--em") {
+            options.instructionEmulator = true;
+        } else {
+            std::fprintf(stderr, "ms0515-run: no such switch: %s\n%s",
+                         flag.c_str(), kUsage);
+            return 2;
+        }
+    }
+    if (at >= argc) {
+        std::fputs(kUsage, stderr);
         return 2;
     }
     try {
-        return run(argv[1], {argv + 2, argv + argc});
+        return run(argv[at], {argv + at + 1, argv + argc}, options);
     } catch (const std::exception &e) {
         std::fprintf(stderr, "ms0515-run: %s\n", e.what());
         return 2;

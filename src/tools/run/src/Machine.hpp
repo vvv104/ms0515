@@ -35,6 +35,15 @@ public:
 
     [[nodiscard]] ms0515::Emulator &emulator() noexcept { return emu_; }
 
+    /* What of the system is switched on for the program. */
+    struct Options {
+        /* EM, the emulator of the instructions the processor lacks (MUL,
+         * DIV, ASH, ASHC, the FIS four), for a program built for a PDP-11
+         * that has them.  It is on the system diskette; resident it takes
+         * about 1.3 KB of the program's memory, so it is not on unasked. */
+        bool instructionEmulator = false;
+    };
+
     /* DK: becomes a volume over the program's folder and the monitor is
      * told to run the program with `arguments` as its command line
      * (joined by spaces, in upper case as RT-11 reads them).  The volume
@@ -46,7 +55,8 @@ public:
      * given to it, on DK: or on SY:.  Files the program creates appear
      * in the folder. */
     [[nodiscard]] Status start(const std::filesystem::path &program,
-                               std::span<const std::string> arguments);
+                               std::span<const std::string> arguments,
+                               Options options = {});
 
     /* Run one frame.  False once the program is over: the monitor has
      * come back to its prompt (MonitorWatch.hpp), however that came. */
