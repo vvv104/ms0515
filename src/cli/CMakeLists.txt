@@ -14,7 +14,6 @@ add_library(ms0515_cli_core STATIC
     src/GuestScreen.cpp
     src/CommanderHost.cpp
     src/StdioBridge.cpp
-    src/Koi8.cpp
     src/Scrollback.cpp
 )
 

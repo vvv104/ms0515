@@ -9,7 +9,9 @@ add_library(ms0515_lib STATIC
     src/Disassembler.cpp
     src/GdbStub.cpp
     src/KeyboardLayout.cpp
+    src/Koi8.cpp
     src/Terminal.cpp
+    src/Typist.cpp
     src/VramMirror.cpp
 )
 

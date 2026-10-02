@@ -7,11 +7,11 @@
  * once on first use.
  */
 
-#include "Koi8.hpp"
+#include "ms0515/Koi8.hpp"
 
 #include <unordered_map>
 
-namespace ms0515::cli::koi8 {
+namespace ms0515::koi8 {
 
 namespace {
 
@@ -91,4 +91,4 @@ size_t utf8ToKoi8(const uint8_t *data, size_t size, uint8_t *out)
     return len;
 }
 
-}  /* namespace ms0515::cli::koi8 */
+}  /* namespace ms0515::koi8 */
