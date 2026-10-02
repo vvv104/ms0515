@@ -453,6 +453,20 @@ TEST_CASE("a program that does its work and ends is not interactive") {
     CHECK_FALSE(machine.waitingForKey());
 }
 
+TEST_CASE("the bell is the keyboard's and makes no program interactive") {
+    /* ^G rings the MS-7004, a box of its own that the tool does not play;
+     * the machine's speaker stays silent, and the run stays unthrottled. */
+    const auto dir = freshDir("bell");
+    writeFile(dir / "bell.sav", helloProgram("A\007\007\007B"));
+
+    Machine machine;
+    REQUIRE(machine.start(dir / "bell.sav", {}));
+    std::string printed;
+    REQUIRE(runToEnd(machine, &printed));
+    CHECK(printed == "AB\n");
+    CHECK_FALSE(machine.interactive());
+}
+
 TEST_CASE("the host's bytes become characters and keys") {
     ms0515::run::HostKeys keys;
     ms0515::Typist typist;
