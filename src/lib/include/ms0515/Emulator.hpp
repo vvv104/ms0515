@@ -384,13 +384,17 @@ public:
      * processor is about to execute the instruction at `address`, with
      * the registers as that instruction will find them (`cpu->r[]`,
      * through `<ms0515/core/cpu.h>` as for a trap thunk).  It only looks:
-     * the instruction then executes as ever.  One address at a time;
-     * `nullptr` takes the hook off.
+     * the instruction then executes as ever.  One hook at a time;
+     * `nullptr` takes it off.
      *
      * For routines that leave no other trace - the ROM's character
      * output at 160000 is entered with the character in R0. */
     using ExecHookFn = void (*)(struct ms0515_cpu *cpu);
     void setExecHook(uint16_t address, ExecHookFn hook);
+
+    /* The same hook on several addresses, four at most; which one it was
+     * called at, `cpu->instruction_pc` says. */
+    void setExecHook(std::span<const uint16_t> addresses, ExecHookFn hook);
 
 private:
     void rewirePointers();

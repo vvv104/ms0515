@@ -759,8 +759,18 @@ void Emulator::setTrapThunk(TrapThunkFn thunk)
 
 void Emulator::setExecHook(uint16_t address, ExecHookFn hook)
 {
-    impl_->board.cpu.exec_hook_pc = address;
-    impl_->board.cpu.exec_hook    = hook;
+    const uint16_t one[] = {address};
+    setExecHook(std::span<const uint16_t>{one}, hook);
+}
+
+void Emulator::setExecHook(std::span<const uint16_t> addresses, ExecHookFn hook)
+{
+    auto &cpu = impl_->board.cpu;
+    cpu.exec_hook_count = 0;
+    for (const uint16_t address : addresses)
+        if (cpu.exec_hook_count < CPU_EXEC_HOOKS)
+            cpu.exec_hook_pc[cpu.exec_hook_count++] = address;
+    cpu.exec_hook = hook;
 }
 
 void Emulator::setVramWriteCallback(VramWriteCallback cb)

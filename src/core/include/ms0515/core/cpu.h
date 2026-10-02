@@ -131,18 +131,20 @@ struct ms0515_cpu;
 typedef bool (*ms0515_trap_thunk_fn)(struct ms0515_cpu *cpu, uint16_t vector);
 
 /*
- * exec_hook — optional observer of one address.  When set, the CPU calls
- * it each time it is about to execute the instruction at `exec_hook_pc`:
- * after any pending interrupt has been taken (so once per execution, not
- * once more when a handler returns there), with PC still at that address
- * and the registers as the instruction will find them.  The instruction
- * then executes as ever; the hook only looks.
+ * exec_hook — optional observer of a few addresses.  When set, the CPU
+ * calls it each time it is about to execute the instruction at one of the
+ * first `exec_hook_count` addresses of `exec_hook_pc`: after any pending
+ * interrupt has been taken (so once per execution, not once more when a
+ * handler returns there), with PC still at that address - which one,
+ * `instruction_pc` says - and the registers as the instruction will find
+ * them.  The instruction then executes as ever; the hook only looks.
  *
- * Lets the host see calls of a routine that leaves no other trace - the
- * ROM's character output, entered with the character in R0.  When NULL,
- * nothing is checked.
+ * Lets the host see calls of routines that leave no other trace - the
+ * ROM's character output, entered with the character in R0, its key
+ * input.  When NULL, nothing is checked.
  */
 typedef void (*ms0515_exec_hook_fn)(struct ms0515_cpu *cpu);
+#define CPU_EXEC_HOOKS 4
 
 typedef struct ms0515_cpu {
     /* Registers */
@@ -183,9 +185,10 @@ typedef struct ms0515_cpu {
     /* Optional EMT/TRAP/IOT hook — see ms0515_trap_thunk_fn above. */
     ms0515_trap_thunk_fn trap_thunk;
 
-    /* Optional observer of one address — see ms0515_exec_hook_fn above. */
+    /* Optional observer of addresses — see ms0515_exec_hook_fn above. */
     ms0515_exec_hook_fn exec_hook;
-    uint16_t            exec_hook_pc;
+    uint16_t            exec_hook_pc[CPU_EXEC_HOOKS];
+    int                 exec_hook_count;
 } ms0515_cpu_t;
 
 /* ── Public API ───────────────────────────────────────────────────────────── */

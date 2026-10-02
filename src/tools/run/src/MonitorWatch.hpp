@@ -53,9 +53,10 @@ void setFileAsked(FileAsked handler);
  * the user error byte (USERRB, 53) each time it gets control back. */
 [[nodiscard]] uint8_t endSeverity() noexcept;
 
-/* A program (not KMON) has asked the monitor for a key - .TTYIN, .TTINR,
- * and the monitor's own line reading on a program's behalf, which goes
- * the same way - since the last call. */
+/* A program (not KMON) has asked for a key since the last call: the
+ * monitor - .TTYIN, .TTINR, and the monitor's own line reading on a
+ * program's behalf, which goes the same way - or the ROM's key input
+ * (160004) itself, past the monitor. */
 [[nodiscard]] bool takeKeyAsked() noexcept;
 
 /* The bytes the console was given since the last call (KOI-8, control

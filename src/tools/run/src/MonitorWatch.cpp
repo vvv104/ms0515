@@ -25,6 +25,7 @@ constexpr uint16_t kEmtRequest = 0104375;   /* the requests with an area at R0 *
 constexpr uint8_t  kCodeLookup = 1;         /* .LOOKUP among them         */
 constexpr uint16_t kExtind    = 0416;       /* RMON + this: EXTIND        */
 constexpr uint16_t kRomOutput = 0160000;    /* ROM: write the character in R0 */
+constexpr uint16_t kRomInput  = 0160004;    /* ROM: the next key into R0  */
 constexpr uint8_t  kPromptDot = '.';
 constexpr uint8_t  kNoNewline = 0200;       /* ends a .PRINT without CRLF */
 
@@ -90,9 +91,20 @@ bool monitorWatchThunk(ms0515_cpu *cpu, uint16_t vector)
     return true;
 }
 
+/* The ROM's two console entries.  The output is the text; a call of the
+ * input from below the resident monitor - the return address on the
+ * stack says where from - is a program reading the keyboard itself, past
+ * the monitor, whose own calls come from within it. */
 void consoleTap(ms0515_cpu *cpu)
 {
-    seen.output.push_back(static_cast<char>(cpu->r[0] & 0xFF));
+    if (cpu->instruction_pc == kRomOutput) {
+        seen.output.push_back(static_cast<char>(cpu->r[0] & 0xFF));
+        return;
+    }
+    ms0515_board_t *board = cpu->board;
+    const uint16_t caller = board_read_word(board, cpu->r[CPU_REG_SP]);
+    if (caller < board_read_word(board, kRmonPointer))
+        seen.keyAsked = true;
 }
 
 } /* namespace */
@@ -104,7 +116,8 @@ void installMonitorWatch(ms0515::Emulator &emu)
     const uint16_t rmon = emu.readWord(kRmonPointer);
     emu.writeByte(static_cast<uint16_t>(rmon + kExtind), 0);
     emu.setTrapThunk(&monitorWatchThunk);
-    emu.setExecHook(kRomOutput, &consoleTap);
+    static constexpr uint16_t kEntries[] = {kRomOutput, kRomInput};
+    emu.setExecHook(std::span<const uint16_t>{kEntries}, &consoleTap);
 }
 
 void setFileAsked(FileAsked handler)

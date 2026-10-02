@@ -448,6 +448,58 @@ TEST_CASE("a program that waits for a key is interactive, and gets the key typed
     CHECK_FALSE(machine.failed());
 }
 
+TEST_CASE("a program that reads the keyboard past the monitor is interactive too") {
+    const auto dir = freshDir("romkey");
+    /* The ROM's own entries: the key input until there is a key (C set
+     * when none), the character output, .EXIT - with interrupts shut
+     * out, or the monitor's keyboard interrupt would have the key first.
+     * Nothing asked of the monitor, nothing drawn, no sound. */
+    writeFile(dir / "romkey.sav", program({
+        0106427, 0000340,   /* 1000  MTPS #340               */
+        0004737, 0160004,   /* 1004  CALL @#160004           */
+        0103775,            /* 1010  BCS 1004                */
+        0004737, 0160000,   /* 1012  CALL @#160000           */
+        0104350,            /* 1016  .EXIT                   */
+    }));
+
+    Machine machine;
+    REQUIRE(machine.start(dir / "romkey.sav", {}));
+    for (int f = 0; f < 300 && machine.step(); ++f) {}
+    REQUIRE_FALSE(machine.ended());
+    CHECK(machine.interactive());
+    CHECK(machine.takesKeys());
+    CHECK_FALSE(machine.graphics());
+
+    ms0515::Typist typist;
+    typist.type(uint8_t{'W'});
+    ms0515::run::ConsoleText text(ms0515::run::ConsoleText::Reader::plain);
+    std::string printed;
+    for (int f = 0; f < 2000 && !machine.ended(); ++f) {
+        if (machine.takesKeys()) typist.pump(machine.emulator());
+        machine.step();
+        printed += text.convert(machine.takeOutput());
+    }
+    REQUIRE(machine.ended());
+    printed += text.convert(machine.drainOutput());
+    CHECK(printed == "W");
+}
+
+TEST_CASE("a program that takes the keyboard's interrupt is interactive") {
+    const auto dir = freshDir("ownkbd");
+    writeFile(dir / "ownkbd.sav", program({
+        0012737, 01010, 0130,   /* 1000  MOV #HANDLER,@#130  */
+        0000777,                /* 1006  BR .                */
+        0000002,                /* 1010  HANDLER: RTI        */
+    }));
+
+    Machine machine;
+    REQUIRE(machine.start(dir / "ownkbd.sav", {}));
+    for (int f = 0; f < 300 && machine.step(); ++f) {}
+    REQUIRE_FALSE(machine.ended());
+    CHECK(machine.interactive());
+    CHECK(machine.takesKeys());
+}
+
 TEST_CASE("a program that does its work and ends is not interactive") {
     const auto dir = freshDir("batch");
     fs::copy_file(fs::path(RT11_SYSTEM_DIR) / "PIP.SAV", dir / "pip.sav");

@@ -57,7 +57,8 @@ TEST_CASE("the hook fires each time its address is executed, before the instruct
     board_write_word(&board, CODE_BASE + 2, INC_R0);
     board_write_word(&board, CODE_BASE + 4, 0000775);
 
-    board.cpu.exec_hook_pc = CODE_BASE + 2;
+    board.cpu.exec_hook_pc[0] = CODE_BASE + 2;
+    board.cpu.exec_hook_count = 1;
     board.cpu.exec_hook    = &test_exec_hook;
 
     cpu_step(&board.cpu);                       /* 1000 */
@@ -74,6 +75,37 @@ TEST_CASE("the hook fires each time its address is executed, before the instruct
     CHECK(g_seen.r0 == 9);
 }
 
+TEST_CASE("one hook watches several addresses and is told which it is at") {
+    ms0515_board_t board{};
+    prepare_board(board);
+
+    /* 1000: INC R0 / 1002: INC R0 / 1004: INC R0 / 1006: BR 1000 */
+    board_write_word(&board, CODE_BASE,     INC_R0);
+    board_write_word(&board, CODE_BASE + 2, INC_R0);
+    board_write_word(&board, CODE_BASE + 4, INC_R0);
+    board_write_word(&board, CODE_BASE + 6, 0000774);
+
+    board.cpu.exec_hook_pc[0] = CODE_BASE;
+    board.cpu.exec_hook_pc[1] = CODE_BASE + 4;
+    board.cpu.exec_hook_count = 2;
+    board.cpu.exec_hook       = &test_exec_hook;
+
+    cpu_step(&board.cpu);
+    CHECK(g_seen.count == 1);
+    CHECK(g_seen.pc == CODE_BASE);
+    cpu_step(&board.cpu);                       /* 1002: not watched */
+    CHECK(g_seen.count == 1);
+    cpu_step(&board.cpu);
+    CHECK(g_seen.count == 2);
+    CHECK(g_seen.pc == CODE_BASE + 4);
+    CHECK(board.cpu.instruction_pc == CODE_BASE + 4);
+
+    /* An address past the count is not watched. */
+    board.cpu.exec_hook_pc[2] = CODE_BASE + 6;
+    cpu_step(&board.cpu);
+    CHECK(g_seen.count == 2);
+}
+
 TEST_CASE("no hook, or a hook taken off, leaves execution alone") {
     ms0515_board_t board{};
     prepare_board(board);
@@ -83,7 +115,8 @@ TEST_CASE("no hook, or a hook taken off, leaves execution alone") {
     board_write_word(&board, CODE_BASE + 2, NOP);
     board_write_word(&board, CODE_BASE + 4, 0000775);
 
-    board.cpu.exec_hook_pc = CODE_BASE;
+    board.cpu.exec_hook_pc[0] = CODE_BASE;
+    board.cpu.exec_hook_count = 1;
     board.cpu.exec_hook    = &test_exec_hook;
     for (int i = 0; i < 3; ++i) cpu_step(&board.cpu);
     CHECK(g_seen.count == 1);
@@ -106,7 +139,8 @@ TEST_CASE("an interrupt taken at the hooked address does not fire the hook twice
     board_write_word(&board, CPU_VEC_EMT,     HANDLER);
     board_write_word(&board, CPU_VEC_EMT + 2, 0);
 
-    board.cpu.exec_hook_pc = CODE_BASE;
+    board.cpu.exec_hook_pc[0] = CODE_BASE;
+    board.cpu.exec_hook_count = 1;
     board.cpu.exec_hook    = &test_exec_hook;
 
     /* With PC at the hooked address a request is pending: the step

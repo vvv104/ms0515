@@ -31,6 +31,9 @@ namespace {
  * 0 is none, and the next lookup reads the directory from the volume. */
 constexpr uint16_t kDirectoryInMemory = 0256;
 
+/* The keyboard's interrupt vector. */
+constexpr uint16_t kKeyboardVector = 0130;
+
 std::vector<uint8_t> carried(std::span<const uint8_t> packed, const char *what)
 {
     auto data = unpackZeroRuns(packed);
@@ -293,7 +296,10 @@ bool Machine::step()
     if (ended())
         return false;
     (void)emu_.stepFrame();
-    const bool asked = takeKeyAsked();
+    /* A key is asked for through the monitor or the ROM - or the program
+     * has taken the keyboard's interrupt for itself, its vector pointing
+     * below the resident monitor: then every key is its own. */
+    const bool asked = takeKeyAsked() || emu_.readWord(kKeyboardVector) < rmon_;
     keyFrames_  = asked ? keyFrames_ + 1 : 0;
     sinceAsked_ = asked ? 0 : sinceAsked_ + 1;
     if (waitingForKey()) everAsked_ = true;

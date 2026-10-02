@@ -55,8 +55,10 @@ public:
     [[nodiscard]] bool ended() const noexcept;
 
     /* The program is one a person sits at, and wants the machine's own
-     * pace: it has waited for a key, or drawn on the screen itself, or
-     * left the console's video mode, or sounded.  Until then it is taken
+     * pace: it has waited for a key - asked the monitor for one, called
+     * the ROM's key input itself, or taken the keyboard's interrupt - or
+     * drawn on the screen itself, or left the console's video mode, or
+     * sounded.  Until then it is taken
      * for one that does its work and ends - an assembler, a linker - and
      * may run as fast as the host does.  Once true, it stays. */
     [[nodiscard]] bool interactive() const noexcept { return interactive_; }
