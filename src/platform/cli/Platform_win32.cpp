@@ -267,6 +267,13 @@ size_t readStdinNonBlocking(uint8_t *buf, size_t cap)
     DWORD ftype = GetFileType(g_stdin);
 
     if (ftype == FILE_TYPE_CHAR) {
+        /* A character device that is not a console is NUL (`< NUL`):
+         * nothing will ever come from it. */
+        DWORD consoleMode = 0;
+        if (!GetConsoleMode(g_stdin, &consoleMode)) {
+            g_eof.store(true, std::memory_order_release);
+            return 0;
+        }
         /* Console input — pull events directly via ReadConsoleInputW
          * so we can filter out focus / mouse / window-resize records
          * that the GetNumberOfConsoleInputEvents-+-ReadFile path would

@@ -83,6 +83,7 @@ add_custom_command(
 # ── The machine ──────────────────────────────────────────────────────────────
 add_library(ms0515_run_core STATIC
     src/ConsoleText.cpp
+    src/HostKeys.cpp
     src/Machine.cpp
     src/MonitorWatch.cpp
     "${RUN_EMBEDDED}"

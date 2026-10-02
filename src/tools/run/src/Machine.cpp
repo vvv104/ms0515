@@ -221,6 +221,16 @@ Status Machine::start(const fs::path &program,
     if (!emu_.mountHdInMemory(folder.string(), std::move(desc)))
         return Status{"cannot serve the folder " + folder.string()};
     folder_ = folder;
+    rmon_ = emu_.readWord(kRmonPointer);
+    keyFrames_ = sinceAsked_ = 0;
+    everAsked_ = drewItself_ = sounded_ = interactive_ = false;
+    /* The console's text is drawn by the ROM, whose code lies above the
+     * resident monitor; a byte put into video memory from below it is
+     * the program's own drawing. */
+    emu_.setVramWriteCallback([this](uint16_t, uint8_t) {
+        if (emu_.pc() < rmon_) drewItself_ = true;
+    });
+    emu_.setSoundCallback([this](int) { sounded_ = true; });
     installMonitorWatch(emu_);
     setFileAsked([this](const std::string &device, const std::string &name) {
         fileAsked(device, name);
@@ -275,6 +285,12 @@ bool Machine::step()
     if (ended())
         return false;
     (void)emu_.stepFrame();
+    const bool asked = takeKeyAsked();
+    keyFrames_  = asked ? keyFrames_ + 1 : 0;
+    sinceAsked_ = asked ? 0 : sinceAsked_ + 1;
+    if (waitingForKey()) everAsked_ = true;
+    if (waitingForKey() || drewItself_ || sounded_ || !emu_.isHires())
+        interactive_ = true;
     return !ended();
 }
 

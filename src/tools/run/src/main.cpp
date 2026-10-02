@@ -1,31 +1,55 @@
 /*
  * ms0515-run - run one RT-11 program on the MS 0515.
  *
- *     ms0515-run PROGRAM.SAV [the program's command line]
+ *     ms0515-run PROGRAM[.SAV] [the program's command line]
  *
  * What follows the program on the line is the program's, as after RUN at
  * the monitor's prompt.  DK: holds the program and the files that line
- * names, taken from the program's folder; the folder's other files are
- * not there.  What the program writes lands in the folder.  What it prints
- * goes to stdout - as text alone when stdout is a file or a pipe.  The
- * exit status is 0 when the program ended well by the monitor's account,
- * 1 when it did not, 2 when it could not be started.
+ * speaks of, taken from the program's folder; a file the program asks
+ * for by name comes from there too.  What the program writes lands in
+ * the folder.  What it prints goes to stdout - as text alone when stdout
+ * is a file or a pipe - and what is typed on stdin is typed on the
+ * machine's keyboard.  Ctrl-C is the machine's (two of them stop a
+ * program, as on RT-11); Ctrl-] leaves at once.
+ *
+ * A program that does its work and ends runs as fast as the host does;
+ * one a person sits at runs at the machine's own pace (Machine.hpp says
+ * how the two are told apart).
+ *
+ * The exit status is 0 when the program ended well by the monitor's
+ * account, 1 when it did not, 2 when it could not be started.
  *
  * There are no switches and no settings: everything the machine needs is
  * compiled in (Embedded.hpp).
  */
 
 #include "ConsoleText.hpp"
+#include "HostKeys.hpp"
 #include "Machine.hpp"
+
+#include <ms0515/Typist.hpp>
 
 #include <Platform.hpp>
 
+#include <algorithm>
+#include <array>
+#include <chrono>
 #include <cstdio>
 #include <exception>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
+
+using Clock = std::chrono::steady_clock;
+
+/* The machine's frame: 50 a second. */
+constexpr std::chrono::milliseconds kFrame{20};
+
+/* Stdin has ended and the program still asks for a key: after this many
+ * frames it gets the two Ctrl-C that end a program on RT-11. */
+constexpr int kFramesToInterrupt = 25;
 
 void print(const std::string &text)
 {
@@ -33,6 +57,44 @@ void print(const std::string &text)
     ms0515::cli::writeStdout(text.data(), text.size());
     ms0515::cli::flushStdout();
 }
+
+/* The terminal as the machine's keyboard for the length of the run. */
+struct Keyboard {
+    Keyboard()
+    {
+        ms0515::cli::installInterruptHandler();
+        ms0515::cli::setTerminalRawMode();
+    }
+    ~Keyboard() { ms0515::cli::restoreTerminal(); }
+    Keyboard(const Keyboard &)            = delete;
+    Keyboard &operator=(const Keyboard &) = delete;
+
+    /* Before each frame: what was typed since the last one, a key at a
+     * time.  False when the host asked to leave. */
+    bool pump(ms0515::run::Machine &machine)
+    {
+        std::array<uint8_t, 256> bytes{};
+        const std::size_t n =
+            ms0515::cli::readStdinNonBlocking(bytes.data(), bytes.size());
+        if (keys.feed({bytes.data(), n}, typist))
+            return false;
+
+        const bool starved = ms0515::cli::isStdinEof() && typist.pending() == 0 &&
+                             machine.waitingForKey();
+        starvedFrames = starved ? starvedFrames + 1 : 0;
+        if (starvedFrames == kFramesToInterrupt) {
+            typist.type(uint8_t{3});
+            typist.type(uint8_t{3});
+        }
+        if (machine.takesKeys())
+            typist.pump(machine.emulator());
+        return !ms0515::cli::shouldQuit();
+    }
+
+    ms0515::run::HostKeys keys;
+    ms0515::Typist        typist;
+    int                   starvedFrames = 0;
+};
 
 int run(const std::string &program, const std::vector<std::string> &arguments)
 {
@@ -48,8 +110,20 @@ int run(const std::string &program, const std::vector<std::string> &arguments)
     ConsoleText text(ms0515::cli::stdoutIsTerminal()
                          ? ConsoleText::Reader::terminal
                          : ConsoleText::Reader::plain);
-    while (machine.step())
+    Keyboard keyboard;
+    auto next = Clock::now();
+    while (keyboard.pump(machine) && machine.step()) {
         print(text.convert(machine.takeOutput()));
+        if (!machine.interactive()) {
+            next = Clock::now();
+            continue;
+        }
+        /* The machine's pace; a frame that came late is not made up for. */
+        next = std::max(next + kFrame, Clock::now());
+        std::this_thread::sleep_until(next);
+    }
+    if (!machine.ended())
+        return 1;                       /* left by Ctrl-] */
     print(text.convert(machine.drainOutput()));
     return machine.failed() ? 1 : 0;
 }
@@ -60,7 +134,7 @@ int main(int argc, char **argv)
 {
     if (argc < 2) {
         std::fprintf(stderr,
-                     "usage: ms0515-run PROGRAM.SAV [the program's command line]\n");
+                     "usage: ms0515-run PROGRAM[.SAV] [the program's command line]\n");
         return 2;
     }
     try {

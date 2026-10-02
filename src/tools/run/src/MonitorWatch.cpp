@@ -20,6 +20,7 @@ namespace ms0515::run {
 namespace {
 
 constexpr uint16_t kEmtPrint  = 0104351;    /* .PRINT, the text at R0     */
+constexpr uint16_t kEmtTtyin  = 0104340;    /* .TTYIN / .TTINR            */
 constexpr uint16_t kEmtRequest = 0104375;   /* the requests with an area at R0 */
 constexpr uint8_t  kCodeLookup = 1;         /* .LOOKUP among them         */
 constexpr uint16_t kExtind    = 0416;       /* RMON + this: EXTIND        */
@@ -30,6 +31,7 @@ constexpr uint8_t  kNoNewline = 0200;       /* ends a .PRINT without CRLF */
 struct {
     bool        prompted = false;
     uint8_t     severity = 0;
+    bool        keyAsked = false;
     std::string output;
 } seen;
 
@@ -61,11 +63,17 @@ bool monitorWatchThunk(ms0515_cpu *cpu, uint16_t vector)
         return false;
     if (cpu->instruction == kEmtRequest && fileAsked)
         noteLookup(cpu);
-    if (cpu->instruction != kEmtPrint)
+    if (cpu->instruction != kEmtPrint && cpu->instruction != kEmtTtyin)
         return false;
     ms0515_board_t *board = cpu->board;
     const uint16_t rmon = board_read_word(board, kRmonPointer);
-    if (board_read_word(board, static_cast<uint16_t>(rmon + kKmoninOffset)) == 0)
+    const bool kmon =
+        board_read_word(board, static_cast<uint16_t>(rmon + kKmoninOffset)) != 0;
+    if (cpu->instruction == kEmtTtyin) {
+        if (!kmon) seen.keyAsked = true;    /* the program wants a key */
+        return false;
+    }
+    if (!kmon)
         return false;                       /* a program's own .PRINT */
 
     /* KDOT in KMON.MAC: a .PRINT of nothing for the new line (KCRLF),
@@ -107,6 +115,11 @@ void setFileAsked(FileAsked handler)
 bool monitorPrompted() noexcept { return seen.prompted; }
 
 uint8_t endSeverity() noexcept { return seen.severity; }
+
+bool takeKeyAsked() noexcept
+{
+    return std::exchange(seen.keyAsked, false);
+}
 
 std::string takeConsoleOutput()
 {

@@ -8,6 +8,7 @@
 
 #include "ConsoleText.hpp"
 #include "Embedded.hpp"
+#include "HostKeys.hpp"
 #include "Machine.hpp"
 #include "Starter.hpp"
 #include "ZeroRun.hpp"
@@ -375,6 +376,7 @@ TEST_CASE("a graphics game starts the same way and takes the screen") {
             printed += machine.takeOutput();
         CAPTURE(printed);
         CHECK_FALSE(machine.ended());
+        CHECK(machine.interactive());
 
         /* It drew: the picture is kept beside the fixture for the eye
          * (MANICM in the colour mode, SAPER in the console's 640x200). */
@@ -398,6 +400,79 @@ TEST_CASE("a graphics game starts the same way and takes the screen") {
         });
         CHECK(lit > 1000);
     }
+}
+
+TEST_CASE("a program that waits for a key is interactive, and gets the key typed") {
+    const auto dir = freshDir("key");
+    /* .TTYIN in the single-character mode (JSW bit 12), then the key
+     * back out and .EXIT. */
+    auto image = program({
+        0104340,            /* 1000  EMT 340   .TTYIN       */
+        0103776,            /* 1002  BCS 1000               */
+        0104341,            /* 1004  EMT 341   .TTYOUT      */
+        0104350,            /* 1006  .EXIT                  */
+    });
+    image[045] = 0x10;
+    writeFile(dir / "key.sav", image);
+
+    Machine machine;
+    REQUIRE(machine.start(dir / "key.sav", {}));
+    for (int f = 0; f < 300 && machine.step(); ++f) {}
+    REQUIRE_FALSE(machine.ended());
+    CHECK(machine.interactive());
+    CHECK(machine.waitingForKey());
+
+    ms0515::run::HostKeys keys;
+    ms0515::Typist typist;
+    const std::string typed = "Q";
+    CHECK_FALSE(keys.feed({reinterpret_cast<const uint8_t *>(typed.data()),
+                           typed.size()}, typist));
+    ms0515::run::ConsoleText text(ms0515::run::ConsoleText::Reader::plain);
+    std::string printed;
+    for (int f = 0; f < 2000 && !machine.ended(); ++f) {
+        typist.pump(machine.emulator());
+        machine.step();
+        printed += text.convert(machine.takeOutput());
+    }
+    REQUIRE(machine.ended());
+    printed += text.convert(machine.drainOutput());
+    CHECK(printed == "Q");
+    CHECK_FALSE(machine.failed());
+}
+
+TEST_CASE("a program that does its work and ends is not interactive") {
+    const auto dir = freshDir("batch");
+    fs::copy_file(fs::path(RT11_SYSTEM_DIR) / "PIP.SAV", dir / "pip.sav");
+    writeFile(dir / "source.txt", std::vector<uint8_t>(3000, 'S'));
+
+    Machine machine;
+    const std::vector<std::string> args{"copy.txt=source.txt"};
+    REQUIRE(machine.start(dir / "pip.sav", args));
+    REQUIRE(runToEnd(machine));
+    CHECK_FALSE(machine.interactive());
+    CHECK_FALSE(machine.waitingForKey());
+}
+
+TEST_CASE("the host's bytes become characters and keys") {
+    ms0515::run::HostKeys keys;
+    ms0515::Typist typist;
+    const auto feed = [&](const std::string &bytes) {
+        return keys.feed({reinterpret_cast<const uint8_t *>(bytes.data()),
+                          bytes.size()}, typist);
+    };
+
+    CHECK_FALSE(feed("DIR\r"));
+    CHECK(typist.pending() == 4);
+    CHECK_FALSE(feed("\033[A\033OB"));              /* two arrows */
+    CHECK(typist.pending() == 6);
+    CHECK_FALSE(feed("\033[1;5H\033[2~"));          /* sequences it does not know */
+    CHECK(typist.pending() == 6);
+    CHECK_FALSE(feed("\xD0"));                      /* a letter cut in two: д */
+    CHECK(typist.pending() == 6);
+    CHECK_FALSE(feed("\xB4"));
+    CHECK(typist.pending() == 8);                   /* РУС/ЛАТ and the letter */
+    CHECK(feed("A\035" "B"));                       /* Ctrl-] is the host's */
+    CHECK(typist.pending() == 11);                  /* РУС/ЛАТ, A, B */
 }
 
 TEST_CASE("a file a program opened and never closed is not left in the folder") {

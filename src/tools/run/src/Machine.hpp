@@ -52,6 +52,26 @@ public:
 
     [[nodiscard]] bool ended() const noexcept;
 
+    /* The program is one a person sits at, and wants the machine's own
+     * pace: it has waited for a key, or drawn on the screen itself, or
+     * left the console's video mode, or sounded.  Until then it is taken
+     * for one that does its work and ends - an assembler, a linker - and
+     * may run as fast as the host does.  Once true, it stays. */
+    [[nodiscard]] bool interactive() const noexcept { return interactive_; }
+
+    /* The program is asking for a key and has been for some frames. */
+    [[nodiscard]] bool waitingForKey() const noexcept
+    { return keyFrames_ >= kKeyFrames; }
+
+    /* The moment to type: the program asks the monitor for keys and has
+     * done so lately, or it is one that never asks and reads the keyboard
+     * its own way (a game).  A program at its work between two questions
+     * is not typed at - what is typed ahead waits, so that its echo comes
+     * after the question it answers; one not yet interactive is not typed
+     * at either. */
+    [[nodiscard]] bool takesKeys() const noexcept
+    { return interactive_ && (!everAsked_ || sinceAsked_ < kTypeAheadFrames); }
+
     /* What the console was given since the last call: the program's
      * output as it printed it (KOI-8 bytes; see ConsoleText.hpp). */
     [[nodiscard]] std::string takeOutput();
@@ -69,8 +89,22 @@ public:
 private:
     void fileAsked(const std::string &device, const std::string &name);
 
+    /* A line handed over by RUN is read in a frame or two; a program
+     * that asks for a key for this many frames on end is waiting. */
+    static constexpr int kKeyFrames = 3;
+    /* A program that polls for keys does not ask every frame: it still
+     * takes them this many frames after it last asked. */
+    static constexpr int kTypeAheadFrames = 25;
+
     ms0515::Emulator      emu_;
     std::filesystem::path folder_;      /* the program's */
+    uint16_t              rmon_ = 0;    /* where the resident monitor starts */
+    int                   keyFrames_ = 0;   /* frames on end with a key asked */
+    int                   sinceAsked_ = 0;  /* frames since one last was     */
+    bool                  everAsked_ = false;
+    bool                  drewItself_ = false;
+    bool                  sounded_ = false;
+    bool                  interactive_ = false;
 };
 
 /* The RUN command for a program file and its arguments, or an error

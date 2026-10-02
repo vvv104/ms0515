@@ -53,6 +53,11 @@ void setFileAsked(FileAsked handler);
  * the user error byte (USERRB, 53) each time it gets control back. */
 [[nodiscard]] uint8_t endSeverity() noexcept;
 
+/* A program (not KMON) has asked the monitor for a key - .TTYIN, .TTINR,
+ * and the monitor's own line reading on a program's behalf, which goes
+ * the same way - since the last call. */
+[[nodiscard]] bool takeKeyAsked() noexcept;
+
 /* The bytes the console was given since the last call (KOI-8, control
  * codes and sequences included; ConsoleText.hpp makes text of them). */
 [[nodiscard]] std::string takeConsoleOutput();
