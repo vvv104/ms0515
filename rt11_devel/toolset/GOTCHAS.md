@@ -28,17 +28,28 @@ LC_ALL=C grep -nP '[^\x00-\x7F]' FILE.MAC
 This has bitten us more than once.  When pasting a comment into a `.MAC`,
 keep it 7-bit ASCII.
 
-## SYSMAC.SML must live on SY: (the system/boot side)
+## A command line without `=` builds nothing
 
-MACRO auto-searches the system macro library `SYSMAC.SML` on **SY:** (the
-boot device = side 0) for every `.MCALL`.  Staging it only on the work
-side (DZ2 / DK) is not enough: the macros silently resolve to nothing and
+`build.py` runs the programs with `ms0515-run`, which hands the line to
+the program itself - not to the monitor.  `MACRO X` at the monitor's
+prompt is a monitor command, turned into `X=X` before MACRO sees it; given
+to MACRO as it is, it names an input alone: the source is checked, nothing
+is written, and the build ends with "produced no X.SAV".  Write
+`MACRO X=X`, `LINK X=X`, and for a listing or a map a second output:
+`MACRO X,X=X`, `LINK X,X=X`.  The README has the table.
+
+## SYSMAC.SML must be where MACRO looks for it
+
+MACRO auto-searches the system macro library `SYSMAC.SML` on **SY:** for
+every `.MCALL`.  Without it the macros silently resolve to nothing and
 you get a flood of undefined-symbol errors (e.g. `.DRDEF`, `.DRBEG`,
 `.DREND` show as `****** GX` in the listing's symbol table).
 
-Fix: the system disk `decsys.compose()` makes carries `SYSMAC.SML` (and
-the compilers, for the CCL command form) on SY:.  Driver builds (`.DRDEF`
-and friends) and any program that `.MCALL`s system macros need it there.
+Under `build.py` it is enough that the file is in the work folder:
+`ms0515-run` gives a program the file it asks for on SY: out of the
+folder, and every recipe that runs MACRO stages `SYSMAC.SML`.  On a
+booted system (`decsys.compose()`) the file must be on the system disk
+itself; staging it on the work side alone is not enough.
 
 ## STARTS.COM — the SJ startup command file (like autoexec.bat)
 

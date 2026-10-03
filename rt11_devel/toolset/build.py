@@ -5,16 +5,16 @@ Reads a ``build.toml`` manifest in the project directory, runs the
 project through the standard pipeline:
 
   1. (optional) pre_build hook            — host-side, e.g. code generator
-  2. compose the system disk (decsys.py: the collection's dec system with
-     the language's toolchain and the recipe as its STARTS.COM) and make an
-     empty work/ folder, a folder-backed device (.rtfs)
-  3. stage the sources + object libraries into work/ (= DZ1, ASSIGNed DK)
-  4. boot ms0515-cli --no-config; the SJ monitor auto-runs STARTS.COM, so
-     the build runs unattended.  Wait for it to finish (a type-ahead `DIR`
-     probe), then scan the whole transcript for any ?xxx-F-/-E- diagnostic.
-  5. outputs are host files the guest materialized in work/ — copy them to
-     the project directory
-  6. (optional) post_build hook           — host-side, e.g. packaging
+  2. make a work folder and stage into it the sources, the extra object
+     libraries and the language's toolchain out of the software collection
+  3. run the recipe's commands, each one a run of ``ms0515-run`` in that
+     folder: the program is RT-11's own (MACRO, LINK, PAS1 ...), run on the
+     machine inside the tool, with the folder as its disk.  No disk is
+     composed, no system booted; a program that fails stops the build with
+     what it printed.
+  4. outputs are host files the programs wrote in the work folder — copy
+     them to the project directory
+  5. (optional) post_build hook           — host-side, e.g. packaging
 
 Manifest schema (TOML)
 ----------------------
@@ -31,9 +31,14 @@ Manifest schema (TOML)
     [build]
     libs     = ["EXTRA.OBJ"]        # optional, extra files staged + linked:
                                     # the project's own, else the collection's
-                                    # (software/development and its folders,
-                                    # kits/common/development)
-    commands = ["MACRO {name}/LIST"]  # optional, overrides the language recipe
+                                    # (software/development and its folders)
+    commands = ["MACRO {name},{name}={name}"]   # optional, overrides the recipe
+
+A command is a program and its command line, ``PROGRAM line``, in the
+program's own syntax - not the monitor's: ``ms0515-run`` hands the line to
+the program as ``RUN PROGRAM line`` would, so ``MACRO X`` names an input
+alone and writes nothing, and ``MACRO X=X`` makes the object
+(``outputs=inputs``; LINK's second output is the map).
 
 Usage
 -----
@@ -51,7 +56,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import tomllib
 from pathlib import Path
 
@@ -60,67 +64,77 @@ ROOT = HERE.parent.parent
 
 sys.path.insert(0, str(HERE))
 import decsys                               # noqa: E402
-from emu_driver import EmulatorDriver       # noqa: E402
 from rt11 import RT11CommandError           # noqa: E402
 
-CLI = decsys.CLI
+# ms0515-run, the emulator's tool that runs one RT-11 program from its
+# folder (src/tools/run): what a command of a recipe is run with.
+RUNNER = [str(ROOT / "package" / "ms0515-run.exe")]
+
+# The longest a single program may take, in seconds of the host's time.  A
+# program that ends runs unthrottled; one still there after this has stopped
+# for a reason the build cannot answer.
+COMMAND_TIMEOUT = 600
 
 
 # ── Language recipes ─────────────────────────────────────────────────────────
 #
-# Each recipe names the bundles of the collection that put its toolchain on
-# the system disk (`bundles`, over decsys.BASE: DEC's LINK, LIBR, SYSLIB,
-# SYSMAC and ODT, the kit's MACRO), the compilers and libraries that puts
-# there (`compilers`, `libs` - what the commands may count on), and the
-# commands, with ``{name}`` substituted with the project's base name at
-# expand time.  Manifests can override `commands` for projects with
-# non-standard linking (overlays, specific arg orders, ...).
+# Each recipe names the programs it runs (`compilers`), the libraries they
+# read (`libs`), the folders of the collection those are taken from, in the
+# order searched (`folders`, under software/development), and the commands,
+# with ``{name}`` substituted with the project's base name at expand time.
+# Manifests can override `commands` for projects with non-standard linking
+# (overlays, a map, several sources, ...).
 #
-# Commands use the CCL form (``MACRO foo`` not ``RUN DZ2:MACRO foo``): the
-# compilers are on SY:, so KMON resolves them as commands and translates
-# switches (needed for e.g. LINK/NOBITMAP/EXECUTE).  Sources and extra
-# object libraries sit on DK: (the work folder, ASSIGNed from DZ1); the
-# system library LINK takes from SY: - DEC's, or the Pascal kit's where
-# the toolchain is that kit's (decsys.KIT_SYSLIB_TOOLCHAINS).
+# DEC's tools and libraries are in the root folder; MACRO there is the FODOS
+# kit's, the one tool DEC left no source for.  A kit's toolchain - Pascal,
+# FORTRAN - has a folder of its own and links against the kit's system
+# library, which with its macro library is in fodos/: that folder is
+# searched before the root, so the kit's SYSLIB wins over DEC's there.
+#
+# The system libraries are looked for on SY: by the programs themselves
+# (MACRO opens SY:SYSMAC.SML, LINK SY:SYSLIB.OBJ); ms0515-run gives a
+# program the file it asks for by name out of the folder, so they are staged
+# beside everything else.
 
 RECIPES = {
     "macro11": {
         "extension": "MAC",
-        "bundles":   [],
+        "folders":   [""],
         "compilers": ["MACRO.SAV", "LINK.SAV"],
         "libs":      ["SYSMAC.SML", "SYSLIB.OBJ"],
-        "commands":  ["MACRO {name}",
-                      "LINK {name}"],
+        "commands":  ["MACRO {name}={name}",
+                      "LINK {name}={name}"],
     },
     "pascal": {
         "extension": "PAS",
-        "bundles":   ["pascal"],
+        "folders":   ["pascal", "fodos", ""],
         "compilers": ["PAS1.SAV", "MACRO.SAV", "LINK.SAV"],
         "libs":      ["SYSMAC.SML", "SYSLIB.OBJ", "PASLIB.OBJ", "PAS1.OBJ"],
         "commands":  ["PAS1 {name}={name}",
-                      "MACRO {name}",
-                      "LINK {name},PASLIB,PAS1"],
+                      "MACRO {name}={name}",
+                      "LINK {name}={name},PASLIB,PAS1"],
     },
     "fortran": {
         "extension": "FOR",
-        "bundles":   ["fortran"],
-        "compilers": ["FORTRA.SAV", "MACRO.SAV", "LINK.SAV"],
-        "libs":      ["SYSMAC.SML", "SYSLIB.OBJ", "FORLIB.OBJ"],
-        "commands":  ["FORTRA {name}",
-                      "MACRO {name}",
-                      "LINK {name},FORLIB"],
+        "folders":   ["fortran", "fodos", ""],
+        "compilers": ["FORTRA.SAV", "LINK.SAV"],
+        "libs":      ["SYSLIB.OBJ", "FORLIB.OBJ"],
+        "commands":  ["FORTRA {name}={name}",
+                      "LINK {name}={name},FORLIB"],
     },
     "basic": {
         # BASIC is interpreter-only here — interactive sessions aren't a
-        # build artifact, so we mostly use this entry for staging the
-        # binary on a work disk and letting the user drive it manually.
+        # build artifact, so this entry only stages the interpreter beside
+        # the program: `ms0515-run BASICO` in the work folder runs it.
         "extension": "BAS",
-        "bundles":   ["basico"],
+        "folders":   ["basic"],
         "compilers": ["BASICO.SAV"],
         "libs":      [],
         "commands":  [],
     },
 }
+
+DEVELOPMENT = Path("software") / "development"
 
 
 # ── Manifest -> resolved build plan ───────────────────────────────────────────
@@ -162,19 +176,34 @@ class BuildPlan:
         self.extra_libs = build_cfg.get("libs", [])
         commands_tmpl   = build_cfg.get("commands", recipe["commands"])
         self.commands   = [c.format(name=self.name) for c in commands_tmpl]
-        self.bundles    = recipe["bundles"]
+        self.folders    = recipe["folders"]
         self.compilers  = recipe["compilers"]
         self.recipe_libs = recipe["libs"]
 
     def dk_files(self) -> list[Path]:
-        """Staged on DK: (the work folder): the sources and the extra object
-        libraries to link against - the project's own, else the collection's
-        development files.  The toolchain and its libraries are on SY:, the
-        system disk."""
+        """The project's part of the work folder: the sources and the extra
+        object libraries to link against - the project's own, else the
+        collection's development files."""
         files = [self.manifest_dir / s for s in self.sources]
         for lib in self.extra_libs:
             own = self.manifest_dir / lib
             files.append(own if own.is_file() else collection_lib(lib))
+        return files
+
+    def tool_files(self) -> list[Path]:
+        """The toolchain's part: the recipe's programs and libraries, each
+        from the first of the recipe's folders that has it."""
+        root = decsys.collection() / DEVELOPMENT
+        files = []
+        for name in [*self.compilers, *self.recipe_libs]:
+            for folder in self.folders:
+                if (root / folder / name).is_file():
+                    files.append(root / folder / name)
+                    break
+            else:
+                raise SystemExit(
+                    f"the collection has no {name} for {self.language} "
+                    f"(looked in {[str(root / f) for f in self.folders]})")
         return files
 
 
@@ -183,12 +212,11 @@ def collection_lib(name: str) -> Path:
     software's folders - DEC's system libraries, the linker and librarian
     in the root, Pascal's and FORTRAN's in theirs, the kits' own system
     libraries in fodos/."""
-    root = decsys.collection()
-    for folder in ("software/development", "software/development/pascal", "software/development/fortran",
-                   "software/development/fodos"):
+    root = decsys.collection() / DEVELOPMENT
+    for folder in ("", "pascal", "fortran", "fodos"):
         if (root / folder / name).is_file():
             return root / folder / name
-    return root / "software" / "development" / name      # a name it has not: reported as missing
+    return root / name      # a name it has not: reported as missing
 
 
 def load_manifest(path: Path) -> BuildPlan:
@@ -199,72 +227,68 @@ def load_manifest(path: Path) -> BuildPlan:
 
 # ── Build runner ─────────────────────────────────────────────────────────────
 
+def run_command(command: str, work: Path) -> str:
+    """One command of a recipe - ``PROGRAM line`` - run in `work` with
+    ms0515-run; returns what the program printed.  Raises RT11CommandError
+    when the program failed: the tool's exit status, which is the monitor's
+    own account of the program, or an error or fatal diagnostic
+    (``?XXX-E-``, ``?XXX-F-``) in what it printed.  A warning (``-W-``, e.g.
+    LINK's undefined globals) is left to the reader."""
+    program, _, line = command.partition(" ")
+    try:
+        r = subprocess.run([*RUNNER, program, *line.split()], cwd=work,
+                           stdin=subprocess.DEVNULL, capture_output=True,
+                           timeout=COMMAND_TIMEOUT)
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or b"").decode("utf-8", errors="replace")
+        raise RT11CommandError(command, f"still running after {COMMAND_TIMEOUT} s", out)
+    out = r.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")
+    out += r.stderr.decode("utf-8", errors="replace").replace("\r\n", "\n")
+    diag = re.search(r"\?[A-Z]{2,6}-[FEU]-[^\r\n]*", out)
+    if diag:
+        raise RT11CommandError(command, diag.group(0).strip(), out)
+    if r.returncode != 0:
+        last = out.strip().splitlines()[-1] if out.strip() else "nothing printed"
+        raise RT11CommandError(command, f"status {r.returncode}: {last}", out)
+    return out
+
+
 def run(plan: BuildPlan, *, build_root: Path | None = None) -> None:
     if plan.pre_hook:
-        print(f"[1/5] pre_build -> {plan.pre_hook}")
+        print(f"[1/4] pre_build -> {plan.pre_hook}")
         subprocess.run([sys.executable, str(plan.manifest_dir / plan.pre_hook)],
                        check=True)
 
-    # Two temp folder-backed devices (.rtfs):
-    #   boot/  — the system composed from the collection (decsys): DEC's
-    #            system and tools, the language's toolchain, and the build
-    #            recipe as STARTS.COM (the SJ monitor runs it at boot);
-    #            mounts as DZ0, the system.
-    #   work/  — sources + extra object libraries; mounts as DZ1
-    #            (ASSIGNed DK).
-    # Outputs are simply host files the guest materializes in work/.
+    # One work folder: the sources, the extra libraries and the toolchain
+    # side by side.  It is the disk of every program run in it (DK:), and
+    # what a program writes is a host file there.
     if build_root is None:
         build_root = Path(tempfile.gettempdir()) / f"{plan.name.lower()}_build"
     shutil.rmtree(build_root, ignore_errors=True)
-    boot = build_root / "boot"
     work = build_root / "work"
     work.mkdir(parents=True)
 
-    recipe = ["ASSIGN DZ1 DK", *plan.commands]
-    print(f"[2/5] the system -> {boot}: dec + {plan.bundles or 'DEC tools'}, "
-          f"STARTS.COM:")
-    for c in recipe:
-        print(f"      {c}")
-    decsys.compose(boot, startup=recipe, add=plan.bundles, quiet=False)
-
     dk_files = plan.dk_files()
-    print(f"[3/5] stage work/: {len(dk_files)} file(s)")
-    for f in dk_files:
+    tools = plan.tool_files()
+    print(f"[2/4] stage {work}: {len(dk_files)} file(s) of the project, "
+          f"{len(tools)} of the toolchain")
+    for f in [*tools, *dk_files]:           # the project's own win a name
         shutil.copy(f, work / f.name)
-    (work / "device.rtfs").write_bytes(b"device: floppy\nblocks: 800\n")
 
-    print(f"[4/5] boot + run the build (STARTS.COM)")
-    emu = EmulatorDriver([CLI, "--no-config", "--disk0-side0", boot / decsys.DESCRIPTOR,
-                          "--disk1-side0", work / "device.rtfs"])
-    emu.start()
-    try:
-        # Accept the localized Date/Time prompts; STARTS.COM then auto-runs the
-        # build.  The DIR probe is type-ahead — it executes only after the
-        # startup file finishes, so its "Free blocks" line marks completion.
-        time.sleep(2.0)
-        for _ in range(3):
-            emu.send("\r"); time.sleep(0.4)
-        emu.send("DIR DZ1:\r")
+    print(f"[3/4] build")
+    for command in plan.commands:
+        print(f"      {command}", flush=True)
         try:
-            emu.wait_for(r"Free|Files,", "build complete", timeout=600)
-        except TimeoutError:
-            print("the build did not end; the screen:\n" + emu.tail(1500), flush=True)
+            out = run_command(command, work)
+        except RT11CommandError as e:
+            print(e.full_output, flush=True)
             raise
-        time.sleep(0.5)
-        with emu._buf_lock:
-            log = emu._decode(bytes(emu._buf))
-    finally:
-        emu.kill()
+        for text in out.strip().splitlines():
+            print(f"        {text}")
 
-    # The build ran unattended, so scan its whole transcript for fatal (-F-)
-    # or error (-E-, e.g. MACRO "Errors detected") diagnostics.
-    diag = re.search(r"\?[A-Z]{2,5}-[FE]-[^\r\n]*", log)
-    if diag:
-        raise RT11CommandError("build (STARTS.COM)", diag.group(0).strip(), log)
-
-    # Outputs are already host files in work/ — the guest materialized them
-    # (under lowercased names).  Pick them up case-insensitively.
-    print(f"[5/5] collect {plan.outputs}")
+    # Outputs are host files the programs wrote in the work folder (under
+    # lowercased names).  Pick them up case-insensitively.
+    print(f"[4/4] collect {plan.outputs}")
     byLower = {p.name.lower(): p for p in work.iterdir() if p.is_file()}
     missing = []
     for out in plan.outputs:
