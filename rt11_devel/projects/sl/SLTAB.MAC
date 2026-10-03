@@ -1,0 +1,166 @@
+	.SBTTL	Tab: the completion overlay's resident part
+;
+; SLTAB.MAC - what Tab keeps in memory.  Included into DEC's SL.MAC by
+; SLTAB.diff, just ahead of the one-time code.
+;
+; Tab's work is not resident: it is the completion overlay (SLOVL.MAC),
+; a part of SL.SYS after DEC's SET overlays, read when Tab is pressed into
+; the free memory just under KMON - 16 blocks under the USR ([RMON+266]),
+; above the image of the last program run (its top in word 50) - and left
+; there: the next Tab finds it by its address and the sum of its code, and
+; reads it again only when something has been there since.  Nobody owns
+; that memory while KMON reads a line; the next program just overwrites it.
+;
+; Here are the key's routine, the reader of the overlay, and the routines
+; of DEC's editor the overlay calls, under the registers it calls them
+; with: R5 -> the impure area, as everywhere in the editor.
+
+	.DSABL	LSB		; DEC's block of local symbols ends here
+
+TBLAST	= Filler		; the impure area's spare byte: the key before
+				; this one was Tab (Parse shifts it out)
+
+; TABK: Tab.  In a program's line it is DEC's - a space.  In KMON's: right
+; after a Tab only a beep; else the overlay does it.
+TABK:	MOV	@#JRMon,R0
+	TST	KMonIn(R0)
+	BNE	1$
+	JMP	TABSPC
+1$:	MOVB	TBLAST(R5),R0
+	MOVB	#100,TBLAST(R5)		; for the next key, whatever this Tab does
+	TSTB	R0
+	BNE	T.BELL
+	CALL	OVGET
+	BCS	T.BELL
+	MOV	PC,R4			; the overlay wants SL's LQE
+	ADD	#SLLQE-.,R4
+	CALL	(R0)
+	BR	T.CUR			; R3 as the editor keeps it
+
+; The editor's routines for the overlay.  T.INS: the character in R0 goes
+; into the line at the cursor.  T.BELL, T.PUTC (R0), T.CRLF: the screen.
+; T.RESH: the prompt and the line again.
+T.INS:	BIC	#^C377,R0
+	MOV	R0,Temp(R5)		; a string of one
+	CALL	T.CUR
+	MOV	R5,R0
+	ADD	#Temp,R0
+	JMP	Insert
+
+T.BELL:	MOV	#BEL,R0
+T.PUTC:	JMP	V.R0
+
+T.CRLF:	JMP	V.NL
+
+T.RESH:	CALL	T.CUR
+	JMP	Refrsh
+
+T.CUR:	MOV	Buffer(R5),R3
+	ADD	(R5),R3
+	RETURN
+
+; OVGET: R0 -> the overlay in memory.  C set: no room, or no read.
+OVGET:	MOV	@#JRMon,R0
+	MOV	266(R0),R2
+	SUB	#20000+OVMEM,R2		; its place, under KMON
+	MOV	@#50,R0			; above the job's image
+	CMP	R0,#1000
+	BHIS	1$
+	MOV	#1000,R0
+1$:	CMP	R2,R0
+	BLOS	8$
+	CMP	R2,OVADR
+	BNE	2$
+	CALL	OVSUM
+	CMP	R0,OVCHK
+	BEQ	7$			; there, and whole
+2$:	CALL	OVREAD
+	BCS	8$
+	MOV	R2,OVADR
+	CALL	OVSUM
+	MOV	R0,OVCHK
+7$:	MOV	R2,R0
+	CLC
+	RETURN
+8$:	CLR	OVADR
+	SEC
+	RETURN
+
+; OVSUM: R0 = the sum of the overlay's code at R2.
+OVSUM:	MOV	R2,R1
+	MOV	#OVSUMW,R3
+	CLR	R0
+1$:	ADD	(R1)+,R0
+	SOB	R3,1$
+	RETURN
+
+; OVREAD: the overlay from SL.SYS into R2.  SL.SYS's block 1 on SY: is
+; SL's $DVREC word: RMON+[RMON+404] -> $PNAME, then $ENTRY (the slot
+; whose word is SL's LQE), a 177777, $STAT, $DVREC - one word a slot
+; each.  C set on an error.
+OVREAD:	MOV	@#JRMon,R0
+	MOV	R0,R3
+	ADD	404(R0),R3		; -> $PNAME
+	MOV	R3,R1
+	CLR	R4
+1$:	CMP	(R1)+,#177777		; $PNAME and $ENTRY: two words a slot
+	BEQ	2$
+	INC	R4
+	CMP	R4,#100
+	BLO	1$
+	BR	9$
+2$:	ASR	R4			; the slots
+	BEQ	9$
+	MOV	R4,R1
+	ASL	R1
+	ADD	R1,R3			; -> $ENTRY
+	ASL	R1			; 4 * the slots
+	MOV	PC,R0
+	ADD	#SLLQE-.,R0
+3$:	CMP	(R3)+,R0
+	BEQ	4$
+	SOB	R4,3$
+	BR	9$
+4$:	ADD	R1,R3			; -> our $DVREC word
+	MOV	(R3),R1
+	BEQ	9$
+	ADD	#<OVL/Blk>-1,R1		; the overlay's block on SY:
+	CLR	-(SP)
+	MOV	PC,R0
+	ADD	#OVSYDB-.,R0
+	MOV	R0,-(SP)
+	MOV	#<1*400+0>,-(SP)	; .LOOKUP channel 0: SY: whole
+	MOV	SP,R0
+	EMT	375
+	MOV	(SP)+,R0		; (MOV keeps C)
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	BCS	9$
+	CLR	-(SP)			; .READW: wait
+	MOV	#OVBLKS*400,-(SP)
+	MOV	R2,-(SP)
+	MOV	R1,-(SP)
+	MOV	#<10*400+0>,-(SP)
+	MOV	SP,R0
+	EMT	375
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	BCS	8$
+	CALL	PURGE0
+	CLC
+	RETURN
+8$:	CALL	PURGE0
+9$:	SEC
+	RETURN
+
+PURGE0:	MOV	#<3*400+0>,R0		; .PURGE channel 0
+	EMT	374
+	RETURN
+
+OVADR:	.WORD	0			; -> the overlay, where OVGET put it
+OVCHK:	.WORD	0			; the sum of its code then
+OVSYDB:	.RAD50	/SY /			; SY: whole, for OVREAD
+	.WORD	0,0,0

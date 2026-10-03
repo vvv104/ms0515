@@ -5,3 +5,4 @@
 add_subdirectory(projects/fist/tests)
 add_subdirectory(projects/manicm/tests)
 add_subdirectory(projects/rt11/handlers/sl/tests)
+add_subdirectory(projects/sl/tests)

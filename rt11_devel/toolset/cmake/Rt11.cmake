@@ -103,26 +103,33 @@ function(rt11_stage variable)
     set(${variable} "${staged}" PARENT_SCOPE)
 endfunction()
 
-# rt11_patched(<variable> SOURCE <file> PATCH <diff>)
+# rt11_patched(<variable> SOURCE <file> PATCH <diff>...)
 #
-# A file of DEC's with the project's patch on it, in the work folder under
-# its own name, made again whenever either changes.  DEC's file stays as it
-# is, outside the repository; what the machine changes in it is the patch,
-# a unified diff (`--- a/SL.MAC`, `+++ b/SL.MAC`) that says why at its head.
-# <variable> receives the patched copy, for the DEPENDS of what reads it.
+# A file of DEC's with the project's patches on it, in the work folder under
+# its own name, made again whenever any of them changes.  DEC's file stays
+# as it is, outside the repository; what the machine changes in it is a
+# patch, a unified diff (`--- a/SL.MAC`, `+++ b/SL.MAC`) that says why at
+# its head.  Several are applied in the order given, each to what the one
+# before it left.  <variable> receives the patched copy, for the DEPENDS of
+# what reads it.
 function(rt11_patched variable)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "SOURCE;PATCH" "")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "SOURCE" "PATCH")
     find_package(Git REQUIRED)
-    get_filename_component(diff "${arg_PATCH}" ABSOLUTE
-                           BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    set(diffs "")
+    foreach(diff IN LISTS arg_PATCH)
+        get_filename_component(diff "${diff}" ABSOLUTE
+                               BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+        list(APPEND diffs "${diff}")
+    endforeach()
+    string(REPLACE ";" "|" joined "${diffs}")
     get_filename_component(name "${arg_SOURCE}" NAME)
     add_custom_command(
         OUTPUT  "${RT11_WORK}/${name}"
         COMMAND ${CMAKE_COMMAND}
                 "-DGIT=${GIT_EXECUTABLE}" "-DSOURCE=${arg_SOURCE}"
-                "-DDIFF=${diff}" "-DOUTPUT=${RT11_WORK}/${name}"
+                "-DDIFFS=${joined}" "-DOUTPUT=${RT11_WORK}/${name}"
                 -P "${RT11_PATCH_SCRIPT}"
-        DEPENDS "${arg_SOURCE}" "${diff}" "${RT11_PATCH_SCRIPT}"
+        DEPENDS "${arg_SOURCE}" ${diffs} "${RT11_PATCH_SCRIPT}"
         COMMENT "Patching ${name}"
         VERBATIM)
     set(${variable} "${RT11_WORK}/${name}" PARENT_SCOPE)

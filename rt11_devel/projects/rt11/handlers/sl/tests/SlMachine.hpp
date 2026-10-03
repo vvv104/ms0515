@@ -93,6 +93,8 @@ public:
     SlMachine(const SlMachine &)            = delete;
     SlMachine &operator=(const SlMachine &) = delete;
 
+    uint16_t word(uint16_t a) { return emu.readWord(a); }
+
     /* Frames until the screen has not changed for `quiet` frames. */
     void settle(int cap = 300, int quiet = 20)
     {
@@ -148,6 +150,7 @@ public:
             tap(s.key, s.shift);
         }
         if (!text.empty() && text.back() == '\r') waitPrompt();
+        else if (text.find('\t') != std::string::npos) settle(1500, 150);   /* a Tab may read the disk: long and silent */
         else settle();
     }
     /* Ctrl + a letter. */
@@ -233,6 +236,7 @@ inline KeyStroke strokeFor(char c)
     switch (c) {
     case ' ':  return {K::Space, false};
     case '\r': return {K::Return, false};
+    case '\t': return {K::Tab, false};
     case '.':  return {K::Period, false};
     case ',':  return {K::Comma, false};
     case '/':  return {K::Slash, false};
