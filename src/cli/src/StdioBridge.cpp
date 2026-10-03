@@ -11,6 +11,7 @@
 
 #include "HostKey.hpp"
 
+#include <ms0515/KeyboardLayout.hpp>
 #include <ms0515/Koi8.hpp>
 #include <ms0515/Typist.hpp>
 
@@ -69,6 +70,9 @@ ms0515::Key specialToKey(files::SpecialKey s)
 void enqueueGuest(const files::HostKey &k)
 {
     if (k.isByte()) { g_typist.type(k.byte); return; }
+    /* Shift with an F-key is one of the keys a PC has no cap for: the
+     * PF keys, Help, Perform, F13..F20 (shiftedFunctionKey). */
+    if (k.shift) { g_typist.type(ms0515::shiftedFunctionKey(files::functionNumber(k.special))); return; }
     g_typist.type(specialToKey(k.special));
 }
 
@@ -83,7 +87,11 @@ void dispatch(const files::HostKey &k)
         cli::requestQuit();
         return;
     }
-    if (g_sink && g_sink(k)) return;
+    /* The commander's F-keys are the same with Shift as without, as they
+     * were before Shift was told; only the machine reads it. */
+    files::HostKey plain = k;
+    plain.shift = false;
+    if (g_sink && g_sink(plain)) return;
     enqueueGuest(k);
 }
 

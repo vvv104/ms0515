@@ -171,7 +171,8 @@ ms0515::Key sdlToMs7004(SDL_Scancode phys, bool rusMode)
 
     /* PF keys (top of numpad on modern keyboards).
      * KP_DIVIDE, KP_MULTIPLY, KP_PLUS are handled in main.cpp as
-     * symbol keys (/, *, +); PF2-4 are OSK-only. */
+     * symbol keys (/, *, +).  PF2-4 are the right Shift with F2-F4
+     * (PhysicalKeyboard.cpp). */
     case SDL_SCANCODE_NUMLOCKCLEAR: return ms0515::Key::Pf1;
 
     /* Numpad */

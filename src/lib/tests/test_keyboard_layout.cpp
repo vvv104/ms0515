@@ -161,4 +161,23 @@ TEST_CASE("isShiftImmuneSymbol: only the four ЛАТ symbol-on-letter caps")
     CHECK_FALSE(ms0515::isShiftImmuneSymbol(Key::Digit1, /*rusMode=*/false));
 }
 
+TEST_CASE("shiftedFunctionKey: the host's Shift+F-keys are the keys a PC has no cap for")
+{
+    using ms0515::Key;
+    using ms0515::shiftedFunctionKey;
+    /* The machine's key is ten further on: PF1..PF4 sit where F11..F14
+     * would, Help and Perform are its F15 and F16, then F17..F20. */
+    CHECK(shiftedFunctionKey(1) == Key::Pf1);
+    CHECK(shiftedFunctionKey(4) == Key::Pf4);
+    CHECK(shiftedFunctionKey(5) == Key::Help);
+    CHECK(shiftedFunctionKey(6) == Key::Perform);
+    CHECK(shiftedFunctionKey(7) == Key::F17);
+    CHECK(shiftedFunctionKey(10) == Key::F20);
+    /* The two left over, on the host's last two. */
+    CHECK(shiftedFunctionKey(11) == Key::F13);
+    CHECK(shiftedFunctionKey(12) == Key::F14);
+    CHECK(shiftedFunctionKey(0) == Key::None);
+    CHECK(shiftedFunctionKey(13) == Key::None);
+}
+
 } /* TEST_SUITE */

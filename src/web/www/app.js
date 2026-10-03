@@ -13,7 +13,7 @@
 // "@STAMP@" is the build time (stamp.cmake fills it in dist/): a browser
 // never pairs a cached module with a newer page.
 import createMs0515 from "./ms0515.js?v=@STAMP@";
-import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey } from "./keys.js?v=@STAMP@";
+import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey, shiftedFunctionKey } from "./keys.js?v=@STAMP@";
 import { Joystick } from "./joystick.js?v=@STAMP@";
 import { SoftKeyboard, isTouchDevice } from "./softkeys.js?v=@STAMP@";
 import { Commander } from "./fm.js?v=@STAMP@";
@@ -933,6 +933,17 @@ const keyboard = {
     if (rus && !hostShift && code === "Backslash") { this.tap(["RusLat", "Backslash", "RusLat"]); return; }
     if (rus && hostShift && code === "Minus") { this.tap(["RusLat", "Underscore", "RusLat"]); return; }
 
+    // The right Shift with an F-key is a key a PC has no cap for; the machine
+    // does not see that Shift under it.  The left Shift stays the machine's.
+    const fn = this.held.has("ShiftRight") ? shiftedFunctionKey(code) : null;
+    if (fn) {
+      if (shiftR) api.key(h, K("ShiftR"), 0);
+      api.key(h, K(fn), 1);
+      this.held.set(code, K(fn));
+      this.overrides.set(code, { added: false, removedL: false, removedR: shiftR });
+      return;
+    }
+
     const { key, withShift } = mapKey(code, hostShift, rus);
     if (!key) return;
     this.held.set(code, K(key));
@@ -1116,7 +1127,9 @@ function bindControls() {
   // Full screen: the button, F11; hidden where the API is not there (an iPhone).
   $("fullscreen").hidden = !(document.fullscreenEnabled || document.webkitFullscreenEnabled);
   $("fullscreen").onclick = toggleFullscreen;
-  document.addEventListener("keydown", (e) => { if (e.key === "F11") { e.preventDefault(); toggleFullscreen(); } });
+  document.addEventListener("keydown", (e) => {     // (the right Shift's F11 is the machine's F13)
+    if (e.key === "F11" && !keyboard.held.has("ShiftRight")) { e.preventDefault(); toggleFullscreen(); }
+  });
   document.addEventListener("fullscreenchange", fit);
   document.addEventListener("webkitfullscreenchange", fit);
   // The OS's on-screen keyboard on a touch device; the page shrinks to what
