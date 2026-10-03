@@ -1,0 +1,57 @@
+	.SBTTL	The editing keys, and the help
+;
+; SLKEY.MAC - the keys a VT52 has not, and PF2.  Included into DEC's SL.MAC
+; by SLKEY.diff after SLHIS.MAC.
+;
+; The six keys over the arrows of the MS 7004 - Find, Insert, Remove,
+; Select, Prev, Next: Home, Insert, Delete, End, PgUp and PgDn of a PC -
+; come from the ROM as CSI n ~, n a digit from 1 to 6, and from the
+; monitor, which keeps seven bits, as ESC n ~; ESC [ n ~ is the same in
+; seven bits from the start.  Three of them get a meaning here, the others
+; are taken and dropped.
+;
+; PF2 with no error to tell of shows the keys.  The text is in the overlay
+; (SLOVL.MAC), so it is KMON's line only; in a program's line PF2 is DEC's
+; line pointing at the manual.
+
+	.DSABL	LSB
+
+; KEYESC: an ESC sequence DEC's parsing does not know, its first character
+; in R0.  Find goes to the start of the line, Select to its end, Remove
+; deletes the character under the cursor.
+KEYESC:	CMPB	R0,#'[
+	BNE	1$
+	CALL	@InTty(R5)		; the digit after the bracket
+1$:	SUB	#'1,R0
+	CMP	R0,#5
+	BLOS	2$
+	JMP	EscErr			; DEC's "Invalid key"
+2$:	MOV	R0,-(SP)
+	CALL	@InTty(R5)		; the sequence's ~
+	MOV	(SP)+,R0
+	BNE	3$
+	JMP	BOL			; 1: Find
+3$:	SUB	#2,R0
+	BNE	4$
+	TSTB	(R3)			; 3: Remove - but not past the end
+	BEQ	9$
+	INC	R0			; one character,
+	CLR	R2			; kept as DEC keeps a deleted one
+	JMP	DoDCh
+4$:	DEC	R0
+	BNE	9$
+	JMP	EOL1			; 4: Select
+9$:	RETURN
+
+; KEYHLP: PF2, the error's code in R0 and Z as DEC's MOVB of it left it.
+; An error is DEC's to tell, and so is a program's line; in KMON's line the
+; overlay prints the keys.
+KEYHLP:	BNE	1$
+	TST	@AKMonIn
+	BEQ	1$
+	CALL	OVGET
+	BCS	2$
+	ADD	#OVHLP-OVL,R0
+	CALL	TABOVL
+2$:	JMP	HelpKy			; DEC waits for a key and shows the line
+1$:	JMP	HelpEr

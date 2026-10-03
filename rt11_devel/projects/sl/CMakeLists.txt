@@ -29,12 +29,13 @@ rt11_stage(SOURCES
     SLOPT.MAC
     SLTAB.MAC
     SLHIS.MAC
+    SLKEY.MAC
     SLOVL.MAC)
 
 # DEC's source: first what the console needs, then Tab's hooks, then the
-# history's.
+# history's, then the keys'.
 rt11_patched(SL_MAC SOURCE "${MS0515_RT11_SOURCES}/SL.MAC"
-             PATCH ${DEC_SL}/SL.diff SLTAB.diff SLHIS.diff)
+             PATCH ${DEC_SL}/SL.diff SLTAB.diff SLHIS.diff SLKEY.diff)
 
 rt11_macro(OBJECT SL LISTING SL SOURCES SYCDEC SLCND SLOPT SL
            DEPENDS ${TOOLS} ${SOURCES} ${SL_MAC})

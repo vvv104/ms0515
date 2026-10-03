@@ -1,7 +1,13 @@
-	.SBTTL	SLOPT - SL's options for a single-job monitor
+	.SBTTL	SLOPT - SL's options for the MS 0515's monitors
 
 ; DEC's SL keeps a table of impure areas, one a job, eight by default.  The
 ; monitors of the MS 0515 are single-job ones: one entry, and sixteen bytes
 ; of the resident handler back.
 
 Job$	= 1
+
+; DEC's picture of a VT52's keypad, which PF2 draws, is half a block of the
+; resident handler.  Without it PF2 is a line pointing at the manual - and
+; here the keys' own text, kept in the overlay (SLKEY.MAC, SLOVL.MAC).
+
+HelpB$	= 0

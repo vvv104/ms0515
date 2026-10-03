@@ -53,6 +53,7 @@ add_executable(sltab_tests
     test_overlay.cpp
     test_complete.cpp
     test_history.cpp
+    test_keys.cpp
     test_switches.cpp
     test_files.cpp
     test_subcommands.cpp

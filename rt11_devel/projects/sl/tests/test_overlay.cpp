@@ -9,10 +9,10 @@
 
 namespace {
 
-/* The overlay's first two instructions: MOV PC,R1 and ADD #...,R1. */
+/* The overlay's first two instructions: CALL OVINI and CLR QKMAP. */
 bool overlayAt(sl::SlMachine &m, uint16_t address)
 {
-    return m.word(address) == 010701 && m.word(static_cast<uint16_t>(address + 2)) == 062701;
+    return m.word(address) == 004767 && m.word(static_cast<uint16_t>(address + 4)) == 005067;
 }
 
 /* Where it is, looked for under KMON; 0 when it is not in memory. */
