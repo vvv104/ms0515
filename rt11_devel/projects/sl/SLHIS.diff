@@ -1,0 +1,92 @@
+# The history is a ring: the hooks in DEC's SL
+#
+# Applied after SLTAB.diff.  DEC keeps the previous line and the one before
+# it in two buffers; SLHIS.MAC keeps as many lines as fit in the same
+# memory.  The changes: SavOld puts the line into the ring; Up and Down walk
+# it (Down on a line the history was not walked from stays DEC's: the saved
+# line); GOLD Up, which was the second buffer, is Up; the word that pointed
+# at the second buffer is where Up and Down stand, cleared when a line's
+# editing starts; the ring starts empty.
+
+--- a/SL.MAC
++++ b/SL.MAC
+@@ -2490,6 +2490,7 @@
+ $Rel	.-4	dVT100	SLR
+ .EndC	;NE	VTxxx$
+ 	ClrB	Filler(R5)		; MS 0515: no Tab yet (SLTAB.MAC)
++	ClrB	@OldBuf(R5)		; MS 0515: and an empty ring (SLHIS.MAC)
+ ;;;	ClrB	ProLen(R5)		; assume no prompt
+ 	Br	RestoR			; and done
+ 	..............
+@@ -2536,6 +2537,7 @@
+ 	Jsr	R5,@#SaveR		; save R5-R0 on stack
+ $Rel	.-2	SaveR	SLR
+ 	Mov	R0,R5			; copy impure area pointer
++	Clr	OldrBf(R5)		; MS 0515: Up starts from this line (SLHIS.MAC)
+ 	Mov	Buffer(R5),R3		; copy buffer address to register
+ 	Add	CurOfs(R5),R3		; make bufptr (R3) and CurOfs track
+ 	Mov	@#JSW,OJSW(R5)		; save old JSW
+@@ -3091,6 +3093,8 @@
+ ;	Current line is destroyed ...
+ ;-
+ Down:
++	Jmp	HisDn			; MS 0515: the ring's next newer line (SLHIS.MAC)
++DownSv:
+ 	Mov	SavBuf(R5),R1		; point to save bufer
+ 	Br	UpDown			; join common code
+ 	..............
+@@ -3104,9 +3108,7 @@
+ ;-
+ .Enable	LSB
+ Up:
+-	Mov	OldBuf(R5),R1		; point to previous line
+-	TstB	@R1			; is there one?
+-	Boff	OldErr			; no, then an error
++	Jmp	HisUp			; MS 0515: the ring's next older line (SLHIS.MAC)
+ UpDown:					; common code
+ 	Call	B.BOL			; set buffer pointer and cursor to BOL
+ 	Mov	R3,R0			; point to dest for MovS
+@@ -3123,11 +3125,7 @@
+ ;
+ ;	GOLD UP ARROW is previous previous command
+ ;-
+-Top:
+-	Mov	OldrBf(R5),R1		; point to previous line
+-	TstB	@R1			; is there one?
+-	Boff	OldErr			; no, then an error
+-	Br	UpDown
++					; MS 0515: no second buffer, Up goes on
+ 
+ .SbTtl	LOOK -- unsupported
+ ;+
+@@ -3452,12 +3450,7 @@
+ ;-
+ .Enable	LSB
+ SavOld:
+-	TstB	@Buffer(R5)		; anything to save?
+-	Boff	20$			; no
+-	Mov	OldRBf(R5),R0		; point to previous previous line
+-	Mov	OldBuf(R5),R1		; point to previous line
+-	Call	SavYYY			; savit (if non-empty)
+-	Mov	OldBuf(R5),R0		; point to previous line
++	Jmp	HisAdd			; MS 0515: into the ring (SLHIS.MAC)
+ SavXXX:
+ 	Mov	Buffer(R5),R1		; point to current buffer
+ SavYYY:
+@@ -4193,7 +4186,7 @@
+ .EndC;	NE	VT100$!VT102$
+ 
+ AroTab:
+-	GenDef	Up	Top
++	GenDef	Up	Up		; MS 0515: GOLD Up is Up
+ 	GenDef	Down	Bottom
+ 	GenDef	Right	EOL
+ 	GenDef	Left	BOL
+@@ -4569,6 +4562,7 @@
+ ;*****************************************************************************
+ .EndC;	NE	MMg$t
+ .Include	/SLTAB.MAC/		; MS 0515: Tab's resident part
++.Include	/SLHIS.MAC/		; MS 0515: the history's ring
+ .SbTtl	Initialization, one-time code
+ .SbTtl	** in IMPURE AREA BUFFER **
+ .Enable	LSB

@@ -20,20 +20,23 @@ rt11_dec_sources()
 
 rt11_tools(TOOLS MACRO.SAV LINK.SAV SYSMAC.SML SYSLIB.OBJ)
 
-# The dec monitor's conditionals, SL's own for the console, and our two
-# sources, which the patched SL.MAC includes.
+# The dec monitor's conditionals, SL's own for the console and for a single
+# job, and our sources, which the patched SL.MAC includes.
 set(DEC_SL ../rt11/handlers/sl)
 rt11_stage(SOURCES
     ../rt11/monitor/SYCDEC.MAC
     ${DEC_SL}/SLCND.MAC
+    SLOPT.MAC
     SLTAB.MAC
+    SLHIS.MAC
     SLOVL.MAC)
 
-# DEC's source: first what the console needs, then Tab's hooks.
+# DEC's source: first what the console needs, then Tab's hooks, then the
+# history's.
 rt11_patched(SL_MAC SOURCE "${MS0515_RT11_SOURCES}/SL.MAC"
-             PATCH ${DEC_SL}/SL.diff SLTAB.diff)
+             PATCH ${DEC_SL}/SL.diff SLTAB.diff SLHIS.diff)
 
-rt11_macro(OBJECT SL LISTING SL SOURCES SYCDEC SLCND SL
+rt11_macro(OBJECT SL LISTING SL SOURCES SYCDEC SLCND SLOPT SL
            DEPENDS ${TOOLS} ${SOURCES} ${SL_MAC})
 
 # DEC's SL.COM: no bitmap (/X), a wide map (/W), and the section SETOVR on

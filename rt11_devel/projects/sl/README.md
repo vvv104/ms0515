@@ -1,18 +1,21 @@
-# SL.SYS with Tab — DEC's single-line editor, and completion
+# SL.SYS with Tab and a history — DEC's single-line editor, and ours
 
 DEC's `SL` as [`../rt11/handlers/sl`](../rt11/handlers/sl/README.md) builds
-it for the machine's console — its logic and keys untouched — with one key
-given a meaning of our own: **Tab completes the word** in the monitor's
-command line.
+it for the machine's console, with two things of our own: **Tab completes
+the word** in the monitor's command line, and **the history is a ring** of
+as many lines as fit where DEC kept two.  The rest is DEC's, keys and all.
 
 | | on disk | in memory |
 |---|---|---|
 | DEC's SL | 13 blocks | 3624 bytes |
-| with Tab | 21 blocks | 3984 bytes |
+| this one | 21 blocks | 4090 bytes |
 
 The eight blocks are the completion overlay, read from SL.SYS when Tab is
-pressed into memory nobody is using at that moment; the 360 bytes are what
-reads it and hands it DEC's own routines.
+pressed into memory nobody is using at that moment.  The 466 bytes are what
+reads it and hands it DEC's own routines, and the ring's code; the ring
+itself is DEC's two buffers.  The resident part is kept under 4096 bytes:
+past that the handler takes a ninth block of memory and SL.SYS a
+twenty-second on disk.
 
 ## Tab
 
@@ -36,9 +39,27 @@ key.  Every list is the running monitor's, read at the moment Tab is
 pressed.  Only at the end of the line, and only in KMON's own line: in a
 program's line Tab is what DEC made it, a space.
 
+## The history
+
+DEC keeps the previous line (Up) and the one before it (GOLD Up), a buffer
+of 80 bytes each.  Here the same 160 bytes are one ring: the lines run,
+each with a zero after it, so a dozen short commands fit; the oldest go
+when a new one does not.  An empty line is not kept, nor a line run twice
+in a row.
+
+* **Up** gets the next older line, and only beeps past the oldest; **GOLD
+  Up** is Up.
+* **Down** gets the next newer one; under the newest is an empty line - the
+  line as it was before the first Up is not kept.
+* On a line the history was not walked from, Down is DEC's: the line saved
+  with GOLD Down.
+
+That is the one place this SL parts from DEC's logic, and DEC's own test of
+GOLD Up (`sl_tests`) does not pass on it.
+
 ## How it is made
 
-Three files over DEC's `SL.MAC`, which stays outside the repository:
+Our files over DEC's `SL.MAC`, which stays outside the repository:
 
 * **`SLTAB.diff`** — the hooks, applied after the console patch of
   `../rt11/handlers/sl`: DEC's Tab routine jumps to ours; the impure area's
@@ -57,6 +78,12 @@ Three files over DEC's `SL.MAC`, which stays outside the repository:
   the overlay by its address and the sum of its code, and reads it again
   only when it is gone.  Its variables follow it in memory, not in the
   file.
+
+* **`SLHIS.diff`** and **`SLHIS.MAC`** — the ring: DEC's `SavOld`, `Up` and
+  `Down` jump to ours, GOLD Up's routine is gone, the word that pointed at
+  the second buffer says where Up and Down stand.
+* **`SLOPT.MAC`** — `Job$ = 1`: DEC's table of impure areas, eight jobs by
+  default, for the one job a single-job monitor has.
 
 What the overlay reads, all of it the running monitor's:
 
@@ -96,7 +123,8 @@ sources named by `$MS0515_RT11_SOURCES`.  `SL.SYS` comes out in
 `tests/` is its harness in the emulator's test build (`sltab_tests`), on
 the machine of DEC's SL's tests — the dec system composed from the software
 collection — with this build on it: the commands, the switches, SET and
-SHOW, the files, the overlay's place in memory, a program's line.  It tests
+SHOW, the files, the overlay's place in memory, a program's line, the
+ring.  It tests
 `build/work/sl.sys`; another build is named: `sltab_tests --sl-sys=<file>`.
 DEC's own keys are tested on the same file by
 `sl_tests --sl-sys=<file>`.

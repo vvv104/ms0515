@@ -52,6 +52,7 @@ add_executable(sltab_tests
     ../../rt11/handlers/sl/tests/test_main.cpp
     test_overlay.cpp
     test_complete.cpp
+    test_history.cpp
     test_switches.cpp
     test_files.cpp
     test_subcommands.cpp

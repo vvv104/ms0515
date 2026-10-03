@@ -22,8 +22,7 @@ TBLAST	= Filler		; the impure area's spare byte: the key before
 
 ; TABK: Tab.  In a program's line it is DEC's - a space.  In KMON's: right
 ; after a Tab only a beep; else the overlay does it.
-TABK:	MOV	@#JRMon,R0
-	TST	KMonIn(R0)
+TABK:	TST	@AKMonIn		; DEC's own pointer at KMON's flag
 	BNE	1$
 	JMP	TABSPC
 1$:	MOVB	TBLAST(R5),R0
@@ -63,11 +62,7 @@ T.CUR:	MOV	Buffer(R5),R3
 OVGET:	MOV	@#JRMon,R0
 	MOV	266(R0),R2
 	SUB	#20000+OVMEM,R2		; its place, under KMON
-	MOV	@#50,R0			; above the job's image
-	CMP	R0,#1000
-	BHIS	1$
-	MOV	#1000,R0
-1$:	CMP	R2,R0
+	CMP	R2,@#50			; above the job's image
 	BLOS	8$
 	CMP	R2,OVADR
 	BNE	2$
@@ -103,14 +98,10 @@ OVREAD:	MOV	@#JRMon,R0
 	ADD	404(R0),R3		; -> $PNAME
 	MOV	R3,R1
 	CLR	R4
-1$:	CMP	(R1)+,#177777		; $PNAME and $ENTRY: two words a slot
-	BEQ	2$
-	INC	R4
-	CMP	R4,#100
-	BLO	1$
-	BR	9$
-2$:	ASR	R4			; the slots
-	BEQ	9$
+1$:	INC	R4			; $PNAME and $ENTRY: two words a slot
+	CMP	(R1)+,#177777
+	BNE	1$
+	ASR	R4			; the slots
 	MOV	R4,R1
 	ASL	R1
 	ADD	R1,R3			; -> $ENTRY

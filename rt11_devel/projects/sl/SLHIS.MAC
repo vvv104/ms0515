@@ -1,0 +1,96 @@
+	.SBTTL	The history: a ring in DEC's two buffers
+;
+; SLHIS.MAC - the lines SL keeps.  Included into DEC's SL.MAC by SLHIS.diff
+; after SLTAB.MAC.
+;
+; DEC keeps the previous line and the one before it, a buffer of a line's
+; length each.  The same memory - from OldBuf to DelBuf - is taken here as
+; one ring: the lines run, the newest first, each ended by a zero, and an
+; empty one after the oldest.  A short command takes its length, not a
+; buffer, so the two buffers hold a dozen of them; the oldest go when a
+; new one does not fit.  An empty line is not kept, nor one that is the
+; newest already.
+;
+; Up gets the next older line, Down the next newer; under the newest is the
+; line as it was before the first Up, which is not kept: an empty one.  On
+; a line the history was not walked from, Down is DEC's - the line saved
+; with GOLD Down.  The word DEC points at its second buffer with is where
+; Up and Down stand: 0 the line being typed, 1 the newest line run.
+
+	.DSABL	LSB
+
+HISIX	= OldrBf		; the impure area's word: where Up/Down stand
+
+; HISADD: the line goes to the head of the ring.  R3-R5 kept.
+HISADD:	MOV	Buffer(R5),R1
+	TSTB	(R1)
+	BEQ	9$			; an empty line
+	MOV	OldBuf(R5),R0
+1$:	CMPB	(R1)+,(R0)		; the newest line again?
+	BNE	2$
+	TSTB	(R0)+
+	BNE	1$
+	BR	9$
+2$:	MOV	Buffer(R5),R0
+	CALL	Len
+	INC	R0			; its zero too
+	MOV	DelBuf(R5),R1		; the ring's end
+	MOV	R1,R2
+	SUB	R0,R2
+3$:	CMP	R2,OldBuf(R5)		; the lines move up, the last fall out
+	BLOS	4$
+	MOVB	-(R2),-(R1)
+	BR	3$
+4$:	MOV	Buffer(R5),R1
+	MOV	R2,R0
+	CALL	MovS			; the line, at the head
+	MOV	OldBuf(R5),R1		; a line cut by the ring's end goes
+	MOV	DelBuf(R5),R2
+	CLRB	-(R2)
+6$:	MOV	R1,R0
+	TSTB	(R1)
+	BEQ	9$
+7$:	TSTB	(R1)+
+	BNE	7$
+	CMP	R1,R2
+	BLOS	6$
+	CLRB	(R0)
+9$:	RETURN
+
+; HISUP: Up - the next older line, or DEC's error when there is none.
+HISUP:	MOV	HISIX(R5),R2
+	INC	R2
+	CALL	HISGET
+	BNE	1$
+	JMP	OldErr
+1$:	MOV	R2,HISIX(R5)
+	JMP	UpDown
+
+; HISDN: Down - the next newer line; the line being typed is an empty one;
+; on it, DEC's saved line.
+HISDN:	MOV	HISIX(R5),R2
+	BNE	1$
+	JMP	DOWNSV
+1$:	DEC	R2
+	MOV	R2,HISIX(R5)
+	CALL	HISGET			; (line 0: the empty one after the count)
+	JMP	UpDown
+
+; HISGET: R1 -> line R2 of the ring, 1 the newest (Z clear); none: Z set.
+; For R2 = 0, R1 -> an empty line: the ring's last byte, a zero since the
+; first line went in.
+HISGET:	MOV	R2,R0
+	BEQ	8$
+	MOV	OldBuf(R5),R1
+1$:	TSTB	(R1)
+	BEQ	9$			; the ring's end: none
+	DEC	R0
+	BEQ	7$
+2$:	TSTB	(R1)+
+	BNE	2$
+	BR	1$
+7$:	TSTB	(R1)			; (Z clear: the line is not empty)
+	RETURN
+8$:	MOV	DelBuf(R5),R1
+	DEC	R1
+9$:	RETURN
