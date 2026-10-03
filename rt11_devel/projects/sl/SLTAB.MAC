@@ -14,6 +14,9 @@
 ; Here are the key's routine, the reader of the overlay, and the routines
 ; of DEC's editor the overlay calls, under the registers it calls them
 ; with: R5 -> the impure area, as everywhere in the editor.
+;
+; Every byte here is counted: the resident handler is kept within seven
+; blocks (../README.md).
 
 	.DSABL	LSB		; DEC's block of local symbols ends here
 
@@ -25,35 +28,34 @@ TBLAST	= Filler		; the impure area's spare byte: the key before
 TABK:	TST	@AKMonIn		; DEC's own pointer at KMON's flag
 	BNE	1$
 	JMP	TABSPC
-1$:	MOVB	TBLAST(R5),R0
+1$:	ASLB	TBLAST(R5)		; C: the key before was Tab
 	MOVB	#100,TBLAST(R5)		; for the next key, whatever this Tab does
-	TSTB	R0
-	BNE	T.BELL
+	BCS	T.BELL
 	CALL	OVGET
 	BCS	T.BELL
-	MOV	PC,R4			; the overlay wants SL's LQE
-	ADD	#SLLQE-.,R4
-	CALL	(R0)
-	BR	T.CUR			; R3 as the editor keeps it
+	BR	TABOVL
 
-; The editor's routines for the overlay.  T.INS: the character in R0 goes
-; into the line at the cursor.  T.BELL, T.PUTC (R0), T.CRLF: the screen.
+; The editor's routines for the overlay, beside DEC's own V.R0 (a character
+; to the screen) and V.NL (a new line), which it calls as they are.
+; T.INS: the character in R0 goes into the line at the cursor.  T.BELL.
 ; T.RESH: the prompt and the line again.
-T.INS:	BIC	#^C377,R0
-	MOV	R0,Temp(R5)		; a string of one
+T.INS:	MOV	R0,Temp(R5)		; a string of one
 	CALL	T.CUR
 	MOV	R5,R0
 	ADD	#Temp,R0
 	JMP	Insert
 
 T.BELL:	MOV	#BEL,R0
-T.PUTC:	JMP	V.R0
-
-T.CRLF:	JMP	V.NL
+	JMP	V.R0
 
 T.RESH:	CALL	T.CUR
 	JMP	Refrsh
 
+; TABOVL: the overlay's entry in R0 is called, with SL's LQE in R4; then
+; T.CUR: R3 -> the cursor in the line, as the editor keeps it.
+TABOVL:	MOV	PC,R4
+	ADD	#SLLQE-.,R4
+	CALL	(R0)
 T.CUR:	MOV	Buffer(R5),R3
 	ADD	(R5),R3
 	RETURN
@@ -70,16 +72,15 @@ OVGET:	MOV	@#JRMon,R0
 	CMP	R0,OVCHK
 	BEQ	7$			; there, and whole
 2$:	CALL	OVREAD
-	BCS	8$
+	BCS	9$
 	MOV	R2,OVADR
 	CALL	OVSUM
 	MOV	R0,OVCHK
 7$:	MOV	R2,R0
 	CLC
 	RETURN
-8$:	CLR	OVADR
-	SEC
-	RETURN
+8$:	SEC
+9$:	RETURN
 
 ; OVSUM: R0 = the sum of the overlay's code at R2.
 OVSUM:	MOV	R2,R1
@@ -89,63 +90,27 @@ OVSUM:	MOV	R2,R1
 	SOB	R3,1$
 	RETURN
 
-; OVREAD: the overlay from SL.SYS into R2.  SL.SYS's block 1 on SY: is
-; SL's $DVREC word: RMON+[RMON+404] -> $PNAME, then $ENTRY (the slot
-; whose word is SL's LQE), a 177777, $STAT, $DVREC - one word a slot
-; each.  C set on an error.
-OVREAD:	MOV	@#JRMon,R0
-	MOV	R0,R3
-	ADD	404(R0),R3		; -> $PNAME
-	MOV	R3,R1
-	CLR	R4
-1$:	INC	R4			; $PNAME and $ENTRY: two words a slot
-	CMP	(R1)+,#177777
-	BNE	1$
-	ASR	R4			; the slots
-	MOV	R4,R1
-	ASL	R1
-	ADD	R1,R3			; -> $ENTRY
-	ASL	R1			; 4 * the slots
+; OVREAD: the overlay from SY:SL.SYS - where a handler is - into R2, on
+; channel 0, which KMON's line leaves free.  C set on an error.
+OVREAD:	CLR	-(SP)			; .LOOKUP
 	MOV	PC,R0
-	ADD	#SLLQE-.,R0
-3$:	CMP	(R3)+,R0
-	BEQ	4$
-	SOB	R4,3$
-	BR	9$
-4$:	ADD	R1,R3			; -> our $DVREC word
-	MOV	(R3),R1
-	BEQ	9$
-	ADD	#<OVL/Blk>-1,R1		; the overlay's block on SY:
-	CLR	-(SP)
-	MOV	PC,R0
-	ADD	#OVSYDB-.,R0
+	ADD	#OVFILE-.,R0
 	MOV	R0,-(SP)
-	MOV	#<1*400+0>,-(SP)	; .LOOKUP channel 0: SY: whole
+	MOV	#<1*400+0>,-(SP)
 	MOV	SP,R0
 	EMT	375
 	MOV	(SP)+,R0		; (MOV keeps C)
 	MOV	(SP)+,R0
 	MOV	(SP)+,R0
 	BCS	9$
-	CLR	-(SP)			; .READW: wait
-	MOV	#OVBLKS*400,-(SP)
-	MOV	R2,-(SP)
-	MOV	R1,-(SP)
-	MOV	#<10*400+0>,-(SP)
-	MOV	SP,R0
+	MOV	R2,OVRDB+4		; .READW
+	MOV	PC,R0
+	ADD	#OVRDB-.,R0
 	EMT	375
-	MOV	(SP)+,R0
-	MOV	(SP)+,R0
-	MOV	(SP)+,R0
-	MOV	(SP)+,R0
-	MOV	(SP)+,R0
-	BCS	8$
+	BCC	PURGE0			; (.PURGE leaves C clear)
 	CALL	PURGE0
-	CLC
-	RETURN
-8$:	CALL	PURGE0
-9$:	SEC
-	RETURN
+	SEC
+9$:	RETURN
 
 PURGE0:	MOV	#<3*400+0>,R0		; .PURGE channel 0
 	EMT	374
@@ -153,5 +118,9 @@ PURGE0:	MOV	#<3*400+0>,R0		; .PURGE channel 0
 
 OVADR:	.WORD	0			; -> the overlay, where OVGET put it
 OVCHK:	.WORD	0			; the sum of its code then
-OVSYDB:	.RAD50	/SY /			; SY: whole, for OVREAD
-	.WORD	0,0,0
+OVFILE:	.RAD50	/SY SL    SYS/
+OVRDB:	.WORD	<10*400+0>		; .READW channel 0,
+	.WORD	OVL/Blk			;  the overlay's block of the file,
+	.WORD	0			;  to where OVGET says,
+	.WORD	OVBLKS*400		;  its words,
+	.WORD	0			;  and wait

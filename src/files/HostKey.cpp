@@ -123,9 +123,11 @@ std::vector<HostKey> KeyParser::finishCsi(uint8_t final)
     if (final == '~') key = tildeKey(first);
     else if (!any || first == 1) key = letterKey(final);
     if (key == SpecialKey::none) return giveUp(final);
-    const bool alt = (escAlt_ || ((modifier - 1) & 2) != 0) && functionNumber(key) != 0;
+    const bool function = functionNumber(key) != 0;
+    const bool alt = (escAlt_ || ((modifier - 1) & 2) != 0) && function;
+    const bool shift = ((modifier - 1) & 1) != 0 && function;
     reset();
-    return {HostKey::ofSpecial(key, alt)};
+    return {HostKey::ofSpecial(key, alt, shift)};
 }
 
 /* Not a sequence after all: the bytes as they came, then this one. */

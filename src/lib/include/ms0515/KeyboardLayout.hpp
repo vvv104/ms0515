@@ -95,6 +95,20 @@ private:
  * those caps). */
 [[nodiscard]] bool isShiftImmuneSymbol(Key k, bool rusMode) noexcept;
 
+/* The MS 7004 key a host's F-key stands for while the host's Shift is
+ * held - the keys a PC keyboard has no cap for.  The number is the PC
+ * key's, 1..12; the machine's key is ten further on, as far as that goes:
+ *
+ *   Shift+F1..F4    ПФ1..ПФ4   (PF1..PF4)
+ *   Shift+F5, F6    ПМ, ИСП    (Help, Perform - the machine's F15, F16)
+ *   Shift+F7..F10   Ф17..Ф20
+ *   Shift+F11, F12  Ф13, Ф14   (the two left over, on the two left over)
+ *
+ * Key::None for any other number.  Which Shift it takes is the front
+ * end's: the right one where the host tells them apart, so that the left
+ * stays the machine's own ВР; either in a terminal, which does not. */
+[[nodiscard]] Key shiftedFunctionKey(int number) noexcept;
+
 } /* namespace ms0515 */
 
 #endif /* MS0515_KEYBOARD_LAYOUT_HPP */

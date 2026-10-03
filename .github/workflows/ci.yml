@@ -196,6 +196,10 @@ jobs:
       - name: Diff check (Node)
         run: node src/web/diff_check.mjs
 
+      # The keys a PC has no cap for: the right Shift's F-keys.
+      - name: Keys check (Node)
+        run: node src/web/keys_check.mjs
+
       # The commander's encodings (the viewer, the editor, the guess): KOI-8
       # with ROM-B's pseudographics, Rodionov's, CP866, told by the frames.
       - name: Encoding check (Node)
