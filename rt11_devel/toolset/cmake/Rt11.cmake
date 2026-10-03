@@ -34,6 +34,7 @@ include_guard(GLOBAL)
 
 get_filename_component(RT11_REPOSITORY "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 set(RT11_RUN_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/Rt11Run.cmake")
+set(RT11_PATCH_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/Rt11Patch.cmake")
 
 find_program(MS0515_RUN NAMES ms0515-run
     HINTS "$ENV{MS0515_PACKAGE}" "${RT11_REPOSITORY}/package"
@@ -100,6 +101,31 @@ function(rt11_stage variable)
         list(APPEND staged "${RT11_WORK}/${name}")
     endforeach()
     set(${variable} "${staged}" PARENT_SCOPE)
+endfunction()
+
+# rt11_patched(<variable> SOURCE <file> PATCH <diff>)
+#
+# A file of DEC's with the project's patch on it, in the work folder under
+# its own name, made again whenever either changes.  DEC's file stays as it
+# is, outside the repository; what the machine changes in it is the patch,
+# a unified diff (`--- a/SL.MAC`, `+++ b/SL.MAC`) that says why at its head.
+# <variable> receives the patched copy, for the DEPENDS of what reads it.
+function(rt11_patched variable)
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "SOURCE;PATCH" "")
+    find_package(Git REQUIRED)
+    get_filename_component(diff "${arg_PATCH}" ABSOLUTE
+                           BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    get_filename_component(name "${arg_SOURCE}" NAME)
+    add_custom_command(
+        OUTPUT  "${RT11_WORK}/${name}"
+        COMMAND ${CMAKE_COMMAND}
+                "-DGIT=${GIT_EXECUTABLE}" "-DSOURCE=${arg_SOURCE}"
+                "-DDIFF=${diff}" "-DOUTPUT=${RT11_WORK}/${name}"
+                -P "${RT11_PATCH_SCRIPT}"
+        DEPENDS "${arg_SOURCE}" "${diff}" "${RT11_PATCH_SCRIPT}"
+        COMMENT "Patching ${name}"
+        VERBATIM)
+    set(${variable} "${RT11_WORK}/${name}" PARENT_SCOPE)
 endfunction()
 
 # rt11_tools(<variable> <name>... [FOLDERS <folder>...])

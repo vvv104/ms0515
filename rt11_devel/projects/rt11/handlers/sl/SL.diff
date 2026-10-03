@@ -1,0 +1,41 @@
+# SL built for the VT52 alone
+#
+# The console of the MS 0515 is a VT52 (SLCND.MAC), and DEC's SL can be
+# assembled for one terminal type - but SET SL ON was never finished for
+# that case.  It reads the default type, dVT100, a byte only the builds
+# for several types have: LINK leaves the global undefined.  And it tells
+# the terminal to leave ANSI mode with ESC [ ? 2 l, which is for a VT100
+# that may be in it; the machine's console prints "?2l".  Both are put
+# under the conditional of the builds for several types, where they belong.
+# The editor itself is untouched.
+
+--- a/SL.MAC
++++ b/SL.MAC
+@@ -4727,6 +4727,7 @@
+ $Rel	.-2	P1Ext2	SLX
+ .EndC;	EQ	MMg$t
+ 	.Addr	#Set52,R0		; assume it is a VT52
++.If	NE	VTxxx$			; MS 0515: one type, no dVT100
+ 					.Assume VT.52 LT 0
+ 	TstB	dVT100			; what kind of terminal?
+ 	Bmi	125$			; VT52
+@@ -4734,6 +4735,7 @@
+ 	CmpB	#VT.200,dVT100		; is it a VT200?
+ 	Bne	125$			; no
+ 	.Addr	#SetLv1,R0		; set to 7 bit controls
++.EndC;	NE	VTxxx$
+ 125$:	.Print
+ 130$:
+ 	Pop	R0			; restore R0 from JSR R0, ...
+@@ -4745,7 +4747,10 @@
+ .EndC;	NE	MMg$t
+ 	Rts	R2			; start again after initialization
+ 	..........
+-Set52:	.Ascii	<ESC><CSI><DEC><ANM><RM>
++Set52:
++.If	NE	VTxxx$			; MS 0515: a VT52 and nothing else is
++	.Ascii	<ESC><CSI><DEC><ANM><RM>	; not told to be one - it would
++.EndC;	NE	VTxxx$			; print the sequence
+ 	.Ascii	<ESC><OldNoH>
+ 	.Ascii	<NoCrLf>
+ 

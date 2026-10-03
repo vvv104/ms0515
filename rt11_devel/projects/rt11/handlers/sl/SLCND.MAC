@@ -1,0 +1,11 @@
+	.SBTTL	SLCND - SL's conditionals for the MS 0515
+
+; The console of the MS 0515 is the ROM's, and it is a VT52: it obeys BS,
+; CR, ESC A/B/C/D, ESC H, ESC J, ESC K and ESC Y.  It does not know
+; ESC [ - it drops the bracket and prints the rest - and it does not
+; answer when asked what it is.  So SL is built for the VT52 alone: it
+; asks nothing and sends nothing the console would print.
+
+VT52$	= 1
+VT100$	= 0
+VT102$	= 0

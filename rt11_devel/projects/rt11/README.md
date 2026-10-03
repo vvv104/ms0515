@@ -9,6 +9,7 @@ they are built with.
 | [`monitor/`](monitor/README.md) | The monitors: DEC's RT-11 V5.4 sources, a series of patches with what the machine changes in them, the machine's own modules (`OM*.MAC`), and a set of SYSGEN answers per system — ОМЕГА (two), ОСА, Mihin's, Rodionov's, all byte for byte the kits', and `dec`/`dec-ru`, DEC's own RT-11 on this machine. `build_monitor.py`. |
 | [`handlers/dz/`](handlers/dz/DZ.MAC) | The floppy handlers - `DZ`, and `DV` and `MZ` from the same source (a prefix file picks the kind), written for the machine from what the kits' binaries do (`docs/kb/dz_handler.md`): the first `DZ` here with a source, a primary driver of its own, the controller's address where DEC's FORMAT looks for it, and DEC's error logging. `validate.py` is its oracle. |
 | [`handlers/tt/`](handlers/tt/README.md) | The terminal handler: DEC's `TT.MAC` and a patch of six lines, which is ОМЕГА's `TT.SYS` to the byte. |
+| [`handlers/sl/`](handlers/sl/README.md) | The single-line editor: DEC's `SL.MAC` built for the VT52 the ROM's console is, with a patch of eight lines where DEC left that build unfinished.  A CMake project on `ms0515-run`, with its own tests. |
 | [`handlers/vm/`](handlers/vm/README.md) | The memory disk: seven of the extra banks as a 112-block volume through the ROM's bank routines.  Its source written back from the kits' binary, which it builds to the byte. |
 | [`handlers/ex/`](handlers/ex/README.md) | The electronic disk of the expansion board, 512 KB the machine can boot from.  Its source written back from the kit's binary, which it builds to the byte - the table of one board's bad pages included, or left out for a sound board. |
 | [`handlers/hd/`](handlers/hd/README.md) | The paravirtual hard disk `HD:` of the emulator: Patron's HD driver kit v2.0 adapted to the machine, with its own oracles.  It logs nothing, and `SET HD ERLG=`/`TIMIT=` turn its sysgen word to whatever monitor it is loaded under. |
@@ -59,8 +60,9 @@ the answers of the profile it is for.
 
 ## Handlers DEC already has
 
-`LD`, `LP`, `LS`, `SL`, `NL`, `SP` come from DEC's sources as they are
-(`kit/build_handler.py LD LP ...`); they get no project here.  What the
+`LD`, `LP`, `LS`, `NL`, `SP` come from DEC's sources as they are
+(`kit/build_handler.py LD LP ...`); they get no project here.  `SL` is
+DEC's too, built for the machine's console (`handlers/sl/`).  What the
 kits' copies of them turned out to be, for the record:
 
 * **`LD` (omega)** is the `LD.MAC` of FODOS-3 (audit `B03`), the same
@@ -78,8 +80,8 @@ kits' copies of them turned out to be, for the record:
   paravirtual disk takes `177720`/`177722` while it is enabled.
 * **`SL`**: osa's and Mihin's are V8.00 (RT-11 V5.6, no source in the
   V5.4 kit), omega's is `B03` version 7 with no `SL.MAC` in the FODOS-3
-  sources either.  DEC's V5.4 `SL` (version 46) builds and is what goes
-  into the kit.
+  sources either.  DEC's V5.4 `SL` (version 46), built for the VT52
+  (`handlers/sl/`), is what goes into the kit.
 * **`NL` (rodionov)** is not a handler at all - a scrap of a command
   file under the name.
 
@@ -171,15 +173,6 @@ monitor's `EDIT` command runs.  The VT100 `KED` has no terminal here,
 
 Where the work stopped on 2026-09-20, for whoever picks it up:
 
-* **DEC's `SL`** edits the line rightly and draws it wrongly.  It asks the
-  terminal what it is, gets no answer from the ROM's console and talks
-  VT100; built for VT52 alone (`VT100$ = 0`, `VT102$ = 0` in a prefix file,
-  linked as DEC's `SL.COM` links it) it asks nothing, but the console still
-  does not do its cursor-left and erase-to-end-of-line: `DTE`, two lefts
-  and `A` runs `DATE` and leaves `DTEATE` on the screen, and `SET SL ON`
-  leaves `?2l`.  What the ROM's console obeys has to be read out of the ROM
-  first.  Until then the `dec` systems take a kit's `SL.SYS` (ОСА's or
-  ОМЕГА's load under them), and the prefix file was not kept.
 * **`HELP` and `VM:` do not get on**, and it is not ours: once `HELP` has
   been run, a `COPY` onto `VM:` ends in `?PIP-F-Directory I/O error` and the
   volume's directory is gone (`DIR VM:` said it was fine a command
