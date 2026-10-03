@@ -18,10 +18,11 @@ import sys
 from pathlib import Path
 
 # The handlers: the machine's own, and DEC's as they are.  DEC's SL is
-# not among them: its screen control does not fit the console (README).
+# the build for the machine's console (../handlers/sl, a CMake project:
+# its build folder's work/ is named among the build directories).
 HANDLERS = ["DZ.SYS", "DV.SYS", "MZ.SYS", "TT.SYS", "VM.SYS", "EX.SYS",
             "HD.SYS", "NL.SYS", "LD.SYS", "LP.SYS", "LS.SYS",
-            "SP.SYS", "BA.SYS"]
+            "SP.SYS", "BA.SYS", "SL.SYS"]
 # The utilities of a working system.
 UTILS = ["DIR.SAV", "DUP.SAV", "PIP.SAV", "DUMP.SAV",
          "HELP.SAV", "HELP.MLB", "RESORC.SAV",

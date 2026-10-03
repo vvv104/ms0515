@@ -1,0 +1,57 @@
+# Tab completes: the hooks in DEC's SL
+#
+# Applied after ../rt11/handlers/sl/SL.diff.  DEC's Tab is a space; here it
+# goes to TABK (SLTAB.MAC), which leaves it a space in a program's line and
+# completes the word in KMON's.  The changes: the key's routine; the impure
+# area's spare byte cleared with the area and shifted out at every key, as
+# DEC does with GOLD, so that a Tab right after a Tab is known; and the two
+# sources of ours included - the resident part ahead of the one-time code, the overlay
+# (SLOVL.MAC) after DEC's SET overlays.
+
+--- a/SL.MAC
++++ b/SL.MAC
+@@ -2489,6 +2489,7 @@
+ 	MovB	@#dVT100,VT100(R5)	; load default VT100 flag value
+ $Rel	.-4	dVT100	SLR
+ .EndC	;NE	VTxxx$
++	ClrB	Filler(R5)		; MS 0515: no Tab yet (SLTAB.MAC)
+ ;;;	ClrB	ProLen(R5)		; assume no prompt
+ 	Br	RestoR			; and done
+ 	..............
+@@ -2652,6 +2653,7 @@
+ Parse1:					; entry if char is in R0 now
+ 					.Assume	ValueG*2 EQ 200
+ 	AslB	FlagG(R5)		; get rid of "stale" GOLD
++	AslB	Filler(R5)		; MS 0515: and of a stale Tab (SLTAB.MAC)
+ 	CmpB	R0,#<DEL>		; is it the Delete character?
+ 	Bne	10$			; no, continue
+ 	Clr	R0			; make DEL into NUL (hack ...
+@@ -3231,6 +3233,8 @@
+ ;-
+ .Enable	LSB
+ Tab:
++	Jmp	TabK			; MS 0515: Tab completes (SLTAB.MAC)
++TabSpc:
+ 	MovB	#<SPC>,R0		; treat as space (KMON does)
+ 	Br	Data			; and join common code
+ .Disable LSB
+@@ -4564,7 +4568,8 @@
+ 	.Restore
+ ;*****************************************************************************
+ .EndC;	NE	MMg$t
+-.SbTtl	Initialization, one-time code
++.Include	/SLTAB.MAC/		; MS 0515: Tab's resident part
++.SbTtl	Initialization, one-time code
+ .SbTtl	** in IMPURE AREA BUFFER **
+ .Enable	LSB
+ ;
+@@ -5807,7 +5812,8 @@
+ 	.NLCSI	TYPE=I, PART=PREFIX
+ 	.AsciZ	"F-SL cannot be unloaded while running"
+ ;>>>	.AsciZ	"F-Not unloaded, 'SET SL OFF'"
+-.SbTtl	Align PSects on block boundaries
++.Include	/SLOVL.MAC/		; MS 0515: the completion overlay
++.SbTtl	Align PSects on block boundaries
+ 
+ ;*****************************************************************************
+ 	.Psect	SLDvr			; pad SLDvr up to block bound

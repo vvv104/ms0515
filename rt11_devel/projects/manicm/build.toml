@@ -6,4 +6,6 @@ sources   = ["MANICM.MAC", "MS0515.MAC"]
 outputs   = ["MANICM.SAV", "MANICM.MAP"]   # the map names the state for the tests
 
 [build]
-commands  = ["MACRO MANICM", "MACRO MS0515", "LINK/MAP:MANICM MANICM,MS0515"]
+# LINK's line is image,map=objects.
+commands  = ["MACRO MANICM=MANICM", "MACRO MS0515=MS0515",
+             "LINK MANICM,MANICM=MANICM,MS0515"]

@@ -7,8 +7,6 @@ sources   = ["FIST.MAC", "FLOAD.MAC", "FSCRN.MAC"]
 outputs   = ["FIST.SAV", "FLOAD.SAV"]  # FIST.SAV is the image; the hook repacks it
 
 [build]
-# FIST.MAC goes once MACRO is done with it: the work volume has no room for
-# the source, the object and the image at the same time, and LINK truncates
-# the image without a word when it runs out.
-commands  = ["MACRO FIST", "DELETE/NOQUERY FIST.MAC", "LINK FIST",
-             "MACRO FLOAD+FSCRN", "LINK FLOAD"]
+# FLOAD is assembled from two sources into one object.
+commands  = ["MACRO FIST=FIST", "LINK FIST=FIST",
+             "MACRO FLOAD=FLOAD,FSCRN", "LINK FLOAD=FLOAD"]

@@ -9,9 +9,12 @@ V5.04 on this hardware.
 
 ```
 rt11_devel/toolset/
-├── build.py         universal driver: read build.toml, drive the pipeline
-├── decsys.py        the system every build runs on: a `dec` disk composed
-│                    from the software collection (see below)
+├── build.py         universal driver: read build.toml, run the recipe's
+│                    programs with ms0515-run, collect the outputs
+├── decsys.py        a whole `dec` system composed from the software
+│                    collection, for the builders that need a booted
+│                    monitor (see "Builds that need a system" below);
+│                    build.py takes only the collection's location from it
 ├── emu_driver.py    generic stdio bridge to ms0515-cli (or any subprocess)
 ├── rt11.py          RT-11 monitor session (boot, dot prompt, command + errors)
 ├── system/          the vvv104 ОМЕГА as a bootable FOLDER (.rtfs device):
@@ -23,24 +26,48 @@ rt11_devel/toolset/
 Projects that use this toolset live under `rt11_devel/projects/<name>/`
 and declare a `build.toml` (see "Declarative builds" below).
 
-**The build system is DEC's RT-11 as built for the machine** - the `dec`
-kit of the software collection (`rt11_devel/projects/rt11` builds it from
-DEC's V5.4 sources): its monitor and DZ/DV/HD handlers, DIR, PIP and DUP,
-and DEC's own LINK, LIBR, SYSLIB, SYSMAC and ODT.  Only MACRO is not
-DEC's: the V5.4 source kit has no source for it, and the collection's is
-the FODOS kit's (`macro-vvv`).  `decsys.compose()` has `ms0515-disk`
-compose that disk from the collection (`$MS0515_SOFTWARE`, else
-`../ms0515-software` beside this repository) with the language's
-toolchain added (`pascal`, `fortran`, `basico` - the kits' own, since DEC
-never made those for this machine) and the build recipe as its
-`STARTS.COM`, so what a build stands on is what the collection ships and
-nothing is kept here twice.  The system disk is a DV image on drive 0;
-the sources and any extra object library go on a **folder-backed
-device** (`.rtfs`, see `docs/folder-device.md`) on drive 1, and the
-outputs are host files the guest materializes there.  One volume holds
-one `SYSLIB.OBJ`: DEC's for MACRO-11 projects, the Pascal kit's where
-the toolchain is that kit's (its `requires` brings it), because PAS1's
-output links against that one and a DEC utility against DEC's.
+**A build is the machine's own programs run one after another.**
+`ms0515-run` (`src/tools/run`) runs one RT-11 program from a folder, with
+that folder as the program's disk and nothing else to set up: no disk is
+composed, no system booted, no screen read.  `build.py` stages the sources
+and the toolchain into a work folder and runs the recipe there, a command
+at a time:
+
+```
+ms0515-run MACRO MYPROG=MYPROG
+ms0515-run LINK MYPROG=MYPROG
+```
+
+The programs are the collection's (`$MS0515_SOFTWARE`, else
+`../ms0515-software` beside this repository), from
+`software/development`: DEC's LINK, LIBR, SYSLIB, SYSMAC and ODT, and
+MACRO, which is the FODOS kit's - the one tool the V5.4 source kit has no
+source for.  A kit's toolchain (`pascal/`, `fortran/`) links against the
+kit's own system library, in `fodos/`, and a recipe says which folders it
+takes its files from, in order.  Nothing is kept here twice.
+
+**The command lines are the programs' own, not the monitor's.**
+`ms0515-run` hands the line to the program as `RUN PROGRAM line` does.
+`MACRO X` at the monitor's prompt is a monitor command that the monitor
+turns into `X=X`; here there is no monitor command, and `MACRO X` names an
+input alone and writes nothing.  The form is `outputs=inputs`:
+
+| monitor command | the program's own line |
+|---|---|
+| `MACRO X` | `MACRO X=X` |
+| `MACRO X/LIST` | `MACRO X,X=X` (object, listing) |
+| `MACRO A+B` | `MACRO A=A,B` |
+| `LINK X` | `LINK X=X` |
+| `LINK/MAP:X X,Y` | `LINK X,X=X,Y` (image, map) |
+| `LINK X,PASLIB,PAS1` | `LINK X=X,PASLIB,PAS1` |
+
+**What a program finds.**  The work folder is `DK:`.  A file a program
+asks for on `SY:` - MACRO its `SYSMAC.SML`, LINK its `SYSLIB.OBJ` - is
+given to it out of the same folder, so the system libraries are staged
+beside everything else.  The date is 31-Dec-99.  A program that fails
+ends the build: `ms0515-run` exits with 1 when the monitor's own account
+of the program is an error, and `build.py` reads what was printed for an
+`-E-` or `-F-` diagnostic as well.
 
 ## How `system/` was built
 
@@ -53,7 +80,16 @@ folder mounted as a `.rtfs` device.  Each build copies `system/` to a
 temp `boot/` folder and stages onto the copy; the committed template is
 never modified (enforced by a pytest invariant).
 
-## Device-letter cheat sheet for `ms0515-cli`
+## Builds that need a system
+
+Some builders cannot be a row of programs: DEC's command files run under
+IND, a handler is checked by booting from it, the monitor is built by its
+own SYSGEN.  Those boot a system in `ms0515-cli` and drive it:
+`projects/rt11` (the monitor, the handlers, the kit), `projects/decusc`,
+the `validate.py` oracles.  They stand on `decsys.compose()` - the `dec`
+disk composed from the collection by `ms0515-disk`, as a folder device,
+with the builder's commands as its `STARTS.COM` - and on the two modules
+below.
 
 When ms0515-cli is started with `--disk0 X.dsk --disk1 Y.dsk`, the
 RT-11 monitor exposes the four floppy sides as:
@@ -65,11 +101,8 @@ RT-11 monitor exposes the four floppy sides as:
 | DZ2:  | drive 0 side 1          |
 | DZ3:  | drive 1 side 1          |
 
-The build pipeline mounts two folder devices:
-`--disk0-side0 boot/device.rtfs` (DZ0 = SY:, the bootable system + the
-compilers + STARTS.COM) and `--disk1-side0 work/device.rtfs` (DZ1,
-ASSIGNed `DK:` — sources in, outputs out).  It always passes
-`--no-config` so a GUI-saved `ms0515.yaml` can never leak into a build.
+Such a builder always passes `--no-config` so a GUI-saved `ms0515.yaml`
+can never leak into a build.
 
 ## Module overview
 
@@ -105,10 +138,9 @@ python rt11_devel/toolset/build.py path/to/build.toml
 ```
 
 (or just `build.py` from inside the project directory).  The driver
-handles host-side prep, copies the `system/` folder template, stages the
-right toolchain next to it, lets the monitor run the recipe at boot, and
-copies the outputs the guest materialized back into the project
-directory.
+handles host-side prep, stages the sources and the toolchain into a work
+folder, runs the recipe there with `ms0515-run`, and copies the outputs
+the programs wrote back into the project directory.
 
 Minimal manifest:
 
@@ -131,59 +163,49 @@ post_build = "pack.py"          # optional host-side hook, e.g. packager
 
 [build]
 libs     = ["EXTRA.OBJ"]                            # extra files staged + linked
-commands = ["MACRO {name}/LIST",
-            "LINK {name},MYLIB"]                    # overrides recipe commands
+commands = ["MACRO {name},{name}={name}",
+            "LINK {name}={name},MYLIB"]             # overrides recipe commands
 ```
 
-Each language has a built-in recipe (`compilers`, `libs`, `commands`)
-that the driver applies unless `[build]` overrides it.  `{name}` in any
-command template is substituted with `project.name` before it is sent
-to the monitor.
+Each language has a built-in recipe (`compilers`, `libs`, `folders`,
+`commands`) that the driver applies unless `[build]` overrides it.
+`{name}` in any command template is substituted with `project.name`.  A
+command is `PROGRAM line`: the program by its name in the work folder,
+then its command line.
 
 ### Language recipes (defaults)
 
-| language | sources ext | compilers staged                  | libs staged                              | monitor commands                                           |
-|----------|-------------|-----------------------------------|------------------------------------------|------------------------------------------------------------|
-| macro11  | `.MAC`      | MACRO, LINK                       | SYSMAC.SML, SYSLIB                       | `MACRO {name}` → `LINK {name}`            |
-| pascal   | `.PAS`      | PAS1, MACRO, LINK                 | SYSMAC.SML, SYSLIB, PASLIB, PAS1.OBJ    | `PAS1 {name}={name}` → `MACRO {name}` → `LINK {name},PASLIB,PAS1` |
-| fortran  | `.FOR`      | FORTRA, MACRO, LINK               | SYSMAC.SML, SYSLIB, FORLIB              | `FORTRA {name}` → `MACRO {name}` → `LINK {name},FORLIB`   |
-| basic    | `.BAS`      | BASICO                            | —                                        | (none — interactive only)                                  |
+| language | sources ext | programs staged   | libs staged                            | commands                                                                  |
+|----------|-------------|-------------------|----------------------------------------|---------------------------------------------------------------------------|
+| macro11  | `.MAC`      | MACRO, LINK       | SYSMAC.SML, SYSLIB                     | `MACRO {name}={name}` → `LINK {name}={name}`                              |
+| pascal   | `.PAS`      | PAS1, MACRO, LINK | SYSMAC.SML, SYSLIB (the kit's), PASLIB, PAS1.OBJ | `PAS1 {name}={name}` → `MACRO {name}={name}` → `LINK {name}={name},PASLIB,PAS1` |
+| fortran  | `.FOR`      | FORTRA, LINK      | SYSLIB (the kit's), FORLIB             | `FORTRA {name}={name}` → `LINK {name}={name},FORLIB` (FORTRA writes the object itself) |
+| basic    | `.BAS`      | BASICO            | —                                      | (none — interactive only)                                                 |
 
 ### Custom build script (when the manifest isn't enough)
 
-For one-off pipelines that don't fit the recipe model, drop down to
-the two underlying modules — the driver itself is the canonical
-example (~180 lines):
+A one-off pipeline is the same thing by hand - a folder and a row of
+runs:
 
 ```python
-import shutil, sys, tempfile
+import shutil, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, "rt11_devel/toolset")
-from emu_driver import EmulatorDriver
-from rt11 import RT11Session
+import build, decsys
 
-import decsys
-
-boot = decsys.compose(Path(tempfile.gettempdir()) / "myboot.dsk",   # the dec
-                      startup=["ASSIGN DZ1 DK"])                     # system
-work = Path(tempfile.gettempdir()) / "mywork"      # a folder device: just
-work.mkdir()                                       # copy files around
+work = Path(tempfile.mkdtemp())
+dev = decsys.collection() / "software" / "development"
+for f in ("MACRO.SAV", "LINK.SAV", "SYSMAC.SML", "SYSLIB.OBJ"):
+    shutil.copy(dev / f, work / f)
 shutil.copy("MYPROG.MAC", work / "MYPROG.MAC")
-(work / "device.rtfs").write_bytes(b"device: floppy\nblocks: 800\n")
 
-emu = EmulatorDriver([decsys.CLI, "--no-config", "--disk0", str(boot),
-                      "--disk1-side0", work / "device.rtfs"])
-emu.start()
-try:
-    rt = RT11Session(emu); rt.boot()
-    rt.command("ASSIGN DZ1 DK")
-    rt.command("MACRO MYPROG", timeout=300)
-    rt.command("LINK MYPROG",  timeout=300)
-finally:
-    emu.kill()
+build.run_command("MACRO MYPROG,MYPROG=MYPROG", work)   # raises on an error
+build.run_command("LINK MYPROG=MYPROG", work)
 
-shutil.copy(work / "myprog.sav", "release/MYPROG.SAV")   # guest-made file
+shutil.copy(work / "myprog.sav", "release/MYPROG.SAV")  # the program wrote it
 ```
+
+A pipeline that needs a booted monitor is in "Builds that need a system".
 
 ## Running the tests
 
@@ -201,19 +223,17 @@ Coverage:
 |-----------------------|------------------------------------------------------|
 | ``test_emu_driver.py``| Buffer capture, idle-aware ``wait_for``, ANSI strip in decoded output, lifecycle errors |
 | ``test_rt11.py``      | ``boot`` reaches the prompt, ``command`` returns only new output, ``RT11CommandError`` on ``?xxx-F-``, ``chain`` ordering, ``DOT_PROMPT`` regex |
-| ``test_build.py``     | Recipe table sanity, manifest → ``BuildPlan`` resolution, `{name}` substitution, default vs. override sources/outputs/commands, manifest-validation errors |
+| ``test_build.py``     | Recipe table sanity (the programs' own syntax), manifest → ``BuildPlan`` resolution, `{name}` substitution, the toolchain found in the collection's folders, a command run through a stand-in for ``ms0515-run`` (failure, diagnostic, warning), manifest-validation errors |
 
-## `STARTS.COM` — the build runs from the startup file
+## `STARTS.COM` — for the builds that boot a system
 
-The SJ monitor auto-runs `STARTS.COM` from SY: at boot, so the build recipe
-*is* the startup file.  For each build, `build.py` writes the project's
-commands (`ASSIGN DZ1 DK` + the language recipe) into `boot/STARTS.COM` —
-the `system/` template carries **no** `STARTS.COM`, so there is nothing
-to replace.  Then it boots: the
-monitor runs the whole build itself; the host just accepts the Date/Time
-prompts, sends a type-ahead `DIR` whose "Free blocks" line marks completion
-(it executes only after `STARTS.COM` finishes), and scans the transcript for
-`?xxx-F-`/`-E-` diagnostics.
+The SJ monitor auto-runs `STARTS.COM` from SY: at boot, so a builder that
+boots a system gives it its commands as the startup file:
+`decsys.compose(folder, startup=[...])` writes them.  The `system/`
+template carries **no** `STARTS.COM`.  Such a builder accepts the
+Date/Time prompts, sends a type-ahead `DIR` whose "Free blocks" line marks
+completion (it executes only after `STARTS.COM` finishes), and scans the
+transcript for `?xxx-F-`/`-E-` diagnostics.
 
 Direct boots that are not builds (`projects/rt11/handlers/hd/validate.py`, the demo disk)
 stage the toolset's default `STARTS.COM` (`SET TT QUIET`) themselves so they

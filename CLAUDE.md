@@ -99,7 +99,7 @@ src/                — emulator source code and build files
                       from the ms0515-software releases; the original disks the tests need live in
                       lib/tests/disks/originals/ as test_*.dsk
 package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.exe, ms0515.yaml, assets/
-rt11_devel/         — RT-11 guest programs: toolset/ (build.py: MACRO/LINK inside the emulator),
+rt11_devel/         — RT-11 guest programs: toolset/ (build.py: MACRO/LINK run with ms0515-run),
                       projects/<name>/ (sources, generators, README) and projects/<name>/tests/
                       (the program's own doctest harness on ms0515_lib; pulled in by the emulator's
                       test build via rt11_devel/CMakeLists.txt - game tests never live under src/)

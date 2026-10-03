@@ -1,5 +1,6 @@
 """Tests for the universal build driver: manifest parsing, recipe lookup,
-{name} substitution, plan resolution."""
+{name} substitution, plan resolution, the toolchain found in the collection,
+and a command run through ms0515-run (a stand-in for it)."""
 
 from __future__ import annotations
 
@@ -13,7 +14,9 @@ HERE = Path(__file__).resolve().parent
 TOOLSET = HERE.parent
 sys.path.insert(0, str(TOOLSET))
 
+import build                                             # noqa: E402
 from build import BuildPlan, RECIPES, load_manifest      # noqa: E402
+from rt11 import RT11CommandError                        # noqa: E402
 
 
 def write_manifest(tmp_path: Path, content: str) -> Path:
@@ -29,10 +32,22 @@ class TestRecipeTable:
         assert {"macro11", "pascal", "fortran", "basic"} <= set(RECIPES)
 
     @pytest.mark.parametrize("lang", ["macro11", "pascal", "fortran"])
-    def test_every_buildable_recipe_has_macro_and_link(self, lang):
-        compilers = RECIPES[lang]["compilers"]
-        assert "MACRO.SAV" in compilers
-        assert "LINK.SAV" in compilers
+    def test_every_buildable_recipe_links(self, lang):
+        assert "LINK.SAV" in RECIPES[lang]["compilers"]
+        assert "SYSLIB.OBJ" in RECIPES[lang]["libs"]
+
+    @pytest.mark.parametrize("lang", ["macro11", "pascal", "fortran"])
+    def test_commands_are_in_the_programs_own_syntax(self, lang):
+        # ms0515-run hands the line to the program, not to the monitor: a
+        # line without `=` names inputs alone and writes nothing.
+        for command in RECIPES[lang]["commands"]:
+            program, _, line = command.partition(" ")
+            assert program + ".SAV" in RECIPES[lang]["compilers"]
+            assert "=" in line
+
+    def test_fortran_compiles_to_an_object_itself(self):
+        # FORTRA writes the .OBJ; there is no MACRO pass.
+        assert [c.split()[0] for c in RECIPES["fortran"]["commands"]] == ["FORTRA", "LINK"]
 
     def test_pascal_recipe_pulls_paslib(self):
         assert "PASLIB.OBJ" in RECIPES["pascal"]["libs"]
@@ -57,7 +72,7 @@ class TestBuildPlan:
         assert plan.language == "macro11"
         assert plan.sources == ["FOO.MAC"]
         assert plan.outputs == ["FOO.SAV"]
-        assert plan.commands == ["MACRO FOO", "LINK FOO"]
+        assert plan.commands == ["MACRO FOO=FOO", "LINK FOO=FOO"]
 
     def test_explicit_sources_and_outputs_override_defaults(self, tmp_path):
         m = write_manifest(tmp_path, """
@@ -81,8 +96,8 @@ class TestBuildPlan:
         assert plan.sources == ["BAR.PAS"]
         assert plan.commands == [
             "PAS1 BAR=BAR",
-            "MACRO BAR",
-            "LINK BAR,PASLIB,PAS1",
+            "MACRO BAR=BAR",
+            "LINK BAR=BAR,PASLIB,PAS1",
         ]
         assert "PASLIB.OBJ" in plan.recipe_libs
 
@@ -92,12 +107,12 @@ class TestBuildPlan:
             name     = "OVR"
             language = "macro11"
             [build]
-            commands = ["RUN DZ2:MACRO {name}/LIST", "RUN DZ2:LINK {name},MYLIB"]
+            commands = ["MACRO {name},{name}={name}", "LINK {name}={name},MYLIB"]
         """)
         plan = load_manifest(m)
         assert plan.commands == [
-            "RUN DZ2:MACRO OVR/LIST",
-            "RUN DZ2:LINK OVR,MYLIB",
+            "MACRO OVR,OVR=OVR",
+            "LINK OVR=OVR,MYLIB",
         ]
 
     def test_extra_libs_appended_to_staged_files(self, tmp_path):
@@ -112,9 +127,8 @@ class TestBuildPlan:
         """)
         plan = load_manifest(m)
         dk = {Path(f).name for f in plan.dk_files()}
-        assert "MYLIB.OBJ" in dk          # extra lib -> DK: (linked from there)
-        assert "QUX.MAC" in dk             # source    -> DK:
-        assert plan.bundles == []          # the toolchain is the system disk's own
+        assert "MYLIB.OBJ" in dk          # extra lib -> the work folder
+        assert "QUX.MAC" in dk             # source    -> the work folder
 
     def test_extra_lib_of_the_project_beats_the_collections(self, tmp_path):
         (tmp_path / "QUX.MAC").write_bytes(b"")
@@ -129,13 +143,52 @@ class TestBuildPlan:
         plan = load_manifest(m)
         assert tmp_path / "MYLIB.OBJ" in plan.dk_files()
 
-    def test_pascal_plan_adds_the_pascal_bundle(self, tmp_path):
-        m = write_manifest(tmp_path, """
+    def test_the_toolchain_comes_from_the_collection(self, tmp_path, monkeypatch):
+        # DEC's tools and libraries lie in software/development; a kit's
+        # toolchain has a folder of its own and, in fodos/, the system
+        # libraries its programs link against - those win over DEC's.
+        root = tmp_path / "collection"
+        dev = root / "software" / "development"
+        for folder, names in {
+            dev: ["MACRO.SAV", "LINK.SAV", "SYSLIB.OBJ", "SYSMAC.SML"],
+            dev / "pascal": ["PAS1.SAV", "PAS1.OBJ", "PASLIB.OBJ"],
+            dev / "fodos": ["SYSLIB.OBJ", "SYSMAC.SML"],
+        }.items():
+            folder.mkdir(parents=True)
+            for name in names:
+                (folder / name).write_bytes(b"")
+        (root / "disks.toml").write_bytes(b"")
+        monkeypatch.setenv("MS0515_SOFTWARE", str(root))
+
+        macro = load_manifest(write_manifest(tmp_path, """
+            [project]
+            name     = "M"
+            language = "macro11"
+        """)).tool_files()
+        assert {f.name for f in macro} == {"MACRO.SAV", "LINK.SAV", "SYSLIB.OBJ", "SYSMAC.SML"}
+        assert all(f.parent == dev for f in macro)
+
+        pascal = {f.name: f for f in load_manifest(write_manifest(tmp_path, """
             [project]
             name     = "P"
             language = "pascal"
-        """)
-        assert load_manifest(m).bundles == ["pascal"]
+        """)).tool_files()}
+        assert pascal["PAS1.SAV"].parent == dev / "pascal"
+        assert pascal["SYSLIB.OBJ"].parent == dev / "fodos"
+        assert pascal["MACRO.SAV"].parent == dev
+
+    def test_a_tool_the_collection_lacks_is_named(self, tmp_path, monkeypatch):
+        root = tmp_path / "collection"
+        (root / "software" / "development").mkdir(parents=True)
+        (root / "disks.toml").write_bytes(b"")
+        monkeypatch.setenv("MS0515_SOFTWARE", str(root))
+        plan = load_manifest(write_manifest(tmp_path, """
+            [project]
+            name     = "M"
+            language = "macro11"
+        """))
+        with pytest.raises(SystemExit, match="MACRO.SAV"):
+            plan.tool_files()
 
     def test_hook_paths_stay_relative_to_manifest_dir(self, tmp_path):
         m = write_manifest(tmp_path, """
@@ -151,13 +204,57 @@ class TestBuildPlan:
         assert plan.manifest_dir == tmp_path
 
 
+# ── a command through ms0515-run ────────────────────────────────────────────
+
+class TestRunCommand:
+    """run_command() with a stand-in for ms0515-run: a script that prints
+    what it was given and ends as it is told."""
+
+    def stand_in(self, tmp_path, monkeypatch, *, prints: str, status: int):
+        script = tmp_path / "fake_run.py"
+        script.write_text(textwrap.dedent(f"""
+            import sys
+            sys.stdout.write("ARGS " + " ".join(sys.argv[1:]) + "\\n")
+            sys.stdout.write({prints!r})
+            sys.exit({status})
+        """), encoding="utf-8")
+        monkeypatch.setattr(build, "RUNNER", [sys.executable, str(script)])
+
+    def test_the_program_and_its_line_are_passed_apart(self, tmp_path, monkeypatch):
+        self.stand_in(tmp_path, monkeypatch, prints="", status=0)
+        out = build.run_command("LINK FOO,FOO=FOO,BAR", tmp_path)
+        assert "ARGS LINK FOO,FOO=FOO,BAR" in out
+
+    def test_a_failed_program_stops_the_build(self, tmp_path, monkeypatch):
+        self.stand_in(tmp_path, monkeypatch, status=1,
+                      prints="?MACRO-E-Errors detected:  3\n")
+        with pytest.raises(RT11CommandError, match="Errors detected"):
+            build.run_command("MACRO FOO=FOO", tmp_path)
+
+    def test_an_error_printed_stops_it_whatever_the_status(self, tmp_path, monkeypatch):
+        self.stand_in(tmp_path, monkeypatch, status=0,
+                      prints="?LINK-F-File not found DK:FOO.OBJ\n")
+        with pytest.raises(RT11CommandError, match="File not found"):
+            build.run_command("LINK FOO=FOO", tmp_path)
+
+    def test_a_warning_is_shown_and_does_not_stop_it(self, tmp_path, monkeypatch):
+        self.stand_in(tmp_path, monkeypatch, status=0,
+                      prints="?LINK-W-Undefined globals:\nMSGG\n")
+        assert "Undefined globals" in build.run_command("LINK FOO=FOO", tmp_path)
+
+    def test_a_failure_without_a_message_is_still_a_failure(self, tmp_path, monkeypatch):
+        self.stand_in(tmp_path, monkeypatch, status=2, prints="")
+        with pytest.raises(RT11CommandError, match="status 2"):
+            build.run_command("MACRO FOO=FOO", tmp_path)
+
+
 # ── error cases ─────────────────────────────────────────────────────────────
 
 class TestManifestErrors:
     def test_missing_project_table(self, tmp_path):
         m = write_manifest(tmp_path, """
             [build]
-            commands = ["RUN DZ2:WHATEVER"]
+            commands = ["WHATEVER X=X"]
         """)
         with pytest.raises(ValueError, match="project"):
             load_manifest(m)
@@ -224,9 +321,8 @@ class TestRepoManifests:
 class TestSystemFolderIsPristine:
     """system/ is the vvv104 ОМЕГА as a bootable folder: what the games'
     tests (fist, manicm) boot to run them - the base RT-11 set + the boot
-    file + the descriptor, nothing else.  Builds no longer run on it (the
-    system disk is composed from the collection, decsys.py), and nothing
-    may be staged into it."""
+    file + the descriptor, nothing else.  No build runs on it (build.py
+    runs the tools with ms0515-run), and nothing may be staged into it."""
 
     EXPECTED = {"RT11SJ.SYS", "SWAP.SYS", "DZ.SYS", "TT.SYS",
                 "PIP.SAV", "DUP.SAV", "DIR.SAV",

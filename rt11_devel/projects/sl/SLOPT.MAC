@@ -1,0 +1,7 @@
+	.SBTTL	SLOPT - SL's options for a single-job monitor
+
+; DEC's SL keeps a table of impure areas, one a job, eight by default.  The
+; monitors of the MS 0515 are single-job ones: one entry, and sixteen bytes
+; of the resident handler back.
+
+Job$	= 1

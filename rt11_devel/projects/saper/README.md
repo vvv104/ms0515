@@ -35,14 +35,12 @@ The manifest declares `language = "macro11"` plus a pre/post hook; the
 universal driver in `rt11_devel/toolset/build.py` does the rest:
 
 1. Runs `source/gen_saper.py` (pre_build) → emits a fresh `SAPER.MAC`.
-2. Composes the system disk from the software collection (`toolset/decsys.py`:
-   DEC's RT-11 with its LINK, SYSLIB and SYSMAC, the kit's MACRO) with the
-   recipe as its `STARTS.COM`.
-3. Stages `SAPER.MAC` on a scratch work folder (`.rtfs` device, DZ1).
-4. Boots `ms0515-cli` on them; the startup file drives RT-11:
-   `ASSIGN DZ1 DK`, `MACRO SAPER`, `LINK SAPER`.
-5. Extracts `SAPER.SAV` back to this directory.
-6. Runs `source/make_artifacts.py` (post_build) → combines `K.HLP + NSEQ.BIN`
+2. Stages `SAPER.MAC` into a scratch work folder with the toolchain out of
+   the software collection: DEC's LINK, SYSLIB and SYSMAC, the kit's MACRO.
+3. Runs the machine's own programs there with `ms0515-run`, one after
+   another: `MACRO SAPER=SAPER`, `LINK SAPER=SAPER`.
+4. Copies `SAPER.SAV` back to this directory.
+5. Runs `source/make_artifacts.py` (post_build) → combines `K.HLP + NSEQ.BIN`
    into `SAPER.HLP` and copies `K.DAT` to `SAPER.DAT`.
 
 ## Running

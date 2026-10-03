@@ -4,4 +4,4 @@ language  = "macro11"
 outputs   = ["BFLIP.SAV"]
 
 [build]
-commands  = ["MACRO {name}", "LINK {name}"]
+commands  = ["MACRO {name}={name}", "LINK {name}={name}"]

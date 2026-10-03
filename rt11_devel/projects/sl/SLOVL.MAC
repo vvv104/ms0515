@@ -1,0 +1,1501 @@
+	.SBTTL	The completion overlay
+;
+; SLOVL.MAC - Tab's work.  Included into DEC's SL.MAC by SLTAB.diff, after
+; DEC's SET overlays, on a block of its own.
+;
+; This part of SL.SYS is not resident: the resident part (SLTAB.MAC) reads
+; it - OVBLKS whole blocks - into the free memory under KMON when Tab is
+; pressed and it is not there already, and calls OVL with R5 -> the
+; editor's impure area and R4 -> SL's LQE.
+; Every list comes from the running monitor at that moment:
+;
+;  - the command word: KMON's command table, in memory (KTAB);
+;  - a switch, or SHOW's word: the command's overlay, read from the
+;    monitor file on SY: into the USR's buffer, walked the way KMON walks
+;    it (CMDLST);
+;  - SET's subject and its options: SET's overlay (the byte subjects its
+;    loop walks, the handler-style tables its code points R4 at), RMON's
+;    device tables, a handler's SET table from block 0 of its file
+;    (SETCMD);
+;  - a file: its device's directory (FFIRST).
+;
+; MATCH walks one kind of candidate names at a time (QTENC): 0 KMON's
+; command table, 1 a command's descriptor lists, 2 a directory, 3 an
+; array of RAD50 names (SET's).  Candidates are counted with how far they
+; all agree, or - QTPRN set - listed.  The buffer reads (RDSY, FREAD)
+; clear BLKEY (RMON+256) first, so the USR re-reads its own segment.
+
+RMON	= 54			; -> the resident monitor
+FCHAN	= 0			; the channel the overlay reads on
+BLKEY	= 256			; RMON: the directory segment in the USR's buffer
+AMAX	= 48.			; the array's names
+CSIZE	= 16.			; a command's name
+
+	.DSABL	LSB
+	.PSECT	SetOvr
+.=:OvrBk3+Blk				; on a block of its own
+OVL:	MOV	PC,R1			; the resident routines it calls
+	ADD	#VOFS-.,R1
+	MOV	PC,R2
+	ADD	#V.INS-.,R2
+	MOV	#5,R3
+1$:	MOV	(R1)+,R0
+	ADD	R4,R0
+	MOV	R0,(R2)+
+	SOB	R3,1$
+	CLR	QKMAP
+	; fall into COMPL
+
+; COMPL: complete the word before the cursor: the command word, a switch
+; after a slash, an argument from the command's own words or else from
+; the files of its device.  One match is completed; several, as far as
+; they agree, and listed at once, the prompt and the line shown again.
+COMPL:	MOV	Buffer(R5),R3		; the cursor in the line
+	ADD	(R5),R3
+	TSTB	(R3)
+	BNE	CBELL			; only at the end of the line
+	MOV	Buffer(R5),R1
+	MOV	R3,R2
+1$:	CMP	R1,R2			; the leading blanks
+	BHIS	2$
+	CMPB	(R1),#40
+	BNE	2$
+	INC	R1
+	BR	1$
+2$:	MOV	R1,QCMD			; the command word starts here
+	MOV	R2,R3
+3$:	CMP	R3,R1			; back to a slash, a blank, , or =
+	BLOS	4$
+	MOVB	-(R3),R0
+	CMPB	R0,#'/
+	BEQ	31$
+	CMPB	R0,#40
+	BEQ	30$
+	CMPB	R0,#',
+	BEQ	30$
+	CMPB	R0,#'=
+	BNE	3$
+30$:	INC	R3			; an argument: a keyword or a file
+	MOV	R2,-(SP)
+	MOV	R3,-(SP)
+	CALL	ARGKW
+	MOV	(SP)+,R3		; (MOV keeps C)
+	MOV	(SP)+,R2
+	BCC	5$
+	CALL	FWORD
+	BCS	CBELL
+	BR	5$
+31$:	INC	R3			; a switch
+	MOV	R3,QWORD
+	SUB	R3,R2
+	MOV	R2,QPLEN
+	MOV	#1,QKIND
+	CALL	SWLST
+	BEQ	CBELL
+	BR	5$
+4$:	MOV	R1,QWORD		; the command word
+	SUB	R1,R2
+	MOV	R2,QPLEN
+	CLR	QTENC
+	CALL	KTAB
+	BEQ	CBELL
+	MOV	R0,QTBL
+5$:	CLR	QTPRN
+	CALL	MATCH
+	TST	QMCNT
+	BEQ	CBELL
+	MOV	QCLEN,R2		; what all the matches add
+	SUB	QPLEN,R2
+	BLE	7$
+	MOV	PC,R1
+	ADD	#QCOMM-.,R1
+	ADD	QPLEN,R1
+6$:	MOVB	(R1)+,R0
+	MOV	R1,-(SP)
+	MOV	R2,-(SP)
+	CALL	@V.INS
+	MOV	(SP)+,R2
+	MOV	(SP)+,R1
+	SOB	R2,6$
+7$:	CMP	QMCNT,#1
+	BEQ	9$
+	CALL	@V.CRLF			; several: the list
+	CLR	QCOL
+	INC	QTPRN
+	CALL	MATCH
+	TST	QCOL
+	BEQ	8$
+	CALL	@V.CRLF
+8$:	JMP	@V.RESH
+9$:	RETURN
+
+CBELL:	JMP	@V.BELL
+
+; KPARS: R1 -> KMON's parser.  It is some way under the word RMON+352
+; points at - 17602 in the kits' monitors, 17536 in the dec ones - so its
+; first three words are looked for from 20000 under it.  C set: none.
+KPARS:	MOV	@#RMON,R1
+	MOV	352(R1),R1
+	SUB	#20000,R1
+	MOV	#400,R0
+1$:	CMP	(R1)+,#010503
+	BNE	2$
+	CMP	(R1),#010702
+	BNE	2$
+	CMP	2(R1),#062702
+	BEQ	3$
+2$:	SOB	R0,1$
+	SEC
+	RETURN
+3$:	TST	-(R1)			; (TST clears C)
+	RETURN
+
+; KTAB: R0 -> KMON's command table (Z clear), 0 when its parser is not
+; as expected: seven words, the fourth the table's offset.
+KTAB:	CALL	KPARS
+	BCS	8$
+	MOV	PC,R2
+	ADD	#KCHK-.,R2
+	MOV	R1,R3
+	MOV	#7,R4
+1$:	CMP	R4,#4			; the fourth word is the offset
+	BEQ	2$
+	CMP	(R3),2(R2)
+	BNE	8$
+2$:	TST	(R3)+
+	CMP	(R2)+,(R2)+
+	SOB	R4,1$
+	MOV	6(R1),R0
+	ADD	R1,R0
+	ADD	#4,R0
+	BR	9$
+8$:	CLR	R0
+9$:	TST	R0
+	RETURN
+
+; SWLST: the command word (QCMD) as KMON takes it - the first name in its
+; table the word begins, no shorter than the name's shortest abbreviation
+; (the characters up to the first without bit 100) - and its list of the
+; kind QKIND (1 switches, 2 the first argument's words, 3 SET's subject's
+; options) set up for MATCH: R0 <> 0 (Z clear); R0 = 0 when none.
+SWLST:	CLR	QTENC
+	CALL	KTAB
+	BEQ	9$
+	MOV	QCMD,R1			; the command word's length
+	CLR	R2
+1$:	MOVB	(R1)+,R3
+	CMPB	R3,#40
+	BEQ	2$
+	CMPB	R3,#'/
+	BEQ	2$
+	INC	R2
+	BR	1$
+2$:	MOV	R2,QCLN
+	MOV	R0,R4
+	MOV	#1,QCIX
+3$:	TSTB	(R4)
+	BEQ	8$			; no such command
+	MOV	R4,R3
+	MOV	QCMD,R1
+	MOV	QCLN,QTCNT
+	CLR	QTOK
+4$:	BITB	#100,(R3)
+	BNE	5$
+	INC	QTOK			; the abbreviation may stop from here
+5$:	CALL	TCHAR
+	MOVB	(R1)+,R2
+	CALL	UPPER
+	CMP	R0,R2
+	BNE	6$
+	DEC	QTCNT
+	BEQ	7$
+	TST	QTLST
+	BNE	6$
+	BR	4$
+7$:	TST	QTOK
+	BNE	FOUND
+6$:	TSTB	(R4)+			; the next name
+	BPL	6$
+	INC	QCIX
+	BR	3$
+8$:	CLR	R0
+9$:	RETURN
+
+; FOUND: command QCIX: its overlay, then SET's own words or the command's
+; parse program.
+FOUND:	CALL	KOVL
+	BCS	8$
+	MOV	R1,-(SP)
+	CALL	SETCMD
+	MOV	(SP)+,R1		; (MOV keeps C)
+	BCC	9$			; SET: done either way
+	CALL	CMDLST
+9$:	TST	R0
+	RETURN
+8$:	CLR	R0
+	RETURN
+
+; KOVL: KMON's layout (LKMON), then command QCIX's overlay into the USR's
+; buffer: R1 = its entry as KMON sees it.  C set: a root command, KMON
+; not as expected, or the read failed.  The dispatch word of command i is
+; at s+132+[s+134]+2i: below [s+146] a root command, else the overlay is
+; its high byte and the entry AREA + 2 * its low byte.
+KOVL:	CALL	LKMON
+	BCS	9$
+	MOV	QCIX,R0
+	ASL	R0
+	ADD	QDISP,R0
+	MOV	(R0),R1
+	CMP	R1,QTHR
+	BLT	8$
+	MOV	R1,R2
+	SWAB	R2
+	BIC	#177400,R2		; the overlay
+	BIC	#177400,R1
+	ASL	R1
+	ADD	QAREA,R1		; the entry
+	MOV	R1,-(SP)
+	MOV	QBLK0,R1
+	ADD	R2,R1
+	MOV	QWCNT,R2
+	CALL	RDSY
+	MOV	(SP)+,R1		; (MOV keeps C)
+	BCS	9$
+	INC	QKMAP			; the buffer is KMON's overlay area now
+	RETURN
+8$:	SEC
+9$:	RETURN
+
+; LKMON: KMON's layout.  s = where KMON's dispatch would put its parser:
+; the dispatch - ADDR COMDST-2,R2 - is 130 from the parser's head in the
+; kits' monitors and further in one generated with UCL (the dec ones), so
+; it is looked for from there, and the rest is as far from it everywhere.
+; s+246+[s+250] is KMON's overlay area; [s+240+[s+242]+4] an overlay's word
+; count; [[s+274]] - [s+300] overlay 0's block on SY: (the word KMON adds,
+; the constant it takes).  C set when KMON's code is not as expected.
+LKMON:	CALL	KPARS
+	BCS	8$
+	ADD	#130,R1
+	MOV	#40,R0
+3$:	CMP	(R1)+,#010702		; MOV PC,R2
+	BNE	4$
+	CMP	(R1),#062702		; ADD #...,R2
+	BEQ	5$
+4$:	SOB	R0,3$
+	BR	8$
+5$:	SUB	#132,R1
+	MOV	R1,R4
+	MOV	PC,R2
+	ADD	#KCHK2-.,R2
+1$:	MOV	(R2)+,R0		; offset, word; -1 ends
+	BMI	2$
+	ADD	R4,R0
+	CMP	(R0),(R2)+
+	BEQ	1$
+	BR	8$
+2$:	MOV	134(R4),R0
+	ADD	R4,R0
+	ADD	#132,R0
+	MOV	R0,QDISP
+	MOV	146(R4),QTHR
+	MOV	242(R4),R0
+	ADD	R4,R0
+	MOV	244(R0),R0		; +240, then +4
+	CMP	R0,#1000
+	BHI	8$			; bigger than the USR's buffer
+	MOV	R0,QWCNT
+	MOV	250(R4),R0
+	ADD	R4,R0
+	ADD	#246,R0
+	MOV	R0,QAREA
+	MOV	274(R4),R0
+	MOV	(R0),R0
+	SUB	300(R4),R0
+	MOV	R0,QBLK0
+	CLC
+	RETURN
+8$:	SEC
+	RETURN
+
+; KMON's code: the parser's head for KTAB, at its offsets, and what LKMON
+; reads, at its offsets from s.
+KCHK:	.WORD	0,010503, 2,010702, 4,062702, 6,0, 10,005000, 12,005200
+	.WORD	14,010305
+KCHK2:	.WORD	140,011203, 142,060703
+	.WORD	144,022712, 230,005046, 236,010705, 244,010703, 246,062703
+	.WORD	272,063700, 276,162700, 302,004777, -1
+
+; CMDLST: the command's switches (QKIND 1) or first words (2), from its
+; entry (R1): past a JMP or a BR or so, within eight words, JSR R1,.+14
+; with w0..w3 after it, then CALL SETUP (KMON's switch setup): the
+; descriptors at w1+SETUP+12, the parse program at w2+SETUP+22, the names
+; at w3+SETUP+1452; the program's first CALL (byte code 10.) of the switch
+; parser (sub-program 4276) or the keyword parser (4304) has a count and
+; as many self-relative offsets of 0-ended lists of descriptor numbers.
+; R0 <> 0 when MATCH has them.
+CMDLST:	CMP	QKIND,#3
+	BEQ	8$
+	CALL	SKIPJ
+	MOV	#10,R3
+1$:	MOV	R1,R0
+	CALL	GW
+	CMP	R0,#004167
+	BNE	2$
+	MOV	R1,R0
+	ADD	#2,R0
+	CALL	GW
+	CMP	R0,#12
+	BEQ	3$
+2$:	ADD	#2,R1
+	SOB	R3,1$
+8$:	CLR	R0
+	RETURN
+3$:	MOV	R1,QARGS
+	ADD	#4,QARGS
+	ADD	#16,R1
+	CALL	SKIPJ
+	MOV	R1,R0
+	CALL	GW
+	CMP	R0,#004767		; CALL SETUP
+	BNE	8$
+	MOV	R1,R0
+	ADD	#2,R0
+	CALL	GW
+	ADD	R1,R0
+	ADD	#4,R0
+	MOV	R0,QSET
+	CALL	CKSET
+	BCS	8$
+	MOV	QARGS,R1		; the tables
+	MOV	R1,R0
+	ADD	#2,R0
+	CALL	GW
+	ADD	QSET,R0
+	ADD	#12,R0
+	MOV	R0,QDESC
+	MOV	R1,R0
+	ADD	#6,R0
+	CALL	GW
+	ADD	QSET,R0
+	ADD	#1452,R0
+	MOV	R0,QNTAB
+	MOV	R1,R0
+	ADD	#4,R0
+	CALL	GW
+	ADD	QSET,R0
+	ADD	#22,R0
+	MOV	R0,R1			; the program, to its first CALL
+	MOV	#40.,R3
+4$:	MOV	R1,R0
+	CALL	GB
+	CMP	R0,#10.
+	BEQ	6$
+	TST	R0
+	BEQ	8$
+	CMP	R0,#37.
+	BHI	8$
+	CMP	R0,#11.			; RETURN, JUMP, END: no CALL first
+	BEQ	8$
+	CMP	R0,#16.
+	BEQ	8$
+	CMP	R0,#20.
+	BEQ	8$
+	MOV	PC,R2
+	ADD	#OPLEN-1-.,R2
+	ADD	R0,R2
+	MOVB	(R2),R2
+	INC	R2
+	ADD	R2,R1
+	SOB	R3,4$
+	BR	8$
+6$:	MOV	R1,R0			; CALL hi lo: the parser wanted?
+	INC	R0
+	CALL	GB
+	SWAB	R0
+	MOV	R0,R2
+	MOV	R1,R0
+	ADD	#2,R0
+	CALL	GB
+	BIS	R0,R2
+	MOV	#4276,R0
+	CMP	QKIND,#1
+	BEQ	7$
+	MOV	#4304,R0
+7$:	CMP	R2,R0
+	BNE	8$
+	MOV	R1,R0
+	ADD	#3,R0
+	CALL	GB
+	MOV	R0,QLCNT
+	BEQ	8$
+	ADD	#4,R1
+	MOV	R1,QLOFS
+	MOV	#1,QTENC
+	MOV	#1,R0
+	RETURN
+
+; The operand bytes after each program code, codes 1 to 37.
+OPLEN:	.BYTE	0,0,0,0,0,1,1,0,0,2, 0,0,0,0,0,1,2,3,1,0
+	.BYTE	1,1,2,2,0,1,1,0,0,0, 0,2,3,2,2,2,1
+	.EVEN
+
+; CKSET: QSET is KMON's switch setup (C clear).
+CKSET:	MOV	PC,R2
+	ADD	#SCHK-.,R2
+1$:	MOV	(R2)+,R0
+	BMI	9$
+	ADD	QSET,R0
+	CALL	GW
+	CMP	R0,(R2)+
+	BEQ	1$
+	SEC
+	RETURN
+9$:	CLC
+	RETURN
+
+SCHK:	.WORD	0,012616, 2,012127, 6,012100, 10,060700, 12,010027, -1
+
+; SKIPJ: R1 past a few JMP and BR, as KMON sees its code.  R3 kept.
+SKIPJ:	MOV	R3,-(SP)
+	MOV	#4,R3
+1$:	MOV	R1,R0
+	CALL	GW
+	CMP	R0,#000167		; JMP relative
+	BNE	2$
+	MOV	R1,R0
+	ADD	#2,R0
+	CALL	GW
+	ADD	#4,R0
+	ADD	R0,R1
+	BR	3$
+2$:	CMP	R0,#400			; BR
+	BLO	4$
+	CMP	R0,#777
+	BHI	4$
+	MOVB	R0,R0
+	ASL	R0
+	ADD	#2,R0
+	ADD	R0,R1
+3$:	SOB	R3,1$
+4$:	MOV	(SP)+,R3
+	RETURN
+
+; GB, GW: the byte, the word KMON sees at R0 - in the USR's buffer while
+; it holds KMON's overlay (QKMAP) and the address is in the overlay area.
+; MAPA: that address.
+GB:	CALL	MAPA
+	MOVB	(R0),R0
+	BIC	#177400,R0
+	RETURN
+GW:	CALL	MAPA
+	MOV	(R0),R0
+	RETURN
+MAPA:	TST	QKMAP
+	BEQ	9$
+	CMP	R0,QAREA
+	BLO	9$
+	SUB	QAREA,R0
+	CMP	R0,#2000
+	BHIS	8$
+	ADD	QBUF,R0
+	RETURN
+8$:	ADD	QAREA,R0
+9$:	RETURN
+
+; SETCMD: R1 = the command's entry.  Not KMON's SET: C set.  SET (MOV
+; @#54,R0 at the entry; within 100 words MOV PC,R1 / ADD #d,R1 / CMP
+; (R2),(R1)+, its loop over the byte subjects): its subjects (QKIND 2)
+; or the options of the subject typed (3) go into the array; C clear.
+SETCMD:	MOV	R1,R0
+	CALL	GW
+	CMP	R0,#013700
+	BNE	7$
+	MOV	R1,R0
+	ADD	#2,R0
+	CALL	GW
+	CMP	R0,#54
+	BNE	7$
+	MOV	#100,R3
+1$:	MOV	R1,R0
+	CALL	GW
+	CMP	R0,#010701
+	BNE	2$
+	MOV	R1,R0
+	ADD	#2,R0
+	CALL	GW
+	CMP	R0,#062701
+	BNE	2$
+	MOV	R1,R0
+	ADD	#6,R0
+	CALL	GW
+	CMP	R0,#021221
+	BEQ	3$
+2$:	ADD	#2,R1
+	SOB	R3,1$
+7$:	SEC
+	RETURN
+3$:	MOV	R1,QSPC			; the byte subjects: the ADD + d
+	MOV	R1,R0
+	ADD	#4,R0
+	CALL	GW
+	ADD	R1,R0
+	ADD	#2,R0
+	MOV	R0,QSBYT
+	CLR	QACNT
+	MOV	#3,QTENC
+	CLR	QSKEY
+	CMP	QKIND,#1		; SET has no switches
+	BEQ	8$
+	CMP	QKIND,#2
+	BEQ	5$
+	CALL	CANON			; the subject typed, in RAD50
+	BCS	8$
+	MOV	R2,R0
+	MOV	R1,R3
+	CALL	RAD50
+	BCS	8$
+	MOV	QFDEV,QSKEY
+	CALL	BYSCAN
+	TST	QACNT
+	BNE	8$
+	CALL	TBSCAN
+	TST	QACNT
+	BNE	8$
+	CALL	DVOPTS
+	BR	8$
+5$:	CALL	BYSCAN			; every subject
+	CALL	TBSCAN
+	CALL	DVSUBS
+8$:	MOV	QACNT,R0
+	CLC
+	RETURN
+
+; BYSCAN: the byte subjects - a RAD50 name, a link to the next (from
+; itself; 0 the last), the RMON byte, then RAD50 option / value pairs to
+; a 0 word: every name (QSKEY 0), or the options of subject QSKEY.
+BYSCAN:	MOV	QSBYT,R1
+	MOV	#20.,-(SP)		; at most this many subjects
+1$:	MOV	R1,R0
+	CALL	GW
+	TST	QSKEY
+	BNE	2$
+	CALL	ADDA0
+	BR	4$
+2$:	CMP	R0,QSKEY
+	BNE	4$
+	MOV	R1,R4			; its options
+	ADD	#6,R4
+3$:	MOV	R4,R0
+	CALL	GW
+	TST	R0
+	BEQ	4$
+	CALL	ADDA0
+	ADD	#4,R4
+	CMP	QACNT,#AMAX
+	BLO	3$
+4$:	DEC	(SP)
+	BEQ	9$
+	MOV	R1,R0			; the next subject
+	ADD	#2,R0
+	CALL	GW
+	TST	R0
+	BEQ	9$
+	ADD	#2,R0
+	ADD	R0,R1
+	BR	1$
+9$:	TST	(SP)+
+	RETURN
+
+; TBSCAN: the subjects with a handler-style option table, from the code
+; after SET's loop to its device path (MOV @#54,R0 / ADD 412(R0),(R2)):
+; MOV PC,R4 / ADD #d,R4 sets R4, ADD #d,R4 moves it; CMP #w,(R2) or CMP
+; (R2),#w then BEQ t: subject w's table is R4 at t (or t's own MOV PC,R4
+; / ADD #d,R4); then BNE: the table the next MOV PC,R4 sets.
+TBSCAN:	MOV	QSPC,R1
+	ADD	#10,R1
+	CLR	QSR4
+	CLR	QSPND
+	MOV	#400,-(SP)		; at most this many words
+1$:	DEC	(SP)
+	BEQ	9$
+	MOV	PC,R2			; the device path?
+	ADD	#DVPATH-.,R2
+	MOV	R1,R3
+	MOV	#4,R4
+2$:	MOV	R3,R0
+	CALL	GW
+	CMP	R0,(R2)+
+	BNE	3$
+	ADD	#2,R3
+	SOB	R4,2$
+9$:	TST	(SP)+
+	RETURN
+3$:	MOV	R1,R0
+	CALL	GW
+	CMP	R0,#010704		; MOV PC,R4 / ADD #d,R4
+	BNE	4$
+	MOV	R1,R0
+	ADD	#2,R0
+	CALL	GW
+	CMP	R0,#062704
+	BNE	4$
+	MOV	R1,R0
+	ADD	#4,R0
+	CALL	GW
+	ADD	R1,R0
+	ADD	#2,R0
+	MOV	R0,QSR4
+	ADD	#6,R1
+	MOV	QSPND,R0
+	BEQ	1$
+	MOV	QSR4,R2
+	CALL	TBHIT
+	CLR	QSPND
+	BR	1$
+4$:	CMP	R0,#062704		; ADD #d,R4
+	BNE	5$
+	MOV	R1,R0
+	ADD	#2,R0
+	CALL	GW
+	ADD	R0,QSR4
+	ADD	#4,R1
+	BR	1$
+5$:	CMP	R0,#022712		; CMP #w,(R2)
+	BEQ	6$
+	CMP	R0,#021227		; CMP (R2),#w
+	BNE	8$
+6$:	MOV	R1,R0
+	ADD	#4,R0
+	CALL	GW
+	MOV	R0,R3			; the branch
+	BIC	#777,R0
+	CMP	R0,#001000		; BNE or BEQ
+	BNE	8$
+	MOV	R1,R0
+	ADD	#2,R0
+	CALL	GW			; w
+	MOV	R3,R2
+	BIC	#377,R2
+	CMP	R2,#001400
+	BEQ	7$
+	MOV	R0,QSPND		; BNE: the next MOV PC,R4
+	ADD	#6,R1
+	JMP	1$
+7$:	MOV	R0,-(SP)		; BEQ t
+	MOVB	R3,R3
+	ASL	R3
+	ADD	R1,R3
+	ADD	#6,R3			; t
+	MOV	QSR4,R2
+	MOV	R3,R0
+	CALL	GW
+	CMP	R0,#010704
+	BNE	71$
+	MOV	R3,R0
+	ADD	#2,R0
+	CALL	GW
+	CMP	R0,#062704
+	BNE	71$
+	MOV	R3,R0
+	ADD	#4,R0
+	CALL	GW
+	ADD	R3,R0
+	ADD	#2,R0
+	MOV	R0,R2
+71$:	MOV	(SP)+,R0
+	CALL	TBHIT
+	ADD	#6,R1
+	JMP	1$
+8$:	ADD	#2,R1
+	JMP	1$
+
+DVPATH:	.WORD	013700,000054,066012,000412
+
+; TBHIT: subject R0, its option table at R2: its name (every subject
+; wanted) or its options (it is QSKEY).  R1 kept.
+TBHIT:	TST	QSKEY
+	BNE	1$
+	JMP	ADDA0
+1$:	CMP	R0,QSKEY
+	BNE	9$
+	MOV	R1,-(SP)
+	CALL	OPTAB
+	MOV	(SP)+,R1
+9$:	RETURN
+
+; OPTAB: the option table at R2, as .DRSET builds it (the value, the
+; RAD50 name in two words, the routine's offset, the mode - bit 200: NO
+; allowed), to a 0 value or the first routine: its names and NO-names.
+OPTAB:	MOV	R2,QOTAB
+	MOV	#177777,QOEND
+	MOV	R2,R4
+1$:	MOV	R4,R0			; room for an entry before the end?
+	ADD	#10,R0
+	CMP	R0,QOEND
+	BHI	9$
+	MOV	R4,R0
+	CALL	GW
+	TST	R0
+	BEQ	9$
+	MOV	R4,R0			; its routine: the table ends there
+	ADD	#6,R0
+	CALL	GB
+	ASL	R0
+	ADD	QOTAB,R0
+	CMP	R0,QOEND
+	BHIS	2$
+	MOV	R0,QOEND
+2$:	MOV	R4,R0
+	ADD	#4,R0
+	CALL	GW
+	MOV	R0,R3
+	MOV	R4,R0
+	ADD	#2,R0
+	CALL	GW
+	CLR	R2
+	CALL	ADDA
+	MOV	R4,R0			; NO allowed?
+	ADD	#7,R0
+	CALL	GB
+	TSTB	R0
+	BPL	3$
+	MOV	R4,R0
+	ADD	#2,R0
+	CALL	GW
+	MOV	#1,R2
+	CALL	ADDA
+3$:	ADD	#10,R4
+	CMP	QACNT,#AMAX
+	BLO	1$
+9$:	RETURN
+
+; DVPN: R1 -> $PNAME, R2 = the device slots (at RMON+[RMON+404]: the
+; names, then $ENTRY, then 177777).  C set: not as expected.
+DVPN:	MOV	@#RMON,R0
+	MOV	R0,R1
+	ADD	404(R0),R1
+	MOV	R1,R3
+	CLR	R2
+1$:	CMP	(R3)+,#177777
+	BEQ	2$
+	INC	R2
+	CMP	R2,#100
+	BLO	1$
+	SEC
+	RETURN
+2$:	ASR	R2
+	BEQ	3$
+	CLC
+	RETURN
+3$:	SEC
+	RETURN
+
+; DVSUBS: the installed devices as SET's subjects (TT is KMON's own).
+DVSUBS:	CALL	DVPN
+	BCS	9$
+	MOV	R2,-(SP)
+1$:	MOV	(R1)+,R0
+	BEQ	2$
+	CMP	R0,#^RTT
+	BEQ	2$
+	CALL	ADDA0
+2$:	DEC	(SP)
+	BNE	1$
+	TST	(SP)+
+9$:	RETURN
+
+; DVOPTS: device QSKEY's options: block 0 of its handler's file is one
+; before $DVREC's word ($PNAME+6*slots+2+2*slot), its SET table at 400.
+DVOPTS:	CALL	DVPN
+	BCS	9$
+	MOV	R2,R3
+	ASL	R3
+	ADD	R2,R3
+	ASL	R3
+	ADD	R1,R3
+	ADD	#2,R3			; -> $DVREC
+1$:	CMP	(R1)+,QSKEY
+	BEQ	2$
+	TST	(R3)+
+	SOB	R2,1$
+9$:	RETURN
+2$:	MOV	(R3),R1
+	BEQ	9$
+	DEC	R1
+	MOV	#400,R2
+	CALL	RDSY
+	BCS	9$
+	MOV	QBUF,R2
+	ADD	#400,R2
+	JMP	OPTAB
+
+; ADDA0, ADDA: a RAD50 name (R0, and R3 for its second word, R2 <> 0 for
+; its NO form) into the array.  R1, R4 kept.
+ADDA0:	CLR	R2
+	CLR	R3
+ADDA:	CMP	QACNT,#AMAX
+	BHIS	9$
+	MOV	R1,-(SP)
+	MOV	R0,-(SP)
+	MOV	QACNT,R1
+	MOV	R1,R0
+	ASL	R1
+	ADD	R0,R1
+	ASL	R1			; 6 * the count
+	MOV	PC,R0
+	ADD	#QAENT-.,R0
+	ADD	R0,R1
+	MOV	(SP)+,(R1)+
+	MOV	R3,(R1)+
+	MOV	R2,(R1)
+	INC	QACNT
+	MOV	(SP)+,R1
+9$:	RETURN
+
+; ARGKW: the argument R3 (to R2) has words of its command's own - the
+; first one's from the command (SHOW's keywords, SET's subjects), the
+; second one's from SET's subject (its options, after commas too): set up
+; for MATCH, C clear.  C set: none.
+ARGKW:	MOV	R2,QWEND
+	MOV	R3,QWORD
+	CALL	ARGPOS
+	CMP	QARGN,#2
+	BLO	8$
+	CMP	QARGN,#3
+	BHI	8$
+	MOV	QARGN,QKIND
+	CALL	SWLST
+	BEQ	8$
+	MOV	QWEND,R2
+	SUB	QWORD,R2
+	MOV	R2,QPLEN
+	CLC
+	RETURN
+8$:	SEC
+	RETURN
+
+; ARGPOS: QARGN = which word of the line the word at QWORD is (1 the
+; command); QA2 -> the second word.
+ARGPOS:	MOV	QCMD,R0
+	CLR	R1
+	CLR	QA2
+	MOV	#40,R4			; the character before: a blank
+1$:	CMP	R0,QWORD
+	BHI	3$
+	MOVB	(R0),R2
+	CMP	R0,QWORD
+	BNE	11$
+	MOV	#'X,R2			; the word itself, even if empty
+11$:	CMPB	R4,#40
+	BNE	2$
+	CMPB	R2,#40
+	BEQ	2$
+	INC	R1			; a word begins
+	CMP	R1,#2
+	BNE	2$
+	MOV	R0,QA2
+2$:	MOV	R2,R4
+	INC	R0
+	BR	1$
+3$:	MOV	R1,QARGN
+	RETURN
+
+; CANON: SET's subject (the second word) as KMON compares it - its first
+; three letters or digits, upper-cased, a unit digit after a device's two
+; letters dropped: R1 -> it, R2 = its length.  C set: none.
+CANON:	MOV	QA2,R0
+	BEQ	8$
+	MOV	PC,R1
+	ADD	#QKEYB-.,R1
+	CLR	R3
+1$:	CMP	R3,#3
+	BHIS	3$
+	MOVB	(R0)+,R2
+	CALL	UPPER
+	CMP	R2,#'0
+	BLO	3$
+	CMP	R2,#'Z
+	BHI	3$
+	CMP	R2,#'9
+	BLOS	2$
+	CMP	R2,#'A
+	BLO	3$
+2$:	MOVB	R2,(R1)+
+	INC	R3
+	BR	1$
+3$:	TST	R3
+	BEQ	8$
+	CMP	R3,#3
+	BNE	4$
+	CMPB	-1(R1),#'0		; DZ1, LD0: the unit goes
+	BLO	4$
+	CMPB	-1(R1),#'7
+	BHI	4$
+	DEC	R3
+4$:	MOV	PC,R1
+	ADD	#QKEYB-.,R1
+	MOV	R3,R2
+	CLC
+	RETURN
+8$:	SEC
+	RETURN
+
+; UPPER: R2 upper-cased, if a Latin letter.
+UPPER:	CMP	R2,#'a
+	BLO	9$
+	CMP	R2,#'z
+	BHI	9$
+	SUB	#40,R2
+9$:	RETURN
+
+; MATCH: every candidate name starting with the word (QWORD, QPLEN long)
+; is counted, with how far they all agree (QMCNT, QCOMM, QCLEN) - or,
+; with QTPRN set, listed.
+MATCH:	CLR	QMCNT
+	CALL	FIRST
+1$:	TST	R4
+	BEQ	9$
+	MOV	QWORD,R1
+	MOV	R4,R3
+	MOV	QPLEN,QTCNT
+	BEQ	5$
+2$:	CALL	TCHAR
+	MOVB	(R1)+,R2
+	CALL	UPPER
+	CMP	R0,R2
+	BNE	7$
+	DEC	QTCNT
+	BEQ	5$
+	TST	QTLST
+	BNE	7$			; the name is shorter than the word
+	BR	2$
+5$:	CALL	TAKE
+7$:	CALL	NEXT
+	BR	1$
+9$:	RETURN
+
+; FIRST, NEXT: R4 -> the first, the next candidate name; 0 at the end.
+FIRST:	MOV	PC,R1
+	ADD	#FTAB-.,R1
+	BR	DISP
+NEXT:	MOV	PC,R1
+	ADD	#NTAB-.,R1
+DISP:	MOV	QTENC,R0
+	ASL	R0
+	ADD	R0,R1
+	ADD	(R1),R1
+	JMP	(R1)
+
+FTAB:	.WORD	TFIRST-., KFIRST-., FFIRST-., AFIRST-.
+NTAB:	.WORD	TNEXT-., KNEXT-., FNEXT-., ANEXT-.
+
+; KMON's command table: the names one after another, a 0 byte after.
+TFIRST:	MOV	QTBL,R4
+	BR	TCHK
+TNEXT:	TSTB	(R4)+
+	BPL	TNEXT
+TCHK:	TSTB	(R4)
+	BNE	9$
+	CLR	R4
+9$:	RETURN
+
+; A command's lists: each list's descriptor numbers; descriptor k is 3
+; bytes at QDESC+3(k-1), its second byte the number of its name in QNTAB
+; (after a dummy first one).
+KFIRST:	MOV	QLCNT,QLLFT
+	MOV	QLOFS,QLNXT
+	CLR	QLPTR
+KNEXT:	TST	QLPTR
+	BEQ	2$
+	MOV	QLPTR,R0
+	CALL	GB
+	TST	R0
+	BNE	3$
+2$:	TST	QLLFT			; the next list
+	BEQ	8$
+	DEC	QLLFT
+	MOV	QLNXT,R0
+	CALL	GB
+	ADD	QLNXT,R0
+	INC	R0
+	MOV	R0,QLPTR
+	INC	QLNXT
+	BR	KNEXT
+3$:	INC	QLPTR
+	DEC	R0			; descriptor R0: its name's number
+	MOV	R0,R1
+	ASL	R0
+	ADD	R1,R0
+	ADD	QDESC,R0
+	INC	R0
+	CALL	GB
+	MOV	R0,R2
+	MOV	QNTAB,R1		; past the dummy and R2-1 names
+	INC	R2
+4$:	DEC	R2
+	BEQ	6$
+5$:	MOV	R1,R0
+	INC	R1
+	CALL	GB
+	TSTB	R0
+	BPL	5$
+	BR	4$
+6$:	MOV	R1,R0
+	CALL	MAPA
+	MOV	R0,R4
+	RETURN
+8$:	CLR	R4
+	RETURN
+
+; The array: RAD50 names, a NO form or not.
+AFIRST:	CLR	QAIDX
+	BR	ANAME
+ANEXT:	INC	QAIDX
+ANAME:	CMP	QAIDX,QACNT
+	BHIS	8$
+	MOV	QAIDX,R1		; its entry: w1, w2, NO
+	MOV	R1,R0
+	ASL	R1
+	ADD	R0,R1
+	ASL	R1
+	MOV	PC,R0
+	ADD	#QAENT-.,R0
+	ADD	R0,R1
+	MOV	PC,R2
+	ADD	#QFNAM-.,R2
+	TST	4(R1)
+	BEQ	1$
+	MOVB	#'N,(R2)+
+	MOVB	#'O,(R2)+
+1$:	MOV	(R1),R0
+	CALL	UNRAD
+	MOV	2(R1),R0
+	BEQ	2$
+	CALL	UNRAD
+2$:	BISB	#200,-1(R2)
+	MOV	PC,R4
+	ADD	#QFNAM-.,R4
+	RETURN
+8$:	CLR	R4
+	RETURN
+
+; TAKE: R4 -> a matching name; count it or list it.  R4 kept.
+TAKE:	TST	QTPRN
+	BNE	PRNAME
+	INC	QMCNT
+	MOV	R4,R3
+	MOV	PC,R1
+	ADD	#QCOMM-.,R1
+	CMP	QMCNT,#1
+	BNE	3$
+	CLR	QCLEN			; the first: all of it
+1$:	CALL	TCHAR
+	MOVB	R0,(R1)+
+	INC	QCLEN
+	TST	QTLST
+	BEQ	1$
+	RETURN
+3$:	CLR	R2			; the next: how much it shares
+4$:	CMP	R2,QCLEN
+	BHIS	6$
+	CALL	TCHAR
+	CMPB	R0,(R1)+
+	BNE	6$
+	INC	R2
+	TST	QTLST
+	BEQ	4$
+6$:	MOV	R2,QCLEN
+	RETURN
+
+; PRNAME: R4 -> a name; print it in a 14-column field, five to a row
+; (a longer name gets a blank after it all the same).
+PRNAME:	MOV	R4,R3
+	MOV	#14.,R2
+1$:	CALL	TCHAR
+	CALL	@V.PUTC
+	DEC	R2
+	TST	QTLST
+	BEQ	1$
+	TST	R2
+	BGT	2$
+	MOV	#1,R2
+2$:	MOV	#40,R0
+	CALL	@V.PUTC
+	SOB	R2,2$
+	INC	QCOL
+	CMP	QCOL,#5
+	BLO	9$
+	CLR	QCOL
+	JMP	@V.CRLF
+9$:	RETURN
+
+; TCHAR: R0 = the name's character at R3 (R3 moves on); QTLST set if it
+; was the name's last.  KMON's names are 6-bit (below 40 a letter less
+; 100), the others ASCII; bit 200 marks the last in both.
+TCHAR:	CLR	QTLST
+	MOVB	(R3)+,R0
+	BPL	1$
+	INC	QTLST
+1$:	CMP	QTENC,#2
+	BHIS	3$
+	BIC	#177700,R0
+	CMP	R0,#40
+	BHIS	2$
+	ADD	#100,R0
+2$:	RETURN
+3$:	BIC	#177600,R0
+	RETURN
+
+; FWORD: R3 -> a file word, R2 -> its end: the device (DK: when none is
+; typed) into QFDEV, the name part into QWORD/QPLEN.  C set when the
+; device is no RAD50 name, or the line is not KMON's.
+FWORD:	MOV	R2,-(SP)
+	MOV	R3,-(SP)
+	CALL	KTAB
+	MOV	(SP)+,R3
+	MOV	(SP)+,R2
+	TST	R0
+	BEQ	8$
+	MOV	R3,R0
+1$:	CMP	R0,R2
+	BHIS	3$
+	CMPB	(R0)+,#':
+	BNE	1$
+	MOV	R0,QWORD		; after the colon
+	DEC	R0
+	SUB	R3,R0			; the device's length
+	BEQ	8$
+	CMP	R0,#3
+	BHI	8$
+	MOV	R2,-(SP)
+	CALL	RAD50
+	MOV	(SP)+,R2
+	BCS	9$
+	BR	4$
+3$:	MOV	R3,QWORD
+	MOV	#^RDK ,QFDEV
+4$:	MOV	R2,R0
+	SUB	QWORD,R0
+	MOV	R0,QPLEN
+	MOV	#2,QTENC
+	CLC
+	RETURN
+8$:	SEC
+9$:	RETURN
+
+; RAD50: R0 characters at R3 (1 to 3) as a RAD50 word into QFDEV.
+RAD50:	CLR	R1
+	MOV	#3,R4
+1$:	MOV	R1,R2			; R1 * 40.
+	ASL	R1
+	ASL	R1
+	ASL	R1
+	ASL	R2
+	ASL	R2
+	ASL	R2
+	ASL	R2
+	ASL	R2
+	ADD	R2,R1
+	TST	R0
+	BEQ	3$			; blanks after the name
+	MOVB	(R3)+,R2
+	DEC	R0
+	CALL	UPPER
+	CMP	R2,#'A
+	BLO	2$
+	CMP	R2,#'Z
+	BHI	8$
+	SUB	#'A-1,R2
+	BR	4$
+2$:	CMP	R2,#'0
+	BLO	8$
+	CMP	R2,#'9
+	BHI	8$
+	SUB	#'0-36,R2
+4$:	ADD	R2,R1
+3$:	SOB	R4,1$
+	MOV	R1,QFDEV
+	CLC
+	RETURN
+8$:	SEC
+	RETURN
+
+; OPEN: channel FCHAN on a whole device, R1 -> its block (the RAD50 name,
+; no file).  .DSTATUS first: a .LOOKUP of a device there is not, or of
+; one whose handler is not in memory, is the monitor's fatal error.
+OPEN:	SUB	#10,SP
+	MOV	SP,R0
+	MOV	R0,-(SP)
+	MOV	R1,R0
+	EMT	342			; .DSTATUS
+	MOV	4(SP),R2		; the handler's entry, 0: not loaded
+	MOV	(SP)+,R0		; (MOV keeps C)
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	BCS	9$
+	TST	R2
+	BEQ	8$
+	CLR	-(SP)
+	MOV	R1,-(SP)
+	MOV	#<1*400+FCHAN>,-(SP)	; .LOOKUP
+	MOV	SP,R0
+	EMT	375
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	RETURN
+8$:	SEC
+9$:	RETURN
+
+; READ: R2 words from block R1 of channel FCHAN into R0.  C on an error.
+READ:	CLR	-(SP)			; .READW: wait
+	MOV	R2,-(SP)
+	MOV	R0,-(SP)
+	MOV	R1,-(SP)
+	MOV	#<10*400+FCHAN>,-(SP)
+	MOV	SP,R0
+	EMT	375
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	MOV	(SP)+,R0
+	RETURN
+
+; FCLOSE: the channel goes.
+FCLOSE:	MOV	#<3*400+FCHAN>,R0	; .PURGE
+	EMT	374
+	RETURN
+
+; RDSY: R2 words from block R1 of SY: (opened whole) into the USR's
+; buffer (QBUF).  C set on an error.
+RDSY:	MOV	@#RMON,R0
+	CLR	BLKEY(R0)
+	MOV	266(R0),QBUF
+	CLR	QKMAP
+	MOV	R2,-(SP)
+	MOV	R1,-(SP)
+	MOV	PC,R1
+	ADD	#QSYDB-.,R1
+	CALL	OPEN
+	MOV	(SP)+,R1		; (MOV keeps C)
+	MOV	(SP)+,R2
+	BCS	9$
+	MOV	QBUF,R0
+	CALL	READ
+	BCS	8$
+	CALL	FCLOSE
+	CLC
+	RETURN
+8$:	CALL	FCLOSE
+	SEC
+9$:	RETURN
+
+; FFIRST: the device opened, its first segment read; R4 -> the first
+; file's name (QFNAM), 0 when there is none.
+FFIRST:	MOV	PC,R1
+	ADD	#QFDEV-.,R1
+	CALL	OPEN
+	BCS	9$
+	MOV	#1,QFSEG
+	CALL	FREAD
+	BCS	8$
+	BR	FSCAN
+8$:	CALL	FCLOSE
+9$:	CLR	R4
+	RETURN
+
+; FNEXT: R4 -> the next file's name, 0 at the end.
+FNEXT:	ADD	QFESZ,QFENT
+	; fall into FSCAN
+
+; FSCAN: from QFENT on, the next permanent file (status 2000; 4000 ends
+; a segment); its name into QFNAM.
+FSCAN:	MOV	QFENT,R1
+1$:	MOV	QFBUF,R0		; still in the segment?
+	ADD	#2000-16,R0
+	CMP	R1,R0
+	BHIS	3$
+	BIT	#4000,(R1)
+	BNE	3$
+	BIT	#2000,(R1)
+	BNE	2$
+	ADD	QFESZ,R1
+	BR	1$
+2$:	MOV	R1,QFENT
+	JMP	FNAME
+3$:	MOV	QFBUF,R0		; the next segment
+	MOV	2(R0),R0
+	BEQ	8$
+	CMP	R0,#31.
+	BHI	8$
+	MOV	R0,QFSEG
+	CALL	FREAD
+	BCS	8$
+	MOV	QFENT,R1
+	BR	1$
+8$:	CALL	FCLOSE
+	CLR	R4
+	RETURN
+
+; FREAD: segment QFSEG (block 6 + 2 (segment - 1)) into the USR's buffer;
+; QFENT -> its first entry, QFESZ the entries' size (14 bytes and the
+; extra bytes its header says).  C set on an error.
+FREAD:	MOV	@#RMON,R0
+	CLR	BLKEY(R0)
+	MOV	266(R0),R0
+	MOV	R0,QFBUF
+	MOV	QFSEG,R1
+	ASL	R1
+	ADD	#4,R1
+	MOV	#1000,R2
+	CALL	READ
+	BCS	9$
+	MOV	QFBUF,R0
+	MOV	6(R0),R1		; the extra bytes
+	CMP	R1,#100
+	BHI	8$
+	ADD	#16,R1
+	MOV	R1,QFESZ
+	ADD	#12,R0			; past the header's five words
+	MOV	R0,QFENT
+	CLC
+	RETURN
+8$:	SEC
+9$:	RETURN
+
+; FNAME: the entry at QFENT's name as NAME.EXT (bit 200 on the last)
+; into QFNAM; R4 -> it.
+FNAME:	MOV	PC,R2
+	ADD	#QFNAM-.,R2
+	MOV	QFENT,R1
+	MOV	2(R1),R0
+	CALL	UNRAD
+	MOV	4(R1),R0
+	CALL	UNRAD
+	MOVB	#'.,(R2)+
+	MOV	6(R1),R0
+	CALL	UNRAD
+	BISB	#200,-1(R2)
+	MOV	PC,R4
+	ADD	#QFNAM-.,R4
+	RETURN
+
+; UNRAD: the RAD50 word R0 as up to three characters at R2 (blanks left
+; out).  There is no DIV: the digits go by subtraction.  R1 kept.
+UNRAD:	MOV	R1,-(SP)
+	CLR	R1			; the first: R0 / 1600.
+1$:	CMP	R0,#1600.
+	BLO	2$
+	SUB	#1600.,R0
+	INC	R1
+	BR	1$
+2$:	CALL	UNCHR
+	CLR	R1			; the second: R0 / 40.
+3$:	CMP	R0,#40.
+	BLO	4$
+	SUB	#40.,R0
+	INC	R1
+	BR	3$
+4$:	CALL	UNCHR
+	MOV	R0,R1			; the third
+	CALL	UNCHR
+	MOV	(SP)+,R1
+	RETURN
+
+; UNCHR: the RAD50 character R1 at R2, unless it is a blank.
+UNCHR:	TST	R1
+	BEQ	9$
+	CMP	R1,#27.
+	BLO	1$
+	BEQ	2$
+	CMP	R1,#28.
+	BEQ	3$
+	CMP	R1,#30.
+	BLO	9$
+	ADD	#'0-30.,R1
+	BR	4$
+1$:	ADD	#'A-1,R1
+	BR	4$
+2$:	MOV	#'$,R1
+	BR	4$
+3$:	MOV	#'.,R1
+4$:	MOVB	R1,(R2)+
+9$:	RETURN
+
+; The resident routines the overlay calls: their offsets from SL's LQE,
+; and (filled at every entry) their addresses.
+VOFS:	.WORD	T.INS-SLLQE, T.BELL-SLLQE, T.PUTC-SLLQE, T.CRLF-SLLQE, T.RESH-SLLQE
+V.INS:	.WORD	0
+V.BELL:	.WORD	0
+V.PUTC:	.WORD	0
+V.CRLF:	.WORD	0
+V.RESH:	.WORD	0
+
+QSYDB:	.RAD50	/SY /			; SY: whole, for RDSY
+	.WORD	0,0,0
+
+; The overlay's data in the file: the .LOOKUP block of a device.
+QFDEV:	.WORD	0,0,0,0			; a device, no file: a .LOOKUP block
+OVEND:
+
+; Its variables follow it in memory, not in the file: OVGET leaves room
+; for them (OVMEM), and every one is set before it is read.
+QCMD	= OVEND			; -> the command word
+QCLN	= QCMD+2			; its length
+QCIX	= QCLN+2			; its number in KMON's table
+QWORD	= QCIX+2			; -> the word being completed
+QPLEN	= QWORD+2			; its length
+QWEND	= QPLEN+2			; -> its end
+QARGN	= QWEND+2			; which word of the line it is
+QA2	= QARGN+2			; -> the line's second word
+QKIND	= QA2+2			; the list wanted: 1 switches, 2 words, 3 options
+QTENC	= QKIND+2			; the candidates: 0 1 2 3, see MATCH
+QTBL	= QTENC+2			; -> KMON's command table
+QTCNT	= QTBL+2			; characters left to compare
+QTOK	= QTCNT+2			; long enough to abbreviate
+QTLST	= QTOK+2			; the last character of a name
+QTPRN	= QTLST+2			; list the matches, not count them
+QMCNT	= QTPRN+2			; the matches
+QCLEN	= QMCNT+2			; how far they all agree
+QCOL	= QCLEN+2			; the list's column
+QKMAP	= QCOL+2			; the USR's buffer holds KMON's overlay
+QBUF	= QKMAP+2			; -> the USR's buffer
+QDISP	= QBUF+2			; -> KMON's dispatch words (less 2)
+QTHR	= QDISP+2			; the lowest overlay dispatch word
+QWCNT	= QTHR+2			; an overlay's word count
+QAREA	= QWCNT+2			; KMON's overlay area
+QBLK0	= QAREA+2			; overlay 0's block on SY:
+QARGS	= QBLK0+2			; -> the command's w0..w3
+QSET	= QARGS+2			; SETUP
+QDESC	= QSET+2			; -> the descriptors
+QNTAB	= QDESC+2			; -> the names
+QLCNT	= QNTAB+2			; the lists
+QLOFS	= QLCNT+2			; -> the first list's offset
+QLLFT	= QLOFS+2			; lists left
+QLNXT	= QLLFT+2			; -> the next list's offset
+QLPTR	= QLNXT+2			; -> the list's next number
+QSPC	= QLPTR+2			; -> SET's subject loop
+QSBYT	= QSPC+2			; -> SET's byte subjects
+QSR4	= QSBYT+2			; R4, as SET's code sets it
+QSPND	= QSR4+2			; a subject whose table comes next
+QSKEY	= QSPND+2			; the subject typed (RAD50), 0: all
+QOTAB	= QSKEY+2			; -> an option table
+QOEND	= QOTAB+2			; its end
+QACNT	= QOEND+2			; the array's names
+QAIDX	= QACNT+2			; the one MATCH is at
+QFSEG	= QAIDX+2			; the directory segment read
+QFBUF	= QFSEG+2			; -> it
+QFENT	= QFBUF+2			; -> the entry
+QFESZ	= QFENT+2			; an entry's size
+QKEYB	= QFESZ+2			; SET's subject as KMON takes it
+QFNAM	= QKEYB+4			; a name made: NAME.EXT, NO+name
+QCOMM	= QFNAM+12.			; what the matches agree on
+QAENT	= QCOMM+CSIZE			; the array: w1, w2, NO
+OVWEND	= QAENT+<<AMAX*3>*2>
+
+OVBLKS	= <OVEND-OVL+777>/1000		; the blocks it takes in SL.SYS
+OVSUMW	= <V.INS-OVL>/2			; the words summed: the code, no data
+OVMEM	= OVBLKS*1000			; the memory it takes, its variables too
+	.IIF GT <OVWEND-OVL>-OVMEM, OVMEM = <OVWEND-OVL+1>&177776
