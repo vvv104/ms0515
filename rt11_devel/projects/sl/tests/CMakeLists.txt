@@ -5,10 +5,10 @@
 # this project's SL.SYS on it, and Tab pressed: the monitor's commands, their
 # switches, SET's and SHOW's words, file names.
 #
-# The SL under test is the project's own build, built into
-# rt11_devel/projects/sl/build (see ../CMakeLists.txt); another is named on
-# the command line: sltab_tests --sl-sys=<file>.  Everything skips itself
-# when there is none.  Without the collection ($MS0515_SOFTWARE_DIR, else
+# The SL under test is the collection's (kits/dec/handlers/tab/SL.SYS); a
+# fresh build is named on the command line:
+# sltab_tests --sl-sys=<build>/work/sl.sys.  Everything skips itself when
+# there is none.  Without the collection ($MS0515_SOFTWARE_DIR, else
 # the checkout beside this repository) there is no system to boot and the
 # harness is left out.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,7 +66,7 @@ target_include_directories(sltab_tests PRIVATE
 target_compile_definitions(sltab_tests PRIVATE
     ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
     SL_SYSTEM_DISK="${SLTAB_SYSTEM_DISK}"
-    SL_SYS="${CMAKE_CURRENT_SOURCE_DIR}/../build/work/sl.sys"
+    SL_SYS="${SLTAB_SOFTWARE_DIR}/kits/dec/handlers/tab/SL.SYS"
 )
 
 target_link_libraries(sltab_tests

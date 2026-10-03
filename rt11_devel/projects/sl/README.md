@@ -125,6 +125,7 @@ the machine of DEC's SL's tests — the dec system composed from the software
 collection — with this build on it: the commands, the switches, SET and
 SHOW, the files, the overlay's place in memory, a program's line, the
 ring.  It tests
-`build/work/sl.sys`; another build is named: `sltab_tests --sl-sys=<file>`.
+the software collection's `kits/dec/handlers/tab/SL.SYS`, where this SL is
+kept; a fresh build is named: `sltab_tests --sl-sys=build/work/sl.sys`.
 DEC's own keys are tested on the same file by
 `sl_tests --sl-sys=<file>`.
