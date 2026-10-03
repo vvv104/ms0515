@@ -122,7 +122,8 @@ jobs:
       # folder volume and the keyboard typing they cover are what
       # ms0515-run stands on.  Its own suite runs programs on the machine
       # baked above; it must be there - a build that silently left the
-      # tool out would pass with nothing tested.
+      # tool out would pass with nothing tested.  The two SL suites boot the
+      # dec system of the collection with its SL.SYS files and type at it.
       - name: Run tests
         shell: bash
         working-directory: src/build/Release
@@ -134,6 +135,8 @@ jobs:
           ./disk/tests/ms0515_disk_tests$EXE
           ./cli/tests/ms0515_cli_tests$EXE
           ./tools/run/tests/ms0515_run_tests$EXE
+          ./rt11_devel/projects/rt11/handlers/sl/tests/sl_tests$EXE
+          ./rt11_devel/projects/sl/tests/sltab_tests$EXE
 
   web:
     name: web / emscripten
