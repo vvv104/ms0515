@@ -80,7 +80,18 @@ TEST_CASE("modified sequences: Alt+F1 (CSI 1;3P), Alt+F5 (CSI 15;3~), the ESC-pr
     CHECK(keys[1] == HostKey::ofSpecial(SpecialKey::f5, true));
     CHECK(keys[2] == HostKey::ofSpecial(SpecialKey::f2, true));
     CHECK(keys[3] == HostKey::ofSpecial(SpecialKey::up));
-    CHECK(keys[4] == HostKey::ofSpecial(SpecialKey::f2));   /* Shift is not Alt */
+    CHECK(keys[4] == HostKey::ofSpecial(SpecialKey::f2, false, true));   /* Shift is not Alt */
+}
+
+TEST_CASE("Shift with an F-key is told: CSI 1;2P for F1, CSI 15;2~ for F5, CSI 24;2~ for F12; with Alt too, both")
+{
+    const auto keys = parse("\x1B[1;2P\x1B[15;2~\x1B[24;2~\x1B[1;4S\x1B[1;2A");
+    REQUIRE(keys.size() == 5);
+    CHECK(keys[0] == HostKey::ofSpecial(SpecialKey::f1, false, true));
+    CHECK(keys[1] == HostKey::ofSpecial(SpecialKey::f5, false, true));
+    CHECK(keys[2] == HostKey::ofSpecial(SpecialKey::f12, false, true));
+    CHECK(keys[3] == HostKey::ofSpecial(SpecialKey::f4, true, true));
+    CHECK(keys[4] == HostKey::ofSpecial(SpecialKey::up));   /* an arrow carries no Shift */
 }
 
 TEST_CASE("a lone Esc is a key once the burst ends; an unknown sequence falls through as bytes; a split sequence waits")

@@ -34,10 +34,11 @@ struct HostKey {
     uint8_t    byte = 0;             /* when special == none */
     SpecialKey special = SpecialKey::none;
     bool       alt = false;          /* Alt held with a function key */
+    bool       shift = false;        /* Shift held with a function key */
 
     [[nodiscard]] static HostKey ofByte(uint8_t b) noexcept { HostKey k; k.byte = b; return k; }
-    [[nodiscard]] static HostKey ofSpecial(SpecialKey s, bool alt = false) noexcept
-    { HostKey k; k.special = s; k.alt = alt; return k; }
+    [[nodiscard]] static HostKey ofSpecial(SpecialKey s, bool alt = false, bool shift = false) noexcept
+    { HostKey k; k.special = s; k.alt = alt; k.shift = shift; return k; }
     [[nodiscard]] bool isByte() const noexcept { return special == SpecialKey::none; }
     [[nodiscard]] bool isSpecial() const noexcept { return special != SpecialKey::none; }
     bool operator==(const HostKey &) const = default;

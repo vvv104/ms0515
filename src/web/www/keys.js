@@ -113,6 +113,17 @@ export function mapKey(code, shifted, rus) {
   return { key: positional(code, rus), withShift: shifted };
 }
 
+// The right Shift with an F-key: the keys a PC has no cap for (the lib's
+// shiftedFunctionKey).  The machine's key is ten further on - PF1..PF4,
+// Help and Perform (its F15, F16), F17..F20 - and the two left over, F13
+// and F14, are on F11 and F12.  null for any other code.
+const SHIFTED_FUNCTION = ["Pf1", "Pf2", "Pf3", "Pf4", "Help", "Perform",
+                          "F17", "F18", "F19", "F20", "F13", "F14"];
+export function shiftedFunctionKey(code) {
+  const m = /^F([1-9]|1[0-2])$/.exec(code);
+  return m ? SHIFTED_FUNCTION[Number(m[1]) - 1] : null;
+}
+
 // Letter keys (Emulator's isLetterKey): the CAPS + Shift inversion applies.
 const LAT_LETTERS = new Set([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"]);
 const RUS_LETTERS = new Set([...LAT_LETTERS, "LBracket", "RBracket", "Backslash", "HardSign",

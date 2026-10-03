@@ -399,4 +399,15 @@ bool isShiftImmuneSymbol(Key k, bool rusMode) noexcept
         || k == Key::Che;        /* Ч/¬  — Shift would give ~ */
 }
 
+Key shiftedFunctionKey(int number) noexcept
+{
+    static constexpr Key kKeys[12] = {
+        Key::Pf1, Key::Pf2, Key::Pf3, Key::Pf4,
+        Key::Help, Key::Perform,
+        Key::F17, Key::F18, Key::F19, Key::F20,
+        Key::F13, Key::F14,
+    };
+    return number >= 1 && number <= 12 ? kKeys[number - 1] : Key::None;
+}
+
 } /* namespace ms0515 */

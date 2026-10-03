@@ -1,0 +1,65 @@
+# The editing keys and the help: the hooks in DEC's SL
+#
+# Applied after SLHIS.diff.  The six keys over the arrows send a sequence a
+# VT52 has not: DEC's SL beeps at its head and takes the rest for text.
+# Where its ESC parsing gives up, KEYESC (SLKEY.MAC) reads the sequence.
+# And PF2 with no error to tell of goes to KEYHLP, which shows the keys
+# from the overlay - SL is built without DEC's picture (SLOPT.MAC) - and
+# comes back to DEC's wait for a key.  Built so for the VT52 alone, DEC's
+# table of messages has no entry for "no error" and PF2 answered
+# "Unsupported command": the entry is given back.
+
+--- a/SL.MAC
++++ b/SL.MAC
+@@ -2714,6 +2714,7 @@
+ 	 .Byte	<CUU>,<CUB>
+ 	 .Word	AroTab
+ $Rel	 .-2	AroTab	SLX
++	Jmp	KeyEsc			; MS 0515: the editing keys' ESC [ n ~ (SLKEY.MAC)
+ EscErr:
+ 	Call	DoBEL
+ 	.Word	EscCod			; illegal escape sequence
+@@ -2860,6 +2861,7 @@
+ 	Call	V.CrEl			; clear the current line
+ .IfTF;	EQ	HelpB$
+ 	MovB	Error(R5),R0		; load error code if any
++	Jmp	KeyHlp			; MS 0515: none - the keys, from the overlay (SLKEY.MAC)
+  .If	NE	VT100$!VT102$&VT52$!HelpB$
+ 	Bne	20$			; print error message
+  .EndC;	NE	VT100$!VT102$&VT52$!HelpB$
+@@ -2900,11 +2902,13 @@
+ 	Call	V.CrEl			; clear line
+ 	Pop	<R0>
+ .IfTF;	EQ	HelpB$
++HelpEr:					; MS 0515: an error's message, or DEC's line
+ 	Mov	Messag(R0),R0		; print the message (0 == HELP)
+ $Rel	.-2	Messag	SLX
+ 	Add	#Messag,R0		; relocate it			**PIC**
+ $Rel	.-2	Messag	SLX
+ 	Call	V.Print			; print the message
++HelpKy:					; MS 0515: after the help of ours too
+ 	Call	@InTty(R5)		; get a char
+ 	PushB	R0			; and save it
+ 	Call	Refrsh			; do a refresh of the display
+@@ -4531,10 +4535,10 @@
+ .EndC	;NE	VT102$
+ 	.Even
+ Messag:
+-.If	NE	VT100$!VT102$
++.If	NE	VT100$!VT102$!VT52$		; MS 0515: a VT52 with no picture has
+ HlpCod	=:	.-Messag		; no error, show help
+-	.Word	HlpMsg-Messag
+-.EndC	;NE	VT100$!VT102$
++	.Word	HlpMsg-Messag		; this line too - code 0 is "no error"
++.EndC	;NE	VT100$!VT102$!VT52$
+ .If	NE	HelpB$&VT52$
+ H52Cod	=:	.-Messag		; help for VT52
+ 	.Word	H52Msg-Messag
+@@ -4563,6 +4567,7 @@
+ .EndC;	NE	MMg$t
+ .Include	/SLTAB.MAC/		; MS 0515: Tab's resident part
+ .Include	/SLHIS.MAC/		; MS 0515: the history's ring
++.Include	/SLKEY.MAC/		; MS 0515: the editing keys, the help
+ .SbTtl	Initialization, one-time code
+ .SbTtl	** in IMPURE AREA BUFFER **
+ .Enable	LSB

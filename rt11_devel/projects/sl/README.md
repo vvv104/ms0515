@@ -1,20 +1,23 @@
 # SL.SYS with Tab and a history — DEC's single-line editor, and ours
 
 DEC's `SL` as [`../rt11/handlers/sl`](../rt11/handlers/sl/README.md) builds
-it for the machine's console, with two things of our own: **Tab completes
-the word** in the monitor's command line, and **the history is a ring** of
-as many lines as fit where DEC kept two.  The rest is DEC's, keys and all.
+it for the machine's console, with things of our own: **Tab completes the
+word** in the monitor's command line, **the history is a ring** of as many
+lines as fit where DEC kept two, **Home, End and Delete** do what they do
+on a PC, and **PF2 lists the keys**.  The rest is DEC's.
 
 | | on disk | in memory |
 |---|---|---|
-| DEC's SL | 13 blocks | 3624 bytes |
-| this one | 21 blocks | 4090 bytes |
+| DEC's SL | 13 blocks | 3624 bytes: 8 blocks |
+| this one | 21 blocks | 3572 bytes: 7 blocks |
 
-The eight blocks are the completion overlay, read from SL.SYS when Tab is
-pressed into memory nobody is using at that moment.  The 466 bytes are what
-reads it and hands it DEC's own routines, and the ring's code; the ring
-itself is DEC's two buffers.  The resident part is kept under 4096 bytes:
-past that the handler takes a ninth block of memory and SL.SYS a
+The eight blocks more are the overlay - the completion and the text of the
+keys - read from SL.SYS when Tab or PF2 is pressed into memory nobody is
+using at that moment.  In memory it is a block less than DEC's: DEC's
+picture of a VT52's keypad, 538 bytes of the resident handler, is not
+built in, and what was added - the overlay's reader, the ring, the keys -
+is smaller.  The resident part is kept within seven blocks, 3584 bytes:
+past that the handler takes an eighth block of memory and SL.SYS a
 twenty-second on disk.
 
 ## Tab
@@ -54,8 +57,27 @@ in a row.
 * On a line the history was not walked from, Down is DEC's: the line saved
   with GOLD Down.
 
-That is the one place this SL parts from DEC's logic, and DEC's own test of
-GOLD Up (`sl_tests`) does not pass on it.
+This SL parts from DEC's logic here and in PF2's help (below); DEC's own
+tests of the two (`sl_tests`: GOLD Up, the picture) do not pass on it, the
+other twelve do.
+
+## The keys over the arrows, and PF2
+
+The six keys over the arrows send a sequence a VT52 has not, and DEC's SL
+beeped at its head and took the rest for text - a `~` in the line at every
+press.  Now:
+
+| MS 7004 | PC | |
+|---|---|---|
+| НТ (Find) | Home | to the start of the line |
+| ВЫБР (Select) | End | to the end of the line |
+| УДАЛ (Remove) | Delete | delete the character under the cursor |
+| ВСТ, ПРЕД КАДР, СЛЕД КАДР | Insert, PgUp, PgDn | nothing |
+
+**PF2** lists the keys, thirteen lines of text, and the line comes back at
+the next key.  After an error it tells of the error, as DEC's does.  In a
+program's line, where the overlay is not to be read, it is DEC's line
+pointing at the manual.
 
 ## How it is made
 
@@ -70,8 +92,8 @@ Our files over DEC's `SL.MAC`, which stays outside the repository:
   flag (RMON+450); `OVGET` finds the overlay or reads it; five entries give
   the overlay DEC's `Insert`, `Refrsh`, the bell and the screen.
 * **`SLOVL.MAC`** — the overlay, in the section of DEC's SET overlays, on a
-  block of its own after them.  SL.SYS's place on SY: is its `$DVREC` word
-  in RMON's tables, SY: is opened whole, and the overlay is read to 16
+  block of its own after them.  `SY:SL.SYS` is looked up - a handler is
+  there - and the overlay is read to 16
   blocks under the USR ([RMON+266]) less its size — above the image of the
   last program (its top in word 50).  Nobody owns that memory while KMON
   reads a line, and the next program just overwrites it: the next Tab finds
@@ -82,8 +104,15 @@ Our files over DEC's `SL.MAC`, which stays outside the repository:
 * **`SLHIS.diff`** and **`SLHIS.MAC`** — the ring: DEC's `SavOld`, `Up` and
   `Down` jump to ours, GOLD Up's routine is gone, the word that pointed at
   the second buffer says where Up and Down stand.
+* **`SLKEY.diff`** and **`SLKEY.MAC`** — the keys: where DEC's ESC parsing
+  gives up, ours reads the sequence (the monitor keeps seven bits, so the
+  ROM's `CSI n ~` arrives as `ESC n ~`); PF2 with no error calls the
+  overlay's second entry, which prints the text, and returns to DEC's wait
+  for a key.  The patch also gives DEC's table of messages its entry for
+  "no error", which a build for the VT52 alone without the picture lacks.
 * **`SLOPT.MAC`** — `Job$ = 1`: DEC's table of impure areas, eight jobs by
-  default, for the one job a single-job monitor has.
+  default, for the one job a single-job monitor has; `HelpB$ = 0`: no
+  picture.
 
 What the overlay reads, all of it the running monitor's:
 
@@ -124,7 +153,7 @@ sources named by `$MS0515_RT11_SOURCES`.  `SL.SYS` comes out in
 the machine of DEC's SL's tests — the dec system composed from the software
 collection — with this build on it: the commands, the switches, SET and
 SHOW, the files, the overlay's place in memory, a program's line, the
-ring.  It tests
+ring, the keys and the help.  It tests
 the software collection's `kits/dec/handlers/tab/SL.SYS`, where this SL is
 kept; a fresh build is named: `sltab_tests --sl-sys=build/work/sl.sys`.
 DEC's own keys are tested on the same file by

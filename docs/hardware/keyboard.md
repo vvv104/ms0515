@@ -125,6 +125,28 @@ before this was modelled, which the game took as every line held.
 
 ---
 
+## The keys a PC keyboard has no cap for
+
+The MS 7004 has twenty function keys and four PF keys; a PC has twelve
+F-keys.  F1..F12 are the machine's Ф1..Ф12.  The rest are the same F-keys
+with Shift, the machine's key ten further on as far as that goes
+(`ms0515::shiftedFunctionKey`, the same table in the browser's `keys.js`):
+
+| PC | MS 7004 |
+|---|---|
+| Shift+F1 .. F4 | ПФ1 .. ПФ4 |
+| Shift+F5, F6 | ПМ, ИСП (the machine's 15th and 16th) |
+| Shift+F7 .. F10 | Ф17 .. Ф20 |
+| Shift+F11, F12 | Ф13, Ф14 - the two left over, on the two left over |
+
+In the window and in the browser it is the **right** Shift: the left one
+stays the machine's own ВР, so ВР with a function key can still be
+pressed.  The machine does not see the right Shift under such a key - it
+is let go for as long as the key is held.  A terminal does not tell the
+two Shifts apart, so in `ms0515-cli` either does.  NumLock is ПФ1 as well.
+
+---
+
 ## MS 7004 Keyboard Protocol
 
 The sections below document the MS 7004 keyboard itself — scancodes it

@@ -55,7 +55,7 @@ void PhysicalKeyboard::handleKeyDown(SDL_Scancode phys,
 {
     /* Numpad /,*,+: map to the corresponding symbol key with proper
      * down/up tracking so auto-repeat works.  No OSK highlight (no
-     * physToMs7004 entry).  PF2-4 remain OSK-only. */
+     * physToMs7004 entry). */
     if (phys == SDL_SCANCODE_KP_DIVIDE) {
         emu.keyPress(ms0515::Key::Slash, true);
         return;
@@ -102,6 +102,23 @@ void PhysicalKeyboard::handleKeyDown(SDL_Scancode phys,
     const bool shiftL    = emu.keyHeld(ms0515::Key::ShiftL);
     const bool shiftR    = emu.keyHeld(ms0515::Key::ShiftR);
     const bool hostShift = shiftL || shiftR;
+
+    /* The right Shift with an F-key is one of the keys a PC has no cap
+     * for - the PF keys, Help, Perform, F13..F20 (shiftedFunctionKey).
+     * The machine is not to see that Shift under the key: it goes up for
+     * as long as the key is held.  The left Shift stays the machine's. */
+    if (phys >= SDL_SCANCODE_F1 && phys <= SDL_SCANCODE_F12 &&
+        (SDL_GetModState() & KMOD_RSHIFT)) {
+        if (wantCapture)
+            return;
+        const ms0515::Key key =
+            ms0515::shiftedFunctionKey(static_cast<int>(phys) - SDL_SCANCODE_F1 + 1);
+        if (shiftR) emu.keyPress(ms0515::Key::ShiftR, false);
+        emu.keyPress(key, true);
+        physToMs7004_[(int)phys] = (int)key;
+        shiftOverrides_[(int)phys] = {false, false, shiftR};
+        return;
+    }
 
     /* Character-based mapping: resolves the target MS7004 key AND
      * whether Shift should be active on the MS7004 side. */

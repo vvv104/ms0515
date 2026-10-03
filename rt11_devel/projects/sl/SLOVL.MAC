@@ -6,7 +6,8 @@
 ; This part of SL.SYS is not resident: the resident part (SLTAB.MAC) reads
 ; it - OVBLKS whole blocks - into the free memory under KMON when Tab is
 ; pressed and it is not there already, and calls OVL with R5 -> the
-; editor's impure area and R4 -> SL's LQE.
+; editor's impure area and R4 -> SL's LQE.  PF2 calls its other entry,
+; OVHLP, the same way: the text of the keys.
 ; Every list comes from the running monitor at that moment:
 ;
 ;  - the command word: KMON's command table, in memory (KTAB);
@@ -34,15 +35,7 @@ CSIZE	= 16.			; a command's name
 	.DSABL	LSB
 	.PSECT	SetOvr
 .=:OvrBk3+Blk				; on a block of its own
-OVL:	MOV	PC,R1			; the resident routines it calls
-	ADD	#VOFS-.,R1
-	MOV	PC,R2
-	ADD	#V.INS-.,R2
-	MOV	#5,R3
-1$:	MOV	(R1)+,R0
-	ADD	R4,R0
-	MOV	R0,(R2)+
-	SOB	R3,1$
+OVL:	CALL	OVINI
 	CLR	QKMAP
 	; fall into COMPL
 
@@ -1424,9 +1417,52 @@ UNCHR:	TST	R1
 4$:	MOVB	R1,(R2)+
 9$:	RETURN
 
+; OVINI: the resident routines the overlay calls, from SL's LQE in R4.
+OVINI:	MOV	PC,R1
+	ADD	#VOFS-.,R1
+	MOV	PC,R2
+	ADD	#V.INS-.,R2
+	MOV	#5,R3
+1$:	MOV	(R1)+,R0
+	ADD	R4,R0
+	MOV	R0,(R2)+
+	SOB	R3,1$
+	RETURN
+
+; OVHLP: the overlay's second entry - PF2: the keys.  The line the cursor
+; is on has been cleared; the editor shows the prompt and the line again
+; under the text.
+OVHLP:	CALL	OVINI
+	MOV	PC,R1
+	ADD	#HLPTXT-.,R1
+1$:	MOVB	(R1)+,R0
+	BEQ	2$
+	MOV	R1,-(SP)
+	CALL	@V.PUTC
+	MOV	(SP)+,R1
+	BR	1$
+2$:	RETURN
+
+HLPTXT:
+	.ASCII	" Left Right  move                     GOLD: to the start, the end"<CR><LF>
+	.ASCII	" Home End    to the start, the end"<CR><LF>
+	.ASCII	" Up Down     an older line, a newer   GOLD Down: save the line"<CR><LF>
+	.ASCII	" Down        on a fresh line: the saved line"<CR><LF>
+	.ASCII	" Delete      delete under the cursor"<CR><LF>
+	.ASCII	" Rubout      delete before it         GOLD: put it back"<CR><LF>
+	.ASCII	" Ctrl/U      delete to the start      GOLD: put it back"<CR><LF>
+	.ASCII	" PF3         delete to the end        GOLD: put it back"<CR><LF>
+	.ASCII	" Ctrl/H      swap two characters      GOLD: swap back"<CR><LF>
+	.ASCII	" Ctrl/R      show the line again"<CR><LF>
+	.ASCII	" Return      enter the line           GOLD: cut at the cursor"<CR><LF>
+	.ASCII	" Tab         complete: a command, a /switch, a file"<CR><LF>
+	.ASCII	" PF1         GOLD                     PF2: this, or the last error"<CR><LF>
+	.BYTE	0
+	.EVEN
+
 ; The resident routines the overlay calls: their offsets from SL's LQE,
 ; and (filled at every entry) their addresses.
-VOFS:	.WORD	T.INS-SLLQE, T.BELL-SLLQE, T.PUTC-SLLQE, T.CRLF-SLLQE, T.RESH-SLLQE
+VOFS:	.WORD	T.INS-SLLQE, T.BELL-SLLQE, V.R0-SLLQE, V.NL-SLLQE, T.RESH-SLLQE
 V.INS:	.WORD	0
 V.BELL:	.WORD	0
 V.PUTC:	.WORD	0
