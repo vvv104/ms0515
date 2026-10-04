@@ -910,6 +910,8 @@ function pageTakesKeys() {
 // synthetic Shift that is undone at release; CAPS + Shift inverts a
 // letter's case; the numpad / * + and a few РУС-mode symbols are handled
 // as special cases, as in PhysicalKeyboard.cpp.
+const MODIFIER_CODES = new Set(["ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight",
+                                "AltLeft", "AltRight", "CapsLock"]);
 const keyboard = {
   held: new Map(),        // host code -> MS7004 key id pressed for it
   overrides: new Map(),   // host code -> { added, removedL, removedR }
@@ -924,6 +926,23 @@ const keyboard = {
     if (code === "NumpadMultiply") { api.key(h, K("ShiftL"), 1); api.key(h, K("ColonStar"), 1); return; }
     if (code === "NumpadAdd") { api.key(h, K("ShiftL"), 1); api.key(h, K("SemiPlus"), 1); return; }
 
+    // The right Shift with an F-key is a key a PC has no cap for.  The
+    // machine does not see that Shift under it - and not after it either:
+    // pressed again when the F-key goes up, it is a key to a program that
+    // waits for any (ROSA's help closed at once).  It comes back with the
+    // next ordinary key, if it is still held.  The left Shift stays the
+    // machine's throughout.
+    const rightHeld = this.held.has("ShiftRight");
+    const fn = rightHeld ? shiftedFunctionKey(code) : null;
+    if (fn) {
+      api.key(h, K("ShiftR"), 0);
+      api.key(h, K(fn), 1);
+      this.held.set(code, K(fn));
+      return;
+    }
+    if (rightHeld && !MODIFIER_CODES.has(code) && api.keyHeld(h, K("ShiftR")) !== 1)
+      api.key(h, K("ShiftR"), 1);
+
     const rus = api.ruslat(h) === 1;
     const shiftL = api.keyHeld(h, K("ShiftL")) === 1;
     const shiftR = api.keyHeld(h, K("ShiftR")) === 1;
@@ -932,17 +951,6 @@ const keyboard = {
     // РУС: the host's \ is Э, its Shift+- is Ъ - switch to ЛАТ for an instant.
     if (rus && !hostShift && code === "Backslash") { this.tap(["RusLat", "Backslash", "RusLat"]); return; }
     if (rus && hostShift && code === "Minus") { this.tap(["RusLat", "Underscore", "RusLat"]); return; }
-
-    // The right Shift with an F-key is a key a PC has no cap for; the machine
-    // does not see that Shift under it.  The left Shift stays the machine's.
-    const fn = this.held.has("ShiftRight") ? shiftedFunctionKey(code) : null;
-    if (fn) {
-      if (shiftR) api.key(h, K("ShiftR"), 0);
-      api.key(h, K(fn), 1);
-      this.held.set(code, K(fn));
-      this.overrides.set(code, { added: false, removedL: false, removedR: shiftR });
-      return;
-    }
 
     const { key, withShift } = mapKey(code, hostShift, rus);
     if (!key) return;
