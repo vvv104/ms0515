@@ -98,27 +98,37 @@ void PhysicalKeyboard::handleKeyDown(SDL_Scancode phys,
         return;
     }
 
-    const bool rusMode   = emu.ruslatOn();
-    const bool shiftL    = emu.keyHeld(ms0515::Key::ShiftL);
-    const bool shiftR    = emu.keyHeld(ms0515::Key::ShiftR);
-    const bool hostShift = shiftL || shiftR;
-
     /* The right Shift with an F-key is one of the keys a PC has no cap
      * for - the PF keys, Help, Perform, F13..F20 (shiftedFunctionKey).
-     * The machine is not to see that Shift under the key: it goes up for
-     * as long as the key is held.  The left Shift stays the machine's. */
+     * The machine is not to see that Shift under the key - and not after
+     * it either: pressed again when the F-key goes up, it is a key to a
+     * program that waits for any (ROSA's help closed at once).  It comes
+     * back with the next ordinary key, if it is still held.  The left
+     * Shift stays the machine's throughout. */
     if (phys >= SDL_SCANCODE_F1 && phys <= SDL_SCANCODE_F12 &&
         (SDL_GetModState() & KMOD_RSHIFT)) {
         if (wantCapture)
             return;
         const ms0515::Key key =
             ms0515::shiftedFunctionKey(static_cast<int>(phys) - SDL_SCANCODE_F1 + 1);
-        if (shiftR) emu.keyPress(ms0515::Key::ShiftR, false);
+        emu.keyPress(ms0515::Key::ShiftR, false);
         emu.keyPress(key, true);
         physToMs7004_[(int)phys] = (int)key;
-        shiftOverrides_[(int)phys] = {false, false, shiftR};
         return;
     }
+    const bool modifier =
+        phys == SDL_SCANCODE_LSHIFT || phys == SDL_SCANCODE_RSHIFT ||
+        phys == SDL_SCANCODE_LCTRL  || phys == SDL_SCANCODE_RCTRL  ||
+        phys == SDL_SCANCODE_LALT   || phys == SDL_SCANCODE_RALT   ||
+        phys == SDL_SCANCODE_CAPSLOCK;
+    if (!modifier && physToMs7004_.count((int)SDL_SCANCODE_RSHIFT) &&
+        !emu.keyHeld(ms0515::Key::ShiftR))
+        emu.keyPress(ms0515::Key::ShiftR, true);
+
+    const bool rusMode   = emu.ruslatOn();
+    const bool shiftL    = emu.keyHeld(ms0515::Key::ShiftL);
+    const bool shiftR    = emu.keyHeld(ms0515::Key::ShiftR);
+    const bool hostShift = shiftL || shiftR;
 
     /* Character-based mapping: resolves the target MS7004 key AND
      * whether Shift should be active on the MS7004 side. */

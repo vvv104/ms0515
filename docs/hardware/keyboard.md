@@ -142,7 +142,9 @@ with Shift, the machine's key ten further on as far as that goes
 In the window and in the browser it is the **right** Shift: the left one
 stays the machine's own ВР, so ВР with a function key can still be
 pressed.  The machine does not see the right Shift under such a key - it
-is let go for as long as the key is held.  A terminal does not tell the
+is let go, and not pressed again when the key goes up: a program waiting
+for any key would take that for one.  It comes back with the next ordinary
+key, if it is still held.  A terminal does not tell the
 two Shifts apart, so in `ms0515-cli` either does.  NumLock is ПФ1 as well.
 
 ---
