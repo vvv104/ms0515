@@ -167,15 +167,17 @@ function(rt11_tools variable)
 endfunction()
 
 # rt11_run(PROGRAM <name> LINE <command line> OUTPUT <file>...
-#          [ANSWERS <line>...] [DEPENDS <file>...] [SWITCHES <switch>...])
+#          [ANSWERS <line>...] [DEPENDS <file>...] [SWITCHES <switch>...]
+#          [FAILS_WITH <regex>])
 #
 # One run of a program in the work folder: `ms0515-run PROGRAM line`, with
 # ANSWERS typed to it when it asks (LINK's "Boundary section?").  OUTPUT
 # names what it writes, as the files are called in the work folder - lower
 # case.  SWITCHES are ms0515-run's own (--em).  The run fails the build
-# when the program fails or prints an error.
+# when the program fails or prints an error - RT-11's ?XXX-F- kind, or what
+# matches FAILS_WITH for a program with a way of its own of saying so.
 function(rt11_run)
-    cmake_parse_arguments(PARSE_ARGV 0 arg "" "PROGRAM;LINE" "OUTPUT;ANSWERS;DEPENDS;SWITCHES")
+    cmake_parse_arguments(PARSE_ARGV 0 arg "" "PROGRAM;LINE;FAILS_WITH" "OUTPUT;ANSWERS;DEPENDS;SWITCHES")
     if(NOT arg_PROGRAM OR NOT arg_OUTPUT)
         message(FATAL_ERROR "rt11_run needs PROGRAM and OUTPUT")
     endif()
@@ -191,6 +193,7 @@ function(rt11_run)
                 "-DRUN=${MS0515_RUN}" "-DWORK=${RT11_WORK}"
                 "-DPROGRAM=${arg_PROGRAM}" "-DLINE=${arg_LINE}"
                 "-DANSWERS=${answers}" "-DSWITCHES=${switches}"
+                "-DFAILS_WITH=${arg_FAILS_WITH}"
                 -P "${RT11_RUN_SCRIPT}"
         DEPENDS ${arg_DEPENDS} "${RT11_RUN_SCRIPT}"
         COMMENT "${arg_PROGRAM} ${arg_LINE}"
@@ -217,18 +220,39 @@ function(rt11_macro)
              DEPENDS ${arg_DEPENDS})
 endfunction()
 
-# rt11_link(IMAGE <file> OBJECTS <name>... [MAP <name>]
+# rt11_pascal(OBJECT <name> [DEPENDS <file>...])
+#
+# OMSI Pascal: <name>.PAS through PAS1 into <name>.MAC, with a listing, and
+# that through MACRO into <name>.OBJ.  PAS1 ends well whatever it found:
+# its count of errors is what fails the build.
+function(rt11_pascal)
+    cmake_parse_arguments(PARSE_ARGV 0 arg "" "OBJECT" "DEPENDS")
+    string(TOLOWER "${arg_OBJECT}" lower)
+    rt11_run(PROGRAM PAS1 LINE "${arg_OBJECT},${arg_OBJECT}=${arg_OBJECT}"
+             OUTPUT ${lower}.mac ${lower}.lst
+             FAILS_WITH "ERRORS DETECTED: +[1-9]"
+             DEPENDS ${arg_DEPENDS})
+    rt11_run(PROGRAM MACRO LINE "${arg_OBJECT}=${arg_OBJECT}" OUTPUT ${lower}.obj
+             DEPENDS ${arg_DEPENDS} "${RT11_WORK}/${lower}.mac")
+endfunction()
+
+# rt11_link(IMAGE <file> OBJECTS <name>... [INPUTS <name>...] [MAP <name>]
 #           [SWITCHES <switches>] [OBJECT_SWITCHES <switches>]
 #           [ANSWERS <line>...] [DEPENDS <file>...])
 #
 # LINK: the objects into the image - X.SAV, or X.SYS for a handler - with a
 # map when one is asked for.  SWITCHES follow the outputs (/X for no
 # bitmap, /W for a wide map), OBJECT_SWITCHES the first object (/Y:1000 for
-# a boundary, which LINK then asks the section of: ANSWERS).
+# a boundary, which LINK then asks the section of: ANSWERS).  INPUTS is the
+# whole list as LINK is to read it when libraries stand among the objects
+# and the order matters - K PASLIB SPR - the objects alone when not said.
 function(rt11_link)
     cmake_parse_arguments(PARSE_ARGV 0 arg ""
-        "IMAGE;MAP;SWITCHES;OBJECT_SWITCHES" "OBJECTS;ANSWERS;DEPENDS")
-    string(REPLACE ";" "," objects "${arg_OBJECTS}")
+        "IMAGE;MAP;SWITCHES;OBJECT_SWITCHES" "OBJECTS;INPUTS;ANSWERS;DEPENDS")
+    if(NOT arg_INPUTS)
+        set(arg_INPUTS ${arg_OBJECTS})
+    endif()
+    string(REPLACE ";" "," objects "${arg_INPUTS}")
     string(TOLOWER "${arg_IMAGE}" output)
     set(line "${arg_IMAGE}")
     set(depends ${arg_DEPENDS})

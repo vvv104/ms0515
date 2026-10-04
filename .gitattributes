@@ -20,3 +20,8 @@ CMakeLists.txt text eol=lf
 *.img   binary
 *.bmp   binary
 *.png   binary
+
+# The machine's Pascal sources: KOI-8 and CR LF, as PAS1 reads them
+*.PAS   -text
+rt11_devel/projects/minesweeper/MINE.HLP binary
+rt11_devel/projects/minesweeper/MINE.DAT binary

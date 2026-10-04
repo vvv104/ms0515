@@ -2,14 +2,14 @@
 #
 #     cmake -DRUN=<ms0515-run> -DWORK=<folder> -DPROGRAM=<name>
 #           -DLINE=<command line> [-DANSWERS=<line>|<line>...]
-#           [-DSWITCHES=<switch>|...] -P Rt11Run.cmake
+#           [-DSWITCHES=<switch>|...] [-DFAILS_WITH=<regex>] -P Rt11Run.cmake
 #
 # Runs `ms0515-run [switches] PROGRAM line` in WORK, with ANSWERS as what is
 # typed to the program when it asks for a key, shows what it printed, and
 # fails when it failed: by the tool's exit status - the monitor's own
 # account of the program - or by an error or fatal diagnostic (?XXX-E-,
-# ?XXX-F-, ?XXX-U-) in what it printed.  A warning (-W-) is shown and left
-# to the reader.
+# ?XXX-F-, ?XXX-U-) in what it printed, or by what matches FAILS_WITH.  A
+# warning (-W-) is shown and left to the reader.
 
 string(REPLACE "|" ";" answers "${ANSWERS}")
 string(REPLACE "|" ";" switches "${SWITCHES}")
@@ -38,6 +38,9 @@ if(printed)
     message("${printed}")
 endif()
 if(printed MATCHES "\\?[A-Z]+-[FEU]-[^\r\n]*")
+    message(FATAL_ERROR "${PROGRAM} ${LINE}: ${CMAKE_MATCH_0}")
+endif()
+if(FAILS_WITH AND printed MATCHES "${FAILS_WITH}")
     message(FATAL_ERROR "${PROGRAM} ${LINE}: ${CMAKE_MATCH_0}")
 endif()
 if(NOT status EQUAL 0)
