@@ -189,7 +189,21 @@ Status runCommand(std::string &command, const std::string &rt11Name,
     return {};
 }
 
-Machine::Machine()
+Machine::Machine() : Machine(std::make_unique<ms0515::Emulator>()) {}
+
+Machine::Machine(std::unique_ptr<ms0515::Emulator> own)
+    : own_(std::move(own)), emu_(*own_)
+{
+    carry();
+}
+
+Machine::Machine(ms0515::Emulator &emulator) : emu_(emulator)
+{
+    carry();
+}
+
+/* The emulator made the machine the binary carries. */
+void Machine::carry()
 {
     emu_.loadRom(carried(embedded::rom, "ROM"));
     /* The state does not hold the hard disk controller: it was on the bus
@@ -273,6 +287,9 @@ Machine::~Machine()
 {
     setFileAsked({});
     setDeviceNamed({});
+    /* A given emulator lives on: nothing of it may call into this. */
+    emu_.setVramWriteCallback({});
+    emu_.setSoundCallback({});
 }
 
 void Machine::deviceNamed(uint16_t device)

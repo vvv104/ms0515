@@ -27,6 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # The software collection: the page's run machine (ms_run, `?run=`) is
+      # ms0515-run's, made of the collection's dec kit at build time
+      # (src/tools/run).  Without it the module is built with no run machine.
+      - uses: actions/checkout@v6
+        with:
+          repository: vvv104/ms0515-software
+          path: ms0515-software
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -51,12 +59,21 @@ jobs:
 
       - name: Build (Emscripten)
         working-directory: src
+        env:
+          MS0515_SOFTWARE_DIR: ${{ github.workspace }}/ms0515-software
         run: |
           export EM_NODE_JS="$(which node)"
           conan build . -pr:h profiles/emscripten -pr:b default --build=missing
 
       - name: Smoke test (Node)
         run: node src/web/smoke.mjs src/build/emscripten-release/web/dist
+
+      # A site without the run machine would break every game link of the
+      # collection's page: the deploy stops here instead.
+      - name: Run check (Node)
+        run: |
+          node src/web/run_check.mjs src/build/emscripten-release/web/dist
+          rm -rf src/build/emscripten-release/web/dist/test-run   # the check's card is not the site's
 
       - uses: actions/upload-pages-artifact@v4
         with:

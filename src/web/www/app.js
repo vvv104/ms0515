@@ -19,7 +19,7 @@ import { SoftKeyboard, isTouchDevice } from "./softkeys.js?v=@STAMP@";
 import { Commander } from "./fm.js?v=@STAMP@";
 import * as bugreport from "./bugreport.js?v=@STAMP@";
 import { DiskComposer } from "./wizard.js?v=@STAMP@";
-import { parseStart } from "./start.js?v=@STAMP@";
+import { parseStart, DEFAULT_SOUND } from "./start.js?v=@STAMP@";
 
 // The floppy images offered: the software collection's released disks, as
 // its index.json lists them - title, media (a two-sided image takes both
@@ -91,6 +91,13 @@ let commander = null;                      // the files of the mounted images (f
 const QUERY = new URLSearchParams(location.search);
 const EMBED = QUERY.get("embed") === "1";   // the screen alone: the page in somebody's frame
 let startFile = null;                      // ?start=URL: the moment the page opens at (start.js)
+                                           // ?run=URL: a program run from its card - the same visit, with `run` set
+const RUN_DIR = "/run";                    // the program's folder in the module's file system
+// The visitor's languages, the first first: what a card's texts are picked by.
+const LANGS = [QUERY.get("lang"), ...(navigator.languages ?? []), navigator.language, "en"]
+  .filter(Boolean).map((l) => l.toLowerCase().split("-")[0]);
+const inLanguage = (texts) => typeof texts === "string" ? texts
+  : LANGS.map((l) => texts?.[l]).find(Boolean) ?? Object.values(texts ?? {})[0] ?? "";
 const K = (name) => KEY_ID[name];
 
 function say(s) { status.textContent = s; }
@@ -548,6 +555,7 @@ async function boot() {
   say("loading…");
   stop();
   keyboard.reset();
+  if (startFile?.run) { startRun(); start(); return; }
   followRom(slots.fd[unitOf(0, 0)]);       // a mount restored from the last visit, or ?disk=
   const rom = $("rom").value;
   M.FS.writeFile("/rom.bin", await fetchBytes(ROMS[rom]));
@@ -597,6 +605,80 @@ async function resumeStart() {
   say(startFile.meta.title || "the start file's moment");
 }
 
+// ── a program run from its card ───────────────────────────────────────────
+// `?run=URL` opens the page at a program already running - a game - the way
+// ms0515-run starts one on the host: no diskette, no boot, no prompt.  The
+// module carries ROM-B, a system and the monitor booted; the card names
+// the program and the files it reads, which go into a directory of the
+// module's file system and are DK: to the program.  The page is the screen
+// and, under it, the card's words on what to do, in the visitor's language:
+//
+//   { "schema": 1,
+//     "title": { "en": "...", "ru": "..." },
+//     "program": "BIRDS.SAV",            its name among the files
+//     "arguments": "",                   the program's command line, if any
+//     "files": ["BIRDS.SAV", ...],       URLs, relative to the card
+//     "joystick": false,                 the arrows and Space drive the MS7007 port
+//     "em": false,                       the EIS/FIS instruction emulator on
+//     "sound": { "speaker": true },      as in a start file
+//     "text": { "en": "...", "ru": "..." } }   what to do; a blank line parts paragraphs
+//
+// The visit is a start visit in everything else: nothing of it is
+// remembered, and what the program writes stays with the tab.
+async function loadRun(url) {
+  say("loading the program…");
+  if (!api.runBuilt()) throw new Error("this build of the page cannot run a program by itself");
+  let card;
+  try { card = JSON.parse(new TextDecoder().decode(await fetchBytes(url))); } catch (e) { throw new Error(`${url}: ${e.message}`); }
+  if (card.schema !== 1) throw new Error(`the run card's schema is ${card.schema}, this page reads 1`);
+  if (typeof card.program !== "string" || !Array.isArray(card.files) || !card.files.length)
+    throw new Error("the run card names no program or no files");
+  const baseName = (f) => f.split("/").pop();
+  M.FS.mkdirTree(RUN_DIR);
+  await Promise.all(card.files.map(async (f) =>
+    M.FS.writeFile(`${RUN_DIR}/${baseName(f)}`, await fetchBytes(new URL(f, url)))));
+  return {
+    meta: { title: inLanguage(card.title), rom: "b", disks: { fd: ["", "", "", ""], hd: "" },
+            sound: { ...DEFAULT_SOUND, ...(card.sound ?? {}) }, joystick: !!card.joystick, speed: 100 },
+    disks: new Map(),
+    run: { program: `${RUN_DIR}/${baseName(card.program)}`, arguments: card.arguments ?? "", em: !!card.em,
+           text: inLanguage(card.text), over: 0 },
+  };
+}
+
+// The program started, on the machine the module carries; every boot of a
+// run visit - the first, the one after the program has ended - is this.
+function startRun() {
+  const run = startFile.run;
+  if (!api.run(h, run.program, run.arguments, run.em ? 1 : 0)) throw new Error(api.runError());
+  api.history(h, HISTORY_EVENTS);
+  run.over = 0;
+  setHalted(false);
+  $("start").hidden = true;
+  say(startFile.meta.title || "the program");
+}
+
+// The program has ended - a game left by its own key: the machine stands
+// still on its last picture, and the arrow starts it again.
+function runOver(how) {
+  startFile.run.over = how;
+  stop();
+  paint();
+  say(how === 2 ? "the program has stopped with an error" : "the program has ended");
+  $("start").hidden = false;
+  $("start").onclick = () => { resumeSound(); boot().catch(fail); };
+}
+
+// The card's words under the screen.
+function showAbout() {
+  document.body.classList.add("run");
+  document.title = startFile.meta.title || document.title;
+  $("abouttitle").textContent = startFile.meta.title;
+  $("abouttext").replaceChildren(...startFile.run.text.split(/\n\s*\n/).map((p) => el("p", null, p.trim())));
+  $("about").hidden = EMBED;               // in somebody's frame the words are theirs to give
+  fit();                                   // the screen has less room now
+}
+
 function start() {
   $("spin").hidden = true;                 // whatever was being waited for is here
   if (running) return;
@@ -635,6 +717,7 @@ function step(now) {
   ++frames;
   speakerTransitions += api.transitions(h);
   if (cycles === 0) { setHalted(true); say("CPU halted — \"Bug report\" saves everything needed to look into it"); stop(); return; }
+  if (startFile?.run) { const over = api.runEnded(h); if (over) { runOver(over); return; } }
   if (speaker && speedPct === 100) queueAudio();
   if ((frames & 63) === 0) flushDisks();
 }
@@ -1114,6 +1197,10 @@ function bindApi() {
     pc:      c("ms_pc", "number", ["number"]),
     save:    c("ms_save_state", "number", ["number", "string"]),
     load:    c("ms_load_state", "number", ["number", "string"]),
+    runBuilt: c("ms_run_built", "number", []),
+    run:      c("ms_run", "number", ["number", "string", "string", "number"]),
+    runError: c("ms_run_error", "string", []),
+    runEnded: c("ms_run_ended", "number", ["number"]),
   };
   if (api.keyMax() !== KEYS.length - 1)
     throw new Error(`key table drift: module ${api.keyMax()}, page ${KEYS.length - 1}`);
@@ -1198,7 +1285,7 @@ function bindControls() {
 }
 
 async function main() {
-  if (EMBED) document.body.classList.add("embed");
+  if (EMBED || QUERY.get("run")) document.body.classList.add("embed");
   fit();
   window.addEventListener("resize", fit);
   M = await createMs0515({ locateFile: (f) => f + "?v=@STAMP@" });
@@ -1210,6 +1297,7 @@ async function main() {
 
   await loadDiskList();
   if (QUERY.get("start")) startFile = await loadStart(new URL(QUERY.get("start"), location.href));
+  else if (QUERY.get("run")) { startFile = await loadRun(new URL(QUERY.get("run"), location.href)); showAbout(); }
   const m = startFile ? { rom: startFile.meta.rom, fd: [...startFile.meta.disks.fd], hd: startFile.meta.disks.hd }
                       : loadMounts();
   $("rom").value = m.rom;
@@ -1227,6 +1315,7 @@ async function main() {
 
   const wish = soundWish();
   if (startFile) Object.assign(wish, startFile.meta.sound);   // the file's word on which sounds, the visitor's on whether
+  if (startFile?.run) wish.on = true;      // a game page has no sound button to find
   $("sndSpeaker").checked = wish.speaker;
   $("sndDrive").checked = wish.drive;
   $("sndKbd").checked = wish.kbd;
@@ -1304,7 +1393,9 @@ window.__ms = () => {
            joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null,
            fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null,
            halted, embed: EMBED,
-           start: startFile ? { title: startFile.meta.title, disks: [...startFile.disks.keys()] } : null };
+           start: startFile ? { title: startFile.meta.title, disks: [...startFile.disks.keys()] } : null,
+           run: startFile?.run ? { program: startFile.run.program, over: startFile.run.over,
+                                   about: $("abouttext").textContent } : null };
 };
 window.__ms.type = (text) => typing.type(text);
 window.__ms.speed = (pct) => setSpeed(pct);   // the control, for scripted checks

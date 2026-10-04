@@ -84,8 +84,10 @@ add_subdirectory(lib)
 add_subdirectory(disk)
 
 # The browser build (the Emscripten toolchain, src/profiles/emscripten)
-# has no host side: the core, the lib and the web front-end only.
+# has no host side: the core, the lib and the web front-end only - and
+# ms0515-run's machine (tools/run), which the page runs one program on.
 if(EMSCRIPTEN)
+    add_subdirectory(tools/run)
     add_subdirectory(web)
 else()
     add_subdirectory(libapp)

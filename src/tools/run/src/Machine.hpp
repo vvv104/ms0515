@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <set>
 #include <span>
 #include <string>
@@ -40,6 +41,11 @@ public:
     /* Throws std::runtime_error when the carried data does not make a
      * machine (a build fault, not a user's). */
     Machine();
+    /* The same machine on somebody else's emulator - one whose screen,
+     * sound and keys are bound already, as the browser page's is.  What
+     * it held is replaced by the carried ROM, state and system volume;
+     * it must outlive the machine. */
+    explicit Machine(ms0515::Emulator &emulator);
     ~Machine();
 
     Machine(const Machine &)            = delete;
@@ -127,6 +133,8 @@ public:
     void setAsked(Asked asked) { asked_ = std::move(asked); }
 
 private:
+    explicit Machine(std::unique_ptr<ms0515::Emulator> own);
+    void carry();
     void fileAsked(const std::string &device, const std::string &name);
     void deviceNamed(uint16_t device);
     [[nodiscard]] bool giveFile(const std::string &device, const std::string &name);
@@ -138,7 +146,8 @@ private:
      * takes them this many frames after it last asked. */
     static constexpr int kTypeAheadFrames = 25;
 
-    ms0515::Emulator      emu_;
+    std::unique_ptr<ms0515::Emulator> own_; /* empty on a given one */
+    ms0515::Emulator     &emu_;
     std::filesystem::path folder_;      /* the program's */
     std::set<uint16_t>    folderNames_; /* device names made to stand for it */
     uint16_t              rmon_ = 0;    /* where the resident monitor starts */

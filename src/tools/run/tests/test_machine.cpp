@@ -194,6 +194,31 @@ TEST_CASE("a program runs from its folder, prints, and the run is over") {
     CHECK(filesIn(dir) == std::set<std::string>{"hello.sav"});
 }
 
+/* The browser build's machine is the page's own emulator - the one its
+ * screen, sound and keys are already bound to. */
+TEST_CASE("a machine runs on an emulator it is given") {
+    const auto dir = freshDir("given");
+    writeFile(dir / "hello.sav", helloProgram("HELLO ON YOUR EMULATOR"));
+
+    ms0515::Emulator emu;
+    {
+        Machine machine(emu);
+        CHECK(&machine.emulator() == &emu);
+        REQUIRE(machine.start(dir / "hello.sav", {}));
+        std::string printed;
+        REQUIRE(runToEnd(machine, &printed));
+        CHECK(printed == "HELLO ON YOUR EMULATOR\n");
+    }
+    /* A second run on the same emulator starts from the carried state
+     * again, whatever the first left. */
+    Machine again(emu);
+    REQUIRE(again.start(dir / "hello.sav", {}));
+    std::string printed;
+    REQUIRE(runToEnd(again, &printed));
+    CHECK(printed == "HELLO ON YOUR EMULATOR\n");
+    CHECK(screenText(emu) == "HELLO ON YOUR EMULATOR\n");
+}
+
 TEST_CASE("the rest of the command line is the program's") {
     const auto dir = freshDir("dir");
     fs::copy_file(fs::path(RT11_SYSTEM_DIR) / "DIR.SAV", dir / "dir.sav");
