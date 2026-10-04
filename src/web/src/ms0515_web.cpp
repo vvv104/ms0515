@@ -31,7 +31,14 @@
 
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
+
+/* ms0515-run's machine (src/tools/run), when the build had the software
+ * collection to make it of. */
+#ifdef MS0515_WEB_RUN
+#include "Machine.hpp"
+#endif
 
 namespace {
 
@@ -66,7 +73,29 @@ struct Handle {
     bool                                   driveOn    = false;
     bool                                   keyboardOn = true;
     bool                                   speakerOn  = true;
+
+#ifdef MS0515_WEB_RUN
+    /* One program run (ms_run): the machine on `emu`, which it must not
+     * outlive - so it stands after it here. */
+    std::unique_ptr<ms0515::run::Machine>  machine;
+#endif
 };
+
+/* The speaker's level changes of the frame, for ms_audio. */
+void speakerMoved(Handle *h, uint32_t cycle, int level)
+{
+    h->transitions.push_back({static_cast<int>(cycle), level});
+    h->level = level;
+}
+
+void bindSpeaker(Handle *h)
+{
+    h->emu.setSoundCallback([h](int value) {
+        speakerMoved(h, h->emu.frameCyclePos(), value);
+    });
+}
+
+std::string gRunError;
 
 constexpr uint32_t rgba(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -520,10 +549,7 @@ EMSCRIPTEN_KEEPALIVE int ms_ld_size(void) { return static_cast<int>(gLd.size());
 EMSCRIPTEN_KEEPALIVE Handle *ms_create(void)
 {
     auto *h = new Handle;
-    h->emu.setSoundCallback([h](int value) {
-        h->transitions.push_back({static_cast<int>(h->emu.frameCyclePos()), value});
-        h->level = value;
-    });
+    bindSpeaker(h);
     h->emu.setMechCallback([h](const ms0515::MechEvent &e) { h->mech.push_back(e); });
     return h;
 }
@@ -571,10 +597,97 @@ EMSCRIPTEN_KEEPALIVE int ms_frame(Handle *h)
     h->transitions.clear();
     h->mech.clear();
     h->startLevel = h->level;
+#ifdef MS0515_WEB_RUN
+    /* A program run: the machine watches for its end, and stands still
+     * once it has come.  Its printed text is the screen's alone here. */
+    if (h->machine) {
+        if (h->machine->step()) {
+            h->frameCycles = static_cast<int>(h->emu.frameCyclePos());
+            ++h->frameCount;
+        }
+        (void)h->machine->takeOutput();
+        return h->frameCycles;
+    }
+#endif
     const bool running = h->emu.stepFrame();
     h->frameCycles = static_cast<int>(h->emu.frameCyclePos());
     ++h->frameCount;
     return running ? h->frameCycles : 0;
+}
+
+/* ── one program run ─────────────────────────────────────────────────────
+ * What ms0515-run does on the host: ROM-B, the dec system and a state with
+ * the monitor booted are in the module, the program's folder - a directory
+ * of the module's file system, where the page has put the program and the
+ * files it reads - is DK:, and the monitor's own RUN starts the program.
+ * No boot, no diskette of the page's, no prompt. */
+
+/* 1 when the module carries the run machine. */
+EMSCRIPTEN_KEEPALIVE int ms_run_built(void)
+{
+#ifdef MS0515_WEB_RUN
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+/* Start `program` (a path in the module's file system; .SAV when it has
+ * no extension) with `arguments` as its command line, words apart by
+ * spaces; `em` switches the instruction emulator on (a program built for
+ * a PDP-11 with MUL and DIV).  The handle becomes that machine, whatever
+ * it was: its ROM, memory and mounts are replaced.  1, or 0 with the
+ * reason in ms_run_error(). */
+EMSCRIPTEN_KEEPALIVE int ms_run(Handle *h, const char *program, const char *arguments, int em)
+{
+    gRunError.clear();
+#ifdef MS0515_WEB_RUN
+    try {
+        h->machine.reset();
+        for (int unit = 0; unit < 4; ++unit) h->emu.unmountDisk(unit);
+        h->emu.unmountHd();
+        h->machine = std::make_unique<ms0515::run::Machine>(h->emu);
+        std::vector<std::string> words;
+        std::istringstream in{arguments ? arguments : ""};
+        for (std::string word; in >> word;) words.push_back(word);
+        ms0515::run::Machine::Options options;
+        options.instructionEmulator = em != 0;
+        if (auto r = h->machine->start(program, words, options); !r) {
+            gRunError = r.error();
+            h->machine.reset();
+            bindSpeaker(h);
+            return 0;
+        }
+        /* start() has taken the emulator's sound for the machine. */
+        h->machine->setSpeaker([h](uint32_t cycle, int level) { speakerMoved(h, cycle, level); });
+        return 1;
+    } catch (const std::exception &e) {
+        gRunError = e.what();
+        h->machine.reset();
+        bindSpeaker(h);
+        return 0;
+    }
+#else
+    (void)h; (void)program; (void)arguments; (void)em;
+    gRunError = "this build carries no run machine";
+    return 0;
+#endif
+}
+
+EMSCRIPTEN_KEEPALIVE const char *ms_run_error(void) { return gRunError.c_str(); }
+
+/* 0 while the program runs (or none was started), 1 when it has ended
+ * and the monitor is back, 2 when it ended badly by the monitor's
+ * account. */
+EMSCRIPTEN_KEEPALIVE int ms_run_ended(Handle *h)
+{
+#ifdef MS0515_WEB_RUN
+    if (h->machine && h->machine->ended())
+        return h->machine->failed() ? 2 : 1;
+#else
+    (void)h;
+#endif
+    return 0;
 }
 
 /* The picture of the machine now: 640 x 400 RGBA (little-endian ABGR

@@ -9,6 +9,13 @@
 add_executable(ms0515_web src/ms0515_web.cpp src/wizard_web.cpp)
 target_link_libraries(ms0515_web PRIVATE ms0515_lib ms0515_disk ms0515_disk_manifest)
 
+# One program run without a boot (ms_run): ms0515-run's machine, when the
+# software collection was there to make it of (tools/run).
+if(TARGET ms0515_run_core)
+    target_link_libraries(ms0515_web PRIVATE ms0515_run_core)
+    target_compile_definitions(ms0515_web PRIVATE MS0515_WEB_RUN)
+endif()
+
 set(WEB_DIST "${CMAKE_BINARY_DIR}/web/dist")
 
 set_target_properties(ms0515_web PROPERTIES

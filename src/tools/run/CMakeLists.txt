@@ -30,9 +30,20 @@ add_executable(ms0515-run-bake
 
 target_link_libraries(ms0515-run-bake
     PRIVATE ms0515_run_base
-    PRIVATE ms0515_disk
+    PRIVATE ms0515_disk_manifest
     PRIVATE fmt::fmt
 )
+
+# The browser build runs it under Node (CMake puts the toolchain's
+# emulator in front of a target used as a command), on the host's files.
+if(EMSCRIPTEN)
+    target_link_options(ms0515-run-bake PRIVATE
+        -sNODERAWFS=1
+        -sENVIRONMENT=node
+        -sALLOW_MEMORY_GROWTH=1
+        -sEXIT_RUNTIME=1
+    )
+endif()
 
 # ── The system the state is made of ─────────────────────────────────────────
 # The dec kit comes from the software collection: $MS0515_SOFTWARE_DIR, else
@@ -58,30 +69,45 @@ set(RUN_EMBEDDED  "${CMAKE_CURRENT_BINARY_DIR}/Embedded.cpp")
 # The diskette: the monitor, the swap file, the three handlers and EM, the
 # emulator of the EIS/FIS instructions the processor lacks - nothing of
 # the system's suggested utilities.
-add_custom_command(
-    OUTPUT  "${RUN_SYSTEM}"
-    COMMAND ${CMAKE_COMMAND} -E rm -f "${RUN_SYSTEM}"
-    COMMAND ms0515-disk compose --repo "${MS0515_SOFTWARE_DIR}"
-            --system dec --media ss --add hd-rt11 --add em "${RUN_SYSTEM}"
-    DEPENDS ms0515-disk
-            "${MS0515_SOFTWARE_DIR}/kits/dec/bundles.toml"
-            "${MS0515_SOFTWARE_DIR}/kits/dec/RT11SJ.SYS"
-            "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/DZ.SYS"
-            "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/TT.SYS"
-            "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/HD.SYS"
-            "${MS0515_SOFTWARE_DIR}/kits/osa/handlers/EM.SYS"
-            "${MS0515_SOFTWARE_DIR}/kits/osa/bundles.toml"
-    COMMENT "Composing the dec system diskette for ms0515-run"
-    VERBATIM
+set(RUN_SYSTEM_FILES
+    "${MS0515_SOFTWARE_DIR}/kits/dec/bundles.toml"
+    "${MS0515_SOFTWARE_DIR}/kits/dec/RT11SJ.SYS"
+    "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/DZ.SYS"
+    "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/TT.SYS"
+    "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/HD.SYS"
+    "${MS0515_SOFTWARE_DIR}/kits/osa/handlers/EM.SYS"
+    "${MS0515_SOFTWARE_DIR}/kits/osa/bundles.toml"
 )
 
-add_custom_command(
-    OUTPUT  "${RUN_EMBEDDED}"
-    COMMAND ms0515-run-bake "${RUN_ROM}" "${RUN_SYSTEM}" "${RUN_EMBEDDED}"
-    DEPENDS ms0515-run-bake "${RUN_ROM}" "${RUN_SYSTEM}"
-    COMMENT "Baking the ROM, the diskette and the state into ms0515-run"
-    VERBATIM
-)
+if(EMSCRIPTEN)
+    # No ms0515-disk in the browser build: the bake composes the same
+    # diskette of the collection itself.
+    add_custom_command(
+        OUTPUT  "${RUN_EMBEDDED}"
+        COMMAND ms0515-run-bake "${RUN_ROM}" "${MS0515_SOFTWARE_DIR}" "${RUN_EMBEDDED}"
+        DEPENDS ms0515-run-bake "${RUN_ROM}" ${RUN_SYSTEM_FILES}
+        COMMENT "Baking the ROM, the diskette and the state into the page's run machine"
+        VERBATIM
+    )
+else()
+    add_custom_command(
+        OUTPUT  "${RUN_SYSTEM}"
+        COMMAND ${CMAKE_COMMAND} -E rm -f "${RUN_SYSTEM}"
+        COMMAND ms0515-disk compose --repo "${MS0515_SOFTWARE_DIR}"
+                --system dec --media ss --add hd-rt11 --add em "${RUN_SYSTEM}"
+        DEPENDS ms0515-disk ${RUN_SYSTEM_FILES}
+        COMMENT "Composing the dec system diskette for ms0515-run"
+        VERBATIM
+    )
+
+    add_custom_command(
+        OUTPUT  "${RUN_EMBEDDED}"
+        COMMAND ms0515-run-bake "${RUN_ROM}" "${RUN_SYSTEM}" "${RUN_EMBEDDED}"
+        DEPENDS ms0515-run-bake "${RUN_ROM}" "${RUN_SYSTEM}"
+        COMMENT "Baking the ROM, the diskette and the state into ms0515-run"
+        VERBATIM
+    )
+endif()
 
 # ── The machine ──────────────────────────────────────────────────────────────
 add_library(ms0515_run_core STATIC
@@ -96,6 +122,12 @@ add_library(ms0515_run_core STATIC
 target_link_libraries(ms0515_run_core
     PUBLIC ms0515_run_base
 )
+
+# The browser build takes the machine and nothing else: the page is its
+# terminal and its window (src/web).
+if(EMSCRIPTEN)
+    return()
+endif()
 
 # The window and the sound are SDL's, through the frontend's SDL library
 # and libapp's composition of the screen (nothing of libapp's settings or

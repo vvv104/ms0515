@@ -3,9 +3,12 @@
  * not a shipped tool.
  *
  *     ms0515-run-bake ROM SYSTEM.dsk OUT.cpp
+ *     ms0515-run-bake ROM COLLECTION OUT.cpp
  *
  * SYSTEM.dsk is the dec system diskette as `ms0515-disk compose` makes
- * it.  The startup file is taken off it and the starter put on; the
+ * it; a directory instead is the software collection, and the diskette
+ * is composed of it here, the same one (the browser build has no
+ * ms0515-disk to run).  The startup file is taken off it and the starter put on; the
  * machine is booted from it, the date set, HD loaded and made DK:, the
  * instruction emulator EM fitted to this monitor (and left off), and the
  * starter run.  With the starter waiting on a cleared screen the state
@@ -21,14 +24,18 @@
 #include <ms0515/Emulator.hpp>
 #include <ms0515/Terminal.hpp>
 #include <ms0515/disk/Build.hpp>
+#include <ms0515/disk/Compose.hpp>
 #include <ms0515/disk/Image.hpp>
+#include <ms0515/disk/Manifest.hpp>
 
 #include <fmt/format.h>
 
 #include <cstdio>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -53,6 +60,38 @@ std::vector<uint8_t> readFile(const std::string &path)
     if (!in)
         throw std::runtime_error("cannot read " + path);
     return {std::istreambuf_iterator<char>(in), {}};
+}
+
+/* The dec system diskette composed of the collection at `root`: what
+ * `ms0515-disk compose --system dec --media ss --add hd-rt11 --add em`
+ * writes - the monitor, the swap file, the three handlers and EM. */
+std::vector<uint8_t> composedSystem(const std::filesystem::path &root)
+{
+    namespace fs = std::filesystem;
+    namespace disk = ms0515::disk;
+    const auto text = readFile((root / "disks.toml").string());
+    const disk::Manifest manifest =
+        disk::parseManifest(std::string(text.begin(), text.end()));
+    disk::Repository repo;
+    for (auto it = fs::recursive_directory_iterator(root);
+         it != fs::recursive_directory_iterator(); ++it) {
+        if (it->is_directory() && it->path().filename() == ".git") {
+            it.disable_recursion_pending();
+            continue;
+        }
+        if (it->is_regular_file())
+            repo.paths.push_back(it->path().lexically_relative(root).generic_string());
+    }
+    repo.read = [root](const std::string &path) -> std::optional<std::vector<uint8_t>> {
+        std::ifstream in(root / fs::path(path), std::ios::binary);
+        if (!in) return std::nullopt;
+        return std::vector<uint8_t>{std::istreambuf_iterator<char>(in), {}};
+    };
+    disk::Selection selection;
+    selection.system = "dec";
+    selection.media = disk::Media::ss;
+    selection.bundles = {"hd-rt11", "em"};
+    return disk::composeDisk(disk::recipeFor(manifest, selection, repo));
 }
 
 std::vector<std::string> screenRows(const Emulator &emu)
@@ -214,7 +253,9 @@ void bake(const std::string &romPath, const std::string &diskPath,
     const auto rom = readFile(romPath);
     Emulator emu;
     emu.loadRom(rom);
-    if (!emu.mountDiskImage(0, systemDiskette(readFile(diskPath))))
+    auto system = std::filesystem::is_directory(diskPath) ? composedSystem(diskPath)
+                                                           : readFile(diskPath);
+    if (!emu.mountDiskImage(0, systemDiskette(std::move(system))))
         throw std::runtime_error("cannot mount the system diskette");
     emu.setHdEnabled(true);
     emu.reset();
@@ -270,7 +311,7 @@ void bake(const std::string &romPath, const std::string &diskPath,
 int main(int argc, char **argv)
 {
     if (argc != 4) {
-        fmt::print(stderr, "usage: ms0515-run-bake ROM SYSTEM.dsk OUT.cpp\n");
+        fmt::print(stderr, "usage: ms0515-run-bake ROM SYSTEM.dsk|COLLECTION OUT.cpp\n");
         return 2;
     }
     try {
