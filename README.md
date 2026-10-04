@@ -39,6 +39,10 @@ T-11), produced in the late 1980s.
 - Save / load state snapshots (Machine menu)
 - YAML config file for persistent settings
 - Boots RT-11 and its Soviet derivatives (OSA, Omega, Mihinsoft OS-16SJ)
+- Games at a click - <https://vvv104.github.io/ms0515-software/>: the
+  software collection's tiles start a game in the browser with no diskette
+  and no boot (`?run=`, the machine `ms0515-run` carries), with what to
+  press written under the screen
 - Runs in the browser too - <https://vvv104.github.io/ms0515/>: the core
   and the lib compiled with Emscripten behind a small C API and a static
   page (`src/web/`); the machine runs in the tab, the drives mount like the
