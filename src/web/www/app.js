@@ -736,11 +736,37 @@ async function ownSource(file) {
   selectSource(name);
 }
 
+// The edge between the screen and the words, where they stand side by
+// side: dragged, it gives the editor more of the window or less.  The width
+// is the viewer's own and is remembered for the next visit, where the
+// browser lets it be.
+const SPLIT_KEY = "ms0515.run.split";
+function bindSplit() {
+  const split = $("split");
+  const setWidth = (px) => {
+    document.body.style.setProperty("--about-width", Math.round(px) + "px");
+    fit();
+  };
+  try { const w = +localStorage.getItem(SPLIT_KEY); if (w > 0) setWidth(w); } catch { /* no storage: the sheet's width */ }
+  split.onpointerdown = (e) => {
+    split.setPointerCapture(e.pointerId);
+    split.classList.add("drag");
+    e.preventDefault();
+  };
+  split.onpointermove = (e) => { if (split.classList.contains("drag")) setWidth(innerWidth - e.clientX); };
+  split.onpointerup = split.onpointercancel = () => {
+    if (!split.classList.contains("drag")) return;
+    split.classList.remove("drag");
+    try { localStorage.setItem(SPLIT_KEY, String(Math.round($("about").getBoundingClientRect().width))); } catch { /* not kept */ }
+  };
+}
+
 function showSources() {
   const s = startFile.run.sources;
   $("sources").hidden = !s;
   document.body.classList.toggle("sources", !!s);
   if (!s) return;
+  bindSplit();
   $("srcnames").replaceChildren();
   for (const name of [...s.files, ...s.other.map((o) => o.name)]) addSourceName(name);
   $("srcload").textContent = s.load;

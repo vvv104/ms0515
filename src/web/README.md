@@ -331,7 +331,9 @@ says).  A text left as it was is not rewritten.  `other` are files that are
 no text - a COMPILEd program - with a line of their own each.  The `own`
 button takes a file from the visitor's computer: it joins the names under
 an RT-11 name made of its own and opens in the editor.  In a wide window
-the words and the editor stand beside the screen instead of under it.
+the words and the editor stand beside the screen instead of under it, and
+the edge between them can be dragged to give the editor more of the window
+or less (the width is kept in the browser for the next visit).
 
 The software collection's Pages are the cards' home: its tiles lead here.
 `run_check.mjs` runs DIR from a folder under Node, to its end, and leaves

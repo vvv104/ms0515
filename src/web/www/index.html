@@ -114,6 +114,7 @@
   #about h2 { font-size: 1.1em; margin: 0 0 .3em; color: #fff; }
   #about p { margin: .25em 0; max-width: 60em; white-space: pre-line; }
   /* A card's sources: the names, the chosen one's text, the button that loads it. */
+  #split { display: none; }
   #sources { display: flex; flex-direction: column; gap: .4em; margin-top: .6em; min-height: 0; flex: 1 1 auto; }
   #srcnames { display: flex; flex-wrap: wrap; gap: .25em; max-height: 9.5em; overflow: auto; }
   #srcnames button { padding: .05em .45em; font: 13px ui-monospace, Consolas, monospace; background: #222; border-color: #3a3a3a; color: #8cf; }
@@ -127,7 +128,10 @@
   /* A wide window has room beside the screen: the words and the editor go there, the screen keeps its height. */
   @media (min-width: 1000px) and (min-aspect-ratio: 5/4) {
     body.run.sources { flex-direction: row; }
-    body.run.sources #about { max-height: none; width: 34em; box-sizing: border-box; }
+    body.run.sources #about { max-height: none; width: var(--about-width, 34em); min-width: 18em; max-width: 75vw; box-sizing: border-box; }
+    /* The edge between the screen and the words: dragged, it moves. */
+    body.run.sources #split { display: block; flex: none; width: 7px; cursor: col-resize; background: #222; touch-action: none; }
+    body.run.sources #split:hover, body.run.sources #split.drag { background: #8ab; }
     body.run.sources #srctext { resize: none; }
   }
   /* The field the OS keyboard types into: present, focusable, unseen. */
@@ -287,6 +291,7 @@
     <div class="firehint">fire</div>
   </div>
 </main>
+<div id="split" title="drag to resize"></div>
 <section id="about" hidden>
   <h2 id="abouttitle"></h2>
   <div id="abouttext"></div>
