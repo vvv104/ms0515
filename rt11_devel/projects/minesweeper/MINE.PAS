@@ -45,7 +45,7 @@ PROCEDURE MENU;						EXTERNAL;
 {---------------------------------------------------------------}
 
 BEGIN
- FILNAME:='K     ';
+ FILNAME:='MINE  ';
  SETBORDER(7);
  CLRSCR;
  CHECK(0,FILNAME,S);

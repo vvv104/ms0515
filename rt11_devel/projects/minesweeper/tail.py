@@ -1,12 +1,12 @@
-"""tail.py - K.SAV as the game reads it.
+"""tail.py - MINE.SAV as the game reads it.
 
-    python tail.py LINKED.SAV K.DAT K.SAV
+    python tail.py LINKED.SAV MINE.DAT MINE.SAV
 
 CHECK (SPR.PAS) opens the program's own file: it sums the words of all its
 blocks but the last two, compares the sum with the first word after them,
 skips eight words and reads the sprite table - 63 sprites of 8 words - from
-there to the file's end.  So the game's K.SAV is what LINK made and two
-blocks more: the sum, seven words unused, and the table out of K.DAT.
+there to the file's end.  So the game's MINE.SAV is what LINK made and two
+blocks more: the sum, seven words unused, and the table out of MINE.DAT.
 
 No program of the author's that wrote those two blocks has survived; this
 does what CHECK's reading implies.

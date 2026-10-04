@@ -3,7 +3,7 @@
  *
  * Options of the form --mine-<name>=<value> are collected for the tests
  * (mine::options()) and removed before doctest parses the rest:
- * --mine-game=<folder> is the game's folder, --mine-sprites=<K.DAT>.
+ * --mine-game=<folder> is the game's folder, --mine-sprites=<MINE.DAT>.
  */
 #define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest/doctest.h>

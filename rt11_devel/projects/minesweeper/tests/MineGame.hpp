@@ -1,11 +1,11 @@
 /*
  * MineGame.hpp - the minesweeper under test.
  *
- * The game's folder (the project's build: K.SAV with its sum and sprites,
- * K.HLP) run the way `ms0515-run K` runs it - the machine of ms0515-run,
+ * The game's folder (the project's build: MINE.SAV with its sum and
+ * sprites, MINE.HLP) run the way `ms0515-run MINE` runs it - the machine of ms0515-run,
  * without a terminal or a window.  The test presses the MS 7004's keys and
  * reads back what a player sees - the sprites in video memory, compared
- * with the table in K.DAT, and the console's text - and what he does not:
+ * with the table in MINE.DAT, and the console's text - and what he does not:
  * the field in the program's memory, to know where the mines are.
  *
  * The folder is the project's build/game unless --mine-game=<folder> names
@@ -54,7 +54,7 @@ inline std::string optOr(const char *name, const std::string &dflt)
 
 inline fs::path gameDir()   { return optOr("game", MINE_GAME_DIR); }
 inline fs::path spritesPath() { return optOr("sprites", MINE_SPRITES); }
-inline bool built() { return fs::exists(gameDir() / "K.SAV") && fs::exists(spritesPath()); }
+inline bool built() { return fs::exists(gameDir() / "MINE.SAV") && fs::exists(spritesPath()); }
 
 inline std::vector<uint8_t> readAll(const fs::path &p)
 {
@@ -62,7 +62,7 @@ inline std::vector<uint8_t> readAll(const fs::path &p)
     return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
 }
 
-/* The sprites of the game by what they show (K.DAT's numbers). */
+/* The sprites of the game by what they show (MINE.DAT's numbers). */
 enum Sprite : int {
     kOpen0 = 0,                 /* an open cell, 1..8 the count of mines round it */
     kMine = 9, kBlown = 10, kCursor = 11, kClosed = 12, kFlag = 13, kWrong = 14,
@@ -79,7 +79,7 @@ class MineGame {
 public:
     ms0515::run::Machine machine;
 
-    /* Start K from a copy of the game's folder and run to its first wait
+    /* Start MINE from a copy of the game's folder and run to its first wait
      * for a key: the Beginner field is up. */
     MineGame()
     {
@@ -89,11 +89,11 @@ public:
         for (const auto &e : fs::directory_iterator(gameDir()))
             fs::copy_file(e.path(), dir_ / e.path().filename());
         sprites_ = readAll(spritesPath());
-        const auto sav = readAll(dir_ / "K.SAV");
+        const auto sav = readAll(dir_ / "MINE.SAV");
         /* The globals lie a word past the program's high limit (word 50
          * of its file). */
         base_ = static_cast<uint16_t>((sav[050] | sav[051] << 8) + 2);
-        REQUIRE(machine.start(dir_ / "K.SAV", {}));
+        REQUIRE(machine.start(dir_ / "MINE.SAV", {}));
         idle(3000);
     }
     ~MineGame()

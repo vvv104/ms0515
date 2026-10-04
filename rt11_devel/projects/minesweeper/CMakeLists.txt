@@ -7,8 +7,8 @@
 #     cmake -S rt11_devel/projects/minesweeper -B <build folder> -G Ninja
 #     cmake --build <build folder>
 #
-# The game comes out in <build folder>/game: K.SAV and its help K.HLP.
-# `ms0515-run K` there plays it.
+# The game comes out in <build folder>/game: MINE.SAV and its help MINE.HLP.
+# `ms0515-run MINE` there plays it.
 
 cmake_minimum_required(VERSION 3.20)
 project(minesweeper LANGUAGES NONE)
@@ -22,30 +22,30 @@ rt11_tools(TOOLS PAS1.SAV PASLIB.OBJ PAS1.OBJ FORLIB.OBJ
                  MACRO.SAV LINK.SAV SYSMAC.SML SYSLIB.OBJ
            FOLDERS pascal fortran fodos)
 
-rt11_stage(SOURCES K.PAS SPR.PAS RND.PAS)
+rt11_stage(SOURCES MINE.PAS SPR.PAS RND.PAS)
 
-foreach(unit K SPR RND)
+foreach(unit MINE SPR RND)
     rt11_pascal(OBJECT ${unit} DEPENDS ${TOOLS} ${SOURCES})
 endforeach()
 
-# The author's K.COM order: the main program, PASLIB right after it - its
+# The order of the author's K.COM: the main program, PASLIB right after it - its
 # graphics routines have to lie under the video window - then the modules.
-rt11_link(IMAGE K.SAV MAP K OBJECTS K SPR RND
-          INPUTS K PASLIB SPR RND PAS1 FORLIB
+rt11_link(IMAGE MINE.SAV MAP MINE OBJECTS MINE SPR RND
+          INPUTS MINE PASLIB SPR RND PAS1 FORLIB
           DEPENDS ${TOOLS})
 
 # The game's own file: what LINK made, its sum and the sprite table after
 # it (tail.py), and the help beside it.
 set(GAME "${CMAKE_CURRENT_BINARY_DIR}/game")
 add_custom_command(
-    OUTPUT  "${GAME}/K.SAV" "${GAME}/K.HLP"
+    OUTPUT  "${GAME}/MINE.SAV" "${GAME}/MINE.HLP"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${GAME}"
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tail.py"
-            "${RT11_WORK}/k.sav" "${CMAKE_CURRENT_SOURCE_DIR}/K.DAT" "${GAME}/K.SAV"
+            "${RT11_WORK}/mine.sav" "${CMAKE_CURRENT_SOURCE_DIR}/MINE.DAT" "${GAME}/MINE.SAV"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/K.HLP" "${GAME}/K.HLP"
-    DEPENDS "${RT11_WORK}/k.sav" tail.py K.DAT K.HLP
-    COMMENT "K.SAV with its sum and sprites"
+            "${CMAKE_CURRENT_SOURCE_DIR}/MINE.HLP" "${GAME}/MINE.HLP"
+    DEPENDS "${RT11_WORK}/mine.sav" tail.py MINE.DAT MINE.HLP
+    COMMENT "MINE.SAV with its sum and sprites"
     VERBATIM)
 
-add_custom_target(minesweeper ALL DEPENDS "${GAME}/K.SAV")
+add_custom_target(minesweeper ALL DEPENDS "${GAME}/MINE.SAV")

@@ -51,7 +51,7 @@ TEST_CASE("the game opens on the Beginner field: 8 by 8, ten mines, all closed")
 TEST_CASE("the sum the game counts over its own file is the one stored after it") {
     if (!mine::built()) { MESSAGE("the game is not built - skipped"); return; }
     mine::MineGame g;
-    const auto sav = mine::readAll(g.dir() / "K.SAV");
+    const auto sav = mine::readAll(g.dir() / "MINE.SAV");
     const size_t at = sav.size() - 1024;
     const uint16_t stored = static_cast<uint16_t>(sav[at] | sav[at + 1] << 8);
     CHECK(g.word(01000) == stored);             /* CHECK leaves its sum at 1000 */

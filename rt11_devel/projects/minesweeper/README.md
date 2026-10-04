@@ -16,7 +16,7 @@ those sources made to build and run, every change to them listed.
     cmake -S . -B build -G Ninja
     cmake --build build
     cd build/game
-    ms0515-run K
+    ms0515-run MINE
 
 | key | |
 |---|---|
@@ -33,6 +33,12 @@ those sources made to build and run, every change to them listed.
 A mine opened ends the game with the mines shown; so does the last cell
 without one, with the mines flagged.  Either way the next key leaves the
 program - there is no second game without starting it again.
+
+The author's program was `K`; here it is `MINE.SAV`, with its help
+`MINE.HLP` - his word, in 2026 - and the one line of the main program that
+names both says so.  The key list is for ROM-B, the author's machine:
+ROM-A does not hand F1-F10 to a program at all, so on it the arrows, Space
+and Return work and the rest does not.
 
 ## The sources
 
@@ -58,13 +64,14 @@ program has `{ CHECK(0,FILNAME,S);}` commented out beside the
 
 ## What was changed, and why
 
-`K.PAS`, `SPR.PAS` and `RND.PAS` here are the collection's with these
-changes and no others; the texts are KOI-8 with CR LF, as PAS1 reads them.
+`MINE.PAS` (the collection's `K.PAS`), `SPR.PAS` and `RND.PAS` here are the
+collection's with these changes and no others; the texts are KOI-8 with CR LF, as PAS1 reads them.
 
 | file | change | why |
 |---|---|---|
-| `K.PAS` | the procedures between the declarations and the main program are gone; the stray `}` after `MENU; EXTERNAL;` too | they are the copies left from the move into `RND.PAS`, which defines every one of them; PAS1 takes neither the duplicates nor the brace |
-| `K.PAS` | `GETTABSPR(S)` gives way to `CHECK(0,FILNAME,S)`, its declaration likewise | the author's own next step, as his commented line has it |
+| `MINE.PAS` | `FILNAME:='K     '` reads `'MINE  '` | the program's new name: it opens `MINE.SAV` and `MINE.HLP` by it |
+| `MINE.PAS` | the procedures between the declarations and the main program are gone; the stray `}` after `MENU; EXTERNAL;` too | they are the copies left from the move into `RND.PAS`, which defines every one of them; PAS1 takes neither the duplicates nor the brace |
+| `MINE.PAS` | `GETTABSPR(S)` gives way to `CHECK(0,FILNAME,S)`, its declaration likewise | the author's own next step, as his commented line has it |
 | `SPR.PAS` | the VAR block, commented out, is declared | the modules share their globals by declaring the same block; PAS1 does not take an empty VAR |
 | `SPR.PAS` | `GETTABSPR` - the sprite table as 288 assignments, 5.5 KB of code - is replaced by the text of `CHECK.PAS` | `CHECK` reads the table from the program's file; with both the program does not fit (below) |
 | `SPR.PAS` | `SETSPR` copies the sprite into a local and works its address out before it opens the video window | below |
@@ -89,13 +96,13 @@ own line drawing, which opens the window too, must lie under 040000 as its
 manual says, and does - which is why the sprite table cannot stay as
 assignments.
 
-### K.SAV's last two blocks
+### MINE.SAV's last two blocks
 
-`CHECK` opens `K.SAV`, sums the words of all its blocks but the last two,
+`CHECK` opens `MINE.SAV`, sums the words of all its blocks but the last two,
 compares the sum with the word that follows, skips eight words and reads
 63 sprites of 8 words to the end of the file.  So the game's file is what
 LINK makes and two blocks after it: the sum, seven words unused, and the
-table - `K.DAT`.  The author's way of writing them has not survived;
+table - `MINE.DAT`, the author's `K.DAT`.  The author's way of writing them has not survived;
 `tail.py` does what the reading implies.
 
 `CHECK(0,...)` is the author's line as it stands: with 0 a wrong sum is
@@ -104,7 +111,8 @@ is right - the tests compare what `CHECK` counted with what is stored.
 
 ## What the sources do not have
 
-The help text (`K.HLP`, deciphered in the collection's README) speaks of
+The help text (`MINE.HLP`, the author's `K.HLP`; deciphered in the collection's
+README) speaks of
 three things that are in none of the surviving sources:
 
 * **the count of mines and the clock** over the field.  The sprites for
@@ -121,7 +129,7 @@ files do not say.
 
 A CMake project on `ms0515-run` (`../../toolset/cmake/Rt11.cmake`): PAS1
 and MACRO for each of the three units, LINK in the order of the author's
-`K.COM` - `K,PASLIB,SPR,RND,PAS1,FORLIB` - and `tail.py`.  The tools come
+`K.COM` - `MINE,PASLIB,SPR,RND,PAS1,FORLIB` - and `tail.py`.  The tools come
 from the software collection: the compiler and its libraries, FORTRAN's
 library for `RAN`, which the help's cipher is made with.
 
@@ -130,4 +138,4 @@ game started from `build/game` by the machine of `ms0515-run` and played -
 the field of every level, a cell opened, a mine marked, a game lost and a
 game won, the menu, the two screens of the help, the sum.  The field is
 read from the program's memory to know where the mines are; what the
-player sees, from video memory against `K.DAT`.
+player sees, from video memory against `MINE.DAT`.

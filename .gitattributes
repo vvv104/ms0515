@@ -23,5 +23,5 @@ CMakeLists.txt text eol=lf
 
 # The machine's Pascal sources: KOI-8 and CR LF, as PAS1 reads them
 *.PAS   -text
-rt11_devel/projects/minesweeper/K.HLP binary
-rt11_devel/projects/minesweeper/K.DAT binary
+rt11_devel/projects/minesweeper/MINE.HLP binary
+rt11_devel/projects/minesweeper/MINE.DAT binary

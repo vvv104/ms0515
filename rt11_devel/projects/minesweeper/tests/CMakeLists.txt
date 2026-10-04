@@ -1,5 +1,5 @@
 # ── Minesweeper tests ────────────────────────────────────────────────────────
-# The game's own harness: K.SAV started from its folder by the machine of
+# The game's own harness: MINE.SAV started from its folder by the machine of
 # ms0515-run, headlessly, and played - the keys pressed, the sprites read
 # out of video memory, the field out of the program's.  These are tests of
 # the game, not of the emulator, which is why they live here and not under
@@ -30,7 +30,7 @@ target_include_directories(mine_tests PRIVATE
 
 target_compile_definitions(mine_tests PRIVATE
     MINE_GAME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../build/game"
-    MINE_SPRITES="${CMAKE_CURRENT_SOURCE_DIR}/../K.DAT"
+    MINE_SPRITES="${CMAKE_CURRENT_SOURCE_DIR}/../MINE.DAT"
 )
 
 target_link_libraries(mine_tests
