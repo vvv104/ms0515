@@ -1162,7 +1162,15 @@ function onKey(e, down) {
 const typing = {
   queue: [], next: 0, pending: null,
   type(text, delayMs = 0) {
-    for (const ch of text) { const k = charToHostKey(ch); if (k) this.queue.push(k); }
+    for (const ch of text) {
+      const k = charToHostKey(ch);
+      if (!k) continue;
+      // A letter is typed in the case it was written in.  On this
+      // keyboard the bare key is the capital and Shift makes the small
+      // letter; the lock (ФКС) turns that round.
+      if (/[A-Za-z]/.test(ch)) k.capital = k.shift;
+      this.queue.push(k);
+    }
     this.next = performance.now() + delayMs;
   },
   // Items { code, shift, rus }: `rus` names the mode the machine must be in
@@ -1184,6 +1192,7 @@ const typing = {
       this.queue.unshift(k);               // the mode first: РУС/ЛАТ, then the key
       k = { code: "AltRight", settle: 200 };
     }
+    if (k.capital !== undefined) k.shift = k.capital === (api.caps(h) === 1);
     if (k.shift) keyboard.down("ShiftLeft");
     keyboard.down(k.code, k.shift);
     this.pending = k;
