@@ -16,7 +16,8 @@ import createMs0515 from "./ms0515.js?v=@STAMP@";
 import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey, shiftedFunctionKey } from "./keys.js?v=@STAMP@";
 import { Joystick } from "./joystick.js?v=@STAMP@";
 import { SoftKeyboard, isTouchDevice } from "./softkeys.js?v=@STAMP@";
-import { Commander } from "./fm.js?v=@STAMP@";
+import { Commander, rt11Name } from "./fm.js?v=@STAMP@";
+import { encodeText } from "./edit.js?v=@STAMP@";
 import * as bugreport from "./bugreport.js?v=@STAMP@";
 import { DiskComposer } from "./wizard.js?v=@STAMP@";
 import { parseStart, DEFAULT_SOUND } from "./start.js?v=@STAMP@";
@@ -621,7 +622,21 @@ async function resumeStart() {
 //     "joystick": false,                 the arrows and Space drive the MS7007 port
 //     "em": false,                       the EIS/FIS instruction emulator on
 //     "sound": { "speaker": true },      as in a start file
-//     "text": { "en": "...", "ru": "..." } }   what to do; a blank line parts paragraphs
+//     "text": { "en": "...", "ru": "..." },    what to do; a blank line parts paragraphs
+//     "menu": [ { "name": "LINES", "about": { "en": "...", "ru": "..." },
+//                 "type": "LOAD LINES\rRUN\r" }, ... ],
+//     "open": { "label": { "en": "...", "ru": "..." }, "accept": ".bas",
+//               "text": true, "type": "LOAD {NAME}\r" },
+//     "ready": 2500 }
+//
+// `menu` is for a program that is a place to run other things in - an
+// interpreter with its programs: a list under the words, and a click on an
+// entry starts the program afresh and types the entry's line at it, `ready`
+// milliseconds after the start (when its prompt is there).  `open` adds a
+// button for a file of the visitor's own: it goes into the folder under an
+// RT-11 name made of its own, and the line is typed with {NAME} standing
+// for the name without the extension; `text` says it is a text, to be given
+// the machine's line ends and KOI-8 letters.
 //
 // The visit is a start visit in everything else: nothing of it is
 // remembered, and what the program writes stays with the tab.
@@ -642,8 +657,35 @@ async function loadRun(url) {
             sound: { ...DEFAULT_SOUND, ...(card.sound ?? {}) }, joystick: !!card.joystick, speed: 100 },
     disks: new Map(),
     run: { program: `${RUN_DIR}/${baseName(card.program)}`, arguments: card.arguments ?? "", em: !!card.em,
-           text: inLanguage(card.text), over: 0 },
+           text: inLanguage(card.text), over: 0, ready: card.ready ?? 2500,
+           menu: (card.menu ?? []).map((m) => ({ name: m.name, about: inLanguage(m.about), type: m.type })),
+           open: card.open ? { label: inLanguage(card.open.label), accept: card.open.accept ?? "",
+                               text: !!card.open.text, type: card.open.type } : null },
   };
+}
+
+// The program afresh, and a line typed at it once it is ready for one.
+async function runTyped(text) {
+  typing.queue.length = 0;
+  await boot();
+  typing.type(text, startFile.run.ready);
+}
+
+// A file of the visitor's own into the program's folder, and the card's
+// line for it typed.  A text gets CR LF line ends and, where it has letters
+// past ASCII, KOI-8 for them - what the machine's programs read.
+async function runOwnFile(file) {
+  const open = startFile.run.open;
+  const name = rt11Name(file.name);
+  let bytes = new Uint8Array(await file.arrayBuffer());
+  if (open.text) {
+    let text = null;
+    try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { /* not UTF-8: the machine's own bytes */ }
+    if (text !== null) bytes = encodeText(text.replace(/\r?\n/g, "\r\n"), "koi8");
+  }
+  M.FS.writeFile(`${RUN_DIR}/${name}`, bytes);
+  say(`${file.name} is ${name} in the program's folder`);
+  await runTyped(open.type.replaceAll("{NAME}", name.split(".")[0]));
 }
 
 // The program started, on the machine the module carries; every boot of a
@@ -675,6 +717,28 @@ function showAbout() {
   document.title = startFile.meta.title || document.title;
   $("abouttitle").textContent = startFile.meta.title;
   $("abouttext").replaceChildren(...startFile.run.text.split(/\n\s*\n/).map((p) => el("p", null, p.trim())));
+  const { menu, open } = startFile.run;
+  const list = $("aboutmenu");
+  list.replaceChildren();
+  if (open) {
+    const own = el("button", "own", open.label);
+    own.onclick = () => {
+      const input = $("file");
+      input.value = "";
+      input.accept = open.accept;
+      input.onchange = () => { if (input.files[0]) runOwnFile(input.files[0]).catch(fail); };
+      input.click();
+    };
+    list.append(own);
+  }
+  for (const item of menu) {
+    const row = el("button", "item");
+    row.append(el("b", null, item.name), el("span", null, item.about));
+    row.onclick = () => runTyped(item.type).catch(fail);
+    list.append(row);
+  }
+  list.hidden = !open && !menu.length;
+  document.body.classList.toggle("menu", !list.hidden);
   $("about").hidden = EMBED;               // in somebody's frame the words are theirs to give
   fit();                                   // the screen has less room now
 }
@@ -1395,7 +1459,8 @@ window.__ms = () => {
            halted, embed: EMBED,
            start: startFile ? { title: startFile.meta.title, disks: [...startFile.disks.keys()] } : null,
            run: startFile?.run ? { program: startFile.run.program, over: startFile.run.over,
-                                   about: $("abouttext").textContent } : null };
+                                   about: $("abouttext").textContent, menu: startFile.run.menu.length,
+                                   open: !!startFile.run.open } : null };
 };
 window.__ms.type = (text) => typing.type(text);
 window.__ms.speed = (pct) => setSpeed(pct);   // the control, for scripted checks

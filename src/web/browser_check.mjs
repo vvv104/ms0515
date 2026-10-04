@@ -406,6 +406,14 @@ await evaluate('document.getElementById("files").click()');
   if (await evaluate('document.getElementById("about").hidden'))
     throw new Error("the run page hides the card's words");
   if (!(await arrow())) throw new Error("the ended program is not offered again");
+  // The card's menu: an entry and the button for a file of one's own, and a
+  // click on the entry runs the program again.
+  if (over.run.menu !== 1 || !over.run.open) throw new Error("the card's menu is not on the page: " + JSON.stringify(over.run));
+  const rows = await evaluate('[...document.querySelectorAll("#aboutmenu button")].map((b) => b.textContent).join(" | ")');
+  if (!/Свой файл/.test(rows) || !/AGAIN/.test(rows)) throw new Error("the menu's rows: " + rows);
+  await evaluate('document.querySelector("#aboutmenu button.item").click()');
+  const again = await settle("the program run again from the menu", (p) => p.run?.over === 1 && !p.running && p.frames > over.frames);
+  console.log(`menu: "${rows}", run again to frame ${again.frames}`);
   if (await evaluate('localStorage.getItem("ms0515.mounts")') !== remembered)
     throw new Error("a run visit changed the remembered mounts");
 }

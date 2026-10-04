@@ -77,6 +77,8 @@ writeFileSync(join(dist, "test-run/dir.json"), JSON.stringify({
   arguments: "NOTE.TXT",
   files: ["DIR.SAV", "NOTE.TXT"],
   text: { en: "The directory of the folder.", ru: "Каталог папки." },
+  menu: [{ name: "AGAIN", about: { en: "The same once more.", ru: "То же ещё раз." }, type: "\r" }],
+  open: { label: { en: "Your own file", ru: "Свой файл" }, accept: ".txt", text: true, type: "\r" },
 }, null, 1));
 
 console.log(`OK: DIR ran and ended in ${first} frames (${second} the second time), ${pixels} lit pixels; test-run/dir.json written`);

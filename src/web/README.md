@@ -318,6 +318,18 @@ their own.  When the program ends - a game left by its own key - the
 machine stands still and the play arrow starts it again.  The visit is
 remembered by nobody, and what the program writes stays in the tab.
 
+A program that is a place to run other things in - BASIC with its
+programs - has two more fields.  `menu` is a list shown under the words,
+`{ "name", "about" (by language), "type" }` each: a click starts the
+program afresh and types the entry's line at it (`LOAD LINES\rRUN\r`),
+`ready` milliseconds after the start (2500 unless the card says).  `open`
+adds a button for a file of the visitor's own - `{ "label", "accept",
+"text", "type" }`: the file goes into the folder under an RT-11 name made
+of its own, a `text` one with CR LF line ends and its letters past ASCII
+in KOI-8, and `type` is typed with `{NAME}` standing for the name without
+the extension.  In a wide window the words and the list stand beside the
+screen instead of under it.
+
 The software collection's Pages are the cards' home: its tiles lead here.
 `run_check.mjs` runs DIR from a folder under Node, to its end, and leaves
 `test-run/dir.json` in `dist/` for the browser check to open with `?run=`.
