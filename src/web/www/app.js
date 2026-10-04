@@ -676,6 +676,7 @@ function showAbout() {
   $("abouttitle").textContent = startFile.meta.title;
   $("abouttext").replaceChildren(...startFile.run.text.split(/\n\s*\n/).map((p) => el("p", null, p.trim())));
   $("about").hidden = EMBED;               // in somebody's frame the words are theirs to give
+  fit();                                   // the screen has less room now
 }
 
 function start() {
