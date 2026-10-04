@@ -318,6 +318,23 @@ their own.  When the program ends - a game left by its own key - the
 machine stands still and the play arrow starts it again.  The visit is
 remembered by nobody, and what the program writes stays in the tab.
 
+A program that is a place to run other things in - BASIC with its
+programs - has one more field, `sources`: `{ "files": [names], "type",
+"other": [{ "name", "type" }], "load", "own" (by language), "accept" }`.
+The names stand in a row under the words; a click on one opens its text in
+an editor on the page, to be read or changed (KOI-8 with CR LF on the
+machine, plain lines in the editor); the `load` button puts the editor's
+text into the folder under that name, starts the program afresh and types
+`type` at it (`LOAD {NAME}\r`, `{NAME}` being the name without its
+extension), `ready` milliseconds after the start (2500 unless the card
+says).  A text left as it was is not rewritten.  `other` are files that are
+no text - a COMPILEd program - with a line of their own each.  The `own`
+button takes a file from the visitor's computer: it joins the names under
+an RT-11 name made of its own and opens in the editor.  In a wide window
+the words and the editor stand beside the screen instead of under it, and
+the edge between them can be dragged to give the editor more of the window
+or less (the width is kept in the browser for the next visit).
+
 The software collection's Pages are the cards' home: its tiles lead here.
 `run_check.mjs` runs DIR from a folder under Node, to its end, and leaves
 `test-run/dir.json` in `dist/` for the browser check to open with `?run=`.
