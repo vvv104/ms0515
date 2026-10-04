@@ -74,7 +74,7 @@ writeFileSync(join(dist, "test-run/dir.json"), JSON.stringify({
   schema: 1,
   title: { en: "DIR", ru: "DIR" },
   program: "DIR.SAV",
-  arguments: "NOTE.TXT/W",
+  arguments: "NOTE.TXT",
   files: ["DIR.SAV", "NOTE.TXT"],
   text: { en: "The directory of the folder.", ru: "Каталог папки." },
 }, null, 1));

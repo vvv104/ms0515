@@ -82,6 +82,7 @@ fresh machine.  CI runs them all in the `web / emscripten` job.
 | `ms_audio(h, out, max, rate)` | the last frame's speaker as 16-bit PCM |
 | `ms_key(h, key, down)` / `ms_key_tick(h, ms)` | `ms0515::Key` values (`www/keys.js` mirrors the enum, `ms_key_max()` guards the drift); the tick drives auto-repeat |
 | `ms_save_state(h, path)` / `ms_load_state(h, path)` | snapshots in the module's file system |
+| `ms_run(h, program, arguments, em)` / `ms_run_ended(h)` / `ms_run_error()` / `ms_run_built()` | one program run with no boot, the way `ms0515-run` does it on the host: the handle becomes the machine the module carries (ROM-B, the dec system, the monitor booted) and the program starts from its folder in the module's file system; `ms_run_ended` is 0 while it runs, 1 when the monitor is back, 2 when it ended badly |
 | `ms_history(h, events)` | the event ring - reg A and dispatcher writes, FDC commands, traps, HALTs - which the snapshot carries in its HIST chunk; the page turns it on at startup so every bug report holds the machine's last steps |
 | `ms_pc(h)` | where the CPU is now (the report says so) |
 | `ms_ruslat(h)` / `ms_caps(h)` / `ms_key_held(h, key)` | the keyboard's lamps and held keys, for the host-key mapping |
@@ -278,6 +279,48 @@ python tools/make_start.py src/web/starts/sabot2.toml
 `start_check.mjs` does the same under Node with the test fixture and
 leaves `test-start.zip` in `dist/`, which the browser check then opens
 with `?start=`.
+
+## Run cards
+
+A start file is a snapshot somebody made, a megabyte and a half with its
+diskette; a run card is a few lines of JSON, and the game starts by itself.
+The module carries `ms0515-run`'s machine (`src/tools/run`): ROM-B, the dec
+system and a state with the monitor booted are compiled into it, the
+program's folder is a directory of the module's file system, and the
+monitor's own `RUN` starts the program - no diskette, no boot, no prompt.
+The build makes that machine of the software collection's dec kit
+(`$MS0515_SOFTWARE_DIR`, else the collection beside the repository); a
+build without the collection has no run machine (`ms_run_built()` is 0).
+
+`?run=URL` opens the page at a card:
+
+```json
+{ "schema": 1,
+  "title": { "en": "Firebird", "ru": "Firebird" },
+  "program": "BIRDS.SAV",
+  "arguments": "",
+  "files": ["../software/games/BIRDS.SAV"],
+  "joystick": false,
+  "em": false,
+  "sound": { "speaker": true },
+  "text": { "en": "What to do...", "ru": "..." } }
+```
+
+`files` are fetched relative to the card and put into the folder under
+their own names; `program` is one of them; `joystick` gives the arrows and
+Space to the MS7007 port; `em` switches the instruction emulator on;
+`sound` is a start file's.  The page is the screen alone, as with
+`embed=1`, and under it the card's `title` and `text` in the visitor's
+language - the first of the browser's languages the card has, else its
+first (`lang=ru` asks for one by hand; a blank line in the text parts
+paragraphs).  With `embed=1` the words are left out: a frame's owner has
+their own.  When the program ends - a game left by its own key - the
+machine stands still and the play arrow starts it again.  The visit is
+remembered by nobody, and what the program writes stays in the tab.
+
+The software collection's Pages are the cards' home: its tiles lead here.
+`run_check.mjs` runs DIR from a folder under Node, to its end, and leaves
+`test-run/dir.json` in `dist/` for the browser check to open with `?run=`.
 
 ## The bug report
 

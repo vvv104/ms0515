@@ -373,6 +373,43 @@ await evaluate('document.getElementById("files").click()');
     throw new Error("a start visit changed the remembered mounts");
 }
 
+// A run card (run_check.mjs left test-run/dir.json in dist/: DIR and a
+// file for it to list): `?run=` starts the program with no boot at all,
+// the screen stands alone with the card's words under it in the language
+// asked for, and when the program ends the machine stops and the arrow
+// offers it again.
+{
+  const remembered = await evaluate('localStorage.getItem("ms0515.mounts")');
+  const run = url.split("?")[0] + "?run=test-run/dir.json&lang=ru";
+  await send("Page.navigate", { url: run });
+  let go = null, up = null;
+  for (let i = 0; i < 60 && !go && !up; ++i) {
+    await sleep(500);
+    const p = await evaluate("window.__ms ? window.__ms() : null").catch(() => null);
+    if (p && (p.frames > 0 || /^error/.test(p.status))) up = p;
+    else go = await arrow();
+  }
+  if (up && /^error/.test(up.status)) throw new Error("the run page failed: " + up.status);
+  if (!go && !up) throw new Error("the run page neither offered to start the program nor started it");
+  if (go) {
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: go.x, y: go.y, button: "left", clickCount: 1 });
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: go.x, y: go.y, button: "left", clickCount: 1 });
+  }
+  const over = await settle("the program's end", (p) => p.run?.over === 1 && !p.running);
+  console.log(`run card: over ${over.run.over} after ${over.frames} frames, white ${white(over)}, black ${black(over)}, about "${over.run.about}"`);
+  // The console of the carried state prints dark on light: the text is the lesser of the two.
+  if (Math.min(white(over), black(over)) < 500) throw new Error("DIR's listing is not on the screen");
+  if (over.frames > 200) throw new Error(`the machine booted (${over.frames} frames) instead of running the program`);
+  if (over.run.about !== "Каталог папки.") throw new Error("the card's Russian words are not under the screen: " + over.run.about);
+  if (await evaluate('getComputedStyle(document.querySelector("header")).display') !== "none")
+    throw new Error("the run page shows the header");
+  if (await evaluate('document.getElementById("about").hidden'))
+    throw new Error("the run page hides the card's words");
+  if (!(await arrow())) throw new Error("the ended program is not offered again");
+  if (await evaluate('localStorage.getItem("ms0515.mounts")') !== remembered)
+    throw new Error("a run visit changed the remembered mounts");
+}
+
 ws.close();
 if (!/state restored/.test(restored.status))
   throw new Error("the saved state did not outlive the page: " + restored.status);
