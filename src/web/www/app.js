@@ -17,7 +17,7 @@ import { KEYS, KEY_ID, mapKey, isLetterKey, charToHostKey, shiftedFunctionKey } 
 import { Joystick } from "./joystick.js?v=@STAMP@";
 import { SoftKeyboard, isTouchDevice } from "./softkeys.js?v=@STAMP@";
 import { Commander, rt11Name } from "./fm.js?v=@STAMP@";
-import { encodeText } from "./edit.js?v=@STAMP@";
+import { encodeText, decodeBytes } from "./edit.js?v=@STAMP@";
 import * as bugreport from "./bugreport.js?v=@STAMP@";
 import { DiskComposer } from "./wizard.js?v=@STAMP@";
 import { parseStart, DEFAULT_SOUND } from "./start.js?v=@STAMP@";
@@ -623,20 +623,21 @@ async function resumeStart() {
 //     "em": false,                       the EIS/FIS instruction emulator on
 //     "sound": { "speaker": true },      as in a start file
 //     "text": { "en": "...", "ru": "..." },    what to do; a blank line parts paragraphs
-//     "menu": [ { "name": "LINES", "about": { "en": "...", "ru": "..." },
-//                 "type": "LOAD LINES\rRUN\r" }, ... ],
-//     "open": { "label": { "en": "...", "ru": "..." }, "accept": ".bas",
-//               "text": true, "type": "LOAD {NAME}\r" },
+//     "sources": { "files": ["LINES.BAS", ...], "type": "LOAD {NAME}\r",
+//                  "other": [ { "name": "PRAW.BAC", "type": "RUN PRAW.BAC\r" } ],
+//                  "load": { "en": "...", "ru": "..." }, "own": { ... }, "accept": ".bas" },
 //     "ready": 2500 }
 //
-// `menu` is for a program that is a place to run other things in - an
-// interpreter with its programs: a list under the words, and a click on an
-// entry starts the program afresh and types the entry's line at it, `ready`
-// milliseconds after the start (when its prompt is there).  `open` adds a
-// button for a file of the visitor's own: it goes into the folder under an
-// RT-11 name made of its own, and the line is typed with {NAME} standing
-// for the name without the extension; `text` says it is a text, to be given
-// the machine's line ends and KOI-8 letters.
+// `sources` is for a program that is a place to run other things in - an
+// interpreter with its programs.  The names stand in a row; a click on one
+// opens its text in an editor on the page, to be read or changed; the
+// button (`load`) puts the editor's text into the folder under that name,
+// starts the program afresh and types `type` at it, {NAME} standing for the
+// name without its extension, `ready` milliseconds after the start (when
+// its prompt is there).  `other` are files that are no text - their names
+// stand with the rest, each with a line of its own.  `own` is the button
+// for a file from the visitor's computer: it joins the names under an
+// RT-11 name made of its own.
 //
 // The visit is a start visit in everything else: nothing of it is
 // remembered, and what the program writes stays with the tab.
@@ -658,9 +659,10 @@ async function loadRun(url) {
     disks: new Map(),
     run: { program: `${RUN_DIR}/${baseName(card.program)}`, arguments: card.arguments ?? "", em: !!card.em,
            text: inLanguage(card.text), over: 0, ready: card.ready ?? 2500,
-           menu: (card.menu ?? []).map((m) => ({ name: m.name, about: inLanguage(m.about), type: m.type })),
-           open: card.open ? { label: inLanguage(card.open.label), accept: card.open.accept ?? "",
-                               text: !!card.open.text, type: card.open.type } : null },
+           sources: card.sources ? {
+             files: card.sources.files ?? [], type: card.sources.type,
+             other: card.sources.other ?? [], accept: card.sources.accept ?? "",
+             load: inLanguage(card.sources.load), own: inLanguage(card.sources.own) } : null },
   };
 }
 
@@ -671,21 +673,86 @@ async function runTyped(text) {
   typing.type(text, startFile.run.ready);
 }
 
-// A file of the visitor's own into the program's folder, and the card's
-// line for it typed.  A text gets CR LF line ends and, where it has letters
-// past ASCII, KOI-8 for them - what the machine's programs read.
-async function runOwnFile(file) {
-  const open = startFile.run.open;
+// ── a card's sources: the texts the program can be handed ─────────────────
+// The names in a row; a click on one opens its text in the editor beside
+// them, to be read or changed; the button puts what the editor holds into
+// the program's folder under that name, starts the program afresh and types
+// the card's line for it.  A text is KOI-8 with CR LF line ends on the
+// machine and plain lines here; one left as it was is not rewritten, so a
+// file whose bytes are not KOI-8 text stays whole.
+const sources = { name: "", shown: "" };
+const sourcePath = (name) => `${RUN_DIR}/${name}`;
+const machineText = (text) => encodeText(text.replace(/\r?\n/g, "\r\n"), "koi8");
+const pageText = (bytes) => {
+  let end = bytes.length;
+  while (end > 0 && (bytes[end - 1] === 0 || bytes[end - 1] === 26)) --end;   // the block's padding, a ^Z
+  return decodeBytes(bytes.subarray(0, end), "koi8").replace(/\r\n/g, "\n");
+};
+
+function selectSource(name) {
+  const s = startFile.run.sources;
+  sources.name = name;
+  const other = s.other.find((o) => o.name === name);
+  const box = $("srctext");
+  box.disabled = !!other;
+  sources.shown = box.value = other ? "" : pageText(M.FS.readFile(sourcePath(name)));
+  box.scrollTop = 0;
+  $("srcname").textContent = name;
+  for (const b of $("srcnames").children) b.classList.toggle("on", b.textContent === name);
+  $("srcload").disabled = false;
+}
+
+async function loadSource() {
+  const s = startFile.run.sources;
+  const name = sources.name;
+  if (!name) return;
+  const other = s.other.find((o) => o.name === name);
+  const box = $("srctext");
+  if (!other && box.value !== sources.shown) {
+    M.FS.writeFile(sourcePath(name), machineText(box.value));
+    sources.shown = box.value;
+  }
+  await runTyped((other?.type ?? s.type).replaceAll("{NAME}", name.split(".")[0]));
+}
+
+function addSourceName(name) {
+  const names = $("srcnames");
+  if ([...names.children].some((b) => b.textContent === name)) return;
+  const b = el("button", null, name);
+  b.onclick = () => selectSource(name);
+  names.append(b);
+}
+
+// A file of the visitor's own: into the folder under an RT-11 name made of
+// its own, among the names, and open in the editor.
+async function ownSource(file) {
   const name = rt11Name(file.name);
   let bytes = new Uint8Array(await file.arrayBuffer());
-  if (open.text) {
-    let text = null;
-    try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { /* not UTF-8: the machine's own bytes */ }
-    if (text !== null) bytes = encodeText(text.replace(/\r?\n/g, "\r\n"), "koi8");
-  }
-  M.FS.writeFile(`${RUN_DIR}/${name}`, bytes);
-  say(`${file.name} is ${name} in the program's folder`);
-  await runTyped(open.type.replaceAll("{NAME}", name.split(".")[0]));
+  let text = null;
+  try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { /* not UTF-8: the machine's own bytes */ }
+  if (text !== null) bytes = machineText(text);
+  M.FS.writeFile(sourcePath(name), bytes);
+  addSourceName(name);
+  selectSource(name);
+}
+
+function showSources() {
+  const s = startFile.run.sources;
+  $("sources").hidden = !s;
+  document.body.classList.toggle("sources", !!s);
+  if (!s) return;
+  $("srcnames").replaceChildren();
+  for (const name of [...s.files, ...s.other.map((o) => o.name)]) addSourceName(name);
+  $("srcload").textContent = s.load;
+  $("srcload").onclick = () => loadSource().catch(fail);
+  $("srcown").textContent = s.own;
+  $("srcown").onclick = () => {
+    const input = $("file");
+    input.value = "";
+    input.accept = s.accept;
+    input.onchange = () => { if (input.files[0]) ownSource(input.files[0]).catch(fail); };
+    input.click();
+  };
 }
 
 // The program started, on the machine the module carries; every boot of a
@@ -717,28 +784,7 @@ function showAbout() {
   document.title = startFile.meta.title || document.title;
   $("abouttitle").textContent = startFile.meta.title;
   $("abouttext").replaceChildren(...startFile.run.text.split(/\n\s*\n/).map((p) => el("p", null, p.trim())));
-  const { menu, open } = startFile.run;
-  const list = $("aboutmenu");
-  list.replaceChildren();
-  if (open) {
-    const own = el("button", "own", open.label);
-    own.onclick = () => {
-      const input = $("file");
-      input.value = "";
-      input.accept = open.accept;
-      input.onchange = () => { if (input.files[0]) runOwnFile(input.files[0]).catch(fail); };
-      input.click();
-    };
-    list.append(own);
-  }
-  for (const item of menu) {
-    const row = el("button", "item");
-    row.append(el("b", null, item.name), el("span", null, item.about));
-    row.onclick = () => runTyped(item.type).catch(fail);
-    list.append(row);
-  }
-  list.hidden = !open && !menu.length;
-  document.body.classList.toggle("menu", !list.hidden);
+  showSources();
   $("about").hidden = EMBED;               // in somebody's frame the words are theirs to give
   fit();                                   // the screen has less room now
 }
@@ -1468,8 +1514,9 @@ window.__ms = () => {
            halted, embed: EMBED,
            start: startFile ? { title: startFile.meta.title, disks: [...startFile.disks.keys()] } : null,
            run: startFile?.run ? { program: startFile.run.program, over: startFile.run.over,
-                                   about: $("abouttext").textContent, menu: startFile.run.menu.length,
-                                   open: !!startFile.run.open } : null };
+                                   about: $("abouttext").textContent,
+                                   sources: startFile.run.sources ? { names: $("srcnames").children.length,
+                                                                      name: sources.name } : null } : null };
 };
 window.__ms.type = (text) => typing.type(text);
 window.__ms.speed = (pct) => setSpeed(pct);   // the control, for scripted checks

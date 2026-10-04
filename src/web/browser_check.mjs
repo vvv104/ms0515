@@ -406,14 +406,21 @@ await evaluate('document.getElementById("files").click()');
   if (await evaluate('document.getElementById("about").hidden'))
     throw new Error("the run page hides the card's words");
   if (!(await arrow())) throw new Error("the ended program is not offered again");
-  // The card's menu: an entry and the button for a file of one's own, and a
-  // click on the entry runs the program again.
-  if (over.run.menu !== 1 || !over.run.open) throw new Error("the card's menu is not on the page: " + JSON.stringify(over.run));
-  const rows = await evaluate('[...document.querySelectorAll("#aboutmenu button")].map((b) => b.textContent).join(" | ")');
-  if (!/Свой файл/.test(rows) || !/AGAIN/.test(rows)) throw new Error("the menu's rows: " + rows);
-  await evaluate('document.querySelector("#aboutmenu button.item").click()');
-  const again = await settle("the program run again from the menu", (p) => p.run?.over === 1 && !p.running && p.frames > over.frames);
-  console.log(`menu: "${rows}", run again to frame ${again.frames}`);
+  // The card's sources: the name, its text in the editor on a click, and
+  // the button that puts the editor's text into the folder and runs the
+  // program again - DIR then lists the file at its new length.
+  if (over.run.sources?.names !== 1) throw new Error("the card's sources are not on the page: " + JSON.stringify(over.run));
+  if (await evaluate('document.getElementById("srcload").textContent + "|" + document.getElementById("srcown").textContent') !== "Загрузить|Свой файл")
+    throw new Error("the sources' buttons are not in Russian");
+  await evaluate('document.querySelector("#srcnames button").click()');
+  const shown = await evaluate('document.getElementById("srctext").value');
+  if (shown !== "N".repeat(700)) throw new Error(`the editor shows ${shown.length} characters of NOTE.TXT, not its 700`);
+  await evaluate('document.getElementById("srctext").value = "10 PRINT 1\\n20 END\\n"; document.getElementById("srcload").click()');
+  const again = await settle("the program run again with the edited text", (p) => p.run?.over === 1 && !p.running && p.frames > over.frames);
+  const kept = await evaluate('Array.from(window.__ms.module().FS.readFile("/run/NOTE.TXT")).join(",")');
+  if (kept !== Array.from(new TextEncoder().encode("10 PRINT 1\r\n20 END\r\n")).join(","))
+    throw new Error("the edited text is not in the folder with the machine's line ends: " + kept);
+  console.log(`sources: NOTE.TXT edited and loaded, run again to frame ${again.frames}`);
   if (await evaluate('localStorage.getItem("ms0515.mounts")') !== remembered)
     throw new Error("a run visit changed the remembered mounts");
 }

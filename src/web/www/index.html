@@ -113,18 +113,22 @@
   #about { flex: none; max-height: 34%; overflow: auto; padding: .6em 1em .8em; background: #151515; color: #ccc; line-height: 1.4; }
   #about h2 { font-size: 1.1em; margin: 0 0 .3em; color: #fff; }
   #about p { margin: .25em 0; max-width: 60em; white-space: pre-line; }
-  /* A card's menu: what the program can be handed, a line each. */
-  #aboutmenu { display: flex; flex-direction: column; gap: .15em; margin-top: .5em; max-width: 72em; }
-  #aboutmenu button { display: flex; gap: .8em; align-items: baseline; text-align: left; border-color: transparent; background: none; padding: .15em .4em; }
-  #aboutmenu button:hover, #aboutmenu button:focus-visible { background: #2a2a2a; border-color: #444; }
-  #aboutmenu button b { flex: none; width: 5.5em; color: #8cf; font-family: ui-monospace, Consolas, monospace; }
-  #aboutmenu button span { color: #bbb; }
-  #aboutmenu button.own { align-self: flex-start; margin-bottom: .3em; background: #2a2a2a; border-color: #444; color: #eee; padding: .25em .7em; }
-  body.run.menu #about { max-height: 44%; }
-  /* A wide window has room beside the screen: the words and the list go there, the screen keeps its height. */
+  /* A card's sources: the names, the chosen one's text, the button that loads it. */
+  #sources { display: flex; flex-direction: column; gap: .4em; margin-top: .6em; min-height: 0; flex: 1 1 auto; }
+  #srcnames { display: flex; flex-wrap: wrap; gap: .25em; max-height: 9.5em; overflow: auto; }
+  #srcnames button { padding: .05em .45em; font: 13px ui-monospace, Consolas, monospace; background: #222; border-color: #3a3a3a; color: #8cf; }
+  #srcnames button.on { background: #1d3d72; border-color: #8ab; color: #fff; }
+  #srcbar { display: flex; gap: .5em; align-items: center; }
+  #srcname { font: 14px ui-monospace, Consolas, monospace; color: #fff; min-width: 6.5em; }
+  #srcload:enabled { background: #1f5a3a; border-color: #3a8; }
+  #srctext { flex: 1; min-height: 9em; resize: vertical; background: #05173a; color: #cde; border: 1px solid #446; border-radius: 4px;
+             padding: .4em .5em; font: 13px/1.3 ui-monospace, Consolas, monospace; white-space: pre; }
+  body.run.sources #about { max-height: 50%; display: flex; flex-direction: column; }
+  /* A wide window has room beside the screen: the words and the editor go there, the screen keeps its height. */
   @media (min-width: 1000px) and (min-aspect-ratio: 5/4) {
-    body.run.menu { flex-direction: row; }
-    body.run.menu #about { max-height: none; width: 27em; box-sizing: border-box; }
+    body.run.sources { flex-direction: row; }
+    body.run.sources #about { max-height: none; width: 34em; box-sizing: border-box; }
+    body.run.sources #srctext { resize: none; }
   }
   /* The field the OS keyboard types into: present, focusable, unseen. */
   #softkey { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; font-size: 16px; }
@@ -286,7 +290,11 @@
 <section id="about" hidden>
   <h2 id="abouttitle"></h2>
   <div id="abouttext"></div>
-  <div id="aboutmenu" hidden></div>
+  <div id="sources" hidden>
+    <div id="srcnames"></div>
+    <div id="srcbar"><span id="srcname"></span><button id="srcload" disabled></button><span class="spacer"></span><button id="srcown"></button></div>
+    <textarea id="srctext" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"></textarea>
+  </div>
 </section>
 <dialog id="bugdlg">
   <form method="dialog">
