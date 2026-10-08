@@ -90,9 +90,9 @@ TEST_CASE("LIBC: printf, strings, ctype, stdlib and the heap, a line a group") {
 }
 
 /* GCC 15.2's pdp11 backend compares longs wrongly when the high words
- * are equal (toolset/gcc/README.md): this test shows it, and may fail
- * until the compiler is fixed - then it must pass. */
-TEST_CASE("CMPLONG: signed comparisons of longs" * doctest::may_fail()) {
+ * are equal; build-toolchain.sh patches it (toolset/gcc/README.md, "A
+ * trap in the compiler").  This fails on a compiler without the patch. */
+TEST_CASE("CMPLONG: signed comparisons of longs, the compiler's fix in place") {
     if (!built("CMPLONG")) { MESSAGE("CMPLONG.SAV not built - skipped"); return; }
     const Run r = run("CMPLONG");
     REQUIRE(r.ended);

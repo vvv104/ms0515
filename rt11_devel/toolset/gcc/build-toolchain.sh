@@ -10,16 +10,17 @@
 # which is what the KR1807VM1 (a T-11) executes: no EIS, no FPP.  The
 # projects then build with `-m10` too (Rt11Gcc.cmake sets it).
 #
-# What it needs on the host: gcc, g++, make, bison, flex, texinfo, and the
-# GMP, MPFR and MPC development packages (Debian/Ubuntu: build-essential
-# bison flex texinfo libgmp-dev libmpfr-dev libmpc-dev).  Sources and
-# build trees go under <prefix>/src and <prefix>/build; the build takes
-# about a quarter of an hour on a desktop.
+# What it needs on the host: gcc, g++, make, patch, bison, flex, texinfo,
+# and the GMP, MPFR and MPC development packages (Debian/Ubuntu:
+# build-essential patch bison flex texinfo libgmp-dev libmpfr-dev
+# libmpc-dev).  Sources and build trees go under <prefix>/src and
+# <prefix>/build; the build takes about a quarter of an hour on a desktop.
 #
 # Point MS0515_GCC at <prefix> for the CMake projects, or put <prefix>/bin
 # on the PATH.
 set -euo pipefail
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
 PREFIX="${1:-$HOME/pdp11-gcc}"
 TARGET=pdp11-aout
 BINUTILS=binutils-2.44
@@ -33,6 +34,14 @@ cd "$PREFIX/src"
 [ -f "$GCC.tar.xz" ] || wget -q "$MIRROR/gcc/$GCC/$GCC.tar.xz"
 [ -d "$BINUTILS" ] || tar xf "$BINUTILS.tar.xz"
 [ -d "$GCC" ] || tar xf "$GCC.tar.xz"
+
+# The fix of the pdp11 backend's comparison of longs (README.md, "A trap
+# in the compiler"); patch-gcc.py made the file and remakes it for
+# another GCC.  Applied once: the stamp says so.
+if [ ! -f "$GCC/.ms0515-patched" ]; then
+    patch -p1 -d "$GCC" < "$HERE/gcc-pdp11-cmpsi.patch"
+    touch "$GCC/.ms0515-patched"
+fi
 
 echo "=== binutils ($BINUTILS)"
 mkdir -p "$PREFIX/build/binutils"

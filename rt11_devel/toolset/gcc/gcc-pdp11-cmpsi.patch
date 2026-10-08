@@ -1,0 +1,87 @@
+The fix of GCC's pdp11 backend for signed comparisons of longs: with
+equal high words the low words were compared with a signed branch.
+After the last compare, N and V are set from C so that a signed branch
+reads the unsigned order of the low words.  Made by patch-gcc.py from
+gcc-15.2.0; build-toolchain.sh applies it.  See README.md, "A trap in
+the compiler".
+
+--- a/gcc/config/pdp11/pdp11.md
++++ b/gcc/config/pdp11/pdp11.md
+@@ -256,11 +256,14 @@
+   rtx inops[2];
+   rtx exops[2][2];
+   rtx lb[1];
++  rtx fx[2];
+   
+   inops[0] = operands[0];
+   inops[1] = operands[1];
+   pdp11_expand_operands (inops, exops, 2, 2, NULL, big);
+   lb[0] = gen_label_rtx ();
++  fx[0] = gen_label_rtx ();
++  fx[1] = gen_label_rtx ();
+   
+   if (CONST_INT_P (exops[0][1]) && INTVAL (exops[0][1]) == 0)
+    output_asm_insn ("tst\t%0", exops[0]);
+@@ -271,6 +274,15 @@
+    output_asm_insn ("tst\t%0", exops[1]);
+   else
+    output_asm_insn ("cmp\t%0,%1", exops[1]);
++  output_asm_insn ("clv", exops[0]);
++  output_asm_insn ("bcs\t%l0", fx);
++  output_asm_insn ("cln", exops[0]);
++  output_asm_insn ("br\t%l0", fx + 1);
++  output_asm_label (fx[0]);
++  fputs (":\n", asm_out_file);
++  output_asm_insn ("sen", exops[0]);
++  output_asm_label (fx[1]);
++  fputs (":\n", asm_out_file);
+   output_asm_label (lb[0]);
+   fputs (":\n", asm_out_file);
+ 
+@@ -290,12 +302,15 @@
+   rtx inops[4];
+   rtx exops[4][2];
+   rtx lb[1];
++  rtx fx[2];
+   int i;
+   
+   inops[0] = operands[0];
+   inops[1] = operands[1];
+   pdp11_expand_operands (inops, exops, 2, 4, NULL, big);
+   lb[0] = gen_label_rtx ();
++  fx[0] = gen_label_rtx ();
++  fx[1] = gen_label_rtx ();
+ 
+   for (i = 0; i < 3; i++)
+     {
+@@ -309,6 +324,15 @@
+    output_asm_insn ("tst\t%0", exops[3]);
+   else
+    output_asm_insn ("cmp\t%0,%1", exops[3]);
++  output_asm_insn ("clv", exops[0]);
++  output_asm_insn ("bcs\t%l0", fx);
++  output_asm_insn ("cln", exops[0]);
++  output_asm_insn ("br\t%l0", fx + 1);
++  output_asm_label (fx[0]);
++  fputs (":\n", asm_out_file);
++  output_asm_insn ("sen", exops[0]);
++  output_asm_label (fx[1]);
++  fputs (":\n", asm_out_file);
+   output_asm_label (lb[0]);
+    fputs (":\n", asm_out_file);
+ 
+--- a/gcc/config/pdp11/pdp11.cc
++++ b/gcc/config/pdp11/pdp11.cc
+@@ -2126,8 +2126,10 @@
+ 	len += 2;  /* second operand extra word.  */
+     }
+ 
+-  /* Deduct one word because there is no branch at the end.  */
+-  return len - 2;
++  /* Deduct one word because there is no branch at the end, and add the
++     five words that set N and V from C after the last compare, so that
++     a signed branch reads the unsigned order of the low words.  */
++  return len - 2 + 10;
+ }
+ 
+ /* Prepend to CLOBBERS hard registers that are automatically clobbered

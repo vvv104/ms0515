@@ -10,15 +10,19 @@ as `ms0515-disk` works - and only the finished `.SAV` runs on it, by
 
 ```
 rt11_devel/toolset/gcc/
-├── build-toolchain.sh   binutils + gcc for pdp11-aout from their sources
+├── build-toolchain.sh   binutils + gcc for pdp11-aout from their sources, patched
+├── gcc-pdp11-cmpsi.patch  the fix of the backend's comparison of longs
+├── patch-gcc.py         what made the patch; remakes it for another GCC
 ├── pdp11-rt11.cmake     the CMake toolchain file (Rt11Gcc.cmake names it)
 ├── aout2sav.py          the linked a.out as a .SAV: block 0, bss, stack
 ├── rt/                  the runtime, assembled with each project
-│   ├── crt0.s           _start: main() then .EXIT; __main, exit
-│   ├── arith.s          __mulhi3, __divhi3, __modhi3, __udivhi3, __umodhi3
+│   ├── crt0.s           _start: main() then .EXIT; __main, exit, rt11_memtop
+│   ├── arith.s          the 16- and 32-bit multiply and divide, __xorhi3
 │   └── emt.s            RT-11's requests as C functions
-├── include/rt11.h       their declarations
-├── examples/            HELLO, ARITH (the helpers checked), CALC (the benchmark)
+├── libc/                stdio over the console, string, ctype, stdlib, the heap
+├── include/             rt11.h, stdio.h, stdlib.h, string.h, ctype.h
+├── examples/            HELLO, ARITH and LIBC (the runtime checked), CMPLONG
+│                        (the compiler's comparison of longs), CALC (the benchmark)
 └── tests/               the examples run by ms0515-run's machine (doctest)
 ```
 
@@ -95,10 +99,13 @@ false, `32768L >= 0` too.  Comparisons whose high words differ, unsigned
 comparisons and tests for equality are right.  libgcc's own 32-bit
 division falls into this (its `__udivmodsi4` tests the divisor's sign),
 which is why `rt/arith.s` carries the 32-bit divisions as well.
-`examples/cmplong.c` shows the fault and its test is marked as one that
-may fail; when a fixed compiler comes, it must pass.  Until then: keep
-signed `long` comparisons out of a program's logic, or cast to
-`unsigned long` where the sign is known.
+
+`build-toolchain.sh` applies a fix, `gcc-pdp11-cmpsi.patch` (made by
+`patch-gcc.py`, which remakes it for another GCC): after the last
+compare of a two- or four-word comparison, five words set N and V from
+C, so that a signed branch reads the unsigned order of the low words
+and an unsigned one sees what it saw.  `examples/cmplong.c` is the
+proof, and its test fails on a compiler without the fix.
 
 `-m10` also means the PDP-11/10, which had no `XOR` and no `SOB`; the
 T-11 has both, and GCC asks for a `__xorhi3` instead (in `rt/arith.s`).
