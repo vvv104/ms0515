@@ -58,11 +58,20 @@ leaves `build/sav/MYPROG.SAV`, and `ms0515-run MYPROG` there runs it.
 ## What a program finds
 
 - `int` and pointers are 16 bits, `long` 32, `long long` 64; `-m10`
-  makes every `*`, `/` and `%` of an `int` a call into `rt/arith.s`, the
-  `long` ones go to libgcc.  There is no floating point.
-- The runtime is freestanding: no stdio yet, no malloc, no files.  What
-  there is: `rt11.h` - `.TTYOUT`, `.TTYIN`, `.PRINT`, `.SETTOP`, `exit()`
-  - and `main()`'s return value is the program's end.
+  makes every `*`, `/` and `%` a call into `rt/arith.s` - the 16-bit
+  ones and the 32-bit ones too, since libgcc has no 16-bit helpers for
+  pdp11 and its 32-bit division is miscompiled (below).  There is no
+  floating point.
+- The C library (`libc/`, `include/`): `stdio.h` is the console -
+  `putchar`, `getchar`, `puts`, `printf` with `d i u x X o c s %`, the
+  flags `-` and `0`, a width, a precision for `s` and `l` for a long,
+  `sprintf`, `snprintf`; `'\n'` goes out as CR LF and comes in as the
+  LF after the CR.  `string.h` whole, `ctype.h` for ASCII, `stdlib.h`
+  with `atoi`, `strtol`, `abs`, `rand`, `malloc` and company - the heap
+  is the memory above the stack, taken from the monitor by `.SETTOP`.
+  No files yet.  `rt11.h` has the monitor's requests themselves -
+  `.TTYOUT`, `.TTYIN`, `.PRINT`, `.SETTOP`, `exit()` - and `main()`'s
+  return value is the program's end.
 - The program lies from 01000: text, data, bss, then the stack's room
   (`STACK`, 1024 bytes when not said).  Above the high limit the memory
   is the program's to take by `rt11_settop()`.  The video window and the
@@ -75,6 +84,24 @@ leaves `build/sav/MYPROG.SAV`, and `ms0515-run MYPROG` there runs it.
   address (MACRO's `@#`), a leading `0` for octal, every C symbol with a
   leading underscore, the arguments on the stack at `2(sp)`, `4(sp)`...,
   the result in r0, r0 and r1 scratch, r2..r5 kept.
+
+## A trap in the compiler
+
+GCC 15.2's pdp11 backend compiles a **signed comparison of two longs**
+wrongly when their high words are equal: it compares the high words,
+and if they are the same, the low words - with the same signed branch,
+so a low word with bit 15 set reads as negative.  `40000L > 5L` is
+false, `32768L >= 0` too.  Comparisons whose high words differ, unsigned
+comparisons and tests for equality are right.  libgcc's own 32-bit
+division falls into this (its `__udivmodsi4` tests the divisor's sign),
+which is why `rt/arith.s` carries the 32-bit divisions as well.
+`examples/cmplong.c` shows the fault and its test is marked as one that
+may fail; when a fixed compiler comes, it must pass.  Until then: keep
+signed `long` comparisons out of a program's logic, or cast to
+`unsigned long` where the sign is known.
+
+`-m10` also means the PDP-11/10, which had no `XOR` and no `SOB`; the
+T-11 has both, and GCC asks for a `__xorhi3` instead (in `rt/arith.s`).
 
 ## How fast
 

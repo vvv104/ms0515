@@ -13,13 +13,18 @@
 / GNU as syntax: $ immediate, *$ absolute (MACRO's @#), a leading 0 for
 / octal; every C symbol carries a leading underscore.
 
-	.globl	_start, _main, ___main, _exit
+	.globl	_start, _main, ___main, _exit, _rt11_memtop
 
 	.text
 _start:
+	mov	sp, _rt11_memtop	/ the first address above the program: the heap's
 	jsr	pc, _main
 	/ falls into exit(main's result) - r0 is already the status
 _exit:
 	emt	0350			/ .EXIT: the status is not RT-11's business
 ___main:
 	rts	pc
+
+	.data
+_rt11_memtop:
+	.word	0

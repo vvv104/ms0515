@@ -61,6 +61,61 @@ TEST_CASE("ARITH: the 16-bit helpers agree with C on every pair") {
     CHECK(got[n] == "ARITH DONE");
 }
 
+TEST_CASE("LIBC: printf, strings, ctype, stdlib and the heap, a line a group") {
+    if (!built("LIBC")) { MESSAGE("LIBC.SAV not built - skipped"); return; }
+    const Run r = run("LIBC");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    const std::vector<std::string> expected = {
+        "42|-42|65535|ff|FF|10|c|str|%",
+        "[   42][42   ][00042][ab][   ab][ab   ]",
+        "123456|-123456|4294967295|abcdef",
+        "-32768|32767|65535",
+        "864192 -300000 4294836225 142857",
+        "7-x",
+        "abc 6",
+        "5 -1 foobar 2 3 0 aabcde xxxyz -1 0",
+        "1 1 A q 1",
+        "-123 42 5 511 -31 []",
+        "1 1 1 1",
+        "1 1",
+        "LIBC DONE",
+    };
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        CAPTURE(i);
+        CHECK(got[i] == expected[i]);
+    }
+}
+
+/* GCC 15.2's pdp11 backend compares longs wrongly when the high words
+ * are equal (toolset/gcc/README.md): this test shows it, and may fail
+ * until the compiler is fixed - then it must pass. */
+TEST_CASE("CMPLONG: signed comparisons of longs" * doctest::may_fail()) {
+    if (!built("CMPLONG")) { MESSAGE("CMPLONG.SAV not built - skipped"); return; }
+    const Run r = run("CMPLONG");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    constexpr long kLongPairs[][2] = {
+        {100000L, 5L}, {-100000L, 5L},
+        {32768L, 5L}, {40000L, 32767L}, {-32768L, -40000L},
+        {32768L, 0L}, {0x10000L + 32768L, 0x10000L + 5L},
+        {5L, 32768L}, {-5L, -32768L}, {32768L, 32768L},
+    };
+    const auto got = lines(r.printed);
+    constexpr std::size_t n = sizeof kLongPairs / sizeof kLongPairs[0];
+    REQUIRE(got.size() == n + 1);
+    for (std::size_t i = 0; i < n; ++i) {
+        const long x = kLongPairs[i][0], y = kLongPairs[i][1];
+        std::string expected;
+        for (bool b : {x > y, x < y, x >= y, x <= y, x >= 0, x < 0}) expected += b ? '1' : '0';
+        CAPTURE(i);
+        CHECK(got[i] == expected);
+    }
+    CHECK(got[n] == "CMPLONG DONE");
+}
+
 TEST_CASE("CALC counts the primes below 10000 and tells its time") {
     if (!built("CALC")) { MESSAGE("CALC.SAV not built - skipped"); return; }
     const Run r = run("CALC");

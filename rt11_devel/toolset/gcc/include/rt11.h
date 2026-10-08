@@ -26,4 +26,9 @@ void *rt11_settop(void *top);
 /* .EXIT: back to the monitor.  exit() of the C library is this. */
 void exit(int status) __attribute__((noreturn));
 
+/* The first address above the program - its stack's top, where the
+ * program started with SP - and so the heap's beginning: malloc takes
+ * the memory from here up by .SETTOP. */
+extern char *rt11_memtop;
+
 #endif
