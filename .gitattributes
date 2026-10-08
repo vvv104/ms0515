@@ -14,6 +14,8 @@
 *.cmake text eol=lf
 *.json  text eol=lf
 CMakeLists.txt text eol=lf
+*.sh    text eol=lf
+*.s     text eol=lf
 
 # Binary files
 *.rom   binary
