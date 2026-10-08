@@ -143,6 +143,8 @@ jobs:
           export MS0515_GCC=~/pdp11-gcc
           cmake -S rt11_devel/toolset/gcc/examples -B rt11_devel/toolset/gcc/examples/build -G Ninja
           cmake --build rt11_devel/toolset/gcc/examples/build
+          cmake -S rt11_devel/projects/stars -B rt11_devel/projects/stars/build -G Ninja
+          cmake --build rt11_devel/projects/stars/build
 
       # The disk and CLI suites as well as the core's and the lib's: the
       # folder volume and the keyboard typing they cover are what
@@ -163,11 +165,14 @@ jobs:
           ./tools/run/tests/ms0515_run_tests$EXE
           ./rt11_devel/projects/rt11/handlers/sl/tests/sl_tests$EXE
           ./rt11_devel/projects/sl/tests/sltab_tests$EXE
-          # The GCC toolset's examples, built above on this job alone;
-          # the folder named makes a missing program a failure, not a skip.
+          # The GCC toolset's examples and STARS, built above on this job
+          # alone; the folder named makes a missing program a failure, not
+          # a skip.
           if [ "${{ matrix.cc }}" = "gcc-13" ]; then
             ./rt11_devel/toolset/gcc/tests/gcc_tests \
               --gcc-sav="${{ github.workspace }}/rt11_devel/toolset/gcc/examples/build/sav"
+            ./rt11_devel/projects/stars/tests/stars_tests \
+              --stars-sav="${{ github.workspace }}/rt11_devel/projects/stars/build/sav"
           fi
 
   web:

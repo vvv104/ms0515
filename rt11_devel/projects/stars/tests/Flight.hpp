@@ -44,7 +44,18 @@ inline fs::path savDir()
     return it == options().end() || it->second.empty() ? fs::path(STARS_SAV_DIR) : fs::path(it->second);
 }
 
-inline bool built() { return fs::exists(savDir() / "STARS.SAV"); }
+/* Whether STARS.SAV is there.  A folder named on the command line is
+ * expected to hold it: a missing program fails the test then (CI), where
+ * the default folder's absence only skips it. */
+inline bool built()
+{
+    const bool there = fs::exists(savDir() / "STARS.SAV");
+    if (!there && options().count("sav")) {
+        const std::string missing = "STARS.SAV is not in " + savDir().string();
+        FAIL(missing);
+    }
+    return there;
+}
 
 constexpr int kRows = 200;
 constexpr int kStride = 80;
