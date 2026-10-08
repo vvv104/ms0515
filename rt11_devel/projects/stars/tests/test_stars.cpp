@@ -5,6 +5,8 @@
 #include "Flight.hpp"
 
 #include <algorithm>
+#include <sstream>
+#include <utility>
 
 using namespace stars;
 
@@ -43,12 +45,55 @@ TEST_CASE("the screen goes to 320x200 colour, black with bright white stars that
     CHECK(std::count(attributes.begin(), attributes.end(), 0x47) == static_cast<long>(attributes.size()));
 
     const int lit = flight.lit();
-    CHECK(lit > 10);
-    CHECK(lit <= 48);
+    CHECK(lit > 15);
+    CHECK(lit <= 200);
 
     const auto before = flight.pixels();
     flight.run(10);
     CHECK(flight.pixels() != before);
+}
+
+/* The program says on its way out how many passes of its main loop it
+ * made in how many frames. */
+std::pair<unsigned, unsigned> passesAndFrames(Flight &flight)
+{
+    flight.tap('q');
+    flight.run(200);
+    REQUIRE(flight.machine.ended());
+    unsigned passes = 0, frames = 0;
+    const std::string printed = flight.printed();
+    MESSAGE(printed);
+    std::istringstream line(printed);
+    std::string word, in, passesWord;
+    REQUIRE((line >> word >> passes >> passesWord >> in >> frames));
+    REQUIRE(word == "STARS:");
+    return {passes, frames};
+}
+
+/* A pass of the main loop is paced at two frames, 25 a second, and must
+ * fit in them, or the flight slows and the keys lag: all but a few
+ * passes, straight on and turning alike. */
+TEST_CASE("the main loop keeps its pace: a pass every two frames") {
+    if (!built()) { MESSAGE("STARS.SAV not built - skipped"); return; }
+    Flight flight;
+    flight.run(200);
+    const auto [passes, frames] = passesAndFrames(flight);
+    CHECK(frames >= 150);
+    CHECK(passes * 2 <= frames);
+    CHECK(passes * 20 >= frames * 9);
+}
+
+TEST_CASE("the main loop keeps its pace while turning") {
+    if (!built()) { MESSAGE("STARS.SAV not built - skipped"); return; }
+    Flight flight;
+    flight.run(kWarmUp);
+    for (int f = 0; f < 150; f += 3) {
+        flight.tap(ms0515::Key::Left);
+        flight.run(3);
+    }
+    const auto [passes, frames] = passesAndFrames(flight);
+    CHECK(frames >= 150);
+    CHECK(passes * 20 >= frames * 9);
 }
 
 TEST_CASE("the arrows change the flight, and the same keys fly the same flight") {

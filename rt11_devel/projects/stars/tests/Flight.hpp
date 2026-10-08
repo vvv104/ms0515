@@ -12,6 +12,7 @@
 
 #include <doctest/doctest.h>
 
+#include "ConsoleText.hpp"
 #include "Machine.hpp"
 #include "EmulatorInternal.hpp"
 
@@ -88,7 +89,18 @@ public:
         for (int f = 0; f < frames && !machine.ended(); ++f) {
             typist_.pump(machine.emulator());
             machine.step();
+            printed_ += text_.convert(machine.takeOutput());
         }
+    }
+    /* What the program printed on the console, as the host's text - the
+     * rest of it drained once the program has ended. */
+    std::string printed()
+    {
+        if (machine.ended() && !drained_) {
+            printed_ += text_.convert(machine.drainOutput());
+            drained_ = true;
+        }
+        return printed_;
     }
     /* A key tapped: pressed, held, let go - as a person's press would be.
      * Tapped again every few frames it is a key held down to the program,
@@ -129,6 +141,9 @@ public:
 private:
     fs::path dir_;
     ms0515::Typist typist_;
+    ms0515::run::ConsoleText text_{ms0515::run::ConsoleText::Reader::plain};
+    std::string printed_;
+    bool drained_ = false;
 };
 
 }  // namespace stars
