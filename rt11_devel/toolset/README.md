@@ -20,7 +20,13 @@ rt11_devel/toolset/
 ├── system/          the vvv104 ОМЕГА as a bootable FOLDER (.rtfs device):
 │                    what the games' tests (fist, manicm) boot to run them;
 │                    no build runs on it
-└── tests/           pytest tests for the Python modules
+├── tests/           pytest tests for the Python modules
+├── cmake/           Rt11.cmake: the machine's tools as CMake rules over
+│                    ms0515-run; Rt11Gcc.cmake: C programs compiled on the
+│                    host by GCC (below)
+└── gcc/             GCC as a cross compiler for the machine: the toolchain's
+                     build script and the backend's patch, the runtime and the
+                     C library, aout2sav.py, examples, tests - see gcc/README.md
 ```
 
 Projects that use this toolset live under `rt11_devel/projects/<name>/`
