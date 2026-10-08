@@ -1,9 +1,10 @@
-The fix of GCC's pdp11 backend for signed comparisons of longs: with
-equal high words the low words were compared with a signed branch.
-After the last compare, N and V are set from C so that a signed branch
-reads the unsigned order of the low words.  Made by patch-gcc.py from
-gcc-15.2.0; build-toolchain.sh applies it.  See README.md, "A trap in
-the compiler".
+Two changes to GCC's pdp11 backend, made by patch-gcc.py from gcc-15.2.0
+and applied by build-toolchain.sh (README.md, "A trap in the compiler"):
+- signed comparisons of longs: with equal high words the low words were
+  compared with a signed branch; after the last compare N and V are now
+  set from C, so that a signed branch reads the unsigned order;
+- a constant shift is written out as single shifts up to 8 when speed is
+  wanted, instead of a loop from 4 (-Os keeps the loop from 4).
 
 --- a/gcc/config/pdp11/pdp11.md
 +++ b/gcc/config/pdp11/pdp11.md
@@ -72,7 +73,20 @@ the compiler".
  
 --- a/gcc/config/pdp11/pdp11.cc
 +++ b/gcc/config/pdp11/pdp11.cc
-@@ -2126,8 +2126,10 @@
+@@ -1924,7 +1924,11 @@
+ bool
+ pdp11_small_shift (int n)
+ {
+-  return (unsigned) n < 4;
++  /* A shift by n with no ASH is n single shifts in a row, or a loop of
++     one shift and a count - four words, three instructions a step.  The
++     row is faster for any n and shorter up to 4; when speed is wanted
++     it is used up to 8 (MS 0515: a shift by 5 is in every rotation).  */
++  return (unsigned) n < (optimize_size ? 4u : 9u);
+ }
+ 
+ /* Expand a shift insn.  Returns true if the expansion was done,
+@@ -2126,8 +2130,10 @@
  	len += 2;  /* second operand extra word.  */
      }
  
@@ -85,3 +99,14 @@ the compiler".
  }
  
  /* Prepend to CLOBBERS hard registers that are automatically clobbered
+--- a/gcc/config/pdp11/predicates.md
++++ b/gcc/config/pdp11/predicates.md
+@@ -28,7 +28,7 @@
+ ;; the "O" constraint.
+ (define_predicate "expand_shift_operand"
+   (and (match_code "const_int")
+-       (match_test "(unsigned) INTVAL (op) < 4")))
++       (match_test "pdp11_small_shift (INTVAL (op))")))
+ 
+ ;; Accept integer arguments +1 and -1, for which add and sub can be
+ ;; done as inc or dec instructions.  This matches the rule for the

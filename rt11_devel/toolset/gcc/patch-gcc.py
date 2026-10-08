@@ -23,7 +23,14 @@ only, see what they saw before.  Z and C are not touched.
   2:
 
 The insn's length grows by those ten bytes (pdp11_cmp_length), which
-the branch-range computation needs."""
+the branch-range computation needs.
+
+The second change is speed: without ASH the backend writes a shift by
+a constant up to 3 as single shifts and a longer one as a loop of four
+words, three instructions a step, so a shift by 5 costs seventeen
+instructions.  pdp11_small_shift, which decides, and the predicate
+that matches it now write shifts out up to 8 when speed is wanted and
+keep the loop from 4 under -Os."""
 import re
 import sys
 from pathlib import Path
@@ -68,6 +75,28 @@ LABELS_NEW = "  lb[0] = gen_label_rtx ();\n  fx[0] = gen_label_rtx ();\n  fx[1] 
 DECL_OLD = "  rtx lb[1];\n"
 DECL_NEW = "  rtx lb[1];\n  rtx fx[2];\n"
 
+SHIFT_OLD = '''bool
+pdp11_small_shift (int n)
+{
+  return (unsigned) n < 4;
+}'''
+SHIFT_NEW = '''bool
+pdp11_small_shift (int n)
+{
+  /* A shift by n with no ASH is n single shifts in a row, or a loop of
+     one shift and a count - four words, three instructions a step.  The
+     row is faster for any n and shorter up to 4; when speed is wanted
+     it is used up to 8 (MS 0515: a shift by 5 is in every rotation).  */
+  return (unsigned) n < (optimize_size ? 4u : 9u);
+}'''
+
+PRED_OLD = '''(define_predicate "expand_shift_operand"
+  (and (match_code "const_int")
+       (match_test "(unsigned) INTVAL (op) < 4")))'''
+PRED_NEW = '''(define_predicate "expand_shift_operand"
+  (and (match_code "const_int")
+       (match_test "pdp11_small_shift (INTVAL (op))")))'''
+
 CC_OLD = '''  /* Deduct one word because there is no branch at the end.  */
   return len - 2;'''
 CC_NEW = '''  /* Deduct one word because there is no branch at the end, and add the
@@ -90,13 +119,15 @@ def main():
     tree = Path(sys.argv[1])
     md = tree / "gcc/config/pdp11/pdp11.md"
     cc = tree / "gcc/config/pdp11/pdp11.cc"
+    pred = tree / "gcc/config/pdp11/predicates.md"
     if "fx[0] = gen_label_rtx" in md.read_text():
         print("pdp11.md: already patched")
         return
     edit(md, [(MD_SI_OLD, MD_SI_NEW), (MD_DI_OLD, MD_DI_NEW),
               (DECL_OLD, DECL_NEW), (LABELS_OLD, LABELS_NEW)])
-    edit(cc, [(CC_OLD, CC_NEW)])
-    print("patched pdp11.md and pdp11.cc")
+    edit(cc, [(CC_OLD, CC_NEW), (SHIFT_OLD, SHIFT_NEW)])
+    edit(pred, [(PRED_OLD, PRED_NEW)])
+    print("patched pdp11.md, pdp11.cc and predicates.md")
 
 
 if __name__ == "__main__":

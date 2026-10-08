@@ -107,6 +107,12 @@ C, so that a signed branch reads the unsigned order of the low words
 and an unsigned one sees what it saw.  `examples/cmplong.c` is the
 proof, and its test fails on a compiler without the fix.
 
+The same patch changes one more thing: a shift by a constant.  Without
+`ASH` the backend writes a shift by up to 3 as single shifts and a
+longer one as a loop - four words, three instructions a step - so `x >>
+5` cost seventeen instructions; the patch writes shifts out up to 8
+when speed is wanted (`-O2`), and keeps the loop from 4 under `-Os`.
+
 `-m10` also means the PDP-11/10, which had no `XOR` and no `SOB`; the
 T-11 has both, and GCC asks for a `__xorhi3` instead (in `rt/arith.s`).
 
