@@ -118,6 +118,32 @@ jobs:
           MS0515_SOFTWARE_DIR: ${{ github.workspace }}/ms0515-software
         run: conan build . --build=missing
 
+      # GCC for the machine (rt11_devel/toolset/gcc): the cross compiler
+      # built from its sources on one Linux job - a quarter of an hour, so
+      # the installed compiler is cached by the script and the patch that
+      # make it - then the toolset's example programs built with it, for
+      # gcc_tests below.
+      - name: Cache the pdp11 cross compiler
+        if: matrix.cc == 'gcc-13'
+        id: pdp11-gcc
+        uses: actions/cache@v5
+        with:
+          path: ~/pdp11-gcc
+          key: pdp11-gcc-${{ hashFiles('rt11_devel/toolset/gcc/build-toolchain.sh', 'rt11_devel/toolset/gcc/gcc-pdp11-cmpsi.patch') }}
+
+      - name: Build the pdp11 cross compiler
+        if: matrix.cc == 'gcc-13' && steps.pdp11-gcc.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y bison flex texinfo libgmp-dev libmpfr-dev libmpc-dev
+          rt11_devel/toolset/gcc/build-toolchain.sh ~/pdp11-gcc
+
+      - name: Build the GCC toolset's examples
+        if: matrix.cc == 'gcc-13'
+        run: |
+          export MS0515_GCC=~/pdp11-gcc
+          cmake -S rt11_devel/toolset/gcc/examples -B rt11_devel/toolset/gcc/examples/build -G Ninja
+          cmake --build rt11_devel/toolset/gcc/examples/build
+
       # The disk and CLI suites as well as the core's and the lib's: the
       # folder volume and the keyboard typing they cover are what
       # ms0515-run stands on.  Its own suite runs programs on the machine
@@ -137,6 +163,12 @@ jobs:
           ./tools/run/tests/ms0515_run_tests$EXE
           ./rt11_devel/projects/rt11/handlers/sl/tests/sl_tests$EXE
           ./rt11_devel/projects/sl/tests/sltab_tests$EXE
+          # The GCC toolset's examples, built above on this job alone;
+          # the folder named makes a missing program a failure, not a skip.
+          if [ "${{ matrix.cc }}" = "gcc-13" ]; then
+            ./rt11_devel/toolset/gcc/tests/gcc_tests \
+              --gcc-sav="${{ github.workspace }}/rt11_devel/toolset/gcc/examples/build/sav"
+          fi
 
   web:
     name: web / emscripten

@@ -1,20 +1,24 @@
 #!/bin/bash
 # build-toolchain.sh - GCC as a cross compiler for the MS 0515.
 #
-#     build-toolchain.sh [<prefix>]        default: $HOME/pdp11-gcc
+#     build-toolchain.sh [<prefix> [<work folder>]]
 #
 # Builds GNU binutils and GCC (C only) for the target pdp11-aout from
-# their released sources, downloaded here, and installs them under
-# <prefix>/bin as pdp11-aout-gcc, pdp11-aout-as, pdp11-aout-ld and the
-# rest.  libgcc is compiled for the PDP-11/10 instruction set (-m10),
-# which is what the KR1807VM1 (a T-11) executes: no EIS, no FPP.  The
-# projects then build with `-m10` too (Rt11Gcc.cmake sets it).
+# their released sources and installs them, stripped, under <prefix>/bin
+# ($HOME/pdp11-gcc when not said) as pdp11-aout-gcc, pdp11-aout-as,
+# pdp11-aout-ld and the rest.  The sources are downloaded and built in
+# <work folder> (<prefix>-build when not said), which can go afterwards.
+#
+# GCC's pdp11 backend is patched first (gcc-pdp11-cmpsi.patch: README.md,
+# "A trap in the compiler").  libgcc is compiled for the PDP-11/10
+# instruction set (-m10), which is what the KR1807VM1 (a T-11) executes:
+# no EIS, no FPP.  The projects then build with `-m10` too (Rt11Gcc.cmake
+# sets it).
 #
 # What it needs on the host: gcc, g++, make, patch, bison, flex, texinfo,
 # and the GMP, MPFR and MPC development packages (Debian/Ubuntu:
 # build-essential patch bison flex texinfo libgmp-dev libmpfr-dev
-# libmpc-dev).  Sources and build trees go under <prefix>/src and
-# <prefix>/build; the build takes about a quarter of an hour on a desktop.
+# libmpc-dev).  The build takes about a quarter of an hour on a desktop.
 #
 # Point MS0515_GCC at <prefix> for the CMake projects, or put <prefix>/bin
 # on the PATH.
@@ -22,48 +26,48 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PREFIX="${1:-$HOME/pdp11-gcc}"
+WORK="${2:-$PREFIX-build}"
 TARGET=pdp11-aout
 BINUTILS=binutils-2.44
 GCC=gcc-15.2.0
 MIRROR=https://ftp.gnu.org/gnu
 JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
-mkdir -p "$PREFIX/src" "$PREFIX/build"
-cd "$PREFIX/src"
+mkdir -p "$WORK/src" "$WORK/build" "$PREFIX"
+cd "$WORK/src"
 [ -f "$BINUTILS.tar.xz" ] || wget -q "$MIRROR/binutils/$BINUTILS.tar.xz"
 [ -f "$GCC.tar.xz" ] || wget -q "$MIRROR/gcc/$GCC/$GCC.tar.xz"
 [ -d "$BINUTILS" ] || tar xf "$BINUTILS.tar.xz"
 [ -d "$GCC" ] || tar xf "$GCC.tar.xz"
 
-# The fix of the pdp11 backend's comparison of longs (README.md, "A trap
-# in the compiler"); patch-gcc.py made the file and remakes it for
-# another GCC.  Applied once: the stamp says so.
+# The fix of the pdp11 backend's comparison of longs; patch-gcc.py made
+# the file and remakes it for another GCC.  Applied once: the stamp says so.
 if [ ! -f "$GCC/.ms0515-patched" ]; then
     patch -p1 -d "$GCC" < "$HERE/gcc-pdp11-cmpsi.patch"
     touch "$GCC/.ms0515-patched"
 fi
 
 echo "=== binutils ($BINUTILS)"
-mkdir -p "$PREFIX/build/binutils"
-cd "$PREFIX/build/binutils"
-"$PREFIX/src/$BINUTILS/configure" --target=$TARGET --prefix="$PREFIX" \
+mkdir -p "$WORK/build/binutils"
+cd "$WORK/build/binutils"
+"$WORK/src/$BINUTILS/configure" --target=$TARGET --prefix="$PREFIX" \
     --disable-nls --disable-werror --disable-gdb --disable-gprof \
     > configure.log 2>&1
 make -j"$JOBS" > make.log 2>&1
-make install > install.log 2>&1
+make install-strip > install.log 2>&1
 
 export PATH="$PREFIX/bin:$PATH"
 
 echo "=== gcc ($GCC)"
-mkdir -p "$PREFIX/build/gcc"
-cd "$PREFIX/build/gcc"
-"$PREFIX/src/$GCC/configure" --target=$TARGET --prefix="$PREFIX" \
+mkdir -p "$WORK/build/gcc"
+cd "$WORK/build/gcc"
+"$WORK/src/$GCC/configure" --target=$TARGET --prefix="$PREFIX" \
     --enable-languages=c --disable-nls --disable-shared --disable-threads \
     --disable-libssp --disable-libquadmath --disable-libgomp \
     --without-headers --with-newlib --disable-werror \
     > configure.log 2>&1
 make -j"$JOBS" all-gcc > make-gcc.log 2>&1
-make install-gcc > install-gcc.log 2>&1
+make install-strip-gcc > install-gcc.log 2>&1
 
 echo "=== libgcc for the T-11 (-m10)"
 make -j"$JOBS" all-target-libgcc CFLAGS_FOR_TARGET="-m10 -O2" \

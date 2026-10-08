@@ -128,7 +128,10 @@ and `-O1` come to 33 s.
 `gcc_tests`, built with the emulator's tests (`rt11_devel/CMakeLists.txt`),
 runs the examples' `.SAV`s from `examples/build/sav` - or
 `--gcc-sav=<folder>` - on ms0515-run's machine and checks what they
-print; without them it skips.  Build the examples first:
+print; without them it skips, unless the folder was named, when a
+missing program fails.  CI (`.github/workflows/ci.yml`) builds the
+compiler on one Linux job, cached by the script and the patch, builds
+the examples and runs the suite that way.  Build the examples first:
 
 ```
 cmake -S rt11_devel/toolset/gcc/examples -B rt11_devel/toolset/gcc/examples/build -G Ninja

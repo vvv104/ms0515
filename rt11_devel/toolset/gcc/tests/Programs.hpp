@@ -36,7 +36,18 @@ inline fs::path savDir()
     return it == options().end() || it->second.empty() ? fs::path(GCC_SAV_DIR) : fs::path(it->second);
 }
 
-inline bool built(const char *name) { return fs::exists(savDir() / (std::string(name) + ".SAV")); }
+/* Whether NAME.SAV is there.  A folder named on the command line is
+ * expected to hold the programs: a missing one fails the test then (CI),
+ * where the default folder's absence only skips it. */
+inline bool built(const char *name)
+{
+    const bool there = fs::exists(savDir() / (std::string(name) + ".SAV"));
+    if (!there && options().count("sav")) {
+        const std::string missing = std::string(name) + ".SAV is not in " + savDir().string();
+        FAIL(missing);
+    }
+    return there;
+}
 
 /* What a program printed, and whether the monitor took its end well. */
 struct Run {
