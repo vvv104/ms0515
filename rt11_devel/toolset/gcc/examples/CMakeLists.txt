@@ -1,5 +1,7 @@
 # The example programs of the GCC toolset, and what its tests run
-# (../tests): HELLO, the arithmetic check ARITH, the CALC benchmark.
+# (../tests): HELLO, the arithmetic check ARITH, the C library's LIBC,
+# the compiler's CMPLONG, the machine library's MACHINE, the CALC
+# benchmark.
 #
 #     cmake -S rt11_devel/toolset/gcc/examples -B <build folder> -G Ninja
 #     cmake --build <build folder>
@@ -15,4 +17,5 @@ rt11_c_program(NAME HELLO SOURCES hello.c)
 rt11_c_program(NAME ARITH SOURCES arith.c)
 rt11_c_program(NAME LIBC SOURCES libc.c)
 rt11_c_program(NAME CMPLONG SOURCES cmplong.c)
+rt11_c_program(NAME MACHINE SOURCES machine.c)
 rt11_c_program(NAME CALC SOURCES calc.c tick.s)

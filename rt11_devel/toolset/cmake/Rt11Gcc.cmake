@@ -3,7 +3,8 @@
 # GCC built for pdp11-aout (rt11_devel/toolset/gcc/build-toolchain.sh)
 # compiles on the host, the machine takes no part in the build: a program
 # links with the runtime of rt11_devel/toolset/gcc (its start, the 16-bit
-# arithmetic the processor lacks, RT-11's requests, the C library) and
+# arithmetic the processor lacks, RT-11's requests, the C library, the
+# machine - screen, clock, keyboard, joystick, speaker: ms0515.h) and
 # aout2sav.py wraps the a.out into a .SAV, which ms0515-run runs.
 #
 #     cmake_minimum_required(VERSION 3.21)
@@ -41,7 +42,14 @@ function(_rt11_gcc_runtime)
         "${RT11_GCC_DIR}/libc/heap.c"
         "${RT11_GCC_DIR}/libc/printf.c"
         "${RT11_GCC_DIR}/libc/stdlib.c"
-        "${RT11_GCC_DIR}/libc/string.c")
+        "${RT11_GCC_DIR}/libc/string.c"
+        "${RT11_GCC_DIR}/machine/clock.c"
+        "${RT11_GCC_DIR}/machine/clock.s"
+        "${RT11_GCC_DIR}/machine/keys.c"
+        "${RT11_GCC_DIR}/machine/keys.s"
+        "${RT11_GCC_DIR}/machine/ports.c"
+        "${RT11_GCC_DIR}/machine/psw.s"
+        "${RT11_GCC_DIR}/machine/screen.c")
     target_compile_options(rt11 PRIVATE -Wall -Wextra)
     target_include_directories(rt11 PUBLIC "${RT11_GCC_DIR}/include")
 endfunction()

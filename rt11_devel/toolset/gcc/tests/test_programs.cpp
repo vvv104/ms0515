@@ -4,6 +4,13 @@
 
 #include "Programs.hpp"
 
+#include "EmulatorInternal.hpp"
+#include <ms0515/Typist.hpp>
+
+extern "C" {
+#include <ms0515/core/board.h>
+}
+
 #include <cstdint>
 #include <sstream>
 #include <string>
@@ -114,6 +121,54 @@ TEST_CASE("CMPLONG: signed comparisons of longs, the compiler's fix in place") {
         CHECK(got[i] == expected);
     }
     CHECK(got[n] == "CMPLONG DONE");
+}
+
+/* MACHINE (examples/machine.c) over the machine library: the screen in
+ * colour with a diagonal and one cell's attribute, the clock counting
+ * while it waits, the keyboard taken until Q, the console back. */
+TEST_CASE("MACHINE: the screen, the clock and the keyboard through ms0515.h") {
+    if (!built("MACHINE")) { MESSAGE("MACHINE.SAV not built - skipped"); return; }
+    const fs::path dir = fs::temp_directory_path() / "ms0515_gcc_machine";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    fs::copy_file(savDir() / "MACHINE.SAV", dir / "MACHINE.SAV");
+    ms0515::run::Machine machine;
+    REQUIRE(machine.start(dir / "MACHINE.SAV", {}));
+    ms0515::Typist typist;
+    ms0515::run::ConsoleText text(ms0515::run::ConsoleText::Reader::plain);
+    std::string printed;
+    const auto step = [&] { typist.pump(machine.emulator()); machine.step(); printed += text.convert(machine.takeOutput()); };
+    for (int f = 0; f < 60; ++f) step();
+    REQUIRE_FALSE(machine.ended());
+    CHECK_FALSE(machine.emulator().isHires());
+
+    const uint8_t *vram = board_get_vram(&ms0515::internal::board(machine.emulator()));
+    const auto pixel = [&](int x, int y) { return (vram[y * 80 + (x >> 3) * 2] >> (7 - (x & 7))) & 1; };
+    CHECK(pixel(0, 0) == 0);                /* unplotted */
+    CHECK(pixel(8, 5) == 1);                /* x * 5 / 8 */
+    CHECK(pixel(160, 100) == 1);
+    CHECK(pixel(319, 199) == 1);
+    CHECK(pixel(100, 10) == 0);
+    CHECK(vram[1] == 0x07);                 /* the attribute asked: ink white */
+    CHECK(vram[3 * 80 + 2 * 2 + 1] == 0x42);  /* cell (2, 3): ink red, bright */
+
+    typist.type('q');
+    for (int f = 0; f < 200 && !machine.ended(); ++f) step();
+    REQUIRE(machine.ended());
+    CHECK_FALSE(machine.failed());
+    CHECK(machine.emulator().isHires());
+    printed += text.convert(machine.drainOutput());
+    unsigned frames = 0;
+    int codes = 0;
+    std::istringstream line(printed);
+    std::string word, framesWord;
+    REQUIRE((line >> word >> frames >> framesWord >> codes));
+    CHECK(word == "MACHINE:");
+    CHECK(frames >= 25);
+    CHECK(frames < 300);
+    CHECK(codes >= 1);
+    std::error_code ec;
+    fs::remove_all(dir, ec);
 }
 
 TEST_CASE("CALC counts the primes below 10000 and tells its time") {

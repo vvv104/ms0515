@@ -25,6 +25,10 @@ add_executable(gcc_tests
     test_programs.cpp
 )
 
+target_include_directories(gcc_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/lib/src
+)
+
 target_compile_definitions(gcc_tests PRIVATE
     GCC_SAV_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples/build/sav"
 )
@@ -32,6 +36,7 @@ target_compile_definitions(gcc_tests PRIVATE
 target_link_libraries(gcc_tests
     PRIVATE
         ms0515_run_core
+        ms0515_disk          # EmulatorInternal.hpp reaches the disk lib's headers
         doctest::doctest
 )
 

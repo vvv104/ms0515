@@ -51,11 +51,11 @@ one piece of assembler the speed asked for is the division.  On its
 way out the program prints how many passes it made in how many
 frames; the tests hold it to a pass every two frames, turning or not.
 
-`machine.s` is the machine: the VRAM window opened at 100000 with the
-frame interrupt on (dispatcher 07377), register C to 320x200 colour,
-the frame interrupt counted, the keyboard's bytes taken off vector 130
-into a ring; everything put back on exit.  The pattern is MANICM's
-`MS0515.MAC`, and `docs/programming.md` says why.
+The machine is the toolset's library, `ms0515.h`: the screen opened in
+320x200 colour through the VRAM window, the frame interrupt counted,
+the keyboard's bytes taken off the ROM's vector into a ring and the
+held keys timed; everything put back on exit.  `proj.s` is the one
+piece of the program's own assembler, the division.
 
 ## Tests
 

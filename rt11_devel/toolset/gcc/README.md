@@ -20,8 +20,9 @@ rt11_devel/toolset/gcc/
 │   ├── arith.s          the 16- and 32-bit multiply and divide, __xorhi3
 │   └── emt.s            RT-11's requests as C functions
 ├── libc/                stdio over the console, string, ctype, stdlib, the heap
-├── include/             rt11.h, stdio.h, stdlib.h, string.h, ctype.h
-├── examples/            HELLO, ARITH and LIBC (the runtime checked), CMPLONG
+├── machine/             the screen, the clock, the keyboard, the joystick, the speaker
+├── include/             rt11.h, ms0515.h, stdio.h, stdlib.h, string.h, ctype.h
+├── examples/            HELLO, ARITH, LIBC and MACHINE (the runtime checked), CMPLONG
 │                        (the compiler's comparison of longs), CALC (the benchmark)
 └── tests/               the examples run by ms0515-run's machine (doctest)
 ```
@@ -76,6 +77,15 @@ leaves `build/sav/MYPROG.SAV`, and `ms0515-run MYPROG` there runs it.
   No files yet.  `rt11.h` has the monitor's requests themselves -
   `.TTYOUT`, `.TTYIN`, `.PRINT`, `.SETTOP`, `exit()` - and `main()`'s
   return value is the program's end.
+- The machine (`machine/`, `ms0515.h`): what a program does outside
+  the monitor, as `docs/programming.md` says it and the ports do it -
+  the screen in 320x200 colour through the VRAM window at 0100000 with
+  the border, the attributes and the pixels; the frame interrupt as a
+  clock; the keyboard taken off the ROM's vector into a ring, with the
+  held-key timers the keyboard's lack of release codes calls for; the
+  joystick port; the speaker bit.  Everything is C over the registers
+  but the two interrupt handlers (RTI) and the PSW's two instructions.
+  `examples/machine.c` uses all of it; STARS is built on it.
 - The program lies from 01000: text, data, bss, then the stack's room
   (`STACK`, 1024 bytes when not said).  Above the high limit the memory
   is the program's to take by `rt11_settop()`.  The video window and the

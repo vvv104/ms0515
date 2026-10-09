@@ -43,16 +43,12 @@
  * 8..200, so x*128 of a star in view stays under 160*z, within an int.
  *
  * The machine's part - the window on video memory, the frame counter,
- * the keyboard's ring - is machine.s. */
+ * the keyboard's ring and the held keys - is the toolset's library,
+ * ms0515.h. */
 
+#include <ms0515.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-void hw_begin(void);
-void hw_end(void);
-extern volatile unsigned frames;
-extern volatile unsigned char kbring[16];
-extern volatile unsigned kbhead;
 
 #ifndef NSTARS
 #define NSTARS 110
@@ -63,17 +59,8 @@ extern volatile unsigned kbhead;
 #define PACE 2			/* frames a pass takes: 25 a second */
 #endif
 #define SPEED 2			/* z a pass */
-#define ROWS 200
-#define COLUMNS 320
-#define STRIDE 80
-
-#define KEY_UP 0252
-#define KEY_DOWN 0251
-#define KEY_LEFT 0247
-#define KEY_RIGHT 0250
-#define KEY_Q 0303
-#define HOLD_FIRST 9
-#define HOLD_NEXT 4
+#define ROWS MS_ROWS
+#define COLUMNS MS_COLUMNS
 
 enum { kUp, kDown, kLeft, kRight, kKeys };
 
@@ -91,9 +78,9 @@ struct star {
 int proj(int x, int z);
 
 static struct star stars[NSTARS];
-static int hold[kKeys];
-static unsigned kbtail;
-static unsigned char *const vram = (unsigned char *)0100000;
+static struct ms_held hold[kKeys] = {
+	{MS_KEY_UP, 0}, {MS_KEY_DOWN, 0}, {MS_KEY_LEFT, 0}, {MS_KEY_RIGHT, 0},
+};
 static unsigned char *rowp[ROWS];		/* a row's first byte */
 static unsigned char aspect[128];		/* t * 5/6: the CRT's pixels are taller than wide */
 static const unsigned char bits[8] = {0x80, 0x40, 0x20, 0x10, 8, 4, 2, 1};
@@ -103,36 +90,17 @@ static const unsigned char bits[8] = {0x80, 0x40, 0x20, 0x10, 8, 4, 2, 1};
 #define TURN16(v) (((v) + 8) >> 4)
 #define TURN8(v) (((v) + 4) >> 3)
 
-static int kb_get(void)
-{
-	int c;
-
-	if (kbtail == kbhead)
-		return -1;
-	c = kbring[kbtail];
-	kbtail = (kbtail + 1) & 15;
-	return c;
-}
-
-/* The hold timers run down a frame; a code arriving winds its key's up.
+/* The hold timers run down a pass; a code arriving winds its key's up.
  * Q is the way out. */
 static int keys(void)
 {
-	int c, k;
+	int c;
 
-	for (k = 0; k < kKeys; k++)
-		if (hold[k])
-			hold[k]--;
-	while ((c = kb_get()) >= 0) {
-		switch (c) {
-		case KEY_UP: k = kUp; break;
-		case KEY_DOWN: k = kDown; break;
-		case KEY_LEFT: k = kLeft; break;
-		case KEY_RIGHT: k = kRight; break;
-		case KEY_Q: return 0;
-		default: continue;
-		}
-		hold[k] = hold[k] ? HOLD_NEXT : HOLD_FIRST;
+	ms_held_tick(hold, kKeys);
+	while ((c = ms_key()) >= 0) {
+		if (c == MS_KEY_Q)
+			return 0;
+		ms_held_code(hold, kKeys, c);
 	}
 	return 1;
 }
@@ -218,22 +186,22 @@ static void name(struct star *s)					\
 {									\
 	int t;								\
 									\
-	if (hold[kDown]) {		/* the nose up: the stars fall */	\
+	if (ms_is_held(hold[kDown])) {		/* the nose up: the stars fall */	\
 		t = s->y;						\
 		s->y = t - TURN(s->z);					\
 		s->z = s->z + TURN(t);					\
 	}								\
-	if (hold[kUp]) {						\
+	if (ms_is_held(hold[kUp])) {						\
 		t = s->y;						\
 		s->y = t + TURN(s->z);					\
 		s->z = s->z - TURN(t);					\
 	}								\
-	if (hold[kLeft]) {		/* the ship counter-clockwise: the stars clockwise */ \
+	if (ms_is_held(hold[kLeft])) {		/* the ship counter-clockwise: the stars clockwise */ \
 		t = s->x;						\
 		s->x = t + TURN(s->y);					\
 		s->y = s->y - TURN(t);					\
 	}								\
-	if (hold[kRight]) {						\
+	if (ms_is_held(hold[kRight])) {						\
 		t = s->x;						\
 		s->x = t - TURN(s->y);					\
 		s->y = s->y + TURN(t);					\
@@ -289,16 +257,13 @@ static void fly(struct star *s, int turning)
 		draw(s);
 }
 
-/* The screen black with the ink bright white, and the tables. */
+/* The tables. */
 static void prepare(void)
 {
-	unsigned *w = (unsigned *)vram;
 	int n;
 
-	for (n = ROWS * STRIDE / 2; n > 0; n--)
-		*w++ = 0x4700;
 	for (n = 0; n < ROWS; n++)
-		rowp[n] = vram + n * STRIDE;
+		rowp[n] = ms_row(n);
 	for (n = 0; n < (int)sizeof aspect; n++)
 		aspect[n] = (unsigned char)(n * 5 / 6);
 }
@@ -310,22 +275,27 @@ int main(void)
 
 	for (i = 0; i < NSTARS; i++)
 		born(&stars[i], ZNEAR + (int)((unsigned)rand() % (ZFAR - ZNEAR)));
-	hw_begin();
+	ms_screen_begin(MS_INK(7) | MS_BRIGHT);
+	ms_clock_begin();
+	ms_keys_begin();
 	prepare();
-	last = frames;
+	last = ms_frames;
 	while (keys()) {
-		while (frames - last < PACE)
+		while (ms_frames - last < PACE)
 			;
-		last = frames;
-		turning = hold[kUp] | hold[kDown] | hold[kLeft] | hold[kRight];
+		last = ms_frames;
+		turning = ms_is_held(hold[kUp]) | ms_is_held(hold[kDown]) |
+			  ms_is_held(hold[kLeft]) | ms_is_held(hold[kRight]);
 		if (turning)
 			turning = 1 + (passes & 1);
 		for (i = 0; i < NSTARS; i++)
 			fly(&stars[i], turning);
 		passes++;
 	}
-	hw_end();
+	ms_keys_end();
+	ms_clock_end();
+	ms_screen_end();
 	/* How the machine kept up: a pass every PACE frames is the full pace. */
-	printf("STARS: %u passes in %u frames\n", passes, frames);
+	printf("STARS: %u passes in %u frames\n", passes, ms_frames);
 	return 0;
 }
