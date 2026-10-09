@@ -116,6 +116,13 @@ TEST_CASE("Q ends the flight and the console comes back in its own mode") {
     REQUIRE(flight.machine.ended());
     CHECK_FALSE(flight.machine.failed());
     CHECK(flight.machine.emulator().isHires());
+    /* The screen left black for the console: in 640x200 the 8000
+     * attribute bytes would show as stripes.  What is lit now is the
+     * console's own text, a line or two. */
+    int lit = 0;
+    for (uint8_t b : flight.pixels()) lit += b != 0;
+    for (uint8_t b : flight.attributes()) lit += b != 0;
+    CHECK(lit < 1500);
 }
 
 }

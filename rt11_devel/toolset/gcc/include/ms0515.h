@@ -44,7 +44,8 @@
  * screen cleared to `attribute` with no pixels.  RT-11 is behind the
  * window from here: no monitor call until ms_screen_end(). */
 void ms_screen_begin(unsigned char attribute);
-/* The window closed and the console's 640x200 back. */
+/* The screen cleared, the window closed and the console's 640x200
+ * back - black, for the console to print on. */
 void ms_screen_end(void);
 /* The border's colour, 0..7 in the Spectrum's GRB order. */
 void ms_border(unsigned char colour);

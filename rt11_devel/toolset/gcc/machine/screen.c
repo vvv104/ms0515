@@ -37,6 +37,9 @@ void ms_screen_begin(unsigned char attribute)
 
 void ms_screen_end(void)
 {
+	/* In 640x200 both bytes of a word are pixels: the attributes left
+	 * behind would show as stripes, the stars as specks. */
+	ms_screen_clear(0);
 	ms_dispatcher_clear(MS_DISPATCHER_VRAM);
 	ms_regc = 010;			/* the console's 640x200, black border */
 	*MS_REGISTER_C = ms_regc;

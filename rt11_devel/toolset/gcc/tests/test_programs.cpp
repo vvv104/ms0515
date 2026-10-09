@@ -158,6 +158,12 @@ TEST_CASE("MACHINE: the screen, the clock and the keyboard through ms0515.h") {
     CHECK_FALSE(machine.failed());
     CHECK(machine.emulator().isHires());
     printed += text.convert(machine.drainOutput());
+    /* The screen left black for the console: in 640x200 the 8000
+     * attribute bytes would show as stripes.  What is lit now is the
+     * console's own text, a line or two. */
+    int lit = 0;
+    for (int at = 0; at < 200 * 80; ++at) lit += vram[at] != 0;
+    CHECK(lit < 1500);
     unsigned frames = 0;
     int codes = 0;
     std::istringstream line(printed);
