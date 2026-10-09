@@ -31,10 +31,10 @@ forward, 16-bit integers, |x| and |y| up to 15/8 of z, half as wide
 again as the screen sees - and every pass of its loop, two frames (25 a
 second), brings them nearer, projects the ones in view (`160 +
 x*128/z`, `100 - y*128/z` less a sixth for the CRT's pixels, which are
-taller than wide: a field of view of some 100 degrees; `draw.s`, an
-eight-step division of its own) and plots them in the video memory a
-bit a star, erasing the last pass's bit first.  The keys turn the cone
-round the ship the other way from the ship's turn, a 16th of a radian
+taller than wide: a field of view of some 100 degrees; the division is
+`proj.s`, eight steps for an eight-bit quotient) and plots them in the
+video memory a bit a star, erasing the last pass's bit first.  The
+keys turn the cone round the ship the other way from the ship's turn, a 16th of a radian
 a pass by shifts, the cosine taken as one; a star a turn takes out of
 the cone comes in at the opposite edge, so the field stays even however
 the ship turns, and one turned past the far wall is born there anew.  A
@@ -46,8 +46,9 @@ multiply or divide, so the arithmetic is kept off the pass: while no
 key is held only z changes, and the depths at which a star goes out of
 view and leaves the cone are settled once, when it is born or when a
 turn ends; a turning pass decides a star's visibility outright and
-turns the stars out of view every other pass, by twice the angle.  On
-its way out the program prints how many passes it made in how many
+turns the stars out of view every other pass, by twice the angle; the
+one piece of assembler the speed asked for is the division.  On its
+way out the program prints how many passes it made in how many
 frames; the tests hold it to a pass every two frames, turning or not.
 
 `machine.s` is the machine: the VRAM window opened at 100000 with the

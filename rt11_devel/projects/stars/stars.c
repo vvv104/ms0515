@@ -86,17 +86,17 @@ struct star {
 	unsigned char stale;	/* turned: zseen and zgone are to be settled */
 };
 
-/* The star put on the screen, in draw.s: its projection, and its pixel
- * lit by the tables below, which it reads. */
-void draw(struct star *s);
+/* (x << 7) / z for a star in view, in proj.s: an eight-step division,
+ * since the quotient fits eight bits, where C's `/` costs sixteen. */
+int proj(int x, int z);
 
 static struct star stars[NSTARS];
 static int hold[kKeys];
 static unsigned kbtail;
 static unsigned char *const vram = (unsigned char *)0100000;
-unsigned char *rowp[ROWS];			/* a row's first byte */
-unsigned char aspect[128];			/* t * 5/6: the CRT's pixels are taller than wide */
-const unsigned char bits[8] = {0x80, 0x40, 0x20, 0x10, 8, 4, 2, 1};
+static unsigned char *rowp[ROWS];		/* a row's first byte */
+static unsigned char aspect[128];		/* t * 5/6: the CRT's pixels are taller than wide */
+static const unsigned char bits[8] = {0x80, 0x40, 0x20, 0x10, 8, 4, 2, 1};
 
 /* A 16th, to the nearest: the turn of a pass.  A star out of view turns
  * every other pass, by twice that: an eighth. */
@@ -242,6 +242,26 @@ static void name(struct star *s)					\
 }
 TURNED_BY(turn, TURN16)
 TURNED_BY(turn_twice, TURN8)
+
+/* The star drawn where it is now: its pixel lit, the byte and the bit
+ * kept for the erasing. */
+static void draw(struct star *s)
+{
+	int sx = 160 + proj(s->x, s->z);
+	int t, sy;
+	unsigned char *p;
+
+	if (sx < 0 || sx >= COLUMNS)
+		return;
+	t = proj(s->y, s->z);
+	sy = t < 0 ? 100 + aspect[-t] : 100 - aspect[t];
+	if (sy < 0 || sy >= ROWS)
+		return;
+	p = rowp[sy] + ((sx >> 3) << 1);
+	s->p = p;
+	s->bit = bits[sx & 7];
+	*p |= s->bit;
+}
 
 /* turning: 0 for none, 1 on a pass that turns the stars in view, 2 on
  * one that turns the ones out of view as well, by two steps. */
