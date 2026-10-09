@@ -15,8 +15,8 @@
 #ifndef MS0515_H
 #define MS0515_H
 
-/* ── The registers ("The dispatcher, the VRAM window, the interrupts";
- *    "The keyboard"; "The screen"; "The speaker") ──────────────────── */
+/* -- The registers ("The dispatcher, the VRAM window, the interrupts";
+ *    "The keyboard"; "The screen"; "The speaker") -------------------- */
 
 #define MS_DISPATCHER ((volatile unsigned *)0177400)
 #define MS_REGISTER_C ((volatile unsigned char *)0177604)
@@ -24,7 +24,7 @@
 #define MS_KEY_STATUS ((volatile unsigned char *)0177442)
 #define MS_JOYSTICK   ((volatile unsigned char *)0177542)
 
-/* ── The screen ("The screen") ────────────────────────────────────────
+/* -- The screen ("The screen") ----------------------------------------
  * Video memory seen through the window at 0100000: 200 rows of 40 words,
  * a word the attribute byte over the pixel byte, bit 7 the leftmost
  * pixel; the attribute is the Spectrum's, FLASH BRIGHT PAPER INK. */
@@ -57,7 +57,7 @@ void ms_unplot(int x, int y);
  * row y, 0 <= c < 40. */
 void ms_attribute(int c, int y, unsigned char attribute);
 
-/* ── The clock ("The dispatcher...": RT-11 has no periodic clock here) ─
+/* -- The clock ("The dispatcher...": RT-11 has no periodic clock here) -
  * The frame interrupt, 50 Hz on vector 100, taken and counted. */
 
 extern volatile unsigned ms_frames;	/* frames since ms_clock_begin() */
@@ -67,7 +67,7 @@ void ms_clock_end(void);
 /* Until ms_frames has moved on by n from where it is: a pass paced. */
 void ms_wait_frames(unsigned n);
 
-/* ── The keyboard ("The keyboard") ────────────────────────────────────
+/* -- The keyboard ("The keyboard") ------------------------------------
  * The MS7004's bytes taken off vector 130 into a ring (the ROM's handler
  * would hand them to RT-11); 231 sent first, keyclick off, which the
  * firmware takes as "a game runs" and repeats keys sooner.  A key sends
@@ -142,7 +142,7 @@ void ms_held_tick(struct ms_held *keys, int n);
 int ms_held_code(struct ms_held *keys, int n, int code);
 #define ms_is_held(key) ((key).frames != 0)
 
-/* ── The joystick (port B of the MS7007 PPI, the Kempston order) ───── */
+/* -- The joystick (port B of the MS7007 PPI, the Kempston order) ----- */
 
 #define MS_JOY_RIGHT 1
 #define MS_JOY_LEFT  2
@@ -152,12 +152,12 @@ int ms_held_code(struct ms_held *keys, int n, int code);
 /* The lines pressed, as the bits above. */
 unsigned ms_joystick(void);
 
-/* ── The speaker ("The speaker": register C bit 6, the Spectrum's OUT) ─ */
+/* -- The speaker ("The speaker": register C bit 6, the Spectrum's OUT) - */
 
 /* The speaker line flipped: a click; a square wave by flipping in time. */
 void ms_speaker_flip(void);
 
-/* ── The processor ────────────────────────────────────────────────────
+/* -- The processor ----------------------------------------------------
  * The PSW's priority raised to 7 and put back, round a few instructions
  * an interrupt must not split (the swapping of a vector). */
 
