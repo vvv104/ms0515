@@ -124,6 +124,26 @@ black, 1 blue, 2 red, 3 magenta, 4 green, 5 cyan, 6 yellow, 7 white.
 A program that draws a lot writes the window itself: `ms_row(y)` and the
 bit, as STARS does with its tables.
 
+### Drawing
+
+Columns, boxes, images and text, in cells of 8 pixels across and a row
+down: a word each, the attribute over the pixels (`machine/draw.c`).
+
+| function | what |
+|---|---|
+| `void ms_vfill(int c, int y0, int y1, unsigned char pixels, unsigned char attribute)` | column c, rows y0..y1 (both in): every word the pixels and the attribute - a raycaster's slice of wall, ceiling or floor |
+| `void ms_fill(int c0, int y0, int c1, int y1, unsigned char pixels, unsigned char attribute)` | cells c0..c1, rows y0..y1 (all in): a box |
+| `struct ms_image { unsigned char cells, rows; const unsigned char *pixels, *attributes; }` | an image: its pixel bytes row by row, and its attributes the same way, or none (0) to leave the screen's |
+| `void ms_blit(const struct ms_image *image, int c, int y)` | the image put at cell column c, row y |
+| `void ms_text(int c, int y, const char *s, unsigned char attribute)` | text in the ROM's own font - KOI-8: ASCII and the Cyrillic 0300..0377, 8 rows high - from cell column c of row y, its cells given the attribute; a character the ROM has no glyph for is blank |
+| `const unsigned char *ms_glyph(int koi8)` | the ROM's glyph of a KOI-8 character: eight bytes, a row each, bit 7 the leftmost pixel; 0 when the ROM has none |
+
+The font is the console's, found in whichever ROM is there the first
+time it is asked for - ROM-A and ROM-B keep the same glyphs at
+different places - by the shape of one glyph, as the emulator's
+terminal decoder finds it.  The pseudographics 0200..0277 are in the
+half of ROM-B a program does not see: no glyph.
+
 ### The clock
 
 RT-11 has no periodic clock on this machine; the frame interrupt, 50 Hz

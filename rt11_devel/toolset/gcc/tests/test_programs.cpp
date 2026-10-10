@@ -4,6 +4,7 @@
 
 #include "Programs.hpp"
 
+#include "Embedded.hpp"
 #include "EmulatorInternal.hpp"
 #include <ms0515/Typist.hpp>
 
@@ -13,6 +14,7 @@ extern "C" {
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -334,6 +336,75 @@ TEST_CASE("PORTS: the joystick, the border, the speaker and the banks") {
     REQUIRE(got.size() == 2);
     CHECK(got[0] == "JOY 24");
     CHECK(got[1] == "BANK 1234 5678");
+}
+
+/* DRAW (examples/draw.c): a column, a box, an image with and without
+ * its attributes, text in the ROM's font - ASCII and Cyrillic - read
+ * cell by cell; the glyphs compared with the font found in the ROM the
+ * machine carries, by the shape of '0' and of the Cyrillic A as the
+ * library finds them. */
+TEST_CASE("DRAW: ms_vfill, ms_fill, ms_blit and ms_text in the ROM's font") {
+    if (!built("DRAW")) { MESSAGE("DRAW.SAV not built - skipped"); return; }
+    Driven d("DRAW");
+    d.run(80);
+    REQUIRE_FALSE(d.machine.ended());
+    const uint8_t *vram = board_get_vram(&d.board());
+    const auto cell = [&](int c, int y) { return vram + y * 80 + c * 2; };
+
+    for (int y = 10; y <= 20; ++y) { CHECK(cell(5, y)[0] == 0xFF); CHECK(cell(5, y)[1] == 0x02); }
+    CHECK(cell(5, 9)[0] == 0);
+    CHECK(cell(5, 21)[0] == 0);
+    CHECK(cell(4, 15)[0] == 0);
+    for (int y = 30; y <= 32; ++y)
+        for (int c = 10; c <= 12; ++c) { CHECK(cell(c, y)[0] == 0xAA); CHECK(cell(c, y)[1] == 0x48); }
+    CHECK(cell(13, 31)[0] == 0);
+    CHECK(cell(9, 31)[1] == 0x07);
+    const uint8_t pixels[6] = {0x81, 0x18, 0xFF, 0x00, 0x3C, 0xC3};
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c) {
+            CHECK(cell(20 + c, 50 + r)[0] == pixels[r * 2 + c]);
+            CHECK(cell(20 + c, 50 + r)[1] == r * 2 + c + 1);
+            CHECK(cell(24 + c, 50 + r)[0] == pixels[r * 2 + c]);
+            CHECK(cell(24 + c, 50 + r)[1] == 0x07);     /* the screen's own */
+        }
+
+    const auto rom = ms0515::run::embedded::rom;
+    const auto find = [&](const uint8_t (&shape)[8]) -> const uint8_t * {
+        for (std::size_t at = 0; at + 8 <= rom.size(); ++at)
+            if (std::memcmp(rom.data() + at, shape, 8) == 0) return rom.data() + at;
+        return nullptr;
+    };
+    const uint8_t zero[8] = {0x00, 0x3C, 0x46, 0x4A, 0x52, 0x62, 0x3C, 0x00};
+    const uint8_t cyrA[8] = {0x30, 0x78, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0x00};
+    const uint8_t *zeroAt = find(zero);
+    const uint8_t *cyrAAt = find(cyrA);
+    REQUIRE(zeroAt != nullptr);
+    REQUIRE(cyrAAt != nullptr);
+    const uint8_t *mainFont = zeroAt - 16 * 8;
+    const uint8_t *altFont = cyrAAt - 33 * 8;
+    const auto glyph = [&](int koi8) { return koi8 < 0200 ? mainFont + (koi8 - 040) * 8 : altFont + (koi8 - 0300) * 8; };
+    const int text[] = {'H', 'i', '!'};
+    for (int i = 0; i < 3; ++i)
+        for (int r = 0; r < 8; ++r) {
+            CAPTURE(i); CAPTURE(r);
+            CHECK(cell(i, 100 + r)[0] == glyph(text[i])[r]);
+            CHECK(cell(i, 100 + r)[1] == 0x06);
+        }
+    const int cyrillic[] = {0304, 0301};
+    for (int i = 0; i < 2; ++i)
+        for (int r = 0; r < 8; ++r) {
+            CAPTURE(i); CAPTURE(r);
+            CHECK(cell(10 + i, 100 + r)[0] == glyph(cyrillic[i])[r]);
+            CHECK(cell(10 + i, 100 + r)[1] == 0x05);
+        }
+    for (int r = 0; r < 8; ++r) { CHECK(cell(12, 100 + r)[0] == 0); CHECK(cell(13, 100 + r)[0] == 0); }
+    int lit = 0;                                 /* the letters are letters, not blanks */
+    for (int r = 0; r < 8; ++r) lit += cell(0, 100 + r)[0] != 0;
+    CHECK(lit >= 5);
+
+    d.typist.type('q');
+    d.finish();
+    CHECK(d.machine.emulator().isHires());
 }
 
 /* FILES (examples/files.c) over rt11.h: FILES.DAT of three blocks put

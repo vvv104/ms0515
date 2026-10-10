@@ -62,6 +62,33 @@ void ms_unplot(int x, int y);
  * row y, 0 <= c < 40. */
 void ms_attribute(int c, int y, unsigned char attribute);
 
+/* -- Drawing (machine/draw.c) -----------------------------------------
+ * Columns, boxes, images and text, in cells of 8 pixels across and a
+ * row down: a word each, the attribute over the pixels. */
+
+/* Column c, rows y0..y1 (both in): every word the pixels and the
+ * attribute - a raycaster's slice of wall, ceiling or floor. */
+void ms_vfill(int c, int y0, int y1, unsigned char pixels, unsigned char attribute);
+/* Cells c0..c1, rows y0..y1 (all in): a box. */
+void ms_fill(int c0, int y0, int c1, int y1, unsigned char pixels, unsigned char attribute);
+/* An image: `cells` wide, `rows` high, its pixel bytes row by row, and
+ * its attributes the same way - or none (0), leaving the screen's. */
+struct ms_image {
+	unsigned char cells, rows;
+	const unsigned char *pixels;
+	const unsigned char *attributes;
+};
+/* The image put at cell column c, row y. */
+void ms_blit(const struct ms_image *image, int c, int y);
+/* Text in the ROM's own font - KOI-8: ASCII and the Cyrillic 0300..0377,
+ * 8 rows high - from cell column c of row y, its cells given the
+ * attribute.  A character the ROM has no glyph for is blank.  The font
+ * is found in whichever ROM is there the first time. */
+void ms_text(int c, int y, const char *s, unsigned char attribute);
+/* The ROM's glyph of a KOI-8 character: eight bytes, a row each, bit 7
+ * the leftmost pixel; 0 when the ROM has none. */
+const unsigned char *ms_glyph(int koi8);
+
 /* -- The clock ("The dispatcher...": RT-11 has no periodic clock here) -
  * The frame interrupt, 50 Hz on vector 100, taken and counted. */
 

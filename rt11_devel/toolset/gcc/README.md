@@ -109,7 +109,9 @@ is the shape.
   the border, the attributes and the pixels; the frame interrupt as a
   clock; the keyboard taken off the ROM's vector into a ring, with the
   held-key timers the keyboard's lack of release codes calls for; the
-  joystick port; the speaker bit.  Everything is C over the registers
+  joystick port; the speaker bit; the extended memory banks; columns,
+  boxes, images and text in the ROM's own font, found in whichever ROM
+  is there.  Everything is C over the registers
   but the two interrupt handlers (RTI) and the PSW's two instructions.
   `examples/machine.c` uses all of it; STARS is built on it.
 - The program lies from 01000: text, data, bss, then the stack's room

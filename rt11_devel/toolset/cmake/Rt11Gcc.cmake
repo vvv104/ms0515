@@ -50,6 +50,7 @@ function(_rt11_gcc_runtime)
         "${RT11_GCC_DIR}/machine/banks.c"
         "${RT11_GCC_DIR}/machine/clock.c"
         "${RT11_GCC_DIR}/machine/clock.s"
+        "${RT11_GCC_DIR}/machine/draw.c"
         "${RT11_GCC_DIR}/machine/keys.c"
         "${RT11_GCC_DIR}/machine/keys.s"
         "${RT11_GCC_DIR}/machine/ports.c"
