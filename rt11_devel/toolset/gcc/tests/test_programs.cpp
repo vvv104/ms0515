@@ -407,6 +407,66 @@ TEST_CASE("DRAW: ms_vfill, ms_fill, ms_blit and ms_text in the ROM's font") {
     CHECK(d.machine.emulator().isHires());
 }
 
+/* TEX (examples/tex.c): a texture's columns stretched, squeezed and
+ * clipped, a sprite scaled over a box with its empty texels leaving the
+ * box be, one cut by the screen's edge - against the same rule drawn
+ * on the host: a texel every rows*256/height rows in 8.8, the row the
+ * high byte of the sum, the sum started where the run meets the screen. */
+TEST_CASE("TEX: tex_column and tex_sprite against the host's own stretching") {
+    if (!built("TEX")) { MESSAGE("TEX.SAV not built - skipped"); return; }
+    Driven d("TEX");
+    d.run(80);
+    REQUIRE_FALSE(d.machine.ended());
+    const uint8_t *vram = board_get_vram(&d.board());
+
+    std::vector<uint8_t> screen(200 * 80, 0);           /* the host's picture */
+    const auto cell = [&](int c, int y) { return screen.data() + y * 80 + c * 2; };
+    uint8_t wallPixels[32], wallAttributes[32];
+    for (int i = 0; i < 32; ++i) { wallPixels[i] = static_cast<uint8_t>(i + 1); wallAttributes[i] = static_cast<uint8_t>(i / 8 + 1); }
+    const uint8_t spritePixels[8] = {0, 0x11, 0x22, 0x33, 0, 0x44, 0x55, 0x66};
+    const uint8_t spriteAttributes[8] = {9, 1, 2, 3, 9, 4, 5, 6};
+    const auto column = [&](const uint8_t *px, const uint8_t *at, int rows, int col, int c, int y0, int y1, bool masked) {
+        const unsigned step = static_cast<unsigned>((static_cast<unsigned long>(rows) << 8) / static_cast<unsigned>(y1 - y0 + 1));
+        unsigned acc = 0;
+        if (y1 > 199) y1 = 199;
+        if (y0 < 0) { acc = static_cast<uint16_t>(static_cast<unsigned long>(step) * static_cast<unsigned>(-y0)); y0 = 0; }
+        for (int y = y0; y <= y1; ++y, acc = static_cast<uint16_t>(acc + step)) {
+            const unsigned i = acc >> 8;
+            if (masked && px[col * rows + i] == 0) continue;
+            cell(c, y)[0] = px[col * rows + i];
+            cell(c, y)[1] = at[col * rows + i];
+        }
+    };
+    column(wallPixels, wallAttributes, 8, 1, 3, 20, 39, false);
+    column(wallPixels, wallAttributes, 8, 2, 4, 60, 64, false);
+    column(wallPixels, wallAttributes, 8, 3, 5, -10, 29, false);
+    column(wallPixels, wallAttributes, 8, 0, 6, 180, 219, false);
+    column(wallPixels, wallAttributes, 8, 0, 7, 100, 399, false);
+    for (int y = 100; y <= 111; ++y)
+        for (int c = 10; c <= 15; ++c) { cell(c, y)[0] = 0x11; cell(c, y)[1] = 0x07; }
+    const auto sprite = [&](int c, int y, int cells, int height) {
+        const unsigned step = (2u << 8) / static_cast<unsigned>(cells);
+        unsigned acc = 0;
+        for (int k = 0; k < cells; ++k, ++c, acc += step)
+            if (c >= 0 && c < 40) column(spritePixels, spriteAttributes, 4, static_cast<int>(acc >> 8), c, y, y + height - 1, true);
+    };
+    sprite(10, 100, 6, 12);
+    sprite(38, 150, 4, 8);
+
+    int differ = 0;
+    for (int y = 0; y < 200; ++y)
+        for (int at = 0; at < 80; ++at)
+            if (vram[y * 80 + at] != screen[y * 80 + at]) ++differ;
+    CHECK(differ == 0);
+    CHECK(cell(3, 20)[0] == 9);                         /* the host's picture is what was meant: column 1's first texel */
+    CHECK(cell(3, 39)[0] == 16);                        /* ... and its last at the run's end */
+    CHECK(cell(10, 100)[0] == 0x11);                    /* the sprite's empty texel left the box */
+    CHECK(cell(10, 111)[0] == 0x33);                    /* its last texel at the bottom */
+    CHECK(cell(39, 152)[0] == 0x11);                    /* the edge: cell 39 drawn, nothing past it to draw on */
+    d.typist.type('q');
+    d.finish();
+}
+
 /* STREAM (examples/stream.c): a block read with the screen on, the
  * window closed round the requests and opened again - a bar as long as
  * the block says, the bar drawn before it untouched, the monitor alive

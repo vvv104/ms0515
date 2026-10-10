@@ -211,6 +211,25 @@ half - never the bank the code, the stack or the vectors are in.
 | `void ms_speaker_flip(void)` | the speaker line flipped: a click, a square wave by flipping in time (register C bit 6, the Spectrum's `OUT`) |
 | `unsigned ms_interrupts_off(void)`, `void ms_interrupts_restore(unsigned psw)` | the priority to 7 and back, round the few instructions an interrupt must not split |
 
+## tex.h - textures and sprites drawn scaled
+
+What a 3D view is painted with (`machine/tex.c`).  In a view cast by
+the grid a wall never turns as a picture would: the ray that hit it
+says which column of its texture is seen, the distance how tall the
+column stands on the screen.  A texture is drawn a column at a time,
+each stretched or squeezed to its height - a texel every `rows*256/
+height` rows in 8.8, the texel's row the high byte of a sum, no
+division in the row - and a sprite the same in both directions, its
+empty texels left unwritten.
+
+| | what |
+|---|---|
+| `struct tex { unsigned char cols, rows; const unsigned char *pixels, *attributes; }` | a texture, column by column so that a column is a run of bytes: `pixels[cols][rows]` the patterns of eight pixels, `attributes[cols][rows]` the ink and paper of each; rows up to 255 |
+| `void tex_column(const struct tex *t, int col, int c, int y0, int y1)` | column `col` of the texture on screen column c, stretched over rows y0..y1 (both in); y0 may lie above the screen and y1 below it: the part off the screen is skipped, the stretch kept, as a wall nearer than the screen is tall does |
+| `void tex_sprite_column(const struct tex *t, int col, int c, int y0, int y1)` | the same with the empty texels (a pattern of 0) left unwritten: a sprite's column, for a program that draws its sprites a column at a time against the depth of the wall there |
+| `void tex_sprite(const struct tex *t, int c, int y, int cells, int height)` | the texture as a sprite, `cells` wide and `height` rows high, its top left at cell column c and row y, its empty texels left unwritten; what lies off the screen is skipped |
+| `unsigned tex_step(int rows, int height)` | the texel step in 8.8 for `rows` texels over `height` rows: a table for the heights up to 255, remade when `rows` changes, a division past that |
+
 ## fx.h - fixed point, cut to size
 
 What a 3D picture is made of on a processor without multiply or divide

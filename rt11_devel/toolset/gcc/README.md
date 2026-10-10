@@ -104,6 +104,10 @@ is the shape.
   bits in eight steps - the projection's division - `fx_mul` for 8.8
   products over the full 32-bit product, `fx_sin` and `fx_cos` from a
   table of a quarter turn, for the rays and the turns of a 3D picture.
+- Textures and sprites drawn scaled (`tex.h`): a texture's column
+  stretched to its height on the screen, clipped above and below, as
+  a wall stands at its distance; a sprite scaled both ways with its
+  empty texels left unwritten.  What a 3D view is painted with.
 - The machine (`machine/`, `ms0515.h`): what a program does outside
   the monitor, as `docs/programming.md` says it and the ports do it -
   the screen in 320x200 colour through the VRAM window at 0100000 with
