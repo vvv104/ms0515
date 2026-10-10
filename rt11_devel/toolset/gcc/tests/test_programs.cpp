@@ -99,6 +99,62 @@ TEST_CASE("LIBC: printf, strings, ctype, stdlib and the heap, a line a group") {
     }
 }
 
+TEST_CASE("LIBC2: the rest of the strings, the long conversions, printf's corners") {
+    if (!built("LIBC2")) { MESSAGE("LIBC2.SAV not built - skipped"); return; }
+    const Run r = run("LIBC2");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    const std::vector<std::string> expected = {
+        "abc 0 0 abc abcde 4 1 0 6 1",
+        "123456 -70000 12 65535 65535 -16 15 12 z",
+        "5 keep 5 [] [    x][y    ][toolong][-42    ][-000042] [ffffffff][10][   42]",
+        "-16384 -3 1 -1",
+        "LIBC2 DONE",
+    };
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        CAPTURE(i);
+        CHECK(got[i] == expected[i]);
+    }
+}
+
+/* INPUT (examples/input.c): a line typed at the program, read by
+ * getchar and given back backwards; a character by .TTYIN itself.  The
+ * monitor echoes what is typed, so the program's lines are looked for
+ * among the console's in order. */
+TEST_CASE("INPUT: getchar reads the line typed, rt11_ttyin the character") {
+    if (!built("INPUT")) { MESSAGE("INPUT.SAV not built - skipped"); return; }
+    const fs::path dir = fs::temp_directory_path() / "ms0515_gcc_input";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    fs::copy_file(savDir() / "INPUT.SAV", dir / "INPUT.SAV");
+    ms0515::run::Machine machine;
+    REQUIRE(machine.start(dir / "INPUT.SAV", {}));
+    ms0515::Typist typist;
+    ms0515::run::ConsoleText text(ms0515::run::ConsoleText::Reader::plain);
+    std::string printed;
+    const auto step = [&] { typist.pump(machine.emulator()); machine.step(); printed += text.convert(machine.takeOutput()); };
+    for (int f = 0; f < 60 && !machine.ended(); ++f) step();
+    for (char c : std::string("Hello, 123\n")) typist.type(static_cast<uint8_t>(c));
+    for (int f = 0; f < 150 && !machine.ended(); ++f) step();
+    for (char c : std::string("z\n")) typist.type(static_cast<uint8_t>(c));
+    for (int f = 0; f < 300 && !machine.ended(); ++f) step();
+    REQUIRE(machine.ended());
+    printed += text.convert(machine.drainOutput());
+    CHECK_FALSE(machine.failed());
+    const auto got = lines(printed);
+    const std::vector<std::string> expected = {"TYPE A LINE", "INPUT 10:321 ,olleH", "TTYIN 122", "INPUT DONE"};
+    std::size_t at = 0;
+    for (const auto &line : expected) {
+        while (at < got.size() && got[at] != line) ++at;
+        CAPTURE(line);
+        CHECK(at < got.size());
+    }
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 /* GCC 15.2's pdp11 backend compares longs wrongly when the high words
  * are equal; build-toolchain.sh patches it (toolset/gcc/README.md, "A
  * trap in the compiler").  This fails on a compiler without the patch. */

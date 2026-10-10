@@ -58,7 +58,7 @@ opens it again with `ms_window(1)`.
 | function | request | what |
 |---|---|---|
 | `void rt11_ttyout(int c)` | `.TTYOUT` | the character out, waiting for room in the ring |
-| `int rt11_ttyin(void)` | `.TTYIN` | the next character typed, waited for (the low 7 bits); the monitor hands a line over once it is typed, its own editing done |
+| `int rt11_ttyin(void)` | `.TTYIN` | the next character typed, waited for (the low 7 bits); the monitor hands a line over once it is typed, its own editing done, and in the case it was typed - the program's job status word says so (`aout2sav.py`), where the monitor folds to upper case by default |
 | `void rt11_print(const char *s)` | `.PRINT` | the string up to a 0, and a new line; up to a 0200 without one |
 | `void *rt11_settop(void *top)` | `.SETTOP` | the program's memory up to `top`, or as much as there is; the new high limit back |
 | `void exit(int status)` | `.EXIT` | back to the monitor (also `stdlib.h`) |

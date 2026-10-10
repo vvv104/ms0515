@@ -8,8 +8,10 @@ program.  objcopy makes the memory image of text and data; the bss is
 zeroed after them up to _end, then the stack's room, and the whole is
 padded to a block.  Block 0 in front of it is RT-11's job header - word
 040 the start address, 042 the first stack address (the stack grows down
-from it), 050 the high limit, and from 0360 a bitmap of the file's
-blocks to load, a bit a block from the top of byte 0360.
+from it), 044 the job status word with bit 14 set, so that lower case
+typed at the program passes as typed (the monitor folds it to upper
+case otherwise), 050 the high limit, and from 0360 a bitmap of the
+file's blocks to load, a bit a block from the top of byte 0360.
 
 The stack has its own room above the bss (--stack, 1024 bytes when not
 said): LINK's default, 01000 and down, is the vector area's few hundred
@@ -34,9 +36,12 @@ def symbols(nm, aout):
     return table
 
 
+JSW_LOWERCASE = 0o40000       # bit 14: lower case typed passes as typed
+
+
 def header(start, stack, high, blocks):
     block0 = bytearray(BLOCK)
-    struct.pack_into("<HH", block0, 0o40, start, stack)
+    struct.pack_into("<HHH", block0, 0o40, start, stack, JSW_LOWERCASE)
     struct.pack_into("<H", block0, 0o50, high)
     for b in range(blocks):
         block0[0o360 + b // 8] |= 0x80 >> (b % 8)

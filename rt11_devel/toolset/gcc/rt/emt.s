@@ -38,14 +38,20 @@ _rt11_request374:
 	rts	pc
 
 / void rt11_ttyout(int c): .TTYOUT - the character out, waiting for room.
+/ The request itself is .TTOUTR, which comes back with the carry set when
+/ the ring is full; the waiting is the macro's loop, and so ours.
 _rt11_ttyout:
 	mov	2(sp), r0
-	emt	0341
+1:	emt	0341
+	bcs	1b
 	rts	pc
 
 / int rt11_ttyin(void): .TTYIN - the next character typed, waited for.
+/ The request is .TTINR, which comes back with the carry set and r0 as
+/ it was when nothing has been typed; the waiting is the macro's loop.
 _rt11_ttyin:
-	emt	0340
+1:	emt	0340
+	bcs	1b
 	bic	$0177400, r0
 	rts	pc
 
