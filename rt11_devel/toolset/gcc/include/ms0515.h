@@ -162,6 +162,17 @@ unsigned ms_joystick(void);
 /* The speaker line flipped: a click; a square wave by flipping in time. */
 void ms_speaker_flip(void);
 
+/* -- The memory banks ("Memory and the monitor") ----------------------
+ * 56 KB in seven primary banks of 8 KB (bank n at n * 020000), and a
+ * second, extended, bank behind each, which RT-11 never sees: a
+ * program's own room, 8 KB a bank, reached by switching the bank's bit
+ * in the dispatcher.  A bank switched to extended hides its primary
+ * half - never the bank the code, the stack or the vectors are in. */
+
+/* Bank n (0..6) switched to its extended half (1) or back to the
+ * primary (0). */
+void ms_bank(int n, int extended);
+
 /* -- The processor ----------------------------------------------------
  * The PSW's priority raised to 7 and put back, round a few instructions
  * an interrupt must not split (the swapping of a vector). */

@@ -172,6 +172,17 @@ while ((c = ms_key()) >= 0)
 if (ms_is_held(keys[0])) turn_left();
 ```
 
+### The memory banks
+
+56 KB in seven primary banks of 8 KB (bank n at n * 020000) and a
+second, extended, bank behind each, which RT-11 never sees: a program's
+own room, 8 KB a bank.  A bank switched to extended hides its primary
+half - never the bank the code, the stack or the vectors are in.
+
+| function | what |
+|---|---|
+| `void ms_bank(int n, int extended)` | bank n (0..6) switched to its extended half (1) or back to the primary (0) |
+
 ### The joystick, the speaker, the processor
 
 | function | what |

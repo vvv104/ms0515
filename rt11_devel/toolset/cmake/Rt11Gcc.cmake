@@ -47,6 +47,7 @@ function(_rt11_gcc_runtime)
         "${RT11_GCC_DIR}/libc/printf.c"
         "${RT11_GCC_DIR}/libc/stdlib.c"
         "${RT11_GCC_DIR}/libc/string.c"
+        "${RT11_GCC_DIR}/machine/banks.c"
         "${RT11_GCC_DIR}/machine/clock.c"
         "${RT11_GCC_DIR}/machine/clock.s"
         "${RT11_GCC_DIR}/machine/keys.c"

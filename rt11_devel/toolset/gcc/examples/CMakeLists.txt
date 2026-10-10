@@ -20,6 +20,8 @@ rt11_c_program(NAME LIBC2 SOURCES libc2.c)
 rt11_c_program(NAME INPUT SOURCES input.c)
 rt11_c_program(NAME CMPLONG SOURCES cmplong.c)
 rt11_c_program(NAME MACHINE SOURCES machine.c)
+rt11_c_program(NAME HELD SOURCES held.c)
+rt11_c_program(NAME PORTS SOURCES ports.c)
 rt11_c_program(NAME FX SOURCES fx.c)
 
 # A library of the project's own, and a program that takes from it.

@@ -236,6 +236,106 @@ TEST_CASE("MACHINE: the screen, the clock and the keyboard through ms0515.h") {
     fs::remove_all(dir, ec);
 }
 
+/* A machine with a typist and the console's text gathered, for the
+ * examples that are pressed at while they run. */
+struct Driven {
+    ms0515::run::Machine machine;
+    ms0515::Typist typist;
+    ms0515::run::ConsoleText text{ms0515::run::ConsoleText::Reader::plain};
+    std::string printed;
+    fs::path dir;
+
+    explicit Driven(const char *name)
+    {
+        dir = fs::temp_directory_path() / (std::string("ms0515_gcc_") + name);
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        const std::string file = std::string(name) + ".SAV";
+        fs::copy_file(savDir() / file, dir / file);
+        REQUIRE(machine.start(dir / file, {}));
+    }
+    ~Driven()
+    {
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+    }
+    void step()
+    {
+        typist.pump(machine.emulator());
+        machine.step();
+        printed += text.convert(machine.takeOutput());
+    }
+    void run(int frames)
+    {
+        for (int f = 0; f < frames && !machine.ended(); ++f) step();
+    }
+    void finish()
+    {
+        run(1000);
+        REQUIRE(machine.ended());
+        printed += text.convert(machine.drainOutput());
+        CHECK_FALSE(machine.failed());
+    }
+    const ms0515_board_t &board() { return ms0515::internal::board(machine.emulator()); }
+};
+
+/* HELD (examples/held.c): Right tapped while the program is still
+ * throwing keys away, then Left tapped once and later Left held down
+ * for forty frames - the keyboard repeats it, as a real one does; the
+ * program says when Left's hold began and ended, in its own frames:
+ * nine of them after the single code, on through the repeats and four
+ * past the last. */
+TEST_CASE("HELD: a held key is a timer its codes wind up, and the flush drops what came before") {
+    if (!built("HELD")) { MESSAGE("HELD.SAV not built - skipped"); return; }
+    Driven d("HELD");
+    d.run(35);
+    d.typist.type(ms0515::Key::Right);
+    d.run(65);                                  /* frame 100: well past the flush */
+    d.typist.type(ms0515::Key::Left);
+    d.run(50);                                  /* frame 150 */
+    d.machine.emulator().keyPress(ms0515::Key::Left, true);
+    d.run(40);
+    d.machine.emulator().keyPress(ms0515::Key::Left, false);
+    d.finish();
+    const auto got = lines(d.printed);
+    REQUIRE(got.size() == 1);
+    MESSAGE(got[0]);
+    std::istringstream line(got[0]);
+    std::string word, slash, rightWord;
+    unsigned t[4];
+    int right = -1;
+    REQUIRE((line >> word >> t[0] >> t[1] >> t[2] >> t[3] >> slash >> rightWord >> right));
+    CHECK(word == "HELD");
+    CHECK(t[1] - t[0] == 9);                    /* MS_HELD_FIRST after one code */
+    CHECK(t[2] > t[1]);
+    CHECK(t[3] - t[2] >= 40);                   /* held through the repeats, MS_HELD_NEXT past the last */
+    CHECK(t[3] - t[2] <= 50);
+    CHECK(right == 0);
+}
+
+/* PORTS (examples/ports.c): the joystick's lines held by the harness
+ * for a while, the border seen blue while the screen is on, the
+ * speaker's level flipped once, and a word in each half of bank 3. */
+TEST_CASE("PORTS: the joystick, the border, the speaker and the banks") {
+    if (!built("PORTS")) { MESSAGE("PORTS.SAV not built - skipped"); return; }
+    Driven d("PORTS");
+    d.run(30);
+    REQUIRE_FALSE(d.machine.ended());
+    CHECK(d.machine.emulator().borderColor() == 1);
+    const int level = d.board().sound_value;
+    d.machine.emulator().setJoystick(ms0515::Emulator::Joy::Up | ms0515::Emulator::Joy::Fire);
+    d.run(20);
+    d.machine.emulator().setJoystick(0);
+    d.run(30);
+    CHECK(d.board().sound_value != level);      /* flipped at the program's frame 20 */
+    d.finish();
+    CHECK(d.machine.emulator().borderColor() == 0);
+    const auto got = lines(d.printed);
+    REQUIRE(got.size() == 2);
+    CHECK(got[0] == "JOY 24");
+    CHECK(got[1] == "BANK 1234 5678");
+}
+
 /* FILES (examples/files.c) over rt11.h: FILES.DAT of three blocks put
  * beside it, read waited for and not, the end of the file, OUT.DAT
  * written and read back on the host, a file that is not there. */
