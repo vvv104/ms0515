@@ -19,11 +19,12 @@ rt11_devel/toolset/gcc/
 │   ├── crt0.s           _start: main() then .EXIT; __main, exit, rt11_memtop
 │   ├── arith.s          the 16- and 32-bit multiply and divide, __xorhi3
 │   ├── emt.s            RT-11's requests as C functions
-│   └── files.c          the files: .LOOKUP, .READW, .READ and .WAIT, .ENTER, .WRITW, .CLOSE
+│   ├── files.c          the files: .LOOKUP, .READW, .READ and .WAIT, .ENTER, .WRITW, .CLOSE
+│   └── fx.s, fx.c       fixed point cut to size: fx_div8, fx_mul, fx_sin, fx_cos
 ├── libc/                stdio over the console, string, ctype, stdlib, the heap
 ├── machine/             the screen, the clock, the keyboard, the joystick, the speaker
-├── include/             rt11.h, ms0515.h, stdio.h, stdlib.h, string.h, ctype.h
-├── examples/            HELLO, ARITH, LIBC, MACHINE and FILES (the runtime checked), CMPLONG
+├── include/             rt11.h, ms0515.h, fx.h, stdio.h, stdlib.h, string.h, ctype.h
+├── examples/            HELLO, ARITH, LIBC, MACHINE, FILES and FX (the runtime checked), CMPLONG
 │                        (the compiler's comparison of longs), CALC (the benchmark)
 └── tests/               the examples run by ms0515-run's machine (doctest)
 ```
@@ -98,6 +99,10 @@ is the shape.
   behind the VRAM window, so a program with the screen on closes the
   window round a request (`ms_window`).  No stdio over them yet:
   `fopen` and friends are not there, a game streams its data by block.
+- Fixed point cut to size (`fx.h`): `fx_div8` for a quotient of eight
+  bits in eight steps - the projection's division - `fx_mul` for 8.8
+  products over the full 32-bit product, `fx_sin` and `fx_cos` from a
+  table of a quarter turn, for the rays and the turns of a 3D picture.
 - The machine (`machine/`, `ms0515.h`): what a program does outside
   the monitor, as `docs/programming.md` says it and the ports do it -
   the screen in 320x200 colour through the VRAM window at 0100000 with

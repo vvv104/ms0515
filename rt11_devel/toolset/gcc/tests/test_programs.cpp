@@ -11,6 +11,7 @@ extern "C" {
 #include <ms0515/core/board.h>
 }
 
+#include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <iterator>
@@ -236,6 +237,45 @@ TEST_CASE("FILES: .LOOKUP, .READW, .READ and .WAIT, .ENTER and .WRITW, .CLOSE") 
     }
     std::error_code ec;
     fs::remove_all(dir, ec);
+}
+
+/* FX (examples/fx.c): fx_div8, fx_mul, fx_sin and fx_cos against the
+ * host's own arithmetic, the table's values by the same rounding. */
+TEST_CASE("FX: the fixed-point division, multiply, sine and cosine") {
+    if (!built("FX")) { MESSAGE("FX.SAV not built - skipped"); return; }
+    const Run r = run("FX");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    constexpr int divs[][2] = {
+        {32640, 128}, {-32640, 128}, {255, 1}, {-255, 1}, {0, 7},
+        {12800, 100}, {-12800, 100}, {30000, 200}, {1000, 1000}, {999, 1000},
+        {20480, 81}, {-20480, 81}, {4096, 17}, {255, 255}, {32767, 129},
+    };
+    constexpr int muls[][2] = {
+        {256, 256}, {512, 256}, {-512, 256}, {256, -256}, {-256, -256},
+        {1000, 128}, {-1000, 128}, {32767, 255}, {-32767, 255}, {3, 100},
+        {-3, 100}, {181, 181}, {30000, -2}, {255, 255}, {0, 32767},
+    };
+    constexpr int angles[] = {0, 1, 32, 63, 64, 65, 96, 127, 128, 129, 160, 191, 192, 193, 224, 255, 256, 300, -1, -64};
+    std::vector<std::string> expected;
+    for (const auto &d : divs)
+        expected.push_back(std::to_string(d[0]) + " " + std::to_string(d[1]) + ": " + std::to_string(d[0] / d[1]));
+    for (const auto &m : muls)
+        expected.push_back(std::to_string(m[0]) + " " + std::to_string(m[1]) + ": " +
+                           std::to_string(static_cast<long>(m[0]) * m[1] / 256));
+    const auto sine = [](int angle) {
+        const double pi = 3.14159265358979323846;
+        return static_cast<int>(std::lround(256.0 * std::sin(2.0 * pi * (angle & 255) / 256.0)));
+    };
+    for (int a : angles)
+        expected.push_back(std::to_string(a) + ": " + std::to_string(sine(a)) + " " + std::to_string(sine(a + 64)));
+    expected.push_back("FX DONE");
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        CAPTURE(i);
+        CHECK(got[i] == expected[i]);
+    }
 }
 
 TEST_CASE("CALC counts the primes below 10000 and tells its time") {

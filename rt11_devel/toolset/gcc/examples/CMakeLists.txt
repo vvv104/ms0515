@@ -18,6 +18,7 @@ rt11_c_program(NAME ARITH SOURCES arith.c)
 rt11_c_program(NAME LIBC SOURCES libc.c)
 rt11_c_program(NAME CMPLONG SOURCES cmplong.c)
 rt11_c_program(NAME MACHINE SOURCES machine.c)
+rt11_c_program(NAME FX SOURCES fx.c)
 
 # A library of the project's own, and a program that takes from it.
 rt11_c_library(NAME examples SOURCES lib/checksum.c INCLUDE lib)

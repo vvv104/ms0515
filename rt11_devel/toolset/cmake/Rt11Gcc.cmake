@@ -40,6 +40,8 @@ function(_rt11_gcc_runtime)
         "${RT11_GCC_DIR}/rt/arith.s"
         "${RT11_GCC_DIR}/rt/emt.s"
         "${RT11_GCC_DIR}/rt/files.c"
+        "${RT11_GCC_DIR}/rt/fx.c"
+        "${RT11_GCC_DIR}/rt/fx.s"
         "${RT11_GCC_DIR}/libc/console.c"
         "${RT11_GCC_DIR}/libc/heap.c"
         "${RT11_GCC_DIR}/libc/printf.c"

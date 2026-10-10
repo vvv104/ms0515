@@ -29,6 +29,12 @@ set(CMAKE_ASM_FLAGS_INIT "-m10")
 # come out slower too (README.md).  Set in the cache, ahead of CMake's own
 # "-O3 -DNDEBUG" for GNU compilers, which fills it only when empty.
 set(CMAKE_C_FLAGS_RELEASE "-O2" CACHE STRING "Flags used by the C compiler during RELEASE builds")
+# The other configurations an IDE may pick: the target has no debug
+# output (-g only warns), so Debug is -O1 - quick to compile, still
+# running at a pace - and the rest are what their names say.
+set(CMAKE_C_FLAGS_DEBUG "-O1" CACHE STRING "Flags used by the C compiler during DEBUG builds")
+set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O2" CACHE STRING "Flags used by the C compiler during RELWITHDEBINFO builds")
+set(CMAKE_C_FLAGS_MINSIZEREL "-Os" CACHE STRING "Flags used by the C compiler during MINSIZEREL builds")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-m10 -nostdlib -N -Wl,-Ttext,0x200")
 set(CMAKE_C_STANDARD_LIBRARIES "-lgcc")
 set(CMAKE_EXECUTABLE_SUFFIX_C ".out")

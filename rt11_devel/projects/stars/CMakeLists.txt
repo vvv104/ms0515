@@ -12,4 +12,4 @@ cmake_minimum_required(VERSION 3.21)
 include(../../toolset/cmake/Rt11Gcc.cmake)
 project(stars LANGUAGES C ASM)
 
-rt11_c_program(NAME STARS SOURCES stars.c proj.s)
+rt11_c_program(NAME STARS SOURCES stars.c)

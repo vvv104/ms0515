@@ -180,6 +180,22 @@ if (ms_is_held(keys[0])) turn_left();
 | `void ms_speaker_flip(void)` | the speaker line flipped: a click, a square wave by flipping in time (register C bit 6, the Spectrum's `OUT`) |
 | `unsigned ms_interrupts_off(void)`, `void ms_interrupts_restore(unsigned psw)` | the priority to 7 and back, round the few instructions an interrupt must not split |
 
+## fx.h - fixed point, cut to size
+
+What a 3D picture is made of on a processor without multiply or divide
+(`rt/fx.s`, `rt/fx.c`): the shapes a projection or a ray needs, written
+out, and the tables a turn needs.  8.8 fixed point where it is said: 256
+is one.
+
+| function | what |
+|---|---|
+| `int fx_div8(int num, int den)` | `num / den`, truncated toward zero, for a quotient that fits eight bits (`|num| < 256 * den`, `den > 0`): eight steps written out, half a general division.  A projection: `160 + fx_div8(x << 7, z)` for a point in view, since `x * 128 < 160 * z` there |
+| `int fx_mul(int a, int b)` | `a * b / 256`: the product of two 8.8 numbers, or of a number and an 8.8 factor, as 8.8, the full 32-bit product shifted; the result must fit an int |
+| `int fx_sin(int angle)`, `int fx_cos(int angle)` | the sine and the cosine of an angle in 256ths of a turn, as 8.8 (`fx_sin(64)` is 256), from a table of a quarter turn |
+
+STARS projects with `fx_div8`; a raycaster steps its rays with `fx_sin`
+and `fx_cos` and scales with `fx_mul`.
+
 ## The C library
 
 `stdio.h` is the console: `putchar`, `getchar`, `puts`, `printf`,
