@@ -24,8 +24,9 @@ rt11_devel/toolset/gcc/
 ├── libc/                stdio over the console, string, ctype, stdlib, the heap
 ├── machine/             the screen, the clock, the keyboard, the joystick, the speaker
 ├── include/             rt11.h, ms0515.h, fx.h, stdio.h, stdlib.h, string.h, ctype.h
-├── examples/            HELLO, ARITH, LIBC, MACHINE, FILES and FX (the runtime checked), CMPLONG
-│                        (the compiler's comparison of longs), CALC (the benchmark)
+├── examples/            HELLO, ARITH, LIBC, LIBC2, INPUT, FX, MACHINE, HELD, PORTS, DRAW,
+│                        STREAM, FILES, DEEP (the runtime checked), CMPLONG (the
+│                        compiler's comparison of longs), CALC (the benchmark)
 └── tests/               the examples run by ms0515-run's machine (doctest)
 ```
 
