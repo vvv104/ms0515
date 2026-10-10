@@ -407,6 +407,53 @@ TEST_CASE("DRAW: ms_vfill, ms_fill, ms_blit and ms_text in the ROM's font") {
     CHECK(d.machine.emulator().isHires());
 }
 
+/* STREAM (examples/stream.c): a block read with the screen on, the
+ * window closed round the requests and opened again - a bar as long as
+ * the block says, the bar drawn before it untouched, the monitor alive
+ * for the end. */
+TEST_CASE("STREAM: a file read with the screen on, through ms_window") {
+    if (!built("STREAM")) { MESSAGE("STREAM.SAV not built - skipped"); return; }
+    const fs::path dir = fs::temp_directory_path() / "ms0515_gcc_stream";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    fs::copy_file(savDir() / "STREAM.SAV", dir / "STREAM.SAV");
+    std::vector<uint8_t> data(512, 0);
+    data[0] = 17;
+    std::ofstream(dir / "STREAM.DAT", std::ios::binary)
+        .write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size()));
+    ms0515::run::Machine machine;
+    REQUIRE(machine.start(dir / "STREAM.SAV", {}));
+    ms0515::Typist typist;
+    ms0515::run::ConsoleText text(ms0515::run::ConsoleText::Reader::plain);
+    std::string printed;
+    const auto step = [&] { typist.pump(machine.emulator()); machine.step(); printed += text.convert(machine.takeOutput()); };
+    for (int f = 0; f < 100 && !machine.ended(); ++f) step();
+    REQUIRE_FALSE(machine.ended());
+    const uint8_t *vram = board_get_vram(&ms0515::internal::board(machine.emulator()));
+    const auto cell = [&](int c, int y) { return vram + y * 80 + c * 2; };
+    for (int c = 0; c < 10; ++c) { CHECK(cell(c, 11)[0] == 0xFF); CHECK(cell(c, 11)[1] == 0x07); }
+    for (int c = 0; c < 17; ++c) { CHECK(cell(c, 51)[0] == 0xFF); CHECK(cell(c, 51)[1] == 0x04); }
+    CHECK(cell(17, 51)[0] == 0);
+    typist.type('q');
+    for (int f = 0; f < 300 && !machine.ended(); ++f) step();
+    REQUIRE(machine.ended());
+    printed += text.convert(machine.drainOutput());
+    CHECK_FALSE(machine.failed());
+    CHECK(lines(printed) == std::vector<std::string>{"STREAM 256 17"});
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+/* DEEP (examples/deep.c), built with STACK 4096: a recursion that takes
+ * three kilobytes of stack, where the default kilobyte would not do. */
+TEST_CASE("DEEP: STACK gives the stack its room") {
+    if (!built("DEEP")) { MESSAGE("DEEP.SAV not built - skipped"); return; }
+    const Run r = run("DEEP");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    CHECK(r.printed == "DEEP 7260\n");
+}
+
 /* FILES (examples/files.c) over rt11.h: FILES.DAT of three blocks put
  * beside it, read waited for and not, the end of the file, OUT.DAT
  * written and read back on the host, a file that is not there. */
