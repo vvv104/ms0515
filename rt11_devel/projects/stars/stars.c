@@ -36,8 +36,8 @@
  * only z falls, so the depth at which it goes out of view and the depth
  * at which it leaves the cone are worked out once, when it is born or
  * turned, and a frame compares z with them.  The projection divides by
- * an eight-step division of its own (proj.s), since a star in view
- * projects within 160 pixels of the centre; the row's address, the
+ * fx_div8, eight steps for a quotient of eight bits, since a star in
+ * view projects within 160 pixels of the centre; the row's address, the
  * pixel's bit and the CRT's correction come from tables, and a star
  * remembers the byte and the bit it lit.  Everything is 16-bit: z runs
  * 8..200, so x*128 of a star in view stays under 160*z, within an int.
@@ -46,6 +46,7 @@
  * the keyboard's ring and the held keys - is the toolset's library,
  * ms0515.h. */
 
+#include <fx.h>
 #include <ms0515.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,10 +73,6 @@ struct star {
 	unsigned char bit;
 	unsigned char stale;	/* turned: zseen and zgone are to be settled */
 };
-
-/* (x << 7) / z for a star in view, in proj.s: an eight-step division,
- * since the quotient fits eight bits, where C's `/` costs sixteen. */
-int proj(int x, int z);
 
 static struct star stars[NSTARS];
 static struct ms_held hold[kKeys] = {
@@ -212,16 +209,17 @@ TURNED_BY(turn, TURN16)
 TURNED_BY(turn_twice, TURN8)
 
 /* The star drawn where it is now: its pixel lit, the byte and the bit
- * kept for the erasing. */
+ * kept for the erasing.  The division is fx_div8's eight steps: a star
+ * in view projects within 160 pixels of the centre. */
 static void draw(struct star *s)
 {
-	int sx = 160 + proj(s->x, s->z);
+	int sx = 160 + fx_div8(s->x << 7, s->z);
 	int t, sy;
 	unsigned char *p;
 
 	if (sx < 0 || sx >= COLUMNS)
 		return;
-	t = proj(s->y, s->z);
+	t = fx_div8(s->y << 7, s->z);
 	sy = t < 0 ? 100 + aspect[-t] : 100 - aspect[t];
 	if (sy < 0 || sy >= ROWS)
 		return;

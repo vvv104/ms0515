@@ -47,6 +47,10 @@ void ms_screen_begin(unsigned char attribute);
 /* The screen cleared, the window closed and the console's 640x200
  * back - black, for the console to print on. */
 void ms_screen_end(void);
+/* The window closed (0) or opened again (1) while the screen is on:
+ * the monitor lies behind it, so a file request (rt11.h) is made with
+ * it closed. */
+void ms_window(int open);
 /* The border's colour, 0..7 in the Spectrum's GRB order. */
 void ms_border(unsigned char colour);
 /* Every word of the screen: the attribute, no pixels. */
@@ -57,6 +61,33 @@ void ms_unplot(int x, int y);
 /* The attribute of the cell (8 pixels wide, a row high) at column c of
  * row y, 0 <= c < 40. */
 void ms_attribute(int c, int y, unsigned char attribute);
+
+/* -- Drawing (machine/draw.c) -----------------------------------------
+ * Columns, boxes, images and text, in cells of 8 pixels across and a
+ * row down: a word each, the attribute over the pixels. */
+
+/* Column c, rows y0..y1 (both in): every word the pixels and the
+ * attribute - a raycaster's slice of wall, ceiling or floor. */
+void ms_vfill(int c, int y0, int y1, unsigned char pixels, unsigned char attribute);
+/* Cells c0..c1, rows y0..y1 (all in): a box. */
+void ms_fill(int c0, int y0, int c1, int y1, unsigned char pixels, unsigned char attribute);
+/* An image: `cells` wide, `rows` high, its pixel bytes row by row, and
+ * its attributes the same way - or none (0), leaving the screen's. */
+struct ms_image {
+	unsigned char cells, rows;
+	const unsigned char *pixels;
+	const unsigned char *attributes;
+};
+/* The image put at cell column c, row y. */
+void ms_blit(const struct ms_image *image, int c, int y);
+/* Text in the ROM's own font - KOI-8: ASCII and the Cyrillic 0300..0377,
+ * 8 rows high - from cell column c of row y, its cells given the
+ * attribute.  A character the ROM has no glyph for is blank.  The font
+ * is found in whichever ROM is there the first time. */
+void ms_text(int c, int y, const char *s, unsigned char attribute);
+/* The ROM's glyph of a KOI-8 character: eight bytes, a row each, bit 7
+ * the leftmost pixel; 0 when the ROM has none. */
+const unsigned char *ms_glyph(int koi8);
 
 /* -- The clock ("The dispatcher...": RT-11 has no periodic clock here) -
  * The frame interrupt, 50 Hz on vector 100, taken and counted. */
@@ -157,6 +188,17 @@ unsigned ms_joystick(void);
 
 /* The speaker line flipped: a click; a square wave by flipping in time. */
 void ms_speaker_flip(void);
+
+/* -- The memory banks ("Memory and the monitor") ----------------------
+ * 56 KB in seven primary banks of 8 KB (bank n at n * 020000), and a
+ * second, extended, bank behind each, which RT-11 never sees: a
+ * program's own room, 8 KB a bank, reached by switching the bank's bit
+ * in the dispatcher.  A bank switched to extended hides its primary
+ * half - never the bank the code, the stack or the vectors are in. */
+
+/* Bank n (0..6) switched to its extended half (1) or back to the
+ * primary (0). */
+void ms_bank(int n, int extended);
 
 /* -- The processor ----------------------------------------------------
  * The PSW's priority raised to 7 and put back, round a few instructions

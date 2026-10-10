@@ -4,6 +4,7 @@
 
 #include "Programs.hpp"
 
+#include "Embedded.hpp"
 #include "EmulatorInternal.hpp"
 #include <ms0515/Typist.hpp>
 
@@ -11,7 +12,11 @@ extern "C" {
 #include <ms0515/core/board.h>
 }
 
+#include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 
@@ -96,6 +101,62 @@ TEST_CASE("LIBC: printf, strings, ctype, stdlib and the heap, a line a group") {
     }
 }
 
+TEST_CASE("LIBC2: the rest of the strings, the long conversions, printf's corners") {
+    if (!built("LIBC2")) { MESSAGE("LIBC2.SAV not built - skipped"); return; }
+    const Run r = run("LIBC2");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    const std::vector<std::string> expected = {
+        "abc 0 0 abc abcde 4 1 0 6 1",
+        "123456 -70000 12 65535 65535 -16 15 12 z",
+        "5 keep 5 [] [    x][y    ][toolong][-42    ][-000042] [ffffffff][10][   42]",
+        "-16384 -3 1 -1",
+        "LIBC2 DONE",
+    };
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        CAPTURE(i);
+        CHECK(got[i] == expected[i]);
+    }
+}
+
+/* INPUT (examples/input.c): a line typed at the program, read by
+ * getchar and given back backwards; a character by .TTYIN itself.  The
+ * monitor echoes what is typed, so the program's lines are looked for
+ * among the console's in order. */
+TEST_CASE("INPUT: getchar reads the line typed, rt11_ttyin the character") {
+    if (!built("INPUT")) { MESSAGE("INPUT.SAV not built - skipped"); return; }
+    const fs::path dir = fs::temp_directory_path() / "ms0515_gcc_input";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    fs::copy_file(savDir() / "INPUT.SAV", dir / "INPUT.SAV");
+    ms0515::run::Machine machine;
+    REQUIRE(machine.start(dir / "INPUT.SAV", {}));
+    ms0515::Typist typist;
+    ms0515::run::ConsoleText text(ms0515::run::ConsoleText::Reader::plain);
+    std::string printed;
+    const auto step = [&] { typist.pump(machine.emulator()); machine.step(); printed += text.convert(machine.takeOutput()); };
+    for (int f = 0; f < 60 && !machine.ended(); ++f) step();
+    for (char c : std::string("Hello, 123\n")) typist.type(static_cast<uint8_t>(c));
+    for (int f = 0; f < 150 && !machine.ended(); ++f) step();
+    for (char c : std::string("z\n")) typist.type(static_cast<uint8_t>(c));
+    for (int f = 0; f < 300 && !machine.ended(); ++f) step();
+    REQUIRE(machine.ended());
+    printed += text.convert(machine.drainOutput());
+    CHECK_FALSE(machine.failed());
+    const auto got = lines(printed);
+    const std::vector<std::string> expected = {"TYPE A LINE", "INPUT 10:321 ,olleH", "TTYIN 122", "INPUT DONE"};
+    std::size_t at = 0;
+    for (const auto &line : expected) {
+        while (at < got.size() && got[at] != line) ++at;
+        CAPTURE(line);
+        CHECK(at < got.size());
+    }
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 /* GCC 15.2's pdp11 backend compares longs wrongly when the high words
  * are equal; build-toolchain.sh patches it (toolset/gcc/README.md, "A
  * trap in the compiler").  This fails on a compiler without the patch. */
@@ -175,6 +236,383 @@ TEST_CASE("MACHINE: the screen, the clock and the keyboard through ms0515.h") {
     CHECK(codes >= 1);
     std::error_code ec;
     fs::remove_all(dir, ec);
+}
+
+/* A machine with a typist and the console's text gathered, for the
+ * examples that are pressed at while they run. */
+struct Driven {
+    ms0515::run::Machine machine;
+    ms0515::Typist typist;
+    ms0515::run::ConsoleText text{ms0515::run::ConsoleText::Reader::plain};
+    std::string printed;
+    fs::path dir;
+
+    explicit Driven(const char *name)
+    {
+        dir = fs::temp_directory_path() / (std::string("ms0515_gcc_") + name);
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        const std::string file = std::string(name) + ".SAV";
+        fs::copy_file(savDir() / file, dir / file);
+        REQUIRE(machine.start(dir / file, {}));
+    }
+    ~Driven()
+    {
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+    }
+    void step()
+    {
+        typist.pump(machine.emulator());
+        machine.step();
+        printed += text.convert(machine.takeOutput());
+    }
+    void run(int frames)
+    {
+        for (int f = 0; f < frames && !machine.ended(); ++f) step();
+    }
+    void finish()
+    {
+        run(1000);
+        REQUIRE(machine.ended());
+        printed += text.convert(machine.drainOutput());
+        CHECK_FALSE(machine.failed());
+    }
+    const ms0515_board_t &board() { return ms0515::internal::board(machine.emulator()); }
+};
+
+/* HELD (examples/held.c): Right tapped while the program is still
+ * throwing keys away, then Left tapped once and later Left held down
+ * for forty frames - the keyboard repeats it, as a real one does; the
+ * program says when Left's hold began and ended, in its own frames:
+ * nine of them after the single code, on through the repeats and four
+ * past the last. */
+TEST_CASE("HELD: a held key is a timer its codes wind up, and the flush drops what came before") {
+    if (!built("HELD")) { MESSAGE("HELD.SAV not built - skipped"); return; }
+    Driven d("HELD");
+    d.run(35);
+    d.typist.type(ms0515::Key::Right);
+    d.run(65);                                  /* frame 100: well past the flush */
+    d.typist.type(ms0515::Key::Left);
+    d.run(50);                                  /* frame 150 */
+    d.machine.emulator().keyPress(ms0515::Key::Left, true);
+    d.run(40);
+    d.machine.emulator().keyPress(ms0515::Key::Left, false);
+    d.finish();
+    const auto got = lines(d.printed);
+    REQUIRE(got.size() == 1);
+    MESSAGE(got[0]);
+    std::istringstream line(got[0]);
+    std::string word, slash, rightWord;
+    unsigned t[4];
+    int right = -1;
+    REQUIRE((line >> word >> t[0] >> t[1] >> t[2] >> t[3] >> slash >> rightWord >> right));
+    CHECK(word == "HELD");
+    CHECK(t[1] - t[0] == 9);                    /* MS_HELD_FIRST after one code */
+    CHECK(t[2] > t[1]);
+    CHECK(t[3] - t[2] >= 40);                   /* held through the repeats, MS_HELD_NEXT past the last */
+    CHECK(t[3] - t[2] <= 50);
+    CHECK(right == 0);
+}
+
+/* PORTS (examples/ports.c): the joystick's lines held by the harness
+ * for a while, the border seen blue while the screen is on, the
+ * speaker's level flipped once, and a word in each half of bank 3. */
+TEST_CASE("PORTS: the joystick, the border, the speaker and the banks") {
+    if (!built("PORTS")) { MESSAGE("PORTS.SAV not built - skipped"); return; }
+    Driven d("PORTS");
+    d.run(30);
+    REQUIRE_FALSE(d.machine.ended());
+    CHECK(d.machine.emulator().borderColor() == 1);
+    const int level = d.board().sound_value;
+    d.machine.emulator().setJoystick(ms0515::Emulator::Joy::Up | ms0515::Emulator::Joy::Fire);
+    d.run(20);
+    d.machine.emulator().setJoystick(0);
+    d.run(30);
+    CHECK(d.board().sound_value != level);      /* flipped at the program's frame 20 */
+    d.finish();
+    CHECK(d.machine.emulator().borderColor() == 0);
+    const auto got = lines(d.printed);
+    REQUIRE(got.size() == 2);
+    CHECK(got[0] == "JOY 24");
+    CHECK(got[1] == "BANK 1234 5678");
+}
+
+/* DRAW (examples/draw.c): a column, a box, an image with and without
+ * its attributes, text in the ROM's font - ASCII and Cyrillic - read
+ * cell by cell; the glyphs compared with the font found in the ROM the
+ * machine carries, by the shape of '0' and of the Cyrillic A as the
+ * library finds them. */
+TEST_CASE("DRAW: ms_vfill, ms_fill, ms_blit and ms_text in the ROM's font") {
+    if (!built("DRAW")) { MESSAGE("DRAW.SAV not built - skipped"); return; }
+    Driven d("DRAW");
+    d.run(80);
+    REQUIRE_FALSE(d.machine.ended());
+    const uint8_t *vram = board_get_vram(&d.board());
+    const auto cell = [&](int c, int y) { return vram + y * 80 + c * 2; };
+
+    for (int y = 10; y <= 20; ++y) { CHECK(cell(5, y)[0] == 0xFF); CHECK(cell(5, y)[1] == 0x02); }
+    CHECK(cell(5, 9)[0] == 0);
+    CHECK(cell(5, 21)[0] == 0);
+    CHECK(cell(4, 15)[0] == 0);
+    for (int y = 30; y <= 32; ++y)
+        for (int c = 10; c <= 12; ++c) { CHECK(cell(c, y)[0] == 0xAA); CHECK(cell(c, y)[1] == 0x48); }
+    CHECK(cell(13, 31)[0] == 0);
+    CHECK(cell(9, 31)[1] == 0x07);
+    const uint8_t pixels[6] = {0x81, 0x18, 0xFF, 0x00, 0x3C, 0xC3};
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c) {
+            CHECK(cell(20 + c, 50 + r)[0] == pixels[r * 2 + c]);
+            CHECK(cell(20 + c, 50 + r)[1] == r * 2 + c + 1);
+            CHECK(cell(24 + c, 50 + r)[0] == pixels[r * 2 + c]);
+            CHECK(cell(24 + c, 50 + r)[1] == 0x07);     /* the screen's own */
+        }
+
+    const auto rom = ms0515::run::embedded::rom;
+    const auto find = [&](const uint8_t (&shape)[8]) -> const uint8_t * {
+        for (std::size_t at = 0; at + 8 <= rom.size(); ++at)
+            if (std::memcmp(rom.data() + at, shape, 8) == 0) return rom.data() + at;
+        return nullptr;
+    };
+    const uint8_t zero[8] = {0x00, 0x3C, 0x46, 0x4A, 0x52, 0x62, 0x3C, 0x00};
+    const uint8_t cyrA[8] = {0x30, 0x78, 0xCC, 0xCC, 0xFC, 0xCC, 0xCC, 0x00};
+    const uint8_t *zeroAt = find(zero);
+    const uint8_t *cyrAAt = find(cyrA);
+    REQUIRE(zeroAt != nullptr);
+    REQUIRE(cyrAAt != nullptr);
+    const uint8_t *mainFont = zeroAt - 16 * 8;
+    const uint8_t *altFont = cyrAAt - 33 * 8;
+    const auto glyph = [&](int koi8) { return koi8 < 0200 ? mainFont + (koi8 - 040) * 8 : altFont + (koi8 - 0300) * 8; };
+    const int text[] = {'H', 'i', '!'};
+    for (int i = 0; i < 3; ++i)
+        for (int r = 0; r < 8; ++r) {
+            CAPTURE(i); CAPTURE(r);
+            CHECK(cell(i, 100 + r)[0] == glyph(text[i])[r]);
+            CHECK(cell(i, 100 + r)[1] == 0x06);
+        }
+    const int cyrillic[] = {0304, 0301};
+    for (int i = 0; i < 2; ++i)
+        for (int r = 0; r < 8; ++r) {
+            CAPTURE(i); CAPTURE(r);
+            CHECK(cell(10 + i, 100 + r)[0] == glyph(cyrillic[i])[r]);
+            CHECK(cell(10 + i, 100 + r)[1] == 0x05);
+        }
+    for (int r = 0; r < 8; ++r) { CHECK(cell(12, 100 + r)[0] == 0); CHECK(cell(13, 100 + r)[0] == 0); }
+    int lit = 0;                                 /* the letters are letters, not blanks */
+    for (int r = 0; r < 8; ++r) lit += cell(0, 100 + r)[0] != 0;
+    CHECK(lit >= 5);
+
+    d.typist.type('q');
+    d.finish();
+    CHECK(d.machine.emulator().isHires());
+}
+
+/* TEX (examples/tex.c): a texture's columns stretched, squeezed and
+ * clipped, a sprite scaled over a box with its empty texels leaving the
+ * box be, one cut by the screen's edge - against the same rule drawn
+ * on the host: a texel every rows*256/height rows in 8.8, the row the
+ * high byte of the sum, the sum started where the run meets the screen. */
+TEST_CASE("TEX: tex_column and tex_sprite against the host's own stretching") {
+    if (!built("TEX")) { MESSAGE("TEX.SAV not built - skipped"); return; }
+    Driven d("TEX");
+    d.run(80);
+    REQUIRE_FALSE(d.machine.ended());
+    const uint8_t *vram = board_get_vram(&d.board());
+
+    std::vector<uint8_t> screen(200 * 80, 0);           /* the host's picture */
+    const auto cell = [&](int c, int y) { return screen.data() + y * 80 + c * 2; };
+    uint8_t wallPixels[32], wallAttributes[32];
+    for (int i = 0; i < 32; ++i) { wallPixels[i] = static_cast<uint8_t>(i + 1); wallAttributes[i] = static_cast<uint8_t>(i / 8 + 1); }
+    const uint8_t spritePixels[8] = {0, 0x11, 0x22, 0x33, 0, 0x44, 0x55, 0x66};
+    const uint8_t spriteAttributes[8] = {9, 1, 2, 3, 9, 4, 5, 6};
+    const auto column = [&](const uint8_t *px, const uint8_t *at, int rows, int col, int c, int y0, int y1, bool masked) {
+        const unsigned step = static_cast<unsigned>((static_cast<unsigned long>(rows) << 8) / static_cast<unsigned>(y1 - y0 + 1));
+        unsigned acc = 0;
+        if (y1 > 199) y1 = 199;
+        if (y0 < 0) { acc = static_cast<uint16_t>(static_cast<unsigned long>(step) * static_cast<unsigned>(-y0)); y0 = 0; }
+        for (int y = y0; y <= y1; ++y, acc = static_cast<uint16_t>(acc + step)) {
+            const unsigned i = acc >> 8;
+            if (masked && px[col * rows + i] == 0) continue;
+            cell(c, y)[0] = px[col * rows + i];
+            cell(c, y)[1] = at[col * rows + i];
+        }
+    };
+    column(wallPixels, wallAttributes, 8, 1, 3, 20, 39, false);
+    column(wallPixels, wallAttributes, 8, 2, 4, 60, 64, false);
+    column(wallPixels, wallAttributes, 8, 3, 5, -10, 29, false);
+    column(wallPixels, wallAttributes, 8, 0, 6, 180, 219, false);
+    column(wallPixels, wallAttributes, 8, 0, 7, 100, 399, false);
+    for (int y = 100; y <= 111; ++y)
+        for (int c = 10; c <= 15; ++c) { cell(c, y)[0] = 0x11; cell(c, y)[1] = 0x07; }
+    const auto sprite = [&](int c, int y, int cells, int height) {
+        const unsigned step = (2u << 8) / static_cast<unsigned>(cells);
+        unsigned acc = 0;
+        for (int k = 0; k < cells; ++k, ++c, acc += step)
+            if (c >= 0 && c < 40) column(spritePixels, spriteAttributes, 4, static_cast<int>(acc >> 8), c, y, y + height - 1, true);
+    };
+    sprite(10, 100, 6, 12);
+    sprite(38, 150, 4, 8);
+
+    int differ = 0;
+    for (int y = 0; y < 200; ++y)
+        for (int at = 0; at < 80; ++at)
+            if (vram[y * 80 + at] != screen[y * 80 + at]) ++differ;
+    CHECK(differ == 0);
+    CHECK(cell(3, 20)[0] == 9);                         /* the host's picture is what was meant: column 1's first texel */
+    CHECK(cell(3, 39)[0] == 16);                        /* ... and its last at the run's end */
+    CHECK(cell(10, 100)[0] == 0x11);                    /* the sprite's empty texel left the box */
+    CHECK(cell(10, 111)[0] == 0x33);                    /* its last texel at the bottom */
+    CHECK(cell(39, 152)[0] == 0x11);                    /* the edge: cell 39 drawn, nothing past it to draw on */
+    d.typist.type('q');
+    d.finish();
+}
+
+/* STREAM (examples/stream.c): a block read with the screen on, the
+ * window closed round the requests and opened again - a bar as long as
+ * the block says, the bar drawn before it untouched, the monitor alive
+ * for the end. */
+TEST_CASE("STREAM: a file read with the screen on, through ms_window") {
+    if (!built("STREAM")) { MESSAGE("STREAM.SAV not built - skipped"); return; }
+    const fs::path dir = fs::temp_directory_path() / "ms0515_gcc_stream";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    fs::copy_file(savDir() / "STREAM.SAV", dir / "STREAM.SAV");
+    std::vector<uint8_t> data(512, 0);
+    data[0] = 17;
+    std::ofstream(dir / "STREAM.DAT", std::ios::binary)
+        .write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size()));
+    ms0515::run::Machine machine;
+    REQUIRE(machine.start(dir / "STREAM.SAV", {}));
+    ms0515::Typist typist;
+    ms0515::run::ConsoleText text(ms0515::run::ConsoleText::Reader::plain);
+    std::string printed;
+    const auto step = [&] { typist.pump(machine.emulator()); machine.step(); printed += text.convert(machine.takeOutput()); };
+    for (int f = 0; f < 100 && !machine.ended(); ++f) step();
+    REQUIRE_FALSE(machine.ended());
+    const uint8_t *vram = board_get_vram(&ms0515::internal::board(machine.emulator()));
+    const auto cell = [&](int c, int y) { return vram + y * 80 + c * 2; };
+    for (int c = 0; c < 10; ++c) { CHECK(cell(c, 11)[0] == 0xFF); CHECK(cell(c, 11)[1] == 0x07); }
+    for (int c = 0; c < 17; ++c) { CHECK(cell(c, 51)[0] == 0xFF); CHECK(cell(c, 51)[1] == 0x04); }
+    CHECK(cell(17, 51)[0] == 0);
+    typist.type('q');
+    for (int f = 0; f < 300 && !machine.ended(); ++f) step();
+    REQUIRE(machine.ended());
+    printed += text.convert(machine.drainOutput());
+    CHECK_FALSE(machine.failed());
+    CHECK(lines(printed) == std::vector<std::string>{"STREAM 256 17"});
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+/* DEEP (examples/deep.c), built with STACK 4096: a recursion that takes
+ * three kilobytes of stack, where the default kilobyte would not do. */
+TEST_CASE("DEEP: STACK gives the stack its room") {
+    if (!built("DEEP")) { MESSAGE("DEEP.SAV not built - skipped"); return; }
+    const Run r = run("DEEP");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    CHECK(r.printed == "DEEP 7260\n");
+}
+
+/* FILES (examples/files.c) over rt11.h: FILES.DAT of three blocks put
+ * beside it, read waited for and not, the end of the file, OUT.DAT
+ * written and read back on the host, a file that is not there. */
+TEST_CASE("FILES: .LOOKUP, .READW, .READ and .WAIT, .ENTER and .WRITW, .CLOSE") {
+    if (!built("FILES")) { MESSAGE("FILES.SAV not built - skipped"); return; }
+    const fs::path dir = fs::temp_directory_path() / "ms0515_gcc_files";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    fs::copy_file(savDir() / "FILES.SAV", dir / "FILES.SAV");
+    std::vector<uint8_t> data;
+    unsigned sums[3] = {0, 0, 0};
+    for (unsigned n = 0; n < 3; ++n)
+        for (unsigned i = 0; i < 256; ++i) {
+            const uint16_t w = static_cast<uint16_t>(n * 256 + i);
+            data.push_back(static_cast<uint8_t>(w & 0xFF));
+            data.push_back(static_cast<uint8_t>(w >> 8));
+            sums[n] = static_cast<uint16_t>(sums[n] + w);
+        }
+    std::ofstream(dir / "FILES.DAT", std::ios::binary)
+        .write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size()));
+
+    ms0515::run::Machine machine;
+    REQUIRE(machine.start(dir / "FILES.SAV", {}));
+    ms0515::run::ConsoleText text(ms0515::run::ConsoleText::Reader::plain);
+    std::string printed;
+    for (int f = 0; f < 3000 && machine.step(); ++f) printed += text.convert(machine.takeOutput());
+    REQUIRE(machine.ended());
+    printed += text.convert(machine.drainOutput());
+    CHECK_FALSE(machine.failed());
+    const std::vector<std::string> expected = {
+        "FILES: 3 blocks",
+        "READW 256 " + std::to_string(sums[1]),
+        "READ 256 " + std::to_string(sums[2]),
+        "EOF -1 0",
+        "ENTER 2 0",
+        "NOFILE -1 1",
+        "FILES DONE",
+    };
+    const auto got = lines(printed);
+    REQUIRE(got.size() == expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        CAPTURE(i);
+        CHECK(got[i] == expected[i]);
+    }
+
+    /* The folder device gives a file the program made its RT-11 name
+     * in lower case (Rt11.cmake says so) - a difference a Windows host
+     * does not see and a Linux one does. */
+    std::ifstream out(dir / "out.dat", std::ios::binary);
+    REQUIRE(out.good());
+    std::vector<uint8_t> written{std::istreambuf_iterator<char>(out), {}};
+    REQUIRE(written.size() == 1024);
+    for (unsigned i = 0; i < 256; ++i) {
+        CHECK(written[2 * i] == i);
+        CHECK(written[2 * i + 1] == 0xA5);
+        CHECK(written[512 + 2 * i] == i);
+        CHECK(written[512 + 2 * i + 1] == 0x5A);
+    }
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+/* FX (examples/fx.c): fx_div8, fx_mul, fx_sin and fx_cos against the
+ * host's own arithmetic, the table's values by the same rounding. */
+TEST_CASE("FX: the fixed-point division, multiply, sine and cosine") {
+    if (!built("FX")) { MESSAGE("FX.SAV not built - skipped"); return; }
+    const Run r = run("FX");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    constexpr int divs[][2] = {
+        {32640, 128}, {-32640, 128}, {255, 1}, {-255, 1}, {0, 7},
+        {12800, 100}, {-12800, 100}, {30000, 200}, {1000, 1000}, {999, 1000},
+        {20480, 81}, {-20480, 81}, {4096, 17}, {255, 255}, {32767, 129},
+    };
+    constexpr int muls[][2] = {
+        {256, 256}, {512, 256}, {-512, 256}, {256, -256}, {-256, -256},
+        {1000, 128}, {-1000, 128}, {32767, 255}, {-32767, 255}, {3, 100},
+        {-3, 100}, {181, 181}, {30000, -2}, {255, 255}, {0, 32767},
+    };
+    constexpr int angles[] = {0, 1, 32, 63, 64, 65, 96, 127, 128, 129, 160, 191, 192, 193, 224, 255, 256, 300, -1, -64};
+    std::vector<std::string> expected;
+    for (const auto &d : divs)
+        expected.push_back(std::to_string(d[0]) + " " + std::to_string(d[1]) + ": " + std::to_string(d[0] / d[1]));
+    for (const auto &m : muls)
+        expected.push_back(std::to_string(m[0]) + " " + std::to_string(m[1]) + ": " +
+                           std::to_string(static_cast<long>(m[0]) * m[1] / 256));
+    const auto sine = [](int angle) {
+        const double pi = 3.14159265358979323846;
+        return static_cast<int>(std::lround(256.0 * std::sin(2.0 * pi * (angle & 255) / 256.0)));
+    };
+    for (int a : angles)
+        expected.push_back(std::to_string(a) + ": " + std::to_string(sine(a)) + " " + std::to_string(sine(a + 64)));
+    expected.push_back("FX DONE");
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        CAPTURE(i);
+        CHECK(got[i] == expected[i]);
+    }
 }
 
 TEST_CASE("CALC counts the primes below 10000 and tells its time") {

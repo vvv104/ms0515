@@ -11,7 +11,8 @@
 #     include(<repository>/rt11_devel/toolset/cmake/Rt11Gcc.cmake)
 #     project(myprog LANGUAGES C ASM)
 #
-#     rt11_c_program(NAME MYPROG SOURCES myprog.c)
+#     rt11_c_library(NAME world SOURCES world.c sectors.c INCLUDE include)
+#     rt11_c_program(NAME MYPROG SOURCES myprog.c LIBRARIES world)
 #
 # The include comes BEFORE project(): it names the toolchain file, which
 # project() reads.  The compiler is found under $MS0515_GCC/bin, or on the
@@ -38,29 +39,58 @@ function(_rt11_gcc_runtime)
     add_library(rt11 STATIC
         "${RT11_GCC_DIR}/rt/arith.s"
         "${RT11_GCC_DIR}/rt/emt.s"
+        "${RT11_GCC_DIR}/rt/files.c"
+        "${RT11_GCC_DIR}/rt/fx.c"
+        "${RT11_GCC_DIR}/rt/fx.s"
         "${RT11_GCC_DIR}/libc/console.c"
         "${RT11_GCC_DIR}/libc/heap.c"
         "${RT11_GCC_DIR}/libc/printf.c"
         "${RT11_GCC_DIR}/libc/stdlib.c"
         "${RT11_GCC_DIR}/libc/string.c"
+        "${RT11_GCC_DIR}/machine/banks.c"
         "${RT11_GCC_DIR}/machine/clock.c"
         "${RT11_GCC_DIR}/machine/clock.s"
+        "${RT11_GCC_DIR}/machine/draw.c"
         "${RT11_GCC_DIR}/machine/keys.c"
         "${RT11_GCC_DIR}/machine/keys.s"
         "${RT11_GCC_DIR}/machine/ports.c"
         "${RT11_GCC_DIR}/machine/psw.s"
-        "${RT11_GCC_DIR}/machine/screen.c")
+        "${RT11_GCC_DIR}/machine/screen.c"
+        "${RT11_GCC_DIR}/machine/tex.c")
     target_compile_options(rt11 PRIVATE -Wall -Wextra)
     target_include_directories(rt11 PUBLIC "${RT11_GCC_DIR}/include")
 endfunction()
 
-# rt11_c_program(NAME <NAME> SOURCES <file>... [STACK <bytes>])
+# rt11_c_library(NAME <name> SOURCES <file>... [INCLUDE <folder>...])
 #
-# The sources compiled and linked with the runtime into NAME.SAV under
-# <build folder>/sav, with STACK bytes for the stack above the program
-# (1024 when not said).  The a.out stays beside the objects for objdump.
+# A library of the project's own: the sources compiled into a static
+# library the programs name in LIBRARIES, with INCLUDE folders for its
+# headers (the project's folder when not said).  The linker takes from it
+# the objects a program refers to and no more, so a library may hold
+# what not every program needs.  It sees the runtime's headers.
+function(rt11_c_library)
+    cmake_parse_arguments(PARSE_ARGV 0 arg "" "NAME" "SOURCES;INCLUDE")
+    if(NOT arg_NAME OR NOT arg_SOURCES)
+        message(FATAL_ERROR "rt11_c_library needs NAME and SOURCES")
+    endif()
+    _rt11_gcc_runtime()
+    if(NOT arg_INCLUDE)
+        set(arg_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
+    add_library(${arg_NAME} STATIC ${arg_SOURCES})
+    target_include_directories(${arg_NAME} PUBLIC ${arg_INCLUDE})
+    target_link_libraries(${arg_NAME} PUBLIC rt11)
+endfunction()
+
+# rt11_c_program(NAME <NAME> SOURCES <file>... [LIBRARIES <name>...]
+#                [STACK <bytes>])
+#
+# The sources compiled and linked with the runtime, and with the
+# project's LIBRARIES (rt11_c_library), into NAME.SAV under <build
+# folder>/sav, with STACK bytes for the stack above the program (1024
+# when not said).  The a.out stays beside the objects for objdump.
 function(rt11_c_program)
-    cmake_parse_arguments(PARSE_ARGV 0 arg "" "NAME;STACK" "SOURCES")
+    cmake_parse_arguments(PARSE_ARGV 0 arg "" "NAME;STACK" "SOURCES;LIBRARIES")
     if(NOT arg_NAME OR NOT arg_SOURCES)
         message(FATAL_ERROR "rt11_c_program needs NAME and SOURCES")
     endif()
@@ -75,7 +105,7 @@ function(rt11_c_program)
     set(sav "${sav_dir}/${arg_NAME}.SAV")
 
     add_executable(${lower} ${arg_SOURCES})
-    target_link_libraries(${lower} PRIVATE rt11_crt0 rt11)
+    target_link_libraries(${lower} PRIVATE rt11_crt0 ${arg_LIBRARIES} rt11)
     add_custom_command(
         OUTPUT  "${sav}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${sav_dir}"

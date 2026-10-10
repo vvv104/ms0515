@@ -45,6 +45,14 @@ void ms_screen_end(void)
 	*MS_REGISTER_C = ms_regc;
 }
 
+void ms_window(int open)
+{
+	if (open)
+		ms_dispatcher_set(MS_DISPATCHER_VRAM);
+	else
+		ms_dispatcher_clear(MS_DISPATCHER_VRAM);
+}
+
 void ms_border(unsigned char colour)
 {
 	ms_regc = (unsigned char)((ms_regc & ~7) | (colour & 7));

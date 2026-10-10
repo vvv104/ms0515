@@ -18,12 +18,15 @@ rt11_devel/toolset/gcc/
 ├── rt/                  the runtime, assembled with each project
 │   ├── crt0.s           _start: main() then .EXIT; __main, exit, rt11_memtop
 │   ├── arith.s          the 16- and 32-bit multiply and divide, __xorhi3
-│   └── emt.s            RT-11's requests as C functions
+│   ├── emt.s            RT-11's requests as C functions
+│   ├── files.c          the files: .LOOKUP, .READW, .READ and .WAIT, .ENTER, .WRITW, .CLOSE
+│   └── fx.s, fx.c       fixed point cut to size: fx_div8, fx_mul, fx_sin, fx_cos
 ├── libc/                stdio over the console, string, ctype, stdlib, the heap
 ├── machine/             the screen, the clock, the keyboard, the joystick, the speaker
-├── include/             rt11.h, ms0515.h, stdio.h, stdlib.h, string.h, ctype.h
-├── examples/            HELLO, ARITH, LIBC and MACHINE (the runtime checked), CMPLONG
-│                        (the compiler's comparison of longs), CALC (the benchmark)
+├── include/             rt11.h, ms0515.h, fx.h, stdio.h, stdlib.h, string.h, ctype.h
+├── examples/            HELLO, ARITH, LIBC, LIBC2, INPUT, FX, MACHINE, HELD, PORTS, DRAW,
+│                        STREAM, FILES, DEEP (the runtime checked), CMPLONG (the
+│                        compiler's comparison of longs), CALC (the benchmark)
 └── tests/               the examples run by ms0515-run's machine (doctest)
 ```
 
@@ -51,16 +54,28 @@ cmake_minimum_required(VERSION 3.21)
 include(<repository>/rt11_devel/toolset/cmake/Rt11Gcc.cmake)
 project(myprog LANGUAGES C ASM)
 
-rt11_c_program(NAME MYPROG SOURCES myprog.c helpers.s [STACK 2048])
+rt11_c_library(NAME world SOURCES world.c sectors.c INCLUDE include)
+rt11_c_program(NAME MYPROG SOURCES myprog.c helpers.s LIBRARIES world [STACK 2048])
 ```
 
 The include stands before `project()`: it names the toolchain file, which
-`project()` reads.  `cmake -S . -B build -G Ninja && cmake --build build`
-leaves `build/sav/MYPROG.SAV`, and `ms0515-run MYPROG` there runs it.
-`myprog` is the a.out target (`build/myprog.out`) for `pdp11-aout-objdump
--d` when the code is in question.
+`project()` reads.  `SOURCES` is everything compiled and linked into the
+program - `.c` through the compiler, `.s` through the assembler - and
+`LIBRARIES` the project's own libraries, each an `rt11_c_library` of its
+sources with its headers' folders; the runtime, the C library and the
+machine (`librt11.a`) and libgcc are linked without being named, and the
+linker takes from a library only the objects a program refers to.  A
+program's data files are not linked: they lie beside the `.SAV` and are
+read by block (`rt11.h`).  `cmake -S . -B build -G Ninja && cmake --build
+build` leaves `build/sav/MYPROG.SAV`, and `ms0515-run MYPROG` there runs
+it.  `myprog` is the a.out target (`build/myprog.out`) for
+`pdp11-aout-objdump -d` when the code is in question, and an ordinary
+CMake target for `target_compile_definitions` and the rest.
 
 ## What a program finds
+
+The reference of it all, function by function, is `docs/c-api.md`; this
+is the shape.
 
 - `int` and pointers are 16 bits, `long` 32, `long long` 64; `-m10`
   makes every `*`, `/` and `%` a call into `rt/arith.s` - the 16-bit
@@ -74,16 +89,34 @@ leaves `build/sav/MYPROG.SAV`, and `ms0515-run MYPROG` there runs it.
   LF after the CR.  `string.h` whole, `ctype.h` for ASCII, `stdlib.h`
   with `atoi`, `strtol`, `abs`, `rand`, `malloc` and company - the heap
   is the memory above the stack, taken from the monitor by `.SETTOP`.
-  No files yet.  `rt11.h` has the monitor's requests themselves -
-  `.TTYOUT`, `.TTYIN`, `.PRINT`, `.SETTOP`, `exit()` - and `main()`'s
-  return value is the program's end.
+  `rt11.h` has the monitor's requests themselves - `.TTYOUT`, `.TTYIN`,
+  `.PRINT`, `.SETTOP`, `exit()` - and `main()`'s return value is the
+  program's end.
+- Files, a block of 512 bytes at a time, as RT-11 gives them (`rt11.h`,
+  `rt/files.c`): a name in RAD50, `.LOOKUP` once at the start (it needs
+  the USR), `.READW` during the run, `.READ` left to the disk's handler
+  and `.WAIT`ed for, `.ENTER` and `.WRITW` for a file of the program's
+  own, `.CLOSE`; the error's code from byte 052.  The monitor lies
+  behind the VRAM window, so a program with the screen on closes the
+  window round a request (`ms_window`).  No stdio over them yet:
+  `fopen` and friends are not there, a game streams its data by block.
+- Fixed point cut to size (`fx.h`): `fx_div8` for a quotient of eight
+  bits in eight steps - the projection's division - `fx_mul` for 8.8
+  products over the full 32-bit product, `fx_sin` and `fx_cos` from a
+  table of a quarter turn, for the rays and the turns of a 3D picture.
+- Textures and sprites drawn scaled (`tex.h`): a texture's column
+  stretched to its height on the screen, clipped above and below, as
+  a wall stands at its distance; a sprite scaled both ways with its
+  empty texels left unwritten.  What a 3D view is painted with.
 - The machine (`machine/`, `ms0515.h`): what a program does outside
   the monitor, as `docs/programming.md` says it and the ports do it -
   the screen in 320x200 colour through the VRAM window at 0100000 with
   the border, the attributes and the pixels; the frame interrupt as a
   clock; the keyboard taken off the ROM's vector into a ring, with the
   held-key timers the keyboard's lack of release codes calls for; the
-  joystick port; the speaker bit.  Everything is C over the registers
+  joystick port; the speaker bit; the extended memory banks; columns,
+  boxes, images and text in the ROM's own font, found in whichever ROM
+  is there.  Everything is C over the registers
   but the two interrupt handlers (RTI) and the PSW's two instructions.
   `examples/machine.c` uses all of it; STARS is built on it.
 - The program lies from 01000: text, data, bss, then the stack's room
