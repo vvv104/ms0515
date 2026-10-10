@@ -12,6 +12,8 @@ extern "C" {
 }
 
 #include <cstdint>
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 
@@ -173,6 +175,65 @@ TEST_CASE("MACHINE: the screen, the clock and the keyboard through ms0515.h") {
     CHECK(frames >= 25);
     CHECK(frames < 300);
     CHECK(codes >= 1);
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+/* FILES (examples/files.c) over rt11.h: FILES.DAT of three blocks put
+ * beside it, read waited for and not, the end of the file, OUT.DAT
+ * written and read back on the host, a file that is not there. */
+TEST_CASE("FILES: .LOOKUP, .READW, .READ and .WAIT, .ENTER and .WRITW, .CLOSE") {
+    if (!built("FILES")) { MESSAGE("FILES.SAV not built - skipped"); return; }
+    const fs::path dir = fs::temp_directory_path() / "ms0515_gcc_files";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    fs::copy_file(savDir() / "FILES.SAV", dir / "FILES.SAV");
+    std::vector<uint8_t> data;
+    unsigned sums[3] = {0, 0, 0};
+    for (unsigned n = 0; n < 3; ++n)
+        for (unsigned i = 0; i < 256; ++i) {
+            const uint16_t w = static_cast<uint16_t>(n * 256 + i);
+            data.push_back(static_cast<uint8_t>(w & 0xFF));
+            data.push_back(static_cast<uint8_t>(w >> 8));
+            sums[n] = static_cast<uint16_t>(sums[n] + w);
+        }
+    std::ofstream(dir / "FILES.DAT", std::ios::binary)
+        .write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size()));
+
+    ms0515::run::Machine machine;
+    REQUIRE(machine.start(dir / "FILES.SAV", {}));
+    ms0515::run::ConsoleText text(ms0515::run::ConsoleText::Reader::plain);
+    std::string printed;
+    for (int f = 0; f < 3000 && machine.step(); ++f) printed += text.convert(machine.takeOutput());
+    REQUIRE(machine.ended());
+    printed += text.convert(machine.drainOutput());
+    CHECK_FALSE(machine.failed());
+    const std::vector<std::string> expected = {
+        "FILES: 3 blocks",
+        "READW 256 " + std::to_string(sums[1]),
+        "READ 256 " + std::to_string(sums[2]),
+        "EOF -1 0",
+        "ENTER 2 0",
+        "NOFILE -1 1",
+        "FILES DONE",
+    };
+    const auto got = lines(printed);
+    REQUIRE(got.size() == expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        CAPTURE(i);
+        CHECK(got[i] == expected[i]);
+    }
+
+    std::ifstream out(dir / "OUT.DAT", std::ios::binary);
+    REQUIRE(out.good());
+    std::vector<uint8_t> written{std::istreambuf_iterator<char>(out), {}};
+    REQUIRE(written.size() == 1024);
+    for (unsigned i = 0; i < 256; ++i) {
+        CHECK(written[2 * i] == i);
+        CHECK(written[2 * i + 1] == 0xA5);
+        CHECK(written[512 + 2 * i] == i);
+        CHECK(written[512 + 2 * i + 1] == 0x5A);
+    }
     std::error_code ec;
     fs::remove_all(dir, ec);
 }

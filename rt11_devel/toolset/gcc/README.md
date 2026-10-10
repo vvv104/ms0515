@@ -74,9 +74,17 @@ leaves `build/sav/MYPROG.SAV`, and `ms0515-run MYPROG` there runs it.
   LF after the CR.  `string.h` whole, `ctype.h` for ASCII, `stdlib.h`
   with `atoi`, `strtol`, `abs`, `rand`, `malloc` and company - the heap
   is the memory above the stack, taken from the monitor by `.SETTOP`.
-  No files yet.  `rt11.h` has the monitor's requests themselves -
-  `.TTYOUT`, `.TTYIN`, `.PRINT`, `.SETTOP`, `exit()` - and `main()`'s
-  return value is the program's end.
+  `rt11.h` has the monitor's requests themselves - `.TTYOUT`, `.TTYIN`,
+  `.PRINT`, `.SETTOP`, `exit()` - and `main()`'s return value is the
+  program's end.
+- Files, a block of 512 bytes at a time, as RT-11 gives them (`rt11.h`,
+  `rt/files.c`): a name in RAD50, `.LOOKUP` once at the start (it needs
+  the USR), `.READW` during the run, `.READ` left to the disk's handler
+  and `.WAIT`ed for, `.ENTER` and `.WRITW` for a file of the program's
+  own, `.CLOSE`; the error's code from byte 052.  The monitor lies
+  behind the VRAM window, so a program with the screen on closes the
+  window round a request (`ms_window`).  No stdio over them yet:
+  `fopen` and friends are not there, a game streams its data by block.
 - The machine (`machine/`, `ms0515.h`): what a program does outside
   the monitor, as `docs/programming.md` says it and the ports do it -
   the screen in 320x200 colour through the VRAM window at 0100000 with

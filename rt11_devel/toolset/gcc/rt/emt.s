@@ -9,8 +9,33 @@
 / to say; what the machine adds is docs/programming.md.
 
 	.globl	_rt11_ttyout, _rt11_ttyin, _rt11_print, _rt11_settop
+	.globl	_rt11_request, _rt11_request374
 
 	.text
+
+/ int rt11_request(void *area): EMT 375 with the request's block in r0 -
+/ .LOOKUP, .ENTER, .READW and the rest (rt/files.c builds the blocks).
+/ What the monitor leaves in r0 comes back, or -1 when it set the carry:
+/ an error, its code in byte 052.
+_rt11_request:
+	mov	2(sp), r0
+	emt	0375
+	bcs	1f
+	rts	pc
+1:	mov	$-1, r0
+	rts	pc
+
+/ int rt11_request374(unsigned code_and_channel): EMT 374 with r0 = the
+/ request's code in the high byte, the channel in the low - .WAIT (0),
+/ .CLOSE (6); 0 back, or -1 on the carry.
+_rt11_request374:
+	mov	2(sp), r0
+	emt	0374
+	bcs	1f
+	clr	r0
+	rts	pc
+1:	mov	$-1, r0
+	rts	pc
 
 / void rt11_ttyout(int c): .TTYOUT - the character out, waiting for room.
 _rt11_ttyout:

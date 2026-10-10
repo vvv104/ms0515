@@ -47,6 +47,10 @@ void ms_screen_begin(unsigned char attribute);
 /* The screen cleared, the window closed and the console's 640x200
  * back - black, for the console to print on. */
 void ms_screen_end(void);
+/* The window closed (0) or opened again (1) while the screen is on:
+ * the monitor lies behind it, so a file request (rt11.h) is made with
+ * it closed. */
+void ms_window(int open);
 /* The border's colour, 0..7 in the Spectrum's GRB order. */
 void ms_border(unsigned char colour);
 /* Every word of the screen: the attribute, no pixels. */
