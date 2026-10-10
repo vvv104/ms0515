@@ -63,6 +63,9 @@ leaves `build/sav/MYPROG.SAV`, and `ms0515-run MYPROG` there runs it.
 
 ## What a program finds
 
+The reference of it all, function by function, is `docs/c-api.md`; this
+is the shape.
+
 - `int` and pointers are 16 bits, `long` 32, `long long` 64; `-m10`
   makes every `*`, `/` and `%` a call into `rt/arith.s` - the 16-bit
   ones and the 32-bit ones too, since libgcc has no 16-bit helpers for

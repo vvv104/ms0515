@@ -11,7 +11,9 @@ figure with no source named comes from the core's own model
 project can check it.
 
 `rt11_devel/toolset/GOTCHAS.md` covers the build pipeline (MACRO, LINK,
-the staging of files); this covers the program.
+the staging of files); this covers the program.  A program in C has the
+machine as a library: `c-api.md` is its reference, and each of its
+functions names the section here it stands on.
 
 ## The processor
 
