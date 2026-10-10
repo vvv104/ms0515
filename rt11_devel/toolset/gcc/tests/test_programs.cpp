@@ -559,7 +559,10 @@ TEST_CASE("FILES: .LOOKUP, .READW, .READ and .WAIT, .ENTER and .WRITW, .CLOSE") 
         CHECK(got[i] == expected[i]);
     }
 
-    std::ifstream out(dir / "OUT.DAT", std::ios::binary);
+    /* The folder device gives a file the program made its RT-11 name
+     * in lower case (Rt11.cmake says so) - a difference a Windows host
+     * does not see and a Linux one does. */
+    std::ifstream out(dir / "out.dat", std::ios::binary);
     REQUIRE(out.good());
     std::vector<uint8_t> written{std::istreambuf_iterator<char>(out), {}};
     REQUIRE(written.size() == 1024);
