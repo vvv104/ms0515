@@ -25,10 +25,15 @@ the monitor by `.SETTOP`.
 cmake_minimum_required(VERSION 3.21)
 include(<repository>/rt11_devel/toolset/cmake/Rt11Gcc.cmake)
 project(myprog LANGUAGES C ASM)
-rt11_c_program(NAME MYPROG SOURCES myprog.c [helpers.s] [STACK 2048])
+rt11_c_library(NAME world SOURCES world.c sectors.c INCLUDE include)
+rt11_c_program(NAME MYPROG SOURCES myprog.c [helpers.s] LIBRARIES world [STACK 2048])
 ```
 
-`<build>/sav/MYPROG.SAV` comes out; `ms0515-run MYPROG` there runs it.
+`SOURCES` is what is compiled and linked into the program, `LIBRARIES`
+the project's own libraries (`rt11_c_library`: sources and the folders
+of their headers; the linker takes the objects a program refers to); the
+runtime and libgcc come by themselves.  `<build>/sav/MYPROG.SAV` comes
+out; `ms0515-run MYPROG` there runs it.
 Assembler of the program's own is GNU as syntax: `$` for an immediate,
 `*$` for an absolute address (MACRO's `@#`), a leading `0` for octal,
 every C symbol with a leading underscore, the arguments on the stack at

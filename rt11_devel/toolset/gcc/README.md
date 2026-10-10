@@ -52,14 +52,23 @@ cmake_minimum_required(VERSION 3.21)
 include(<repository>/rt11_devel/toolset/cmake/Rt11Gcc.cmake)
 project(myprog LANGUAGES C ASM)
 
-rt11_c_program(NAME MYPROG SOURCES myprog.c helpers.s [STACK 2048])
+rt11_c_library(NAME world SOURCES world.c sectors.c INCLUDE include)
+rt11_c_program(NAME MYPROG SOURCES myprog.c helpers.s LIBRARIES world [STACK 2048])
 ```
 
 The include stands before `project()`: it names the toolchain file, which
-`project()` reads.  `cmake -S . -B build -G Ninja && cmake --build build`
-leaves `build/sav/MYPROG.SAV`, and `ms0515-run MYPROG` there runs it.
-`myprog` is the a.out target (`build/myprog.out`) for `pdp11-aout-objdump
--d` when the code is in question.
+`project()` reads.  `SOURCES` is everything compiled and linked into the
+program - `.c` through the compiler, `.s` through the assembler - and
+`LIBRARIES` the project's own libraries, each an `rt11_c_library` of its
+sources with its headers' folders; the runtime, the C library and the
+machine (`librt11.a`) and libgcc are linked without being named, and the
+linker takes from a library only the objects a program refers to.  A
+program's data files are not linked: they lie beside the `.SAV` and are
+read by block (`rt11.h`).  `cmake -S . -B build -G Ninja && cmake --build
+build` leaves `build/sav/MYPROG.SAV`, and `ms0515-run MYPROG` there runs
+it.  `myprog` is the a.out target (`build/myprog.out`) for
+`pdp11-aout-objdump -d` when the code is in question, and an ordinary
+CMake target for `target_compile_definitions` and the rest.
 
 ## What a program finds
 

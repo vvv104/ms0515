@@ -7,6 +7,7 @@
 
 #include <rt11.h>
 #include <stdio.h>
+#include "checksum.h"		/* the examples' library (lib/) */
 
 #define IN 1
 #define OUT 2
@@ -15,12 +16,7 @@ static unsigned buffer[256];
 
 static unsigned sum(void)
 {
-	unsigned s = 0;
-	int i;
-
-	for (i = 0; i < 256; i++)
-		s += buffer[i];
-	return s;
+	return checksum(buffer, 256);
 }
 
 int main(void)
