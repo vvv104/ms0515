@@ -174,10 +174,9 @@ The build reports the kernel's memory and stops past its limits
 040000, and the bank-6 tables (the kernel's `_high_size`) against the 6656
 bytes up to 155000, the driver's place above - with the kernel stacks at
 320 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a
-margin): an image of 14512 bytes, 1358 bytes free below 040000, 332 free
-in bank 6.  The compiler puts even zeroed
-arrays in .data, so they cost the image; the big ones live in bank 6 for
-that.  The kernel is built -Os - a quarter off its code - but for the loops
+margin): an image of 14344 bytes, 1472 bytes free below 040000, 332 free
+in bank 6.  The big tables live in bank 6: below 040000 there is no room
+for them beside the code.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.
 
 Two things of ROM-B's keyboard the console turns round.  A bare Latin key

@@ -138,6 +138,33 @@ TEST_CASE("with no /boot/fd the ROM's own way: no word of a driver, the system r
     CHECK(after(m, "cat /h").find("\nthree\n$") != std::string::npos);
 }
 
+TEST_CASE("a /boot/fd longer than the driver's room is refused, whatever its header says") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    auto image = unixos::readImage();
+    {
+        Volume v(image);
+        const auto fd = v.lookup("/boot/fd");
+        REQUIRE(fd);
+        const auto put = [&](int block, int at, unsigned w) {
+            const std::size_t o = v.offset(block) + static_cast<std::size_t>(at);
+            image[o] = static_cast<uint8_t>(w);
+            image[o + 1] = static_cast<uint8_t>(w >> 8);
+        };
+        /* The file 1100 bytes, three blocks; its header says 1024, the
+         * room's worth, which is all a read into the room would bring. */
+        const int iblock = static_cast<int>(v.word(1, 16) + (*fd - 1) / 16);
+        const int at = static_cast<int>((*fd - 1) % 16 * 32);
+        put(iblock, at + 4, 0);
+        put(iblock, at + 6, 1100);
+        put(iblock, at + 14, 3);
+        put(static_cast<int>(v.inode(*fd).start[0]), 4, 1024);
+    }
+    Machine m(image, false);
+    REQUIRE(m.runUntil("login:", 3000));
+    INFO(m.screen());
+    CHECK(m.screen().find("UNIX: /boot/fd is no driver") != std::string::npos);
+}
+
 TEST_CASE("a /boot/fd that is no driver is said so, and the ROM's way stays") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     auto image = unixos::readImage();

@@ -69,21 +69,23 @@ int dev_rw(unsigned dev, unsigned block, void *buf, int write)
 	return fd_rw(unit, block, buf, write);
 }
 
-/* /boot/fd, when the root has one, read in at DRV_BASE through the ROM
- * - the room's worth at most - and made the diskettes' way once its header
- * holds, the size it gives the bytes read, and init is ready; else said
- * so, the ROM's way kept. */
+/* /boot/fd, when the root has one and it fits the room, read in at
+ * DRV_BASE through the ROM and made the diskettes' way once its header
+ * holds - the size it gives the file's - and init is ready; else said so,
+ * the ROM's way kept. */
 void fd_driver_load(void)
 {
 	const struct fd_driver *d = (const struct fd_driver *)DRV_BASE;
 	struct inode *ip;
-	int error, got;
+	unsigned size;
+	int error;
 
 	if (!(ip = namei("/boot/fd", &error)))
 		return;
-	got = readi(ip, 0, (char *)DRV_BASE, DRV_TOP - DRV_BASE);
-	if (got >= (int)sizeof *d && d->magic == DRV_MAGIC && d->version == DRV_VERSION &&
-	    d->size == (unsigned)got && d->init() == 0) {
+	size = ip->d.size > DRV_TOP - DRV_BASE ? 0 : (unsigned)ip->d.size;
+	if (size >= sizeof *d && readi(ip, 0, (char *)DRV_BASE, size) == (int)size &&
+	    d->magic == DRV_MAGIC && d->version == DRV_VERSION && d->size == size &&
+	    d->init() == 0) {
 		fd_rw = d->rw;
 		tty_puts("UNIX: the diskettes by /boot/fd\n");
 	} else {

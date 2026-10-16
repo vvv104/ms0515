@@ -18,8 +18,9 @@
 #define SHADOW_ON (DISP_COPY & ~BANK1_BIT)
 static unsigned clock_hand;		/* for the least recently used */
 
-/* The shadow bank walked by pointers, its blocks' addresses alongside: an
- * index into it would cost a multiplication, the T-11 having none. */
+/* The tables walked by pointers, the shadow blocks' addresses alongside:
+ * with no MUL an index costs a row of shifts and adds a use, a pointer one
+ * add a step. */
 
 /* The shadow entry holding (dev, block) and its block's address in *at;
  * 0 when none does. */

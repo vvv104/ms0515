@@ -5,9 +5,8 @@
  * tables live there at fixed addresses: the process table with each
  * process's kernel stack, the block buffers and the shadow bank's index
  * of more, the pipes, the inodes, the open files, the console's line and
- * queue, exec's arguments.  They are no part of the kernel's image on the
- * diskette - the compiler puts even zeroed arrays in .data - and main()
- * clears them.  Above them, 155000-157000, the diskettes' driver, /boot/fd
+ * queue, exec's arguments - more than the low banks have room for beside
+ * the code.  main() clears them.  Above them, 155000-157000, the diskettes' driver, /boot/fd
  * (kernel.h DRV_BASE).  The top of the bank, from 157000, is left to the
  * ROM: the stack the kernel calls it on, 157000-157400 (rom.s), its cells
  * at 1577xx and its own stack from 157614 down. */

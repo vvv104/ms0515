@@ -83,20 +83,17 @@ fail:
 }
 
 /* The zeros of a swap file, ZEROS blocks a write: the kernel writes the
- * file's inode and the bitmap once a write, not once a block.  On the
- * stack: a static array would be in the program's file - the compiler
- * puts zeroed arrays in .data. */
+ * file's inode and the bitmap once a write, not once a block. */
 #define ZEROS 8
+static char zeros[ZEROS * BSIZE];
 
 int zero_file(const char *path, unsigned kb)
 {
-	char zeros[ZEROS * BSIZE];
 	int fd = creat(path, 0600);
 	unsigned left = kb * 2, n;
 
 	if (fd < 0)
 		return -1;
-	memset(zeros, 0, sizeof zeros);
 	for (; left; left -= n) {
 		n = left < ZEROS ? left : ZEROS;
 		if (write(fd, zeros, n * BSIZE) != (int)(n * BSIZE)) {
