@@ -4,7 +4,7 @@
  *
  * The image is the project's build (UNIX_DSK), or the file named with
  * --unix-dsk=<file>.  A double-sided image goes in as FD0 and FD2, its two
- * sides, as on the machine.
+ * sides, as on the machine; a single-sided one, 409600 bytes, as FD0 alone.
  */
 #pragma once
 
@@ -65,17 +65,27 @@ inline std::vector<uint8_t> readBareImage()
     return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
+/* The single-sided system's image beside the double-sided one: one side,
+ * 800 blocks, as the other emulators take a diskette. */
+inline std::vector<uint8_t> readImage400()
+{
+    std::ifstream in(imagePath().parent_path() / "unix400.dsk", std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
 /* The byte offset of block lbn of a double-sided image: side 0 for blocks
  * 0..799, side 1 after; cylinder 0 holds a side's last ten blocks, the
  * sectors 2:1 interleaved and skewed by two a track (docs/hardware/
- * filesystem.md). */
-inline std::size_t blockOffset(int lbn)
+ * filesystem.md).  A single-sided image has side 0's tracks alone, one
+ * after another. */
+inline std::size_t blockOffset(int lbn, bool singleSided = false)
 {
     static const int interleave[10] = {0, 2, 4, 6, 8, 1, 3, 5, 7, 9};
     const int side = lbn / 800, n = lbn % 800;
     const int track = (n / 10 + 1) % 80;
     const int sector = (interleave[n % 10] + 2 * track - 2 + 20) % 10;
-    return static_cast<std::size_t>(side) * 5120 + static_cast<std::size_t>(track) * 10240 +
+    const std::size_t stride = singleSided ? 5120 : 10240;
+    return static_cast<std::size_t>(side) * 5120 + static_cast<std::size_t>(track) * stride +
            static_cast<std::size_t>(sector) * 512;
 }
 
@@ -100,6 +110,27 @@ public:
         emu_.unmountDisk(2);
         std::error_code ec;
         fs::remove(path_, ec);
+        if (!second_.empty()) {
+            emu_.unmountDisk(1);
+            fs::remove(second_, ec);
+        }
+    }
+
+    /* A single-sided diskette put in the second drive, FD1 by the
+     * emulator's units (side * 2 + drive). */
+    void insertSecond(const std::vector<uint8_t> &image)
+    {
+        second_ = fs::temp_directory_path() / ("unix_test_" + std::to_string(counter()++) + ".dsk");
+        std::ofstream(second_, std::ios::binary)
+            .write(reinterpret_cast<const char *>(image.data()), static_cast<std::streamsize>(image.size()));
+        REQUIRE(emu_.mountDisk(1, second_.string()));
+    }
+
+    /* The second drive's diskette as it stands now. */
+    std::vector<uint8_t> secondNow() const
+    {
+        std::ifstream in(second_, std::ios::binary);
+        return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
     }
     Machine(const Machine &) = delete;
     Machine &operator=(const Machine &) = delete;
@@ -217,6 +248,7 @@ private:
     ms0515::Emulator emu_;
     ms0515::Typist typist_;
     fs::path path_;
+    fs::path second_;
 };
 
 } // namespace unixos

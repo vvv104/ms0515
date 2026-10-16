@@ -30,8 +30,18 @@ ms0515 --rom src/assets/rom/ms0515-romb.rom --disk0 rt11_devel/projects/unix/bui
 ```
 
 The compiler is `$MS0515_GCC/bin/pdp11-aout-gcc`, or on the PATH; on
-Windows the build runs in WSL.  The image is a double-sided diskette,
-819200 bytes; `--disk0` puts both its sides in the first drive.
+Windows the build runs in WSL.  `unix.dsk` is a double-sided diskette,
+819200 bytes, its volume on both sides (`fdx0`); `--disk0` puts both its
+sides in the first drive.  `unix400.dsk` is the same system on one side,
+409600 bytes (`fd0`), for the emulators that take no other - in
+ms0515btl, with ROM-B chosen in its menu:
+
+```
+MS0515BTL.exe /disk0:unix400.dsk /autostart
+```
+
+A second diskette there is the second drive, `/dev/fd2`: `mkfs /dev/fd2`
+makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
 
 ## What is there
 
@@ -57,8 +67,9 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   small, Latin as Russian.
 - `kernel/fs.h` - the file system on the disk: the superblock, the 32-byte
   inode with five extents, the 16-byte directory entry.
-- `kernel/dev.c` - the block devices: 0 the diskette through the ROM's
-  160010, reading and writing; 1 the RAM disk, 1024 blocks.
+- `kernel/dev.c` - the block devices: the diskettes through the ROM's
+  160010 - fd0..fd3 a drive's side, 800 blocks, fdx0 and fdx1 a drive's
+  both sides, 1600 - and the RAM disk, rd0, 1024 blocks.
 - `kernel/bio.c` - the buffer cache in two levels: three blocks in hand in
   bank 6, the least recently used given up to the shadow copy of bank 1,
   15 blocks more, from where it comes back without the device; a write goes
@@ -127,8 +138,10 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   (`Machine::ramDisk`), `..` out of a volume, umount; swap on the RAM
   disk's file and the diskette's, the swap file held; /etc/rc with the
   board and without, getty again after a session, a mounted device
-  refused for mkfs, a script.  `bare.dsk`, the image without /etc/rc, is
-  for the tests that mount and swap by hand.
+  refused for mkfs, a script; the single-sided system booted, a diskette
+  in the second drive made a volume and read on the host, the double-sided
+  root's sides busy, an empty drive.  `bare.dsk`, the image without
+  /etc/rc, is for the tests that mount and swap by hand.
   `Machine::command` types a line and waits for the prompt, so the next is
   not typed into the last one's output; `Machine(image, true)` has the RAM
   disk.  Skipped when the image is not
@@ -148,8 +161,8 @@ or the toolset's.
 The build reports the kernel's memory and stops past its limits
 (mkfs.py): the image's size, the low part from 01000 to `_end` against
 040000, and the bank-6 tables (the kernel's `_high_size`) against the 7680
-bytes up to 157000 - with the cache in the shadow bank: an image of
-13862 bytes, 2008 bytes free below 040000, 332 free in bank 6.  The compiler puts even zeroed
+bytes up to 157000 - with the diskettes by sides: an image of 14302
+bytes, 1568 bytes free below 040000, 332 free in bank 6.  The compiler puts even zeroed
 arrays in .data, so they cost the image; the big ones live in bank 6 for
 that.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.

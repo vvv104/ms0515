@@ -78,26 +78,22 @@ _rom_blink:
 	jsr	pc, romcall
 	rts	pc
 
-/ int rom_bread(unsigned block, void *buf): the block of the boot drive
-/ read into buf, 0 or -1.  Blocks 800 and on are side 1's.
+/ int rom_bread(unsigned unit, unsigned block, void *buf): the block of
+/ the unit - a drive's side, side * 2 + drive - read into buf, 0 or -1.
 _rom_bread:
 	mov	$256, wcount
 	br	romblock
 
-/ int rom_bwrite(unsigned block, const void *buf): the same written - the
+/ int rom_bwrite(unsigned unit, unsigned block, const void *buf): the same
+/ written - the
 / element's word count negative, as RT-11 asks for a write.
 _rom_bwrite:
 	mov	$-256, wcount
 
 romblock:
-	mov	2(sp), r0
-	clrb	elem+3
-	cmp	r0, $800
-	blo	1f
-	sub	$800, r0
-	movb	$2, elem+3
-1:	mov	r0, elem
-	mov	4(sp), elem+4
+	movb	2(sp), elem+3		/ the unit in the element's high byte
+	mov	4(sp), elem
+	mov	6(sp), elem+4
 	mov	wcount, elem+6
 	bis	$0100000, *$ROMREGA	/ the motor armed, as the ROM's boot does
 	mov	$elem, *$ROMELM

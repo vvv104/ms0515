@@ -69,8 +69,8 @@ later take the native one's place without changing the kernel.
   | through 177400; init, sh, utilities  |      | Storage                   |
   +------------------+-------------------+      |                           |
                      | TRAP - system calls      |  Diskette - own FS        |
-  +------------------v-------------------+      |  1600 blocks, both sides  |
-  | Kernel - the file /boot/kernel       |<---->|  /boot/kernel, /etc, /bin |
+  +------------------v-------------------+      |  800 blocks a side, or    |
+  | Kernel - the file /boot/kernel       |<---->|  1600 on both; /boot, /bin|
   | banks 0, 1, 6; up to 22 KB           |  FS  |  swap 2 x 32 KB when      |
   | processes, FS, swap, system calls    | swap |  there is no RAM disk     |
   | buffer cache in shadow bank 1        |      |                           |
@@ -246,24 +246,41 @@ sizes (`size`, the map file) are a measure of every build: the ceiling is
 ## The file system and the diskette format
 
 An own format, inode-based, with directories and names of up to 14 characters.
-The device is the physical drive whole: both sides, 1600 blocks of 512 bytes.
+A volume lies on a side of a diskette, 800 blocks of 512 bytes, or on both
+sides as one, 1600 blocks.
+
+**The devices.**  A side is a device and a drive's two sides are one more,
+as RT-11 has DZ for the sides and DV for both:
+
+| Device | What | Blocks | The ROM's unit |
+| --- | --- | --- | --- |
+| `fd0`, `fd1` | the boot drive's sides 0 and 1 | 800 | 0, 2 |
+| `fd2`, `fd3` | the second drive's sides 0 and 1 | 800 | 1, 3 |
+| `fdx0`, `fdx1` | the boot drive, the second, both sides | 1600 | side 0's, then side 1's |
+
+A single-sided image, 409600 bytes, is a side: the other emulators take no
+other (ms0515btl has four drives of one side each, its drive by bits 0-1
+of register A, the side bit not heard), so there the second diskette is
+`fd2`.  The root is the boot drive's: the superblock, block 1, is on side
+0 either way, and a volume larger than a side makes the root `fdx0`.  A
+block of `fdx` is cached under its side's name, so the two never disagree;
+a device that shares blocks with a mounted volume is busy.
 
 **Geometry.**  A block = a sector of 512 bytes.  The driver turns an LBN into
-the track, the side and the sector; the division into FD0/FD2 is the old
-BIOS's convention, the kernel does not need it.  A block number is 16 bits.  A file takes
+the track, the side and the sector.  A block number is 16 bits.  A file takes
 whole blocks of 512 bytes, but its length in the inode is in bytes, so a text
 is not padded with nulls as in RT-11.  Nothing smaller than a block is shared
 out: the VG93 writes only a whole sector, the tails of several files in one
 block would tie them to one write and spoil them together, and the gain is
 half a block a file, about 4% of the diskette.
 
-**The volume layout (1600 blocks).**
+**The volume layout (800 or 1600 blocks).**
 
 | Blocks | What |
 | --- | --- |
 | 0 | The boot block: the ROM loads it to address 0 and jumps there |
 | 1 | The superblock: the magic, the version, the volume size, the starts of the areas, the number of inodes, the label; the kernel's extents for the boot block |
-| 2 | The bitmap of free blocks (1600 bits = 200 bytes) |
+| 2 | The bitmap of free blocks (a bit a block, 200 bytes at most) |
 | 3-10 | The inode table: 8 blocks x 16 inodes = 128 files |
 | 11-138 | Reserved: once the swap area; swap is a file now ("Volumes, swap and fstab") |
 | 139-1599 | Data |
@@ -310,8 +327,9 @@ measuring on the real machine.
 
 ## Volumes, swap and fstab
 
-A volume is a file system on a block device: `/dev/fd0` the diskette,
-`/dev/rd0` the RAM disk.  To the kernel the RAM disk is just another
+A volume is a file system on a block device: `/dev/fd0`..`/dev/fd3` and
+`/dev/fdx0`, `/dev/fdx1` the diskettes ("The devices"), `/dev/rd0` the RAM
+disk.  To the kernel the RAM disk is just another
 device; what is mounted where, and where swap is, `/etc/fstab` says:
 
 ```
@@ -361,7 +379,8 @@ reading the kernel off the diskette.
 3. The kernel is loaded through 160010 into banks 0 and 1; the boot block
    jumps to its entry point.
 4. The kernel: its own vectors, the bank-6 tables cleared, the RAM disk
-   looked for, the root mounted from fd0, process 1 out of `/etc/init` in
+   looked for, the root mounted from fd0 (fdx0 when it takes both
+   sides), process 1 out of `/etc/init` in
    slot A.  No swap yet, two processes at most.
 5. `init` does `exec sh /etc/rc`: pid 1 becomes the shell running the
    script, and the second slot is free.
@@ -496,6 +515,10 @@ hands over.
    ports of Spectrum games and other big programs: the ports made for RT-11
    are rebuilt for this library.
 8. **Utilities** of levels 1-2, then `rt11` and Forth.
+
+Stages 9-11 are put off for a long time: there is no real machine to try
+them on.
+
 9. **The own ROM.**  Compatible with RT-11 by the ROM-B contract (without
    Rodionov's system): the shared services and the new system's table in the
    upper 8 KB, the self-test, the monitor and the boot menu with the kernel

@@ -1,34 +1,67 @@
-/* dev.c - the block devices: 0 the diskette in the boot drive, through the
- * ROM's 160010 for now; 1 the RAM disk, 1024 blocks of two pages each. */
+/* dev.c - the block devices: the diskettes through the ROM's 160010 for
+ * now, and the RAM disk, 1024 blocks of two pages each.
+ *
+ * A diskette is a device by a side, 800 blocks: fd0 and fd1 the boot
+ * drive's sides 0 and 1, fd2 and fd3 the second drive's - a single-sided
+ * image as the other emulators take one.  fdx0 and fdx1 are a drive's two
+ * sides as one volume of 1600 blocks, side 0's first.  The ROM numbers a
+ * side of a drive side * 2 + drive (RT-11's DZ0..DZ3), so fd1 is its unit
+ * 2 and fd2 its unit 1.  A block of fdx is the same block of a side's
+ * device: dev_canon gives the cache one name for it. */
 #include "kernel.h"
 #include "ramdisk.h"
 #include "rom.h"
 
+#define SIDE 800			/* a side's blocks */
+
+/* Each diskette device's drive (bit 2) and sides (bit 0 side 0, bit 1
+ * side 1), by its number. */
+static const unsigned char place[DEV_FDX1 + 1] = {1, 2, 5, 6, 3, 7};
+
 unsigned dev_blocks(unsigned dev)
 {
-	if (dev == DEV_FD0)
-		return 1600;
+	if (dev <= DEV_FDX1)
+		return (place[dev] & 3) == 3 ? 2 * SIDE : SIDE;
 	if (dev == DEV_RD0 && rd_present)
 		return RD_PAGES / 2;
 	return 0;
 }
 
-int dev_read(unsigned dev, unsigned block, void *buf)
+/* A block of fdx0/fdx1 as the side's device's block: fd0..fd3 are the
+ * drive's place over 2 plus the side. */
+void dev_canon(unsigned *dev, unsigned *block)
 {
-	if (block >= dev_blocks(dev))
-		return -1;
-	if (dev == DEV_FD0)
-		return rom_bread(block, buf);
-	rd_read(block * 2, buf, 2);
-	return 0;
+	if (*dev <= DEV_FDX1 && (place[*dev] & 3) == 3) {
+		*dev = (place[*dev] >> 1 & 2) + (*block >= SIDE);
+		if (*block >= SIDE)
+			*block -= SIDE;
+	}
 }
 
-int dev_write(unsigned dev, unsigned block, const void *buf)
+/* Whether two devices share blocks: the same drive, a side in common. */
+int dev_overlap(unsigned a, unsigned b)
 {
+	if (a > DEV_FDX1 || b > DEV_FDX1)
+		return a == b;
+	return (place[a] >> 2) == (place[b] >> 2) && (place[a] & place[b] & 3);
+}
+
+/* The block read into buf or written from it, 0 or -1: a diskette's
+ * through the ROM, its unit side * 2 + drive; the RAM disk's two pages. */
+int dev_rw(unsigned dev, unsigned block, void *buf, int write)
+{
+	unsigned unit;
+
 	if (block >= dev_blocks(dev))
 		return -1;
-	if (dev == DEV_FD0)
-		return rom_bwrite(block, buf);
-	rd_write(block * 2, buf, 2);
-	return 0;
+	if (dev == DEV_RD0) {
+		if (write)
+			rd_write(block * 2, buf, 2);
+		else
+			rd_read(block * 2, buf, 2);
+		return 0;
+	}
+	dev_canon(&dev, &block);
+	unit = (dev & 1) << 1 | dev >> 1;
+	return write ? rom_bwrite(unit, block, buf) : rom_bread(unit, block, buf);
 }

@@ -136,4 +136,11 @@ add_custom_command(OUTPUT bare.dsk
     COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --boot boot.bin bare.dsk ${VOLUME_FILES}
     DEPENDS ${VOLUME_DEPENDS}
     COMMENT "bare.dsk")
-add_custom_target(image ALL DEPENDS unix.dsk bare.dsk)
+# unix400.dsk: the system on one side, 400 KB - the image the other
+# emulators take; a second one in the second drive is fd2.
+add_custom_command(OUTPUT unix400.dsk
+    COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --sides 1 --boot boot.bin unix400.dsk
+            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab ${VOLUME_FILES}
+    DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
+    COMMENT "unix400.dsk")
+add_custom_target(image ALL DEPENDS unix.dsk bare.dsk unix400.dsk)

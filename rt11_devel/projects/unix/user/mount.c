@@ -18,14 +18,14 @@
 #include "vol.h"
 
 #define MAXLINES 8
-#define MAXFSTAB 512
+#define MAXFSTAB 1024			/* /etc/fstab's bytes at most */
 
 struct entry {
 	char *what, *where, *options;
 	char done;			/* mounted, for a volume */
 };
 
-static char text[MAXFSTAB];
+static char text[MAXFSTAB + 1];
 static struct entry entries[MAXLINES];
 
 /* The option `name` among the entry's: its value after '=' (or "" without
@@ -53,9 +53,11 @@ static int read_fstab(void)
 
 	if (fd < 0)
 		return -1;
-	n = read(fd, text, sizeof text - 1);
+	n = read(fd, text, sizeof text);	/* a byte more than fits: too long */
 	close(fd);
-	text[n > 0 ? n : 0] = 0;
+	if (n < 0 || n > MAXFSTAB)
+		return -1;
+	text[n] = 0;
 	for (s = text; *s && lines < MAXLINES;) {
 		for (w = 0; *s && *s != '\n';) {
 			while (*s == ' ' || *s == '\t')

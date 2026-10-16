@@ -41,18 +41,18 @@ void ramVolume(Machine &m)
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("/dev has the diskette and the RAM disk, block devices") {
+TEST_CASE("/dev has the diskettes' sides and drives and the RAM disk, block devices") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readBareImage());
     atPrompt(m);
     REQUIRE(m.command("ls /dev"));
     INFO(m.screen());
-    CHECK(after(m, "ls /dev").find("fd0  rd0") != std::string::npos);
+    CHECK(after(m, "ls /dev").find("fd0  fd1  fd2  fd3  fdx0  fdx1  rd0") != std::string::npos);
     Volume v(m.imageNow());
     const auto rd0 = v.lookup("/dev/rd0");
     REQUIRE(rd0);
     CHECK((v.inode(*rd0).mode & 0170000) == 0060000);
-    CHECK(v.inode(*rd0).start[0] == 1);
+    CHECK(v.inode(*rd0).start[0] == 6);
 }
 
 TEST_CASE("mkfs makes a volume on the RAM disk, mount puts it at /tmp, a file goes on it") {

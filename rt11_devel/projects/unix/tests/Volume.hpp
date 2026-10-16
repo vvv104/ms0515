@@ -18,11 +18,12 @@ class Volume {
 public:
     /* A diskette's image, its blocks laid out as the drive has them; or,
      * linear, a volume whose blocks lie one after another (the RAM disk). */
-    explicit Volume(std::vector<uint8_t> image, bool linear = false) : image_(std::move(image)), linear_(linear) {}
+    explicit Volume(std::vector<uint8_t> image, bool linear = false)
+        : image_(std::move(image)), linear_(linear), single_(image_.size() == 409600) {}
 
     std::size_t offset(int block) const
     {
-        return linear_ ? static_cast<std::size_t>(block) * 512 : blockOffset(block);
+        return linear_ ? static_cast<std::size_t>(block) * 512 : blockOffset(block, single_);
     }
 
     unsigned word(int block, int at) const
@@ -108,6 +109,7 @@ public:
 private:
     std::vector<uint8_t> image_;
     bool linear_;
+    bool single_;                 /* one side's image, 409600 bytes */
 };
 
 } // namespace unixos

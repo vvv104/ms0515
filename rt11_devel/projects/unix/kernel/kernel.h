@@ -57,11 +57,17 @@ int tty_write(const char *buf, int n);
 void tty_puts(const char *s);
 
 /* dev.c: the block devices */
-#define DEV_FD0 0			/* the diskette in the boot drive */
-#define DEV_RD0 1			/* the RAM disk */
+#define DEV_FD0 0			/* the boot drive's side 0; fd1 its side 1 */
+#define DEV_FD3 3			/* fd2, fd3: the second drive's sides */
+#define DEV_FDX0 4			/* the boot drive, both sides as one */
+#define DEV_FDX1 5			/* the second drive, both sides */
+#define DEV_RD0 6			/* the RAM disk */
 unsigned dev_blocks(unsigned dev);
-int dev_read(unsigned dev, unsigned block, void *buf);
-int dev_write(unsigned dev, unsigned block, const void *buf);
+void dev_canon(unsigned *dev, unsigned *block);
+int dev_overlap(unsigned a, unsigned b);
+int dev_rw(unsigned dev, unsigned block, void *buf, int write);
+#define dev_read(dev, block, buf) dev_rw(dev, block, buf, 0)
+#define dev_write(dev, block, buf) dev_rw(dev, block, (void *)(buf), 1)
 
 /* bio.c */
 struct buf {

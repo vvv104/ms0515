@@ -1,16 +1,19 @@
 """mkfs.py - the system's diskette: its file system, the boot block, the kernel.
 
-    mkfs.py [--nm NM] [--label TEXT] [--volume N] --boot BOOT.bin OUT.dsk PATH=FILE...
+    mkfs.py [--nm NM] [--label TEXT] [--volume N] [--sides 1|2] --boot BOOT.bin OUT.dsk PATH=FILE...
 
-A double-sided MS 0515 diskette, 819200 bytes, 1600 blocks - side 0 for
-0..799, side 1 after - laid out as kernel/fs.h has it: block 0 the boot
+An MS 0515 diskette: double-sided, 819200 bytes, 1600 blocks - side 0 for
+0..799, side 1 after - the volume of fdx0; or with --sides 1 a side alone,
+409600 bytes, 800 blocks, the volume of fd0 - the image the other
+emulators take.  Laid out as kernel/fs.h has it: block 0 the boot
 block, 1 the superblock, 2 the bitmap of the blocks taken, 3..10 the inode
 table (128 inodes of 32 bytes), 11..138 the swap area, the data from 139.
 Each PATH=FILE puts the host's FILE at PATH on the volume, its directories
 made as they are needed; each --dir PATH makes an empty directory, and
-/dev always has the block devices fd0 (0) and rd0 (1), inodes of the
-device kind with no blocks, the device's number in the first extent's
-start; every file is laid down whole in one extent, the
+/dev always has the block devices - fd0..fd3 the drives' sides, fdx0 and
+fdx1 the drives' both sides, rd0 the RAM disk (kernel/kernel.h's numbers)
+- inodes of the device kind with no blocks, the device's number in the
+first extent's start; every file is laid down whole in one extent, the
 next after the last.  The file at /boot/kernel is the kernel: the
 superblock names its blocks for the boot block, which loads it at 01000 and
 enters it there.
@@ -30,8 +33,7 @@ import subprocess
 from pathlib import Path
 
 BLOCK = 512
-BLOCKS = 1600
-IMAGE = BLOCKS * BLOCK
+SIDE = 800                  # a side's blocks
 MAGIC = 0o054125            # 'U', 'X'
 VERSION = 2
 BITMAP = 2
@@ -44,20 +46,21 @@ KERNEL_LOAD = 0o1000
 KERNEL_TOP = 0o40000
 HIGH_BASE, HIGH_TOP = 0o140000, 0o157000
 S_IFDIR, S_IFREG, S_IFBLK = 0o040000, 0o100000, 0o060000
-DEVICES = {"fd0": 0, "rd0": 1}
+DEVICES = {"fd0": 0, "fd1": 1, "fd2": 2, "fd3": 3, "fdx0": 4, "fdx1": 5, "rd0": 6}
 DIRSIZ = 14
 INTERLEAVE = [0, 2, 4, 6, 8, 1, 3, 5, 7, 9]
 
 
-def offset(lbn):
-    """The byte offset of block lbn in a double-sided image: cylinder 0
-    holds a side's last ten blocks, the sectors interleaved 2:1 and skewed
-    by two a track, the sides' tracks one after the other
-    (docs/hardware/filesystem.md, src/disk/src/Layout.cpp)."""
-    side, n = divmod(lbn, 800)
+def offset(lbn, sides=2):
+    """The byte offset of block lbn in an image of `sides` sides: cylinder
+    0 holds a side's last ten blocks, the sectors interleaved 2:1 and
+    skewed by two a track, a double-sided image's tracks side 0's and side
+    1's one after the other (docs/hardware/filesystem.md,
+    src/disk/src/Layout.cpp)."""
+    side, n = divmod(lbn, SIDE)
     track = (n // 10 + 1) % 80
     sector = (INTERLEAVE[n % 10] + 2 * track - 2) % 10
-    return side * 5120 + track * 10240 + sector * 512
+    return side * 5120 + track * 5120 * sides + sector * 512
 
 
 def long_(value):
@@ -70,8 +73,10 @@ def blocks(n):
 
 
 class Volume:
-    def __init__(self):
-        self.image = bytearray(IMAGE)
+    def __init__(self, sides=2):
+        self.sides = sides
+        self.blocks = SIDE * sides
+        self.image = bytearray(self.blocks * BLOCK)
         self.inodes = {}            # number -> [mode, nlink, data bytes, start]
         self.dirs = {}              # inode -> {name: inode}
         self.next_block = DATA
@@ -79,7 +84,7 @@ class Volume:
         self.root = self.mkdir(None, None)
 
     def put(self, lbn, data):
-        at = offset(lbn)
+        at = offset(lbn, self.sides)
         self.image[at:at + len(data)] = data
 
     def inode(self, mode):
@@ -143,7 +148,7 @@ class Volume:
         data = self.inodes[n][2]
         start = self.next_block
         count = blocks(len(data))
-        if start + count > BLOCKS:
+        if start + count > self.blocks:
             raise SystemExit("the volume is full")
         for i in range(count):
             self.put(start + i, data[i * BLOCK:(i + 1) * BLOCK])
@@ -170,7 +175,7 @@ class Volume:
             table[(n - 1) * 32:n * 32] = raw
         for i in range(IBLOCKS):
             self.put(ITABLE + i, table[i * BLOCK:(i + 1) * BLOCK])
-        used = bytearray(BLOCKS // 8)
+        used = bytearray(self.blocks // 8)
         for b in range(self.next_block):
             used[b // 8] |= 1 << (b % 8)
         self.put(BITMAP, used)
@@ -178,7 +183,7 @@ class Volume:
         if kernel_ino:
             kstart = self.inodes[kernel_ino][3]
             kblocks = blocks(len(self.inodes[kernel_ino][2]))
-        sb = (struct.pack("<13H", MAGIC, VERSION, BLOCKS, kstart, kblocks, KERNEL_LOAD, KERNEL_LOAD,
+        sb = (struct.pack("<13H", MAGIC, VERSION, self.blocks, kstart, kblocks, KERNEL_LOAD, KERNEL_LOAD,
                           BITMAP, ITABLE, IBLOCKS, SWAP, SWAPBLOCKS, DATA) +
               struct.pack("<H", INODES) + long_(volume) + label.encode("koi8_r")[:16].ljust(16, b"\0"))
         self.put(1, sb)
@@ -217,6 +222,7 @@ def main():
     ap.add_argument("--volume", type=int, help="the volume's number (at random when left out)")
     ap.add_argument("--dir", action="append", default=[], help="an empty directory to make")
     ap.add_argument("--swap", type=int, default=0, help="a swap file /swap of so many KB, in one extent")
+    ap.add_argument("--sides", type=int, choices=(1, 2), default=2, help="one side, 400 KB, or both")
     ap.add_argument("out", type=Path)
     ap.add_argument("files", nargs="*", help="PATH=FILE")
     args = ap.parse_args()
@@ -226,7 +232,7 @@ def main():
         raise SystemExit(f"{args.boot}: {len(boot)} bytes, a boot block is {BLOCK}")
     if boot and boot[:2] != b"\xa0\x00":
         raise SystemExit(f"{args.boot}: a boot block begins with NOP (000240)")
-    vol = Volume()
+    vol = Volume(args.sides)
     for name, number in DEVICES.items():
         vol.device(f"/dev/{name}", number)
     for path in args.dir:

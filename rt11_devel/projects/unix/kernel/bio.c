@@ -65,6 +65,8 @@ static struct buf *find(unsigned dev, unsigned block, int fill)
 	char *at = 0;
 	int i;
 
+	dev_canon(&dev, &block);
+
 	for (i = 0; i < NBUF; i++) {
 		b = &bufs[i];
 		if (b->valid && b->dev == dev && b->block == block) {
@@ -118,18 +120,25 @@ struct buf *getblk(unsigned dev, unsigned block)
 }
 
 /* The blocks of dev [start, start + n) forgotten in both levels: swap
- * writes them past the cache. */
+ * writes them past the cache.  A block at a time, each by its side's
+ * name. */
 void binval(unsigned dev, unsigned start, unsigned n)
 {
 	struct shadow *s;
+	unsigned d, block;
 	int i;
 
-	for (i = 0; i < NBUF; i++)
-		if (bufs[i].dev == dev && bufs[i].block >= start && bufs[i].block - start < n)
-			bufs[i].valid = 0;
-	for (s = shtab; s < shtab + NSHADOW; s++)
-		if (s->dev == dev && s->block >= start && s->block - start < n)
-			s->used = 0;
+	for (; n; n--, start++) {
+		d = dev;
+		block = start;
+		dev_canon(&d, &block);
+		for (i = 0; i < NBUF; i++)
+			if (bufs[i].dev == d && bufs[i].block == block)
+				bufs[i].valid = 0;
+		for (s = shtab; s < shtab + NSHADOW; s++)
+			if (s->dev == d && s->block == block)
+				s->used = 0;
+	}
 }
 
 int bwrite(struct buf *b)

@@ -44,12 +44,16 @@ static int read_super(unsigned dev, struct superblock *sb)
 	return 0;
 }
 
+/* The root: the boot drive's side 0, or both its sides when the volume is
+ * larger than a side - its superblock, block 1, on side 0 either way. */
 int fs_mount(void)
 {
 	int error = read_super(rootdev, &mounts[0].sb);
 
 	if (error)
 		return error;
+	if (mounts[0].sb.blocks > dev_blocks(DEV_FD0))
+		rootdev = DEV_FDX0;
 	mounts[0].dev = rootdev;
 	mounts[0].used = 1;
 	return 0;
@@ -57,9 +61,15 @@ int fs_mount(void)
 
 #define SB(dev) (&mount_of(dev)->sb)
 
+/* Whether a mounted volume holds any of dev's blocks. */
 int fs_mounted(unsigned dev)
 {
-	return mount_of(dev) != 0;
+	int i;
+
+	for (i = 0; i < NMOUNT; i++)
+		if (mounts[i].used && dev_overlap(mounts[i].dev, dev))
+			return 1;
+	return 0;
 }
 
 /* -- inodes ------------------------------------------------------------ */
@@ -632,7 +642,7 @@ int fs_mount_on(const char *device, const char *dir)
 
 	if ((dev = device_at(device, &error)) < 0)
 		return error;
-	if (mount_of((unsigned)dev))
+	if (fs_mounted((unsigned)dev))
 		return EBUSY;
 	for (i = 1; i < NMOUNT && !m; i++)
 		if (!mounts[i].used)
