@@ -12,7 +12,7 @@
  * kernel too, and the system is gone; so the file is to be on a diskette.
  * Whatever can be the program's is: the kernel only checks it and hands
  * over. */
-#include "high.h"
+#include "../hi.h"
 
 #define OWN_BASE 0760u			/* the header's place: the text at 001000 */
 #define OWN_TOP 0157000u		/* the loader's place above */

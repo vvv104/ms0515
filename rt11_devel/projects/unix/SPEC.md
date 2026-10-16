@@ -98,7 +98,7 @@ is gone.
 | 000000-017777 | 0 | Vectors, kernel data, the kernel stack.  Not switched: the vectors are here. |
 | 020000-037777 | 1 | Kernel code.  The shadow copy is the buffer cache. |
 | 040000-137777 | 2-5 | The process's space, 32 KB.  The primary copies are slot A, the extra ones slot B. |
-| 140000-157777 | 6 | Kernel data: the tables (high.h) up to 155000, the diskettes' driver /boot/fd at 155000-157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is free: the kernel's stacks are in the primary one, so a copy into it would want a bounce in bank 0. |
+| 140000-157777 | 6 | Kernel data and code: the tables (high.h) up to 151600, the kernel's second part /boot/hi at 151600-155000 (kernel/hi.h: the calls the boot does not need - mount, umount, ioctl, a program that owns the machine - linked there against the kernel's symbols, loaded once the root is mounted), the diskettes' driver /boot/fd at 155000-157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is free: the kernel's stacks are in the primary one, so a copy into it would want a bounce in bank 0. |
 | 160000-177377 | - | ROM (the upper 8 KB), always seen. |
 | 177400-177777 | - | I/O registers. |
 
@@ -523,7 +523,7 @@ hands over.
    and such a program is run as any other, by its name.  It brings its own
    loader, the first bytes of its text: exec of one checks it, writes the
    cache out, reads the file's first block into the process's slot and
-   enters the loader with the file's extents (kernel/own.c).  The loader
+   enters the loader with the file's extents (kernel/hi/own.c).  The loader
    moves itself to 157000 and, through the ROM's 160010, lays the file over
    everything, the kernel too - its header at 000760, the text at 001000 -
    so the file is to be on a diskette.  The program has 001000-157000, some

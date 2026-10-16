@@ -45,7 +45,8 @@ DATA = SWAP + SWAPBLOCKS    # 139
 ROOT = 1
 KERNEL_LOAD = 0o1000
 KERNEL_TOP = 0o40000
-HIGH_BASE, HIGH_TOP = 0o140000, 0o155000   # the driver above (kernel.h DRV_BASE)
+HIGH_BASE, HIGH_TOP = 0o140000, 0o151600   # /boot/hi above (kernel/hi.h), then the driver
+HI_TOP = 0o155000                           # /boot/hi's room: HIGH_TOP up to the driver's
 S_IFDIR, S_IFREG, S_IFBLK = 0o040000, 0o100000, 0o060000
 DEVICES = {"fd0": 0, "fd1": 1, "fd2": 2, "fd3": 3, "fdx0": 4, "fdx1": 5, "rd0": 6}
 DIRSIZ = 14
@@ -200,14 +201,17 @@ def symbol(nm, program, name):
     raise SystemExit(f"{program}: no {name}")
 
 
-def memory_report(nm, kernel_out, image):
-    """The kernel's memory: printed, and refused past either limit."""
+def memory_report(nm, kernel_out, image, hi):
+    """The kernel's memory: printed, and refused past any limit."""
     end = symbol(nm, kernel_out, "_end")
     at = symbol(nm, kernel_out, "_high_size") - KERNEL_LOAD
     high = struct.unpack_from("<H", image, at)[0]
     room = HIGH_TOP - HIGH_BASE
     print(f"kernel: image {len(image)} bytes; low 001000..{end:06o} of {KERNEL_TOP:06o}, "
-          f"{KERNEL_TOP - end} bytes free; bank 6 {high} of {room} bytes, {room - high} free")
+          f"{KERNEL_TOP - end} bytes free; bank 6 {high} of {room} bytes, {room - high} free; "
+          f"/boot/hi {len(hi)} of {HI_TOP - HIGH_TOP}, {HI_TOP - HIGH_TOP - len(hi)} free")
+    if len(hi) > HI_TOP - HIGH_TOP:
+        raise SystemExit(f"/boot/hi: {len(hi)} bytes, past its {HI_TOP - HIGH_TOP}")
     if end > KERNEL_TOP:
         raise SystemExit(f"{kernel_out}: the kernel ends at {end:o}, past {KERNEL_TOP:o}")
     if high > room:
@@ -239,16 +243,19 @@ def main():
     for path in args.dir:
         vol.directory(path)
     kernel_ino = None
+    hi = b""
     for spec in args.files:
         path, _, host = spec.partition("=")
         data = Path(host).read_bytes()
         n = vol.add(path, data)
+        if path.strip("/") == "boot/hi":
+            hi = data
         if path.strip("/") == "boot/kernel":
             kernel_ino = n
             if KERNEL_LOAD + len(data) > KERNEL_TOP:
                 raise SystemExit(f"{host}: {len(data)} bytes from 01000 pass {KERNEL_TOP:o}")
     if args.nm and args.kernel_out and kernel_ino:
-        memory_report(args.nm, args.kernel_out, vol.inodes[kernel_ino][2])
+        memory_report(args.nm, args.kernel_out, vol.inodes[kernel_ino][2], hi)
     volume = args.volume if args.volume is not None else random.getrandbits(32)
     if args.swap:                       # last: the kernel and the programs nearer block 0
         vol.add("/swap", bytes(args.swap * 1024))

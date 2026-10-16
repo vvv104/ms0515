@@ -12,7 +12,7 @@
  * covers.  A block device is an inode of its own kind, its number in the
  * first extent's start; read and written, it is its blocks one after
  * another. */
-#include "high.h"
+#include "hi.h"
 
 #define IPB (BSIZE / sizeof(struct dinode))	/* inodes a block: 16 */
 #define mounts (HIGH->mounts)
@@ -21,7 +21,7 @@
 static unsigned rootdev = DEV_FD0;
 
 /* The volume of dev, 0 when it is not mounted. */
-static struct mount *mount_of(unsigned dev)
+struct mount *mount_of(unsigned dev)
 {
 	struct mount *m;
 
@@ -32,7 +32,7 @@ static struct mount *mount_of(unsigned dev)
 }
 
 /* The superblock of dev, checked: its magic and its version. */
-static int read_super(unsigned dev, struct superblock *sb)
+int read_super(unsigned dev, struct superblock *sb)
 {
 	struct buf *b = bread(dev, 1);
 
@@ -361,7 +361,7 @@ static int dir_add(struct inode *dp, const char *name, int len, unsigned n)
 /* -- paths ------------------------------------------------------------- */
 
 /* The volume mounted on directory ip, 0 when there is none. */
-static struct mount *covering(const struct inode *ip)
+struct mount *covering(const struct inode *ip)
 {
 	struct mount *m;
 
@@ -616,70 +616,4 @@ int devrw(struct inode *ip, unsigned long off, char *buf, unsigned n, int write)
 		off += take;
 	}
 	return (int)done;
-}
-
-/* The device of a block device's inode at path, or -1 and *error. */
-static int device_at(const char *path, int *error)
-{
-	struct inode *ip = namei(path, error);
-	int dev;
-
-	if (!ip)
-		return -1;
-	dev = (ip->d.mode & S_IFMT) == S_IFBLK ? (int)ip->d.ext[0].start : -1;
-	iput(ip);
-	if (dev < 0)
-		*error = ENOTBLK;
-	return dev;
-}
-
-/* mount(device, dir): the volume on the device into the tree at dir. */
-int fs_mount_on(const char *device, const char *dir)
-{
-	struct mount *m = 0;
-	struct inode *dp;
-	int dev, error = 0, i;
-
-	if ((dev = device_at(device, &error)) < 0)
-		return error;
-	if (fs_mounted((unsigned)dev))
-		return EBUSY;
-	for (i = 1; i < NMOUNT && !m; i++)
-		if (!mounts[i].used)
-			m = &mounts[i];
-	if (!m)
-		return ENFILE;
-	if (!(dp = namei(dir, &error)))
-		return error;
-	if ((dp->d.mode & S_IFMT) != S_IFDIR || dp->ino == ROOT_INO || covering(dp)) {
-		iput(dp);
-		return (dp->d.mode & S_IFMT) != S_IFDIR ? ENOTDIR : EBUSY;
-	}
-	if ((error = read_super((unsigned)dev, &m->sb)) != 0) {
-		iput(dp);
-		return error;
-	}
-	m->dev = (unsigned)dev;
-	m->on = dp;				/* held while it is covered */
-	m->used = 1;
-	return 0;
-}
-
-/* umount(device): the volume taken out, when nothing on it is held. */
-int fs_umount(const char *device)
-{
-	struct mount *m;
-	struct inode *ip;
-	int dev, error = 0;
-
-	if ((dev = device_at(device, &error)) < 0)
-		return error;
-	if (!(m = mount_of((unsigned)dev)) || m == &mounts[0])
-		return EINVAL;
-	for (ip = itab; ip < itab + NINODE; ip++)
-		if (ip->count && ip->dev == (unsigned)dev)
-			return EBUSY;
-	iput(m->on);
-	m->used = 0;
-	return 0;
 }

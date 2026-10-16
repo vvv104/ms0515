@@ -48,7 +48,7 @@ add_executable(kernel
     kernel/proc.c
     kernel/ramdisk.c
     kernel/sys.c
-    kernel/own.c
+    kernel/part.c
     "${ARITH}")
 target_compile_options(kernel PRIVATE -Wall -Wextra -Werror)
 # The kernel is held to 01000..040000 (mkfs.py reports it): -Os takes a
@@ -66,6 +66,18 @@ function(flat target)
 endfunction()
 flat(boot)
 flat(kernel)
+
+# /boot/hi, the kernel's second part (kernel/hi.h): linked at 151600 in
+# bank 6 against the kernel's own symbols - its calls into the kernel, the
+# kernel's arithmetic too - and put down flat, its header first, tail.s
+# last.
+add_executable(hi kernel/hi/head.s kernel/hi/own.c kernel/hi/ioctl.c kernel/hi/mount.c
+               kernel/hi/tail.s)
+target_compile_options(hi PRIVATE -Wall -Wextra -Werror -Os)
+target_link_options(hi PRIVATE -Wl,-Ttext,0xD380 "-Wl,--just-symbols=$<TARGET_FILE:kernel>")
+set_target_properties(hi PROPERTIES SUFFIX ".out" LINK_DEPENDS "$<TARGET_FILE:kernel>")
+add_dependencies(hi kernel)
+flat(hi)
 
 # The diskettes' driver, /boot/fd: linked at 155000 in bank 6 (kernel.h
 # DRV_BASE), put down flat, its header first.
@@ -139,6 +151,7 @@ set(MKFS "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py")
 # The volume's files, for both images: the system and its programs.
 set(VOLUME_FILES
     /boot/kernel=kernel.bin
+    /boot/hi=hi.bin
     /etc/init=init.x
     /etc/getty=getty.x
     /etc/motd=${ROOT}/etc/motd
@@ -161,7 +174,7 @@ set(VOLUME_FILES
     /bin/rt11=rt11.x
     --dir /tmp
     --swap 96)
-set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
+set(VOLUME_DEPENDS boot.bin kernel.bin hi.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns
 # swap on by /etc/fstab.  bare.dsk: the same without /etc/rc, init going

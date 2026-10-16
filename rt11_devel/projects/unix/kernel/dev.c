@@ -8,7 +8,7 @@
  * side of a drive side * 2 + drive (RT-11's DZ0..DZ3), so fd1 is its unit
  * 2 and fd2 its unit 1.  A block of fdx is the same block of a side's
  * device: dev_canon gives the cache one name for it. */
-#include "kernel.h"
+#include "hi.h"
 #include "ramdisk.h"
 #include "rom.h"
 
@@ -17,11 +17,12 @@
 /* The diskettes' blocks go by the ROM until /boot/fd takes them over; a
  * track is written only by /boot/fd. */
 static int (*fd_rw)(unsigned unit, unsigned block, void *buf, int write) = rom_rw;
-static int (*fd_format)(unsigned unit, unsigned track, const void *image, unsigned len);
+int (*fd_format)(unsigned unit, unsigned track, const void *image, unsigned len);
 
 /* Each diskette device's drive (bit 2) and sides (bit 0 side 0, bit 1
  * side 1), by its number. */
-static const unsigned char place[DEV_FDX1 + 1] = {1, 2, 5, 6, 3, 7};
+const unsigned char dev_place[DEV_FDX1 + 1] = {1, 2, 5, 6, 3, 7};
+#define place dev_place
 
 unsigned dev_blocks(unsigned dev)
 {
@@ -71,53 +72,19 @@ int dev_rw(unsigned dev, unsigned block, void *buf, int write)
 	return fd_rw(unit, block, buf, write);
 }
 
-/* The diskette device's track written anew from the image (ioctl.h), by
- * /boot/fd; 0 or the error.  The side's blocks on it are forgotten by the
- * cache: track t holds blocks (t - 1) * 10.., track 0 the last ten. */
-int dev_format(unsigned dev, unsigned track, const void *image, unsigned len)
-{
-	unsigned side = dev;
-
-	if (dev > DEV_FDX1)
-		return ENOTTY;
-	if (!fd_format)
-		return ENODEV;
-	if (fs_mounted(dev))
-		return EBUSY;
-	if ((place[dev] & 3) == 3) {
-		side = (place[dev] >> 1 & 2) + (track & 1);
-		track >>= 1;
-	}
-	if (track >= SIDE / 10)
-		return EINVAL;
-	if (fd_format((side & 1) << 1 | side >> 1, track, image, len) != 0)
-		return EIO;
-	binval(side, track ? (track - 1) * 10 : SIDE - 10, 10);
-	return 0;
-}
-
-/* /boot/fd, when the root has one and it fits the room, read in at
- * DRV_BASE through the ROM and made the diskettes' way once its header
- * holds - the size it gives the file's - and init is ready; else said so,
- * the ROM's way kept. */
+/* /boot/fd, when the root has one, read in at DRV_BASE (part.c) and made
+ * the diskettes' way once init is ready; else said so, the ROM's way
+ * kept. */
 void fd_driver_load(void)
 {
 	const struct fd_driver *d = (const struct fd_driver *)DRV_BASE;
-	struct inode *ip;
-	unsigned size;
-	int error;
+	int got = part_load("/boot/fd", DRV_BASE, DRV_TOP - DRV_BASE, DRV_MAGIC, DRV_VERSION);
 
-	if (!(ip = namei("/boot/fd", &error)))
-		return;
-	size = ip->d.size > DRV_TOP - DRV_BASE ? 0 : (unsigned)ip->d.size;
-	if (size >= sizeof *d && readi(ip, 0, (char *)DRV_BASE, size) == (int)size &&
-	    d->magic == DRV_MAGIC && d->version == DRV_VERSION && d->size == size &&
-	    d->init() == 0) {
+	if (got > 0 && d->init() == 0) {
 		fd_rw = d->rw;
 		fd_format = d->format;
 		tty_puts("UNIX: the diskettes by /boot/fd\n");
-	} else {
+	} else if (got) {
 		tty_puts("UNIX: /boot/fd is no driver - the ROM's way\n");
 	}
-	iput(ip);
 }

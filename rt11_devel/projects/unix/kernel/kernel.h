@@ -83,10 +83,6 @@ struct fd_driver {
 	int (*format)(unsigned unit, unsigned track, const void *image, unsigned len);
 };
 void fd_driver_load(void);
-struct inode;
-int own_exec(struct inode *ip, unsigned size, unsigned bss, unsigned entry,
-	     unsigned argc, unsigned used);	/* own.c */
-int dev_format(unsigned dev, unsigned track, const void *image, unsigned len);
 int dev_rw(unsigned dev, unsigned block, void *buf, int write);
 #define dev_read(dev, block, buf) dev_rw(dev, block, buf, 0)
 #define dev_write(dev, block, buf) dev_rw(dev, block, (void *)(buf), 1)
@@ -121,8 +117,6 @@ struct inode *namei(const char *path, int *error);
 struct inode *fs_creat(const char *path, int *error);
 int fs_mkdir(const char *path);
 int fs_unlink(const char *path);
-int fs_mount_on(const char *device, const char *dir);
-int fs_umount(const char *device);
 int fs_mounted(unsigned dev);
 int devrw(struct inode *ip, unsigned long off, char *buf, unsigned n, int write);
 

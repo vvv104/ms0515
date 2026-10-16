@@ -1,6 +1,6 @@
 /* main.c - the kernel's start: the vectors, the clock, the console, the
  * root file system, and the first process, /etc/init, run by exec. */
-#include "kernel.h"
+#include "hi.h"
 #include "proc.h"
 #include "ramdisk.h"
 #include "rom.h"
@@ -26,6 +26,7 @@ int main(void)
 	tty_puts(rd_probe() ? "\nUNIX: a RAM disk of 512 KB, /dev/rd0\n" : "\nUNIX: no RAM disk\n");
 	if (fs_mount() != 0)
 		panic("no file system");
+	hi_load();
 	fd_driver_load();
 	exec("/etc/init", argv);
 	panic("no /etc/init");

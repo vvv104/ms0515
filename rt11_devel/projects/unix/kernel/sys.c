@@ -13,7 +13,7 @@
  * reader sleeps while it is empty and gets the end of the file once no
  * writer is left; the writer sleeps while it is full and gets EPIPE once no
  * reader is.  When pid 1 exits, init runs again in its place. */
-#include "high.h"
+#include "hi.h"
 #include "ioctl.h"
 
 enum {
@@ -25,19 +25,18 @@ enum {
 };
 enum { EPIPE = 32 };
 
-#define PATHMAX 64
 
 #define files (HIGH->files)
 
 /* Whether [p, p + n) lies in the process's space. */
-static int inside(unsigned p, unsigned n)
+int inside(unsigned p, unsigned n)
 {
 	return p >= USER_BASE && p <= USER_TOP && n <= USER_TOP - p;
 }
 
 /* The process's string at p, whole inside its space and at most max bytes
  * with its NUL: 0, or the error. */
-static int user_string(unsigned p, unsigned max)
+int user_string(unsigned p, unsigned max)
 {
 	unsigned n;
 
@@ -134,7 +133,7 @@ void files_init(void)
 		curproc->ofile[i] = tty;
 }
 
-static struct file *file_of(unsigned fd)
+struct file *file_of(unsigned fd)
 {
 	return fd < NOFILE ? curproc->ofile[fd] : 0;
 }
@@ -369,19 +368,6 @@ static int sys_exec(const unsigned *arg)
 	return exec((const char *)arg[0], (const char *const *)argv);
 }
 
-/* mount(device, dir), umount(device): the paths checked, the work fs.c's. */
-static int sys_mount(struct trapframe *tf, const unsigned *arg)
-{
-	int error;
-
-	if ((error = user_string(arg[0], PATHMAX)) != 0 || (error = user_string(arg[1], PATHMAX)) != 0)
-		return error;
-	if ((error = fs_mount_on((const char *)arg[0], (const char *)arg[1])) != 0)
-		return error;
-	tf->r0 = 0;
-	return 0;
-}
-
 /* swapon(file): the file, held, becomes swap (proc.c). */
 static int sys_swapon(struct trapframe *tf, const unsigned *arg)
 {
@@ -396,26 +382,6 @@ static int sys_swapon(struct trapframe *tf, const unsigned *arg)
 		iput(ip);
 		return error;
 	}
-	tf->r0 = 0;
-	return 0;
-}
-
-/* ioctl(fd, cmd, arg): FD_WTRACK on a diskette's device open to write,
- * the struct fd_track at arg (ioctl.h). */
-static int sys_ioctl(struct trapframe *tf, const unsigned *arg)
-{
-	struct file *f = file_of(arg[0]);
-	const struct fd_track *t = (const struct fd_track *)arg[2];
-	int error;
-
-	if (!f || f->kind != F_INODE || !f->writable)
-		return EBADF;
-	if ((f->ip->d.mode & S_IFMT) != S_IFBLK || arg[1] != FD_WTRACK)
-		return ENOTTY;
-	if (!inside(arg[2], sizeof *t) || !inside((unsigned)t->image, t->len))
-		return EFAULT;
-	if ((error = dev_format(f->ip->d.ext[0].start, t->track, t->image, t->len)) != 0)
-		return error;
 	tf->r0 = 0;
 	return 0;
 }
@@ -504,11 +470,11 @@ void syscall(struct trapframe *tf)
 	case SYS_MKDIR:
 		error = sys_path(tf, arg, fs_mkdir);
 		break;
-	case SYS_MOUNT:
-		error = sys_mount(tf, arg);
+	case SYS_MOUNT:				/* /boot/hi's */
+		error = hi ? hi->mount(tf, arg) : ENOSYS;
 		break;
 	case SYS_UMOUNT:
-		error = sys_path(tf, arg, fs_umount);
+		error = hi ? hi->umount(tf, arg) : ENOSYS;
 		break;
 	case SYS_SWAPON:
 		error = sys_swapon(tf, arg);
@@ -538,7 +504,7 @@ void syscall(struct trapframe *tf)
 		tf->r0 = (unsigned)curproc->ppid;
 		break;
 	case SYS_IOCTL:
-		error = sys_ioctl(tf, arg);
+		error = hi ? hi->ioctl(tf, arg) : ENOSYS;
 		break;
 	default:
 		error = ENOSYS;

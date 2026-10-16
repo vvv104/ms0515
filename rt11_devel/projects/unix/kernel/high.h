@@ -6,8 +6,9 @@
  * process's kernel stack, the block buffers and the shadow bank's index
  * of more, the pipes, the inodes, the open files, the console's line and
  * queue, exec's arguments - more than the low banks have room for beside
- * the code.  main() clears them.  Above them, 155000-157000, the diskettes' driver, /boot/fd
- * (kernel.h DRV_BASE).  The top of the bank, from 157000, is left to the
+ * the code.  main() clears them.  Above them, from 151600, the kernel's
+ * second part, /boot/hi (hi.h), and 155000-157000 the diskettes' driver,
+ * /boot/fd (kernel.h DRV_BASE).  The top of the bank, from 157000, is left to the
  * ROM: the stack the kernel calls it on, 157000-157400 (rom.s), its cells
  * at 1577xx and its own stack from 157614 down. */
 #ifndef UNIX_HIGH_H
@@ -63,7 +64,7 @@ struct high {
 };
 
 #define HIGH_BASE 0140000u
-#define HIGH_TOP  0155000u		/* the driver's place above */
+#define HIGH_TOP  0151600u		/* /boot/hi's place above (hi.h), then the driver's */
 #define HIGH ((struct high *)HIGH_BASE)
 
 typedef char high_fits[sizeof(struct high) <= HIGH_TOP - HIGH_BASE ? 1 : -1];
