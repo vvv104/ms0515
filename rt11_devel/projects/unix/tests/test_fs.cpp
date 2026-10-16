@@ -27,6 +27,7 @@ void loggedIn(Machine &m)
     REQUIRE(m.runUntil("login:", 1500));
     m.run(20);
     m.typeAndSettle("root\r", 40);
+    REQUIRE(m.waitPrompt());
 }
 
 std::size_t count(const std::string &text, const std::string &what)

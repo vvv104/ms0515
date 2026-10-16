@@ -27,7 +27,8 @@ struct proc {
 	enum pstate state;
 	int pid, ppid;
 	int slot;			/* 0: banks 2-5 primary, 1: extra */
-	char resident;			/* in its slot; else in its area on the RAM disk */
+	char resident;			/* in its slot; else in its area of swap */
+	signed char area;		/* that area, -1 when it has none */
 	unsigned stack_lo;		/* the stack's low end, as it went out */
 	const void *chan;		/* what it sleeps on */
 	int status;			/* the exit status, while a zombie */
@@ -48,6 +49,8 @@ void setslot(int slot);
 int fork(struct trapframe *tf);
 void pexit(int status);
 int pwait(unsigned status_ptr);
+int swap_on(struct inode *ip);
+int swap_file(const struct inode *ip);
 
 /* trap.s */
 void swtch(struct proc *from, struct proc *to);

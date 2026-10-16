@@ -120,7 +120,7 @@ static void mark(unsigned dev, unsigned block, int on)
 		b->data[block >> 3] |= (char)(1 << (block & 7));
 	else
 		b->data[block >> 3] &= (char)~(1 << (block & 7));
-	bwrite(b);
+	bdirty(b);				/* out at the call's end: bflush */
 }
 
 /* A free block taken: `want` when it is free, else the first; 0 when none. */
@@ -557,10 +557,10 @@ int fs_unlink(const char *path)
 		iput(dp);
 		return ENOENT;
 	}
-	if ((ip->d.mode & S_IFMT) == S_IFDIR) {
+	if ((ip->d.mode & S_IFMT) == S_IFDIR || swap_file(ip)) {
 		iput(ip);
 		iput(dp);
-		return EISDIR;
+		return swap_file(ip) ? EBUSY : EISDIR;
 	}
 	memset(&d, 0, sizeof d);
 	writei(dp, where, (const char *)&d, sizeof d);

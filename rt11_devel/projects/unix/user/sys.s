@@ -6,7 +6,7 @@
 	.text
 	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
 	.globl	_time, _getpid, _getppid, _dup, _pipe, _creat, _unlink, _mkdir, _sync
-	.globl	_mount, _umount
+	.globl	_mount, _umount, _swapon
 	.globl	_errno
 
 _exit:	trap	1
@@ -76,6 +76,11 @@ _mount:	trap	21
 
 _umount:
 	trap	22
+	br	done
+
+/ int swapon(const char *file): the file, in one extent, swap from now on.
+_swapon:
+	trap	85
 	br	done
 
 done:	bcc	1f

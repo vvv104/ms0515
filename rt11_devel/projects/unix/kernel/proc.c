@@ -7,23 +7,23 @@
  * own kernel stack in bank 6 (high.h), where it sleeps when it waits inside
  * the kernel; swtch() goes from one stack to the other.
  *
- * With the RAM disk there may be more processes than slots: each has an
- * area of 32 KB on the disk, and a process to run that is not resident
- * comes in there, in the place of one that is - a sleeping one if there is
- * - which goes out.  Only the image's used part moves: the program with its
- * data and bss, up to brk, and the stack from the frame of the system call
- * it is in, both in whole pages.  Without the RAM disk a fork with both
- * slots taken fails with EAGAIN. */
+ * With swap on there may be more processes than slots.  Swap is a file in
+ * one extent (swapon), cut into areas of 32 KB: a process to run that is
+ * not resident comes in, in the place of one that is - a sleeping one if
+ * there is - which goes out to an area of its own, given back when it comes
+ * in again.  Only the image's used part moves, block by block between the
+ * slot and the device: the program with its data and bss, up to brk, and
+ * the stack from the frame of the system call it is in.  One area is kept
+ * for the exchange, so there are at most as many processes as slots and
+ * areas less one; without swap a fork with both slots taken fails with
+ * EAGAIN. */
 #include "high.h"
-#include "ramdisk.h"
 
 #define EAGAIN 11
 #define ECHILD 10
 #define SLOT_BITS 074			/* dispatcher bits 2-5: banks 2-5 primary when set */
-#define SWAP_PAGES ((USER_TOP - USER_BASE) / RD_PAGE)	/* a process's area: 128 pages */
-/* The areas in the RAM disk's upper half, out of the way of a volume made
- * on its lower one - until swap goes to a file. */
-#define SWAP_BASE (RD_PAGES / 2)
+#define AREA_BLOCKS ((USER_TOP - USER_BASE) / BSIZE)	/* a process's area: 64 blocks */
+#define MAXAREA 16
 #define CANARY 0122525			/* the kernel stack's bottom word, while it holds */
 #define STACK_BOTTOM(p) (*(unsigned *)(p)->kstack)
 
@@ -35,6 +35,9 @@ const unsigned high_size = sizeof(struct high);
 
 struct proc *curproc;
 unsigned kstack_top;
+static struct inode *swapip;		/* the swap file, held while swap is on */
+static unsigned swapdev, swapstart, nareas;
+static char area_used[MAXAREA];
 static int nextpid = 1;
 static struct proc *slot_owner[NSLOT];
 
@@ -59,6 +62,7 @@ void proc_init(void)
 	p->ppid = 0;
 	p->slot = 0;
 	p->resident = 1;
+	p->area = -1;
 	STACK_BOTTOM(p) = CANARY;
 	slot_owner[0] = p;
 	curproc = p;
@@ -66,27 +70,81 @@ void proc_init(void)
 	setslot(0);
 }
 
-/* The pages of [from, to) of the slot in hand, whole, to or from p's area. */
-static void move_pages(const struct proc *p, unsigned from, unsigned to, int out)
+/* swapon(file): the file, one extent of an area at least, is swap from
+ * now on; held, so that it is neither removed nor its volume taken out. */
+int swap_on(struct inode *ip)
 {
-	unsigned first, last;
+	unsigned len = ip->d.ext[0].len;
+
+	if (swapip)
+		return EBUSY;
+	if ((ip->d.mode & S_IFMT) != S_IFREG || ip->d.nextents != 1 || len < 2 * AREA_BLOCKS)
+		return EINVAL;
+	swapip = ip;
+	swapdev = ip->dev;
+	swapstart = ip->d.ext[0].start;
+	nareas = len / AREA_BLOCKS > MAXAREA ? MAXAREA : len / AREA_BLOCKS;
+	binval(swapdev, swapstart, len);	/* the cache knows its blocks no more */
+	return 0;
+}
+
+int swap_file(const struct inode *ip)
+{
+	return ip == swapip;
+}
+
+/* The processes there may be: the slots', and the areas' but the one kept. */
+static int room(void)
+{
+	int i, live = 0;
+
+	for (i = 0; i < NPROC; i++)
+		live += procs[i].state != P_FREE;
+	return live < NSLOT + (swapip ? (int)nareas - 1 : 0);
+}
+
+static int area_get(void)
+{
+	unsigned i;
+
+	for (i = 0; i < nareas; i++)
+		if (!area_used[i]) {
+			area_used[i] = 1;
+			return (int)i;
+		}
+	panic("no swap area");
+}
+
+static void area_put(struct proc *p)
+{
+	if (p->area >= 0)
+		area_used[p->area] = 0;
+	p->area = -1;
+}
+
+/* The blocks of [from, to) of the slot in hand, whole, to or from p's area. */
+static void move_blocks(const struct proc *p, unsigned from, unsigned to, int out)
+{
+	unsigned b, last, at;
 
 	if (from >= to)
 		return;
-	first = (from - USER_BASE) / RD_PAGE;
-	last = (to - USER_BASE + RD_PAGE - 1) / RD_PAGE;
-	if (out)
-		rd_write(SWAP_BASE + (unsigned)(p - procs) * SWAP_PAGES + first, (void *)(USER_BASE + first * RD_PAGE), last - first);
-	else
-		rd_read(SWAP_BASE + (unsigned)(p - procs) * SWAP_PAGES + first, (void *)(USER_BASE + first * RD_PAGE), last - first);
+	last = (to - USER_BASE + BSIZE - 1) / BSIZE;
+	for (b = (from - USER_BASE) / BSIZE; b < last; b++) {
+		at = swapstart + (unsigned)p->area * AREA_BLOCKS + b;
+		if ((out ? dev_write(swapdev, at, (void *)(USER_BASE + b * BSIZE))
+			 : dev_read(swapdev, at, (void *)(USER_BASE + b * BSIZE))) != 0)
+			panic("swap: a block lost");
+	}
 }
 
 static void swap_out(struct proc *p)
 {
 	setslot(p->slot);
 	p->stack_lo = (unsigned)p->tf;
-	move_pages(p, USER_BASE, p->brk, 1);
-	move_pages(p, p->stack_lo, USER_TOP, 1);
+	p->area = (signed char)area_get();
+	move_blocks(p, USER_BASE, p->brk, 1);
+	move_blocks(p, p->stack_lo, USER_TOP, 1);
 	slot_owner[p->slot] = 0;
 	p->resident = 0;
 }
@@ -94,8 +152,9 @@ static void swap_out(struct proc *p)
 static void swap_in(struct proc *p, int slot)
 {
 	setslot(slot);
-	move_pages(p, USER_BASE, p->brk, 0);
-	move_pages(p, p->stack_lo, USER_TOP, 0);
+	move_blocks(p, USER_BASE, p->brk, 0);
+	move_blocks(p, p->stack_lo, USER_TOP, 0);
+	area_put(p);
 	p->slot = slot;
 	p->resident = 1;
 	slot_owner[slot] = p;
@@ -196,7 +255,7 @@ int fork(struct trapframe *tf)
 	for (i = 0; i < NPROC && !c; i++)
 		if (procs[i].state == P_FREE)
 			c = &procs[i];
-	if (!c || (slot == NSLOT && !rd_present))
+	if (!c || !room())
 		return -EAGAIN;
 	c->brk = curproc->brk;
 	c->tf = tf;
@@ -211,16 +270,18 @@ int fork(struct trapframe *tf)
 		setslot(curproc->slot);
 		c->slot = slot;
 		c->resident = 1;
+		c->area = -1;
 		slot_owner[slot] = c;
 	} else {
-		/* Straight to its area on the RAM disk, the frame the child's for
-		 * the time of the copy. */
+		/* Straight to an area of its own in swap, the frame the child's
+		 * for the time of the copy. */
 		r0 = tf->r0;
 		ps = tf->ps;
 		tf->r0 = 0;
 		tf->ps &= ~1u;
-		move_pages(c, USER_BASE, curproc->brk, 1);
-		move_pages(c, (unsigned)tf, USER_TOP, 1);
+		c->area = (signed char)area_get();
+		move_blocks(c, USER_BASE, curproc->brk, 1);
+		move_blocks(c, (unsigned)tf, USER_TOP, 1);
 		tf->r0 = r0;
 		tf->ps = ps;
 		c->resident = 0;
@@ -257,6 +318,7 @@ void pexit(int status)
 		}
 	slot_owner[curproc->slot] = 0;
 	curproc->resident = 0;
+	area_put(curproc);
 	for (i = 0; i < NPROC; i++) {
 		p = &procs[i];
 		if (p->state != P_FREE && p->ppid == curproc->pid)

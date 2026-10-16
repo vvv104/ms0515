@@ -23,7 +23,7 @@ int main(void)
 	clock_start();
 	proc_init();
 	files_init();
-	tty_puts(rd_probe() ? "\nUNIX: swap on the RAM disk\n" : "\nUNIX: no RAM disk: two processes at most\n");
+	tty_puts(rd_probe() ? "\nUNIX: a RAM disk of 512 KB, /dev/rd0\n" : "\nUNIX: no RAM disk\n");
 	if (fs_mount() != 0)
 		panic("no file system");
 	exec("/etc/init", argv);

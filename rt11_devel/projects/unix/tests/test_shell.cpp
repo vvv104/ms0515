@@ -17,6 +17,7 @@ void atPrompt(Machine &m)
     m.run(20);
     m.typeAndSettle("root\r", 60);
     REQUIRE(m.screen().find("Hello, root") != std::string::npos);
+    REQUIRE(m.waitPrompt());
 }
 
 std::size_t count(const std::string &text, const std::string &what)

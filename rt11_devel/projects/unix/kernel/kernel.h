@@ -63,11 +63,14 @@ struct buf {
 	char data[BSIZE];		/* first: word-aligned, as the ROM writes it */
 	unsigned dev, block;
 	unsigned used;			/* when last used, for the least recent */
-	char valid;
+	char valid, dirty;
 };
 struct buf *bread(unsigned dev, unsigned block);
 struct buf *getblk(unsigned dev, unsigned block);
 int bwrite(struct buf *b);
+void binval(unsigned dev, unsigned start, unsigned n);
+void bdirty(struct buf *b);
+void bflush(void);
 
 /* fs.c */
 struct inode {

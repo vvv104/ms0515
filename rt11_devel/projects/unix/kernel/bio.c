@@ -1,7 +1,9 @@
 /* bio.c - the buffer cache: blocks of the devices, a few buffers in bank
  * 6, the least recently used given up for a new block.  A write goes
  * through to the device at once: a diskette may be taken out at any time,
- * and what was written is on it.  The shadow banks 1 and 6 hold a fuller
+ * and what was written is on it.  Only the bitmap is let wait, marked
+ * dirty, until the end of the system call that changed it (bflush) or its
+ * buffer is wanted for another block - a block a call, not a block a bit.  The shadow banks 1 and 6 hold a fuller
  * cache later (SPEC.md "The kernel"). */
 #include "high.h"
 
@@ -24,6 +26,9 @@ static struct buf *find(unsigned dev, unsigned block)
 		if (!b->valid || b->used < oldest->used)
 			oldest = b;
 	}
+	if (oldest->valid && oldest->dirty)
+		dev_write(oldest->dev, oldest->block, oldest->data);
+	oldest->dirty = 0;
 	oldest->valid = 0;
 	oldest->dev = dev;
 	oldest->block = block;
@@ -53,7 +58,34 @@ struct buf *getblk(unsigned dev, unsigned block)
 	return b;
 }
 
+/* The buffers of dev's blocks [start, start + n) forgotten: swap writes
+ * those blocks past the cache. */
+void binval(unsigned dev, unsigned start, unsigned n)
+{
+	int i;
+
+	for (i = 0; i < NBUF; i++)
+		if (bufs[i].dev == dev && bufs[i].block >= start && bufs[i].block - start < n)
+			bufs[i].valid = 0;
+}
+
 int bwrite(struct buf *b)
 {
+	b->dirty = 0;
 	return dev_write(b->dev, b->block, b->data) == 0 ? 0 : -EIO;
+}
+
+void bdirty(struct buf *b)
+{
+	b->dirty = 1;
+}
+
+/* The dirty buffers written out. */
+void bflush(void)
+{
+	int i;
+
+	for (i = 0; i < NBUF; i++)
+		if (bufs[i].valid && bufs[i].dirty)
+			bwrite(&bufs[i]);
 }

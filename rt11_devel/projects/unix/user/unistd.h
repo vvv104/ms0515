@@ -33,6 +33,7 @@ int mkdir(const char *path);
 int sync(void);
 int mount(const char *device, const char *dir);
 int umount(const char *device);
+int swapon(const char *file);
 
 /* lib.c */
 int strlen(const char *s);

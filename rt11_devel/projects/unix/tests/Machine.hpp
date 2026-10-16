@@ -124,15 +124,21 @@ public:
      * output - at most `limit`. */
     bool command(const std::string &line, int limit = 1500)
     {
-        /* The prompt back: the screen's last line is "$" alone - while the
-         * command runs it is the line typed, or the command's output. */
+        typeAndSettle(line + "\r", 0);
+        return waitPrompt(limit);
+    }
+
+    /* The shell's prompt on the screen: its last line is "$" alone - while a
+     * command runs it is the line typed, or the command's output.  Frames
+     * run until it is, at most `limit`. */
+    bool waitPrompt(int limit = 1500)
+    {
         auto prompt = [this] {
             std::string s = screen();
             while (!s.empty() && (s.back() == '\n' || s.back() == ' ')) s.pop_back();
             const auto nl = s.rfind('\n');
             return s.substr(nl == std::string::npos ? 0 : nl + 1) == "$";
         };
-        typeAndSettle(line + "\r", 0);
         for (int f = 0; f < limit; f += 5) {
             run(5);
             if (prompt()) {

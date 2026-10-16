@@ -41,6 +41,7 @@ TEST_CASE("a name typed after login: is echoed, read by the process as a line, a
     Machine m(unixos::readImage());
     booted(m);
     m.typeAndSettle("root\r", 50);
+    m.waitPrompt();
     INFO(m.screen());
     CHECK(m.screen().find("login: root") != std::string::npos);    /* the echo */
     CHECK(m.screen().find("Hello, root") != std::string::npos);    /* the process's answer */
@@ -56,6 +57,7 @@ TEST_CASE("an empty name is no name: login: is asked again") {
     INFO(m.screen());
     CHECK(m.screen().find("Hello") == std::string::npos);
     m.typeAndSettle("root\r", 50);
+    m.waitPrompt();
     CHECK(m.screen().find("Hello, root") != std::string::npos);
     std::size_t logins = 0;
     for (auto at = m.screen().find("login:"); at != std::string::npos; at = m.screen().find("login:", at + 1)) ++logins;
@@ -70,6 +72,7 @@ TEST_CASE("letters bare are small, Latin and Russian alike; with Shift capital")
      * no Shift - and then a name typed with a capital. */
     for (auto k : {ms0515::Key::R, ms0515::Key::O, ms0515::Key::O, ms0515::Key::T}) m.tapBare(k);
     m.typeAndSettle("\r", 50);
+    m.waitPrompt();
     m.typeAndSettle("Ab\r", 50);
     INFO(m.screen());
     CHECK(m.screen().find("Hello, root") != std::string::npos);
@@ -101,6 +104,7 @@ TEST_CASE("the clock goes: the time asked twice three seconds apart differs by a
     Machine m(unixos::readImage());
     booted(m);
     m.typeAndSettle("root\r", 30);
+    m.waitPrompt();
     m.typeAndSettle("t\r", 30);
     const long first = lastNumberAfter(m.screen(), "time ");
     m.run(150);                                                    /* 3 s at 50 frames a second */
@@ -119,6 +123,7 @@ TEST_CASE("an unknown command is reported, and the shell asks again") {
     Machine m(unixos::readImage());
     booted(m);
     m.typeAndSettle("root\r", 30);
+    m.waitPrompt();
     m.typeAndSettle("xyz\r", 30);
     INFO(m.screen());
     CHECK(m.screen().find("xyz: not found\n$") != std::string::npos);

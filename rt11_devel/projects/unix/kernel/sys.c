@@ -19,7 +19,7 @@ enum {
 	SYS_EXIT = 1, SYS_FORK = 2, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6,
 	SYS_WAIT = 7, SYS_CREAT = 8, SYS_UNLINK = 10, SYS_EXEC = 11, SYS_TIME = 13, SYS_GETPID = 20,
 	SYS_MOUNT = 21, SYS_UMOUNT = 22,
-	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_GETPPID = 64, SYS_MKDIR = 136
+	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_GETPPID = 64, SYS_SWAPON = 85, SYS_MKDIR = 136
 };
 enum { EPIPE = 32 };
 
@@ -376,6 +376,24 @@ static int sys_mount(struct trapframe *tf, const unsigned *arg)
 	return 0;
 }
 
+/* swapon(file): the file, held, becomes swap (proc.c). */
+static int sys_swapon(struct trapframe *tf, const unsigned *arg)
+{
+	struct inode *ip;
+	int error = 0;
+
+	if ((error = user_string(arg[0], PATHMAX)) != 0)
+		return error;
+	if (!(ip = namei((const char *)arg[0], &error)))
+		return error;
+	if ((error = swap_on(ip)) != 0) {
+		iput(ip);
+		return error;
+	}
+	tf->r0 = 0;
+	return 0;
+}
+
 static int sys_time(struct trapframe *tf)
 {
 	unsigned long t = clock_seconds();
@@ -465,6 +483,9 @@ void syscall(struct trapframe *tf)
 	case SYS_UMOUNT:
 		error = sys_path(tf, arg, fs_umount);
 		break;
+	case SYS_SWAPON:
+		error = sys_swapon(tf, arg);
+		break;
 	case SYS_SYNC:				/* every write goes through at once */
 		tf->r0 = 0;
 		break;
@@ -492,6 +513,7 @@ void syscall(struct trapframe *tf)
 	default:
 		error = ENOSYS;
 	}
+	bflush();				/* what the call changed is on the disk */
 	if (error) {
 		tf->r0 = (unsigned)error;
 		tf->ps |= 1;

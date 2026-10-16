@@ -94,6 +94,7 @@ program(mkdir user/mkdir.c)
 program(mkfs user/mkfs.c)
 program(mount user/mount.c)
 program(umount user/umount.c)
+program(swapon user/swapon.c)
 
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/root")
 add_custom_command(OUTPUT unix.dsk
@@ -115,7 +116,9 @@ add_custom_command(OUTPUT unix.dsk
             /bin/mkfs=mkfs.x
             /bin/mount=mount.x
             /bin/umount=umount.x
+            /bin/swapon=swapon.x
             --dir /tmp
+            --swap 128
     DEPENDS boot.bin kernel.bin ${PROGRAMS} "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py"
             ${ROOT}/etc/motd ${ROOT}/etc/numbers
     COMMENT "unix.dsk")

@@ -1,15 +1,16 @@
 /*
- * test_swap.cpp - stage 4b: more processes than slots.  With the RAM disk
- * the kernel swaps processes out to it and in again, and the shell has
- * pipes and the background; without it there are two processes at most,
- * and the shell says so.
+ * test_swap.cpp - more processes than slots: with swap on - a file, on the
+ * RAM disk's volume or on the diskette - the kernel swaps processes out to
+ * it and in again, and the shell has pipes and the background; without it
+ * there are two processes at most, and the shell says so.
  */
-#include "Machine.hpp"
+#include "Volume.hpp"
 
 #include <string>
 #include <vector>
 
 using unixos::Machine;
+using unixos::Volume;
 
 namespace {
 
@@ -19,6 +20,16 @@ void atPrompt(Machine &m)
     m.run(20);
     m.typeAndSettle("root\r", 60);
     REQUIRE(m.screen().find("Hello, root") != std::string::npos);
+    REQUIRE(m.waitPrompt());
+}
+
+/* Swap on: the RAM disk made a volume at /tmp, a swap file of 256 KB on it. */
+void swapOnRam(Machine &m)
+{
+    REQUIRE(m.command("mkfs /dev/rd0"));
+    REQUIRE(m.command("mount /dev/rd0 /tmp"));
+    REQUIRE(m.command("swapon /tmp/swap 256", 3000));
+    REQUIRE(m.screen().find("swapon: /tmp/swap") != std::string::npos);
 }
 
 std::string after(Machine &m, const std::string &command)
@@ -40,14 +51,15 @@ TEST_CASE("the kernel tells at the boot whether it found the RAM disk") {
     REQUIRE(without.runUntil("login:", 1500));
     INFO(with.screen());
     INFO(without.screen());
-    CHECK(with.screen().find("swap on the RAM disk") != std::string::npos);
-    CHECK(without.screen().find("no RAM disk: two processes at most") != std::string::npos);
+    CHECK(with.screen().find("a RAM disk of 512 KB, /dev/rd0") != std::string::npos);
+    CHECK(without.screen().find("no RAM disk") != std::string::npos);
 }
 
 TEST_CASE("a pipe: the first command's output is the second's input") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     atPrompt(m);
+    swapOnRam(m);
     REQUIRE(m.command("echo through a pipe | cat"));
     INFO(m.screen());
     CHECK(after(m, "echo through a pipe | cat").find("\nthrough a pipe\n$") != std::string::npos);
@@ -57,6 +69,7 @@ TEST_CASE("a pipe of three, four processes on two slots, and a file of several b
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     atPrompt(m);
+    swapOnRam(m);
     const bool back = m.command("cat /etc/numbers | cat | cat", 4000);
     INFO(m.screen());
     REQUIRE(back);
@@ -81,6 +94,7 @@ TEST_CASE("the background: the shell does not wait, and takes the next command")
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     atPrompt(m);
+    swapOnRam(m);
     REQUIRE(m.command("echo in the background &"));
     m.run(100);
     REQUIRE(m.command("echo in front"));
@@ -95,6 +109,7 @@ TEST_CASE("the shell's children and its own state come back right from the swap"
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     atPrompt(m);
+    swapOnRam(m);
     for (int i = 0; i < 3; ++i) REQUIRE(m.command("echo x | cat"));
     REQUIRE(m.command("fail"));
     REQUIRE(m.command("status"));
@@ -102,7 +117,36 @@ TEST_CASE("the shell's children and its own state come back right from the swap"
     CHECK(after(m, "status").find("status 3") != std::string::npos);
 }
 
-TEST_CASE("without the RAM disk a pipe finds no room, and the shell goes on") {
+TEST_CASE("swap on the diskette: a file /swap, the same pipes without the RAM disk") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), false);
+    atPrompt(m);
+    REQUIRE(m.command("swapon /swap"));                /* mkfs.py made it: 128 KB */
+    REQUIRE(m.command("echo over the diskette | cat", 4000));
+    INFO(m.screen());
+    CHECK(after(m, "echo over the diskette | cat").find("\nover the diskette\n$") != std::string::npos);
+    Volume v(m.imageNow());
+    const auto sw = v.lookup("/swap");
+    REQUIRE(sw);
+    CHECK(v.inode(*sw).nextents == 1);
+    CHECK(v.inode(*sw).len[0] == 256);             /* 128 KB: four areas */
+}
+
+TEST_CASE("the swap file is held: not removed, its volume not taken out") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), true);
+    atPrompt(m);
+    swapOnRam(m);
+    REQUIRE(m.command("rm /tmp/swap"));
+    REQUIRE(m.command("umount /dev/rd0"));
+    REQUIRE(m.command("swapon /tmp/swap"));
+    INFO(m.screen());
+    CHECK(m.screen().find("rm: /tmp/swap: busy") != std::string::npos);
+    CHECK(m.screen().find("umount: /dev/rd0: busy") != std::string::npos);
+    CHECK(m.screen().find("swapon: /tmp/swap: busy") != std::string::npos);
+}
+
+TEST_CASE("without swap a pipe finds no room, and the shell goes on") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), false);
     atPrompt(m);

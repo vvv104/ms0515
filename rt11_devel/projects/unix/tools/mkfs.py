@@ -216,6 +216,7 @@ def main():
     ap.add_argument("--label", default="UNIX")
     ap.add_argument("--volume", type=int, help="the volume's number (at random when left out)")
     ap.add_argument("--dir", action="append", default=[], help="an empty directory to make")
+    ap.add_argument("--swap", type=int, default=0, help="a swap file /swap of so many KB, in one extent")
     ap.add_argument("out", type=Path)
     ap.add_argument("files", nargs="*", help="PATH=FILE")
     args = ap.parse_args()
@@ -242,6 +243,8 @@ def main():
     if args.nm and args.kernel_out and kernel_ino:
         memory_report(args.nm, args.kernel_out, vol.inodes[kernel_ino][2])
     volume = args.volume if args.volume is not None else random.getrandbits(32)
+    if args.swap:                       # last: the kernel and the programs nearer block 0
+        vol.add("/swap", bytes(args.swap * 1024))
     vol.finish(args.label, volume, boot, kernel_ino)
     args.out.write_bytes(vol.image)
     print(f"{args.out.name}: {len(vol.inodes)} inodes, blocks {DATA}..{vol.next_block - 1} taken")
