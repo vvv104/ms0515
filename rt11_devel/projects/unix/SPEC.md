@@ -122,7 +122,7 @@ is gone.
 
 The first stages run on the native ROM-B: it already has the console, the
 keyboard, a disk block and the font - the 4-5 KB a BIOS was to save.  The own
-ROM is stage 7, once the kernel has settled.
+ROM is stage 8, once the kernel has settled.
 
 **What the kernel takes from the native ROM-B.**  The same entry points RT-11
 calls.
@@ -147,7 +147,7 @@ module with a jump table: now it leads to the addresses of ROM-B, later to the
 table of the own ROM.  The call goes from the kernel's stack in bank 0 (the
 trap with the VRAM window, see the memory map).
 
-**The own ROM (stage 7)** replaces the native one and stays compatible with
+**The own ROM (stage 8)** replaces the native one and stays compatible with
 RT-11.  The model is ROM-B.  Rodionov's system (RT15SJ) is not supported: it
 jumps into ROM-A's internals by their addresses.
 
@@ -414,7 +414,7 @@ hands over.
   without one a resident `sh` with built-in commands; a diskette changed by
   a command that flushes the cache, a volume number in the superblock to
   check it.  To be settled once the one-volume system is done.
-- For stage 7: the pinout of the K573RF4 and the fitness of a 28C64 as a
+- For stage 8: the pinout of the K573RF4 and the fitness of a 28C64 as a
   replacement - to be checked against the board's schematic.
 - How the VG93 behaves when a DRQ is missed (a byte lost) - how the driver
   recovers.
@@ -435,11 +435,21 @@ hands over.
    floppy driver of stage 5 - first to the RAM disk (done), then to the
    diskette's swap area.
 5. **The floppy and swap.**  An own VG93 driver instead of 160010
-   (formatting, speed), swap to the diskette and to the RAM disk.
-6. **Utilities** of levels 1-2, then `rt11` and Forth.
-7. **The own ROM.**  Compatible with RT-11 by the ROM-B contract (without
+   (formatting, speed), swap to the diskette.
+6. **Programs that own the machine.**  The mode is the binary's own - a
+   magic of its own in the a.out header - and such a program is run as any
+   other, by its name.  exec of one flushes the cache, ends the other
+   processes and, through a small loader, lays the image over everything,
+   the kernel too: the program has 001000-157000, some 55 KB in one piece,
+   and the extra copies of the banks.  It uses the ROM directly through a
+   small library - the console, the keyboard, a block of the diskette; there
+   is no way back, the exit is a reset and the system booted again.  For
+   ports of Spectrum games and other big programs: the ports made for RT-11
+   are rebuilt for this library.
+7. **Utilities** of levels 1-2, then `rt11` and Forth.
+8. **The own ROM.**  Compatible with RT-11 by the ROM-B contract (without
    Rodionov's system): the shared services and the new system's table in the
    upper 8 KB, the self-test, the monitor and the boot menu with the kernel
    found by name in the lower.  The kernel's jump table switches over to it.
-8. **The real machine.**  Firmware, measurements, the interleave chosen.
-9. **Optional:** the kernel in ROM.
+9. **The real machine.**  Firmware, measurements, the interleave chosen.
+10. **Optional:** the kernel in ROM.
