@@ -1,7 +1,7 @@
 /*
  * test_fs.cpp - stage 3: the file system.  The image as mkfs.py made it,
  * read on the host; and on the machine, the kernel's open, read and exec
- * through init's commands.
+ * through the shell's commands.
  */
 #include "Volume.hpp"
 
@@ -88,13 +88,13 @@ TEST_CASE("cat shows a file, ls a directory") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
     loggedIn(m);
-    m.typeAndSettle("cat /etc/motd\r", 40);
-    m.typeAndSettle("ls\r", 40);
-    m.typeAndSettle("ls /bin\r", 40);
+    m.command("cat /etc/motd");
+    m.command("ls");
+    m.command("ls /bin");
     INFO(m.screen());
     CHECK(m.screen().find("Welcome to UNIX on the Elektronika MS 0515.") != std::string::npos);
     CHECK(m.screen().find("boot  etc  bin") != std::string::npos);
-    CHECK(m.screen().find("hello  echo") != std::string::npos);
+    CHECK(m.screen().find("echo  hello") != std::string::npos);
 }
 
 TEST_CASE("a file of several blocks is read whole, across the blocks") {
@@ -124,28 +124,25 @@ TEST_CASE("a file that is not there is reported") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
     loggedIn(m);
-    m.typeAndSettle("cat /etc/nothing\r", 40);
-    m.typeAndSettle("ls /nowhere\r", 40);
-    m.typeAndSettle("run /bin/nope\r", 40);
+    m.command("cat /etc/nothing");
+    m.command("ls /nowhere");
+    m.command("/bin/nope");
     INFO(m.screen());
     CHECK(m.screen().find("cat: /etc/nothing: not found") != std::string::npos);
     CHECK(m.screen().find("ls: /nowhere: not found") != std::string::npos);
-    CHECK(m.screen().find("run: /bin/nope: not found") != std::string::npos);
+    CHECK(m.screen().find("/bin/nope: not found") != std::string::npos);
 }
 
-TEST_CASE("run: a program from the volume takes init's place, gets its arguments, and init comes back") {
+TEST_CASE("a program read off the volume by exec gets its arguments") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
     loggedIn(m);
-    m.typeAndSettle("run /bin/hello\r", 60);
+    m.command("/bin/hello");
+    m.command("/bin/echo one two  three");
     INFO(m.screen());
-    const std::string after = m.screen().substr(m.screen().find("run /bin/hello"));
-    CHECK(after.find("hello, world") != std::string::npos);
-    CHECK(after.find("login:") > after.find("hello, world"));    /* init again */
-    m.typeAndSettle("root\r", 40);
-    m.typeAndSettle("run /bin/echo one two  three\r", 60);
+    CHECK(m.screen().find("hello, world") != std::string::npos);
     CHECK(m.screen().find("one two three") != std::string::npos);
-    CHECK(count(m.screen(), "login:") >= 2);
+    CHECK(count(m.screen(), "login:") == 1);
 }
 
 }

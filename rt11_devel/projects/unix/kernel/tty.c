@@ -13,6 +13,7 @@
  * turn the console's Latin to Cyrillic glyphs.  Output turns '\n' into
  * CR LF. */
 #include "kernel.h"
+#include "proc.h"
 #include "rom.h"
 
 #define LINE 80				/* the line in hand */
@@ -62,6 +63,7 @@ static void input(int c)
 			put(line[i]);
 		put('\n');
 		len = 0;
+		wakeup(queue);
 		return;
 	}
 	if (len < LINE - 1) {
@@ -79,19 +81,14 @@ void tty_intr(void)
 	KBD_ROWS = 0;			/* the rows let go, as the DEC monitor does */
 }
 
-/* Up to n bytes of the next line, its '\n' the last; the process waits for
- * a line. */
+/* Up to n bytes of the next line, its '\n' the last; the process sleeps
+ * till a line comes. */
 int tty_read(char *buf, int n)
 {
-	int got = 0, s, c;
+	int got = 0, s = spl7(), c;
 
-	for (;;) {
-		s = spl7();
-		if (tail != head)
-			break;
-		idle();
-		splx(s);
-	}
+	while (tail == head)
+		sleep(queue);
 	while (got < n && tail != head) {
 		c = queue[tail];
 		tail = (tail + 1) % QUEUE;

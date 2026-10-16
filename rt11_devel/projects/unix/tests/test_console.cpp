@@ -1,8 +1,8 @@
 /*
- * test_console.cpp - stage 2: the first process, /etc/init for now, reads
- * and writes the console through the kernel's system calls; the keyboard
- * comes by its interrupt, a line at a time with echo and erasing, and the
- * clock by the timer's.
+ * test_console.cpp - the console through the kernel's system calls (stage
+ * 2): init and the shell after it read and write it; the keyboard comes by
+ * its interrupt, a line at a time with echo and erasing, and the clock by
+ * the timer's.
  */
 #include "Machine.hpp"
 
@@ -58,7 +58,7 @@ TEST_CASE("letters bare are small, Latin and Russian alike; with Shift capital")
     m.typeAndSettle("Ab\r", 50);
     INFO(m.screen());
     CHECK(m.screen().find("Hello, root") != std::string::npos);
-    CHECK(m.screen().find("Ab?") != std::string::npos);
+    CHECK(m.screen().find("Ab: not found") != std::string::npos);
 }
 
 TEST_CASE("a Russian name, small letters bare, is read as it was typed") {
@@ -99,14 +99,14 @@ TEST_CASE("the clock goes: the time asked twice three seconds apart differs by a
     CHECK(second - first <= 5);
 }
 
-TEST_CASE("an unknown command is answered with a question mark, and the process asks again") {
+TEST_CASE("an unknown command is reported, and the shell asks again") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
     booted(m);
     m.typeAndSettle("root\r", 30);
     m.typeAndSettle("xyz\r", 30);
     INFO(m.screen());
-    CHECK(m.screen().find("xyz?") != std::string::npos);
+    CHECK(m.screen().find("xyz: not found\n$") != std::string::npos);
 }
 
 }

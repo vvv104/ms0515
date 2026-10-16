@@ -35,6 +35,16 @@ void putnum(unsigned n)
 	write(1, digits + i, (int)sizeof digits - i);
 }
 
+/* who: what: and why, by errno, on the error output. */
+void complain(const char *who, const char *what)
+{
+	puts_fd(2, who);
+	puts_fd(2, ": ");
+	puts_fd(2, what);
+	puts_fd(2, errno == ENOENT ? ": not found\n" : errno == ENOTDIR ? ": not a directory\n" :
+		   errno == EAGAIN ? ": no room for another process\n" : ": cannot\n");
+}
+
 void *memcpy(void *to, const void *from, unsigned n)
 {
 	char *t = to;

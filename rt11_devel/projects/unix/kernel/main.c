@@ -1,6 +1,7 @@
 /* main.c - the kernel's start: the vectors, the clock, the console, the
  * root file system, and the first process, /etc/init, run by exec. */
 #include "kernel.h"
+#include "proc.h"
 #include "rom.h"
 
 void panic(const char *why)
@@ -19,6 +20,8 @@ int main(void)
 	VECTOR(034, trap_entry, 0);		/* TRAP, priority 0 */
 	VECTOR(0130, tty_entry, 0340);		/* the keyboard */
 	clock_start();
+	proc_init();
+	files_init();
 	if (fs_mount() != 0)
 		panic("no file system");
 	exec("/etc/init", argv);

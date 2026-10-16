@@ -46,6 +46,7 @@ add_executable(kernel
     kernel/bio.c
     kernel/fs.c
     kernel/exec.c
+    kernel/proc.c
     kernel/sys.c
     "${ARITH}")
 target_compile_options(kernel PRIVATE -Wall -Wextra -Werror)
@@ -74,8 +75,13 @@ function(program name)
     set(PROGRAMS ${PROGRAMS} ${name}.x PARENT_SCOPE)
 endfunction()
 program(init user/init.c)
-program(hello user/hello.c)
+program(sh user/sh.c)
+program(ls user/ls.c)
+program(cat user/cat.c)
 program(echo user/echo.c)
+program(hello user/hello.c)
+program(fail user/fail.c)
+program(pid user/pid.c)
 
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/root")
 add_custom_command(OUTPUT unix.dsk
@@ -85,8 +91,13 @@ add_custom_command(OUTPUT unix.dsk
             /etc/init=init.x
             /etc/motd=${ROOT}/etc/motd
             /etc/numbers=${ROOT}/etc/numbers
-            /bin/hello=hello.x
+            /bin/sh=sh.x
+            /bin/ls=ls.x
+            /bin/cat=cat.x
             /bin/echo=echo.x
+            /bin/hello=hello.x
+            /bin/fail=fail.x
+            /bin/pid=pid.x
     DEPENDS boot.bin kernel.bin ${PROGRAMS} "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py"
             ${ROOT}/etc/motd ${ROOT}/etc/numbers
     COMMENT "unix.dsk")

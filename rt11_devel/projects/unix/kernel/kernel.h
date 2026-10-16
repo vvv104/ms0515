@@ -76,9 +76,9 @@ int exec(const char *path, const char *const *argv);
 
 /* sys.c */
 void syscall(struct trapframe *tf);
-void files_close_all(void);
+void files_init(void);
 
 /* main.c */
-void panic(const char *why);
+void panic(const char *why) __attribute__((noreturn));
 
 #endif

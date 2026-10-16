@@ -115,6 +115,29 @@ public:
         }
     }
 
+    /* A command line typed at the shell's prompt, and frames run until the
+     * prompt comes back - the next line is not typed into the last one's
+     * output - at most `limit`. */
+    bool command(const std::string &line, int limit = 1500)
+    {
+        auto prompts = [this] {
+            const std::string s = screen();
+            std::size_t n = 0;
+            for (auto at = s.find("\n$"); at != std::string::npos; at = s.find("\n$", at + 1)) ++n;
+            return n;
+        };
+        const std::size_t before = prompts();
+        typeAndSettle(line + "\r", 0);
+        for (int f = 0; f < limit; f += 5) {
+            run(5);
+            if (prompts() > before) {
+                run(5);
+                return true;
+            }
+        }
+        return false;
+    }
+
     /* A key pressed bare: what the keyboard gives without Shift. */
     void tapBare(ms0515::Key key) { typist_.type(key); }
 

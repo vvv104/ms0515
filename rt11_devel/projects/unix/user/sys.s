@@ -4,10 +4,15 @@
 / returns -1.
 
 	.text
-	.globl	_exit, _read, _write, _open, _close, _execv, _time, _errno
+	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
+	.globl	_time, _getpid, _getppid, _errno
 
 _exit:	trap	1
 	br	_exit
+
+/ int fork(void): the child's pid to the parent, 0 to the child.
+_fork:	trap	2
+	br	done
 
 _read:	trap	3
 	br	done
@@ -21,12 +26,24 @@ _open:	trap	5
 _close:	trap	6
 	br	done
 
+/ int wait(int *status): a child gone, its pid; its status at *status.
+_wait:	trap	7
+	br	done
+
 / int execv(const char *path, char *const argv[]): back only on an error.
 _execv:	trap	11
 	br	done
 
 / long time(void): the seconds since the boot, r0:r1.
 _time:	trap	13
+	br	done
+
+_getpid:
+	trap	20
+	br	done
+
+_getppid:
+	trap	64
 	br	done
 
 done:	bcc	1f

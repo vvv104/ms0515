@@ -425,7 +425,11 @@ hands over.
    `read`/`write` of the console.
 3. **FS.**  `mkfs` on the host, the HD driver in the emulator,
    `open`/`read`/`exec`.
-4. **Multitasking.**  Two slots, `fork`/`wait`, pipes, `sh`.
+4. **Multitasking.**  4a: the process table, two slots, a kernel stack
+   each, `fork`/`exit`/`wait`, `sh` - init gives the shell its place, the
+   shell runs its commands in the other slot.  4b: pipes and the
+   background: a third process needs swap, so swap comes here, before the
+   floppy driver of stage 5.
 5. **The floppy and swap.**  An own VG93 driver instead of 160010
    (formatting, speed), swap to the diskette and to the RAM disk.
 6. **Utilities** of levels 1-2, then `rt11` and Forth.

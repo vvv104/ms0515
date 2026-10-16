@@ -10,6 +10,7 @@
  * first, which the new one overwrites.  The open files stay open, as Unix
  * has it. */
 #include "kernel.h"
+#include "proc.h"
 
 #define AOUT_MAGIC 0407
 #define ARGBYTES 256			/* the arguments' strings, all of them */
@@ -64,6 +65,7 @@ int exec(const char *path, const char *const *argv)
 	}
 	iput(ip);
 	memset((char *)USER_BASE + size, 0, h.bss);
+	curproc->brk = USER_BASE + size + h.bss;
 
 	sp = (USER_TOP - ((used + 1) & ~1u));		/* the strings, at the top */
 	memcpy((char *)sp, argbuf, used);

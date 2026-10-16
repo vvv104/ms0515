@@ -5,12 +5,15 @@ PDP-11 assembler: LSX and Mini-Unix in reach - multitasking without memory
 protection, a file system with directories, a shell with pipes.
 [`SPEC.md`](SPEC.md) is the specification and the plan of stages.
 
-Stages 1-3 are done: the native ROM-B boots the system's diskette, the
-boot block loads the kernel, /boot/kernel, and the kernel mounts the file
-system and runs /etc/init by exec.  init asks for a name at `login:` and
-takes commands a line at a time - `ls`, `cat`, `run` a program from /bin,
-`t` the time - through the system calls; the keyboard comes by its
-interrupt, the clock by the frame's.
+Stages 1-3 and the first half of 4 are done: the native ROM-B boots the
+system's diskette, the boot block loads the kernel, /boot/kernel, and the
+kernel mounts the file system and runs /etc/init.  init asks for a name at
+`login:` and gives its place to the shell, /bin/sh, which runs each command
+as a child - fork, exec, wait - in the second slot and comes back with its
+prompt.  /bin has `sh`, `ls`, `cat`, `echo`, `hello`, `fail` and `pid`; the
+shell's own commands are `t` (the time), `status` (the last command's) and
+`exit`, which ends the session.  Pipes and the background wait for swap
+(stage 4b): the machine keeps two processes at once.
 
 ## Building and booting
 
@@ -54,12 +57,18 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   extents, `readi`, paths.
 - `kernel/exec.c` - a program into the slot: an a.out of the 0407 kind
   linked at 040000, its arguments on the stack as V6 laid them.
-- `kernel/sys.c` - the system calls by V6's numbers: exit, read, write,
-  open, close, exec, time; the open files.  When the process exits, init
+- `kernel/proc.c`, `proc.h` - the processes: the table, the two slots
+  (banks 2-5 primary and extra, dispatcher bits 2-5), a kernel stack of
+  each in bank 0, sleep and wakeup, the switch (`swtch` in trap.s), fork
+  copying the image's used part through a buffer, exit, wait.
+- `kernel/sys.c` - the system calls by V6's numbers: exit, fork, read,
+  write, open, close, wait, exec, time, getpid, getppid; the open files,
+  the system's, shared by a fork's descriptors.  When pid 1 exits, init
   runs again.
 - `user/` - a process's start (`crt0.s`, `main(argc, argv)`), the calls as
   C functions (`sys.s`, `unistd.h`), a little library (`lib.c`), `init.c`,
-  and the programs of /bin: `hello.c`, `echo.c`.
+  and the programs of /bin: `sh.c`, `ls.c`, `cat.c`, `echo.c`, `hello.c`,
+  `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `root/` - the files the volume carries as they are: /etc/motd,
   /etc/numbers (a file of several blocks, for the tests).
 - `tools/mkfs.py` - the diskette and its file system from PATH=FILE pairs:
@@ -72,8 +81,12 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   takes it; a name echoed and greeted, the case of bare and shifted letters,
   a Russian name, BS, the clock, an unknown command; the volume read on the
   host by a second reading of the format (`Volume.hpp`), and on the machine
-  `cat`, `ls`, a file across blocks line by line, a file not there, `run`
-  with arguments and init back after.  Skipped when the image is not
+  `cat`, `ls`, a file across blocks line by line, a file not there, a
+  program with its arguments; the shell back at its prompt after a command,
+  a command by name and by path and one not there, the exit status, the
+  children's pids, `exit` back to `login:`.  `Machine::command` types a
+  line and waits for the prompt, so the next is not typed into the last
+  one's output.  Skipped when the image is not
   built; `--unix-dsk=<file>` names another.
 
 The programs are linked freestanding at their own addresses and put down
