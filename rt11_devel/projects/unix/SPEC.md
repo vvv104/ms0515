@@ -549,7 +549,9 @@ hands over.
    Forth.  Done so far: lseek and `>>`; chdir, stat and
    fstat, the shell's `cd`, `pwd`; link, `ln`, `mv` (a link, or a copy to
    another volume), `cp`; `rtfs` on a side's RT-11 DZ volume, so an RT-11
-   program comes off its own diskette and runs by `rt11` with no host.
+   program comes off its own diskette and runs by `rt11` with no host;
+   `ls -l` and `-a`, `du`, `df` (a volume's superblock and bitmap read off
+   its device).
 
 Stages 9-11 are put off for a long time: there is no real machine to try
 them on.
