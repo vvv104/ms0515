@@ -91,14 +91,15 @@
    if (align > 8)
      fprintf (file, "\t.even\n");
    if (TARGET_DEC_ASM)
-@@ -1027,6 +1037,21 @@
+@@ -1027,6 +1037,22 @@
      src = XEXP (x, 1);
    dest = XEXP (x, 0);
  
 +  /* Without EIS (-m10) an integer multiply, divide or remainder is no
 +     instruction but a call of libgcc's helper: the arguments pushed,
-+     the call and the stack put back - eight words - and for a multiply
-+     a loop of up to sixteen steps.  Priced as one MUL, or under -Os as
++     the call and the stack put back - some eight words, the registers
++     it takes kept round it - and for a multiply a loop of up to
++     sixteen steps.  Priced as one MUL, or under -Os as
 +     any one instruction, it was chosen over a pointer stepped by an
 +     add: a table walked by a pointer became a count times the size of
 +     its element.  */
@@ -106,14 +107,14 @@
 +      && (code == MULT || code == DIV || code == UDIV
 +	  || code == MOD || code == UMOD))
 +    {
-+      *total = speed ? 40 * asize * asize : 8 * asize;
++      *total = speed ? 40 * asize * asize : 16 * asize;
 +      return false;
 +    }
 +
    /* If optimizing for size, claim everything costs 2 per word, plus
       whatever the operands require.  */
    if (!speed)
-@@ -1924,7 +1949,11 @@
+@@ -1924,7 +1950,11 @@
  bool
  pdp11_small_shift (int n)
  {
@@ -126,7 +127,7 @@
  }
  
  /* Expand a shift insn.  Returns true if the expansion was done,
-@@ -2126,8 +2155,10 @@
+@@ -2126,8 +2156,10 @@
  	len += 2;  /* second operand extra word.  */
      }
  
@@ -139,7 +140,7 @@
  }
  
  /* Prepend to CLOBBERS hard registers that are automatically clobbered
-@@ -2326,8 +2357,9 @@
+@@ -2326,8 +2358,9 @@
      {
        bss_section = data_section;
      }

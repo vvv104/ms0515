@@ -6,8 +6,9 @@
  * a step number times the structure's size - two calls a step.  Built at
  * -Os, with the functions kept in the file's order
  * (-fno-toplevel-reorder): the program reads its own lookup, from it to
- * lookup_end, and counts what refers to __mulhi3 - a JSR PC to it, or its
- * address as a word - then prints what the walks found.  The harness
+ * lookup_end, and wake, a walk by an index over big elements, and counts
+ * what refers to __mulhi3 - a JSR PC to it, or its address as a word -
+ * then prints what the walks found.  The harness
  * (../tests) wants no such reference. */
 
 #include <stdio.h>
@@ -44,6 +45,35 @@ __attribute__((noinline)) void lookup_end(void)
 {
 }
 
+/* A table of big elements, walked by an index, the field asked for not
+ * the first: as a kernel's process table with each process's stack.  A
+ * price of the call as eight words still let -Os multiply here. */
+struct proc {
+	unsigned sp;
+	int state;
+	const void *chan;
+	char stack[340];
+};
+
+#define PROCS ((struct proc *)064000)
+#define NPROC 8
+
+__attribute__((noinline)) int wake(const void *chan)
+{
+	int i, n = 0;
+
+	for (i = 0; i < NPROC; i++)
+		if (PROCS[i].state == 2 && PROCS[i].chan == chan) {
+			PROCS[i].state = 1;
+			n++;
+		}
+	return n;
+}
+
+__attribute__((noinline)) void wake_end(void)
+{
+}
+
 #define JSR_PC_REL 004767		/* jsr pc,x: the next word is x's offset */
 
 /* The words of [from, to) that call __mulhi3 or hold its address. */
@@ -75,7 +105,14 @@ int main(void)
 		e->block = blocks[k] = (unsigned)k * 10;
 		e->used = k != 7;
 	}
-	printf("MULHI3 CALLS %d\n", references((const unsigned *)lookup, (const unsigned *)lookup_end));
+	for (k = 0; k < NPROC; k++) {
+		PROCS[k].state = 2;
+		PROCS[k].chan = k & 1 ? (const void *)devs : (const void *)blocks;
+	}
+	printf("MULHI3 CALLS %d %d\n", references((const unsigned *)lookup, (const unsigned *)lookup_end),
+	       references((const unsigned *)wake, (const unsigned *)wake_end));
+	k = wake(devs);
+	printf("WOKEN %d %d\n", k, wake(devs));
 	for (k = 0; k < ENTRIES; k++) {
 		at = 0;
 		e = lookup(devs[k], blocks[k], &at);

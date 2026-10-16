@@ -146,8 +146,9 @@ COST_OLD = ("  /* If optimizing for size, claim everything costs 2 per word, plu
 COST_NEW = (
     "  /* Without EIS (-m10) an integer multiply, divide or remainder is no\n"
     "     instruction but a call of libgcc's helper: the arguments pushed,\n"
-    "     the call and the stack put back - eight words - and for a multiply\n"
-    "     a loop of up to sixteen steps.  Priced as one MUL, or under -Os as\n"
+    "     the call and the stack put back - some eight words, the registers\n"
+    "     it takes kept round it - and for a multiply a loop of up to\n"
+    "     sixteen steps.  Priced as one MUL, or under -Os as\n"
     "     any one instruction, it was chosen over a pointer stepped by an\n"
     "     add: a table walked by a pointer became a count times the size of\n"
     "     its element.  */\n"
@@ -155,7 +156,7 @@ COST_NEW = (
     "      && (code == MULT || code == DIV || code == UDIV\n"
     "\t  || code == MOD || code == UMOD))\n"
     "    {\n"
-    "      *total = speed ? 40 * asize * asize : 8 * asize;\n"
+    "      *total = speed ? 40 * asize * asize : 16 * asize;\n"
     "      return false;\n"
     "    }\n"
     "\n") + COST_OLD

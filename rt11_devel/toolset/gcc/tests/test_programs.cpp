@@ -226,8 +226,9 @@ TEST_CASE("MULCOST: a walk over a table by a pointer calls no __mulhi3 at -Os") 
     REQUIRE(r.ended);
     CHECK_FALSE(r.failed);
     const auto got = lines(r.printed);
-    REQUIRE(got.size() == 17);
-    CHECK(got[0] == "MULHI3 CALLS 0");
+    REQUIRE(got.size() == 18);
+    CHECK(got[0] == "MULHI3 CALLS 0 0");
+    CHECK(got[1] == "WOKEN 4 0");      /* the odd ones wait on devs; then none is left */
     for (unsigned k = 0; k < 15; ++k) {
         char expected[24];
         if (k == 7)
@@ -235,9 +236,9 @@ TEST_CASE("MULCOST: a walk over a table by a pointer calls no __mulhi3 at -Os") 
         else
             std::snprintf(expected, sizeof expected, "%u %o", k * 10, 070000u + k * 512u);
         CAPTURE(k);
-        CHECK(got[k + 1] == expected);
+        CHECK(got[k + 2] == expected);
     }
-    CHECK(got[16] == "MULCOST DONE");
+    CHECK(got[17] == "MULCOST DONE");
 }
 
 /* GCC 15.2's pdp11 backend wrote zeroed variables into .data, so a
