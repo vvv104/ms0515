@@ -240,7 +240,12 @@ The device is the physical drive whole: both sides, 1600 blocks of 512 bytes.
 
 **Geometry.**  A block = a sector of 512 bytes.  The driver turns an LBN into
 the track, the side and the sector; the division into FD0/FD2 is the old
-BIOS's convention, the kernel does not need it.  A block number is 16 bits.
+BIOS's convention, the kernel does not need it.  A block number is 16 bits.  A file takes
+whole blocks of 512 bytes, but its length in the inode is in bytes, so a text
+is not padded with nulls as in RT-11.  Nothing smaller than a block is shared
+out: the VG93 writes only a whole sector, the tails of several files in one
+block would tie them to one write and spoil them together, and the gain is
+half a block a file, about 4% of the diskette.
 
 **The volume layout (1600 blocks).**
 
