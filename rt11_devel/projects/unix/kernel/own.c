@@ -6,26 +6,32 @@
  * and the loader - into the process's slot at 040000 and enters the
  * loader at 040020, SP pointing at what it needs to find the rest: the
  * blocks to read, the ROM's unit, whether the volume is both sides of the
- * drive (a block from 800 on side 1), the file's five extents.  The
+ * drive (a block from 800 on side 1), the file's five extents - and the
+ * command line, the count and the strings, OWN_ARGS bytes at most.  The
  * loader lays the file over everything through the ROM's 160010, the
  * kernel too, and the system is gone; so the file is to be on a diskette.
  * Whatever can be the program's is: the kernel only checks it and hands
  * over. */
-#include "kernel.h"
+#include "high.h"
 
 #define OWN_BASE 0760u			/* the header's place: the text at 001000 */
 #define OWN_TOP 0157000u		/* the loader's place above */
 #define OWN_TEXT 01000u
 #define HEADER 16
+#define OWN_ARGS 128			/* what the loader's room takes of exec's strings */
 
 /* ip's program, size bytes of text and data and bss of bss, its entry
- * entry: back only with the error that kept it from being run. */
-int own_exec(struct inode *ip, unsigned size, unsigned bss, unsigned entry)
+ * entry, argc arguments in exec's buffer, used bytes: back only with the
+ * error that kept it from being run. */
+int own_exec(struct inode *ip, unsigned size, unsigned bss, unsigned entry,
+	     unsigned argc, unsigned used)
 {
 	unsigned dev = ip->dev, blocks, have = 0, i, *info;
 
 	if (dev > DEV_FDX1)
 		return ENOEXEC;			/* the ROM reads diskettes only */
+	if (used > OWN_ARGS)
+		return E2BIG;
 	if (size > OWN_TOP - OWN_BASE - HEADER)
 		return ENOMEM;
 	size += HEADER;
@@ -43,6 +49,8 @@ int own_exec(struct inode *ip, unsigned size, unsigned bss, unsigned entry)
 	info[1] = dev >= DEV_FDX0 ? dev - DEV_FDX0 : (dev & 1) << 1 | dev >> 1;
 	info[2] = dev >= DEV_FDX0;
 	memcpy(info + 3, ip->d.ext, sizeof ip->d.ext);
+	info[13] = argc;
+	memcpy(info + 14, HIGH->argbuf, used);
 	enter(USER_BASE + HEADER, (unsigned)info);
 	return 0;				/* not come to */
 }

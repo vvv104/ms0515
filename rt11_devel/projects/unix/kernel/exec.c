@@ -55,7 +55,8 @@ int exec(const char *path, const char *const *argv)
 		return ENOEXEC;
 	}
 	if (h.magic == OWN_MAGIC) {
-		error = h.text + h.data < h.text ? ENOMEM : own_exec(ip, h.text + h.data, h.bss, h.entry);
+		error = h.text + h.data < h.text ? ENOMEM :
+			own_exec(ip, h.text + h.data, h.bss, h.entry, argc, used);
 		iput(ip);
 		return error;
 	}

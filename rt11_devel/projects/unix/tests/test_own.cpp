@@ -52,6 +52,32 @@ TEST_CASE("bigmem owns the machine: all of 001000..150000 its own, the ROM its c
     CHECK(m.screen().find("\nagain\n") != std::string::npos);
 }
 
+TEST_CASE("bigmem is given its command line, and reads a file of the root by its own reader through the ROM") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    {
+        Machine m(unixos::readImage(), false);
+        atPrompt(m);
+        m.typeAndSettle("bigmem /etc/numbers two\r", 0);
+        REQUIRE(m.runUntil("PRESS A KEY", 3000));
+        const std::string s = m.screen();
+        INFO(s);
+        CHECK(s.find("ARGS 3") != std::string::npos);
+        CHECK(s.find("ARG bigmem") != std::string::npos);
+        CHECK(s.find("ARG /etc/numbers") != std::string::npos);
+        CHECK(s.find("ARG two") != std::string::npos);
+        /* The last line: the file's last block, through its extent. */
+        CHECK(s.find("LAST line 40: the quick brown fox jumps over the lazy dog") != std::string::npos);
+    }
+    {
+        Machine m(unixos::readImage(), false);
+        atPrompt(m);
+        m.typeAndSettle("bigmem /etc/none\r", 0);
+        REQUIRE(m.runUntil("PRESS A KEY", 3000));
+        INFO(m.screen());
+        CHECK(m.screen().find("NO FILE") != std::string::npos);
+    }
+}
+
 TEST_CASE("bigmem from side 1 of the second drive: the loader reads it by the ROM's unit 3") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), false);

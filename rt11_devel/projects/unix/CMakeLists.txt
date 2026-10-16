@@ -108,7 +108,8 @@ program(getty user/getty.c)
 # (kernel/own.c, user/own/own.h): linked at 001000 with the ROM's little
 # library, its a.out given magic 0401.
 function(own_program name)
-    add_executable(${name} user/own/crt0.s user/own/rom.s user/own/own.c ${ARGN} "${ARITH}")
+    add_executable(${name} user/own/crt0.s user/own/rom.s user/own/own.c user/own/files.c
+                   ${ARGN} "${ARITH}")
     target_compile_options(${name} PRIVATE -Wall -Wextra -Werror)
     add_custom_command(OUTPUT ${name}.x
         COMMAND "${PDP11_STRIP}" -o ${name}.a $<TARGET_FILE:${name}>

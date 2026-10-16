@@ -132,9 +132,11 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `user/own/` - the little library of a program that owns the machine:
   `crt0.s` (the loader, run first at 040020 and then from 157000, reading
-  the file through the ROM's 160010 to 000760 and up; then the start:
-  the vectors at an RTI, the bss, main, the end a reset), `rom.s` and
-  `own.c` (the ROM's console, keyboard and diskette, `own.h`), and
+  the file through the ROM's 160010 to 000760 and up, the command line
+  to 000400; then the start: the vectors at an RTI, the bss,
+  main(argc, argv), the end a reset), `rom.s` and `own.c` (the ROM's
+  console, keyboard and diskette, `own.h`), `files.c` (the system's file
+  system read by path on the program's own volume, no mounts), and
   `bigmem.c`, /bin/bigmem, its proof.  `tools/own_aout.py` gives the
   linked a.out its magic, 0401.
 - `root/etc/` - `rc`, `fstab`, `motd`, `numbers`.
@@ -176,7 +178,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   bigmem owning the machine - its pattern over 001000..150000 read back,
   the root's superblock read through the ROM, a key and a reset, the
   system booted again - from the root and from side 1 of the second
-  drive, refused from the RAM disk.
+  drive, refused from the RAM disk; its command line, and a file's last
+  line read by the library's own reader.
   `bare.dsk`, the image without
   /etc/rc, is for the tests that mount and swap by hand.
   `Machine::command` types a line and waits for the prompt, so the next is
@@ -199,7 +202,7 @@ The build reports the kernel's memory and stops past its limits
 040000, and the bank-6 tables (the kernel's `_high_size`) against the 6656
 bytes up to 155000, the driver's place above - with the kernel stacks at
 320 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a
-margin): an image of 15106 bytes, 720 bytes free below 040000, 1764 free
+margin): an image of 15158 bytes, 668 bytes free below 040000, 1764 free
 in bank 6.  The big tables live in bank 6: below 040000 there is no room
 for them beside the code.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.
