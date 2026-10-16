@@ -258,6 +258,29 @@ TEST_CASE("BSSZERO: zeroed arrays in the bss, read as zeros; an initialized one 
     CHECK(got[2] == "BSSZERO DONE");
 }
 
+/* GCC 15.2's pdp11 backend shifted by a variable count in a loop that
+ * counted down the count's own register, once copy propagation had put
+ * the copy it was meant for back to the count; the patch gives the loop a
+ * register of its own.  VARSHIFT (examples/varshift.c) hangs on a compiler
+ * without the fix. */
+TEST_CASE("VARSHIFT: shifts by a count in a variable, the count kept") {
+    if (!built("VARSHIFT")) { MESSAGE("VARSHIFT.SAV not built - skipped"); return; }
+    const Run r = run("VARSHIFT");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == 18);
+    CHECK(got[0] == "-rw-r--r--  1    1234 motd");
+    for (int i = 0; i < 16; ++i) {
+        const std::string expected = std::to_string(i) + " " + std::to_string(1u << i) + " " +
+                                     std::to_string(0100000u >> i) + " " +
+                                     std::to_string(static_cast<int16_t>(-32768) >> i);
+        CAPTURE(i);
+        CHECK(got[static_cast<std::size_t>(i) + 1] == expected);
+    }
+    CHECK(got[17] == "VARSHIFT DONE");
+}
+
 /* MACHINE (examples/machine.c) over the machine library: the screen in
  * colour with a diagonal and one cell's attribute, the clock counting
  * while it waits, the keyboard taken until Q, the console back. */

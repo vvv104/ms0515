@@ -26,8 +26,8 @@ rt11_devel/toolset/gcc/
 ├── include/             rt11.h, ms0515.h, fx.h, stdio.h, stdlib.h, string.h, ctype.h
 ├── examples/            HELLO, ARITH, LIBC, LIBC2, INPUT, FX, MACHINE, HELD, PORTS, DRAW,
 │                        STREAM, FILES, DEEP (the runtime checked), CMPLONG, LONGP0,
-│                        LONGPS, MULCOST, BSSZERO (the compiler's faults, fixed), CALC (the
-│                        benchmark)
+│                        LONGPS, MULCOST, BSSZERO, VARSHIFT (the compiler's faults,
+│                        fixed), CALC (the benchmark)
 └── tests/               the examples run by ms0515-run's machine (doctest)
 ```
 
@@ -175,7 +175,14 @@ call and finds none.  Last, **zeroed variables** were written into
 `.bss` now, and `examples/bsszero.c` finds its arrays between `_edata`
 and `_end`.  (A `.SAV` holds its memory whole, bss and all; the gain is
 for programs loaded by a loader that clears the bss, as the UNIX
-kernel's.)  The four tests fail on a compiler without the patch.
+kernel's.)  And a **shift by a count in a variable**, a loop without
+`ASH`, counted down a copy of the count the pattern clobbered by
+`match_dup`; copy propagation put the count itself in the copy's place,
+so a loop's index shifted by came out of it as 0 and the loop round it
+never ended (`ls -l`'s permission bits found it).  The clobbered register
+is an output of its own now, the count tied to it; `examples/varshift.c`
+hangs without the fix.  The five tests fail on a compiler without the
+patch.
 
 `-m10` also means the PDP-11/10, which had no `XOR` and no `SOB`; the
 T-11 has both, and GCC asks for a `__xorhi3` instead (in `rt/arith.s`).

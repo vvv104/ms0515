@@ -1,8 +1,8 @@
 # The example programs of the GCC toolset, and what its tests run
 # (../tests): HELLO; ARITH, LIBC, LIBC2, INPUT and FX for the runtime and
-# the C library; CMPLONG, LONGP0, LONGPS, MULCOST and BSSZERO for the compiler;
-# MACHINE, HELD, PORTS, DRAW and STREAM for the machine library; FILES
-# for the files; DEEP for STACK; the CALC benchmark.
+# the C library; CMPLONG, LONGP0, LONGPS, MULCOST, BSSZERO and VARSHIFT
+# for the compiler; MACHINE, HELD, PORTS, DRAW and STREAM for the machine
+# library; FILES for the files; DEEP for STACK; the CALC benchmark.
 #
 #     cmake -S rt11_devel/toolset/gcc/examples -B <build folder> -G Ninja
 #     cmake --build <build folder>
@@ -30,6 +30,7 @@ target_compile_options(longps PRIVATE -Os)
 rt11_c_program(NAME MULCOST SOURCES mulcost.c)
 target_compile_options(mulcost PRIVATE -Os -fno-toplevel-reorder)
 rt11_c_program(NAME BSSZERO SOURCES bsszero.c)
+rt11_c_program(NAME VARSHIFT SOURCES varshift.c varshift_io.c)
 rt11_c_program(NAME MACHINE SOURCES machine.c)
 rt11_c_program(NAME HELD SOURCES held.c)
 rt11_c_program(NAME DRAW SOURCES draw.c)

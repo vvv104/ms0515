@@ -55,7 +55,16 @@ was made only under -mgnu-asm, pdp11_asm_output_var switched to the
 data section whatever the syntax, and with no ASM_OUTPUT_ALIGNED_BSS a
 global one went where default_select_section puts writable data.  A
 program's file carried its zeros.  They go to .bss now; DEC's syntax
-keeps .data, MACRO-11 having no bss."""
+keeps .data, MACRO-11 having no bss.
+
+The sixth is a fault again: a shift by a count in a variable, on a
+machine without ASH, is a loop that counts down a copy of the count, the
+pattern clobbering it by (clobber (match_dup 2)).  Copy propagation put
+the count itself back in the copy's place, and the clobber went with it:
+a loop's index shifted by came out of the shift as 0, and the loop round
+it never ended.  The clobbered register is an output of its own now and
+the count an input tied to it by its constraint, the allocator making the
+copy."""
 import re
 import sys
 from pathlib import Path
@@ -183,6 +192,30 @@ H_BSS_NEW = H_BSS_OLD + (
     "#define ASM_OUTPUT_ALIGNED_BSS(FILE, DECL, NAME, SIZE, ALIGN) \\\n"
     "  pdp11_asm_output_var (FILE, NAME, SIZE, ALIGN, false)\n")
 
+SHIFT_BASE_OLD = ('(match_operand:HI 2 "register_operand" "r,r")))\n'
+                  '   (clobber (match_dup 2))]\n')
+SHIFT_BASE_NEW = ('(match_operand:HI 3 "register_operand" "2,2")))\n'
+                  '   (clobber (match_operand:HI 2 "register_operand" "=&r,&r"))]\n')
+SHIFT_SPLIT_OLD = "(SHF:QHSint (match_dup 1) (match_dup 2)))\n\t      (clobber (match_dup 2))"
+SHIFT_SPLIT_NEW = "(SHF:QHSint (match_dup 1) (match_dup 3)))\n\t      (clobber (match_dup 2))"
+SHIFT_NOCC_OLD = ('(match_operand:HI 2 "register_operand" "r,r")))\n'
+                  '   (clobber (match_dup 2))\n'
+                  '   (clobber (reg:CC CC_REGNUM))]\n')
+SHIFT_NOCC_NEW = ('(match_operand:HI 3 "register_operand" "2,2")))\n'
+                  '   (clobber (match_operand:HI 2 "register_operand" "=&r,&r"))\n'
+                  '   (clobber (reg:CC CC_REGNUM))]\n')
+SHIFT_FN_OLD = "\t\t    rtx (*shift_base) (rtx, rtx, rtx))\n"
+SHIFT_FN_NEW = "\t\t    rtx (*shift_base) (rtx, rtx, rtx, rtx))\n"
+SHIFT_CALL_OLD = "      emit_insn ((*shift_base) (operands[0], operands[1], r));\n"
+SHIFT_CALL_NEW = ("      /* The count in r, a copy of its own the loop counts down: r twice,\n"
+                  "\t the clobbered register and the count, one pseudo the pattern's\n"
+                  "\t constraint ties together - copy propagation may put the count\n"
+                  "\t back in its input, the allocator then copies it to the\n"
+                  "\t clobbered one.  */\n"
+                  "      emit_insn ((*shift_base) (operands[0], operands[1], r, r));\n")
+SHIFT_PROTO_OLD = "rtx (*) (rtx, rtx, rtx));"
+SHIFT_PROTO_NEW = "rtx (*) (rtx, rtx, rtx, rtx));"
+
 
 def edit(path, replacements):
     """Each replacement made once; one made already is passed by, so that
@@ -209,8 +242,12 @@ def main():
               (ORDER_OLD, ORDER_NEW), (COST_OLD, COST_NEW),
               (BSS_INIT_OLD, BSS_INIT_NEW), (BSS_VAR_OLD, BSS_VAR_NEW)])
     edit(pred, [(PRED_OLD, PRED_NEW)])
+    edit(md, [(SHIFT_BASE_OLD, SHIFT_BASE_NEW), (SHIFT_SPLIT_OLD, SHIFT_SPLIT_NEW),
+              (SHIFT_NOCC_OLD, SHIFT_NOCC_NEW)])
+    edit(cc, [(SHIFT_FN_OLD, SHIFT_FN_NEW), (SHIFT_CALL_OLD, SHIFT_CALL_NEW)])
+    edit(tree / "gcc/config/pdp11/pdp11-protos.h", [(SHIFT_PROTO_OLD, SHIFT_PROTO_NEW)])
     edit(tree / "gcc/config/pdp11/pdp11.h", [(H_BSS_OLD, H_BSS_NEW)])
-    print("patched pdp11.md, pdp11.cc, pdp11.h and predicates.md")
+    print("patched pdp11.md, pdp11.cc, pdp11.h, pdp11-protos.h and predicates.md")
 
 
 if __name__ == "__main__":
