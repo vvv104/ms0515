@@ -1,10 +1,13 @@
-/* vol.c - volumes and swap files, for mkfs, swapon and mount -a (vol.h).
+/* vol.c - volumes, for mkfs and mount -a (vol.h).
  *
  * mkfs_volume writes tools/mkfs.py's layout (kernel/fs.h): block 0 left for
  * a boot block, 1 the superblock, 2 the bitmap, 3..10 the table of 128
  * inodes, the data from 11 - a volume made here keeps no swap area - and
  * the root, inode 1, a directory of "." and ".." in the first data block;
- * the blocks one after another from block 0 up to the root's. */
+ * the blocks one after another from block 0 up to the root's.  A swap file
+ * asked for is inode 2, "swap" in the root, the blocks after the root's in
+ * one extent: taken in the bitmap, their bytes whatever the device held -
+ * swap reads back only what it wrote. */
 #include "unistd.h"
 #include "vol.h"
 #include "../kernel/fs.h"
@@ -24,16 +27,16 @@ static int put(int fd)
 	return n == BSIZE ? 0 : -1;
 }
 
-int mkfs_volume(const char *device, unsigned blocks)
+int mkfs_volume(const char *device, unsigned blocks, unsigned swap_kb)
 {
 	struct superblock *sb = (struct superblock *)block;
-	struct dinode *root = (struct dinode *)block;
+	struct dinode *ino = (struct dinode *)block;
 	struct direct *d = (struct direct *)block;
-	unsigned b;
+	unsigned b, swap = swap_kb * 2;
 	int fd;
 
 	errno = 0;
-	if (blocks <= DATA || blocks > 8 * BSIZE) {
+	if (blocks <= DATA + 1 + swap || blocks > 8 * BSIZE) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -54,23 +57,35 @@ int mkfs_volume(const char *device, unsigned blocks)
 	memcpy(sb->label, "RAMDISK", 7);
 	if (put(fd) < 0)
 		goto fail;
-	for (b = 0; b <= DATA; b++)		/* 2: the bitmap, the areas and the root's block taken */
+	for (b = 0; b <= DATA + swap; b++)	/* 2: the bitmap: up to the root's block and the swap file's */
 		block[b >> 3] |= (char)(1 << (b & 7));
 	if (put(fd) < 0)
 		goto fail;
-	root->mode = S_IFDIR | 0755;		/* 3..10: the inodes, the root first */
-	root->nlink = 2;
-	root->nextents = 1;
-	root->size = 2 * sizeof(struct direct);
-	root->ext[0].start = DATA;
-	root->ext[0].len = 1;
+	ino[0].mode = S_IFDIR | 0755;		/* 3..10: the inodes, the root first */
+	ino[0].nlink = 2;
+	ino[0].nextents = 1;
+	ino[0].size = (swap ? 3 : 2) * sizeof(struct direct);
+	ino[0].ext[0].start = DATA;
+	ino[0].ext[0].len = 1;
+	if (swap) {
+		ino[1].mode = S_IFREG | 0600;
+		ino[1].nlink = 1;
+		ino[1].nextents = 1;
+		ino[1].size = (unsigned long)swap * BSIZE;
+		ino[1].ext[0].start = DATA + 1;
+		ino[1].ext[0].len = swap;
+	}
 	for (b = ITABLE; b < DATA; b++)
 		if (put(fd) < 0)
 			goto fail;
-	d[0].ino = ROOT_INO;			/* 11: the root's "." and ".." */
+	d[0].ino = ROOT_INO;			/* 11: the root's "." and ".." - and "swap" */
 	d[0].name[0] = '.';
 	d[1].ino = ROOT_INO;
 	d[1].name[0] = d[1].name[1] = '.';
+	if (swap) {
+		d[2].ino = ROOT_INO + 1;
+		memcpy(d[2].name, "swap", 4);
+	}
 	if (put(fd) < 0)
 		goto fail;
 	close(fd);
@@ -80,42 +95,6 @@ fail:
 	if (!errno)
 		errno = ENOSPC;
 	return -1;
-}
-
-/* The zeros of a swap file, ZEROS blocks a write: the kernel writes the
- * file's inode and the bitmap once a write, not once a block. */
-#define ZEROS 8
-static char zeros[ZEROS * BSIZE];
-
-int zero_file(const char *path, unsigned kb)
-{
-	int fd = creat(path, 0600);
-	unsigned left = kb * 2, n;
-
-	if (fd < 0)
-		return -1;
-	for (; left; left -= n) {
-		n = left < ZEROS ? left : ZEROS;
-		if (write(fd, zeros, n * BSIZE) != (int)(n * BSIZE)) {
-			close(fd);
-			return -1;
-		}
-	}
-	close(fd);
-	return 0;
-}
-
-int swap_file_on(const char *path, unsigned kb)
-{
-	int fd;
-
-	if (kb && (fd = open(path, 0)) < 0) {
-		if (zero_file(path, kb) < 0)
-			return -1;
-	} else if (kb) {
-		close(fd);
-	}
-	return swapon(path);
 }
 
 unsigned number(const char *s)

@@ -71,11 +71,11 @@ later take the native one's place without changing the kernel.
                      | TRAP - system calls      |  Diskette - own FS        |
   +------------------v-------------------+      |  800 blocks a side, or    |
   | Kernel - the file /boot/kernel       |<---->|  1600 on both; /boot, /bin|
-  | banks 0, 1, 6; up to 22 KB           |  FS  |  swap 2 x 32 KB when      |
+  | banks 0, 1, 6; up to 22 KB           |  FS  |  swap 3 x 32 KB when      |
   | processes, FS, swap, system calls    | swap |  there is no RAM disk     |
   | buffer cache in shadow bank 1        |      |                           |
   +------------------+-------------------+      |  RAM disk 512 KB (option) |
-                     | one jump table           |  swap ~14 process images  |
+                     | one jump table           |  swap 3 x 32 KB, /tmp     |
   +------------------v-------------------+      |  /tmp                     |
   | ROM: native ROM-B first, own later   |----->|                           |
   | console, keyboard, disk block, font  | boot +---------------------------+
@@ -198,7 +198,9 @@ processes resident, the others in swap.
 
 - Two slots in banks 2-5 (A and B), switched by a write to the dispatcher
   177400.
-- A process table of 8-16 entries.  Processes outside the slots lie in swap.
+- Four processes at most - the shell and a pipe of three, as the two pipes
+  the kernel has: the machine is not for more.  The two outside the slots
+  lie in swap.
 - A quantum by the timer interrupt (vector 0100), that is 50 Hz.  Preemptive
   switching only between resident processes; swapping out and in on a block or
   after several quanta.
@@ -211,8 +213,12 @@ processes resident, the others in swap.
   system.  The file cannot be removed while swap is on.
 - With a RAM disk it is `/tmp/swap` there (see "Volumes, swap and
   fstab"): a 32 KB image moves in ~0.15-0.3 s.  Without one it is `/swap`
-  on the diskette, ~1.5-2 s an image.  The file's size sets how many
-  processes can be out; only the image's used part moves.
+  on the diskette, ~1.5-2 s an image.  Each 32 KB of the file is a
+  process's area, one kept for the exchange: three areas, 96 KB, for the
+  two processes out; a smaller file allows fewer.  Only the image's used
+  part moves.
+- The file's bytes do not matter, only its inode and its blocks: `mkfs -s`
+  lays it down with the volume, nothing written into it.
 - Until swap is on there are no more processes than slots, two; whether
   the board is there is found at the start, as EX.SYS does: a pattern
   written and checked.
@@ -336,8 +342,8 @@ device; what is mounted where, and where swap is, `/etc/fstab` says:
 ```
 # device      where  what to do
 fd0           /      root
-rd0           /tmp   mkfs,optional       # made at the boot; no board - skipped
-/tmp/swap     swap   size=256,optional   # a swap file of 256 KB made and turned on
+rd0           /tmp   mkfs,swap=96,optional  # made at the boot with /swap in it; no board - skipped
+/tmp/swap     swap   optional            # the RAM disk's swap file turned on
 /swap         swap   optional            # the fallback: a file on the diskette
 ```
 
@@ -350,7 +356,9 @@ What the system has for it:
    given out by the bitmap, `sync`.
 3. `mount`/`umount`: several volumes in one tree.
 4. `mkfs` on the machine itself - the format of `tools/mkfs.py`; the tests
-   hold one against the other.
+   hold one against the other.  `mkfs -s KB` puts a swap file `/swap` of
+   KB kilobytes in the new volume: its inode, one extent, its blocks
+   taken.
 5. `swapon` with a file's path: the file in one extent, its blocks written
    directly, not to be removed while swap is on.
 6. `/etc/rc` and the reading of `fstab`: `mount -a` makes and mounts the

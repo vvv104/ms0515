@@ -99,7 +99,7 @@ program(mkdir user/mkdir.c)
 program(mkfs user/mkfs.c user/vol.c)
 program(mount user/mount.c user/vol.c)
 program(umount user/umount.c)
-program(swapon user/swapon.c user/vol.c)
+program(swapon user/swapon.c)
 program(getty user/getty.c)
 
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/root")
@@ -125,7 +125,7 @@ set(VOLUME_FILES
     /bin/umount=umount.x
     /bin/swapon=swapon.x
     --dir /tmp
-    --swap 128)
+    --swap 96)
 set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns

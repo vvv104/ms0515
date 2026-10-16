@@ -23,7 +23,7 @@
 #define ECHILD 10
 #define SLOT_BITS 074			/* dispatcher bits 2-5: banks 2-5 primary when set */
 #define AREA_BLOCKS ((USER_TOP - USER_BASE) / BSIZE)	/* a process's area: 64 blocks */
-#define MAXAREA 16
+#define MAXAREA (NPROC - NSLOT + 1)	/* the ones out of the slots, and one for the exchange */
 #define CANARY 0122525			/* the kernel stack's bottom word, while it holds */
 #define STACK_BOTTOM(p) (*(unsigned *)(p)->kstack)
 

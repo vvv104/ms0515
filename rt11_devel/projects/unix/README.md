@@ -9,12 +9,13 @@ Stages 1-5 are done.  The native ROM-B boots the system's diskette, the
 boot block loads the kernel, /boot/kernel, and the kernel mounts the root,
 looks for the EX board's RAM disk and runs /etc/init.  init gives its place
 to the shell on /etc/rc: `mount -a` makes the RAM disk a volume at /tmp and
-turns swap on by /etc/fstab - /tmp/swap, made there, else the diskette's
-/swap - and getty asks for a name at `login:` and starts /bin/sh, which runs
+turns swap on by /etc/fstab - /tmp/swap, laid down by mkfs with the
+volume, else the diskette's /swap - and getty asks for a name at `login:` and starts /bin/sh, which runs
 each command as a child - fork, exec, wait - and comes back with its prompt;
 `a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`
-and `< file` redirect.  Two processes are resident, one in each slot; with
-swap on the others wait in the swap file and come in when they are to run.
+and `< file` redirect.  Four processes at most - the shell and a pipe of
+three; two are resident, one in each slot, and with swap on the other two
+wait in the swap file, 96 KB, and come in when they are to run.
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls`, `cat`, `echo`, `rm`, `mkdir`, `mkfs`, `mount`, `umount`,
 `swapon`, `hello`, `fail` and `pid`; the shell's own commands are `t` (the
@@ -146,7 +147,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   and mount on the RAM disk read on the host from the board's memory
   (`Machine::ramDisk`), `..` out of a volume, umount; swap on the RAM
   disk's file and the diskette's, the swap file held, the RAM disk's
-  swap file made at the boot in some 300 frames (860 once); /etc/rc with the
+  swap file laid down by mkfs with the volume, on 5 frames after it (860
+  once, zeros written), four processes at most; /etc/rc with the
   board and without, getty again after a session, a mounted device
   refused for mkfs, a script; the single-sided system booted, a diskette
   in the second drive made a volume and read on the host, the double-sided
@@ -174,7 +176,7 @@ The build reports the kernel's memory and stops past its limits
 040000, and the bank-6 tables (the kernel's `_high_size`) against the 6656
 bytes up to 155000, the driver's place above - with the kernel stacks at
 320 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a
-margin): an image of 14344 bytes, 1472 bytes free below 040000, 332 free
+margin): an image of 14344 bytes, 1484 bytes free below 040000, 1764 free
 in bank 6.  The big tables live in bank 6: below 040000 there is no room
 for them beside the code.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.

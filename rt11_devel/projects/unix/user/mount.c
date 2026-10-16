@@ -8,9 +8,9 @@
  *					the kernel's own, and passed by
  *	FILE	swap	OPTIONS		a swap file
  *
- * the options cut at commas: "mkfs" makes the volume anew first, "size=KB"
- * makes the swap file when it is not there, "optional" lets it fail without
- * a word.  The volumes are mounted first; then the swap lines are tried in
+ * the options cut at commas: "mkfs" makes the volume anew first, with
+ * "swap=KB" a swap file /swap of so many kilobytes in it, "optional" lets
+ * it fail without a word.  The volumes are mounted first; then the swap lines are tried in
  * their order until one is had, a file under a volume that did not mount
  * passed by.  All in this one process: until swap is on there are two at
  * most, and this is the second. */
@@ -110,9 +110,9 @@ static void tell(const char *a, const char *b, const char *c)
 static int volume(struct entry *e)
 {
 	char path[32];
-	const char *dev = device(e->what, path);
+	const char *dev = device(e->what, path), *swap = option(e, "swap");
 
-	if (option(e, "mkfs") && mkfs_volume(dev, 1024) < 0)
+	if (option(e, "mkfs") && mkfs_volume(dev, 1024, swap ? number(swap) : 0) < 0)
 		return -1;
 	if (mount(dev, e->where) < 0)
 		return -1;
@@ -143,7 +143,6 @@ static int under_missing(const char *path, int lines)
 static int all(void)
 {
 	int lines = read_fstab(), i, bad = 0;
-	const char *size;
 
 	if (lines < 0) {
 		complain("mount", "/etc/fstab");
@@ -160,8 +159,7 @@ static int all(void)
 	for (i = 0; i < lines; i++) {
 		if (strcmp(entries[i].where, "swap") || under_missing(entries[i].what, lines))
 			continue;
-		size = option(&entries[i], "size");
-		if (swap_file_on(entries[i].what, size ? number(size) : 0) == 0) {
+		if (swapon(entries[i].what) == 0) {
 			tell("swap: ", entries[i].what, "\n");
 			return bad;
 		}

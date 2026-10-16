@@ -53,17 +53,22 @@ TEST_CASE("the kernel tells at the boot whether it found the RAM disk") {
     CHECK(without.screen().find("no RAM disk") != std::string::npos);
 }
 
-TEST_CASE("the boot with the RAM disk: its volume and the swap file on it made with no long wait") {
+TEST_CASE("the boot with the RAM disk: mkfs lays the swap file down with the volume, nothing written into it") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     int volume = 0, swap = 0;
     for (; volume < 3000 && m.screen().find("mount: /dev/rd0") == std::string::npos; volume += 5) m.run(5);
     for (; swap < 3000 && m.screen().find("swap: /tmp/swap") == std::string::npos; swap += 5) m.run(5);
-    MESSAGE("the RAM disk's volume at frame " << volume << ", the swap file " << swap << " frames after");
-    /* 256 KB written, 512 blocks: once 860 frames, with a block, its inode
-     * and the bitmap a write; 315 with eight blocks a write, words copied
-     * and the RAM disk's bytes four a step. */
-    CHECK(swap < 350);
+    MESSAGE("the RAM disk's volume at frame " << volume << ", swap on " << swap << " frames after");
+    /* Once 256 KB of zeros written, 860 frames, then 315; the file is its
+     * inode and its blocks taken now. */
+    CHECK(swap < 30);
+    Volume rv(m.ramDisk(), true);
+    const auto sw = rv.lookup("/swap");
+    REQUIRE(sw);
+    CHECK(rv.inode(*sw).nextents == 1);
+    CHECK(rv.inode(*sw).len[0] == 192);            /* 96 KB: three areas, four processes */
+    CHECK(rv.inode(*sw).size == 96 * 1024);
 }
 
 TEST_CASE("a pipe: the first command's output is the second's input") {
@@ -140,7 +145,7 @@ TEST_CASE("swap on the diskette: a file /swap, the same pipes without the RAM di
     const auto sw = v.lookup("/swap");
     REQUIRE(sw);
     CHECK(v.inode(*sw).nextents == 1);
-    CHECK(v.inode(*sw).len[0] == 256);             /* 128 KB: four areas */
+    CHECK(v.inode(*sw).len[0] == 192);             /* 96 KB: three areas */
 }
 
 TEST_CASE("the swap file is held: not removed, its volume not taken out") {
@@ -155,6 +160,25 @@ TEST_CASE("the swap file is held: not removed, its volume not taken out") {
     CHECK(m.screen().find("rm: /tmp/swap: busy") != std::string::npos);
     CHECK(m.screen().find("umount: /dev/rd0: busy") != std::string::npos);
     CHECK(m.screen().find("swapon: /tmp/swap: busy") != std::string::npos);
+}
+
+TEST_CASE("four processes at most: the shell and a pipe of three; a pipe of four is refused") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), true);
+    atPrompt(m);
+    swapOnRam(m);
+    REQUIRE(m.command("echo three | cat | cat", 4000));
+    CHECK(after(m, "echo three | cat | cat").find("\nthree\n$") != std::string::npos);
+    REQUIRE(m.command("echo four | cat | cat | cat", 4000));
+    INFO(m.screen());
+    /* Three pipes wanted, two there are, as there is room for three
+     * commands: the pipe or the process is refused, the line given up. */
+    const std::string four = after(m, "echo four | cat | cat | cat");
+    CHECK((four.find("sh: pipe: cannot") != std::string::npos ||
+           four.find("no room for another process") != std::string::npos));
+    CHECK(four.find("\nfour\n") == std::string::npos);
+    REQUIRE(m.command("echo still"));
+    CHECK(after(m, "echo still").find("still\n$") != std::string::npos);
 }
 
 TEST_CASE("without swap a pipe finds no room, and the shell goes on") {

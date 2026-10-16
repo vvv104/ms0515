@@ -16,7 +16,7 @@ namespace {
 
 /* high.h's layout: the mount table first, then the processes, each with
  * its kernel stack at its end (proc.h). */
-constexpr unsigned kHighBase = 0140000, kMounts = 162, kProc = 38, kKstack = 320, kProcs = 8;
+constexpr unsigned kHighBase = 0140000, kMounts = 162, kProc = 38, kKstack = 320, kProcs = 4;
 constexpr unsigned kMargin = 32;
 
 } // namespace
