@@ -240,6 +240,23 @@ TEST_CASE("MULCOST: a walk over a table by a pointer calls no __mulhi3 at -Os") 
     CHECK(got[16] == "MULCOST DONE");
 }
 
+/* GCC 15.2's pdp11 backend wrote zeroed variables into .data, so a
+ * program's file carried its zeros; the patch puts them in the bss.
+ * BSSZERO (examples/bsszero.c) says where its arrays are - zeroed ones
+ * between _edata and _end, the initialized one not - and that they read
+ * as they should.  It fails on a compiler without the fix. */
+TEST_CASE("BSSZERO: zeroed arrays in the bss, read as zeros; an initialized one in .data") {
+    if (!built("BSSZERO")) { MESSAGE("BSSZERO.SAV not built - skipped"); return; }
+    const Run r = run("BSSZERO");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == 3);
+    CHECK(got[0] == "BLOCK 1 TABLE 1 SEED 0");
+    CHECK(got[1] == "NONZERO 0 SEED 1234");
+    CHECK(got[2] == "BSSZERO DONE");
+}
+
 /* MACHINE (examples/machine.c) over the machine library: the screen in
  * colour with a diagonal and one cell's attribute, the clock counting
  * while it waits, the keyboard taken until Q, the console back. */

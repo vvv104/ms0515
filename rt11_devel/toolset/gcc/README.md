@@ -26,7 +26,7 @@ rt11_devel/toolset/gcc/
 ├── include/             rt11.h, ms0515.h, fx.h, stdio.h, stdlib.h, string.h, ctype.h
 ├── examples/            HELLO, ARITH, LIBC, LIBC2, INPUT, FX, MACHINE, HELD, PORTS, DRAW,
 │                        STREAM, FILES, DEEP (the runtime checked), CMPLONG, LONGP0,
-│                        LONGPS, MULCOST (the compiler's faults, fixed), CALC (the
+│                        LONGPS, MULCOST, BSSZERO (the compiler's faults, fixed), CALC (the
 │                        benchmark)
 └── tests/               the examples run by ms0515-run's machine (doctest)
 ```
@@ -170,8 +170,12 @@ it is a call of `__mulhi3`, some eighty instructions: `-Os` rewrote a
 walk over a table by a pointer as a step count times the element's
 size, two calls a step.  Multiply, divide and remainder are priced as
 the calls they are now; `examples/mulcost.c` reads its own walk for a
-call and finds none.  The three tests fail on a compiler without the
-patch.
+call and finds none.  Last, **zeroed variables** were written into
+`.data` as `.=.+N`, so a program's file carried its zeros; they go to
+`.bss` now, and `examples/bsszero.c` finds its arrays between `_edata`
+and `_end`.  (A `.SAV` holds its memory whole, bss and all; the gain is
+for programs loaded by a loader that clears the bss, as the UNIX
+kernel's.)  The four tests fail on a compiler without the patch.
 
 `-m10` also means the PDP-11/10, which had no `XOR` and no `SOB`; the
 T-11 has both, and GCC asks for a `__xorhi3` instead (in `rt/arith.s`).

@@ -1,6 +1,6 @@
 # The example programs of the GCC toolset, and what its tests run
 # (../tests): HELLO; ARITH, LIBC, LIBC2, INPUT and FX for the runtime and
-# the C library; CMPLONG, LONGP0, LONGPS and MULCOST for the compiler;
+# the C library; CMPLONG, LONGP0, LONGPS, MULCOST and BSSZERO for the compiler;
 # MACHINE, HELD, PORTS, DRAW and STREAM for the machine library; FILES
 # for the files; DEEP for STACK; the CALC benchmark.
 #
@@ -21,13 +21,15 @@ rt11_c_program(NAME LIBC2 SOURCES libc2.c)
 rt11_c_program(NAME INPUT SOURCES input.c)
 rt11_c_program(NAME CMPLONG SOURCES cmplong.c)
 # A long through a pointer, at -O0 and at -Os; a walk that must not
-# multiply, at -Os (README.md, "A trap in the compiler").
+# multiply, at -Os; zeroed arrays in the bss (README.md, "A trap in the
+# compiler").
 rt11_c_program(NAME LONGP0 SOURCES longptr.c)
 target_compile_options(longp0 PRIVATE -O0)
 rt11_c_program(NAME LONGPS SOURCES longptr.c)
 target_compile_options(longps PRIVATE -Os)
 rt11_c_program(NAME MULCOST SOURCES mulcost.c)
 target_compile_options(mulcost PRIVATE -Os -fno-toplevel-reorder)
+rt11_c_program(NAME BSSZERO SOURCES bsszero.c)
 rt11_c_program(NAME MACHINE SOURCES machine.c)
 rt11_c_program(NAME HELD SOURCES held.c)
 rt11_c_program(NAME DRAW SOURCES draw.c)

@@ -47,7 +47,15 @@ the rest are calls of libgcc's helpers, but pdp11_rtx_costs priced a
 multiply as one MUL, and under -Os as any instruction: a loop walking a
 table by a pointer was rewritten as a count times the element's size, a
 call of __mulhi3 for each pointer a step.  They are priced now as the
-calls they are."""
+calls they are.
+
+The fifth is the bss.  With the GNU assembler's syntax - the default -
+every zeroed variable was written into .data as `.=.+N`: bss_section
+was made only under -mgnu-asm, pdp11_asm_output_var switched to the
+data section whatever the syntax, and with no ASM_OUTPUT_ALIGNED_BSS a
+global one went where default_select_section puts writable data.  A
+program's file carried its zeros.  They go to .bss now; DEC's syntax
+keeps .data, MACRO-11 having no bss."""
 import re
 import sys
 from pathlib import Path
@@ -152,6 +160,28 @@ COST_NEW = (
     "    }\n"
     "\n") + COST_OLD
 
+BSS_INIT_OLD = "  else if (TARGET_GNU_ASM)\n    {\n      bss_section = get_unnamed_section"
+BSS_INIT_NEW = ("  else\n"
+                "    {\n"
+                "      /* The GNU syntax is the default without -mgnu-asm too.  */\n"
+                "      bss_section = get_unnamed_section")
+BSS_VAR_OLD = ("\t\t      int align, bool global)\n"
+               "{\n"
+               "  switch_to_section (data_section);\n")
+BSS_VAR_NEW = ("\t\t      int align, bool global)\n"
+               "{\n"
+               "  /* A zeroed variable in the bss, not in the file; DEC's MACRO-11\n"
+               "     has no bss.  */\n"
+               "  switch_to_section (TARGET_DEC_ASM ? data_section : bss_section);\n")
+H_BSS_OLD = ("#define ASM_OUTPUT_ALIGNED_LOCAL(FILE, NAME, SIZE, ALIGN) \\\n"
+             "  pdp11_asm_output_var (FILE, NAME, SIZE, ALIGN, false)\n")
+H_BSS_NEW = H_BSS_OLD + (
+    "\n"
+    "/* A zeroed global, made global already: into the bss as a local one.  */\n"
+    "\n"
+    "#define ASM_OUTPUT_ALIGNED_BSS(FILE, DECL, NAME, SIZE, ALIGN) \\\n"
+    "  pdp11_asm_output_var (FILE, NAME, SIZE, ALIGN, false)\n")
+
 
 def edit(path, replacements):
     """Each replacement made once; one made already is passed by, so that
@@ -175,9 +205,11 @@ def main():
         edit(md, [(MD_SI_OLD, MD_SI_NEW), (MD_DI_OLD, MD_DI_NEW),
                   (DECL_OLD, DECL_NEW), (LABELS_OLD, LABELS_NEW)])
     edit(cc, [(CC_OLD, CC_NEW), (SHIFT_OLD, SHIFT_NEW),
-              (ORDER_OLD, ORDER_NEW), (COST_OLD, COST_NEW)])
+              (ORDER_OLD, ORDER_NEW), (COST_OLD, COST_NEW),
+              (BSS_INIT_OLD, BSS_INIT_NEW), (BSS_VAR_OLD, BSS_VAR_NEW)])
     edit(pred, [(PRED_OLD, PRED_NEW)])
-    print("patched pdp11.md, pdp11.cc and predicates.md")
+    edit(tree / "gcc/config/pdp11/pdp11.h", [(H_BSS_OLD, H_BSS_NEW)])
+    print("patched pdp11.md, pdp11.cc, pdp11.h and predicates.md")
 
 
 if __name__ == "__main__":

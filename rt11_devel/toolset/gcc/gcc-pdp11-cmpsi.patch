@@ -80,7 +80,18 @@
  
        /* Check for source == offset from register and dest == push of
  	 the same register.  In that case, we have to use the same
-@@ -1027,6 +1035,21 @@
+@@ -743,7 +751,9 @@
+ pdp11_asm_output_var (FILE *file, const char *name, int size,
+ 		      int align, bool global)
+ {
+-  switch_to_section (data_section);
++  /* A zeroed variable in the bss, not in the file; DEC's MACRO-11
++     has no bss.  */
++  switch_to_section (TARGET_DEC_ASM ? data_section : bss_section);
+   if (align > 8)
+     fprintf (file, "\t.even\n");
+   if (TARGET_DEC_ASM)
+@@ -1027,6 +1037,21 @@
      src = XEXP (x, 1);
    dest = XEXP (x, 0);
  
@@ -102,7 +113,7 @@
    /* If optimizing for size, claim everything costs 2 per word, plus
       whatever the operands require.  */
    if (!speed)
-@@ -1924,7 +1947,11 @@
+@@ -1924,7 +1949,11 @@
  bool
  pdp11_small_shift (int n)
  {
@@ -115,7 +126,7 @@
  }
  
  /* Expand a shift insn.  Returns true if the expansion was done,
-@@ -2126,8 +2153,10 @@
+@@ -2126,8 +2155,10 @@
  	len += 2;  /* second operand extra word.  */
      }
  
@@ -128,6 +139,31 @@
  }
  
  /* Prepend to CLOBBERS hard registers that are automatically clobbered
+@@ -2326,8 +2357,9 @@
+     {
+       bss_section = data_section;
+     }
+-  else if (TARGET_GNU_ASM)
++  else
+     {
++      /* The GNU syntax is the default without -mgnu-asm too.  */
+       bss_section = get_unnamed_section (SECTION_WRITE | SECTION_BSS,
+ 					 output_section_asm_op,
+ 					 ".bss");
+--- a/gcc/config/pdp11/pdp11.h
++++ b/gcc/config/pdp11/pdp11.h
+@@ -621,6 +621,11 @@
+ #define ASM_OUTPUT_ALIGNED_LOCAL(FILE, NAME, SIZE, ALIGN) \
+   pdp11_asm_output_var (FILE, NAME, SIZE, ALIGN, false)
+ 
++/* A zeroed global, made global already: into the bss as a local one.  */
++
++#define ASM_OUTPUT_ALIGNED_BSS(FILE, DECL, NAME, SIZE, ALIGN) \
++  pdp11_asm_output_var (FILE, NAME, SIZE, ALIGN, false)
++
+ /* Print a memory address as an operand to reference that memory location.  */
+ 
+ #define PRINT_OPERAND_ADDRESS(FILE, ADDR)  \
 --- a/gcc/config/pdp11/predicates.md
 +++ b/gcc/config/pdp11/predicates.md
 @@ -28,7 +28,7 @@
