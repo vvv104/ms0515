@@ -47,6 +47,21 @@ TEST_CASE("a name typed after login: is echoed, read by the process as a line, a
     CHECK(m.screen().find("Hello, root\n$") != std::string::npos);  /* and its next prompt */
 }
 
+TEST_CASE("an empty name is no name: login: is asked again") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage());
+    booted(m);
+    m.typeAndSettle("\r", 50);
+    m.typeAndSettle("   \r", 50);
+    INFO(m.screen());
+    CHECK(m.screen().find("Hello") == std::string::npos);
+    m.typeAndSettle("root\r", 50);
+    CHECK(m.screen().find("Hello, root") != std::string::npos);
+    std::size_t logins = 0;
+    for (auto at = m.screen().find("login:"); at != std::string::npos; at = m.screen().find("login:", at + 1)) ++logins;
+    CHECK(logins == 3);
+}
+
 TEST_CASE("letters bare are small, Latin and Russian alike; with Shift capital") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
