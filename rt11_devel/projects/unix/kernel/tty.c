@@ -12,16 +12,12 @@
  * gives the Russian letters as eight-bit KOI-8 codes, and SO shown would
  * turn the console's Latin to Cyrillic glyphs.  Output turns '\n' into
  * CR LF. */
-#include "kernel.h"
-#include "proc.h"
+#include "high.h"
 #include "rom.h"
 
-#define LINE 80				/* the line in hand */
-#define QUEUE 256			/* the lines typed, not yet read */
-
-static char line[LINE];
+#define line (HIGH->line)
 static int len;
-static char queue[QUEUE];
+#define queue (HIGH->queue)
 static volatile int head, tail;		/* the queue: taken at tail, put at head */
 
 static void put(int c)

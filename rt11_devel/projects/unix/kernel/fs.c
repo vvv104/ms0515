@@ -14,11 +14,10 @@
  * another. */
 #include "high.h"
 
-#define NINODE 8
 #define IPB (BSIZE / sizeof(struct dinode))	/* inodes a block: 16 */
 #define mounts (HIGH->mounts)
 
-static struct inode inodes[NINODE];
+#define itab (HIGH->itab)
 static unsigned rootdev = DEV_FD0;
 
 /* The volume of dev, 0 when it is not mounted. */
@@ -75,7 +74,7 @@ struct inode *iget(unsigned dev, unsigned n)
 	if (!mount_of(dev) || n == 0 || n > SB(dev)->inodes)
 		return 0;
 	for (i = 0; i < NINODE; i++) {
-		ip = &inodes[i];
+		ip = &itab[i];
 		if (ip->count && ip->dev == dev && ip->ino == n) {
 			ip->count++;
 			return ip;
@@ -667,7 +666,7 @@ int fs_umount(const char *device)
 	if (!(m = mount_of((unsigned)dev)) || m == &mounts[0])
 		return EINVAL;
 	for (i = 0; i < NINODE; i++)
-		if (inodes[i].count && inodes[i].dev == (unsigned)dev)
+		if (itab[i].count && itab[i].dev == (unsigned)dev)
 			return EBUSY;
 	iput(m->on);
 	m->used = 0;

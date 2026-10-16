@@ -25,7 +25,7 @@ enum { EPIPE = 32 };
 
 #define PATHMAX 64
 
-static struct file files[NFILE];
+#define files (HIGH->files)
 
 /* Whether [p, p + n) lies in the process's space. */
 static int inside(unsigned p, unsigned n)

@@ -59,9 +59,14 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   inode with five extents, the 16-byte directory entry.
 - `kernel/dev.c` - the block devices: 0 the diskette through the ROM's
   160010, reading and writing; 1 the RAM disk, 1024 blocks.
-- `kernel/bio.c` - the buffer cache: four blocks in bank 6, the device's
-  and the block's, the least recently used given up; a write goes through
-  at once, but for the bitmap's, which waits to the end of the call.
+- `kernel/bio.c` - the buffer cache in two levels: three blocks in hand in
+  bank 6, the least recently used given up to the shadow copy of bank 1,
+  15 blocks more, from where it comes back without the device; a write goes
+  through at once, but for the bitmap's, which waits to the end of the
+  call.
+- `kernel/start.s` - the first instructions, and `xcopy`: words copied with
+  the shadow bank or the other slot switched in, from bank 0, at priority
+  7 - the cache's way into the shadow bank and fork's between the slots.
 - `kernel/fs.c` - the superblock, the bitmap, inodes, a file's blocks by
   its extents - a file grows at its end, its last extent grown while the
   next block is free - `readi` and `writei`, directories, paths, creat,
@@ -78,7 +83,9 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   straight to swap, exit, wait.
 - `kernel/high.h` - the big tables in bank 6, 140000-157000, outside the
   kernel's image: the mount table, the processes with their kernel stacks,
-  the block buffers, fork's bounce buffer, the pipes.
+  the block buffers and the shadow bank's index, the pipes, the inodes, the
+  open files, the console's line and queue, exec's arguments.  The ROM is
+  called on a stack of 157000-157400, under its cells.
 - `kernel/ramdisk.c` - the EX board: found by two pages written and one
   read back (a bus error caught on vector 4), pages of 256 bytes through
   its PPI and data port, each with the interrupts masked.
@@ -141,8 +148,8 @@ or the toolset's.
 The build reports the kernel's memory and stops past its limits
 (mkfs.py): the image's size, the low part from 01000 to `_end` against
 040000, and the bank-6 tables (the kernel's `_high_size`) against the 7680
-bytes up to 157000 - at stage 5's end: an image of 14580 bytes, 1034
-bytes free below 040000, 510 free in bank 6.  The compiler puts even zeroed
+bytes up to 157000 - with the cache in the shadow bank: an image of
+13862 bytes, 2008 bytes free below 040000, 332 free in bank 6.  The compiler puts even zeroed
 arrays in .data, so they cost the image; the big ones live in bank 6 for
 that.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.

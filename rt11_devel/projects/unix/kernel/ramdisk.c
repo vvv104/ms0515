@@ -64,7 +64,7 @@ void rd_read(unsigned p, void *to, unsigned pages)
 /* Whether the board is there: page 0 and page 1 written, page 0 read. */
 int rd_probe(void)
 {
-	unsigned char *a = (unsigned char *)HIGH->bounce, *b = a + RD_PAGE;	/* fork's, free yet */
+	unsigned char *a = (unsigned char *)HIGH->bufs[0].data, *b = a + RD_PAGE;	/* no block in it yet */
 	unsigned old4 = vectors[2], old6 = vectors[3];
 	int i;
 

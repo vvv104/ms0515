@@ -28,7 +28,6 @@
 #define STACK_BOTTOM(p) (*(unsigned *)(p)->kstack)
 
 #define procs (HIGH->procs)
-#define bounce (HIGH->bounce)
 
 /* The size of the bank-6 tables, for tools/mkfs.py's report. */
 const unsigned high_size = sizeof(struct high);
@@ -229,17 +228,15 @@ void wakeup(const void *chan)
 }
 
 /* [from, to) of the current slot into the same addresses of slot `slot`,
- * through the bounce buffer. */
+ * a block at a time through the shadow bank's scratch block. */
 static void copy_to_slot(unsigned from, unsigned to, int slot)
 {
-	unsigned n;
+	unsigned n, there = (DISP_COPY & ~(SLOT_BITS | BANK1_BIT)) | (slot == 0 ? SLOT_BITS : 0);
 
 	while (from < to) {
-		n = to - from > sizeof bounce ? sizeof bounce : to - from;
-		memcpy(bounce, (void *)from, n);
-		setslot(slot);
-		memcpy((void *)from, bounce, n);
-		setslot(curproc->slot);
+		n = to - from > BSIZE ? BSIZE : to - from;
+		xcopy(SCRATCH, (void *)from, (n + 1) / 2, DISP_COPY & ~BANK1_BIT);
+		xcopy((void *)from, SCRATCH, (n + 1) / 2, there);
 		from += n;
 	}
 }

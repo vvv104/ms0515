@@ -7,6 +7,11 @@
 /* The machine's write-only registers and the ROM's copies of them. */
 #define DISPATCHER (*(volatile unsigned *)0177400)
 #define DISP_COPY  (*(volatile unsigned *)0157700)	/* the ROM's copy */
+#define BANK1_BIT 2			/* dispatcher bit 1: bank 1 primary when set */
+/* The shadow copy of bank 1, seen at 020000-037777 while xcopy has it on:
+ * 16 blocks, the buffer cache's second level and the last fork's bounce. */
+#define SHADOW_BLOCK(i) ((char *)020000 + (i) * 512)
+void xcopy(void *to, const void *from, unsigned words, unsigned disp);
 #define DISP_TIMER 01000				/* bit 9: the frame interrupt */
 #define REG_B      (*(volatile unsigned *)0177602)
 #define KBD_ROWS   (*(volatile unsigned char *)0177540)	/* the MS 7007's rows */

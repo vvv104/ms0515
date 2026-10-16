@@ -9,11 +9,10 @@
  * - SP points at the count.  The arguments are copied out of the old image
  * first, which the new one overwrites.  The open files stay open, as Unix
  * has it. */
-#include "kernel.h"
+#include "high.h"
 #include "proc.h"
 
 #define AOUT_MAGIC 0407
-#define ARGBYTES 256			/* the arguments' strings, all of them */
 #define MAXARGS 16
 #define STACK_MIN 512			/* room the program is left for its stack */
 
@@ -21,7 +20,7 @@ struct exec_header {
 	unsigned magic, text, data, bss, syms, entry, unused, flag;
 };
 
-static char argbuf[ARGBYTES];
+#define argbuf (HIGH->argbuf)
 
 int exec(const char *path, const char *const *argv)
 {

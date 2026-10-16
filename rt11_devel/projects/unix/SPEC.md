@@ -73,7 +73,7 @@ later take the native one's place without changing the kernel.
   | Kernel - the file /boot/kernel       |<---->|  /boot/kernel, /etc, /bin |
   | banks 0, 1, 6; up to 22 KB           |  FS  |  swap 2 x 32 KB when      |
   | processes, FS, swap, system calls    | swap |  there is no RAM disk     |
-  | buffer cache in shadow banks 1, 6    |      |                           |
+  | buffer cache in shadow bank 1        |      |                           |
   +------------------+-------------------+      |  RAM disk 512 KB (option) |
                      | one jump table           |  swap ~14 process images  |
   +------------------v-------------------+      |  /tmp                     |
@@ -98,7 +98,7 @@ is gone.
 | 000000-017777 | 0 | Vectors, kernel data, the kernel stack.  Not switched: the vectors are here. |
 | 020000-037777 | 1 | Kernel code.  The shadow copy is the buffer cache. |
 | 040000-137777 | 2-5 | The process's space, 32 KB.  The primary copies are slot A, the extra ones slot B. |
-| 140000-157777 | 6 | Kernel code and data.  The shadow copy is the buffer cache.  The top of the primary copy, 157614-157777, is the ROM's stack and variables: the kernel leaves it alone. |
+| 140000-157777 | 6 | Kernel data: the tables (high.h) up to 157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is free: the kernel's stacks are in the primary one, so a copy into it would want a bounce in bank 0. |
 | 160000-177377 | - | ROM (the upper 8 KB), always seen. |
 | 177400-177777 | - | I/O registers. |
 
@@ -232,9 +232,12 @@ the arguments in registers.  The first set (~25): `fork`, `exec`, `exit`,
 | HD (paravirtual) | Only for development in the emulator: a big root FS without the 400 KB limit. |
 | Serial port | Later: exchanging files with a PC. |
 
-**The buffer cache** is in the shadow copies of banks 1 and 6 (16 KB, 32
-buffers).  The kernel switches a shadow bank on only from code in bank 0 or in
-the ROM.
+**The buffer cache** is in two levels: three buffers in bank 6 are the blocks
+in hand, and a block given up goes to the shadow copy of bank 1 - 15 blocks,
+the 16th fork's bounce between the slots - and comes back from there without
+the device.  A block is in one level or the other; the shadow bank holds
+clean blocks only.  The shadow bank is switched on only by `xcopy`, in bank 0,
+at priority 7, with not a word pushed meanwhile.
 
 **Building.**  GCC `-m10 -Os`, an own `crt0` and linker script.  The section
 sizes (`size`, the map file) are a measure of every build: the ceiling is
@@ -478,8 +481,10 @@ hands over.
    to the file system, `mount`, `mkfs` on the machine, `swapon` with a
    file, `/etc/rc` and `fstab` ("Volumes, swap and fstab"); swap to the
    diskette is the file `/swap` by the same means.
-6. **The floppy.**  An own VG93 driver instead of 160010: formatting,
-   speed.
+6. **The floppy.**  An own VG93 driver instead of 160010, for speed.
+   Formatting is a program, `fdformat`, not the kernel's: whatever can live
+   in a process does, and the kernel gives it the device - the tracks
+   written through the driver - and nothing more.
 7. **Programs that own the machine.**  The mode is the binary's own - a
    magic of its own in the a.out header - and such a program is run as any
    other, by its name.  exec of one flushes the cache, ends the other

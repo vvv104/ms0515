@@ -3,7 +3,8 @@
 / Every call into the ROM goes through the table below: now it holds the
 / native ROM-B's entries, and an own ROM's table can take its place without
 / a change anywhere else (SPEC.md "The ROM").  A call is made at priority 7
-/ and on a stack of its own in bank 0: ROM-B opens the VRAM window over
+/ and on a stack of its own, 157000-157400 below the ROM's cells (high.h),
+/ out of the VRAM window's way: ROM-B opens the window over
 / 040000..077777 on the stack it is entered with, and its character out is
 / not to be entered again from an interrupt in the middle of a character
 / (the DEC monitor's lesson, rt11_devel/projects/rt11/monitor/OMCONS.MAC).
@@ -116,5 +117,5 @@ wcount:	.word	0		/ 256 to read, -256 to write
 
 	.bss
 romsp:	.=.+2
-	.=.+256
-romtop:
+
+romtop	= 0157400
