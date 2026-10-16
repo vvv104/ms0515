@@ -21,7 +21,8 @@ enters it there.
 With --nm and --kernel-out (the kernel's a.out) the kernel's memory is
 reported and held to its limits: the low part, 01000 to `_end`, below
 040000, and the tables in bank 6 (kernel/high.h), whose size the kernel
-keeps in `_high_size`, below 157000 - from 140000, 7680 bytes.
+keeps in `_high_size`, below 155000, where the diskettes' driver goes -
+from 140000, 6656 bytes.
 
 Words go down the low byte first, a long as two words, the high word first,
 as the PDP-11's compiler keeps one.
@@ -43,8 +44,8 @@ SWAP, SWAPBLOCKS = 11, 128
 DATA = SWAP + SWAPBLOCKS    # 139
 ROOT = 1
 KERNEL_LOAD = 0o1000
-KERNEL_TOP = 0o36000         # the driver's place above (kernel.h DRV_BASE)
-HIGH_BASE, HIGH_TOP = 0o140000, 0o157000
+KERNEL_TOP = 0o40000
+HIGH_BASE, HIGH_TOP = 0o140000, 0o155000   # the driver above (kernel.h DRV_BASE)
 S_IFDIR, S_IFREG, S_IFBLK = 0o040000, 0o100000, 0o060000
 DEVICES = {"fd0": 0, "fd1": 1, "fd2": 2, "fd3": 3, "fdx0": 4, "fdx1": 5, "rd0": 6}
 DIRSIZ = 14

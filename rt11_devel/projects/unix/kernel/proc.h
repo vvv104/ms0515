@@ -6,7 +6,7 @@
 #define NSLOT 2				/* slots: banks 2-5, primary and extra */
 #define NOFILE 8			/* a process's open files */
 #define NFILE 16			/* the open files of all */
-#define KSTACK 448			/* a process's kernel stack, bytes */
+#define KSTACK 320			/* a process's kernel stack: 242 the deepest measured */
 
 struct pipe;
 

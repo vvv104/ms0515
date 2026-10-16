@@ -96,9 +96,9 @@ is gone.
 | Addresses (octal) | Bank | Use |
 | --- | --- | --- |
 | 000000-017777 | 0 | Vectors, kernel data, the kernel stack.  Not switched: the vectors are here. |
-| 020000-037777 | 1 | Kernel code; at 036000-037777 the diskettes' driver, /boot/fd.  The shadow copy is the buffer cache. |
+| 020000-037777 | 1 | Kernel code.  The shadow copy is the buffer cache. |
 | 040000-137777 | 2-5 | The process's space, 32 KB.  The primary copies are slot A, the extra ones slot B. |
-| 140000-157777 | 6 | Kernel data: the tables (high.h) up to 157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is free: the kernel's stacks are in the primary one, so a copy into it would want a bounce in bank 0. |
+| 140000-157777 | 6 | Kernel data: the tables (high.h) up to 155000, the diskettes' driver /boot/fd at 155000-157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is free: the kernel's stacks are in the primary one, so a copy into it would want a bounce in bank 0. |
 | 160000-177377 | - | ROM (the upper 8 KB), always seen. |
 | 177400-177777 | - | I/O registers. |
 
@@ -115,8 +115,9 @@ is gone.
 - **The kernel's budget:** 24 KB less ~0.5 KB of vectors and the stack, ~0.2
   KB of the ROM's cells - about 20-22 KB for code and data.  Banks 0 and 1
   hold the code and the small data, loaded from the diskette; bank 6, up to
-  157000, the big tables (the processes with their kernel stacks, the
-  buffers, the pipes), cleared at the start.  Every build reports both.
+  155000, the big tables (the processes with their kernel stacks, the
+  buffers, the pipes), cleared at the start, and the driver above them.
+  Every build reports both.
 
 ## The ROM: native ROM-B first, own later
 
@@ -227,7 +228,7 @@ the arguments in registers.  The first set (~25): `fork`, `exec`, `exit`,
 | Device | Model |
 | --- | --- |
 | Console | The keyboard by interrupt 0130: the handler calls the ROM's 160004 and puts the byte into a ring buffer; output through 160000.  Line and raw modes.  Eight-bit KOI-8: a bare letter is small, Latin as Russian (ROM-B gives the Latin capital bare, the kernel swaps), and Latin is drawn Latin whatever RUS/LAT says (ROM-B's bit 2 of 157760 taken off for the character). |
-| Floppy | A driver of its own as a file, /boot/fd, as RT-11's handlers are: put down flat at 036000, 1 KB at most, its header the magic, the version of the door, its size, init and rw (a drive's side as the ROM numbers it, a block 0..799).  The kernel loads it through ROM-B's 160010 once the root is mounted; with none, or one that is no driver, 160010 stays.  The first one is 160010 behind the door; the own VG93 one, for speed, comes through it.  DRQ polled: the CPU is busy while a sector is read. |
+| Floppy | A driver of its own as a file, /boot/fd, as RT-11's handlers are: put down flat at 155000 in bank 6, 1 KB at most, its header the magic, the version of the door, its size, init and rw (a drive's side as the ROM numbers it, a block 0..799).  The kernel loads it through ROM-B's 160010 once the root is mounted; with none, or one that is no driver, 160010 stays.  The first one is 160010 behind the door; the own VG93 one, for speed, comes through it.  DRQ polled: the CPU is busy while a sector is read. |
 | RAM disk | A block device of 512 bytes; interrupts masked for a page of 256 bytes (~1 ms). |
 | HD (paravirtual) | Only for development in the emulator: a big root FS without the 400 KB limit. |
 | Serial port | Later: exchanging files with a PC. |

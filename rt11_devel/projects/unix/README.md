@@ -71,7 +71,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   160010 - fd0..fd3 a drive's side, 800 blocks, fdx0 and fdx1 a drive's
   both sides, 1600 - and the RAM disk, rd0, 1024 blocks.
 - `drivers/romfd.s` - /boot/fd, the diskettes' driver as a file: put down
-  flat at 036000, its header first (magic, version, size, init, rw); this
+  flat at 155000 in bank 6, its header first (magic, version, size, init, rw); this
   one is the ROM's 160010 behind the driver's door.  The kernel loads it
   once the root is mounted and sends the diskettes' blocks to it; with no
   /boot/fd, or one that is no driver, the ROM's own way stays.
@@ -92,12 +92,12 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
 - `kernel/exec.c` - a program into the slot: an a.out of the 0407 kind
   linked at 040000, its arguments on the stack as V6 laid them.
 - `kernel/proc.c`, `proc.h` - the processes: the table, the two slots
-  (banks 2-5 primary and extra, dispatcher bits 2-5), a kernel stack of
+  (banks 2-5 primary and extra, dispatcher bits 2-5), a kernel stack of 320 bytes
   each with a canary at its bottom, sleep and wakeup, the switch (`swtch`
   in trap.s), swap - a file in one extent cut into 32 KB areas, a
   process's used blocks out to one and back - fork into the free slot or
   straight to swap, exit, wait.
-- `kernel/high.h` - the big tables in bank 6, 140000-157000, outside the
+- `kernel/high.h` - the big tables in bank 6, 140000-155000, outside the
   kernel's image: the mount table, the processes with their kernel stacks,
   the block buffers and the shadow bank's index, the pipes, the inodes, the
   open files, the console's line and queue, exec's arguments.  The ROM is
@@ -168,9 +168,11 @@ it.
 
 The build reports the kernel's memory and stops past its limits
 (mkfs.py): the image's size, the low part from 01000 to `_end` against
-040000, and the bank-6 tables (the kernel's `_high_size`) against the 7680
-bytes up to 157000 - with the driver's place, 036000-040000, kept: an
-image of 14512 bytes, 334 bytes free below 036000, 332 free in bank 6.  The compiler puts even zeroed
+040000, and the bank-6 tables (the kernel's `_high_size`) against the 6656
+bytes up to 155000, the driver's place above - with the kernel stacks at
+320 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a
+margin): an image of 14512 bytes, 1358 bytes free below 040000, 332 free
+in bank 6.  The compiler puts even zeroed
 arrays in .data, so they cost the image; the big ones live in bank 6 for
 that.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.

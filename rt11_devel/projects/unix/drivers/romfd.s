@@ -2,7 +2,7 @@
 / behind the driver's door, the door tried before a driver of its own goes
 / through it.
 /
-/ A driver is put down flat at 036000 (kernel.h DRV_BASE), 1 KB at most,
+/ A driver is put down flat at 155000 (kernel.h DRV_BASE), 1 KB at most,
 / and begins with its header: the magic, the version of the door, its size
 / in bytes, init, rw.  The kernel loads it once the root is mounted, calls
 / init - 0 is ready - and from then on sends every block of a diskette to
