@@ -13,10 +13,13 @@ shell, /bin/sh, which runs each command as a child - fork, exec, wait - and
 comes back with its prompt; `a | b | c` is a pipeline, `cmd &` runs without
 being waited for.  Two processes are resident, one in each slot; with the
 RAM disk the others wait there, swapped out, and come in when they are to
-run.  Without it there are two at most, and the shell says so.  /bin has
-`sh`, `ls`, `cat`, `echo`, `hello`, `fail` and `pid`; the shell's own
-commands are `t` (the time), `status` (the last command's) and `exit`,
-which ends the session.  Swap to the diskette comes next.
+run.  Without it there are two at most, and the shell says so.  Stage 5 has
+begun: the file system is written - `cmd > file`, `cmd < file`, `rm`,
+`mkdir` - each change going to the diskette at once.  /bin has `sh`, `ls`,
+`cat`, `echo`, `rm`, `mkdir`, `hello`, `fail` and `pid`; the shell's own
+commands are `t` (the time), `status` (the last command's) and `exit`, which
+ends the session.  Next: mount, mkfs on the machine, the swap file, /etc/rc
+and fstab (SPEC.md "Volumes, swap and fstab").
 
 ## Building and booting
 
@@ -54,10 +57,15 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   small, Latin as Russian.
 - `kernel/fs.h` - the file system on the disk: the superblock, the 32-byte
   inode with five extents, the 16-byte directory entry.
-- `kernel/bio.c` - the buffer cache: four blocks in bank 0 for now, the
-  least recently used given up.
-- `kernel/fs.c` - the superblock read, inodes, a file's blocks by its
-  extents, `readi`, paths.
+- `kernel/dev.c` - the block devices: 0 the diskette through the ROM's
+  160010, reading and writing; 1 the RAM disk, 1024 blocks.
+- `kernel/bio.c` - the buffer cache: four blocks in bank 6, the device's
+  and the block's, the least recently used given up; a write goes through
+  at once.
+- `kernel/fs.c` - the superblock, the bitmap, inodes, a file's blocks by
+  its extents - a file grows at its end, its last extent grown while the
+  next block is free - `readi` and `writei`, directories, paths, creat,
+  mkdir, unlink (a file goes with its last name, once nothing holds it).
 - `kernel/exec.c` - a program into the slot: an a.out of the 0407 kind
   linked at 040000, its arguments on the stack as V6 laid them.
 - `kernel/proc.c`, `proc.h` - the processes: the table, the two slots
@@ -73,13 +81,15 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   read back (a bus error caught on vector 4), pages of 256 bytes through
   its PPI and data port, each with the interrupts masked.
 - `kernel/sys.c` - the system calls by V6's numbers: exit, fork, read,
-  write, open, close, wait, exec, time, getpid, dup, pipe, getppid; the
-  open files, the system's, shared by a fork's descriptors; the pipes, a
-  buffer of 256 bytes each.  When pid 1 exits, init runs again.
+  write, open (to read, to write, both), close, wait, creat, unlink, exec,
+  time, getpid, sync, dup, pipe, getppid, mkdir; the open files, the
+  system's, shared by a fork's descriptors; the pipes, a buffer of 256
+  bytes each.  When pid 1 exits, init runs again.
 - `user/` - a process's start (`crt0.s`, `main(argc, argv)`), the calls as
   C functions (`sys.s`, `unistd.h`), a little library (`lib.c`), `init.c`,
-  and the programs of /bin: `sh.c`, `ls.c`, `cat.c`, `echo.c`, `hello.c`,
-  `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
+  and the programs of /bin: `sh.c`, `ls.c`, `cat.c`, `echo.c`, `rm.c`,
+  `mkdir.c`, `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its
+  parent's).
 - `root/` - the files the volume carries as they are: /etc/motd,
   /etc/numbers (a file of several blocks, for the tests).
 - `tools/mkfs.py` - the diskette and its file system from PATH=FILE pairs:
@@ -97,7 +107,10 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   a command by name and by path and one not there, the exit status, the
   children's pids, `exit` back to `login:`; with the RAM disk a pipe, a
   pipeline of three carrying a file of several blocks, the background, the
-  shell's state across swaps, and without it a pipe refused.
+  shell's state across swaps, and without it a pipe refused; files made by
+  `>` and written over, a file of several blocks in one extent, mkdir and
+  rm, `<`, a file kept across a boot, the errors - each then read off the
+  diskette on the host, its bitmap counted (`Machine::imageNow`).
   `Machine::command` types a line and waits for the prompt, so the next is
   not typed into the last one's output; `Machine(image, true)` has the RAM
   disk.  Skipped when the image is not
@@ -117,9 +130,11 @@ or the toolset's.
 The build reports the kernel's memory and stops past its limits
 (mkfs.py): the image's size, the low part from 01000 to `_end` against
 040000, and the bank-6 tables (the kernel's `_high_size`) against the 7680
-bytes up to 157000 - at stage 4: an image of 11482 bytes, 4132 bytes free
-below 040000, 680 free in bank 6.  The compiler puts even zeroed arrays in
-.data, so they cost the image; the big ones live in bank 6 for that.
+bytes up to 157000 - with writing: an image of 12326 bytes, 3288 bytes
+free below 040000, 672 free in bank 6.  The compiler puts even zeroed
+arrays in .data, so they cost the image; the big ones live in bank 6 for
+that.  The kernel is built -Os - a quarter off its code - but for the loops
+that move memory and the RAM disk's pages, which keep -O2.
 
 Two things of ROM-B's keyboard the console turns round.  A bare Latin key
 gives the capital - the ROM's choice, RT-11 only takes it - and the kernel

@@ -3,6 +3,8 @@
  *
  *	a | b | c	a pipeline: each command's output the next one's input
  *	cmd &		not waited for: its pid is told, the prompt comes at once
+ *	cmd > file	the output into the file, made or emptied
+ *	cmd < file	the input from the file
  *
  * A command without a '/' is looked for in /bin.  Its own commands:
  *
@@ -60,10 +62,42 @@ static void pathof(const char *name, char *path)
 	path[i] = 0;
 }
 
+/* The command's words cleared of "> file" and "< file", the descriptor
+ * opened for each put at *in or *out; 0, or -1 with the error told. */
+static int redirect(char **word, int *in, int *out)
+{
+	char **w, **to;
+	int fd;
+
+	for (w = to = word; *w; w++) {
+		if ((!strcmp(*w, ">") || !strcmp(*w, "<")) && w[1]) {
+			fd = **w == '>' ? creat(w[1], 0644) : open(w[1], 0);
+			if (fd < 0) {
+				complain("sh", w[1]);
+				return -1;
+			}
+			if (**w == '>')
+				*out = fd;
+			else
+				*in = fd;
+			w++;
+			continue;
+		}
+		*to++ = *w;
+	}
+	*to = 0;
+	return 0;
+}
+
 /* The child's part: its input and output put in place, the program run. */
 static void child(char **word, int in, int out, int other)
 {
 	char path[PATHMAX];
+
+	if (other >= 0)
+		close(other);
+	if (redirect(word, &in, &out) < 0 || !word[0])
+		exit(1);
 
 	if (in != 0) {
 		close(0);
@@ -75,8 +109,6 @@ static void child(char **word, int in, int out, int other)
 		dup(out);
 		close(out);
 	}
-	if (other >= 0)
-		close(other);
 	pathof(word[0], path);
 	execv(path, word);
 	puts_fd(2, word[0]);

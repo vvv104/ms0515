@@ -19,7 +19,7 @@
 enum {
 	ENOENT = 2, E2BIG = 7, ENOEXEC = 8, EBADF = 9, ENOMEM = 12, EFAULT = 14,
 	ENOTDIR = 20, EISDIR = 21, EINVAL = 22, ENFILE = 23, EMFILE = 24, EROFS = 30,
-	EIO = 5, ENOSYS = 38
+	EIO = 5, ENOSYS = 38, EEXIST = 17, ENOSPC = 28
 };
 
 /* The vectors' page (start.s): vector v is vectors[v / 2] (the PC) and
@@ -51,25 +51,40 @@ int tty_read(char *buf, int n);
 int tty_write(const char *buf, int n);
 void tty_puts(const char *s);
 
+/* dev.c: the block devices */
+#define DEV_FD0 0			/* the diskette in the boot drive */
+#define DEV_RD0 1			/* the RAM disk */
+unsigned dev_blocks(unsigned dev);
+int dev_read(unsigned dev, unsigned block, void *buf);
+int dev_write(unsigned dev, unsigned block, const void *buf);
+
 /* bio.c */
 struct buf {
 	char data[BSIZE];		/* first: word-aligned, as the ROM writes it */
-	unsigned block;
+	unsigned dev, block;
 	unsigned used;			/* when last used, for the least recent */
 	char valid;
 };
-struct buf *bread(unsigned block);
+struct buf *bread(unsigned dev, unsigned block);
+struct buf *getblk(unsigned dev, unsigned block);
+int bwrite(struct buf *b);
 
 /* fs.c */
 struct inode {
-	unsigned ino, count;
+	unsigned dev, ino, count;
 	struct dinode d;
 };
 int fs_mount(void);
-struct inode *iget(unsigned n);
+struct inode *iget(unsigned dev, unsigned n);
 void iput(struct inode *ip);
+int iupdate(struct inode *ip);
+void itrunc(struct inode *ip);
 int readi(const struct inode *ip, unsigned long off, char *buf, unsigned n);
+int writei(struct inode *ip, unsigned long off, const char *buf, unsigned n);
 struct inode *namei(const char *path, int *error);
+struct inode *fs_creat(const char *path, int *error);
+int fs_mkdir(const char *path);
+int fs_unlink(const char *path);
 
 /* exec.c */
 int exec(const char *path, const char *const *argv);

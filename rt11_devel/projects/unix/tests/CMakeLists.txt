@@ -13,6 +13,7 @@ add_executable(unix_tests
     test_fs.cpp
     test_shell.cpp
     test_swap.cpp
+    test_write.cpp
 )
 
 target_compile_definitions(unix_tests PRIVATE

@@ -17,8 +17,8 @@
 
 enum {
 	SYS_EXIT = 1, SYS_FORK = 2, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6,
-	SYS_WAIT = 7, SYS_EXEC = 11, SYS_TIME = 13, SYS_GETPID = 20, SYS_DUP = 41, SYS_PIPE = 42,
-	SYS_GETPPID = 64
+	SYS_WAIT = 7, SYS_CREAT = 8, SYS_UNLINK = 10, SYS_EXEC = 11, SYS_TIME = 13, SYS_GETPID = 20,
+	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_GETPPID = 64, SYS_MKDIR = 136
 };
 enum { EPIPE = 32 };
 
@@ -125,6 +125,7 @@ void files_init(void)
 	if (!tty)
 		panic("no file for the console");
 	tty->kind = F_TTY;
+	tty->readable = tty->writable = 1;
 	tty->count = 3;
 	for (i = 0; i < 3; i++)
 		curproc->ofile[i] = tty;
@@ -148,7 +149,7 @@ static int sys_read(struct trapframe *tf, const unsigned *arg)
 		tf->r0 = (unsigned)tty_read((char *)arg[1], (int)arg[2]);
 		return 0;
 	}
-	if (f->kind == F_PIPE_W)
+	if (!f->readable)
 		return EBADF;
 	if (f->kind == F_PIPE_R) {
 		tf->r0 = (unsigned)pipe_read(f->pp, (char *)arg[1], arg[2]);
@@ -175,8 +176,16 @@ static int sys_write(struct trapframe *tf, const unsigned *arg)
 		tf->r0 = (unsigned)tty_write((const char *)arg[1], (int)arg[2]);
 		return 0;
 	}
-	if (f->kind != F_PIPE_W)
-		return f->kind == F_PIPE_R ? EBADF : EROFS;
+	if (!f->writable)
+		return EBADF;
+	if (f->kind == F_INODE) {
+		n = writei(f->ip, f->off, (const char *)arg[1], arg[2]);
+		if (n < 0)
+			return -n;
+		f->off += (unsigned)n;
+		tf->r0 = (unsigned)n;
+		return 0;
+	}
 	n = pipe_write(f->pp, (const char *)arg[1], arg[2]);
 	if (n < 0)
 		return -n;
@@ -237,8 +246,12 @@ static int sys_pipe(struct trapframe *tf, const unsigned *arg)
 	pp->head = pp->tail = pp->count = 0;
 	pp->readers = pp->writers = 1;
 	r->kind = F_PIPE_R;
+	r->readable = 1;
+	r->writable = 0;
 	r->pp = pp;
 	w->kind = F_PIPE_W;
+	w->readable = 0;
+	w->writable = 1;
 	w->pp = pp;
 	curproc->ofile[wfd] = w;
 	((int *)arg[0])[0] = rfd;
@@ -247,31 +260,69 @@ static int sys_pipe(struct trapframe *tf, const unsigned *arg)
 	return 0;
 }
 
-static int sys_open(struct trapframe *tf, const unsigned *arg)
+/* A descriptor for the inode, held already: mode 0 to read, 1 to write,
+ * 2 both, as V6 has it.  The inode is let go on an error. */
+static int fd_of_inode(struct trapframe *tf, struct inode *ip, unsigned mode)
 {
-	struct inode *ip;
 	struct file *f;
-	int error = 0;
 	unsigned fd;
 
-	if ((error = user_string(arg[0], PATHMAX)) != 0)
-		return error;
-	if (arg[1] != 0)			/* only reading, for now */
-		return EROFS;
 	for (fd = 0; fd < NOFILE && curproc->ofile[fd]; fd++)
 		;
-	if (fd == NOFILE)
-		return EMFILE;
-	if (!(ip = namei((const char *)arg[0], &error)))
-		return error;
-	if (!(f = falloc())) {
+	if (fd == NOFILE || !(f = falloc())) {
 		iput(ip);
-		return ENFILE;
+		return fd == NOFILE ? EMFILE : ENFILE;
 	}
 	f->kind = F_INODE;
 	f->ip = ip;
+	f->readable = mode != 1;
+	f->writable = mode != 0;
 	curproc->ofile[fd] = f;
 	tf->r0 = fd;
+	return 0;
+}
+
+static int sys_open(struct trapframe *tf, const unsigned *arg)
+{
+	struct inode *ip;
+	int error = 0;
+
+	if ((error = user_string(arg[0], PATHMAX)) != 0)
+		return error;
+	if (arg[1] > 2)
+		return EINVAL;
+	if (!(ip = namei((const char *)arg[0], &error)))
+		return error;
+	if (arg[1] != 0 && (ip->d.mode & S_IFMT) == S_IFDIR) {
+		iput(ip);
+		return EISDIR;
+	}
+	return fd_of_inode(tf, ip, arg[1]);
+}
+
+/* creat(path, mode): the file made or emptied, open to write. */
+static int sys_creat(struct trapframe *tf, const unsigned *arg)
+{
+	struct inode *ip;
+	int error = 0;
+
+	if ((error = user_string(arg[0], PATHMAX)) != 0)
+		return error;
+	if (!(ip = fs_creat((const char *)arg[0], &error)))
+		return error;
+	return fd_of_inode(tf, ip, 1);
+}
+
+/* unlink(path) and mkdir(path): the path checked, the work fs.c's. */
+static int sys_path(struct trapframe *tf, const unsigned *arg, int (*op)(const char *))
+{
+	int error;
+
+	if ((error = user_string(arg[0], PATHMAX)) != 0)
+		return error;
+	if ((error = op((const char *)arg[0])) != 0)
+		return error;
+	tf->r0 = 0;
 	return 0;
 }
 
@@ -378,6 +429,18 @@ void syscall(struct trapframe *tf)
 		break;
 	case SYS_CLOSE:
 		error = sys_close(tf, arg);
+		break;
+	case SYS_CREAT:
+		error = sys_creat(tf, arg);
+		break;
+	case SYS_UNLINK:
+		error = sys_path(tf, arg, fs_unlink);
+		break;
+	case SYS_MKDIR:
+		error = sys_path(tf, arg, fs_mkdir);
+		break;
+	case SYS_SYNC:				/* every write goes through at once */
+		tf->r0 = 0;
 		break;
 	case SYS_WAIT:
 		error = sys_wait(tf, arg);

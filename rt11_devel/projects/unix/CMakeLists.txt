@@ -43,6 +43,7 @@ add_executable(kernel
     kernel/lib.c
     kernel/clock.c
     kernel/tty.c
+    kernel/dev.c
     kernel/bio.c
     kernel/fs.c
     kernel/exec.c
@@ -51,6 +52,11 @@ add_executable(kernel
     kernel/sys.c
     "${ARITH}")
 target_compile_options(kernel PRIVATE -Wall -Wextra -Werror)
+# The kernel is held to 01000..040000 (mkfs.py reports it): -Os takes a
+# quarter off its code; the loops that move memory and the RAM disk's pages
+# keep -O2, coming last on the command line.
+target_compile_options(kernel PRIVATE -Os)
+set_source_files_properties(kernel/lib.c kernel/ramdisk.c PROPERTIES COMPILE_OPTIONS -O2)
 
 # flat(<target>): the program's text and data as they lie in memory.
 function(flat target)
@@ -83,6 +89,8 @@ program(echo user/echo.c)
 program(hello user/hello.c)
 program(fail user/fail.c)
 program(pid user/pid.c)
+program(rm user/rm.c)
+program(mkdir user/mkdir.c)
 
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/root")
 add_custom_command(OUTPUT unix.dsk
@@ -99,6 +107,8 @@ add_custom_command(OUTPUT unix.dsk
             /bin/hello=hello.x
             /bin/fail=fail.x
             /bin/pid=pid.x
+            /bin/rm=rm.x
+            /bin/mkdir=mkdir.x
     DEPENDS boot.bin kernel.bin ${PROGRAMS} "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py"
             ${ROOT}/etc/motd ${ROOT}/etc/numbers
     COMMENT "unix.dsk")

@@ -5,7 +5,8 @@
 
 	.text
 	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
-	.globl	_time, _getpid, _getppid, _dup, _pipe, _errno
+	.globl	_time, _getpid, _getppid, _dup, _pipe, _creat, _unlink, _mkdir, _sync
+	.globl	_errno
 
 _exit:	trap	1
 	br	_exit
@@ -52,6 +53,20 @@ _dup:	trap	41
 
 / int pipe(int fd[2]): the reading end in fd[0], the writing one in fd[1].
 _pipe:	trap	42
+	br	done
+
+/ int creat(const char *path, int mode): the file made or emptied, open to write.
+_creat:	trap	8
+	br	done
+
+_unlink:
+	trap	10
+	br	done
+
+_mkdir:	trap	136
+	br	done
+
+_sync:	trap	36
 	br	done
 
 done:	bcc	1f

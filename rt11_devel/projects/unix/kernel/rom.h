@@ -14,7 +14,9 @@ int rom_getc(void);
 /* A step of the cursor's blink. */
 void rom_blink(void);
 
-/* Block `block` of the boot drive into buf (512 bytes), 0 or -1. */
+/* Block `block` of the boot drive into buf (512 bytes), 0 or -1; and
+ * written from it. */
 int rom_bread(unsigned block, void *buf);
+int rom_bwrite(unsigned block, const void *buf);
 
 #endif

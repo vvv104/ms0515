@@ -13,6 +13,7 @@ struct pipe;
 /* An open file, shared by the processes a fork made, its offset with it. */
 struct file {
 	enum { F_NONE, F_TTY, F_INODE, F_PIPE_R, F_PIPE_W } kind;
+	unsigned char readable, writable;
 	unsigned count;			/* the descriptors that hold it */
 	struct inode *ip;
 	struct pipe *pp;

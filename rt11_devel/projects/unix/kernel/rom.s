@@ -9,7 +9,7 @@
 / (the DEC monitor's lesson, rt11_devel/projects/rt11/monitor/OMCONS.MAC).
 
 	.text
-	.globl	_rom_putc, _rom_getc, _rom_blink, _rom_bread
+	.globl	_rom_putc, _rom_getc, _rom_blink, _rom_bread, _rom_bwrite
 
 ROMELM	= 0157730		/ the ROM's cell for the disk element's address
 ROMREGA	= 0157720		/ the ROM's copy of register A, the motor flags
@@ -80,6 +80,15 @@ _rom_blink:
 / int rom_bread(unsigned block, void *buf): the block of the boot drive
 / read into buf, 0 or -1.  Blocks 800 and on are side 1's.
 _rom_bread:
+	mov	$256, wcount
+	br	romblock
+
+/ int rom_bwrite(unsigned block, const void *buf): the same written - the
+/ element's word count negative, as RT-11 asks for a write.
+_rom_bwrite:
+	mov	$-256, wcount
+
+romblock:
 	mov	2(sp), r0
 	clrb	elem+3
 	cmp	r0, $800
@@ -88,7 +97,7 @@ _rom_bread:
 	movb	$2, elem+3
 1:	mov	r0, elem
 	mov	4(sp), elem+4
-	mov	$256, elem+6
+	mov	wcount, elem+6
 	bis	$0100000, *$ROMREGA	/ the motor armed, as the ROM's boot does
 	mov	$elem, *$ROMELM
 	mov	$4, r1
@@ -103,6 +112,7 @@ romtab:	.word	0160000		/ the console: a character out of R0
 	.word	0160010		/ a disk block by the queue element at 157730
 	.word	0160014		/ the cursor's blink
 elem:	.word	0, 0, 0, 0	/ the disk element: block, unit, buffer, words
+wcount:	.word	0		/ 256 to read, -256 to write
 
 	.bss
 romsp:	.=.+2

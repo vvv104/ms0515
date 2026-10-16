@@ -6,7 +6,10 @@
 extern int errno;
 #define ENOENT 2
 #define EAGAIN 11
+#define EEXIST 17
 #define ENOTDIR 20
+#define EISDIR 21
+#define ENOSPC 28
 
 void exit(int status);
 int fork(void);
@@ -21,6 +24,10 @@ int getpid(void);
 int getppid(void);
 int dup(int fd);
 int pipe(int fd[2]);
+int creat(const char *path, int mode);
+int unlink(const char *path);
+int mkdir(const char *path);
+int sync(void);
 
 /* lib.c */
 int strlen(const char *s);

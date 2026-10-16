@@ -42,7 +42,9 @@ void complain(const char *who, const char *what)
 	puts_fd(2, ": ");
 	puts_fd(2, what);
 	puts_fd(2, errno == ENOENT ? ": not found\n" : errno == ENOTDIR ? ": not a directory\n" :
-		   errno == EAGAIN ? ": no room for another process\n" : ": cannot\n");
+		   errno == EAGAIN ? ": no room for another process\n" : errno == EEXIST ? ": there already\n" :
+		   errno == EISDIR ? ": a directory\n" : errno == ENOSPC ? ": no room on the volume\n" :
+		   ": cannot\n");
 }
 
 void *memcpy(void *to, const void *from, unsigned n)

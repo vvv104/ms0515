@@ -175,6 +175,14 @@ public:
 
     ms0515::Emulator &emulator() { return emu_; }
 
+    /* The diskette as it stands now: the emulator writes a sector through
+     * to the image file as the machine writes it. */
+    std::vector<uint8_t> imageNow() const
+    {
+        std::ifstream in(path_, std::ios::binary);
+        return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    }
+
 private:
     static int &counter()
     {
