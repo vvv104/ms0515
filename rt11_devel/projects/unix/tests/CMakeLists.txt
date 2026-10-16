@@ -14,7 +14,12 @@ add_executable(unix_tests
     test_shell.cpp
     test_swap.cpp
     test_write.cpp
+    test_mount.cpp
 )
+
+# Machine.hpp reads the RAM disk's memory through the lib's internal access
+# to the board, as the FIST tests do.
+target_include_directories(unix_tests PRIVATE ${CMAKE_SOURCE_DIR}/lib/src)
 
 target_compile_definitions(unix_tests PRIVATE
     ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
@@ -25,6 +30,7 @@ target_compile_definitions(unix_tests PRIVATE
 target_link_libraries(unix_tests
     PRIVATE
         ms0515_lib
+        ms0515_disk          # EmulatorInternal.hpp reaches the disk lib's headers
         doctest::doctest
 )
 

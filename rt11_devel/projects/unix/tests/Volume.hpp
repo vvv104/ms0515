@@ -16,11 +16,18 @@ namespace unixos {
 
 class Volume {
 public:
-    explicit Volume(std::vector<uint8_t> image) : image_(std::move(image)) {}
+    /* A diskette's image, its blocks laid out as the drive has them; or,
+     * linear, a volume whose blocks lie one after another (the RAM disk). */
+    explicit Volume(std::vector<uint8_t> image, bool linear = false) : image_(std::move(image)), linear_(linear) {}
+
+    std::size_t offset(int block) const
+    {
+        return linear_ ? static_cast<std::size_t>(block) * 512 : blockOffset(block);
+    }
 
     unsigned word(int block, int at) const
     {
-        const std::size_t o = blockOffset(block) + static_cast<std::size_t>(at);
+        const std::size_t o = offset(block) + static_cast<std::size_t>(at);
         return image_[o] | image_[o + 1] << 8;
     }
     /* A long: the high word first. */
@@ -41,8 +48,8 @@ public:
         const int at = static_cast<int>((n - 1) % 16 * 32);
         Inode i;
         i.mode = word(block, at);
-        i.nlink = image_[blockOffset(block) + static_cast<std::size_t>(at) + 2];
-        i.nextents = image_[blockOffset(block) + static_cast<std::size_t>(at) + 3];
+        i.nlink = image_[offset(block) + static_cast<std::size_t>(at) + 2];
+        i.nextents = image_[offset(block) + static_cast<std::size_t>(at) + 3];
         i.size = longAt(block, at + 4);
         for (int e = 0; e < 5; ++e) {
             i.start[e] = word(block, at + 12 + e * 4);
@@ -56,7 +63,7 @@ public:
         std::string s;
         for (unsigned e = 0; e < i.nextents && e < 5; ++e)
             for (unsigned b = 0; b < i.len[e]; ++b) {
-                const std::size_t o = blockOffset(static_cast<int>(i.start[e] + b));
+                const std::size_t o = offset(static_cast<int>(i.start[e] + b));
                 s.append(reinterpret_cast<const char *>(&image_[o]), 512);
             }
         s.resize(static_cast<std::size_t>(i.size));
@@ -100,6 +107,7 @@ public:
 
 private:
     std::vector<uint8_t> image_;
+    bool linear_;
 };
 
 } // namespace unixos

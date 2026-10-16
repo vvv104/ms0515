@@ -10,6 +10,8 @@
 
 #include <doctest/doctest.h>
 
+#include "EmulatorInternal.hpp"
+
 #include <ms0515/Emulator.hpp>
 #include <ms0515/Terminal.hpp>
 #include <ms0515/Typist.hpp>
@@ -174,6 +176,14 @@ public:
     }
 
     ms0515::Emulator &emulator() { return emu_; }
+
+    /* The RAM disk's 512 KB as they stand, empty when there is no board. */
+    std::vector<uint8_t> ramDisk()
+    {
+        const auto &rd = ms0515::internal::board(emu_).ramdisk;
+        if (!rd.enabled || !rd.ram) return {};
+        return {rd.ram, rd.ram + 512 * 1024};
+    }
 
     /* The diskette as it stands now: the emulator writes a sector through
      * to the image file as the machine writes it. */

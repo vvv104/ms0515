@@ -1,31 +1,62 @@
-/* fs.c - the file system: the superblock, the bitmap, inodes, a file's
- * blocks by its extents, reading and writing, directories, paths.
+/* fs.c - the file system: the volumes, the bitmap, inodes, a file's
+ * blocks by its extents, reading and writing, directories, paths, devices.
  *
  * A file grows at its end alone: its next block is the one after its last
  * extent when that one is free, else the first free block starts a new
  * extent - five at most.  Each change goes to the disk at once, the bitmap,
- * the inode and the directory too (bio.c writes through).  One volume, the
- * root on the boot drive, until mount comes. */
-#include "kernel.h"
+ * the inode and the directory too (bio.c writes through).
+ *
+ * The volumes are in the mount table (bank 6): the root, on the boot
+ * drive, and those mounted on a directory, which the path then goes into -
+ * and out of again by "..", from the volume's root to the directory it
+ * covers.  A block device is an inode of its own kind, its number in the
+ * first extent's start; read and written, it is its blocks one after
+ * another. */
+#include "high.h"
 
 #define NINODE 8
 #define IPB (BSIZE / sizeof(struct dinode))	/* inodes a block: 16 */
+#define mounts (HIGH->mounts)
 
-static struct superblock sb;
 static struct inode inodes[NINODE];
 static unsigned rootdev = DEV_FD0;
 
-int fs_mount(void)
+/* The volume of dev, 0 when it is not mounted. */
+static struct mount *mount_of(unsigned dev)
 {
-	struct buf *b = bread(rootdev, 1);
+	int i;
+
+	for (i = 0; i < NMOUNT; i++)
+		if (mounts[i].used && mounts[i].dev == dev)
+			return &mounts[i];
+	return 0;
+}
+
+/* The superblock of dev, checked: its magic and its version. */
+static int read_super(unsigned dev, struct superblock *sb)
+{
+	struct buf *b = bread(dev, 1);
 
 	if (!b)
 		return EIO;
-	memcpy(&sb, b->data, sizeof sb);
-	if (sb.magic != FS_MAGIC || sb.version != FS_VERSION)
+	memcpy(sb, b->data, sizeof *sb);
+	if (sb->magic != FS_MAGIC || sb->version != FS_VERSION)
 		return EINVAL;
 	return 0;
 }
+
+int fs_mount(void)
+{
+	int error = read_super(rootdev, &mounts[0].sb);
+
+	if (error)
+		return error;
+	mounts[0].dev = rootdev;
+	mounts[0].used = 1;
+	return 0;
+}
+
+#define SB(dev) (&mount_of(dev)->sb)
 
 /* -- inodes ------------------------------------------------------------ */
 
@@ -36,7 +67,7 @@ struct inode *iget(unsigned dev, unsigned n)
 	struct buf *b;
 	int i;
 
-	if (n == 0 || n > sb.inodes)
+	if (!mount_of(dev) || n == 0 || n > SB(dev)->inodes)
 		return 0;
 	for (i = 0; i < NINODE; i++) {
 		ip = &inodes[i];
@@ -49,7 +80,7 @@ struct inode *iget(unsigned dev, unsigned n)
 	}
 	if (!free)
 		return 0;
-	b = bread(dev, sb.itable + (n - 1) / IPB);
+	b = bread(dev, SB(dev)->itable + (n - 1) / IPB);
 	if (!b)
 		return 0;
 	memcpy(&free->d, b->data + (n - 1) % IPB * sizeof(struct dinode), sizeof(struct dinode));
@@ -62,7 +93,7 @@ struct inode *iget(unsigned dev, unsigned n)
 /* The inode written back to its table. */
 int iupdate(struct inode *ip)
 {
-	struct buf *b = bread(ip->dev, sb.itable + (ip->ino - 1) / IPB);
+	struct buf *b = bread(ip->dev, SB(ip->dev)->itable + (ip->ino - 1) / IPB);
 
 	if (!b)
 		return -EIO;
@@ -74,14 +105,14 @@ int iupdate(struct inode *ip)
 
 static int taken(unsigned dev, unsigned block)
 {
-	struct buf *b = bread(dev, sb.bitmap);
+	struct buf *b = bread(dev, SB(dev)->bitmap);
 
 	return !b || (b->data[block >> 3] >> (block & 7) & 1);
 }
 
 static void mark(unsigned dev, unsigned block, int on)
 {
-	struct buf *b = bread(dev, sb.bitmap);
+	struct buf *b = bread(dev, SB(dev)->bitmap);
 
 	if (!b)
 		return;
@@ -95,13 +126,14 @@ static void mark(unsigned dev, unsigned block, int on)
 /* A free block taken: `want` when it is free, else the first; 0 when none. */
 static unsigned balloc(unsigned dev, unsigned want)
 {
+	const struct superblock *sb = SB(dev);
 	unsigned b;
 
-	if (want >= sb.data && want < sb.blocks && !taken(dev, want)) {
+	if (want >= sb->data && want < sb->blocks && !taken(dev, want)) {
 		mark(dev, want, 1);
 		return want;
 	}
-	for (b = sb.data; b < sb.blocks; b++)
+	for (b = sb->data; b < sb->blocks; b++)
 		if (!taken(dev, b)) {
 			mark(dev, b, 1);
 			return b;
@@ -114,9 +146,10 @@ void itrunc(struct inode *ip)
 {
 	unsigned i, b;
 
-	for (i = 0; i < ip->d.nextents && i < NEXTENT; i++)
-		for (b = 0; b < ip->d.ext[i].len; b++)
-			mark(ip->dev, ip->d.ext[i].start + b, 0);
+	if ((ip->d.mode & S_IFMT) != S_IFBLK)	/* a device's extent is its number */
+		for (i = 0; i < ip->d.nextents && i < NEXTENT; i++)
+			for (b = 0; b < ip->d.ext[i].len; b++)
+				mark(ip->dev, ip->d.ext[i].start + b, 0);
 	memset(ip->d.ext, 0, sizeof ip->d.ext);
 	ip->d.nextents = 0;
 	ip->d.size = 0;
@@ -144,8 +177,8 @@ static struct inode *ialloc(unsigned dev, unsigned mode)
 	struct inode *ip;
 	unsigned n;
 
-	for (n = 1; n <= sb.inodes; n++) {
-		if (!(b = bread(dev, sb.itable + (n - 1) / IPB)))
+	for (n = 1; n <= SB(dev)->inodes; n++) {
+		if (!(b = bread(dev, SB(dev)->itable + (n - 1) / IPB)))
 			return 0;
 		d = (struct dinode *)(b->data + (n - 1) % IPB * sizeof(struct dinode));
 		if (d->mode)
@@ -312,6 +345,45 @@ static int dir_add(struct inode *dp, const char *name, int len, unsigned n)
 
 /* -- paths ------------------------------------------------------------- */
 
+/* The volume mounted on directory ip, 0 when there is none. */
+static struct mount *covering(const struct inode *ip)
+{
+	int i;
+
+	for (i = 1; i < NMOUNT; i++)
+		if (mounts[i].used && mounts[i].on == ip)
+			return &mounts[i];
+	return 0;
+}
+
+/* From directory dp - let go - to its entry `name`: into the volume
+ * mounted there, and from a volume's root by ".." out to the directory it
+ * covers first.  Held; 0 when there is none. */
+static struct inode *step(struct inode *dp, const char *name, int len)
+{
+	struct mount *m;
+	struct inode *ip;
+	unsigned n;
+	int i;
+
+	if (len == 2 && name[0] == '.' && name[1] == '.' && dp->ino == ROOT_INO)
+		for (i = 1; i < NMOUNT; i++)
+			if (mounts[i].used && mounts[i].dev == dp->dev) {
+				iput(dp);
+				dp = mounts[i].on;
+				dp->count++;
+				break;
+			}
+	n = len <= DIRSIZ ? lookup(dp, name, len, 0) : 0;
+	ip = n ? iget(dp->dev, n) : 0;
+	iput(dp);
+	if (ip && (m = covering(ip)) != 0) {
+		iput(ip);
+		ip = iget(m->dev, ROOT_INO);
+	}
+	return ip;
+}
+
 /* The path's walk: through each directory down to the last name, which is
  * left at *last (*len bytes, 0 for the root itself); the inode holding it -
  * a directory, if the path is right - is returned, held.  0 and *error when
@@ -320,7 +392,6 @@ static struct inode *walk(const char *path, const char **last, int *len, int *er
 {
 	struct inode *ip = iget(rootdev, ROOT_INO), *next;
 	const char *name;
-	unsigned n;
 	int l;
 
 	if (!ip) {
@@ -344,10 +415,7 @@ static struct inode *walk(const char *path, const char **last, int *len, int *er
 			*error = ENOTDIR;
 			return 0;
 		}
-		n = l <= DIRSIZ ? lookup(ip, name, l, 0) : 0;
-		next = n ? iget(ip->dev, n) : 0;
-		iput(ip);
-		if (!next) {
+		if (!(next = step(ip, name, l))) {
 			*error = ENOENT;
 			return 0;
 		}
@@ -387,7 +455,6 @@ struct inode *namei(const char *path, int *error)
 	const char *name;
 	int len;
 	struct inode *dp = walk(path, &name, &len, error), *ip;
-	unsigned n;
 
 	if (!dp || len == 0)
 		return dp;			/* none, or the root */
@@ -396,10 +463,7 @@ struct inode *namei(const char *path, int *error)
 		*error = ENOTDIR;
 		return 0;
 	}
-	n = len <= DIRSIZ ? lookup(dp, name, len, 0) : 0;
-	ip = n ? iget(dp->dev, n) : 0;
-	iput(dp);
-	if (!ip)
+	if (!(ip = step(dp, name, len)))
 		*error = ENOENT;
 	return ip;
 }
@@ -504,5 +568,103 @@ int fs_unlink(const char *path)
 	iupdate(ip);
 	iput(ip);
 	iput(dp);
+	return 0;
+}
+
+/* -- devices and volumes ---------------------------------------------- */
+
+/* A block device's inode read or written: n bytes at off, its blocks one
+ * after another; how many, or the error negative. */
+int devrw(struct inode *ip, unsigned long off, char *buf, unsigned n, int write)
+{
+	unsigned dev = ip->d.ext[0].start, done = 0, in, take, block;
+	struct buf *b;
+
+	while (done < n) {
+		block = (unsigned)(off >> 9);
+		if (block >= dev_blocks(dev))
+			break;
+		in = (unsigned)off & (BSIZE - 1);
+		take = BSIZE - in;
+		if (take > n - done)
+			take = n - done;
+		b = write && in == 0 && take == BSIZE ? getblk(dev, block) : bread(dev, block);
+		if (!b)
+			return -EIO;
+		if (write) {
+			memcpy(b->data + in, buf + done, take);
+			if (bwrite(b) != 0)
+				return -EIO;
+		} else {
+			memcpy(buf + done, b->data + in, take);
+		}
+		done += take;
+		off += take;
+	}
+	return (int)done;
+}
+
+/* The device of a block device's inode at path, or -1 and *error. */
+static int device_at(const char *path, int *error)
+{
+	struct inode *ip = namei(path, error);
+	int dev;
+
+	if (!ip)
+		return -1;
+	dev = (ip->d.mode & S_IFMT) == S_IFBLK ? (int)ip->d.ext[0].start : -1;
+	iput(ip);
+	if (dev < 0)
+		*error = ENOTBLK;
+	return dev;
+}
+
+/* mount(device, dir): the volume on the device into the tree at dir. */
+int fs_mount_on(const char *device, const char *dir)
+{
+	struct mount *m = 0;
+	struct inode *dp;
+	int dev, error = 0, i;
+
+	if ((dev = device_at(device, &error)) < 0)
+		return error;
+	if (mount_of((unsigned)dev))
+		return EBUSY;
+	for (i = 1; i < NMOUNT && !m; i++)
+		if (!mounts[i].used)
+			m = &mounts[i];
+	if (!m)
+		return ENFILE;
+	if (!(dp = namei(dir, &error)))
+		return error;
+	if ((dp->d.mode & S_IFMT) != S_IFDIR || dp->ino == ROOT_INO || covering(dp)) {
+		iput(dp);
+		return (dp->d.mode & S_IFMT) != S_IFDIR ? ENOTDIR : EBUSY;
+	}
+	if ((error = read_super((unsigned)dev, &m->sb)) != 0) {
+		iput(dp);
+		return error;
+	}
+	m->dev = (unsigned)dev;
+	m->on = dp;				/* held while it is covered */
+	m->used = 1;
+	return 0;
+}
+
+/* umount(device): the volume taken out, when nothing on it is held. */
+int fs_umount(const char *device)
+{
+	struct mount *m;
+	int dev, error = 0, i;
+
+	if ((dev = device_at(device, &error)) < 0)
+		return error;
+	if (!(m = mount_of((unsigned)dev)) || m == &mounts[0])
+		return EINVAL;
+	for (i = 0; i < NINODE; i++)
+		if (inodes[i].count && inodes[i].dev == (unsigned)dev)
+			return EBUSY;
+	iput(m->on);
+	m->used = 0;
 	return 0;
 }

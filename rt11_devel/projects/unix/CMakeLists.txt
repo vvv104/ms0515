@@ -91,6 +91,9 @@ program(fail user/fail.c)
 program(pid user/pid.c)
 program(rm user/rm.c)
 program(mkdir user/mkdir.c)
+program(mkfs user/mkfs.c)
+program(mount user/mount.c)
+program(umount user/umount.c)
 
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/root")
 add_custom_command(OUTPUT unix.dsk
@@ -109,6 +112,10 @@ add_custom_command(OUTPUT unix.dsk
             /bin/pid=pid.x
             /bin/rm=rm.x
             /bin/mkdir=mkdir.x
+            /bin/mkfs=mkfs.x
+            /bin/mount=mount.x
+            /bin/umount=umount.x
+            --dir /tmp
     DEPENDS boot.bin kernel.bin ${PROGRAMS} "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py"
             ${ROOT}/etc/motd ${ROOT}/etc/numbers
     COMMENT "unix.dsk")

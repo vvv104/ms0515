@@ -6,6 +6,7 @@
 	.text
 	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
 	.globl	_time, _getpid, _getppid, _dup, _pipe, _creat, _unlink, _mkdir, _sync
+	.globl	_mount, _umount
 	.globl	_errno
 
 _exit:	trap	1
@@ -67,6 +68,14 @@ _mkdir:	trap	136
 	br	done
 
 _sync:	trap	36
+	br	done
+
+/ int mount(const char *device, const char *dir), int umount(const char *device)
+_mount:	trap	21
+	br	done
+
+_umount:
+	trap	22
 	br	done
 
 done:	bcc	1f

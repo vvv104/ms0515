@@ -24,7 +24,19 @@ struct pipe {
 	unsigned char readers, writers;
 };
 
+#define NMOUNT 3
+
+/* A volume in the tree: the root (the table's first), or one mounted on a
+ * directory, which it covers while it is there. */
+struct mount {
+	unsigned dev;
+	struct superblock sb;
+	struct inode *on;		/* the directory covered, held */
+	char used;
+};
+
 struct high {
+	struct mount mounts[NMOUNT];
 	struct proc procs[NPROC];
 	struct buf bufs[NBUF];
 	char bounce[512];

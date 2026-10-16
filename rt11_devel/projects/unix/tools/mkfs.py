@@ -7,7 +7,10 @@ A double-sided MS 0515 diskette, 819200 bytes, 1600 blocks - side 0 for
 block, 1 the superblock, 2 the bitmap of the blocks taken, 3..10 the inode
 table (128 inodes of 32 bytes), 11..138 the swap area, the data from 139.
 Each PATH=FILE puts the host's FILE at PATH on the volume, its directories
-made as they are needed; every file is laid down whole in one extent, the
+made as they are needed; each --dir PATH makes an empty directory, and
+/dev always has the block devices fd0 (0) and rd0 (1), inodes of the
+device kind with no blocks, the device's number in the first extent's
+start; every file is laid down whole in one extent, the
 next after the last.  The file at /boot/kernel is the kernel: the
 superblock names its blocks for the boot block, which loads it at 01000 and
 enters it there.
@@ -40,7 +43,8 @@ ROOT = 1
 KERNEL_LOAD = 0o1000
 KERNEL_TOP = 0o40000
 HIGH_BASE, HIGH_TOP = 0o140000, 0o157000
-S_IFDIR, S_IFREG = 0o040000, 0o100000
+S_IFDIR, S_IFREG, S_IFBLK = 0o040000, 0o100000, 0o060000
+DEVICES = {"fd0": 0, "rd0": 1}
 DIRSIZ = 14
 INTERLEAVE = [0, 2, 4, 6, 8, 1, 3, 5, 7, 9]
 
@@ -122,6 +126,18 @@ class Volume:
         self.link(directory, name, n)
         return n
 
+    def directory(self, path):
+        directory, name = self.walk(path + "/x")
+        return directory
+
+    def device(self, path, number):
+        directory, name = self.walk(path)
+        n = self.inode(S_IFBLK | 0o600)
+        self.inodes[n][3] = number            # its "start": the device's number
+        self.inodes[n].append("device")
+        self.link(directory, name, n)
+        return n
+
     def lay(self, n):
         """Inode n's data into the next free blocks."""
         data = self.inodes[n][2]
@@ -141,11 +157,14 @@ class Volume:
                 body += struct.pack("<H", ino) + name.encode("koi8_r").ljust(DIRSIZ, b"\0")
             self.inodes[n][2] = body
         for n in sorted(self.inodes):
-            self.lay(n)
+            if len(self.inodes[n]) < 5:        # a device has no blocks
+                self.lay(n)
         table = bytearray(IBLOCKS * BLOCK)
-        for n, (mode, nlink, data, start) in self.inodes.items():
+        for n, (mode, nlink, data, start, *device) in self.inodes.items():
             count = blocks(len(data))
             ext = struct.pack("<HH", start, count) if count else b""
+            if device:
+                ext = struct.pack("<HH", start, 0)
             raw = (struct.pack("<HBB", mode, nlink, 1 if count else 0) + long_(len(data)) + long_(0) +
                    ext.ljust(20, b"\0"))
             table[(n - 1) * 32:n * 32] = raw
@@ -196,6 +215,7 @@ def main():
     ap.add_argument("--kernel-out", type=Path, help="the kernel's a.out, for its _end")
     ap.add_argument("--label", default="UNIX")
     ap.add_argument("--volume", type=int, help="the volume's number (at random when left out)")
+    ap.add_argument("--dir", action="append", default=[], help="an empty directory to make")
     ap.add_argument("out", type=Path)
     ap.add_argument("files", nargs="*", help="PATH=FILE")
     args = ap.parse_args()
@@ -206,6 +226,10 @@ def main():
     if boot and boot[:2] != b"\xa0\x00":
         raise SystemExit(f"{args.boot}: a boot block begins with NOP (000240)")
     vol = Volume()
+    for name, number in DEVICES.items():
+        vol.device(f"/dev/{name}", number)
+    for path in args.dir:
+        vol.directory(path)
     kernel_ino = None
     for spec in args.files:
         path, _, host = spec.partition("=")

@@ -18,6 +18,7 @@
 enum {
 	SYS_EXIT = 1, SYS_FORK = 2, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6,
 	SYS_WAIT = 7, SYS_CREAT = 8, SYS_UNLINK = 10, SYS_EXEC = 11, SYS_TIME = 13, SYS_GETPID = 20,
+	SYS_MOUNT = 21, SYS_UMOUNT = 22,
 	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_GETPPID = 64, SYS_MKDIR = 136
 };
 enum { EPIPE = 32 };
@@ -155,7 +156,10 @@ static int sys_read(struct trapframe *tf, const unsigned *arg)
 		tf->r0 = (unsigned)pipe_read(f->pp, (char *)arg[1], arg[2]);
 		return 0;
 	}
-	n = readi(f->ip, f->off, (char *)arg[1], arg[2]);
+	if ((f->ip->d.mode & S_IFMT) == S_IFBLK)
+		n = devrw(f->ip, f->off, (char *)arg[1], arg[2], 0);
+	else
+		n = readi(f->ip, f->off, (char *)arg[1], arg[2]);
 	if (n < 0)
 		return -n;
 	f->off += (unsigned)n;
@@ -179,7 +183,10 @@ static int sys_write(struct trapframe *tf, const unsigned *arg)
 	if (!f->writable)
 		return EBADF;
 	if (f->kind == F_INODE) {
-		n = writei(f->ip, f->off, (const char *)arg[1], arg[2]);
+		if ((f->ip->d.mode & S_IFMT) == S_IFBLK)
+			n = devrw(f->ip, f->off, (char *)arg[1], arg[2], 1);
+		else
+			n = writei(f->ip, f->off, (const char *)arg[1], arg[2]);
 		if (n < 0)
 			return -n;
 		f->off += (unsigned)n;
@@ -356,6 +363,19 @@ static int sys_exec(const unsigned *arg)
 	return exec((const char *)arg[0], (const char *const *)argv);
 }
 
+/* mount(device, dir), umount(device): the paths checked, the work fs.c's. */
+static int sys_mount(struct trapframe *tf, const unsigned *arg)
+{
+	int error;
+
+	if ((error = user_string(arg[0], PATHMAX)) != 0 || (error = user_string(arg[1], PATHMAX)) != 0)
+		return error;
+	if ((error = fs_mount_on((const char *)arg[0], (const char *)arg[1])) != 0)
+		return error;
+	tf->r0 = 0;
+	return 0;
+}
+
 static int sys_time(struct trapframe *tf)
 {
 	unsigned long t = clock_seconds();
@@ -438,6 +458,12 @@ void syscall(struct trapframe *tf)
 		break;
 	case SYS_MKDIR:
 		error = sys_path(tf, arg, fs_mkdir);
+		break;
+	case SYS_MOUNT:
+		error = sys_mount(tf, arg);
+		break;
+	case SYS_UMOUNT:
+		error = sys_path(tf, arg, fs_umount);
 		break;
 	case SYS_SYNC:				/* every write goes through at once */
 		tf->r0 = 0;

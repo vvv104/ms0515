@@ -21,6 +21,9 @@
 #define ECHILD 10
 #define SLOT_BITS 074			/* dispatcher bits 2-5: banks 2-5 primary when set */
 #define SWAP_PAGES ((USER_TOP - USER_BASE) / RD_PAGE)	/* a process's area: 128 pages */
+/* The areas in the RAM disk's upper half, out of the way of a volume made
+ * on its lower one - until swap goes to a file. */
+#define SWAP_BASE (RD_PAGES / 2)
 #define CANARY 0122525			/* the kernel stack's bottom word, while it holds */
 #define STACK_BOTTOM(p) (*(unsigned *)(p)->kstack)
 
@@ -73,9 +76,9 @@ static void move_pages(const struct proc *p, unsigned from, unsigned to, int out
 	first = (from - USER_BASE) / RD_PAGE;
 	last = (to - USER_BASE + RD_PAGE - 1) / RD_PAGE;
 	if (out)
-		rd_write((unsigned)(p - procs) * SWAP_PAGES + first, (void *)(USER_BASE + first * RD_PAGE), last - first);
+		rd_write(SWAP_BASE + (unsigned)(p - procs) * SWAP_PAGES + first, (void *)(USER_BASE + first * RD_PAGE), last - first);
 	else
-		rd_read((unsigned)(p - procs) * SWAP_PAGES + first, (void *)(USER_BASE + first * RD_PAGE), last - first);
+		rd_read(SWAP_BASE + (unsigned)(p - procs) * SWAP_PAGES + first, (void *)(USER_BASE + first * RD_PAGE), last - first);
 }
 
 static void swap_out(struct proc *p)

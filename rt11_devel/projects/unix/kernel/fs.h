@@ -42,6 +42,7 @@ struct dinode {
 
 #define S_IFMT  0170000
 #define S_IFDIR 0040000
+#define S_IFBLK 0060000			/* a block device: its number in ext[0].start */
 #define S_IFREG 0100000
 
 /* A directory entry, 16 bytes, 32 a block; inode 0 is a free entry. */

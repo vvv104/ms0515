@@ -9,6 +9,9 @@ extern int errno;
 #define EEXIST 17
 #define ENOTDIR 20
 #define EISDIR 21
+#define ENOTBLK 15
+#define EBUSY 16
+#define EINVAL 22
 #define ENOSPC 28
 
 void exit(int status);
@@ -28,6 +31,8 @@ int creat(const char *path, int mode);
 int unlink(const char *path);
 int mkdir(const char *path);
 int sync(void);
+int mount(const char *device, const char *dir);
+int umount(const char *device);
 
 /* lib.c */
 int strlen(const char *s);
