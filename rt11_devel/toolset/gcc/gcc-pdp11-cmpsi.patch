@@ -1,11 +1,3 @@
-Two changes to GCC's pdp11 backend, made by patch-gcc.py from gcc-15.2.0
-and applied by build-toolchain.sh (README.md, "A trap in the compiler"):
-- signed comparisons of longs: with equal high words the low words were
-  compared with a signed branch; after the last compare N and V are now
-  set from C, so that a signed branch reads the unsigned order;
-- a constant shift is written out as single shifts up to 8 when speed is
-  wanted, instead of a loop from 4 (-Os keeps the loop from 4).
-
 --- a/gcc/config/pdp11/pdp11.md
 +++ b/gcc/config/pdp11/pdp11.md
 @@ -256,11 +256,14 @@
@@ -73,7 +65,44 @@ and applied by build-toolchain.sh (README.md, "A trap in the compiler"):
  
 --- a/gcc/config/pdp11/pdp11.cc
 +++ b/gcc/config/pdp11/pdp11.cc
-@@ -1924,7 +1924,11 @@
+@@ -505,6 +505,14 @@
+ 	       REGNO (operands[0]) > REGNO (operands[1]) &&
+ 	       REGNO (operands[0]) < REGNO (operands[1]) + words)
+ 	    useorder = little;
++      /* A register pair loaded from memory addressed by its first
++	 register: that register last, else the first word loaded is
++	 the address the second is read through.  */
++      else if (order == either
++	       && REG_P (operands[0]) && MEM_P (operands[1])
++	       && reg_overlap_mentioned_p (gen_rtx_REG (HImode, REGNO (operands[0])),
++					  XEXP (operands[1], 0)))
++	useorder = little;
+ 
+       /* Check for source == offset from register and dest == push of
+ 	 the same register.  In that case, we have to use the same
+@@ -1027,6 +1035,21 @@
+     src = XEXP (x, 1);
+   dest = XEXP (x, 0);
+ 
++  /* Without EIS (-m10) an integer multiply, divide or remainder is no
++     instruction but a call of libgcc's helper: the arguments pushed,
++     the call and the stack put back - eight words - and for a multiply
++     a loop of up to sixteen steps.  Priced as one MUL, or under -Os as
++     any one instruction, it was chosen over a pointer stepped by an
++     add: a table walked by a pointer became a count times the size of
++     its element.  */
++  if (TARGET_10 && !FLOAT_MODE_P (mode)
++      && (code == MULT || code == DIV || code == UDIV
++	  || code == MOD || code == UMOD))
++    {
++      *total = speed ? 40 * asize * asize : 8 * asize;
++      return false;
++    }
++
+   /* If optimizing for size, claim everything costs 2 per word, plus
+      whatever the operands require.  */
+   if (!speed)
+@@ -1924,7 +1947,11 @@
  bool
  pdp11_small_shift (int n)
  {
@@ -86,7 +115,7 @@ and applied by build-toolchain.sh (README.md, "A trap in the compiler"):
  }
  
  /* Expand a shift insn.  Returns true if the expansion was done,
-@@ -2126,8 +2130,10 @@
+@@ -2126,8 +2153,10 @@
  	len += 2;  /* second operand extra word.  */
      }
  
