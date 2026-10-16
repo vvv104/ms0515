@@ -24,7 +24,8 @@ void xcopy(void *to, const void *from, unsigned words, unsigned disp);
 enum {
 	ENOENT = 2, E2BIG = 7, ENOEXEC = 8, EBADF = 9, ENOMEM = 12, EFAULT = 14,
 	ENOTDIR = 20, EISDIR = 21, EINVAL = 22, ENFILE = 23, EMFILE = 24, EROFS = 30,
-	EIO = 5, ENOSYS = 38, EEXIST = 17, ENOSPC = 28, ENOTBLK = 15, EBUSY = 16
+	EIO = 5, ENOSYS = 38, EEXIST = 17, ENOSPC = 28, ENOTBLK = 15, EBUSY = 16,
+	ENODEV = 19, ENOTTY = 25
 };
 
 /* The vectors' page (start.s): vector v is vectors[v / 2] (the PC) and
@@ -68,18 +69,21 @@ int dev_overlap(unsigned a, unsigned b);
 
 /* The diskettes' driver as a file, /boot/fd (drivers/fd.s): put down
  * flat at DRV_BASE in bank 6, over the tables (high.h), its header first.
- * rw's unit is the ROM's, a drive's side; the block 0..799. */
+ * rw's and format's unit is the ROM's, a drive's side; rw's block 0..799,
+ * format's track the cylinder, 0..79, the image WRITE TRACK's (ioctl.h). */
 #define DRV_BASE 0155000u
 #define DRV_TOP 0157000u
 #define DRV_MAGIC 042106		/* "FD" */
-#define DRV_VERSION 1
+#define DRV_VERSION 2			/* 2: with format */
 struct fd_driver {
 	unsigned magic, version;
 	unsigned size;			/* the image's bytes, the header's too */
 	int (*init)(void);
 	int (*rw)(unsigned unit, unsigned block, void *buf, int write);
+	int (*format)(unsigned unit, unsigned track, const void *image, unsigned len);
 };
 void fd_driver_load(void);
+int dev_format(unsigned dev, unsigned track, const void *image, unsigned len);
 int dev_rw(unsigned dev, unsigned block, void *buf, int write);
 #define dev_read(dev, block, buf) dev_rw(dev, block, buf, 0)
 #define dev_write(dev, block, buf) dev_rw(dev, block, (void *)(buf), 1)

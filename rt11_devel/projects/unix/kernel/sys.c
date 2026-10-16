@@ -14,12 +14,14 @@
  * writer is left; the writer sleeps while it is full and gets EPIPE once no
  * reader is.  When pid 1 exits, init runs again in its place. */
 #include "high.h"
+#include "ioctl.h"
 
 enum {
 	SYS_EXIT = 1, SYS_FORK = 2, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6,
 	SYS_WAIT = 7, SYS_CREAT = 8, SYS_UNLINK = 10, SYS_EXEC = 11, SYS_TIME = 13, SYS_GETPID = 20,
 	SYS_MOUNT = 21, SYS_UMOUNT = 22,
-	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_GETPPID = 64, SYS_SWAPON = 85, SYS_MKDIR = 136
+	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_IOCTL = 54, SYS_GETPPID = 64, SYS_SWAPON = 85,
+	SYS_MKDIR = 136
 };
 enum { EPIPE = 32 };
 
@@ -398,6 +400,26 @@ static int sys_swapon(struct trapframe *tf, const unsigned *arg)
 	return 0;
 }
 
+/* ioctl(fd, cmd, arg): FD_WTRACK on a diskette's device open to write,
+ * the struct fd_track at arg (ioctl.h). */
+static int sys_ioctl(struct trapframe *tf, const unsigned *arg)
+{
+	struct file *f = file_of(arg[0]);
+	const struct fd_track *t = (const struct fd_track *)arg[2];
+	int error;
+
+	if (!f || f->kind != F_INODE || !f->writable)
+		return EBADF;
+	if ((f->ip->d.mode & S_IFMT) != S_IFBLK || arg[1] != FD_WTRACK)
+		return ENOTTY;
+	if (!inside(arg[2], sizeof *t) || !inside((unsigned)t->image, t->len))
+		return EFAULT;
+	if ((error = dev_format(f->ip->d.ext[0].start, t->track, t->image, t->len)) != 0)
+		return error;
+	tf->r0 = 0;
+	return 0;
+}
+
 static int sys_time(struct trapframe *tf)
 {
 	unsigned long t = clock_seconds();
@@ -514,6 +536,9 @@ void syscall(struct trapframe *tf)
 		break;
 	case SYS_GETPPID:
 		tf->r0 = (unsigned)curproc->ppid;
+		break;
+	case SYS_IOCTL:
+		error = sys_ioctl(tf, arg);
 		break;
 	default:
 		error = ENOSYS;

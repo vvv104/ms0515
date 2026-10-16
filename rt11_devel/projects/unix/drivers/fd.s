@@ -5,15 +5,18 @@
 /
 / A driver is put down flat at 155000 (kernel.h DRV_BASE), 1 KB at most,
 / and begins with its header: the magic, the version of the door, its size
-/ in bytes, init, rw.  The kernel loads it once the root is mounted, calls
-/ init - 0 is ready - and from then on sends every block of a diskette to
-/ rw:
+/ in bytes, init, rw, format.  The kernel loads it once the root is mounted,
+/ calls init - 0 is ready - and from then on sends every block of a
+/ diskette to rw, and a track fdformat built to format:
 /
 /     int rw(unsigned unit, unsigned block, void *buf, int write)
+/     int format(unsigned unit, unsigned track, const void *image, unsigned len)
 /
 / the unit the ROM's, a drive's side (side * 2 + drive), the block 0..799,
-/ 512 bytes into buf or out of it; 0, or -1 for an error.  A driver calls
-/ nothing of the kernel's.
+/ 512 bytes into buf or out of it; the track 0..79, its image as WRITE
+/ TRACK takes it (kernel/ioctl.h), gap after its len bytes until the index
+/ comes round; 0, or -1 for an error.  A driver calls nothing of the
+/ kernel's.
 /
 / What the diskettes hold it to, as DZ is: block n is on track
 / (n/10 + 1) mod 80 - cylinder 0 last - in sector
@@ -50,11 +53,14 @@ C_SEEK	= 020			/ seek to the track in the data register
 C_RDAD	= 0300			/ read address: the next sector's header
 C_READ	= 0200			/ read sector
 C_WRIT	= 0240			/ write sector
+C_WRTK	= 0360			/ write track, index to index
 S_BUSY	= 1
 S_DRQ	= 2
 F_SEEK	= 0220			/ not ready, seek error
 F_READ	= 0234			/ not ready, not found, CRC, lost data
 F_WRIT	= 0334			/ the same and write protected
+F_WRTK	= 0344			/ not ready, protected, write fault, lost data
+GAPBYT	= 0116			/ what a gap is full of
 
 SECTRK	= 10
 TRACKS	= 80
@@ -62,10 +68,11 @@ BLKSIZ	= 512
 RETRY	= 8
 
 start:	.word	042106		/ "FD"
-	.word	1		/ the door's version
+	.word	2		/ the door's version: 2, with format
 	.word	end - start	/ the image's bytes
 	.word	init
 	.word	rw
+	.word	format
 
 / int init(void): no drive's head is known yet.
 init:	mov	$-1, lastdrv
@@ -85,28 +92,9 @@ rw:	mov	r2, -(sp)
 	beq	1f
 	mov	$C_WRIT, comand
 	mov	$F_WRIT, fails
-1:	mov	10(sp), r0		/ the unit: bit 0 the drive, bit 1 the side
-	mov	r0, r1
-	bic	$0177776, r1
-	bit	$2, r0
-	bne	2f
-	bis	$RA_SID, r1		/ side 0
-2:	bic	$RA_DRV+RA_SID, *$REGAC
-	bis	r1, *$REGAC
-	bis	$RA_USE, *$REGAC
-	bit	$RA_MOT, *$REGAC	/ the motor off?
-	beq	3f
-	bic	$RA_MOT, *$REGAC	/ started, and let come up to speed
-	movb	*$REGAC, *$REGA
-	jsr	pc, spinup
-	mov	$-1, lastdrv		/ and its head looked for again
-3:	movb	*$REGAC, *$REGA
-	bic	$0177776, r0		/ the drive
-	cmp	r0, lastdrv
-	beq	4f
-	mov	r0, lastdrv
-	jsr	pc, where
-4:	mov	$RETRY, tries
+1:	mov	10(sp), r0
+	jsr	pc, pick
+	mov	$RETRY, tries
 5:	jsr	pc, locate		/ r2 the track, r3 the sector
 	jsr	pc, seek
 	bcs	6f
@@ -123,6 +111,86 @@ rw:	mov	r2, -(sp)
 	mov	(sp)+, r4
 	mov	(sp)+, r3
 	mov	(sp)+, r2
+	rts	pc
+
+/ int format(unsigned unit, unsigned track, const void *image, unsigned len)
+format:	mov	r2, -(sp)
+	mov	r3, -(sp)
+	mov	r4, -(sp)
+	mov	r5, -(sp)
+	mov	10(sp), r0
+	jsr	pc, pick
+	mov	12(sp), r2
+	jsr	pc, seek
+	bcc	1f
+	jsr	pc, home		/ the head found again, and once more
+	jsr	pc, seek
+	bcs	3f
+1:	mov	14(sp), r1
+	mov	16(sp), r2
+	jsr	pc, wtrack
+	bcs	3f
+	clr	r0
+	br	4f
+3:	mov	$-1, lastdrv
+	mov	$-1, r0
+4:	mov	(sp)+, r5
+	mov	(sp)+, r4
+	mov	(sp)+, r3
+	mov	(sp)+, r2
+	rts	pc
+
+/ pick: the unit in r0 - bit 0 the drive, bit 1 the side - selected in
+/ Register A, its motor started and up to speed, and the head looked for
+/ when the drive is not the one last used; r0, r1 used.
+pick:	mov	r0, r1
+	bic	$0177776, r1
+	bit	$2, r0
+	bne	1f
+	bis	$RA_SID, r1		/ side 0
+1:	bic	$RA_DRV+RA_SID, *$REGAC
+	bis	r1, *$REGAC
+	bis	$RA_USE, *$REGAC
+	bit	$RA_MOT, *$REGAC	/ the motor off?
+	beq	2f
+	bic	$RA_MOT, *$REGAC	/ started, and let come up to speed
+	movb	*$REGAC, *$REGA
+	jsr	pc, spinup
+	mov	$-1, lastdrv		/ and its head looked for again
+2:	movb	*$REGAC, *$REGA
+	bic	$0177776, r0		/ the drive
+	cmp	r0, lastdrv
+	beq	3f
+	mov	r0, lastdrv
+	jsr	pc, where
+3:	rts	pc
+
+/ wtrack: the r2 bytes at r1 given to WRITE TRACK, a byte each time one is
+/ wanted, gap past them, until the index comes round and the controller
+/ lets go - with nothing let in, a byte not given in time is lost; C set
+/ if it failed.
+wtrack:	mov	$CSR, r0
+	mfps	-(sp)
+	mtps	$0340
+	movb	$C_WRTK, (r0)
+1:	bitb	$S_DRQ, (r0)
+	bne	2f
+	bitb	$S_BUSY, (r0)
+	bne	1b
+	br	4f
+2:	tst	r2
+	beq	3f
+	movb	(r1)+, *$DAT
+	dec	r2
+	br	1b
+3:	movb	$GAPBYT, *$DAT
+	br	1b
+4:	mtps	(sp)+
+	bitb	$F_WRTK, (r0)
+	beq	5f
+	sec
+	rts	pc
+5:	clc
 	rts	pc
 
 / locate: the track of block into r2, its sector into r3; r0, r1 used.

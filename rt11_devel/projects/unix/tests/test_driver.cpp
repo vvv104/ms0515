@@ -41,7 +41,7 @@ std::vector<uint8_t> driverFile()
     return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
-/* A word of the driver's header: 0 magic, 1 version, 2 size, 3 init, 4 rw. */
+/* A word of the driver's header: 0 magic, 1 version, 2 size, 3 init, 4 rw, 5 format. */
 unsigned header(const std::vector<uint8_t> &d, int word)
 {
     return d[2 * word] | d[2 * word + 1] << 8;
@@ -84,9 +84,10 @@ TEST_SUITE("UNIX") {
 TEST_CASE("the system's /boot/fd drives the VG93 itself: no block through the ROM once it is in") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     const auto d = driverFile();
-    REQUIRE(d.size() >= 10);
+    REQUIRE(d.size() >= 12);
     CHECK(header(d, 0) == 042106);
-    CHECK(header(d, 1) == 1);
+    CHECK(header(d, 1) == 2);                 /* the door with format */
+    CHECK(header(d, 5) > header(d, 4));
     CHECK(header(d, 2) == d.size());
     CHECK(d.size() <= 1024);
     Machine m(unixos::readImage(), false);

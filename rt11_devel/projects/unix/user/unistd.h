@@ -13,6 +13,7 @@ extern int errno;
 #define EBUSY 16
 #define EINVAL 22
 #define ENOSPC 28
+#define ENODEV 19
 
 void exit(int status);
 int fork(void);
@@ -34,6 +35,7 @@ int sync(void);
 int mount(const char *device, const char *dir);
 int umount(const char *device);
 int swapon(const char *file);
+int ioctl(int fd, int cmd, void *arg);
 
 /* lib.c */
 int strlen(const char *s);

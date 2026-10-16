@@ -1,5 +1,5 @@
-/* dev.c - the block devices: the diskettes through the ROM's 160010 for
- * now, and the RAM disk, 1024 blocks of two pages each.
+/* dev.c - the block devices: the diskettes through /boot/fd, or the ROM's
+ * 160010 without it, and the RAM disk, 1024 blocks of two pages each.
  *
  * A diskette is a device by a side, 800 blocks: fd0 and fd1 the boot
  * drive's sides 0 and 1, fd2 and fd3 the second drive's - a single-sided
@@ -14,8 +14,10 @@
 
 #define SIDE 800			/* a side's blocks */
 
-/* The diskettes' blocks go by the ROM until /boot/fd takes them over. */
+/* The diskettes' blocks go by the ROM until /boot/fd takes them over; a
+ * track is written only by /boot/fd. */
 static int (*fd_rw)(unsigned unit, unsigned block, void *buf, int write) = rom_rw;
+static int (*fd_format)(unsigned unit, unsigned track, const void *image, unsigned len);
 
 /* Each diskette device's drive (bit 2) and sides (bit 0 side 0, bit 1
  * side 1), by its number. */
@@ -69,6 +71,31 @@ int dev_rw(unsigned dev, unsigned block, void *buf, int write)
 	return fd_rw(unit, block, buf, write);
 }
 
+/* The diskette device's track written anew from the image (ioctl.h), by
+ * /boot/fd; 0 or the error.  The side's blocks on it are forgotten by the
+ * cache: track t holds blocks (t - 1) * 10.., track 0 the last ten. */
+int dev_format(unsigned dev, unsigned track, const void *image, unsigned len)
+{
+	unsigned side = dev;
+
+	if (dev > DEV_FDX1)
+		return ENOTTY;
+	if (!fd_format)
+		return ENODEV;
+	if (fs_mounted(dev))
+		return EBUSY;
+	if ((place[dev] & 3) == 3) {
+		side = (place[dev] >> 1 & 2) + (track & 1);
+		track >>= 1;
+	}
+	if (track >= SIDE / 10)
+		return EINVAL;
+	if (fd_format((side & 1) << 1 | side >> 1, track, image, len) != 0)
+		return EIO;
+	binval(side, track ? (track - 1) * 10 : SIDE - 10, 10);
+	return 0;
+}
+
 /* /boot/fd, when the root has one and it fits the room, read in at
  * DRV_BASE through the ROM and made the diskettes' way once its header
  * holds - the size it gives the file's - and init is ready; else said so,
@@ -87,6 +114,7 @@ void fd_driver_load(void)
 	    d->magic == DRV_MAGIC && d->version == DRV_VERSION && d->size == size &&
 	    d->init() == 0) {
 		fd_rw = d->rw;
+		fd_format = d->format;
 		tty_puts("UNIX: the diskettes by /boot/fd\n");
 	} else {
 		tty_puts("UNIX: /boot/fd is no driver - the ROM's way\n");

@@ -6,7 +6,7 @@
 	.text
 	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
 	.globl	_time, _getpid, _getppid, _dup, _pipe, _creat, _unlink, _mkdir, _sync
-	.globl	_mount, _umount, _swapon
+	.globl	_mount, _umount, _swapon, _ioctl
 	.globl	_errno
 
 _exit:	trap	1
@@ -81,6 +81,10 @@ _umount:
 / int swapon(const char *file): the file, in one extent, swap from now on.
 _swapon:
 	trap	85
+	br	done
+
+/ int ioctl(int fd, int cmd, void *arg): kernel/ioctl.h says what for.
+_ioctl:	trap	54
 	br	done
 
 done:	bcc	1f

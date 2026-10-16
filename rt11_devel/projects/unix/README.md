@@ -18,7 +18,7 @@ three; two are resident, one in each slot, and with swap on the other two
 wait in the swap file, 96 KB, and come in when they are to run.
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls`, `cat`, `echo`, `rm`, `mkdir`, `mkfs`, `mount`, `umount`,
-`swapon`, `hello`, `fail` and `pid`; the shell's own commands are `t` (the
+`swapon`, `fdformat`, `hello`, `fail` and `pid`; the shell's own commands are `t` (the
 time), `status` (the last command's), `exec` and `exit`, which ends the
 session and brings getty back.
 
@@ -72,14 +72,17 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   160010 - fd0..fd3 a drive's side, 800 blocks, fdx0 and fdx1 a drive's
   both sides, 1600 - and the RAM disk, rd0, 1024 blocks.
 - `drivers/fd.s` - /boot/fd, the diskettes' driver as a file: put down
-  flat at 155000 in bank 6, its header first (magic, version, size, init,
-  rw).  It drives the VG93 itself, as our RT-11 DZ handler does, asking
+  flat at 155000 in bank 6, its header first (magic, version 2, size,
+  init, rw, format).  It drives the VG93 itself, as our RT-11 DZ handler does, asking
   where the head is only when the drive changes, the motor starts or a
   try fails; a sector's bytes go at priority 7, the seeks and the waits
   for the sector with the interrupts let in.  The kernel loads it once
   the root is mounted and sends the diskettes' blocks to it; with no
   /boot/fd, or one that is no driver, the ROM's 160010 stays.  A file
-  copied takes half the time it took through the ROM.
+  copied takes half the time it took through the ROM.  format writes a
+  track from the image fdformat built, by WRITE TRACK at priority 7.
+- `kernel/ioctl.h` - what `ioctl` does, for the kernel and the programs:
+  FD_WTRACK, a diskette's track written anew through /boot/fd.
 - `kernel/bio.c` - the buffer cache in two levels: three blocks in hand in
   bank 6, the least recently used given up to the shadow copy of bank 1,
   15 blocks more, from where it comes back without the device; a write goes
@@ -121,6 +124,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   `getty.c`, and the programs of /bin: `sh.c` (scripts too), `ls.c`,
   `cat.c`, `echo.c`, `rm.c`, `mkdir.c`, `mkfs.c`, `mount.c` (`mount -a`:
   /etc/fstab's volumes and swap, in one process), `umount.c`, `swapon.c`,
+  `fdformat.c` (a diskette's tracks built and written, a side or both),
   `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `root/etc/` - `rc`, `fstab`, `motd`, `numbers`.
 - `root/` - the files the volume carries as they are: /etc/motd,
@@ -154,7 +158,11 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   in the second drive made a volume and read on the host, the double-sided
   root's sides busy, an empty drive; /boot/fd taking the diskettes over,
   not a block through the ROM after, a file copied in half the frames the
-  ROM takes, the ROM's way without it, a broken one refused.  `bare.dsk`, the image without
+  ROM takes, the ROM's way without it, a broken one refused, one longer
+  than its room refused; fdformat writing a side or both of the second
+  drive, read on the host - every sector E5, the rest untouched - then
+  mkfs and mount on it, refused on a volume in use and without /boot/fd.
+  `bare.dsk`, the image without
   /etc/rc, is for the tests that mount and swap by hand.
   `Machine::command` types a line and waits for the prompt, so the next is
   not typed into the last one's output; `Machine(image, true)` has the RAM
@@ -176,7 +184,7 @@ The build reports the kernel's memory and stops past its limits
 040000, and the bank-6 tables (the kernel's `_high_size`) against the 6656
 bytes up to 155000, the driver's place above - with the kernel stacks at
 320 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a
-margin): an image of 14344 bytes, 1484 bytes free below 040000, 1764 free
+margin): an image of 14738 bytes, 1088 bytes free below 040000, 1764 free
 in bank 6.  The big tables live in bank 6: below 040000 there is no room
 for them beside the code.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.

@@ -227,14 +227,15 @@ processes resident, the others in swap.
 the arguments in registers.  The first set (~25): `fork`, `exec`, `exit`,
 `wait`, `getpid`, `kill`, `signal`, `open`, `close`, `read`, `write`, `lseek`,
 `creat`, `unlink`, `link`, `mkdir`, `chdir`, `stat`, `pipe`, `dup`, `mount`,
-`sync`, `time`, `brk`.
+`sync`, `time`, `brk`; `ioctl` for what a device does besides its blocks -
+a diskette's track written (`kernel/ioctl.h`).
 
 **Drivers.**
 
 | Device | Model |
 | --- | --- |
 | Console | The keyboard by interrupt 0130: the handler calls the ROM's 160004 and puts the byte into a ring buffer; output through 160000.  Line and raw modes.  Eight-bit KOI-8: a bare letter is small, Latin as Russian (ROM-B gives the Latin capital bare, the kernel swaps), and Latin is drawn Latin whatever RUS/LAT says (ROM-B's bit 2 of 157760 taken off for the character). |
-| Floppy | A driver of its own as a file, /boot/fd, as RT-11's handlers are: put down flat at 155000 in bank 6, 1 KB at most, its header the magic, the version of the door, its size, init and rw (a drive's side as the ROM numbers it, a block 0..799).  The kernel loads it through ROM-B's 160010 once the root is mounted; with none, or one that is no driver, 160010 stays.  The driver drives the VG93 itself (drivers/fd.s, after our RT-11 DZ handler) and asks where the head is only when the drive changes, the motor starts or a try fails; a file copied takes half the time it took through 160010.  DRQ polled: the CPU is busy while a sector is read. |
+| Floppy | A driver of its own as a file, /boot/fd, as RT-11's handlers are: put down flat at 155000 in bank 6, 1 KB at most, its header the magic, the version of the door (2), its size, init, rw (a drive's side as the ROM numbers it, a block 0..799) and format (a track 0..79 written from the image WRITE TRACK takes).  The kernel loads it through ROM-B's 160010 once the root is mounted; with none, or one that is no driver, 160010 stays.  The driver drives the VG93 itself (drivers/fd.s, after our RT-11 DZ handler) and asks where the head is only when the drive changes, the motor starts or a try fails; a file copied takes half the time it took through 160010.  DRQ polled: the CPU is busy while a sector is read. |
 | RAM disk | A block device of 512 bytes; interrupts masked for a page of 256 bytes (~1 ms). |
 | HD (paravirtual) | Only for development in the emulator: a big root FS without the 400 KB limit. |
 | Serial port | Later: exchanging files with a PC. |
@@ -328,9 +329,11 @@ under SP.
 **A directory** is a file of 16-byte entries: 2 bytes the inode number + 14
 bytes the name (KOI-8, case kept).  32 entries a block.  The root is inode 1.
 
-**The interleave** is chosen at formatting (`fdformat`): 1:1 when the driver
-keeps up between sectors (5 KB a revolution, 200 ms), else 2:1.  Found by
-measuring on the real machine.
+**The interleave** is the driver's numbering, not the format's: every track
+holds sectors 1 to 10 in order (`fdformat`, as our RT-11 FORMAT's FMTDZ
+does), and the driver puts block n in sector (ILV[n mod 10] + 2 * track - 2)
+mod 10 + 1 - 2:1 and two sectors of skew a track, the machine's own
+diskettes' layout.
 
 ## Volumes, swap and fstab
 
@@ -509,11 +512,12 @@ hands over.
    to the file system, `mount`, `mkfs` on the machine, `swapon` with a
    file, `/etc/rc` and `fstab` ("Volumes, swap and fstab"); swap to the
    diskette is the file `/swap` by the same means.
-6. **The floppy.**  An own VG93 driver instead of 160010, for speed (done:
-   /boot/fd, a driver as a file).  Next: `fdformat`.
-   Formatting is a program, `fdformat`, not the kernel's: whatever can live
-   in a process does, and the kernel gives it the device - the tracks
-   written through the driver - and nothing more.
+6. **The floppy** (done).  An own VG93 driver instead of 160010, for speed:
+   /boot/fd, a driver as a file.  Formatting is a program, `fdformat`, not
+   the kernel's: whatever can live in a process does.  It builds each
+   track's image and hands it over by `ioctl(fd, FD_WTRACK, ...)`; the
+   kernel gives it to the driver's format - the device not in use - and
+   forgets the track's blocks in the cache.
 7. **Programs that own the machine.**  The mode is the binary's own - a
    magic of its own in the a.out header - and such a program is run as any
    other, by its name.  exec of one flushes the cache, ends the other

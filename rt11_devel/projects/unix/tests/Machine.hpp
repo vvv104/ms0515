@@ -112,18 +112,21 @@ public:
         fs::remove(path_, ec);
         if (!second_.empty()) {
             emu_.unmountDisk(1);
+            emu_.unmountDisk(3);
             fs::remove(second_, ec);
         }
     }
 
-    /* A single-sided diskette put in the second drive, FD1 by the
-     * emulator's units (side * 2 + drive). */
+    /* A diskette put in the second drive: FD1 by the emulator's units
+     * (side * 2 + drive), and FD3 too, its side 1, when it is double-sided
+     * - an 819200-byte image, as the boot drive's FD0 and FD2. */
     void insertSecond(const std::vector<uint8_t> &image)
     {
         second_ = fs::temp_directory_path() / ("unix_test_" + std::to_string(counter()++) + ".dsk");
         std::ofstream(second_, std::ios::binary)
             .write(reinterpret_cast<const char *>(image.data()), static_cast<std::streamsize>(image.size()));
         REQUIRE(emu_.mountDisk(1, second_.string()));
+        if (image.size() == 819200) REQUIRE(emu_.mountDisk(3, second_.string()));
     }
 
     /* The second drive's diskette as it stands now. */

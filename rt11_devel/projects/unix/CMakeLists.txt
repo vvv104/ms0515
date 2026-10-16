@@ -100,6 +100,7 @@ program(mkfs user/mkfs.c user/vol.c)
 program(mount user/mount.c user/vol.c)
 program(umount user/umount.c)
 program(swapon user/swapon.c)
+program(fdformat user/fdformat.c)
 program(getty user/getty.c)
 
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/root")
@@ -124,6 +125,7 @@ set(VOLUME_FILES
     /bin/mount=mount.x
     /bin/umount=umount.x
     /bin/swapon=swapon.x
+    /bin/fdformat=fdformat.x
     --dir /tmp
     --swap 96)
 set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
