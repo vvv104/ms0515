@@ -8,11 +8,13 @@
  * top, under them the pointers to them ending in 0, under those their count
  * - SP points at the count.  The arguments are copied out of the old image
  * first, which the new one overwrites.  The open files stay open, as Unix
- * has it. */
+ * has it.  An a.out of magic 0401 is a program that owns the machine: own.c
+ * runs it over everything. */
 #include "high.h"
 #include "proc.h"
 
 #define AOUT_MAGIC 0407
+#define OWN_MAGIC 0401
 #define MAXARGS 16
 #define STACK_MIN 512			/* room the program is left for its stack */
 
@@ -47,9 +49,15 @@ int exec(const char *path, const char *const *argv)
 		iput(ip);
 		return EISDIR;
 	}
-	if (readi(ip, 0, (char *)&h, sizeof h) != sizeof h || h.magic != AOUT_MAGIC) {
+	if (readi(ip, 0, (char *)&h, sizeof h) != sizeof h ||
+	    (h.magic != AOUT_MAGIC && h.magic != OWN_MAGIC)) {
 		iput(ip);
 		return ENOEXEC;
+	}
+	if (h.magic == OWN_MAGIC) {
+		error = h.text + h.data < h.text ? ENOMEM : own_exec(ip, h.text + h.data, h.bss, h.entry);
+		iput(ip);
+		return error;
 	}
 	size = h.text + h.data;
 	if (size < h.text || size + h.bss < size ||

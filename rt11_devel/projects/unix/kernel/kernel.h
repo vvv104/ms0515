@@ -83,6 +83,8 @@ struct fd_driver {
 	int (*format)(unsigned unit, unsigned track, const void *image, unsigned len);
 };
 void fd_driver_load(void);
+struct inode;
+int own_exec(struct inode *ip, unsigned size, unsigned bss, unsigned entry);	/* own.c */
 int dev_format(unsigned dev, unsigned track, const void *image, unsigned len);
 int dev_rw(unsigned dev, unsigned block, void *buf, int write);
 #define dev_read(dev, block, buf) dev_rw(dev, block, buf, 0)

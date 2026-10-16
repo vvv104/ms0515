@@ -18,7 +18,7 @@ three; two are resident, one in each slot, and with swap on the other two
 wait in the swap file, 96 KB, and come in when they are to run.
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls`, `cat`, `echo`, `rm`, `mkdir`, `mkfs`, `mount`, `umount`,
-`swapon`, `fdformat`, `hello`, `fail` and `pid`; the shell's own commands are `t` (the
+`swapon`, `fdformat`, `hello`, `fail`, `pid` and `bigmem` (a program that owns the machine); the shell's own commands are `t` (the
 time), `status` (the last command's), `exec` and `exit`, which ends the
 session and brings getty back.
 
@@ -81,6 +81,10 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   /boot/fd, or one that is no driver, the ROM's 160010 stays.  A file
   copied takes half the time it took through the ROM.  format writes a
   track from the image fdformat built, by WRITE TRACK at priority 7.
+- `kernel/own.c` - a program that owns the machine: an a.out of magic
+  0401 checked, the cache written out, its first block - the header and
+  its own loader - read into the slot and the loader entered with the
+  file's extents; the system is gone after.
 - `kernel/ioctl.h` - what `ioctl` does, for the kernel and the programs:
   FD_WTRACK, a diskette's track written anew through /boot/fd.
 - `kernel/bio.c` - the buffer cache in two levels: three blocks in hand in
@@ -126,6 +130,13 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   /etc/fstab's volumes and swap, in one process), `umount.c`, `swapon.c`,
   `fdformat.c` (a diskette's tracks built and written, a side or both),
   `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
+- `user/own/` - the little library of a program that owns the machine:
+  `crt0.s` (the loader, run first at 040020 and then from 157000, reading
+  the file through the ROM's 160010 to 000760 and up; then the start:
+  the vectors at an RTI, the bss, main, the end a reset), `rom.s` and
+  `own.c` (the ROM's console, keyboard and diskette, `own.h`), and
+  `bigmem.c`, /bin/bigmem, its proof.  `tools/own_aout.py` gives the
+  linked a.out its magic, 0401.
 - `root/etc/` - `rc`, `fstab`, `motd`, `numbers`.
 - `root/` - the files the volume carries as they are: /etc/motd,
   /etc/numbers (a file of several blocks, for the tests).
@@ -161,7 +172,11 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   ROM takes, the ROM's way without it, a broken one refused, one longer
   than its room refused; fdformat writing a side or both of the second
   drive, read on the host - every sector E5, the rest untouched - then
-  mkfs and mount on it, refused on a volume in use and without /boot/fd.
+  mkfs and mount on it, refused on a volume in use and without /boot/fd;
+  bigmem owning the machine - its pattern over 001000..150000 read back,
+  the root's superblock read through the ROM, a key and a reset, the
+  system booted again - from the root and from side 1 of the second
+  drive, refused from the RAM disk.
   `bare.dsk`, the image without
   /etc/rc, is for the tests that mount and swap by hand.
   `Machine::command` types a line and waits for the prompt, so the next is
@@ -184,7 +199,7 @@ The build reports the kernel's memory and stops past its limits
 040000, and the bank-6 tables (the kernel's `_high_size`) against the 6656
 bytes up to 155000, the driver's place above - with the kernel stacks at
 320 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a
-margin): an image of 14738 bytes, 1088 bytes free below 040000, 1764 free
+margin): an image of 15106 bytes, 720 bytes free below 040000, 1764 free
 in bank 6.  The big tables live in bank 6: below 040000 there is no room
 for them beside the code.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.

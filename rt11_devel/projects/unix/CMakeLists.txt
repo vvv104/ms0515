@@ -48,6 +48,7 @@ add_executable(kernel
     kernel/proc.c
     kernel/ramdisk.c
     kernel/sys.c
+    kernel/own.c
     "${ARITH}")
 target_compile_options(kernel PRIVATE -Wall -Wextra -Werror)
 # The kernel is held to 01000..040000 (mkfs.py reports it): -Os takes a
@@ -103,6 +104,21 @@ program(swapon user/swapon.c)
 program(fdformat user/fdformat.c)
 program(getty user/getty.c)
 
+# own_program(<name> <sources>): a program that owns the machine
+# (kernel/own.c, user/own/own.h): linked at 001000 with the ROM's little
+# library, its a.out given magic 0401.
+function(own_program name)
+    add_executable(${name} user/own/crt0.s user/own/rom.s user/own/own.c ${ARGN} "${ARITH}")
+    target_compile_options(${name} PRIVATE -Wall -Wextra -Werror)
+    add_custom_command(OUTPUT ${name}.x
+        COMMAND "${PDP11_STRIP}" -o ${name}.a $<TARGET_FILE:${name}>
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/own_aout.py" ${name}.a ${name}.x
+        DEPENDS ${name} "${CMAKE_CURRENT_SOURCE_DIR}/tools/own_aout.py"
+        COMMENT "${name}.x")
+    set(PROGRAMS ${PROGRAMS} ${name}.x PARENT_SCOPE)
+endfunction()
+own_program(bigmem user/own/bigmem.c)
+
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/root")
 set(MKFS "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py")
 # The volume's files, for both images: the system and its programs.
@@ -126,6 +142,7 @@ set(VOLUME_FILES
     /bin/umount=umount.x
     /bin/swapon=swapon.x
     /bin/fdformat=fdformat.x
+    /bin/bigmem=bigmem.x
     --dir /tmp
     --swap 96)
 set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)

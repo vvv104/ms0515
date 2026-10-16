@@ -1,0 +1,48 @@
+/* own.c - a program that owns the machine (SPEC.md stage 7).
+ *
+ * An a.out of magic 0401, linked at 001000 as an RT-11 program is; it
+ * brings its own loader at the start of its text (user/own/crt0.s).  exec
+ * of one writes the cache out, reads the file's first block - the header
+ * and the loader - into the process's slot at 040000 and enters the
+ * loader at 040020, SP pointing at what it needs to find the rest: the
+ * blocks to read, the ROM's unit, whether the volume is both sides of the
+ * drive (a block from 800 on side 1), the file's five extents.  The
+ * loader lays the file over everything through the ROM's 160010, the
+ * kernel too, and the system is gone; so the file is to be on a diskette.
+ * Whatever can be the program's is: the kernel only checks it and hands
+ * over. */
+#include "kernel.h"
+
+#define OWN_BASE 0760u			/* the header's place: the text at 001000 */
+#define OWN_TOP 0157000u		/* the loader's place above */
+#define OWN_TEXT 01000u
+#define HEADER 16
+
+/* ip's program, size bytes of text and data and bss of bss, its entry
+ * entry: back only with the error that kept it from being run. */
+int own_exec(struct inode *ip, unsigned size, unsigned bss, unsigned entry)
+{
+	unsigned dev = ip->dev, blocks, have = 0, i, *info;
+
+	if (dev > DEV_FDX1)
+		return ENOEXEC;			/* the ROM reads diskettes only */
+	if (size > OWN_TOP - OWN_BASE - HEADER)
+		return ENOMEM;
+	size += HEADER;
+	blocks = (size + BSIZE - 1) / BSIZE;
+	if (blocks > (OWN_TOP - OWN_BASE) / BSIZE || bss > OWN_TOP - OWN_BASE - size ||
+	    entry < OWN_TEXT || entry >= OWN_BASE + size)
+		return ENOMEM;
+	for (i = 0; i < ip->d.nextents && i < NEXTENT; i++)
+		have += ip->d.ext[i].len;
+	if (have < blocks || readi(ip, 0, (char *)USER_BASE, BSIZE) <= HEADER)
+		return ENOEXEC;
+	bflush();
+	info = (unsigned *)(USER_BASE + BSIZE);
+	info[0] = blocks;
+	info[1] = dev >= DEV_FDX0 ? dev - DEV_FDX0 : (dev & 1) << 1 | dev >> 1;
+	info[2] = dev >= DEV_FDX0;
+	memcpy(info + 3, ip->d.ext, sizeof ip->d.ext);
+	enter(USER_BASE + HEADER, (unsigned)info);
+	return 0;				/* not come to */
+}

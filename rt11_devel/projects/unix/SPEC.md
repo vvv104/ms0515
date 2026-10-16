@@ -518,16 +518,21 @@ hands over.
    track's image and hands it over by `ioctl(fd, FD_WTRACK, ...)`; the
    kernel gives it to the driver's format - the device not in use - and
    forgets the track's blocks in the cache.
-7. **Programs that own the machine.**  The mode is the binary's own - a
-   magic of its own in the a.out header - and such a program is run as any
-   other, by its name.  exec of one flushes the cache, ends the other
-   processes and, through a small loader, lays the image over everything,
-   the kernel too: the program has 001000-157000, some 55 KB in one piece,
-   and the extra copies of the banks.  It uses the ROM directly through a
-   small library - the console, the keyboard, a block of the diskette; there
-   is no way back, the exit is a reset and the system booted again.  For
-   ports of Spectrum games and other big programs: the ports made for RT-11
-   are rebuilt for this library.
+7. **Programs that own the machine** (the mechanism done; the ports
+   next).  The mode is the binary's own - magic 0401 in the a.out header -
+   and such a program is run as any other, by its name.  It brings its own
+   loader, the first bytes of its text: exec of one checks it, writes the
+   cache out, reads the file's first block into the process's slot and
+   enters the loader with the file's extents (kernel/own.c).  The loader
+   moves itself to 157000 and, through the ROM's 160010, lays the file over
+   everything, the kernel too - its header at 000760, the text at 001000 -
+   so the file is to be on a diskette.  The program has 001000-157000, some
+   55 KB in one piece, and the extra copies of the banks; it uses the ROM
+   directly through a small library (user/own/own.h) - the console, the
+   keyboard, a block of the diskette; there is no way back, the exit is a
+   reset and the system booted again.  For ports of Spectrum games and
+   other big programs: the ports made for RT-11 are rebuilt for this
+   library.
 8. **Utilities** of levels 1-2, then `rt11` and Forth.
 
 Stages 9-11 are put off for a long time: there is no real machine to try
