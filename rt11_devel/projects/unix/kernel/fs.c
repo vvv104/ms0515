@@ -23,11 +23,11 @@ static unsigned rootdev = DEV_FD0;
 /* The volume of dev, 0 when it is not mounted. */
 static struct mount *mount_of(unsigned dev)
 {
-	int i;
+	struct mount *m;
 
-	for (i = 0; i < NMOUNT; i++)
-		if (mounts[i].used && mounts[i].dev == dev)
-			return &mounts[i];
+	for (m = mounts; m < mounts + NMOUNT; m++)
+		if (m->used && m->dev == dev)
+			return m;
 	return 0;
 }
 
@@ -300,7 +300,8 @@ int writei(struct inode *ip, unsigned long off, const char *buf, unsigned n)
 		} else {
 			if (!(pbn = grow(ip)))
 				break;
-			b = getblk(ip->dev, pbn);
+			if ((b = getblk(ip->dev, pbn)) != 0 && take < BSIZE)
+				memset(b->data, 0, BSIZE);	/* a new block: no old file's bytes past the end */
 		}
 		if (!b)
 			break;
@@ -362,11 +363,11 @@ static int dir_add(struct inode *dp, const char *name, int len, unsigned n)
 /* The volume mounted on directory ip, 0 when there is none. */
 static struct mount *covering(const struct inode *ip)
 {
-	int i;
+	struct mount *m;
 
-	for (i = 1; i < NMOUNT; i++)
-		if (mounts[i].used && mounts[i].on == ip)
-			return &mounts[i];
+	for (m = mounts + 1; m < mounts + NMOUNT; m++)
+		if (m->used && m->on == ip)
+			return m;
 	return 0;
 }
 
@@ -378,13 +379,12 @@ static struct inode *step(struct inode *dp, const char *name, int len)
 	struct mount *m;
 	struct inode *ip;
 	unsigned n;
-	int i;
 
 	if (len == 2 && name[0] == '.' && name[1] == '.' && dp->ino == ROOT_INO)
-		for (i = 1; i < NMOUNT; i++)
-			if (mounts[i].used && mounts[i].dev == dp->dev) {
+		for (m = mounts + 1; m < mounts + NMOUNT; m++)
+			if (m->used && m->dev == dp->dev) {
 				iput(dp);
-				dp = mounts[i].on;
+				dp = m->on;
 				dp->count++;
 				break;
 			}
@@ -669,14 +669,15 @@ int fs_mount_on(const char *device, const char *dir)
 int fs_umount(const char *device)
 {
 	struct mount *m;
-	int dev, error = 0, i;
+	struct inode *ip;
+	int dev, error = 0;
 
 	if ((dev = device_at(device, &error)) < 0)
 		return error;
 	if (!(m = mount_of((unsigned)dev)) || m == &mounts[0])
 		return EINVAL;
-	for (i = 0; i < NINODE; i++)
-		if (itab[i].count && itab[i].dev == (unsigned)dev)
+	for (ip = itab; ip < itab + NINODE; ip++)
+		if (ip->count && ip->dev == (unsigned)dev)
 			return EBUSY;
 	iput(m->on);
 	m->used = 0;

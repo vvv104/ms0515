@@ -50,13 +50,13 @@ static int user_string(unsigned p, unsigned max)
 
 struct file *falloc(void)
 {
-	int i;
+	struct file *f;
 
-	for (i = 0; i < NFILE; i++)
-		if (files[i].count == 0) {
-			files[i].count = 1;
-			files[i].off = 0;
-			return &files[i];
+	for (f = files; f < files + NFILE; f++)
+		if (f->count == 0) {
+			f->count = 1;
+			f->off = 0;
+			return f;
 		}
 	return 0;
 }

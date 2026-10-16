@@ -145,7 +145,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   diskette on the host, its bitmap counted (`Machine::imageNow`); /dev, mkfs
   and mount on the RAM disk read on the host from the board's memory
   (`Machine::ramDisk`), `..` out of a volume, umount; swap on the RAM
-  disk's file and the diskette's, the swap file held; /etc/rc with the
+  disk's file and the diskette's, the swap file held, the RAM disk's
+  swap file made at the boot in some 300 frames (860 once); /etc/rc with the
   board and without, getty again after a session, a mounted device
   refused for mkfs, a script; the single-sided system booted, a diskette
   in the second drive made a volume and read on the host, the double-sided

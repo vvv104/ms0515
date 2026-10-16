@@ -188,8 +188,9 @@ static void sched(void)
 		panic("a kernel stack overflowed");
 	for (;;) {
 		s = spl7();
-		for (i = 1; i <= NPROC; i++) {
-			p = &procs[(from - procs + i) % NPROC];
+		for (i = 0, p = from; i < NPROC; i++) {	/* the one after from first, from last */
+			if (++p == procs + NPROC)
+				p = procs;
 			if (p->state == P_RUN)
 				break;
 		}
@@ -220,11 +221,11 @@ void sleep(const void *chan)
 
 void wakeup(const void *chan)
 {
-	int i;
+	struct proc *p;
 
-	for (i = 0; i < NPROC; i++)
-		if (procs[i].state == P_SLEEP && procs[i].chan == chan)
-			procs[i].state = P_RUN;
+	for (p = procs; p < procs + NPROC; p++)
+		if (p->state == P_SLEEP && p->chan == chan)
+			p->state = P_RUN;
 }
 
 /* [from, to) of the current slot into the same addresses of slot `slot`,
@@ -249,9 +250,10 @@ int fork(struct trapframe *tf)
 
 	for (slot = 0; slot < NSLOT && slot_owner[slot]; slot++)
 		;
-	for (i = 0; i < NPROC && !c; i++)
-		if (procs[i].state == P_FREE)
-			c = &procs[i];
+	for (c = procs; c < procs + NPROC && c->state != P_FREE; c++)
+		;
+	if (c == procs + NPROC)
+		c = 0;
 	if (!c || !room())
 		return -EAGAIN;
 	c->brk = curproc->brk;

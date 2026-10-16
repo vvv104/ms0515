@@ -53,6 +53,19 @@ TEST_CASE("the kernel tells at the boot whether it found the RAM disk") {
     CHECK(without.screen().find("no RAM disk") != std::string::npos);
 }
 
+TEST_CASE("the boot with the RAM disk: its volume and the swap file on it made with no long wait") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), true);
+    int volume = 0, swap = 0;
+    for (; volume < 3000 && m.screen().find("mount: /dev/rd0") == std::string::npos; volume += 5) m.run(5);
+    for (; swap < 3000 && m.screen().find("swap: /tmp/swap") == std::string::npos; swap += 5) m.run(5);
+    MESSAGE("the RAM disk's volume at frame " << volume << ", the swap file " << swap << " frames after");
+    /* 256 KB written, 512 blocks: once 860 frames, with a block, its inode
+     * and the bitmap a write; 315 with eight blocks a write, words copied
+     * and the RAM disk's bytes four a step. */
+    CHECK(swap < 350);
+}
+
 TEST_CASE("a pipe: the first command's output is the second's input") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);

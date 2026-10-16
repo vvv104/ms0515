@@ -33,6 +33,8 @@ static void page(unsigned p)
 	RD_PORT_B = (unsigned char)(RD_START | ((p >> 8) & 7));
 }
 
+/* A page's bytes four a step: the loop's count and test a quarter as
+ * often. */
 void rd_write(unsigned p, const void *from, unsigned pages)
 {
 	const unsigned char *s = from;
@@ -41,8 +43,12 @@ void rd_write(unsigned p, const void *from, unsigned pages)
 	for (; pages; pages--, p++) {
 		ps = spl7();
 		page(p);
-		for (i = 0; i < RD_PAGE; i++)
+		for (i = RD_PAGE / 4; i; i--) {
 			RD_DATA = *s++;
+			RD_DATA = *s++;
+			RD_DATA = *s++;
+			RD_DATA = *s++;
+		}
 		splx(ps);
 	}
 }
@@ -55,8 +61,12 @@ void rd_read(unsigned p, void *to, unsigned pages)
 	for (; pages; pages--, p++) {
 		ps = spl7();
 		page(p);
-		for (i = 0; i < RD_PAGE; i++)
+		for (i = RD_PAGE / 4; i; i--) {
 			*d++ = RD_DATA;
+			*d++ = RD_DATA;
+			*d++ = RD_DATA;
+			*d++ = RD_DATA;
+		}
 		splx(ps);
 	}
 }

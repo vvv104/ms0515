@@ -63,12 +63,10 @@ static struct buf *find(unsigned dev, unsigned block, int fill)
 	struct buf *b, *oldest = bufs;
 	struct shadow *h;
 	char *at = 0;
-	int i;
 
 	dev_canon(&dev, &block);
 
-	for (i = 0; i < NBUF; i++) {
-		b = &bufs[i];
+	for (b = bufs; b < bufs + NBUF; b++) {
 		if (b->valid && b->dev == dev && b->block == block) {
 			b->used = ++clock_hand;
 			return b;
@@ -109,12 +107,12 @@ struct buf *bread(unsigned dev, unsigned block)
 	return b;
 }
 
-/* A buffer for a block about to be written whole: not read, cleared. */
+/* A buffer for a block about to be written: not read, nor cleared - the
+ * caller writes it whole or clears it. */
 struct buf *getblk(unsigned dev, unsigned block)
 {
 	struct buf *b = find(dev, block, 0);
 
-	memset(b->data, 0, BSIZE);
 	b->valid = 1;
 	return b;
 }
@@ -125,16 +123,16 @@ struct buf *getblk(unsigned dev, unsigned block)
 void binval(unsigned dev, unsigned start, unsigned n)
 {
 	struct shadow *s;
+	struct buf *b;
 	unsigned d, block;
-	int i;
 
 	for (; n; n--, start++) {
 		d = dev;
 		block = start;
 		dev_canon(&d, &block);
-		for (i = 0; i < NBUF; i++)
-			if (bufs[i].dev == d && bufs[i].block == block)
-				bufs[i].valid = 0;
+		for (b = bufs; b < bufs + NBUF; b++)
+			if (b->dev == d && b->block == block)
+				b->valid = 0;
 		for (s = shtab; s < shtab + NSHADOW; s++)
 			if (s->dev == d && s->block == block)
 				s->used = 0;
@@ -155,9 +153,9 @@ void bdirty(struct buf *b)
 /* The dirty buffers written out. */
 void bflush(void)
 {
-	int i;
+	struct buf *b;
 
-	for (i = 0; i < NBUF; i++)
-		if (bufs[i].valid && bufs[i].dirty)
-			bwrite(&bufs[i]);
+	for (b = bufs; b < bufs + NBUF; b++)
+		if (b->valid && b->dirty)
+			bwrite(b);
 }
