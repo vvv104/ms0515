@@ -1,0 +1,411 @@
+# UNIX for the Elektronika MS 0515 - specification
+
+The working copy of this specification is the owner's shared document; this
+file is its English version in the repository, kept in step with it.
+
+## Goals and scope
+
+The goal is an own Unix-like operating system for the MS 0515, written from
+scratch in C and PDP-11 assembler.  It is not Linux: the Linux kernel needs a
+32-bit processor and megabytes of memory.
+
+The target in features is LSX and Mini-Unix of the mid-1970s: multitasking
+without memory protection, a file system with directories, a shell with pipes,
+a set of utilities.
+
+- Target platforms: this emulator and the real machine.
+- Tools: GCC 15 for `pdp11-aout` with `-m10` from `rt11_devel/toolset/gcc`.
+- Out of scope: binary compatibility with V6/V7, memory protection, a
+  multi-user system.
+
+## The hardware
+
+The machine dictates the model of the system: there is no MMU and no
+user/kernel mode, so processes are not protected from one another, and memory
+is shared out by banks.
+
+| Part | What matters for the system |
+| --- | --- |
+| KR1807VM1 (T-11), 7.5 MHz | No MMU, no user/kernel modes, no MUL/DIV/ASH (EIS), no FPP; multiplication and division in software (`arith.s`). The PSW is 8 bits; four interrupt levels, 4-7. |
+| RAM 128 KB | 16 physical banks of 8 KB.  Banks 0-6 switch one by one between a primary and an extra copy by bits 0-6 of the dispatcher 177400 (1 = primary). |
+| ROM 16 KB (2 x K573RF4B) | The upper 8 KB is always seen at 160000-177377.  All 16 KB at 140000-177377 with bit 7 of register A, and then RAM bank 6 is gone.  Reset executes at 172000 (a JMP there), HALT goes to 172004, both with PSW 340. |
+| VRAM 16 KB | Through a 16 KB window, dispatcher bit 7; its place by bits 11:10 - 000000, 040000 or 100000. |
+| Timer KR580VI53 | Interrupt 0100 (priority 6) once a frame: 50/60/72 Hz by jumpers, enabled by dispatcher bit 9.  Channel 2 is the speaker. |
+| Keyboard MS 7004 on a KR580VV51 | Interrupt 0130, priority 5; data 177440, status 177442. |
+| Floppy, KR1818VG93 | No DMA and no vector: DRQ (bit 1), INTRQ (bit 0, inverted) and ready (bit 2) are polled in register B (177602).  Drive, motor and side by bits 0-3 of register A.  80 tracks x 10 sectors x 512 bytes a side; the 2:1 interleave and the skew between tracks are the driver's, not the controller's. |
+| RAM disk 512 KB (optional) | Not in the CPU's address space.  A byte port 177550 with auto-increment, pages of 256 bytes, the page in PPI port A (177530).  Not on every machine. |
+| Serial port VV51 | Vectors 0110/0114, priority 6, by the documentation.  In the emulator the port is a stub without interrupts, and its transmit registers 177720/177722 are taken by the paravirtual HD. |
+
+What the hardware dictates besides:
+
+- **The dispatcher 177400 and register A 177600 are write-only.**  The ROM
+  keeps their copies at 157700 and 157720; programs read and change the copy,
+  then write the register.  The new system does the same.
+- **An interrupt's priority comes from its request line, not from the PSW in
+  the vector:** the timer 6, the keyboard 5, the "monitor" (vector 064,
+  dispatcher bit 8) 4.  Masked requests merge into one: a long masked stretch
+  loses ticks.
+- **The VRAM window hides the RAM under it:** vectors, a stack and handlers in
+  it cannot be reached while the window is open.
+- **The keyboard sends no key-up** and repeats only the last key.
+
+Sources in the repository: `docs/hardware/*.md`, `docs/programming.md` (the
+handbook of the machine), the emulator's core `src/core`, the annotated
+listings of ROM-A and ROM-B.
+
+## Architecture
+
+At first the system runs on the native ROM-B, with no new firmware: the ROM
+loads block 0 of the diskette, our boot block in it reads the kernel, and the
+kernel takes the console, the keyboard, a disk block and the font from the
+ROM.  The kernel is an ordinary file on the diskette.  All the kernel's calls
+into the ROM are gathered in one jump table, so an own RT-11 compatible ROM can
+later take the native one's place without changing the kernel.
+
+```
+  +--------------------------------------+
+  | Processes - slots A and B            |
+  | banks 2-5, 32 KB each, switched      |      +---------------------------+
+  | through 177400; init, sh, utilities  |      | Storage                   |
+  +------------------+-------------------+      |                           |
+                     | TRAP - system calls      |  Diskette - own FS        |
+  +------------------v-------------------+      |  1600 blocks, both sides  |
+  | Kernel - the file /boot/kernel       |<---->|  /boot/kernel, /etc, /bin |
+  | banks 0, 1, 6; up to 22 KB           |  FS  |  swap 2 x 32 KB when      |
+  | processes, FS, swap, system calls    | swap |  there is no RAM disk     |
+  | buffer cache in shadow banks 1, 6    |      |                           |
+  +------------------+-------------------+      |  RAM disk 512 KB (option) |
+                     | one jump table           |  swap ~14 process images  |
+  +------------------v-------------------+      |  /tmp                     |
+  | ROM: native ROM-B first, own later   |----->|                           |
+  | console, keyboard, disk block, font  | boot +---------------------------+
+  +--------------------------------------+
+```
+
+Processes enter the kernel through `TRAP`; the kernel reaches the console and
+the disk through the ROM's services (native ROM-B first, then the own ROM),
+the rest of the hardware by itself.  Swap goes to the RAM disk when the board
+is there, else to the diskette.
+
+## Memory map
+
+The kernel has banks 0, 1 and 6 (24 KB), a process banks 2-5 (32 KB) in two
+physical copies.  The extended ROM is off while the system runs, else bank 6
+is gone.
+
+| Addresses (octal) | Bank | Use |
+| --- | --- | --- |
+| 000000-017777 | 0 | Vectors, kernel data, the kernel stack.  Not switched: the vectors are here. |
+| 020000-037777 | 1 | Kernel code.  The shadow copy is the buffer cache. |
+| 040000-137777 | 2-5 | The process's space, 32 KB.  The primary copies are slot A, the extra ones slot B. |
+| 140000-157777 | 6 | Kernel code and data.  The shadow copy is the buffer cache.  The top of the primary copy, 157614-157777, is the ROM's stack and variables: the kernel leaves it alone. |
+| 160000-177377 | - | ROM (the upper 8 KB), always seen. |
+| 177400-177777 | - | I/O registers. |
+
+- **Process slots.**  Switching slot A <-> B is one write of bits 2-5 to
+  177400.  Two processes are resident at once.
+- **The shadow copies of banks 1 and 6** are switched on by the kernel only
+  from code that itself lies in bank 0 or the ROM: code switching its own bank
+  vanishes from under its feet.
+- **The VRAM window** covers the process's space.  The native ROM-B opens the
+  window at 040000-077777 for the output of a character, on the caller's
+  stack, so the kernel calls the console from its own stack in bank 0, as our
+  DEC monitor does.  The own ROM will run on a stack of its own and remove the
+  trap.
+- **The kernel's budget:** 24 KB less ~0.5 KB of vectors and the stack, ~0.2
+  KB of the ROM's cells - about 20-22 KB for code and data.
+
+## The ROM: native ROM-B first, own later
+
+The first stages run on the native ROM-B: it already has the console, the
+keyboard, a disk block and the font - the 4-5 KB a BIOS was to save.  The own
+ROM is stage 7, once the kernel has settled.
+
+**What the kernel takes from the native ROM-B.**  The same entry points RT-11
+calls.
+
+| Address | What it does | For the kernel |
+| --- | --- | --- |
+| 160000 | a character out of R0: VT52 commands (ESC A B C D H J K Y I T U), SO/SI | the console, 80 x 25 in 640 x 200 |
+| 160004 | a key into R0, C = no key; F-keys as `CSI n ~`, Russian letters after RUS/LAT | from the vector 130 handler into a ring buffer |
+| 160010 | a disk block by an RT-11 queue element (its pointer at 157730): interleave, skew, retries, motor; C = error; no formatting | reading and writing blocks through a small wrapper |
+| 160014 | the cursor blink | from the timer interrupt |
+| 160020 / 160024, 160030 / 160034 | a word / a byte into another bank and out of it | copying between slots and shadow banks |
+| 167070, 170470 | the 8x8 font: Latin and Cyrillic, 1.3 KB | no font of its own in RAM |
+| 172000 / 172004 | reset / HALT -> the ROM's ODT-like console monitor | debugging |
+
+The ROM has cells of its own at the top of bank 6: 157700 the copy of the
+dispatcher, 157720 the copy of register A with the motor flags, 157730 the
+disk element, 157760 the console flags, the ROM's stack from 157614 down.
+Programs read them too, so they are part of the interface.
+
+**Calling the services.**  All the ROM calls of the kernel are gathered in one
+module with a jump table: now it leads to the addresses of ROM-B, later to the
+table of the own ROM.  The call goes from the kernel's stack in bank 0 (the
+trap with the VRAM window, see the memory map).
+
+**The own ROM (stage 7)** replaces the native one and stays compatible with
+RT-11.  The model is ROM-B.  Rodionov's system (RT15SJ) is not supported: it
+jumps into ROM-A's internals by their addresses.
+
+| System | ROM-A | ROM-B | Own ROM | What it uses |
+| --- | --- | --- | --- | --- |
+| OMEGA, the vvv104 build | no | yes | yes | the console; 160014 the blink (ROM-A has a cassette loader there) |
+| OMEGA 059 | yes | yes | yes | the console |
+| OSA | yes | yes | yes | the console; the disk through 160010 |
+| Mihin, OS-16SJ | yes | yes | yes | the console through its own table at 157400 |
+| DEC RT-11 from the sources | yes | yes | yes | the console; the blink when it recognises ROM-B |
+| Rodionov, RT15SJ | yes | no | no | ROM-A's internal addresses |
+
+The compatibility contract - what the own ROM must keep:
+
+1. The entry points of the table above at the same addresses and with the
+   same behaviour; at 160014 a jump with the offset 3420, by which the DEC
+   monitor recognises ROM-B.
+2. The cells 157700, 157720, 157730, 157760 and the stack below 157614;
+   nothing below 154000 touched after the boot.
+3. The boot: the hardware set up as by ROM-B, the dispatcher 002177, the
+   640 x 200 mode, block 0 to address 0 and `JMP @#0`, the drive and the side
+   in 157720, no vectors set.
+4. The font in the upper 8 KB with the same glyphs: programs find it by the
+   pattern of the digit 0 and the Cyrillic capital A; the pseudographics at 157000 for the codes 200-277.
+5. Not to repeat the VRAM window on the caller's stack: a stack of its own
+   does not break compatibility.
+
+**The layout of the own ROM.**  The lower half is switched on only together
+with bank 6 going away, where the ROM's variables lie, so everything that runs
+while a system runs stands in the upper half.
+
+| Half | What is there | Size |
+| --- | --- | --- |
+| Upper 8 KB, always seen | the services shared by RT-11 and the new system at the old addresses: the VT52 console (~1.8 KB), the font (1.3), the keyboard (0.8), the disk (0.6), the banks, the start; the new system's table of entries and its services (RAM disk, block by number, formatting) | ~4.7 KB taken, ~3.3 KB for the new |
+| Lower 8 KB, only before a system starts | the self-test, the ODT-like monitor, the boot menu: RT-11 (block 0) or the new system (the kernel by file name); the pseudographics at 157000 | up to 8 KB |
+
+**Firmware.**  In the emulator this is a ROM image file.  On the real machine,
+two 2764-compatible 8 KB chips.  An EEPROM (28C64) is handier, to spare the UV
+erasing: the pinout to be checked against the schematic.
+
+## The kernel
+
+The kernel is loaded from the diskette, takes up to 20-22 KB and keeps two
+processes resident, the others in swap.
+
+**Processes and scheduling.**
+
+- Two slots in banks 2-5 (A and B), switched by a write to the dispatcher
+  177400.
+- A process table of 8-16 entries.  Processes outside the slots lie in swap.
+- A quantum by the timer interrupt (vector 0100), that is 50 Hz.  Preemptive
+  switching only between resident processes; swapping out and in on a block or
+  after several quanta.
+- No protection: a process can spoil the kernel.  This is an accepted limit.
+
+**Swap.**
+
+- With a RAM disk board: swap there.  A 32 KB image moves in ~0.15-0.3 s;
+  ~14 images fit (part of the room for `/tmp`).
+- Without the board: swap to the diskette, 2 x 32 KB in an area of its own.
+  An image moves in ~1.5-2 s.
+- Whether the board is there is found at the start, as EX.SYS does: a pattern
+  written and checked.
+
+**System calls.**  Through `TRAP` (vector 034); the number in the instruction,
+the arguments in registers.  The first set (~25): `fork`, `exec`, `exit`,
+`wait`, `getpid`, `kill`, `signal`, `open`, `close`, `read`, `write`, `lseek`,
+`creat`, `unlink`, `link`, `mkdir`, `chdir`, `stat`, `pipe`, `dup`, `mount`,
+`sync`, `time`, `brk`.
+
+**Drivers.**
+
+| Device | Model |
+| --- | --- |
+| Console | The keyboard by interrupt 0130: the handler calls the ROM's 160004 and puts the byte into a ring buffer; output through 160000.  Line and raw modes. |
+| Floppy | First through ROM-B's 160010 (an RT-11 queue element), later an own VG93 driver - for formatting and speed.  DRQ polled: the CPU is busy while a sector is read. |
+| RAM disk | A block device of 512 bytes; interrupts masked for a page of 256 bytes (~1 ms). |
+| HD (paravirtual) | Only for development in the emulator: a big root FS without the 400 KB limit. |
+| Serial port | Later: exchanging files with a PC. |
+
+**The buffer cache** is in the shadow copies of banks 1 and 6 (16 KB, 32
+buffers).  The kernel switches a shadow bank on only from code in bank 0 or in
+the ROM.
+
+**Building.**  GCC `-m10 -Os`, an own `crt0` and linker script.  The section
+sizes (`size`, the map file) are a measure of every build: the ceiling is
+22 KB.
+
+## The file system and the diskette format
+
+An own format, inode-based, with directories and names of up to 14 characters.
+The device is the physical drive whole: both sides, 1600 blocks of 512 bytes.
+
+**Geometry.**  A block = a sector of 512 bytes.  The driver turns an LBN into
+the track, the side and the sector; the division into FD0/FD2 is the old
+BIOS's convention, the kernel does not need it.  A block number is 16 bits.
+
+**The volume layout (1600 blocks).**
+
+| Blocks | What |
+| --- | --- |
+| 0 | The boot block: the ROM loads it to address 0 and jumps there |
+| 1 | The superblock: the magic, the version, the volume size, the starts of the areas, the number of inodes, the label; the kernel's extents for the boot block |
+| 2 | The bitmap of free blocks (1600 bits = 200 bytes) |
+| 3-10 | The inode table: 8 blocks x 16 inodes = 128 files |
+| 11-138 | The swap area: 2 images x 32 KB (only on a system diskette, by a flag in the superblock) |
+| 139-1599 | Data |
+
+**Inode (32 bytes).**
+
+```c
+struct dinode {
+    uint16_t mode;      /* type (file/directory/device) + permissions */
+    uint8_t  nlink;
+    uint8_t  nextents;  /* 0..5 */
+    uint32_t size;      /* bytes */
+    uint32_t mtime;     /* seconds since the epoch */
+    struct { uint16_t start, len; } ext[5];  /* extents, in blocks */
+};                      /* 2+1+1+4+4+20 = 32 */
+```
+
+Extents instead of a block list: the allocator lays a file down contiguously,
+and an executable is read straight through, with no needless head moves.  Five
+extents almost always suffice; when fragmented, a defragmenting utility (like
+`squeeze`).
+
+**A directory** is a file of 16-byte entries: 2 bytes the inode number + 14
+bytes the name (KOI-8, case kept).  32 entries a block.  The root is inode 1.
+
+**The interleave** is chosen at formatting (`fdformat`): 1:1 when the driver
+keeps up between sectors (5 KB a revolution, 200 ms), else 2:1.  Found by
+measuring on the real machine.
+
+## The boot sequence
+
+From power-on to the shell's prompt about 2-3 seconds, of them ~1-2 s for
+reading the kernel off the diskette.
+
+1. The T-11 starts at 172000, PSW = 0340.  The native ROM-B sets up the
+   hardware, runs its self-test, reads block 0 of the diskette to address 0
+   and jumps there.  RT-11 boots the same way, so no separate compatibility
+   mode is needed.  No diskette or an error - the ROM prints its load error
+   message and stays in its console monitor.
+2. Our boot block in block 0 (512 bytes) moves itself higher, into the
+   process's space, reads the superblock and takes from it the kernel's
+   extents, written there by `installboot`.  It needs no file name: finding
+   the kernel by name comes with the own ROM.
+3. The kernel is loaded through 160010 into banks 0, 1 and 6, past the ROM's
+   cells at 157614-157777; the boot block jumps to its entry point.
+4. The kernel: its own vectors in bank 0, `.bss` cleared, the RAM disk found,
+   the buffer cache, the root mounted.
+5. The kernel makes process 1 out of `/etc/init` in slot A and enables
+   interrupts.
+6. `init` runs `/etc/rc` (formatting the RAM disk, `/tmp`, a second
+   diskette) and starts `sh` on the console; when the shell exits, it starts
+   it again.
+
+The own ROM will later add a menu: RT-11 or the new system, another kernel
+file by name, "insert the system diskette" with waiting.
+
+**The root diskette:**
+
+```
+/boot/kernel
+/etc/init  /etc/rc
+/bin/      sh, ls, cat, ed, ...
+/tmp/      (the RAM disk mounted, when there is one)
+/home/
+```
+
+## The user environment
+
+The utilities come in levels; with the first level and `ed` the system is
+already usable.  The sizes are estimates for GCC `-Os`.
+
+| Level | Utilities | Estimate |
+| --- | --- | --- |
+| 1. Minimum | `init`, `sh` (pipes, `<` `>`, `&`, scripts), `ls`, `cat`, `cp`, `mv`, `rm`, `ln`, `mkdir`, `rmdir`, `pwd`, `echo`, `ps`, `kill`, `mount`, `umount`, `sync`, `df`, `date` | ~30-40 KB in all, `sh` ~6-8 KB |
+| 2. Text | `ed`, `grep`, `wc`, `head`, `tail`, `tr`, `uniq`, `cmp`, `od`, `sort` (temporary files on the RAM disk), `more` | `ed` ~8 KB |
+| 3. Screen editor | vi-like, 80 x 25 | - |
+| 4. Languages | Forth, BASIC, `as` (a PDP-11 assembler), `dc`/`bc`; a C compiler on the machine later, multi-pass | Forth 4-8 KB |
+| 5. MS 0515 specifics | `rt11` (ls/get/put on RT-11 diskettes), `fdformat`, `beep`/`play` (timer channel 2), `view` (`.SCR`), exchange with a PC over RS-232 (XMODEM/Kermit) | - |
+| 6. Compatibility | Running RT-11 `.SAV` in userland, EMT trapped | Ambitious |
+
+First: `sh`, `ls`, `cat`, `ed`.  Then `rt11` (the bridge to the software
+collection) and Forth (interactive work with the hardware).
+
+## Tools on the host
+
+Everything is built on the host; the machine and the emulator only run the
+result.
+
+- **The toolchain** - the existing GCC 15 `pdp11-aout -m10`.  Own `crt0` and
+  libc over the new system calls (based on the present libc of
+  `rt11_devel/toolset/gcc`), a linker script for the kernel and one for the
+  ROM.
+- **`mkfs` and the diskette image builder** - after the model of
+  `ms0515-disk`: make a volume, put files and directories in, write the kernel
+  and the boot block into block 0 with the kernel's extents in the superblock
+  (`installboot`), check the FS (`fsck`).
+- **The ROM builder** - a 16 KB image, cut into two 8 KB chips, a check that
+  the working part fits in the upper 8 KB.
+- **The emulator** - the choice of the ROM image; knowledge of the kernel in
+  the debugger: symbols from the map file, the process list, the state of the
+  slots and the dispatcher.
+- **Tests** - scenarios through `ms0515-run`/the CLI: boot to the prompt, run
+  commands, compare the output.  As in the rest of the project - TDD.
+
+## For the future: the kernel in ROM
+
+Once the kernel has settled and fits in ~15.75 KB, it can move into the ROM
+whole: a process then gets 40 KB instead of 32.
+
+| | Kernel on the diskette (the main plan) | Kernel in ROM |
+| --- | --- | --- |
+| A process's space | 32 KB (banks 2-5) | 40 KB (banks 1-5) |
+| The kernel in RAM | code + data, banks 0/1/6 | data only, bank 0 |
+| Changing the kernel | copy a file | reflash |
+| Booting | ~2-3 s | a fraction of a second |
+| Bank 6 | the kernel's | gone (the extended ROM) |
+
+Conditions for the move: the linker script ROM-ready already now (`.text` /
+`.rodata` in ROM, `.data` copied into RAM, `.bss` cleared); no self-modifying
+code and no changing data in instruction operands.
+
+A fallback: the kernel in ROM looks at start for `/boot/kernel` on the
+diskette and, if the file is there, loads it, switches the extended ROM off and
+hands over.
+
+## Open questions
+
+- What the ROM-B console costs: a character out with the VRAM window switched,
+  and 160004 called from the keyboard interrupt - to be measured, whether it is
+  enough for the shell and a screen editor.  (The question "does RT-11 call the
+  ROM" is closed: yes, its whole console goes through 160000/160004.)
+- The real speed of the RAM disk on the T-11 (estimated 100-250 KB/s against
+  ~43 KB/s for EX.SYS's formatting) - to be measured in the emulator and on the
+  machine.
+- Whether the floppy driver keeps up reading sectors 1:1 or needs a 2:1
+  interleave.
+- For stage 7: the pinout of the K573RF4 and the fitness of a 28C64 as a
+  replacement - to be checked against the board's schematic.
+- How the VG93 behaves when a DRQ is missed (a byte lost) - how the driver
+  recovers.
+
+## Stages
+
+1. **Hello from an own kernel.**  The boot block in block 0 on the native
+   ROM-B loads the kernel, the kernel prints `login:` through the ROM's
+   console (160000).
+2. **A minimal kernel.**  The timer, the keyboard, one process, `TRAP`,
+   `read`/`write` of the console.
+3. **FS.**  `mkfs` on the host, the HD driver in the emulator,
+   `open`/`read`/`exec`.
+4. **Multitasking.**  Two slots, `fork`/`wait`, pipes, `sh`.
+5. **The floppy and swap.**  An own VG93 driver instead of 160010
+   (formatting, speed), swap to the diskette and to the RAM disk.
+6. **Utilities** of levels 1-2, then `rt11` and Forth.
+7. **The own ROM.**  Compatible with RT-11 by the ROM-B contract (without
+   Rodionov's system): the shared services and the new system's table in the
+   upper 8 KB, the self-test, the monitor and the boot menu with the kernel
+   found by name in the lower.  The kernel's jump table switches over to it.
+8. **The real machine.**  Firmware, measurements, the interleave chosen.
+9. **Optional:** the kernel in ROM.
