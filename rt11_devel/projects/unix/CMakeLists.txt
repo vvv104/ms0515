@@ -118,6 +118,7 @@ program(pwd user/pwd.c)
 program(ln user/ln.c)
 program(mv user/mv.c user/copy.c)
 program(cp user/cp.c user/copy.c)
+program(rtfs user/rtfs.c)
 program(getty user/getty.c)
 
 # own_program(<name> <sources>): a program that owns the machine
@@ -178,6 +179,7 @@ set(VOLUME_FILES
     /bin/ln=ln.x
     /bin/mv=mv.x
     /bin/cp=cp.x
+    /bin/rtfs=rtfs.x
     /bin/bigmem=bigmem.x
     /bin/rt11=rt11.x
     --dir /tmp

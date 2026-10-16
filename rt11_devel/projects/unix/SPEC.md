@@ -544,10 +544,12 @@ hands over.
    system, the name in lower case.  Not there: writing files, USR, KMON,
    chaining, overlays, handlers, RMON's internals.  SABOT2 runs so from
    its own diskette's files.
-8. **Utilities** of levels 1-2, then `rt11` (ls/get/put on RT-11
-   diskettes) and Forth.  Done so far: lseek and `>>`; chdir, stat and
+8. **Utilities** of levels 1-2, then `rtfs` (ls/get/put on RT-11
+   diskettes - `rt11` is the name of the runner of RT-11 programs) and
+   Forth.  Done so far: lseek and `>>`; chdir, stat and
    fstat, the shell's `cd`, `pwd`; link, `ln`, `mv` (a link, or a copy to
-   another volume), `cp`.
+   another volume), `cp`; `rtfs` on a side's RT-11 DZ volume, so an RT-11
+   program comes off its own diskette and runs by `rt11` with no host.
 
 Stages 9-11 are put off for a long time: there is no real machine to try
 them on.

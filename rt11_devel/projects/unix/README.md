@@ -20,8 +20,9 @@ wait in the swap file, 96 KB, and come in when they are to run.
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls`, `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `mkfs`, `mount`, `umount`,
 `swapon`, `fdformat`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
-the machine) and `rt11` (an RT-11 program run on the machine: `rt11
-/rt11/game.sav`); the shell's own commands are `cd`, `t` (the time),
+the machine), `rt11` (an RT-11 program run on the machine: `rt11
+/rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
+`rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd`, `t` (the time),
 `status` (the last command's), `exec` and `exit`, which ends the session
 and brings getty back.
 
