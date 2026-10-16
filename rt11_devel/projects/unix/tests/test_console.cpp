@@ -124,7 +124,7 @@ TEST_CASE("an unknown command is reported, and the shell asks again") {
     booted(m);
     m.typeAndSettle("root\r", 30);
     m.waitPrompt();
-    m.typeAndSettle("xyz\r", 30);
+    REQUIRE(m.command("xyz"));
     INFO(m.screen());
     CHECK(m.screen().find("xyz: not found\n$") != std::string::npos);
 }

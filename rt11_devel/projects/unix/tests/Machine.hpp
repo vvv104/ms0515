@@ -56,6 +56,15 @@ inline std::vector<uint8_t> readImage()
     return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
+/* The image without /etc/rc, beside the system's in the build folder: init
+ * goes straight to getty, nothing mounted, no swap - for the tests that do
+ * it by hand. */
+inline std::vector<uint8_t> readBareImage()
+{
+    std::ifstream in(imagePath().parent_path() / "bare.dsk", std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
 /* The byte offset of block lbn of a double-sided image: side 0 for blocks
  * 0..799, side 1 after; cylinder 0 holds a side's last ten blocks, the
  * sectors 2:1 interleaved and skewed by two a track (docs/hardware/

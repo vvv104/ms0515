@@ -1,0 +1,11 @@
+# /etc/fstab - the volumes and the swap, read by mount -a at the boot.
+#
+# device     where  what to do
+# The root is the boot drive's, mounted by the kernel itself.
+fd0          /      root
+# The RAM disk, a volume made anew at each boot; no board, no volume.
+rd0          /tmp   mkfs,optional
+# Swap: the first of these that can be had - on the RAM disk's volume,
+# made there 256 KB large, else the diskette's own /swap.
+/tmp/swap    swap   size=256,optional
+/swap        swap   optional

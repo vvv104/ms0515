@@ -331,7 +331,10 @@ What the system has for it:
    hold one against the other.
 5. `swapon` with a file's path: the file in one extent, its blocks written
    directly, not to be removed while swap is on.
-6. `/etc/rc` and the reading of `fstab`: `mount -a`, `swapon -a`.
+6. `/etc/rc` and the reading of `fstab`: `mount -a` makes and mounts the
+   volumes and then turns on the first swap line it can - a file under a
+   volume that did not mount passed by - all in one process, since two are
+   all there may be before swap is on.
 
 The raw swap on the RAM disk of stage 4, a 32 KB area a process with no
 file system, goes: a file on a mounted volume takes its place.  Swapping
@@ -471,7 +474,7 @@ hands over.
 4. **Multitasking** (done).  Two slots, a kernel stack each,
    `fork`/`exit`/`wait`, `sh`, pipes and the background, swap on the RAM
    disk (raw for now).
-5. **Volumes and the swap file.**  The block devices fd0 and rd0, writing
+5. **Volumes and the swap file** (done).  The block devices fd0 and rd0, writing
    to the file system, `mount`, `mkfs` on the machine, `swapon` with a
    file, `/etc/rc` and `fstab` ("Volumes, swap and fstab"); swap to the
    diskette is the file `/swap` by the same means.

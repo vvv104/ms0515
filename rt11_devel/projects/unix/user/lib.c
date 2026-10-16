@@ -48,6 +48,16 @@ void complain(const char *who, const char *what)
 		   errno == EINVAL ? ": no file system there\n" : ": cannot\n");
 }
 
+int memcmp(const void *a, const void *b, unsigned n)
+{
+	const unsigned char *x = a, *y = b;
+
+	for (; n; n--, x++, y++)
+		if (*x != *y)
+			return *x - *y;
+	return 0;
+}
+
 void *memcpy(void *to, const void *from, unsigned n)
 {
 	char *t = to;

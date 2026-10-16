@@ -23,13 +23,11 @@ void atPrompt(Machine &m)
     REQUIRE(m.waitPrompt());
 }
 
-/* Swap on: the RAM disk made a volume at /tmp, a swap file of 256 KB on it. */
+/* Swap on, as /etc/rc turned it on at the boot: the RAM disk a volume at
+ * /tmp, a swap file of 256 KB on it. */
 void swapOnRam(Machine &m)
 {
-    REQUIRE(m.command("mkfs /dev/rd0"));
-    REQUIRE(m.command("mount /dev/rd0 /tmp"));
-    REQUIRE(m.command("swapon /tmp/swap 256", 3000));
-    REQUIRE(m.screen().find("swapon: /tmp/swap") != std::string::npos);
+    REQUIRE(m.screen().find("swap: /tmp/swap") != std::string::npos);
 }
 
 std::string after(Machine &m, const std::string &command)
@@ -121,7 +119,7 @@ TEST_CASE("swap on the diskette: a file /swap, the same pipes without the RAM di
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), false);
     atPrompt(m);
-    REQUIRE(m.command("swapon /swap"));                /* mkfs.py made it: 128 KB */
+    REQUIRE(m.screen().find("swap: /swap") != std::string::npos);   /* /etc/rc, no RAM disk */
     REQUIRE(m.command("echo over the diskette | cat", 4000));
     INFO(m.screen());
     CHECK(after(m, "echo over the diskette | cat").find("\nover the diskette\n$") != std::string::npos);
@@ -148,7 +146,7 @@ TEST_CASE("the swap file is held: not removed, its volume not taken out") {
 
 TEST_CASE("without swap a pipe finds no room, and the shell goes on") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
-    Machine m(unixos::readImage(), false);
+    Machine m(unixos::readBareImage(), false);
     atPrompt(m);
     REQUIRE(m.command("echo x | cat"));
     REQUIRE(m.command("echo still"));

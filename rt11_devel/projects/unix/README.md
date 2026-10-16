@@ -5,21 +5,21 @@ PDP-11 assembler: LSX and Mini-Unix in reach - multitasking without memory
 protection, a file system with directories, a shell with pipes.
 [`SPEC.md`](SPEC.md) is the specification and the plan of stages.
 
-Stages 1-4 are done, swap on the RAM disk: the native ROM-B boots the
-system's diskette, the boot block loads the kernel, /boot/kernel, and the
-kernel mounts the file system, looks for the EX board's RAM disk and runs
-/etc/init.  init asks for a name at `login:` and gives its place to the
-shell, /bin/sh, which runs each command as a child - fork, exec, wait - and
-comes back with its prompt; `a | b | c` is a pipeline, `cmd &` runs without
-being waited for.  Two processes are resident, one in each slot; with the
-RAM disk the others wait there, swapped out, and come in when they are to
-run.  Without it there are two at most, and the shell says so.  Stage 5 has
-begun: the file system is written - `cmd > file`, `cmd < file`, `rm`,
-`mkdir` - each change going to the diskette at once.  /bin has `sh`, `ls`,
-`cat`, `echo`, `rm`, `mkdir`, `hello`, `fail` and `pid`; the shell's own
-commands are `t` (the time), `status` (the last command's) and `exit`, which
-ends the session.  Next: mount, mkfs on the machine, the swap file, /etc/rc
-and fstab (SPEC.md "Volumes, swap and fstab").
+Stages 1-5 are done.  The native ROM-B boots the system's diskette, the
+boot block loads the kernel, /boot/kernel, and the kernel mounts the root,
+looks for the EX board's RAM disk and runs /etc/init.  init gives its place
+to the shell on /etc/rc: `mount -a` makes the RAM disk a volume at /tmp and
+turns swap on by /etc/fstab - /tmp/swap, made there, else the diskette's
+/swap - and getty asks for a name at `login:` and starts /bin/sh, which runs
+each command as a child - fork, exec, wait - and comes back with its prompt;
+`a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`
+and `< file` redirect.  Two processes are resident, one in each slot; with
+swap on the others wait in the swap file and come in when they are to run.
+The file system is written, each change going to the disk at once.  /bin has
+`sh`, `ls`, `cat`, `echo`, `rm`, `mkdir`, `mkfs`, `mount`, `umount`,
+`swapon`, `hello`, `fail` and `pid`; the shell's own commands are `t` (the
+time), `status` (the last command's), `exec` and `exit`, which ends the
+session and brings getty back.
 
 ## Building and booting
 
@@ -61,22 +61,24 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   160010, reading and writing; 1 the RAM disk, 1024 blocks.
 - `kernel/bio.c` - the buffer cache: four blocks in bank 6, the device's
   and the block's, the least recently used given up; a write goes through
-  at once.
+  at once, but for the bitmap's, which waits to the end of the call.
 - `kernel/fs.c` - the superblock, the bitmap, inodes, a file's blocks by
   its extents - a file grows at its end, its last extent grown while the
   next block is free - `readi` and `writei`, directories, paths, creat,
-  mkdir, unlink (a file goes with its last name, once nothing holds it).
+  mkdir, unlink (a file goes with its last name, once nothing holds it);
+  block devices - inodes of their own kind - and the volumes mounted on
+  directories, a path going into them and out by "..".
 - `kernel/exec.c` - a program into the slot: an a.out of the 0407 kind
   linked at 040000, its arguments on the stack as V6 laid them.
 - `kernel/proc.c`, `proc.h` - the processes: the table, the two slots
   (banks 2-5 primary and extra, dispatcher bits 2-5), a kernel stack of
   each with a canary at its bottom, sleep and wakeup, the switch (`swtch`
-  in trap.s), swap - a process's used pages to its 32 KB area on the RAM
-  disk and back - fork into the free slot or straight to the RAM disk,
-  exit, wait.
+  in trap.s), swap - a file in one extent cut into 32 KB areas, a
+  process's used blocks out to one and back - fork into the free slot or
+  straight to swap, exit, wait.
 - `kernel/high.h` - the big tables in bank 6, 140000-157000, outside the
-  kernel's image: the processes with their kernel stacks, the block
-  buffers, fork's bounce buffer, the pipes.
+  kernel's image: the mount table, the processes with their kernel stacks,
+  the block buffers, fork's bounce buffer, the pipes.
 - `kernel/ramdisk.c` - the EX board: found by two pages written and one
   read back (a bus error caught on vector 4), pages of 256 bytes through
   its PPI and data port, each with the interrupts masked.
@@ -86,10 +88,13 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   system's, shared by a fork's descriptors; the pipes, a buffer of 256
   bytes each.  When pid 1 exits, init runs again.
 - `user/` - a process's start (`crt0.s`, `main(argc, argv)`), the calls as
-  C functions (`sys.s`, `unistd.h`), a little library (`lib.c`), `init.c`,
-  and the programs of /bin: `sh.c`, `ls.c`, `cat.c`, `echo.c`, `rm.c`,
-  `mkdir.c`, `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its
-  parent's).
+  C functions (`sys.s`, `unistd.h`), a little library (`lib.c`), volumes
+  and swap files (`vol.c`: mkfs.py's layout made on the machine), `init.c`,
+  `getty.c`, and the programs of /bin: `sh.c` (scripts too), `ls.c`,
+  `cat.c`, `echo.c`, `rm.c`, `mkdir.c`, `mkfs.c`, `mount.c` (`mount -a`:
+  /etc/fstab's volumes and swap, in one process), `umount.c`, `swapon.c`,
+  `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
+- `root/etc/` - `rc`, `fstab`, `motd`, `numbers`.
 - `root/` - the files the volume carries as they are: /etc/motd,
   /etc/numbers (a file of several blocks, for the tests).
 - `tools/mkfs.py` - the diskette and its file system from PATH=FILE pairs:
@@ -110,7 +115,13 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   shell's state across swaps, and without it a pipe refused; files made by
   `>` and written over, a file of several blocks in one extent, mkdir and
   rm, `<`, a file kept across a boot, the errors - each then read off the
-  diskette on the host, its bitmap counted (`Machine::imageNow`).
+  diskette on the host, its bitmap counted (`Machine::imageNow`); /dev, mkfs
+  and mount on the RAM disk read on the host from the board's memory
+  (`Machine::ramDisk`), `..` out of a volume, umount; swap on the RAM
+  disk's file and the diskette's, the swap file held; /etc/rc with the
+  board and without, getty again after a session, a mounted device
+  refused for mkfs, a script.  `bare.dsk`, the image without /etc/rc, is
+  for the tests that mount and swap by hand.
   `Machine::command` types a line and waits for the prompt, so the next is
   not typed into the last one's output; `Machine(image, true)` has the RAM
   disk.  Skipped when the image is not
@@ -130,8 +141,8 @@ or the toolset's.
 The build reports the kernel's memory and stops past its limits
 (mkfs.py): the image's size, the low part from 01000 to `_end` against
 040000, and the bank-6 tables (the kernel's `_high_size`) against the 7680
-bytes up to 157000 - with writing: an image of 12326 bytes, 3288 bytes
-free below 040000, 672 free in bank 6.  The compiler puts even zeroed
+bytes up to 157000 - at stage 5's end: an image of 14580 bytes, 1034
+bytes free below 040000, 510 free in bank 6.  The compiler puts even zeroed
 arrays in .data, so they cost the image; the big ones live in bank 6 for
 that.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.

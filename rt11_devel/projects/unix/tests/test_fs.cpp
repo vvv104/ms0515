@@ -94,7 +94,10 @@ TEST_CASE("cat shows a file, ls a directory") {
     m.command("ls /bin");
     INFO(m.screen());
     CHECK(m.screen().find("Welcome to UNIX on the Elektronika MS 0515.") != std::string::npos);
-    CHECK(m.screen().find("boot  etc  bin") != std::string::npos);
+    for (const char *n : {"boot", "etc", "bin", "dev", "tmp", "swap"}) {
+        CAPTURE(n);
+        CHECK(m.screen().find(n) != std::string::npos);
+    }
     CHECK(m.screen().find("echo  hello") != std::string::npos);
 }
 

@@ -304,6 +304,10 @@ static int sys_open(struct trapframe *tf, const unsigned *arg)
 		iput(ip);
 		return EISDIR;
 	}
+	if (arg[1] != 0 && (ip->d.mode & S_IFMT) == S_IFBLK && fs_mounted(ip->d.ext[0].start)) {
+		iput(ip);
+		return EBUSY;			/* not to be written under its volume */
+	}
 	return fd_of_inode(tf, ip, arg[1]);
 }
 
@@ -426,10 +430,11 @@ static int sys_wait(struct trapframe *tf, const unsigned *arg)
 	return 0;
 }
 
-/* The process gone; pid 1's place goes to init again, its files closed. */
+/* The process gone; pid 1's place goes to getty again - not init, /etc/rc
+ * is the boot's - its files closed. */
 static void sys_exit(const unsigned *arg)
 {
-	static const char *const argv[] = {"init", 0};
+	static const char *const argv[] = {"getty", 0};
 	int i;
 
 	if (curproc->pid != 1)
@@ -439,8 +444,8 @@ static void sys_exit(const unsigned *arg)
 			fclose(curproc->ofile[i]);
 			curproc->ofile[i] = 0;
 		}
-	exec("/etc/init", argv);
-	panic("no /etc/init");
+	exec("/etc/getty", argv);
+	panic("no /etc/getty");
 }
 
 void syscall(struct trapframe *tf)

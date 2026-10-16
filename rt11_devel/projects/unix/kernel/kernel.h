@@ -90,6 +90,7 @@ int fs_mkdir(const char *path);
 int fs_unlink(const char *path);
 int fs_mount_on(const char *device, const char *dir);
 int fs_umount(const char *device);
+int fs_mounted(unsigned dev);
 int devrw(struct inode *ip, unsigned long off, char *buf, unsigned n, int write);
 
 /* exec.c */

@@ -58,6 +58,11 @@ int fs_mount(void)
 
 #define SB(dev) (&mount_of(dev)->sb)
 
+int fs_mounted(unsigned dev)
+{
+	return mount_of(dev) != 0;
+}
+
 /* -- inodes ------------------------------------------------------------ */
 
 /* Inode n of dev, read in if it is not in hand; 0 when there is none. */

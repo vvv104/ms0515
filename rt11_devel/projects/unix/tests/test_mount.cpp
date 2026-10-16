@@ -1,7 +1,7 @@
 /*
  * test_mount.cpp - stage 5, volumes: the block devices in /dev, mkfs on the
  * machine, mount and umount, a path into a mounted volume and out of it by
- * ".."; the RAM disk's volume then read on the host from the board's
+ * ".." - on the image without /etc/rc, nothing mounted at the boot; the RAM disk's volume then read on the host from the board's
  * memory, by the tests' own reading of the format.
  */
 #include "Volume.hpp"
@@ -43,7 +43,7 @@ TEST_SUITE("UNIX") {
 
 TEST_CASE("/dev has the diskette and the RAM disk, block devices") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
-    Machine m(unixos::readImage());
+    Machine m(unixos::readBareImage());
     atPrompt(m);
     REQUIRE(m.command("ls /dev"));
     INFO(m.screen());
@@ -57,7 +57,7 @@ TEST_CASE("/dev has the diskette and the RAM disk, block devices") {
 
 TEST_CASE("mkfs makes a volume on the RAM disk, mount puts it at /tmp, a file goes on it") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
-    Machine m(unixos::readImage(), true);
+    Machine m(unixos::readBareImage(), true);
     atPrompt(m);
     ramVolume(m);
     REQUIRE(m.command("echo in ram > /tmp/f"));
@@ -83,7 +83,7 @@ TEST_CASE("mkfs makes a volume on the RAM disk, mount puts it at /tmp, a file go
 
 TEST_CASE(".. from the mounted volume's root comes out to the directory above it") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
-    Machine m(unixos::readImage(), true);
+    Machine m(unixos::readBareImage(), true);
     atPrompt(m);
     ramVolume(m);
     REQUIRE(m.command("cat /tmp/../etc/motd"));
@@ -95,7 +95,7 @@ TEST_CASE(".. from the mounted volume's root comes out to the directory above it
 
 TEST_CASE("umount takes the volume out: /tmp is the diskette's again; mounted anew, the file is back") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
-    Machine m(unixos::readImage(), true);
+    Machine m(unixos::readBareImage(), true);
     atPrompt(m);
     ramVolume(m);
     REQUIRE(m.command("echo kept in ram > /tmp/k"));
@@ -110,7 +110,7 @@ TEST_CASE("umount takes the volume out: /tmp is the diskette's again; mounted an
 
 TEST_CASE("mount refuses what is not a volume, a device mounted twice, and a file for a directory") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
-    Machine m(unixos::readImage(), true);
+    Machine m(unixos::readBareImage(), true);
     atPrompt(m);
     REQUIRE(m.command("mount /dev/rd0 /tmp"));             /* not formatted yet */
     REQUIRE(m.command("mount /etc/motd /tmp"));

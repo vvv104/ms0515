@@ -15,6 +15,7 @@ add_executable(unix_tests
     test_swap.cpp
     test_write.cpp
     test_mount.cpp
+    test_rc.cpp
 )
 
 # Machine.hpp reads the RAM disk's memory through the lib's internal access

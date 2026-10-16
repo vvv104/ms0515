@@ -91,35 +91,49 @@ program(fail user/fail.c)
 program(pid user/pid.c)
 program(rm user/rm.c)
 program(mkdir user/mkdir.c)
-program(mkfs user/mkfs.c)
-program(mount user/mount.c)
+program(mkfs user/mkfs.c user/vol.c)
+program(mount user/mount.c user/vol.c)
 program(umount user/umount.c)
-program(swapon user/swapon.c)
+program(swapon user/swapon.c user/vol.c)
+program(getty user/getty.c)
 
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/root")
+set(MKFS "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py")
+# The volume's files, for both images: the system and its programs.
+set(VOLUME_FILES
+    /boot/kernel=kernel.bin
+    /etc/init=init.x
+    /etc/getty=getty.x
+    /etc/motd=${ROOT}/etc/motd
+    /etc/numbers=${ROOT}/etc/numbers
+    /bin/sh=sh.x
+    /bin/ls=ls.x
+    /bin/cat=cat.x
+    /bin/echo=echo.x
+    /bin/hello=hello.x
+    /bin/fail=fail.x
+    /bin/pid=pid.x
+    /bin/rm=rm.x
+    /bin/mkdir=mkdir.x
+    /bin/mkfs=mkfs.x
+    /bin/mount=mount.x
+    /bin/umount=umount.x
+    /bin/swapon=swapon.x
+    --dir /tmp
+    --swap 128)
+set(VOLUME_DEPENDS boot.bin kernel.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
+
+# unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns
+# swap on by /etc/fstab.  bare.dsk: the same without /etc/rc, init going
+# straight to getty, for the tests that mount and swap by hand.
 add_custom_command(OUTPUT unix.dsk
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py"
+    COMMAND "${Python3_EXECUTABLE}" "${MKFS}"
             --boot boot.bin --nm "${PDP11_NM}" --kernel-out $<TARGET_FILE:kernel> unix.dsk
-            /boot/kernel=kernel.bin
-            /etc/init=init.x
-            /etc/motd=${ROOT}/etc/motd
-            /etc/numbers=${ROOT}/etc/numbers
-            /bin/sh=sh.x
-            /bin/ls=ls.x
-            /bin/cat=cat.x
-            /bin/echo=echo.x
-            /bin/hello=hello.x
-            /bin/fail=fail.x
-            /bin/pid=pid.x
-            /bin/rm=rm.x
-            /bin/mkdir=mkdir.x
-            /bin/mkfs=mkfs.x
-            /bin/mount=mount.x
-            /bin/umount=umount.x
-            /bin/swapon=swapon.x
-            --dir /tmp
-            --swap 128
-    DEPENDS boot.bin kernel.bin ${PROGRAMS} "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py"
-            ${ROOT}/etc/motd ${ROOT}/etc/numbers
+            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab ${VOLUME_FILES}
+    DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
     COMMENT "unix.dsk")
-add_custom_target(image ALL DEPENDS unix.dsk)
+add_custom_command(OUTPUT bare.dsk
+    COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --boot boot.bin bare.dsk ${VOLUME_FILES}
+    DEPENDS ${VOLUME_DEPENDS}
+    COMMENT "bare.dsk")
+add_custom_target(image ALL DEPENDS unix.dsk bare.dsk)

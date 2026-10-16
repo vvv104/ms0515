@@ -6,11 +6,16 @@
  *	cmd > file	the output into the file, made or emptied
  *	cmd < file	the input from the file
  *
- * A command without a '/' is looked for in /bin.  Its own commands:
+ * A command without a '/' is looked for in /bin; '#' to the line's end is a
+ * comment.  Its own commands:
  *
  *	t		the time since the boot
  *	status		the exit status of the last command waited for
+ *	exec CMD ARGS	the command in the shell's place
  *	exit		the shell's end - and the session's
+ *
+ * sh FILE runs the commands of the file, without a prompt, and ends at its
+ * end - init runs /etc/rc so.
  *
  * The machine keeps two processes at once; more, a pipeline's or one in
  * the background, need the kernel's swap, and without it the fork that
@@ -169,25 +174,71 @@ static void run(char **cmd[], int n, int background)
 	}
 }
 
-int main(void)
+/* The next line of fd into line, its '\n' taken off, '#' and on cut away;
+ * -1 at the end.  A terminal's read gives a line at a time; a file's is
+ * read a buffer ahead. */
+static int next_line(int fd, char *line, int size)
 {
-	char line[128], *word[MAXARGS + MAXCMDS + 1], **cmd[MAXCMDS];
-	int n, i, ncmd, background;
+	static char buf[128];
+	static int have, at;
+	int n = 0;
+	char c;
 
 	for (;;) {
-		say("$ ");
-		n = read(0, line, sizeof line - 1);
-		if (n <= 0)
+		if (at == have) {
+			at = 0;
+			have = read(fd, buf, sizeof buf);
+			if (have <= 0) {
+				have = 0;
+				if (n == 0)
+					return -1;
+				break;
+			}
+		}
+		c = buf[at++];
+		if (c == '\n')
+			break;
+		if (n < size - 1)
+			line[n++] = c;
+	}
+	line[n] = 0;
+	for (n = 0; line[n] && line[n] != '#'; n++)
+		;
+	line[n] = 0;
+	return n;
+}
+
+int main(int argc, char **argv)
+{
+	char line[128], *word[MAXARGS + MAXCMDS + 1], **cmd[MAXCMDS];
+	int n, i, ncmd, background, script = 0, from = 0;
+
+	if (argc > 1) {
+		if ((from = open(argv[1], 0)) < 0) {
+			complain("sh", argv[1]);
+			exit(1);
+		}
+		script = 1;
+	}
+	for (;;) {
+		if (!script)
+			say("$ ");
+		if (next_line(from, line, sizeof line) < 0)
 			exit(0);
-		if (line[n - 1] == '\n')
-			n--;
-		line[n] = 0;
 		n = words(line, word, MAXARGS + MAXCMDS);
 		word[n] = 0;
 		if (n == 0)
 			continue;
 		if (!strcmp(word[0], "exit"))
 			exit(0);
+		if (!strcmp(word[0], "exec") && n > 1) {
+			char path[PATHMAX];
+
+			pathof(word[1], path);
+			execv(path, word + 1);
+			complain("sh", word[1]);
+			continue;
+		}
 		if (!strcmp(word[0], "t")) {
 			say("time ");
 			putnum((unsigned)time());

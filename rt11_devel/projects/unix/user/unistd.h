@@ -41,6 +41,7 @@ int strcmp(const char *a, const char *b);
 void puts_fd(int fd, const char *s);	/* the string as it is, no newline added */
 void putnum(unsigned n);		/* in decimal, to 1 */
 void complain(const char *who, const char *what);	/* "who: what: why" to 2 */
+int memcmp(const void *a, const void *b, unsigned n);
 void *memcpy(void *to, const void *from, unsigned n);
 void *memset(void *p, int c, unsigned n);
 
