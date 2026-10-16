@@ -10,7 +10,7 @@
 / (the DEC monitor's lesson, rt11_devel/projects/rt11/monitor/OMCONS.MAC).
 
 	.text
-	.globl	_rom_putc, _rom_getc, _rom_blink, _rom_bread, _rom_bwrite
+	.globl	_rom_putc, _rom_getc, _rom_blink, _rom_rw
 
 ROMELM	= 0157730		/ the ROM's cell for the disk element's address
 ROMREGA	= 0157720		/ the ROM's copy of register A, the motor flags
@@ -78,17 +78,15 @@ _rom_blink:
 	jsr	pc, romcall
 	rts	pc
 
-/ int rom_bread(unsigned unit, unsigned block, void *buf): the block of
-/ the unit - a drive's side, side * 2 + drive - read into buf, 0 or -1.
-_rom_bread:
+/ int rom_rw(unsigned unit, unsigned block, void *buf, int write): the
+/ block of the unit - a drive's side, side * 2 + drive - read into buf, or
+/ written from it: the element's word count negative, as RT-11 asks for a
+/ write.  0 or -1.
+_rom_rw:
 	mov	$256, wcount
-	br	romblock
-
-/ int rom_bwrite(unsigned unit, unsigned block, const void *buf): the same
-/ written - the
-/ element's word count negative, as RT-11 asks for a write.
-_rom_bwrite:
-	mov	$-256, wcount
+	tst	8(sp)
+	beq	romblock
+	neg	wcount
 
 romblock:
 	movb	2(sp), elem+3		/ the unit in the element's high byte

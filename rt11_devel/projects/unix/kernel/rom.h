@@ -15,8 +15,8 @@ int rom_getc(void);
 void rom_blink(void);
 
 /* Block `block` (0..799) of the ROM's unit - a drive's side, side * 2 +
- * drive - into buf (512 bytes), 0 or -1; and written from it. */
-int rom_bread(unsigned unit, unsigned block, void *buf);
-int rom_bwrite(unsigned unit, unsigned block, const void *buf);
+ * drive - read into buf (512 bytes), or written from it; 0 or -1.  The
+ * driver's rw by the ROM's own way (kernel.h struct fd_driver). */
+int rom_rw(unsigned unit, unsigned block, void *buf, int write);
 
 #endif

@@ -26,6 +26,7 @@ int main(void)
 	tty_puts(rd_probe() ? "\nUNIX: a RAM disk of 512 KB, /dev/rd0\n" : "\nUNIX: no RAM disk\n");
 	if (fs_mount() != 0)
 		panic("no file system");
+	fd_driver_load();
 	exec("/etc/init", argv);
 	panic("no /etc/init");
 	return 0;

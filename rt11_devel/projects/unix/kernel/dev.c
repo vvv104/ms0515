@@ -14,6 +14,9 @@
 
 #define SIDE 800			/* a side's blocks */
 
+/* The diskettes' blocks go by the ROM until /boot/fd takes them over. */
+static int (*fd_rw)(unsigned unit, unsigned block, void *buf, int write) = rom_rw;
+
 /* Each diskette device's drive (bit 2) and sides (bit 0 side 0, bit 1
  * side 1), by its number. */
 static const unsigned char place[DEV_FDX1 + 1] = {1, 2, 5, 6, 3, 7};
@@ -63,5 +66,30 @@ int dev_rw(unsigned dev, unsigned block, void *buf, int write)
 	}
 	dev_canon(&dev, &block);
 	unit = (dev & 1) << 1 | dev >> 1;
-	return write ? rom_bwrite(unit, block, buf) : rom_bread(unit, block, buf);
+	return fd_rw(unit, block, buf, write);
+}
+
+/* /boot/fd, when the root has one, read in at DRV_BASE through the ROM
+ * - the room's worth at most - and made the diskettes' way once its header
+ * holds, the size it gives the bytes read, and init is ready; else said
+ * so, the ROM's way kept.  The file's size is not looked at: GCC 15's
+ * pdp11 backend loaded that long through ip in r0 into r0:r1, the second
+ * word read from wherever the first one pointed. */
+void fd_driver_load(void)
+{
+	const struct fd_driver *d = (const struct fd_driver *)DRV_BASE;
+	struct inode *ip;
+	int error, got;
+
+	if (!(ip = namei("/boot/fd", &error)))
+		return;
+	got = readi(ip, 0, (char *)DRV_BASE, DRV_TOP - DRV_BASE);
+	if (got >= (int)sizeof *d && d->magic == DRV_MAGIC && d->version == DRV_VERSION &&
+	    d->size == (unsigned)got && d->init() == 0) {
+		fd_rw = d->rw;
+		tty_puts("UNIX: the diskettes by /boot/fd\n");
+	} else {
+		tty_puts("UNIX: /boot/fd is no driver - the ROM's way\n");
+	}
+	iput(ip);
 }

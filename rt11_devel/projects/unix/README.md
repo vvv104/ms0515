@@ -70,6 +70,11 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
 - `kernel/dev.c` - the block devices: the diskettes through the ROM's
   160010 - fd0..fd3 a drive's side, 800 blocks, fdx0 and fdx1 a drive's
   both sides, 1600 - and the RAM disk, rd0, 1024 blocks.
+- `drivers/romfd.s` - /boot/fd, the diskettes' driver as a file: put down
+  flat at 036000, its header first (magic, version, size, init, rw); this
+  one is the ROM's 160010 behind the driver's door.  The kernel loads it
+  once the root is mounted and sends the diskettes' blocks to it; with no
+  /boot/fd, or one that is no driver, the ROM's own way stays.
 - `kernel/bio.c` - the buffer cache in two levels: three blocks in hand in
   bank 6, the least recently used given up to the shadow copy of bank 1,
   15 blocks more, from where it comes back without the device; a write goes
@@ -140,7 +145,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   board and without, getty again after a session, a mounted device
   refused for mkfs, a script; the single-sided system booted, a diskette
   in the second drive made a volume and read on the host, the double-sided
-  root's sides busy, an empty drive.  `bare.dsk`, the image without
+  root's sides busy, an empty drive; /boot/fd taking the diskettes over,
+  the ROM's way without it, a broken one refused.  `bare.dsk`, the image without
   /etc/rc, is for the tests that mount and swap by hand.
   `Machine::command` types a line and waits for the prompt, so the next is
   not typed into the last one's output; `Machine(image, true)` has the RAM
@@ -155,14 +161,16 @@ project builds Release, -O2, unless told otherwise: without a build type
 the code is -O0's, where GCC 15's pdp11 backend loads a long through a
 pointer into the register pair whose first register is the pointer, and
 reads the second word from wherever the first one points (`mov 010(r0),r0`
-then `mov 012(r0),r1`).  -O1, -O2 and -Os write no such code in this tree
-or the toolset's.
+then `mov 012(r0),r1`).  -Os wrote it too, once: a long field read through
+a pointer a call had just returned in r0 (`kernel/dev.c` fd_driver_load,
+written round it now); the rest of this tree and the toolset's is clear of
+it.
 
 The build reports the kernel's memory and stops past its limits
 (mkfs.py): the image's size, the low part from 01000 to `_end` against
 040000, and the bank-6 tables (the kernel's `_high_size`) against the 7680
-bytes up to 157000 - with the diskettes by sides: an image of 14302
-bytes, 1568 bytes free below 040000, 332 free in bank 6.  The compiler puts even zeroed
+bytes up to 157000 - with the driver's place, 036000-040000, kept: an
+image of 14512 bytes, 334 bytes free below 036000, 332 free in bank 6.  The compiler puts even zeroed
 arrays in .data, so they cost the image; the big ones live in bank 6 for
 that.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.

@@ -43,7 +43,7 @@ SWAP, SWAPBLOCKS = 11, 128
 DATA = SWAP + SWAPBLOCKS    # 139
 ROOT = 1
 KERNEL_LOAD = 0o1000
-KERNEL_TOP = 0o40000
+KERNEL_TOP = 0o36000         # the driver's place above (kernel.h DRV_BASE)
 HIGH_BASE, HIGH_TOP = 0o140000, 0o157000
 S_IFDIR, S_IFREG, S_IFBLK = 0o040000, 0o100000, 0o060000
 DEVICES = {"fd0": 0, "fd1": 1, "fd2": 2, "fd3": 3, "fdx0": 4, "fdx1": 5, "rd0": 6}
@@ -205,7 +205,7 @@ def memory_report(nm, kernel_out, image):
     at = symbol(nm, kernel_out, "_high_size") - KERNEL_LOAD
     high = struct.unpack_from("<H", image, at)[0]
     room = HIGH_TOP - HIGH_BASE
-    print(f"kernel: image {len(image)} bytes; low 001000..{end:06o} of 040000, "
+    print(f"kernel: image {len(image)} bytes; low 001000..{end:06o} of {KERNEL_TOP:06o}, "
           f"{KERNEL_TOP - end} bytes free; bank 6 {high} of {room} bytes, {room - high} free")
     if end > KERNEL_TOP:
         raise SystemExit(f"{kernel_out}: the kernel ends at {end:o}, past {KERNEL_TOP:o}")
@@ -245,7 +245,7 @@ def main():
         if path.strip("/") == "boot/kernel":
             kernel_ino = n
             if KERNEL_LOAD + len(data) > KERNEL_TOP:
-                raise SystemExit(f"{host}: {len(data)} bytes from 01000 pass 040000")
+                raise SystemExit(f"{host}: {len(data)} bytes from 01000 pass {KERNEL_TOP:o}")
     if args.nm and args.kernel_out and kernel_ino:
         memory_report(args.nm, args.kernel_out, vol.inodes[kernel_ino][2])
     volume = args.volume if args.volume is not None else random.getrandbits(32)

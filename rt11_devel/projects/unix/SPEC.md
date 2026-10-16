@@ -96,7 +96,7 @@ is gone.
 | Addresses (octal) | Bank | Use |
 | --- | --- | --- |
 | 000000-017777 | 0 | Vectors, kernel data, the kernel stack.  Not switched: the vectors are here. |
-| 020000-037777 | 1 | Kernel code.  The shadow copy is the buffer cache. |
+| 020000-037777 | 1 | Kernel code; at 036000-037777 the diskettes' driver, /boot/fd.  The shadow copy is the buffer cache. |
 | 040000-137777 | 2-5 | The process's space, 32 KB.  The primary copies are slot A, the extra ones slot B. |
 | 140000-157777 | 6 | Kernel data: the tables (high.h) up to 157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is free: the kernel's stacks are in the primary one, so a copy into it would want a bounce in bank 0. |
 | 160000-177377 | - | ROM (the upper 8 KB), always seen. |
@@ -227,7 +227,7 @@ the arguments in registers.  The first set (~25): `fork`, `exec`, `exit`,
 | Device | Model |
 | --- | --- |
 | Console | The keyboard by interrupt 0130: the handler calls the ROM's 160004 and puts the byte into a ring buffer; output through 160000.  Line and raw modes.  Eight-bit KOI-8: a bare letter is small, Latin as Russian (ROM-B gives the Latin capital bare, the kernel swaps), and Latin is drawn Latin whatever RUS/LAT says (ROM-B's bit 2 of 157760 taken off for the character). |
-| Floppy | First through ROM-B's 160010 (an RT-11 queue element), later an own VG93 driver - for formatting and speed.  DRQ polled: the CPU is busy while a sector is read. |
+| Floppy | A driver of its own as a file, /boot/fd, as RT-11's handlers are: put down flat at 036000, 1 KB at most, its header the magic, the version of the door, its size, init and rw (a drive's side as the ROM numbers it, a block 0..799).  The kernel loads it through ROM-B's 160010 once the root is mounted; with none, or one that is no driver, 160010 stays.  The first one is 160010 behind the door; the own VG93 one, for speed, comes through it.  DRQ polled: the CPU is busy while a sector is read. |
 | RAM disk | A block device of 512 bytes; interrupts masked for a page of 256 bytes (~1 ms). |
 | HD (paravirtual) | Only for development in the emulator: a big root FS without the 400 KB limit. |
 | Serial port | Later: exchanging files with a PC. |

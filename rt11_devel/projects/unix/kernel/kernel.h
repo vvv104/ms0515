@@ -65,6 +65,21 @@ void tty_puts(const char *s);
 unsigned dev_blocks(unsigned dev);
 void dev_canon(unsigned *dev, unsigned *block);
 int dev_overlap(unsigned a, unsigned b);
+
+/* The diskettes' driver as a file, /boot/fd (drivers/romfd.s): put down
+ * flat at DRV_BASE, its header first.  rw's unit is the ROM's, a drive's
+ * side; the block 0..799. */
+#define DRV_BASE 036000u
+#define DRV_TOP 040000u
+#define DRV_MAGIC 042106		/* "FD" */
+#define DRV_VERSION 1
+struct fd_driver {
+	unsigned magic, version;
+	unsigned size;			/* the image's bytes, the header's too */
+	int (*init)(void);
+	int (*rw)(unsigned unit, unsigned block, void *buf, int write);
+};
+void fd_driver_load(void);
 int dev_rw(unsigned dev, unsigned block, void *buf, int write);
 #define dev_read(dev, block, buf) dev_rw(dev, block, buf, 0)
 #define dev_write(dev, block, buf) dev_rw(dev, block, (void *)(buf), 1)

@@ -68,6 +68,13 @@ endfunction()
 flat(boot)
 flat(kernel)
 
+# The diskettes' driver, /boot/fd: linked at 036000 (kernel.h DRV_BASE),
+# put down flat, its header first.
+add_executable(fd drivers/romfd.s)
+target_link_options(fd PRIVATE -Wl,-Ttext,0x3C00)
+set_target_properties(fd PROPERTIES SUFFIX ".out")
+flat(fd)
+
 # program(<name> <sources>): a program of the system, <name>.x its a.out
 # without symbols, as it goes on the volume.
 set(PROGRAMS)
@@ -121,7 +128,7 @@ set(VOLUME_FILES
     /bin/swapon=swapon.x
     --dir /tmp
     --swap 128)
-set(VOLUME_DEPENDS boot.bin kernel.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
+set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns
 # swap on by /etc/fstab.  bare.dsk: the same without /etc/rc, init going
@@ -129,7 +136,7 @@ set(VOLUME_DEPENDS boot.bin kernel.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${
 add_custom_command(OUTPUT unix.dsk
     COMMAND "${Python3_EXECUTABLE}" "${MKFS}"
             --boot boot.bin --nm "${PDP11_NM}" --kernel-out $<TARGET_FILE:kernel> unix.dsk
-            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab ${VOLUME_FILES}
+            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${VOLUME_FILES}
     DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
     COMMENT "unix.dsk")
 add_custom_command(OUTPUT bare.dsk
@@ -140,7 +147,7 @@ add_custom_command(OUTPUT bare.dsk
 # emulators take; a second one in the second drive is fd2.
 add_custom_command(OUTPUT unix400.dsk
     COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --sides 1 --boot boot.bin unix400.dsk
-            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab ${VOLUME_FILES}
+            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${VOLUME_FILES}
     DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
     COMMENT "unix400.dsk")
 add_custom_target(image ALL DEPENDS unix.dsk bare.dsk unix400.dsk)
