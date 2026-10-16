@@ -2,6 +2,7 @@
  * root file system, and the first process, /etc/init, run by exec. */
 #include "kernel.h"
 #include "proc.h"
+#include "ramdisk.h"
 #include "rom.h"
 
 void panic(const char *why)
@@ -22,6 +23,7 @@ int main(void)
 	clock_start();
 	proc_init();
 	files_init();
+	tty_puts(rd_probe() ? "\nUNIX: swap on the RAM disk\n" : "\nUNIX: no RAM disk: two processes at most\n");
 	if (fs_mount() != 0)
 		panic("no file system");
 	exec("/etc/init", argv);

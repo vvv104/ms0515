@@ -6,13 +6,16 @@
 #define NSLOT 2				/* slots: banks 2-5, primary and extra */
 #define NOFILE 8			/* a process's open files */
 #define NFILE 16			/* the open files of all */
-#define KSTACK 512			/* a process's kernel stack, bytes */
+#define KSTACK 448			/* a process's kernel stack, bytes */
+
+struct pipe;
 
 /* An open file, shared by the processes a fork made, its offset with it. */
 struct file {
-	enum { F_NONE, F_TTY, F_INODE } kind;
+	enum { F_NONE, F_TTY, F_INODE, F_PIPE_R, F_PIPE_W } kind;
 	unsigned count;			/* the descriptors that hold it */
 	struct inode *ip;
+	struct pipe *pp;
 	unsigned long off;
 };
 
@@ -23,6 +26,8 @@ struct proc {
 	enum pstate state;
 	int pid, ppid;
 	int slot;			/* 0: banks 2-5 primary, 1: extra */
+	char resident;			/* in its slot; else in its area on the RAM disk */
+	unsigned stack_lo;		/* the stack's low end, as it went out */
 	const void *chan;		/* what it sleeps on */
 	int status;			/* the exit status, while a zombie */
 	unsigned brk;			/* the end of its text, data and bss */

@@ -113,7 +113,10 @@ is gone.
   DEC monitor does.  The own ROM will run on a stack of its own and remove the
   trap.
 - **The kernel's budget:** 24 KB less ~0.5 KB of vectors and the stack, ~0.2
-  KB of the ROM's cells - about 20-22 KB for code and data.
+  KB of the ROM's cells - about 20-22 KB for code and data.  Banks 0 and 1
+  hold the code and the small data, loaded from the diskette; bank 6, up to
+  157000, the big tables (the processes with their kernel stacks, the
+  buffers, the pipes), cleared at the start.  Every build reports both.
 
 ## The ROM: native ROM-B first, own later
 
@@ -429,7 +432,8 @@ hands over.
    each, `fork`/`exit`/`wait`, `sh` - init gives the shell its place, the
    shell runs its commands in the other slot.  4b: pipes and the
    background: a third process needs swap, so swap comes here, before the
-   floppy driver of stage 5.
+   floppy driver of stage 5 - first to the RAM disk (done), then to the
+   diskette's swap area.
 5. **The floppy and swap.**  An own VG93 driver instead of 160010
    (formatting, speed), swap to the diskette and to the RAM disk.
 6. **Utilities** of levels 1-2, then `rt11` and Forth.

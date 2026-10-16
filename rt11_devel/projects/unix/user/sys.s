@@ -5,7 +5,7 @@
 
 	.text
 	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
-	.globl	_time, _getpid, _getppid, _errno
+	.globl	_time, _getpid, _getppid, _dup, _pipe, _errno
 
 _exit:	trap	1
 	br	_exit
@@ -44,6 +44,14 @@ _getpid:
 
 _getppid:
 	trap	64
+	br	done
+
+/ int dup(int fd): another descriptor of the same open file, the lowest free.
+_dup:	trap	41
+	br	done
+
+/ int pipe(int fd[2]): the reading end in fd[0], the writing one in fd[1].
+_pipe:	trap	42
 	br	done
 
 done:	bcc	1f

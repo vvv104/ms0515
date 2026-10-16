@@ -10,7 +10,7 @@
 
 	.text
 	.globl	_trap_entry, _clock_entry, _tty_entry, _forkret, _swtch
-	.globl	_spl7, _splx, _idle, _enter
+	.globl	_spl7, _splx, _idle, _enter, _nxm_entry, _nxm
 
 / TRAP: the frame r0..r5, pc, ps on the process's stack; syscall(frame) on
 / the kernel's; back with what it left in the frame.
@@ -72,6 +72,12 @@ _swtch:
 	mov	(sp)+, r2
 	rts	pc
 
+/ A bus error, vector 4, while a device is looked for (ramdisk.c): counted,
+/ and the instruction that made it left behind.
+_nxm_entry:
+	inc	_nxm
+	rti
+
 / int spl7(void): the priority raised to 7, the PS it had returned.
 _spl7:
 	mfps	r0
@@ -98,3 +104,6 @@ _enter:
 	clr	-(sp)
 	mov	r0, -(sp)
 	rti
+
+	.data
+_nxm:	.word	0

@@ -10,8 +10,12 @@ Each PATH=FILE puts the host's FILE at PATH on the volume, its directories
 made as they are needed; every file is laid down whole in one extent, the
 next after the last.  The file at /boot/kernel is the kernel: the
 superblock names its blocks for the boot block, which loads it at 01000 and
-enters it there; with --nm, `_end` of the kernel's a.out (KERNEL.out given
-as /boot/kernel's companion through --kernel-out) must lie below 040000.
+enters it there.
+
+With --nm and --kernel-out (the kernel's a.out) the kernel's memory is
+reported and held to its limits: the low part, 01000 to `_end`, below
+040000, and the tables in bank 6 (kernel/high.h), whose size the kernel
+keeps in `_high_size`, below 157000 - from 140000, 7680 bytes.
 
 Words go down the low byte first, a long as two words, the high word first,
 as the PDP-11's compiler keeps one.
@@ -35,6 +39,7 @@ DATA = SWAP + SWAPBLOCKS    # 139
 ROOT = 1
 KERNEL_LOAD = 0o1000
 KERNEL_TOP = 0o40000
+HIGH_BASE, HIGH_TOP = 0o140000, 0o157000
 S_IFDIR, S_IFREG = 0o040000, 0o100000
 DIRSIZ = 14
 INTERLEAVE = [0, 2, 4, 6, 8, 1, 3, 5, 7, 9]
@@ -170,6 +175,20 @@ def symbol(nm, program, name):
     raise SystemExit(f"{program}: no {name}")
 
 
+def memory_report(nm, kernel_out, image):
+    """The kernel's memory: printed, and refused past either limit."""
+    end = symbol(nm, kernel_out, "_end")
+    at = symbol(nm, kernel_out, "_high_size") - KERNEL_LOAD
+    high = struct.unpack_from("<H", image, at)[0]
+    room = HIGH_TOP - HIGH_BASE
+    print(f"kernel: image {len(image)} bytes; low 001000..{end:06o} of 040000, "
+          f"{KERNEL_TOP - end} bytes free; bank 6 {high} of {room} bytes, {room - high} free")
+    if end > KERNEL_TOP:
+        raise SystemExit(f"{kernel_out}: the kernel ends at {end:o}, past {KERNEL_TOP:o}")
+    if high > room:
+        raise SystemExit(f"{kernel_out}: the bank-6 tables take {high} bytes, past {room}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--boot", type=Path, help="the boot block for block 0")
@@ -196,10 +215,8 @@ def main():
             kernel_ino = n
             if KERNEL_LOAD + len(data) > KERNEL_TOP:
                 raise SystemExit(f"{host}: {len(data)} bytes from 01000 pass 040000")
-    if args.nm and args.kernel_out:
-        end = symbol(args.nm, args.kernel_out, "_end")
-        if end > KERNEL_TOP:
-            raise SystemExit(f"{args.kernel_out}: the kernel ends at {end:o}, past {KERNEL_TOP:o}")
+    if args.nm and args.kernel_out and kernel_ino:
+        memory_report(args.nm, args.kernel_out, vol.inodes[kernel_ino][2])
     volume = args.volume if args.volume is not None else random.getrandbits(32)
     vol.finish(args.label, volume, boot, kernel_ino)
     args.out.write_bytes(vol.image)

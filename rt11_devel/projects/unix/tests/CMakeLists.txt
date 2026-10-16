@@ -12,6 +12,7 @@ add_executable(unix_tests
     test_console.cpp
     test_fs.cpp
     test_shell.cpp
+    test_swap.cpp
 )
 
 target_compile_definitions(unix_tests PRIVATE

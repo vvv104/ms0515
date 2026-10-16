@@ -70,9 +70,11 @@ inline std::size_t blockOffset(int lbn)
 
 class Machine {
 public:
-    /* The image as it is, or changed: written to a file of its own. */
-    explicit Machine(const std::vector<uint8_t> &image)
+    /* The image as it is, or changed: written to a file of its own; with
+     * ramDisk the machine has the EX board's 512 KB RAM disk. */
+    explicit Machine(const std::vector<uint8_t> &image, bool ramDisk = false)
     {
+        if (ramDisk) emu_.enableRamDisk();
         path_ = fs::temp_directory_path() / ("unix_test_" + std::to_string(counter()++) + ".dsk");
         std::ofstream(path_, std::ios::binary)
             .write(reinterpret_cast<const char *>(image.data()), static_cast<std::streamsize>(image.size()));
@@ -120,17 +122,18 @@ public:
      * output - at most `limit`. */
     bool command(const std::string &line, int limit = 1500)
     {
-        auto prompts = [this] {
-            const std::string s = screen();
-            std::size_t n = 0;
-            for (auto at = s.find("\n$"); at != std::string::npos; at = s.find("\n$", at + 1)) ++n;
-            return n;
+        /* The prompt back: the screen's last line is "$" alone - while the
+         * command runs it is the line typed, or the command's output. */
+        auto prompt = [this] {
+            std::string s = screen();
+            while (!s.empty() && (s.back() == '\n' || s.back() == ' ')) s.pop_back();
+            const auto nl = s.rfind('\n');
+            return s.substr(nl == std::string::npos ? 0 : nl + 1) == "$";
         };
-        const std::size_t before = prompts();
         typeAndSettle(line + "\r", 0);
         for (int f = 0; f < limit; f += 5) {
             run(5);
-            if (prompts() > before) {
+            if (prompt()) {
                 run(5);
                 return true;
             }

@@ -47,6 +47,7 @@ add_executable(kernel
     kernel/fs.c
     kernel/exec.c
     kernel/proc.c
+    kernel/ramdisk.c
     kernel/sys.c
     "${ARITH}")
 target_compile_options(kernel PRIVATE -Wall -Wextra -Werror)

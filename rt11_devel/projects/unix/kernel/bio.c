@@ -1,14 +1,12 @@
 /* bio.c - the buffer cache: blocks of the boot drive read through the ROM.
  *
- * A few buffers in bank 0 for now, the least recently used taken for a new
+ * A few buffers in bank 6 for now, the least recently used taken for a new
  * block; the shadow banks 1 and 6 hold the full cache later (SPEC.md "The
  * kernel").  Stage 3 only reads. */
-#include "kernel.h"
+#include "high.h"
 #include "rom.h"
 
-#define NBUF 4
-
-static struct buf bufs[NBUF];
+#define bufs (HIGH->bufs)
 static unsigned clock_hand;		/* for the least recently used */
 
 struct buf *bread(unsigned block)

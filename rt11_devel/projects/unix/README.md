@@ -5,15 +5,18 @@ PDP-11 assembler: LSX and Mini-Unix in reach - multitasking without memory
 protection, a file system with directories, a shell with pipes.
 [`SPEC.md`](SPEC.md) is the specification and the plan of stages.
 
-Stages 1-3 and the first half of 4 are done: the native ROM-B boots the
+Stages 1-4 are done, swap on the RAM disk: the native ROM-B boots the
 system's diskette, the boot block loads the kernel, /boot/kernel, and the
-kernel mounts the file system and runs /etc/init.  init asks for a name at
-`login:` and gives its place to the shell, /bin/sh, which runs each command
-as a child - fork, exec, wait - in the second slot and comes back with its
-prompt.  /bin has `sh`, `ls`, `cat`, `echo`, `hello`, `fail` and `pid`; the
-shell's own commands are `t` (the time), `status` (the last command's) and
-`exit`, which ends the session.  Pipes and the background wait for swap
-(stage 4b): the machine keeps two processes at once.
+kernel mounts the file system, looks for the EX board's RAM disk and runs
+/etc/init.  init asks for a name at `login:` and gives its place to the
+shell, /bin/sh, which runs each command as a child - fork, exec, wait - and
+comes back with its prompt; `a | b | c` is a pipeline, `cmd &` runs without
+being waited for.  Two processes are resident, one in each slot; with the
+RAM disk the others wait there, swapped out, and come in when they are to
+run.  Without it there are two at most, and the shell says so.  /bin has
+`sh`, `ls`, `cat`, `echo`, `hello`, `fail` and `pid`; the shell's own
+commands are `t` (the time), `status` (the last command's) and `exit`,
+which ends the session.  Swap to the diskette comes next.
 
 ## Building and booting
 
@@ -59,12 +62,20 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   linked at 040000, its arguments on the stack as V6 laid them.
 - `kernel/proc.c`, `proc.h` - the processes: the table, the two slots
   (banks 2-5 primary and extra, dispatcher bits 2-5), a kernel stack of
-  each in bank 0, sleep and wakeup, the switch (`swtch` in trap.s), fork
-  copying the image's used part through a buffer, exit, wait.
+  each with a canary at its bottom, sleep and wakeup, the switch (`swtch`
+  in trap.s), swap - a process's used pages to its 32 KB area on the RAM
+  disk and back - fork into the free slot or straight to the RAM disk,
+  exit, wait.
+- `kernel/high.h` - the big tables in bank 6, 140000-157000, outside the
+  kernel's image: the processes with their kernel stacks, the block
+  buffers, fork's bounce buffer, the pipes.
+- `kernel/ramdisk.c` - the EX board: found by two pages written and one
+  read back (a bus error caught on vector 4), pages of 256 bytes through
+  its PPI and data port, each with the interrupts masked.
 - `kernel/sys.c` - the system calls by V6's numbers: exit, fork, read,
-  write, open, close, wait, exec, time, getpid, getppid; the open files,
-  the system's, shared by a fork's descriptors.  When pid 1 exits, init
-  runs again.
+  write, open, close, wait, exec, time, getpid, dup, pipe, getppid; the
+  open files, the system's, shared by a fork's descriptors; the pipes, a
+  buffer of 256 bytes each.  When pid 1 exits, init runs again.
 - `user/` - a process's start (`crt0.s`, `main(argc, argv)`), the calls as
   C functions (`sys.s`, `unistd.h`), a little library (`lib.c`), `init.c`,
   and the programs of /bin: `sh.c`, `ls.c`, `cat.c`, `echo.c`, `hello.c`,
@@ -84,9 +95,12 @@ Windows the build runs in WSL.  The image is a double-sided diskette,
   `cat`, `ls`, a file across blocks line by line, a file not there, a
   program with its arguments; the shell back at its prompt after a command,
   a command by name and by path and one not there, the exit status, the
-  children's pids, `exit` back to `login:`.  `Machine::command` types a
-  line and waits for the prompt, so the next is not typed into the last
-  one's output.  Skipped when the image is not
+  children's pids, `exit` back to `login:`; with the RAM disk a pipe, a
+  pipeline of three carrying a file of several blocks, the background, the
+  shell's state across swaps, and without it a pipe refused.
+  `Machine::command` types a line and waits for the prompt, so the next is
+  not typed into the last one's output; `Machine(image, true)` has the RAM
+  disk.  Skipped when the image is not
   built; `--unix-dsk=<file>` names another.
 
 The programs are linked freestanding at their own addresses and put down
@@ -99,6 +113,13 @@ pointer into the register pair whose first register is the pointer, and
 reads the second word from wherever the first one points (`mov 010(r0),r0`
 then `mov 012(r0),r1`).  -O1, -O2 and -Os write no such code in this tree
 or the toolset's.
+
+The build reports the kernel's memory and stops past its limits
+(mkfs.py): the image's size, the low part from 01000 to `_end` against
+040000, and the bank-6 tables (the kernel's `_high_size`) against the 7680
+bytes up to 157000 - at stage 4: an image of 11482 bytes, 4132 bytes free
+below 040000, 680 free in bank 6.  The compiler puts even zeroed arrays in
+.data, so they cost the image; the big ones live in bank 6 for that.
 
 Two things of ROM-B's keyboard the console turns round.  A bare Latin key
 gives the capital - the ROM's choice, RT-11 only takes it - and the kernel

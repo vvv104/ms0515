@@ -19,6 +19,8 @@ int execv(const char *path, char *const argv[]);
 long time(void);			/* the seconds since the boot */
 int getpid(void);
 int getppid(void);
+int dup(int fd);
+int pipe(int fd[2]);
 
 /* lib.c */
 int strlen(const char *s);
