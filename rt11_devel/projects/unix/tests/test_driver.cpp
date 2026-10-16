@@ -2,13 +2,16 @@
  * test_driver.cpp - the diskettes' driver as a file: /boot/fd, loaded by
  * the kernel once the root is mounted, takes the diskettes over from the
  * ROM's own way; with no such file, or a file that is no driver, the ROM's
- * way stays and the system runs as ever.  The driver of the build is the
- * ROM's 160010 behind the driver's door (drivers/romfd.s), the door tried
- * before a driver of its own comes through it.
+ * way stays and the system runs as ever.  The driver of the build drives
+ * the VG93 itself (drivers/fd.s): once it is in, no block goes through
+ * the ROM's 160010.
  */
 #include "Machine.hpp"
 #include "Volume.hpp"
 
+#include <ms0515/core/cpu.h>
+
+#include <array>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -19,8 +22,17 @@ using unixos::Volume;
 
 namespace {
 
-int driverCalls = 0;
-void countDriver(struct ms0515_cpu *) { ++driverCalls; }
+uint16_t driverEntry = 0;
+int driverCalls = 0, romCalls = 0;
+
+/* The driver's rw and the ROM's disk entry, counted apart. */
+void countDisk(struct ms0515_cpu *cpu)
+{
+    if (cpu->instruction_pc == driverEntry)
+        ++driverCalls;
+    else
+        ++romCalls;
+}
 
 /* The driver as the build made it, beside the images. */
 std::vector<uint8_t> driverFile()
@@ -50,17 +62,33 @@ std::string after(Machine &m, const std::string &command)
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
+/* Frames a command takes, five at a time, to its prompt. */
+int framesOf(Machine &m, const std::string &command)
+{
+    m.typeAndSettle(command + "\r", 0);
+    int frames = 0;
+    while (frames < 6000) {
+        m.run(5);
+        frames += 5;
+        std::string s = m.screen();
+        while (!s.empty() && (s.back() == '\n' || s.back() == ' ')) s.pop_back();
+        if (s.size() >= 2 && s.substr(s.size() - 2) == "\n$") break;
+    }
+    return frames;
+}
+
 } // namespace
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("the system's /boot/fd takes the diskettes over: its entry is where the blocks go") {
+TEST_CASE("the system's /boot/fd drives the VG93 itself: no block through the ROM once it is in") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     const auto d = driverFile();
     REQUIRE(d.size() >= 10);
     CHECK(header(d, 0) == 042106);
     CHECK(header(d, 1) == 1);
     CHECK(header(d, 2) == d.size());
+    CHECK(d.size() <= 1024);
     Machine m(unixos::readImage(), false);
     REQUIRE(m.runUntil("login:", 3000));
     {
@@ -68,13 +96,35 @@ TEST_CASE("the system's /boot/fd takes the diskettes over: its entry is where th
         CHECK(m.screen().find("UNIX: the diskettes by /boot/fd") != std::string::npos);
     }
     atPrompt(m);
-    driverCalls = 0;
-    m.emulator().setExecHook(static_cast<uint16_t>(header(d, 4)), countDriver);
+    driverEntry = static_cast<uint16_t>(header(d, 4));
+    driverCalls = romCalls = 0;
+    const std::array<uint16_t, 2> at{driverEntry, 0160010};
+    m.emulator().setExecHook(at, countDisk);
     REQUIRE(m.command("cat /etc/numbers"));
-    m.emulator().setExecHook(static_cast<uint16_t>(header(d, 4)), nullptr);
+    REQUIRE(m.command("echo four > /k"));
+    REQUIRE(m.command("cat /k"));
+    m.emulator().setExecHook(at, nullptr);
     INFO(m.screen());
     CHECK(driverCalls > 0);
-    CHECK(m.screen().find("line 40: the quick brown fox") != std::string::npos);
+    CHECK(romCalls == 0);
+    CHECK(after(m, "cat /k").find("\nfour\n$") != std::string::npos);
+    Volume v(m.imageNow());
+    const auto k = v.lookup("/k");
+    REQUIRE(k);
+    CHECK(v.inode(*k).size == 5);
+}
+
+TEST_CASE("the driver is faster than the ROM: a file copied in fewer frames") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine own(unixos::readImage(), false), rom(unixos::readBareImage(), false);
+    atPrompt(own);
+    atPrompt(rom);
+    /* Ten blocks read and ten written, with the bitmap and the inode: the
+     * disk's work, not the console's. */
+    const std::string copy = "cat /bin/mount > /x";
+    const int byDriver = framesOf(own, copy), byRom = framesOf(rom, copy);
+    MESSAGE(copy << ": the driver " << byDriver << " frames, the ROM " << byRom);
+    CHECK(byDriver * 3 < byRom * 2);       /* a third faster at the least; twice it was measured */
 }
 
 TEST_CASE("with no /boot/fd the ROM's own way: no word of a driver, the system runs") {

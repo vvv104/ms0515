@@ -93,8 +93,8 @@ TEST_CASE("the background: the shell does not wait, and takes the next command")
     Machine m(unixos::readImage(), true);
     atPrompt(m);
     swapOnRam(m);
-    REQUIRE(m.command("echo in the background &"));
-    m.run(100);
+    /* Not waited for: its line may stand under the prompt, the last one. */
+    m.typeAndSettle("echo in the background &\r", 100);
     REQUIRE(m.command("echo in front"));
     INFO(m.screen());
     CHECK(m.screen().find("in the background") != std::string::npos);

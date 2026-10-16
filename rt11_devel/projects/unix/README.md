@@ -70,11 +70,15 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
 - `kernel/dev.c` - the block devices: the diskettes through the ROM's
   160010 - fd0..fd3 a drive's side, 800 blocks, fdx0 and fdx1 a drive's
   both sides, 1600 - and the RAM disk, rd0, 1024 blocks.
-- `drivers/romfd.s` - /boot/fd, the diskettes' driver as a file: put down
-  flat at 155000 in bank 6, its header first (magic, version, size, init, rw); this
-  one is the ROM's 160010 behind the driver's door.  The kernel loads it
-  once the root is mounted and sends the diskettes' blocks to it; with no
-  /boot/fd, or one that is no driver, the ROM's own way stays.
+- `drivers/fd.s` - /boot/fd, the diskettes' driver as a file: put down
+  flat at 155000 in bank 6, its header first (magic, version, size, init,
+  rw).  It drives the VG93 itself, as our RT-11 DZ handler does, asking
+  where the head is only when the drive changes, the motor starts or a
+  try fails; a sector's bytes go at priority 7, the seeks and the waits
+  for the sector with the interrupts let in.  The kernel loads it once
+  the root is mounted and sends the diskettes' blocks to it; with no
+  /boot/fd, or one that is no driver, the ROM's 160010 stays.  A file
+  copied takes half the time it took through the ROM.
 - `kernel/bio.c` - the buffer cache in two levels: three blocks in hand in
   bank 6, the least recently used given up to the shadow copy of bank 1,
   15 blocks more, from where it comes back without the device; a write goes
@@ -146,7 +150,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   refused for mkfs, a script; the single-sided system booted, a diskette
   in the second drive made a volume and read on the host, the double-sided
   root's sides busy, an empty drive; /boot/fd taking the diskettes over,
-  the ROM's way without it, a broken one refused.  `bare.dsk`, the image without
+  not a block through the ROM after, a file copied in half the frames the
+  ROM takes, the ROM's way without it, a broken one refused.  `bare.dsk`, the image without
   /etc/rc, is for the tests that mount and swap by hand.
   `Machine::command` types a line and waits for the prompt, so the next is
   not typed into the last one's output; `Machine(image, true)` has the RAM

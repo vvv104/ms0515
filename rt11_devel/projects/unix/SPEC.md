@@ -228,7 +228,7 @@ the arguments in registers.  The first set (~25): `fork`, `exec`, `exit`,
 | Device | Model |
 | --- | --- |
 | Console | The keyboard by interrupt 0130: the handler calls the ROM's 160004 and puts the byte into a ring buffer; output through 160000.  Line and raw modes.  Eight-bit KOI-8: a bare letter is small, Latin as Russian (ROM-B gives the Latin capital bare, the kernel swaps), and Latin is drawn Latin whatever RUS/LAT says (ROM-B's bit 2 of 157760 taken off for the character). |
-| Floppy | A driver of its own as a file, /boot/fd, as RT-11's handlers are: put down flat at 155000 in bank 6, 1 KB at most, its header the magic, the version of the door, its size, init and rw (a drive's side as the ROM numbers it, a block 0..799).  The kernel loads it through ROM-B's 160010 once the root is mounted; with none, or one that is no driver, 160010 stays.  The first one is 160010 behind the door; the own VG93 one, for speed, comes through it.  DRQ polled: the CPU is busy while a sector is read. |
+| Floppy | A driver of its own as a file, /boot/fd, as RT-11's handlers are: put down flat at 155000 in bank 6, 1 KB at most, its header the magic, the version of the door, its size, init and rw (a drive's side as the ROM numbers it, a block 0..799).  The kernel loads it through ROM-B's 160010 once the root is mounted; with none, or one that is no driver, 160010 stays.  The driver drives the VG93 itself (drivers/fd.s, after our RT-11 DZ handler) and asks where the head is only when the drive changes, the motor starts or a try fails; a file copied takes half the time it took through 160010.  DRQ polled: the CPU is busy while a sector is read. |
 | RAM disk | A block device of 512 bytes; interrupts masked for a page of 256 bytes (~1 ms). |
 | HD (paravirtual) | Only for development in the emulator: a big root FS without the 400 KB limit. |
 | Serial port | Later: exchanging files with a PC. |
@@ -501,7 +501,8 @@ hands over.
    to the file system, `mount`, `mkfs` on the machine, `swapon` with a
    file, `/etc/rc` and `fstab` ("Volumes, swap and fstab"); swap to the
    diskette is the file `/swap` by the same means.
-6. **The floppy.**  An own VG93 driver instead of 160010, for speed.
+6. **The floppy.**  An own VG93 driver instead of 160010, for speed (done:
+   /boot/fd, a driver as a file).  Next: `fdformat`.
    Formatting is a program, `fdformat`, not the kernel's: whatever can live
    in a process does, and the kernel gives it the device - the tracks
    written through the driver - and nothing more.

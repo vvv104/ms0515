@@ -66,7 +66,7 @@ unsigned dev_blocks(unsigned dev);
 void dev_canon(unsigned *dev, unsigned *block);
 int dev_overlap(unsigned a, unsigned b);
 
-/* The diskettes' driver as a file, /boot/fd (drivers/romfd.s): put down
+/* The diskettes' driver as a file, /boot/fd (drivers/fd.s): put down
  * flat at DRV_BASE in bank 6, over the tables (high.h), its header first.
  * rw's unit is the ROM's, a drive's side; the block 0..799. */
 #define DRV_BASE 0155000u

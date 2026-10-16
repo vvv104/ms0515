@@ -70,7 +70,7 @@ flat(kernel)
 
 # The diskettes' driver, /boot/fd: linked at 155000 in bank 6 (kernel.h
 # DRV_BASE), put down flat, its header first.
-add_executable(fd drivers/romfd.s)
+add_executable(fd drivers/fd.s)
 target_link_options(fd PRIVATE -Wl,-Ttext,0xDA00)
 set_target_properties(fd PROPERTIES SUFFIX ".out")
 flat(fd)
