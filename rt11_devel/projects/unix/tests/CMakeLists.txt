@@ -22,6 +22,7 @@ add_executable(unix_tests
     test_rt11.cpp
     test_hi.cpp
     test_dirs.cpp
+    test_links.cpp
     test_sides.cpp
     test_driver.cpp
     test_kstack.cpp

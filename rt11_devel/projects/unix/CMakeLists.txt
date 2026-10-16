@@ -115,6 +115,9 @@ program(umount user/umount.c)
 program(swapon user/swapon.c)
 program(fdformat user/fdformat.c)
 program(pwd user/pwd.c)
+program(ln user/ln.c)
+program(mv user/mv.c user/copy.c)
+program(cp user/cp.c user/copy.c)
 program(getty user/getty.c)
 
 # own_program(<name> <sources>): a program that owns the machine
@@ -172,6 +175,9 @@ set(VOLUME_FILES
     /bin/swapon=swapon.x
     /bin/fdformat=fdformat.x
     /bin/pwd=pwd.x
+    /bin/ln=ln.x
+    /bin/mv=mv.x
+    /bin/cp=cp.x
     /bin/bigmem=bigmem.x
     /bin/rt11=rt11.x
     --dir /tmp

@@ -18,7 +18,7 @@ children's the same; a path not beginning with / goes from it.  Four processes a
 three; two are resident, one in each slot, and with swap on the other two
 wait in the swap file, 96 KB, and come in when they are to run.
 The file system is written, each change going to the disk at once.  /bin has
-`sh`, `ls`, `cat`, `echo`, `rm`, `mkdir`, `pwd`, `mkfs`, `mount`, `umount`,
+`sh`, `ls`, `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `mkfs`, `mount`, `umount`,
 `swapon`, `fdformat`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine) and `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`); the shell's own commands are `cd`, `t` (the time),
@@ -223,7 +223,7 @@ The build reports the kernel's memory and stops past its limits
 040000, the bank-6 tables (the kernel's `_high_size`) against the 4992
 bytes up to 151600, and /boot/hi against its 1664 up to the driver's
 place - with the kernel stacks at 320 bytes (242 the deepest measured,
-tests/test_kstack.cpp keeping a margin): an image of 14660 bytes, 1164
+tests/test_kstack.cpp keeping a margin): an image of 15054 bytes, 770
 bytes free below 040000, 92 free for the tables, /boot/hi 1478 bytes,
 186 free.  The big tables live in bank 6: below 040000 there is no room
 for them beside the code.  The kernel is built -Os - a quarter off its code - but for the loops

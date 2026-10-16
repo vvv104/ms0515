@@ -6,7 +6,7 @@
 	.text
 	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
 	.globl	_time, _getpid, _getppid, _dup, _pipe, _creat, _unlink, _mkdir, _sync
-	.globl	_mount, _umount, _swapon, _ioctl, _lseek, _chdir, _stat, _fstat
+	.globl	_mount, _umount, _swapon, _ioctl, _lseek, _chdir, _stat, _fstat, _link
 	.globl	_errno
 
 _exit:	trap	1
@@ -86,6 +86,10 @@ _swapon:
 / int chdir(const char *dir), stat(const char *path, struct stat *st),
 / fstat(int fd, struct stat *st) (kernel/stat.h)
 _chdir:	trap	12
+	br	done
+
+/ int link(const char *old, const char *new): the file named new too.
+_link:	trap	9
 	br	done
 
 _stat:	trap	18

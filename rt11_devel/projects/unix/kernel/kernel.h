@@ -25,7 +25,7 @@ enum {
 	ENOENT = 2, E2BIG = 7, ENOEXEC = 8, EBADF = 9, ENOMEM = 12, EFAULT = 14,
 	ENOTDIR = 20, EISDIR = 21, EINVAL = 22, ENFILE = 23, EMFILE = 24, EROFS = 30,
 	EIO = 5, ENOSYS = 38, EEXIST = 17, ENOSPC = 28, ENOTBLK = 15, EBUSY = 16,
-	ENODEV = 19, ENOTTY = 25
+	ENODEV = 19, ENOTTY = 25, EXDEV = 18
 };
 
 /* The vectors' page (start.s): vector v is vectors[v / 2] (the PC) and
@@ -118,6 +118,7 @@ struct inode *fs_creat(const char *path, int *error);
 int fs_mkdir(const char *path);
 int fs_unlink(const char *path);
 int fs_mounted(unsigned dev);
+int fs_link(const char *old, const char *new_name);
 int devrw(struct inode *ip, unsigned long off, char *buf, unsigned n, int write);
 
 /* exec.c */

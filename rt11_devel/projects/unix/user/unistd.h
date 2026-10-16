@@ -16,6 +16,7 @@ extern int errno;
 #define EINVAL 22
 #define ENOSPC 28
 #define ENODEV 19
+#define EXDEV 18
 
 void exit(int status);
 int fork(void);
@@ -40,6 +41,7 @@ int swapon(const char *file);
 int ioctl(int fd, int cmd, void *arg);
 long lseek(int fd, long off, int whence);
 int chdir(const char *dir);
+int link(const char *old, const char *new_name);
 int stat(const char *path, struct stat *st);
 int fstat(int fd, struct stat *st);	/* whence 0 from the start, 1 from here, 2 from the end */
 

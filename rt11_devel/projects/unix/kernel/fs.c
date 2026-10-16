@@ -554,6 +554,38 @@ int fs_mkdir(const char *path)
 	return error;
 }
 
+/* link(old, new): the file at old named new too, on its volume; not a
+ * directory. */
+int fs_link(const char *old, const char *new_name)
+{
+	const char *name;
+	int len, error = 0;
+	struct inode *ip = namei(old, &error), *dp;
+	unsigned long where;
+
+	if (!ip)
+		return error;
+	if ((ip->d.mode & S_IFMT) == S_IFDIR) {
+		iput(ip);
+		return EISDIR;
+	}
+	if (!(dp = parent(new_name, &name, &len, &error))) {
+		iput(ip);
+		return error;
+	}
+	if (dp->dev != ip->dev)
+		error = EXDEV;
+	else if (lookup(dp, name, len, &where))
+		error = EEXIST;
+	else if ((error = dir_add(dp, name, len, ip->ino)) == 0) {
+		ip->d.nlink++;
+		iupdate(ip);
+	}
+	iput(dp);
+	iput(ip);
+	return error;
+}
+
 int fs_unlink(const char *path)
 {
 	const char *name;

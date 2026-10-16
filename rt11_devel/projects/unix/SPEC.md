@@ -546,7 +546,8 @@ hands over.
    its own diskette's files.
 8. **Utilities** of levels 1-2, then `rt11` (ls/get/put on RT-11
    diskettes) and Forth.  Done so far: lseek and `>>`; chdir, stat and
-   fstat, the shell's `cd`, `pwd`.
+   fstat, the shell's `cd`, `pwd`; link, `ln`, `mv` (a link, or a copy to
+   another volume), `cp`.
 
 Stages 9-11 are put off for a long time: there is no real machine to try
 them on.

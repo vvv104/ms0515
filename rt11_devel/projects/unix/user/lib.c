@@ -45,7 +45,7 @@ void complain(const char *who, const char *what)
 		   errno == EAGAIN ? ": no room for another process\n" : errno == EEXIST ? ": there already\n" :
 		   errno == EISDIR ? ": a directory\n" : errno == ENOSPC ? ": no room on the volume\n" :
 		   errno == ENOTBLK ? ": not a block device\n" : errno == EBUSY ? ": busy\n" :
-		   errno == EINVAL ? ": no file system there\n" :
+		   errno == EINVAL ? ": no file system there\n" : errno == EXDEV ? ": on another volume\n" :
 		   errno == ENODEV ? ": not without /boot/fd\n" : ": cannot\n");
 }
 
