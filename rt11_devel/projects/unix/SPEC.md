@@ -390,6 +390,12 @@ hands over.
   machine.
 - Whether the floppy driver keeps up reading sectors 1:1 or needs a 2:1
   interleave.
+- After the one-volume system: the machine has a single drive.  How to
+  free it of the system diskette after the boot and work with a second
+  diskette, changing them on the go: with a RAM disk the root copied there;
+  without one a resident `sh` with built-in commands; a diskette changed by
+  a command that flushes the cache, a volume number in the superblock to
+  check it.  To be settled once the one-volume system is done.
 - For stage 7: the pinout of the K573RF4 and the fitness of a 28C64 as a
   replacement - to be checked against the board's schematic.
 - How the VG93 behaves when a DRQ is missed (a byte lost) - how the driver
