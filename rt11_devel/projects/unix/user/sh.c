@@ -75,6 +75,17 @@ static int redirect(char **word, int *in, int *out)
 	int fd;
 
 	for (w = to = word; *w; w++) {
+		if (!strcmp(*w, ">>") && w[1]) {	/* to the end, the file made if need be */
+			if ((fd = open(w[1], 1)) < 0)
+				fd = creat(w[1], 0644);
+			if (fd < 0 || lseek(fd, 0L, 2) < 0) {
+				complain("sh", w[1]);
+				return -1;
+			}
+			*out = fd;
+			w++;
+			continue;
+		}
 		if ((!strcmp(*w, ">") || !strcmp(*w, "<")) && w[1]) {
 			fd = **w == '>' ? creat(w[1], 0644) : open(w[1], 0);
 			if (fd < 0) {

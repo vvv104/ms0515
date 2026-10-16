@@ -3,7 +3,7 @@
 / against, the entries.  tail.s ends the image.
 
 	.text
-	.globl	_own_exec, _sys_ioctl, _sys_mount, _sys_umount, _kernel_key, _hi_end
+	.globl	_own_exec, _sys_ioctl, _sys_mount, _sys_umount, _sys_lseek, _kernel_key, _hi_end
 
 HI_BASE = 0151600			/ where it is linked (kernel/hi.h)
 
@@ -15,3 +15,4 @@ start:	.word	044111			/ "IH"
 	.word	_sys_ioctl
 	.word	_sys_mount
 	.word	_sys_umount
+	.word	_sys_lseek

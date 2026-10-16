@@ -36,6 +36,7 @@ int mount(const char *device, const char *dir);
 int umount(const char *device);
 int swapon(const char *file);
 int ioctl(int fd, int cmd, void *arg);
+long lseek(int fd, long off, int whence);	/* whence 0 from the start, 1 from here, 2 from the end */
 
 /* lib.c */
 int strlen(const char *s);

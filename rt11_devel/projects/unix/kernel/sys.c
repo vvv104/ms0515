@@ -18,7 +18,8 @@
 
 enum {
 	SYS_EXIT = 1, SYS_FORK = 2, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6,
-	SYS_WAIT = 7, SYS_CREAT = 8, SYS_UNLINK = 10, SYS_EXEC = 11, SYS_TIME = 13, SYS_GETPID = 20,
+	SYS_WAIT = 7, SYS_CREAT = 8, SYS_UNLINK = 10, SYS_EXEC = 11, SYS_TIME = 13, SYS_LSEEK = 19,
+	SYS_GETPID = 20,
 	SYS_MOUNT = 21, SYS_UMOUNT = 22,
 	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_IOCTL = 54, SYS_GETPPID = 64, SYS_SWAPON = 85,
 	SYS_MKDIR = 136
@@ -505,6 +506,9 @@ void syscall(struct trapframe *tf)
 		break;
 	case SYS_IOCTL:
 		error = hi ? hi->ioctl(tf, arg) : ENOSYS;
+		break;
+	case SYS_LSEEK:
+		error = hi ? hi->lseek(tf, arg) : ENOSYS;
 		break;
 	default:
 		error = ENOSYS;

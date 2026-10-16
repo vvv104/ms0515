@@ -72,7 +72,7 @@ flat(kernel)
 # kernel's arithmetic too - and put down flat, its header first, tail.s
 # last.
 add_executable(hi kernel/hi/head.s kernel/hi/own.c kernel/hi/ioctl.c kernel/hi/mount.c
-               kernel/hi/tail.s)
+               kernel/hi/files.c kernel/hi/tail.s)
 target_compile_options(hi PRIVATE -Wall -Wextra -Werror -Os)
 target_link_options(hi PRIVATE -Wl,-Ttext,0xD380 "-Wl,--just-symbols=$<TARGET_FILE:kernel>")
 set_target_properties(hi PROPERTIES SUFFIX ".out" LINK_DEPENDS "$<TARGET_FILE:kernel>")

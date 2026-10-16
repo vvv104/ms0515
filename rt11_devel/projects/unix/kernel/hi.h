@@ -5,7 +5,7 @@
  * has room above the tables (high.h) and below the diskettes' driver.  The
  * calls the boot does not need until the root is mounted go there: a
  * program that owns the machine (own.c), ioctl - a diskette's track
- * written - and mount and umount.  /boot/hi is linked at HI_BASE against
+ * written - mount and umount, lseek.  /boot/hi is linked at HI_BASE against
  * the kernel's own symbols (kernel/hi/, the build's hi target) and put
  * down flat, its header first: the magic, the version, its size, the key
  * of the kernel it was linked against, the entries.  The kernel loads it
@@ -34,6 +34,7 @@ struct hi_part {
 	int (*ioctl)(struct trapframe *tf, const unsigned *arg);
 	int (*mount)(struct trapframe *tf, const unsigned *arg);
 	int (*umount)(struct trapframe *tf, const unsigned *arg);
+	int (*lseek)(struct trapframe *tf, const unsigned *arg);
 };
 
 extern const struct hi_part *hi;	/* 0 until /boot/hi is in */

@@ -123,6 +123,23 @@ TEST_CASE("mkdir makes a directory with . and .., a file goes in it; rm takes th
     CHECK(taken(v, image) == before + 2);          /* the two directories' blocks alone */
 }
 
+TEST_CASE(">> adds to a file's end - lseek's - and makes one that is not there") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), false);
+    atPrompt(m);
+    REQUIRE(m.command("echo one > /f"));
+    REQUIRE(m.command("echo two >> /f"));
+    REQUIRE(m.command("cat /etc/numbers >> /f"));
+    REQUIRE(m.command("echo three >> /g"));
+    INFO(m.screen());
+    Volume v(m.imageNow());
+    const auto f = v.lookup("/f"), g = v.lookup("/g");
+    REQUIRE(f);
+    REQUIRE(g);
+    CHECK(v.content(v.inode(*f)) == "one\ntwo\n" + hostFile("/etc/numbers"));  /* across blocks */
+    CHECK(v.content(v.inode(*g)) == "three\n");
+}
+
 TEST_CASE("< gives a command a file for its input") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
