@@ -258,6 +258,14 @@ half a block a file, about 4% of the diskette.
 | 11-138 | The swap area: 2 images x 32 KB (only on a system diskette, by a flag in the superblock) |
 | 139-1599 | Data |
 
+**The superblock (block 1)**, words: the magic 054125, the version, the
+volume's blocks, /boot/kernel's first block and blocks with its load address
+and entry (for the boot block, which needs no file system), the bitmap's
+block, the inode table's first block and blocks, the swap area's first block
+and blocks, the data's first block, the number of inodes, the volume's number
+(a long), a label of 16 bytes.  A long is two words, the high word first, as
+the compiler keeps one.
+
 **Inode (32 bytes).**
 
 ```c
@@ -275,6 +283,13 @@ Extents instead of a block list: the allocator lays a file down contiguously,
 and an executable is read straight through, with no needless head moves.  Five
 extents almost always suffice; when fragmented, a defragmenting utility (like
 `squeeze`).
+
+**A program** is an a.out of the 0407 kind, as V6's: a header of eight
+words (the magic, the text's, the data's and the bss's bytes, the symbols',
+the entry), the text and the data, linked at 040000.  exec puts them at
+040000, clears the bss, and lays the arguments on the stack at the slot's
+top as V6 did: the strings, the pointers to them ending in 0, their count
+under SP.
 
 **A directory** is a file of 16-byte entries: 2 bytes the inode number + 14
 bytes the name (KOI-8, case kept).  32 entries a block.  The root is inode 1.

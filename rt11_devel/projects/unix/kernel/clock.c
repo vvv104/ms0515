@@ -17,8 +17,7 @@ void clock_start(void)
 	static const unsigned rates[4] = {50, 72, 60, 50};
 
 	hz = rates[(REG_B >> 3) & 3];
-	*(volatile unsigned *)0100 = (unsigned)clock_entry;
-	*(volatile unsigned *)0102 = 0340;
+	VECTOR(0100, clock_entry, 0340);
 	DISP_COPY |= DISP_TIMER;
 	DISPATCHER = DISP_COPY;
 }

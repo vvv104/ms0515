@@ -10,11 +10,13 @@ add_executable(unix_tests
     test_main.cpp
     test_boot.cpp
     test_console.cpp
+    test_fs.cpp
 )
 
 target_compile_definitions(unix_tests PRIVATE
     ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
     UNIX_DSK="${CMAKE_CURRENT_SOURCE_DIR}/../build/unix.dsk"
+    UNIX_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../root"
 )
 
 target_link_libraries(unix_tests

@@ -1,32 +1,20 @@
-/* init.c - the first process, stage 2: it asks for a name, greets it, and
- * then takes commands a line at a time: "t" prints the time since the
- * boot, anything else is answered with a question mark. */
+/* init.c - the first process: it asks for a name, greets it, and takes
+ * commands a line at a time until the shell comes:
+ *
+ *	t		the time since the boot
+ *	ls [DIR]	the names in a directory, the root's by default
+ *	cat FILE	the file on the console
+ *	run PROG [ARG...]	the program in init's place; when it exits, the
+ *			kernel starts init again
+ *
+ * anything else is answered with a question mark. */
 #include "unistd.h"
 
-static int length(const char *s)
-{
-	int n = 0;
-
-	while (s[n])
-		n++;
-	return n;
-}
+#define MAXARGS 8
 
 static void say(const char *s)
 {
-	write(1, s, length(s));
-}
-
-static void number(unsigned n)
-{
-	char digits[6];
-	int i = sizeof digits;
-
-	do {
-		digits[--i] = (char)('0' + n % 10);
-		n /= 10;
-	} while (n);
-	write(1, digits + i, (int)sizeof digits - i);
+	puts_fd(1, s);
 }
 
 /* A line read, its '\n' taken off. */
@@ -41,9 +29,76 @@ static void readline(char *buf, int size)
 	buf[n] = 0;
 }
 
+/* The words of line, cut in place at the spaces: how many. */
+static int words(char *line, char **word, int max)
+{
+	int n = 0;
+
+	while (*line && n < max) {
+		while (*line == ' ')
+			*line++ = 0;
+		if (!*line)
+			break;
+		word[n++] = line;
+		while (*line && *line != ' ')
+			line++;
+	}
+	return n;
+}
+
+static void complain(const char *command, const char *name)
+{
+	say(command);
+	say(": ");
+	say(name);
+	say(errno == ENOENT ? ": not found\n" : errno == ENOTDIR ? ": not a directory\n" : ": cannot\n");
+}
+
+static void ls(const char *dir)
+{
+	struct {
+		unsigned ino;
+		char name[14];
+	} d;
+	char name[15];
+	int fd = open(dir, 0), first = 1;
+
+	if (fd < 0) {
+		complain("ls", dir);
+		return;
+	}
+	while (read(fd, &d, sizeof d) == sizeof d) {
+		if (!d.ino || d.name[0] == '.')
+			continue;
+		memcpy(name, d.name, 14);
+		name[14] = 0;
+		if (!first)
+			say("  ");
+		say(name);
+		first = 0;
+	}
+	say("\n");
+	close(fd);
+}
+
+static void cat(const char *path)
+{
+	char buf[64];
+	int fd = open(path, 0), n;
+
+	if (fd < 0) {
+		complain("cat", path);
+		return;
+	}
+	while ((n = read(fd, buf, sizeof buf)) > 0)
+		write(1, buf, n);
+	close(fd);
+}
+
 int main(void)
 {
-	char line[64];
+	char line[64], *word[MAXARGS + 1];
+	int n;
 
 	say("\n\nlogin: ");
 	readline(line, sizeof line);
@@ -53,15 +108,24 @@ int main(void)
 	for (;;) {
 		say("$ ");
 		readline(line, sizeof line);
-		if (line[0] == 0)
+		n = words(line, word, MAXARGS);
+		word[n] = 0;
+		if (n == 0)
 			continue;
-		if (line[0] == 't' && line[1] == 0) {
+		if (!strcmp(word[0], "t") && n == 1) {
 			say("time ");
-			number((unsigned)time());
+			putnum((unsigned)time());
 			say("\n");
-			continue;
+		} else if (!strcmp(word[0], "ls")) {
+			ls(n > 1 ? word[1] : "/");
+		} else if (!strcmp(word[0], "cat") && n == 2) {
+			cat(word[1]);
+		} else if (!strcmp(word[0], "run") && n >= 2) {
+			execv(word[1], word + 1);
+			complain("run", word[1]);
+		} else {
+			say(word[0]);
+			say("?\n");
 		}
-		say(line);
-		say("?\n");
 	}
 }

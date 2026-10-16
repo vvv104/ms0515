@@ -1,7 +1,8 @@
 / crt0.s - a process's first instructions, at 040000, the start of its slot.
 /
-/ The kernel enters here with the stack at the slot's top.  The bss is
-/ cleared, main() runs, and what it returns goes to exit().
+/ The kernel enters here with SP at the arguments' count, the pointers to
+/ them above it (exec.c).  The bss is cleared, main(argc, argv) runs, and
+/ what it returns goes to exit().
 
 	.text
 	.globl	start, ___main
@@ -11,7 +12,12 @@ start:
 	bhis	2f
 	clr	(r0)+
 	br	1b
-2:	jsr	pc, _main
+2:	mov	sp, r1
+	mov	r1, r0
+	tst	(r0)+			/ argv: the pointers above the count
+	mov	r0, -(sp)
+	mov	(r1), -(sp)		/ argc
+	jsr	pc, _main
 	mov	r0, -(sp)
 	jsr	pc, _exit
 3:	br	3b

@@ -6,7 +6,11 @@
 / main() runs; it does not come back, but should it, the kernel halts.
 
 	.text
-	.globl	start, ___main
+	.globl	start, ___main, _vectors
+
+/ The vectors' page as C sees it (kernel.h): an array at address 0, which
+/ the compiler cannot take for a null pointer's target.
+_vectors = 0
 start:
 	mov	$01000, sp
 	mov	$_edata, r0
