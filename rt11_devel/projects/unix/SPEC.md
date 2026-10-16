@@ -122,7 +122,7 @@ is gone.
 
 The first stages run on the native ROM-B: it already has the console, the
 keyboard, a disk block and the font - the 4-5 KB a BIOS was to save.  The own
-ROM is stage 8, once the kernel has settled.
+ROM is stage 9, once the kernel has settled.
 
 **What the kernel takes from the native ROM-B.**  The same entry points RT-11
 calls.
@@ -147,7 +147,7 @@ module with a jump table: now it leads to the addresses of ROM-B, later to the
 table of the own ROM.  The call goes from the kernel's stack in bank 0 (the
 trap with the VRAM window, see the memory map).
 
-**The own ROM (stage 8)** replaces the native one and stays compatible with
+**The own ROM (stage 9)** replaces the native one and stays compatible with
 RT-11.  The model is ROM-B.  Rodionov's system (RT15SJ) is not supported: it
 jumps into ROM-A's internals by their addresses.
 
@@ -205,11 +205,15 @@ processes resident, the others in swap.
 
 **Swap.**
 
-- With a RAM disk board: swap there.  A 32 KB image moves in ~0.15-0.3 s;
-  ~14 images fit (part of the room for `/tmp`).
-- Without the board: swap to the diskette, 2 x 32 KB in an area of its own.
-  An image moves in ~1.5-2 s.
-- Whether the board is there is found at the start, as EX.SYS does: a pattern
+- Swap is a file on some volume, contiguous, in one extent: `swapon`
+  checks that, and the kernel writes its blocks directly, past the file
+  system.  The file cannot be removed while swap is on.
+- With a RAM disk it is `/tmp/swap` there (see "Volumes, swap and
+  fstab"): a 32 KB image moves in ~0.15-0.3 s.  Without one it is `/swap`
+  on the diskette, ~1.5-2 s an image.  The file's size sets how many
+  processes can be out; only the image's used part moves.
+- Until swap is on there are no more processes than slots, two; whether
+  the board is there is found at the start, as EX.SYS does: a pattern
   written and checked.
 
 **System calls.**  Through `TRAP` (vector 034); the number in the instruction,
@@ -258,7 +262,7 @@ half a block a file, about 4% of the diskette.
 | 1 | The superblock: the magic, the version, the volume size, the starts of the areas, the number of inodes, the label; the kernel's extents for the boot block |
 | 2 | The bitmap of free blocks (1600 bits = 200 bytes) |
 | 3-10 | The inode table: 8 blocks x 16 inodes = 128 files |
-| 11-138 | The swap area: 2 images x 32 KB (only on a system diskette, by a flag in the superblock) |
+| 11-138 | Reserved: once the swap area; swap is a file now ("Volumes, swap and fstab") |
 | 139-1599 | Data |
 
 **The superblock (block 1)**, words: the magic 054125, the version, the
@@ -301,6 +305,39 @@ bytes the name (KOI-8, case kept).  32 entries a block.  The root is inode 1.
 keeps up between sectors (5 KB a revolution, 200 ms), else 2:1.  Found by
 measuring on the real machine.
 
+## Volumes, swap and fstab
+
+A volume is a file system on a block device: `/dev/fd0` the diskette,
+`/dev/rd0` the RAM disk.  To the kernel the RAM disk is just another
+device; what is mounted where, and where swap is, `/etc/fstab` says:
+
+```
+# device      where  what to do
+fd0           /      root
+rd0           /tmp   mkfs,optional       # made at the boot; no board - skipped
+/tmp/swap     swap   size=256,optional   # a swap file of 256 KB made and turned on
+/swap         swap   optional            # the fallback: a file on the diskette
+```
+
+What the system has for it:
+
+1. Block devices: the diskette - reading and writing through 160010, an
+   own driver later; the RAM disk.  The block cache tells the device and
+   the block.
+2. Writing to the file system: `creat`, `write`, `unlink`, `mkdir`, blocks
+   given out by the bitmap, `sync`.
+3. `mount`/`umount`: several volumes in one tree.
+4. `mkfs` on the machine itself - the format of `tools/mkfs.py`; the tests
+   hold one against the other.
+5. `swapon` with a file's path: the file in one extent, its blocks written
+   directly, not to be removed while swap is on.
+6. `/etc/rc` and the reading of `fstab`: `mount -a`, `swapon -a`.
+
+The raw swap on the RAM disk of stage 4, a 32 KB area a process with no
+file system, goes: a file on a mounted volume takes its place.  Swapping
+processes out and in stays as it is; only where it writes changes.  Blocks
+11-138 of the diskette, kept for swap, become a reserve.
+
 ## The boot sequence
 
 From power-on to the shell's prompt about 2-3 seconds, of them ~1-2 s for
@@ -312,18 +349,22 @@ reading the kernel off the diskette.
    mode is needed.  No diskette or an error - the ROM prints its load error
    message and stays in its console monitor.
 2. Our boot block in block 0 (512 bytes) moves itself higher, into the
-   process's space, reads the superblock and takes from it the kernel's
-   extents, written there by `installboot`.  It needs no file name: finding
+   process's space, reads the superblock and takes from it the extent of
+   `/boot/kernel`, written there by `mkfs`.  It needs no file name: finding
    the kernel by name comes with the own ROM.
-3. The kernel is loaded through 160010 into banks 0, 1 and 6, past the ROM's
-   cells at 157614-157777; the boot block jumps to its entry point.
-4. The kernel: its own vectors in bank 0, `.bss` cleared, the RAM disk found,
-   the buffer cache, the root mounted.
-5. The kernel makes process 1 out of `/etc/init` in slot A and enables
-   interrupts.
-6. `init` runs `/etc/rc` (formatting the RAM disk, `/tmp`, a second
-   diskette) and starts `sh` on the console; when the shell exits, it starts
-   it again.
+3. The kernel is loaded through 160010 into banks 0 and 1; the boot block
+   jumps to its entry point.
+4. The kernel: its own vectors, the bank-6 tables cleared, the RAM disk
+   looked for, the root mounted from fd0, process 1 out of `/etc/init` in
+   slot A.  No swap yet, two processes at most.
+5. `init` does `exec sh /etc/rc`: pid 1 becomes the shell running the
+   script, and the second slot is free.
+6. `/etc/rc` by `fstab`: `mkfs rd0` in the second slot, `mount rd0 /tmp`,
+   `swapon` - now there is swap, and more processes may be.
+7. At its end `/etc/rc` does `exec /etc/getty`: it asks for `login:` and
+   runs `sh`; when the session ends the kernel runs `getty` again.  The
+   classic init, staying a process of its own and sleeping in swap, may
+   come back later.
 
 The own ROM will later add a menu: RT-11 or the new system, another kernel
 file by name, "insert the system diskette" with waiting.
@@ -414,29 +455,29 @@ hands over.
   without one a resident `sh` with built-in commands; a diskette changed by
   a command that flushes the cache, a volume number in the superblock to
   check it.  To be settled once the one-volume system is done.
-- For stage 8: the pinout of the K573RF4 and the fitness of a 28C64 as a
+- For stage 9: the pinout of the K573RF4 and the fitness of a 28C64 as a
   replacement - to be checked against the board's schematic.
 - How the VG93 behaves when a DRQ is missed (a byte lost) - how the driver
   recovers.
 
 ## Stages
 
-1. **Hello from an own kernel.**  The boot block in block 0 on the native
-   ROM-B loads the kernel, the kernel prints `login:` through the ROM's
-   console (160000).
-2. **A minimal kernel.**  The timer, the keyboard, one process, `TRAP`,
-   `read`/`write` of the console.
-3. **FS.**  `mkfs` on the host, the HD driver in the emulator,
-   `open`/`read`/`exec`.
-4. **Multitasking.**  4a: the process table, two slots, a kernel stack
-   each, `fork`/`exit`/`wait`, `sh` - init gives the shell its place, the
-   shell runs its commands in the other slot.  4b: pipes and the
-   background: a third process needs swap, so swap comes here, before the
-   floppy driver of stage 5 - first to the RAM disk (done), then to the
-   diskette's swap area.
-5. **The floppy and swap.**  An own VG93 driver instead of 160010
-   (formatting, speed), swap to the diskette.
-6. **Programs that own the machine.**  The mode is the binary's own - a
+1. **Hello from an own kernel** (done).  The boot block in block 0 on the
+   native ROM-B loads the kernel, the kernel prints `login:` through the
+   ROM's console (160000).
+2. **A minimal kernel** (done).  The timer, the keyboard, one process,
+   `TRAP`, `read`/`write` of the console.
+3. **FS** (done).  `mkfs` on the host, `open`/`read`/`exec`.
+4. **Multitasking** (done).  Two slots, a kernel stack each,
+   `fork`/`exit`/`wait`, `sh`, pipes and the background, swap on the RAM
+   disk (raw for now).
+5. **Volumes and the swap file.**  The block devices fd0 and rd0, writing
+   to the file system, `mount`, `mkfs` on the machine, `swapon` with a
+   file, `/etc/rc` and `fstab` ("Volumes, swap and fstab"); swap to the
+   diskette is the file `/swap` by the same means.
+6. **The floppy.**  An own VG93 driver instead of 160010: formatting,
+   speed.
+7. **Programs that own the machine.**  The mode is the binary's own - a
    magic of its own in the a.out header - and such a program is run as any
    other, by its name.  exec of one flushes the cache, ends the other
    processes and, through a small loader, lays the image over everything,
@@ -446,10 +487,10 @@ hands over.
    is no way back, the exit is a reset and the system booted again.  For
    ports of Spectrum games and other big programs: the ports made for RT-11
    are rebuilt for this library.
-7. **Utilities** of levels 1-2, then `rt11` and Forth.
-8. **The own ROM.**  Compatible with RT-11 by the ROM-B contract (without
+8. **Utilities** of levels 1-2, then `rt11` and Forth.
+9. **The own ROM.**  Compatible with RT-11 by the ROM-B contract (without
    Rodionov's system): the shared services and the new system's table in the
    upper 8 KB, the self-test, the monitor and the boot menu with the kernel
    found by name in the lower.  The kernel's jump table switches over to it.
-9. **The real machine.**  Firmware, measurements, the interleave chosen.
-10. **Optional:** the kernel in ROM.
+10. **The real machine.**  Firmware, measurements, the interleave chosen.
+11. **Optional:** the kernel in ROM.
