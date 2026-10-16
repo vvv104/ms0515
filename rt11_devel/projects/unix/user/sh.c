@@ -250,6 +250,11 @@ int main(int argc, char **argv)
 			complain("sh", word[1]);
 			continue;
 		}
+		if (!strcmp(word[0], "cd")) {		/* the shell's own directory, and its children's */
+			if (chdir(n > 1 ? word[1] : "/") < 0)
+				complain("sh", n > 1 ? word[1] : "/");
+			continue;
+		}
 		if (!strcmp(word[0], "t")) {
 			say("time ");
 			putnum((unsigned)time());

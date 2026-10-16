@@ -291,6 +291,8 @@ int fork(struct trapframe *tf)
 	for (i = 0; i < NOFILE; i++)
 		if ((c->ofile[i] = curproc->ofile[i]) != 0)
 			c->ofile[i]->count++;
+	if ((c->cwd = curproc->cwd) != 0)
+		c->cwd->count++;
 	/* Its kernel stack as swtch() leaves one: r5..r2 and a return to
 	 * forkret, which takes the frame's address above it and goes back to
 	 * the process through the frame. */
@@ -315,6 +317,10 @@ void pexit(int status)
 			fclose(curproc->ofile[i]);
 			curproc->ofile[i] = 0;
 		}
+	if (curproc->cwd) {
+		iput(curproc->cwd);
+		curproc->cwd = 0;
+	}
 	slot_owner[curproc->slot] = 0;
 	curproc->resident = 0;
 	area_put(curproc);

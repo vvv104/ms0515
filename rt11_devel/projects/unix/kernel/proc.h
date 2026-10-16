@@ -35,6 +35,7 @@ struct proc {
 	unsigned brk;			/* the end of its text, data and bss */
 	struct trapframe *tf;		/* its frame in the last system call */
 	struct file *ofile[NOFILE];
+	struct inode *cwd;		/* its own directory, held; 0 the root */
 	char kstack[KSTACK];
 };
 

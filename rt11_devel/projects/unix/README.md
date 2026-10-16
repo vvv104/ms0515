@@ -12,16 +12,18 @@ to the shell on /etc/rc: `mount -a` makes the RAM disk a volume at /tmp and
 turns swap on by /etc/fstab - /tmp/swap, laid down by mkfs with the
 volume, else the diskette's /swap - and getty asks for a name at `login:` and starts /bin/sh, which runs
 each command as a child - fork, exec, wait - and comes back with its prompt;
-`a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`
-and `< file` redirect.  Four processes at most - the shell and a pipe of
+`a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`,
+`>> file` and `< file` redirect.  A process has its own directory, its
+children's the same; a path not beginning with / goes from it.  Four processes at most - the shell and a pipe of
 three; two are resident, one in each slot, and with swap on the other two
 wait in the swap file, 96 KB, and come in when they are to run.
 The file system is written, each change going to the disk at once.  /bin has
-`sh`, `ls`, `cat`, `echo`, `rm`, `mkdir`, `mkfs`, `mount`, `umount`,
-`swapon`, `fdformat`, `hello`, `fail`, `pid`, `bigmem` (a program that owns the machine)
-and `rt11` (an RT-11 program run on the machine: `rt11 /rt11/game.sav`); the shell's own commands are `t` (the
-time), `status` (the last command's), `exec` and `exit`, which ends the
-session and brings getty back.
+`sh`, `ls`, `cat`, `echo`, `rm`, `mkdir`, `pwd`, `mkfs`, `mount`, `umount`,
+`swapon`, `fdformat`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
+the machine) and `rt11` (an RT-11 program run on the machine: `rt11
+/rt11/game.sav`); the shell's own commands are `cd`, `t` (the time),
+`status` (the last command's), `exec` and `exit`, which ends the session
+and brings getty back.
 
 ## Building and booting
 
@@ -221,9 +223,9 @@ The build reports the kernel's memory and stops past its limits
 040000, the bank-6 tables (the kernel's `_high_size`) against the 4992
 bytes up to 151600, and /boot/hi against its 1664 up to the driver's
 place - with the kernel stacks at 320 bytes (242 the deepest measured,
-tests/test_kstack.cpp keeping a margin): an image of 14178 bytes, 1646
-bytes free below 040000, 100 free for the tables, /boot/hi 1268 bytes,
-396 free.  The big tables live in bank 6: below 040000 there is no room
+tests/test_kstack.cpp keeping a margin): an image of 14660 bytes, 1164
+bytes free below 040000, 92 free for the tables, /boot/hi 1478 bytes,
+186 free.  The big tables live in bank 6: below 040000 there is no room
 for them beside the code.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.
 

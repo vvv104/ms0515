@@ -15,11 +15,12 @@
  * reader is.  When pid 1 exits, init runs again in its place. */
 #include "hi.h"
 #include "ioctl.h"
+#include "stat.h"
 
 enum {
 	SYS_EXIT = 1, SYS_FORK = 2, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6,
-	SYS_WAIT = 7, SYS_CREAT = 8, SYS_UNLINK = 10, SYS_EXEC = 11, SYS_TIME = 13, SYS_LSEEK = 19,
-	SYS_GETPID = 20,
+	SYS_WAIT = 7, SYS_CREAT = 8, SYS_UNLINK = 10, SYS_EXEC = 11, SYS_CHDIR = 12, SYS_TIME = 13,
+	SYS_STAT = 18, SYS_LSEEK = 19, SYS_GETPID = 20, SYS_FSTAT = 28,
 	SYS_MOUNT = 21, SYS_UMOUNT = 22,
 	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_IOCTL = 54, SYS_GETPPID = 64, SYS_SWAPON = 85,
 	SYS_MKDIR = 136
@@ -387,6 +388,67 @@ static int sys_swapon(struct trapframe *tf, const unsigned *arg)
 	return 0;
 }
 
+/* chdir(path): the process's own directory from now on. */
+static int sys_chdir(struct trapframe *tf, const unsigned *arg)
+{
+	struct inode *ip;
+	int error;
+
+	if ((error = user_string(arg[0], PATHMAX)) != 0)
+		return error;
+	if (!(ip = namei((const char *)arg[0], &error)))
+		return error;
+	if ((ip->d.mode & S_IFMT) != S_IFDIR) {
+		iput(ip);
+		return ENOTDIR;
+	}
+	if (curproc->cwd)
+		iput(curproc->cwd);
+	curproc->cwd = ip;
+	tf->r0 = 0;
+	return 0;
+}
+
+/* The inode's stat at the process's p. */
+static int stat_out(const struct inode *ip, unsigned p)
+{
+	struct stat *st = (struct stat *)p;
+
+	if (!inside(p, sizeof *st))
+		return EFAULT;
+	st->dev = ip->dev;
+	st->ino = ip->ino;
+	st->mode = ip->d.mode;
+	st->nlink = ip->d.nlink;
+	st->size = ip->d.size;
+	st->mtime = ip->d.mtime;
+	return 0;
+}
+
+/* stat(path, &st), fstat(fd, &st). */
+static int sys_stat(struct trapframe *tf, const unsigned *arg, int by_fd)
+{
+	struct file *f;
+	struct inode *ip;
+	int error;
+
+	if (by_fd) {
+		if (!(f = file_of(arg[0])) || f->kind != F_INODE)
+			return EBADF;
+		error = stat_out(f->ip, arg[1]);
+	} else {
+		if ((error = user_string(arg[0], PATHMAX)) != 0)
+			return error;
+		if (!(ip = namei((const char *)arg[0], &error)))
+			return error;
+		error = stat_out(ip, arg[1]);
+		iput(ip);
+	}
+	if (!error)
+		tf->r0 = 0;
+	return error;
+}
+
 static int sys_time(struct trapframe *tf)
 {
 	unsigned long t = clock_seconds();
@@ -509,6 +571,15 @@ void syscall(struct trapframe *tf)
 		break;
 	case SYS_LSEEK:
 		error = hi ? hi->lseek(tf, arg) : ENOSYS;
+		break;
+	case SYS_CHDIR:
+		error = sys_chdir(tf, arg);
+		break;
+	case SYS_STAT:
+		error = sys_stat(tf, arg, 0);
+		break;
+	case SYS_FSTAT:
+		error = sys_stat(tf, arg, 1);
 		break;
 	default:
 		error = ENOSYS;

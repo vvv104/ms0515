@@ -545,7 +545,8 @@ hands over.
    chaining, overlays, handlers, RMON's internals.  SABOT2 runs so from
    its own diskette's files.
 8. **Utilities** of levels 1-2, then `rt11` (ls/get/put on RT-11
-   diskettes) and Forth.
+   diskettes) and Forth.  Done so far: lseek and `>>`; chdir, stat and
+   fstat, the shell's `cd`, `pwd`.
 
 Stages 9-11 are put off for a long time: there is no real machine to try
 them on.

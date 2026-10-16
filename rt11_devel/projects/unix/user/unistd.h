@@ -3,6 +3,8 @@
 #ifndef UNIX_UNISTD_H
 #define UNIX_UNISTD_H
 
+#include "../kernel/stat.h"
+
 extern int errno;
 #define ENOENT 2
 #define EAGAIN 11
@@ -36,7 +38,10 @@ int mount(const char *device, const char *dir);
 int umount(const char *device);
 int swapon(const char *file);
 int ioctl(int fd, int cmd, void *arg);
-long lseek(int fd, long off, int whence);	/* whence 0 from the start, 1 from here, 2 from the end */
+long lseek(int fd, long off, int whence);
+int chdir(const char *dir);
+int stat(const char *path, struct stat *st);
+int fstat(int fd, struct stat *st);	/* whence 0 from the start, 1 from here, 2 from the end */
 
 /* lib.c */
 int strlen(const char *s);

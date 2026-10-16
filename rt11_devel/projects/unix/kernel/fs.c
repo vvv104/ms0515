@@ -404,7 +404,7 @@ static struct inode *step(struct inode *dp, const char *name, int len)
  * a directory on the way is not there. */
 static struct inode *walk(const char *path, const char **last, int *len, int *error)
 {
-	struct inode *ip = iget(rootdev, ROOT_INO), *next;
+	struct inode *ip = *path != '/' && curproc->cwd ? curproc->cwd : iget(rootdev, ROOT_INO), *next;
 	const char *name;
 	int l;
 
@@ -412,6 +412,8 @@ static struct inode *walk(const char *path, const char **last, int *len, int *er
 		*error = EIO;
 		return 0;
 	}
+	if (ip == curproc->cwd)
+		ip->count++;			/* held as iget holds the root */
 	for (;;) {
 		while (*path == '/')
 			path++;

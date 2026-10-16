@@ -1,4 +1,4 @@
-/* ls.c - /bin/ls: the names in each directory given, the root's by
+/* ls.c - /bin/ls: the names in each directory given, the process's own by
  * default, on a line; the entries "." and ".." left out. */
 #include "unistd.h"
 
@@ -35,7 +35,7 @@ int main(int argc, char **argv)
 	int i, bad = 0;
 
 	if (argc < 2)
-		return list("/");
+		return list(".");
 	for (i = 1; i < argc; i++)
 		bad |= list(argv[i]);
 	return bad;

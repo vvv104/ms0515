@@ -6,7 +6,7 @@
 	.text
 	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
 	.globl	_time, _getpid, _getppid, _dup, _pipe, _creat, _unlink, _mkdir, _sync
-	.globl	_mount, _umount, _swapon, _ioctl, _lseek
+	.globl	_mount, _umount, _swapon, _ioctl, _lseek, _chdir, _stat, _fstat
 	.globl	_errno
 
 _exit:	trap	1
@@ -81,6 +81,17 @@ _umount:
 / int swapon(const char *file): the file, in one extent, swap from now on.
 _swapon:
 	trap	85
+	br	done
+
+/ int chdir(const char *dir), stat(const char *path, struct stat *st),
+/ fstat(int fd, struct stat *st) (kernel/stat.h)
+_chdir:	trap	12
+	br	done
+
+_stat:	trap	18
+	br	done
+
+_fstat:	trap	28
 	br	done
 
 / long lseek(int fd, long off, int whence): the new offset, r0:r1.
