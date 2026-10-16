@@ -120,6 +120,20 @@ function(own_program name)
 endfunction()
 own_program(bigmem user/own/bigmem.c)
 
+# /bin/rt11 and the little RT-11 monitor it carries (user/rt11): the
+# monitor linked flat at 140000, where RT-11's RMON is, its image taken
+# into /bin/rt11 by monbin.s.
+add_executable(rt11mon user/rt11/mon.s user/rt11/mon.c user/own/rom.s user/own/own.c
+               user/own/files.c "${ARITH}")
+target_compile_options(rt11mon PRIVATE -Wall -Wextra -Werror)
+target_link_options(rt11mon PRIVATE -Wl,-Ttext,0xC000)
+set_target_properties(rt11mon PROPERTIES SUFFIX ".out")
+flat(rt11mon)
+own_program(rt11 user/rt11/rt11.c user/rt11/monbin.s)
+target_include_directories(rt11 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+set_source_files_properties(user/rt11/monbin.s PROPERTIES
+    OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/rt11mon.bin")
+
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/root")
 set(MKFS "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py")
 # The volume's files, for both images: the system and its programs.
@@ -144,6 +158,7 @@ set(VOLUME_FILES
     /bin/swapon=swapon.x
     /bin/fdformat=fdformat.x
     /bin/bigmem=bigmem.x
+    /bin/rt11=rt11.x
     --dir /tmp
     --swap 96)
 set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
@@ -157,6 +172,32 @@ add_custom_command(OUTPUT unix.dsk
             /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${VOLUME_FILES}
     DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
     COMMENT "unix.dsk")
+# rt11test.dsk: the system with /rt11 of RT-11 programs, for the tests of
+# /bin/rt11 alone - the GCC toolset's examples when they are built
+# (toolset/gcc/examples/build/sav), SABOT2 when the recovery corpus holds
+# it.  Looked for when the project is configured; neither goes into the
+# system's images.
+set(RT11_FILES)
+set(RT11_DEPENDS)
+set(GCC_SAV "${CMAKE_CURRENT_SOURCE_DIR}/../../toolset/gcc/examples/build/sav")
+foreach(name HELLO ARITH INPUT)
+    if(EXISTS "${GCC_SAV}/${name}.SAV")
+        string(TOLOWER ${name} lower)
+        list(APPEND RT11_FILES /rt11/${lower}.sav=${GCC_SAV}/${name}.SAV)
+        list(APPEND RT11_DEPENDS "${GCC_SAV}/${name}.SAV")
+    endif()
+endforeach()
+set(SABOT2 "${CMAKE_CURRENT_SOURCE_DIR}/../../../disk_recovery/work/corpus/export/data/src/extracted/System")
+if(EXISTS "${SABOT2}/SABOT2.SAV" AND EXISTS "${SABOT2}/SABOT2.DAT")
+    list(APPEND RT11_FILES /rt11/sabot2.sav=${SABOT2}/SABOT2.SAV /rt11/sabot2.dat=${SABOT2}/SABOT2.DAT)
+    list(APPEND RT11_DEPENDS "${SABOT2}/SABOT2.SAV" "${SABOT2}/SABOT2.DAT")
+endif()
+add_custom_command(OUTPUT rt11test.dsk
+    COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --boot boot.bin --dir /rt11 rt11test.dsk
+            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${RT11_FILES}
+            ${VOLUME_FILES}
+    DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab ${RT11_DEPENDS}
+    COMMENT "rt11test.dsk")
 add_custom_command(OUTPUT bare.dsk
     COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --boot boot.bin bare.dsk ${VOLUME_FILES}
     DEPENDS ${VOLUME_DEPENDS}
@@ -168,4 +209,4 @@ add_custom_command(OUTPUT unix400.dsk
             /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${VOLUME_FILES}
     DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
     COMMENT "unix400.dsk")
-add_custom_target(image ALL DEPENDS unix.dsk bare.dsk unix400.dsk)
+add_custom_target(image ALL DEPENDS unix.dsk bare.dsk unix400.dsk rt11test.dsk)

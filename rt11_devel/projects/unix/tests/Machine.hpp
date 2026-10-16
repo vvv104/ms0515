@@ -73,6 +73,15 @@ inline std::vector<uint8_t> readImage400()
     return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
+/* The tests' image of RT-11 programs: the system with /rt11 holding the
+ * GCC toolset's examples and SABOT2 when the build found them; empty when
+ * it was not built. */
+inline std::vector<uint8_t> readRt11Image()
+{
+    std::ifstream in(imagePath().parent_path() / "rt11test.dsk", std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
 /* The byte offset of block lbn of a double-sided image: side 0 for blocks
  * 0..799, side 1 after; cylinder 0 holds a side's last ten blocks, the
  * sectors 2:1 interleaved and skewed by two a track (docs/hardware/

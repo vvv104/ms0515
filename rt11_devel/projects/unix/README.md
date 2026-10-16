@@ -18,7 +18,8 @@ three; two are resident, one in each slot, and with swap on the other two
 wait in the swap file, 96 KB, and come in when they are to run.
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls`, `cat`, `echo`, `rm`, `mkdir`, `mkfs`, `mount`, `umount`,
-`swapon`, `fdformat`, `hello`, `fail`, `pid` and `bigmem` (a program that owns the machine); the shell's own commands are `t` (the
+`swapon`, `fdformat`, `hello`, `fail`, `pid`, `bigmem` (a program that owns the machine)
+and `rt11` (an RT-11 program run on the machine: `rt11 /rt11/game.sav`); the shell's own commands are `t` (the
 time), `status` (the last command's), `exec` and `exit`, which ends the
 session and brings getty back.
 
@@ -139,6 +140,11 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   system read by path on the program's own volume, no mounts), and
   `bigmem.c`, /bin/bigmem, its proof.  `tools/own_aout.py` gives the
   linked a.out its magic, 0401.
+- `user/rt11/` - /bin/rt11 (`rt11.c`) and the little RT-11 monitor it
+  carries (`mon.c`, `mon.s`, linked flat at 140000 where RT-11's RMON is,
+  taken in by `monbin.s`): the .SAV loaded under it as RUN does, its
+  vectors the monitor's, and the requests served - the console, .SETTOP,
+  the .SAV's directory's files read, .EXIT a key and a reset.
 - `root/etc/` - `rc`, `fstab`, `motd`, `numbers`.
 - `root/` - the files the volume carries as they are: /etc/motd,
   /etc/numbers (a file of several blocks, for the tests).
@@ -179,7 +185,11 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   the root's superblock read through the ROM, a key and a reset, the
   system booted again - from the root and from side 1 of the second
   drive, refused from the RAM disk; its command line, and a file's last
-  line read by the library's own reader.
+  line read by the library's own reader; RT-11 programs by rt11 - the GCC
+  toolset's HELLO, ARITH and INPUT, and SABOT2 to its game - from
+  `rt11test.dsk`, the system with /rt11 of what the build found (the
+  toolset's examples when they are built, SABOT2 when the recovery corpus
+  holds it), a .SAV not there refused.
   `bare.dsk`, the image without
   /etc/rc, is for the tests that mount and swap by hand.
   `Machine::command` types a line and waits for the prompt, so the next is

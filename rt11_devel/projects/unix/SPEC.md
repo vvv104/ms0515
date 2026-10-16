@@ -518,8 +518,8 @@ hands over.
    track's image and hands it over by `ioctl(fd, FD_WTRACK, ...)`; the
    kernel gives it to the driver's format - the device not in use - and
    forgets the track's blocks in the cache.
-7. **Programs that own the machine** (the mechanism done; the ports
-   next).  The mode is the binary's own - magic 0401 in the a.out header -
+7. **Programs that own the machine** (the mechanism and RT-11 programs
+   done).  The mode is the binary's own - magic 0401 in the a.out header -
    and such a program is run as any other, by its name.  It brings its own
    loader, the first bytes of its text: exec of one checks it, writes the
    cache out, reads the file's first block into the process's slot and
@@ -529,11 +529,23 @@ hands over.
    so the file is to be on a diskette.  The program has 001000-157000, some
    55 KB in one piece, and the extra copies of the banks; it uses the ROM
    directly through a small library (user/own/own.h) - the console, the
-   keyboard, a block of the diskette; there is no way back, the exit is a
-   reset and the system booted again.  For ports of Spectrum games and
-   other big programs: the ports made for RT-11 are rebuilt for this
-   library.
-8. **Utilities** of levels 1-2, then `rt11` and Forth.
+   keyboard, a block of the diskette, the system's files read by path;
+   the command line is its main's.  There is no way back, the exit is a
+   reset and the system booted again.
+
+   **RT-11 programs** run so too, as they are: `rt11 PROGRAM.SAV`.  It puts
+   a little monitor at 140000, where RT-11's RMON is, loads the .SAV under
+   it as RUN does - the program has 001000-137776 - and serves the requests
+   most programs and games make: .TTYIN (a line typed with its echo, or
+   the special mode), .TTYOUT, .PRINT, .SETTOP, .LOOKUP, .READ/.READW,
+   .CLOSE, .PURGE, .WAIT, .GTIM and .DATE (0), .EXIT (a key, then the
+   reset); a trap to 4 or 10 is told as RT-11 tells it.  Every disk device
+   a program names is the .SAV's own directory of the system's file
+   system, the name in lower case.  Not there: writing files, USR, KMON,
+   chaining, overlays, handlers, RMON's internals.  SABOT2 runs so from
+   its own diskette's files.
+8. **Utilities** of levels 1-2, then `rt11` (ls/get/put on RT-11
+   diskettes) and Forth.
 
 Stages 9-11 are put off for a long time: there is no real machine to try
 them on.

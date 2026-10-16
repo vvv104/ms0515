@@ -19,6 +19,7 @@ add_executable(unix_tests
     test_cache.cpp
     test_format.cpp
     test_own.cpp
+    test_rt11.cpp
     test_sides.cpp
     test_driver.cpp
     test_kstack.cpp
