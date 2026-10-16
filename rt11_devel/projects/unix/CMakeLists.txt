@@ -14,9 +14,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 # Release, -O2, unless asked otherwise, as Rt11Gcc.cmake has it: with no
-# build type at all the code is -O0's, and GCC 15's pdp11 backend there
-# loads a long through a pointer into the pair whose first register is the
-# pointer, the second word read from wherever the first word points.
+# build type at all the code would be -O0's, slow and large.
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Release: -O2 (the toolchain file)")
 endif()

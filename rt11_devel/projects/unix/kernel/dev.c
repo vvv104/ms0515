@@ -72,9 +72,7 @@ int dev_rw(unsigned dev, unsigned block, void *buf, int write)
 /* /boot/fd, when the root has one, read in at DRV_BASE through the ROM
  * - the room's worth at most - and made the diskettes' way once its header
  * holds, the size it gives the bytes read, and init is ready; else said
- * so, the ROM's way kept.  The file's size is not looked at: GCC 15's
- * pdp11 backend loaded that long through ip in r0 into r0:r1, the second
- * word read from wherever the first one pointed. */
+ * so, the ROM's way kept. */
 void fd_driver_load(void)
 {
 	const struct fd_driver *d = (const struct fd_driver *)DRV_BASE;

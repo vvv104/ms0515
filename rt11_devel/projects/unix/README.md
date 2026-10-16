@@ -162,14 +162,11 @@ The programs are linked freestanding at their own addresses and put down
 flat with `objcopy`, no RT-11 `.SAV` about them.  Note for the GNU
 assembler: a plain number is decimal (no trailing dot as in MACRO-11), and
 `ld -Ttext` reads hex - the boot block's 070000 is `0x7000`.  And the
-project builds Release, -O2, unless told otherwise: without a build type
-the code is -O0's, where GCC 15's pdp11 backend loads a long through a
-pointer into the register pair whose first register is the pointer, and
-reads the second word from wherever the first one points (`mov 010(r0),r0`
-then `mov 012(r0),r1`).  -Os wrote it too, once: a long field read through
-a pointer a call had just returned in r0 (`kernel/dev.c` fd_driver_load,
-written round it now); the rest of this tree and the toolset's is clear of
-it.
+project builds Release, -O2, unless told otherwise (the kernel -Os).  The
+compiler wants the toolset's patch as it is now (toolset/gcc/README.md, "A
+trap in the compiler"): before it, a long read through a pointer into the
+register pair the pointer was in came out wrong, and -Os walked the
+kernel's tables by multiplying.
 
 The build reports the kernel's memory and stops past its limits
 (mkfs.py): the image's size, the low part from 01000 to `_end` against
