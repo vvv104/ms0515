@@ -219,7 +219,7 @@ the arguments in registers.  The first set (~25): `fork`, `exec`, `exit`,
 
 | Device | Model |
 | --- | --- |
-| Console | The keyboard by interrupt 0130: the handler calls the ROM's 160004 and puts the byte into a ring buffer; output through 160000.  Line and raw modes. |
+| Console | The keyboard by interrupt 0130: the handler calls the ROM's 160004 and puts the byte into a ring buffer; output through 160000.  Line and raw modes.  Eight-bit KOI-8: a bare letter is small, Latin as Russian (ROM-B gives the Latin capital bare, the kernel swaps), and Latin is drawn Latin whatever RUS/LAT says (ROM-B's bit 2 of 157760 taken off for the character). |
 | Floppy | First through ROM-B's 160010 (an RT-11 queue element), later an own VG93 driver - for formatting and speed.  DRQ polled: the CPU is busy while a sector is read. |
 | RAM disk | A block device of 512 bytes; interrupts masked for a page of 256 bytes (~1 ms). |
 | HD (paravirtual) | Only for development in the emulator: a big root FS without the 400 KB limit. |

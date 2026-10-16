@@ -12,6 +12,7 @@
 
 #include <ms0515/Emulator.hpp>
 #include <ms0515/Terminal.hpp>
+#include <ms0515/Typist.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -90,9 +91,40 @@ public:
     Machine(const Machine &) = delete;
     Machine &operator=(const Machine &) = delete;
 
+    /* Frames run, the keys queued with type() pressed a frame at a time. */
     void run(int frames)
     {
-        for (int i = 0; i < frames; ++i) (void)emu_.stepFrame();
+        for (int i = 0; i < frames; ++i) {
+            typist_.pump(emu_);
+            (void)emu_.stepFrame();
+        }
+    }
+
+    /* Characters typed as a person would: queued, then pressed by run().
+     * The Typist knows the ROM's keyboard, where a bare Latin key gives the
+     * capital; the system turns that round, a bare key small, so a letter
+     * goes to the Typist in the other case to come out in its own. */
+    void type(const std::string &text)
+    {
+        for (char c : text) {
+            if (c >= 'a' && c <= 'z')
+                c = static_cast<char>(c - 'a' + 'A');
+            else if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c - 'A' + 'a');
+            typist_.type(static_cast<uint8_t>(c));
+        }
+    }
+
+    /* A key pressed bare: what the keyboard gives without Shift. */
+    void tapBare(ms0515::Key key) { typist_.type(key); }
+
+    /* The text typed, frames run until its last key is let go, then
+     * `frames` more. */
+    void typeAndSettle(const std::string &text, int frames)
+    {
+        type(text);
+        for (int i = 0; i < 4000 && typist_.pending() > 0; ++i) run(1);
+        run(frames);
     }
 
     /* The screen's text, a line a row. */
@@ -124,6 +156,7 @@ private:
         return n;
     }
     ms0515::Emulator emu_;
+    ms0515::Typist typist_;
     fs::path path_;
 };
 

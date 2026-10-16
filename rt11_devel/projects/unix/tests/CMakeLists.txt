@@ -9,6 +9,7 @@ find_package(doctest REQUIRED)
 add_executable(unix_tests
     test_main.cpp
     test_boot.cpp
+    test_console.cpp
 )
 
 target_compile_definitions(unix_tests PRIVATE
