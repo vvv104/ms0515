@@ -71,6 +71,7 @@ static int umount(const char *device)
 			return EBUSY;
 	iput(m->on);
 	m->used = 0;
+	bforget((unsigned)dev);			/* the diskette may be changed now */
 	return 0;
 }
 

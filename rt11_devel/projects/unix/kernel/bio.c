@@ -121,6 +121,21 @@ struct buf *getblk(unsigned dev, unsigned block)
 /* The blocks of dev [start, start + n) forgotten in both levels: a
  * track formatted is written past the cache.  A block at a time, each by
  * its side's name. */
+/* Every block of dev and of the devices sharing its blocks forgotten: its
+ * diskette may be changed (umount). */
+void bforget(unsigned dev)
+{
+	struct shadow *s;
+	struct buf *b;
+
+	for (b = bufs; b < bufs + NBUF; b++)
+		if (dev_overlap(b->dev, dev))
+			b->valid = 0;
+	for (s = shtab; s < shtab + NSHADOW; s++)
+		if (s->used && dev_overlap(s->dev, dev))
+			s->used = 0;
+}
+
 void binval(unsigned dev, unsigned start, unsigned n)
 {
 	struct shadow *s;

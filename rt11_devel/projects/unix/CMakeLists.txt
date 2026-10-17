@@ -130,7 +130,8 @@ program(du user/du.c)
 program(df user/df.c)
 program(chmod user/chmod.c)
 program(sleep user/sleep.c)
-program(ramroot user/ramroot.c)
+program(ramroot user/ramroot.c user/clone.c)
+program(mkboot user/mkboot.c user/clone.c)
 
 # own_program(<name> <sources>): a program that owns the machine
 # (kernel/own.c, user/own/own.h): linked at 001000 with the ROM's little
@@ -194,10 +195,12 @@ set(VOLUME_FILES
     /bin/chmod=chmod.x
     /bin/sleep=sleep.x
     /bin/ramroot=ramroot.x
+    /bin/mkboot=mkboot.x
     /bin/bigmem=bigmem.x
     /bin/rt11=rt11.x
     --dir /tmp
-    --dir /home)
+    --dir /home
+    --dir /disk)
 set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin rd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns

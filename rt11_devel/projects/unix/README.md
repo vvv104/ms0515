@@ -14,7 +14,12 @@ diskette's volume there - the blocks it has taken, about 200 - makes the
 copy the root (`mount(rd0, "/")`) and puts the diskette's volume at /disk,
 so the system runs from memory and the diskette is let go by `umount
 /dev/fdx0` and taken out, files saved and own programs run under /disk;
-the copy costs the boot some 8 seconds, 860 frames against 470.  Then
+the copy costs the boot some 8 seconds, 860 frames against 470.
+`mkboot DEVICE` copies the root's volume - the RAM disk's or the
+diskette's - to a diskette that then boots: into the second drive, or,
+the system in memory, into the boot drive with another diskette put in
+after `umount /dev/fdx0` (umount forgets the device's blocks in the
+cache).  Then
 `mount -a` mounts what /etc/fstab says, and rc gives its place to /bin/sh
 for the console, which runs
 each command as a child - fork, exec, wait - and comes back with its prompt,
@@ -45,7 +50,7 @@ over - the rest rw-; a new file is rw-, `chmod r-x FILE`
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls` (`-l`, `-a`), `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `du`, `df`, `chmod`, `mkfs`,
 `mount`, `umount`,
-`fdformat`, `sleep`, `ramroot`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
+`fdformat`, `sleep`, `ramroot`, `mkboot`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine), `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
 `rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd` (alone: /home), `t` (the time),
@@ -178,7 +183,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   `cat.c`, `echo.c`, `rm.c`, `mkdir.c`, `mkfs.c`, `mount.c` (`mount -a`:
   /etc/fstab's volumes, in one process), `umount.c`,
   `fdformat.c` (a diskette's tracks built and written, a side or both),
-  `ramroot.c` (the root into the RAM disk), `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
+  `ramroot.c` (the root into the RAM disk), `mkboot.c` (a diskette
+  that boots), `clone.c` (a volume copied block for block, theirs),
+  `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `user/own/` - the little library of a program that owns the machine:
   `crt0.s` (the loader, run first at 040020 and then from 157000, reading
   the file through the ROM's 160010 to 000760 and up, the command line
@@ -223,7 +230,10 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   and mount on the RAM disk read on the host from the board's memory
   (`Machine::ramDisk`), `..` out of a volume, umount; the root copied to
   the RAM disk, the diskette at /disk written there, let go and taken out
-  with the system running on, the root's device refused for mkfs; /etc/rc
+  with the system running on, the root's device refused for mkfs; mkboot
+  from the RAM root and from the diskette's, to both sides and to one, into
+  the boot drive with its diskette changed, each copy booted, and refused
+  for a busy or empty drive or no device; /etc/rc
   with the board and without, a new shell in / after a session, a mounted device
   refused for mkfs, a script; the single-sided system booted, a diskette
   in the second drive made a volume and read on the host, the double-sided
@@ -267,7 +277,7 @@ The build reports the kernel's memory and stops past its limits
 the drivers' place - with four places in the process table, the two
 slots', a parked one's and a zombie's, and their kernel stacks at 320
 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 14690 bytes, 1650 bytes free below 040000, 1822 free in
+an image of 14784 bytes, 1556 bytes free below 040000, 1822 free in
 bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory, which keep -O2.

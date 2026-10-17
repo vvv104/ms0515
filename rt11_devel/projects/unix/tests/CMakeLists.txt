@@ -31,6 +31,7 @@ add_executable(unix_tests
     test_ramdisk.cpp
     test_prompt.cpp
     test_ramroot.cpp
+    test_mkboot.cpp
     test_kstack.cpp
 )
 

@@ -355,7 +355,11 @@ the root by `mount("/dev/rd0", "/")`: the kernel swaps the root's place in
 the mount table when nothing else is mounted, the processes in the old
 root's directories going to the new root, what they hold open of the old
 volume staying theirs.  The diskette's volume then goes to `/disk`.  /tmp
-is the copy's.
+is the copy's.  `umount` forgets the device's blocks in the cache, so the
+diskette may be changed.  `mkboot DEVICE` makes a diskette of the system
+the same way: the root's volume copied block for block, the boot block
+and the kernel's blocks where the superblock says, the copy told the
+diskette's size and a volume number of its own.
 
 What the system has for it:
 
@@ -412,7 +416,7 @@ file by name, "insert the system diskette" with waiting.
 /bin/      sh, ls, cat, ed, ...
 /tmp/
 /home/
-/disk/     (with a RAM disk: the root is its copy, the diskette here)
+/disk/     (empty; with a RAM disk the root is its copy, the diskette here)
 ```
 
 ## The user environment

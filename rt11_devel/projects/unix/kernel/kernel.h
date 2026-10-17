@@ -111,6 +111,7 @@ struct buf *bread(unsigned dev, unsigned block);
 struct buf *getblk(unsigned dev, unsigned block);
 int bwrite(struct buf *b);
 void binval(unsigned dev, unsigned start, unsigned n);
+void bforget(unsigned dev);
 void bdirty(struct buf *b);
 void bflush(void);
 

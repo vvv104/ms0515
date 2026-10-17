@@ -44,10 +44,8 @@ TEST_CASE("with the RAM disk the system is copied there and the root is the copy
     CHECK(rd.lookup("/home/f"));
     CHECK(rd.lookup("/bin/sh"));
     CHECK(rd.lookup("/etc/motd"));
-    CHECK(rd.lookup("/disk"));
     Volume fd(m.imageNow());
     CHECK_FALSE(fd.lookup("/home/f"));
-    CHECK_FALSE(fd.lookup("/disk"));
 }
 
 TEST_CASE("the diskette at /disk: its files read and written there") {
@@ -83,6 +81,23 @@ TEST_CASE("the diskette let go and taken out: the system runs on from memory") {
     CHECK(m.screen().find("panic") == std::string::npos);
 }
 
+TEST_CASE("a diskette changed after umount is read anew: none of the old one's blocks kept") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), true);
+    REQUIRE(m.boot());
+    REQUIRE(m.command("ls /disk/etc"));                       /* its blocks in the cache */
+    CHECK(after(m, "ls /disk/etc").find("rc") != std::string::npos);
+    REQUIRE(m.command("umount /dev/fdx0"));
+    m.insertFirst(unixos::readBareImage());                   /* the same system without /etc/rc */
+    REQUIRE(m.command("mount /dev/fdx0 /disk", 3000));
+    REQUIRE(m.command("ls /disk/etc", 3000));
+    INFO(m.screen());
+    const std::string listed = after(m, "ls /disk/etc");
+    CHECK(listed.find("motd") != std::string::npos);
+    CHECK(listed.find("rc") == std::string::npos);
+    CHECK(listed.find("fstab") == std::string::npos);
+}
+
 TEST_CASE("the root's device is not made anew: mkfs of the RAM disk refused") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
@@ -106,7 +121,6 @@ TEST_CASE("without the RAM disk the root stays the diskette's") {
     REQUIRE(m.command("echo on the diskette > /home/f"));
     Volume fd(m.imageNow());
     CHECK(fd.lookup("/home/f"));
-    CHECK_FALSE(fd.lookup("/disk"));
 }
 
 }

@@ -138,6 +138,21 @@ public:
         if (image.size() == 819200) REQUIRE(emu_.mountDisk(3, second_.string()));
     }
 
+    /* Another diskette put in the boot drive, the one there taken out
+     * first (unmountDisk): the boot image's file written over. */
+    void insertFirst(const std::vector<uint8_t> &image)
+    {
+        emu_.unmountDisk(0);
+        emu_.unmountDisk(2);
+        std::ofstream(path_, std::ios::binary | std::ios::trunc)
+            .write(reinterpret_cast<const char *>(image.data()), static_cast<std::streamsize>(image.size()));
+        REQUIRE(emu_.mountDisk(0, path_.string()));
+        if (image.size() == 819200) REQUIRE(emu_.mountDisk(2, path_.string()));
+    }
+
+    /* The boot drive's diskette as it stands now. */
+    std::vector<uint8_t> firstNow() const { return imageNow(); }
+
     /* The second drive's diskette as it stands now. */
     std::vector<uint8_t> secondNow() const
     {
