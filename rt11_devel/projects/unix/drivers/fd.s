@@ -3,7 +3,7 @@
 / (rt11_devel/projects/rt11/handlers/dz/DZ.MAC), told again in the
 / driver's shape.
 /
-/ A driver is put down flat at 155000 (kernel.h DRV_BASE), 1 KB at most,
+/ A driver is put down flat at 155000 (kernel.h DRV_BASE), 704 bytes at most,
 / and begins with its header: the magic, the version of the door, its size
 / in bytes, init, rw, format.  The kernel loads it once the root is mounted,
 / calls init - 0 is ready - and from then on sends every block of a

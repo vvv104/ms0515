@@ -98,7 +98,7 @@ is gone.
 | 000000-017777 | 0 | Vectors, the kernel stack, kernel code.  Not switched: the vectors are here. |
 | 020000-037777 | 1 | Kernel code.  The shadow copy is the buffer cache. |
 | 040000-137777 | 2-5 | The process's space, 32 KB.  The primary copies are slot A, the extra ones slot B. |
-| 140000-157777 | 6 | Kernel data: the kernel is linked with its data here, start.s copies their first values up from the image and clears the bss, the tables (high.h) a part of it - all below 155000; the diskettes' driver /boot/fd at 155000-157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is the parking of a process with no slot (proc.c), switched in by `xcopy` from bank 0's code, the kernel's stacks being in the primary one. |
+| 140000-157777 | 6 | Kernel data: the kernel is linked with its data here, start.s copies their first values up from the image and clears the bss, the tables (high.h) a part of it - all below 155000; the drivers, the diskettes' /boot/fd at 155000-156300 and the RAM disk's /boot/rd at 156300-157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is the parking of a process with no slot (proc.c), switched in by `xcopy` from bank 0's code, the kernel's stacks being in the primary one. |
 | 160000-177377 | - | ROM (the upper 8 KB), always seen. |
 | 177400-177777 | - | I/O registers. |
 
@@ -235,8 +235,8 @@ a diskette's track written (`kernel/ioctl.h`).
 | Device | Model |
 | --- | --- |
 | Console | The keyboard by interrupt 0130: the handler calls the ROM's 160004 and puts the byte into a ring buffer; output through 160000.  Line and raw modes.  Eight-bit KOI-8: a bare letter is small, Latin as Russian (ROM-B gives the Latin capital bare, the kernel swaps), and Latin is drawn Latin whatever RUS/LAT says (ROM-B's bit 2 of 157760 taken off for the character). |
-| Floppy | A driver of its own as a file, /boot/fd, as RT-11's handlers are: put down flat at 155000 in bank 6, 1 KB at most, its header the magic, the version of the door (2), its size, init, rw (a drive's side as the ROM numbers it, a block 0..799) and format (a track 0..79 written from the image WRITE TRACK takes).  The kernel loads it through ROM-B's 160010 once the root is mounted; with none, or one that is no driver, 160010 stays.  The driver drives the VG93 itself (drivers/fd.s, after our RT-11 DZ handler) and asks where the head is only when the drive changes, the motor starts or a try fails; a file copied takes half the time it took through 160010.  DRQ polled: the CPU is busy while a sector is read. |
-| RAM disk | A block device of 512 bytes; interrupts masked for a page of 256 bytes (~1 ms). |
+| Floppy | A driver of its own as a file, /boot/fd, as RT-11's handlers are: put down flat at 155000 in bank 6, 704 bytes at most, its header the magic, the version of the door (2), its size, init, rw (a drive's side as the ROM numbers it, a block 0..799) and format (a track 0..79 written from the image WRITE TRACK takes).  The kernel loads it through ROM-B's 160010 once the root is mounted; with none, or one that is no driver, 160010 stays.  The driver drives the VG93 itself (drivers/fd.s, after our RT-11 DZ handler) and asks where the head is only when the drive changes, the motor starts or a try fails; a file copied takes half the time it took through 160010.  DRQ polled: the CPU is busy while a sector is read. |
+| RAM disk | A driver as a file too, /boot/rd (drivers/rd.s): flat at 156300, 320 bytes at most, its header the magic, the version (1), its size, init (the board found as EX.SYS finds it, a bus error caught by its own handler on vector 4; the blocks, 0 with none) and rw (a block 0..1023).  The kernel has no word of the board.  With no /boot/rd, or one that is no driver, there is no RAM disk.  A block device of 512 bytes; interrupts masked for a page of 256 bytes (~1 ms). |
 | HD (paravirtual) | Only for development in the emulator: a big root FS without the 400 KB limit. |
 | Serial port | Later: exchanging files with a PC. |
 
@@ -376,9 +376,9 @@ reading the kernel off the diskette.
    the kernel by name comes with the own ROM.
 3. The kernel is loaded through 160010 into banks 0 and 1; the boot block
    jumps to its entry point.
-4. The kernel: its own vectors, the bank-6 tables cleared, the RAM disk
-   looked for, the root mounted from fd0 (fdx0 when it takes both
-   sides), process 1 out of `/etc/init` in
+4. The kernel: its own vectors, the bank-6 tables cleared, the root
+   mounted from fd0 (fdx0 when it takes both sides), the drivers loaded -
+   /boot/rd looking for the RAM disk, /boot/fd - process 1 out of `/etc/init` in
    slot A.
 5. `init` does `exec sh /etc/rc`: pid 1 becomes the shell running the
    script, and the second slot is free.

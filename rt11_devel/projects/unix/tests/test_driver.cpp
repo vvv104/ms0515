@@ -86,7 +86,7 @@ TEST_CASE("the system's /boot/fd drives the VG93 itself: no block through the RO
     CHECK(header(d, 1) == 2);                 /* the door with format */
     CHECK(header(d, 5) > header(d, 4));
     CHECK(header(d, 2) == d.size());
-    CHECK(d.size() <= 1024);
+    CHECK(d.size() <= 704);                  /* below /boot/rd's 156300 */
     Machine m(unixos::readImage(), false);
     REQUIRE(m.boot(3000));
     {

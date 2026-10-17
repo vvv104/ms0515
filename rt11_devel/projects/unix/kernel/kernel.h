@@ -68,14 +68,20 @@ unsigned dev_blocks(unsigned dev);
 void dev_canon(unsigned *dev, unsigned *block);
 int dev_overlap(unsigned a, unsigned b);
 
-/* The diskettes' driver as a file, /boot/fd (drivers/fd.s): put down
- * flat at DRV_BASE in bank 6, over the kernel's data (high.h), its header
- * first.  rw's and format's unit is the ROM's, a drive's side; rw's block 0..799,
- * format's track the cylinder, 0..79, the image WRITE TRACK's (ioctl.h). */
+/* The drivers as files, put down flat in bank 6 over the kernel's data
+ * (high.h), each its header first: /boot/fd, the diskettes'
+ * (drivers/fd.s), at DRV_BASE, and /boot/rd, the RAM disk's (drivers/rd.s),
+ * at RD_BASE, up to DRV_TOP.  fd's rw's and format's unit is the ROM's, a
+ * drive's side; rw's block 0..799, format's track the cylinder, 0..79, the
+ * image WRITE TRACK's (ioctl.h).  rd's init tells its blocks, 0 with no
+ * board. */
 #define DRV_BASE 0155000u
+#define RD_BASE 0156300u
 #define DRV_TOP 0157000u
 #define DRV_MAGIC 042106		/* "FD" */
 #define DRV_VERSION 2			/* 2: with format */
+#define RD_MAGIC 042122			/* "RD" */
+#define RD_VERSION 1
 struct fd_driver {
 	unsigned magic, version;
 	unsigned size;			/* the image's bytes, the header's too */
@@ -83,7 +89,12 @@ struct fd_driver {
 	int (*rw)(unsigned unit, unsigned block, void *buf, int write);
 	int (*format)(unsigned unit, unsigned track, const void *image, unsigned len);
 };
-void fd_driver_load(void);
+struct rd_driver {
+	unsigned magic, version, size;
+	unsigned (*init)(void);
+	int (*rw)(unsigned block, void *buf, int write);
+};
+void drivers_load(void);
 int dev_rw(unsigned dev, unsigned block, void *buf, int write);
 #define dev_read(dev, block, buf) dev_rw(dev, block, buf, 0)
 #define dev_write(dev, block, buf) dev_rw(dev, block, (void *)(buf), 1)

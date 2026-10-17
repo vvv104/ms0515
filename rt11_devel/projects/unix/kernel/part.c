@@ -1,5 +1,5 @@
-/* part.c - the parts of the system that are files: /boot/fd, the
- * diskettes' driver (dev.c), read in flat once the root is mounted. */
+/* part.c - the parts of the system that are files: /boot/fd and
+ * /boot/rd, the drivers (dev.c), read in flat once the root is mounted. */
 #include "sys.h"
 
 #define HEADER_WORDS 3			/* the magic, the version, the size */

@@ -6,8 +6,8 @@
  * big tables are a part of the bss: the process table with each process's
  * kernel stack, the block buffers and the shadow bank's index of more,
  * the inodes, the open files, the console's line and queue,
- * exec's arguments.  The data end below 155000, where the diskettes'
- * driver, /boot/fd, goes (kernel.h DRV_BASE).  The top of the bank, from
+ * exec's arguments.  The data end below 155000, where the drivers go,
+ * /boot/fd and /boot/rd (kernel.h DRV_BASE).  The top of the bank, from
  * 157000, is left to the ROM: the stack the kernel calls it on,
  * 157000-157400 (rom.s), its cells at 1577xx and its own stack from 157614
  * down. */

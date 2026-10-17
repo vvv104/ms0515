@@ -2,7 +2,6 @@
  * root file system, and the first process, /etc/init, run by exec. */
 #include "sys.h"
 #include "proc.h"
-#include "ramdisk.h"
 #include "rom.h"
 
 void panic(const char *why)
@@ -23,10 +22,10 @@ int main(void)
 	clock_start();
 	proc_init();
 	files_init();
-	tty_puts(rd_probe() ? "\nUNIX: a RAM disk of 512 KB, /dev/rd0\n" : "\nUNIX: no RAM disk\n");
 	if (fs_mount() != 0)
 		panic("no file system");
-	fd_driver_load();
+	tty_puts("\n");
+	drivers_load();
 	exec("/etc/init", argv);
 	panic("no /etc/init");
 	return 0;

@@ -46,7 +46,6 @@ add_executable(kernel
     kernel/fs.c
     kernel/exec.c
     kernel/proc.c
-    kernel/ramdisk.c
     kernel/sys.c
     kernel/mount.c
     kernel/ioctl.c
@@ -55,10 +54,10 @@ add_executable(kernel
     "${ARITH}")
 target_compile_options(kernel PRIVATE -Wall -Wextra -Werror)
 # The kernel is held to 01000..040000 (mkfs.py reports it): -Os takes a
-# quarter off its code; the loops that move memory and the RAM disk's pages
-# keep -O2, coming last on the command line.
+# quarter off its code; the loops that move memory keep -O2, coming last on
+# the command line.
 target_compile_options(kernel PRIVATE -Os)
-set_source_files_properties(kernel/lib.c kernel/ramdisk.c PROPERTIES COMPILE_OPTIONS -O2)
+set_source_files_properties(kernel/lib.c PROPERTIES COMPILE_OPTIONS -O2)
 # The code at 01000, the data at 140000 in bank 6 (kernel/high.h).
 target_link_options(kernel PRIVATE -Wl,-Tdata,0xC000)
 
@@ -83,12 +82,17 @@ add_custom_command(OUTPUT kernel.bin
     COMMENT "kernel.bin"
     VERBATIM)
 
-# The diskettes' driver, /boot/fd: linked at 155000 in bank 6 (kernel.h
-# DRV_BASE), put down flat, its header first.
+# The drivers, put down flat in bank 6, their headers first (kernel.h):
+# /boot/fd, the diskettes', linked at 155000 (DRV_BASE); /boot/rd, the RAM
+# disk's, at 156300 (RD_BASE).
 add_executable(fd drivers/fd.s)
 target_link_options(fd PRIVATE -Wl,-Ttext,0xDA00)
 set_target_properties(fd PROPERTIES SUFFIX ".out")
 flat(fd)
+add_executable(rd drivers/rd.s)
+target_link_options(rd PRIVATE -Wl,-Ttext,0xDCC0)
+set_target_properties(rd PROPERTIES SUFFIX ".out")
+flat(rd)
 
 # program(<name> <sources>): a program of the system, <name>.x its a.out
 # without symbols, as it goes on the volume.
@@ -162,6 +166,7 @@ set(MKFS "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py")
 # The volume's files, for both images: the system and its programs.
 set(VOLUME_FILES
     /boot/kernel=kernel.bin
+    /boot/rd=rd.bin
     /etc/init=init.x
     /etc/motd=${ROOT}/etc/motd
     /etc/numbers=${ROOT}/etc/numbers
@@ -191,7 +196,7 @@ set(VOLUME_FILES
     /bin/rt11=rt11.x
     --dir /tmp
     --dir /home)
-set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
+set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin rd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns
 # no more.  bare.dsk: the same without /etc/rc, init going straight to the

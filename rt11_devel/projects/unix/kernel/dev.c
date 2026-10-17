@@ -1,5 +1,5 @@
 /* dev.c - the block devices: the diskettes through /boot/fd, or the ROM's
- * 160010 without it, and the RAM disk, 1024 blocks of two pages each.
+ * 160010 without it, and the RAM disk through /boot/rd, none without it.
  *
  * A diskette is a device by a side, 800 blocks: fd0 and fd1 the boot
  * drive's sides 0 and 1, fd2 and fd3 the second drive's - a single-sided
@@ -9,7 +9,6 @@
  * 2 and fd2 its unit 1.  A block of fdx is the same block of a side's
  * device: dev_canon gives the cache one name for it. */
 #include "sys.h"
-#include "ramdisk.h"
 #include "rom.h"
 
 #define SIDE 800			/* a side's blocks */
@@ -18,6 +17,8 @@
  * track is written only by /boot/fd. */
 static int (*fd_rw)(unsigned unit, unsigned block, void *buf, int write) = rom_rw;
 int (*fd_format)(unsigned unit, unsigned track, const void *image, unsigned len);
+static int (*rd_rw)(unsigned block, void *buf, int write);
+static unsigned rd_blocks;		/* the RAM disk's, 0 with none */
 
 /* Each diskette device's drive (bit 2) and sides (bit 0 side 0, bit 1
  * side 1), by its number. */
@@ -28,9 +29,7 @@ unsigned dev_blocks(unsigned dev)
 {
 	if (dev <= DEV_FDX1)
 		return (place[dev] & 3) == 3 ? 2 * SIDE : SIDE;
-	if (dev == DEV_RD0 && rd_present)
-		return RD_PAGES / 2;
-	return 0;
+	return dev == DEV_RD0 ? rd_blocks : 0;
 }
 
 /* A block of fdx0/fdx1 as the side's device's block: fd0..fd3 are the
@@ -53,38 +52,49 @@ int dev_overlap(unsigned a, unsigned b)
 }
 
 /* The block read into buf or written from it, 0 or -1: a diskette's
- * through the ROM, its unit side * 2 + drive; the RAM disk's two pages. */
+ * through the ROM or /boot/fd, its unit side * 2 + drive; the RAM disk's
+ * through /boot/rd. */
 int dev_rw(unsigned dev, unsigned block, void *buf, int write)
 {
 	unsigned unit;
 
 	if (block >= dev_blocks(dev))
 		return -1;
-	if (dev == DEV_RD0) {
-		if (write)
-			rd_write(block * 2, buf, 2);
-		else
-			rd_read(block * 2, buf, 2);
-		return 0;
-	}
+	if (dev == DEV_RD0)
+		return rd_rw(block, buf, write);
 	dev_canon(&dev, &block);
 	unit = (dev & 1) << 1 | dev >> 1;
 	return fd_rw(unit, block, buf, write);
 }
 
-/* /boot/fd, when the root has one, read in at DRV_BASE (part.c) and made
- * the diskettes' way once init is ready; else said so, the ROM's way
- * kept. */
-void fd_driver_load(void)
+/* A driver read in from its file at base (part.c): there, or 0 - a file
+ * that is no driver said so. */
+static const void *driver(const char *path, unsigned base, unsigned top, unsigned magic, unsigned version)
 {
-	const struct fd_driver *d = (const struct fd_driver *)DRV_BASE;
-	int got = part_load("/boot/fd", DRV_BASE, DRV_TOP - DRV_BASE, DRV_MAGIC, DRV_VERSION);
+	int got = part_load(path, base, top - base, magic, version);
 
-	if (got > 0 && d->init() == 0) {
-		fd_rw = d->rw;
-		fd_format = d->format;
+	if (got < 0) {
+		tty_puts("UNIX: ");
+		tty_puts(path);
+		tty_puts(" is no driver\n");
+	}
+	return got > 0 ? (const void *)base : 0;
+}
+
+/* The drivers, once the root is mounted: /boot/rd's board found, or no RAM
+ * disk; /boot/fd made the diskettes' way once its init is ready, else the
+ * ROM's way kept. */
+void drivers_load(void)
+{
+	const struct rd_driver *rd = driver("/boot/rd", RD_BASE, DRV_TOP, RD_MAGIC, RD_VERSION);
+	const struct fd_driver *fd = driver("/boot/fd", DRV_BASE, RD_BASE, DRV_MAGIC, DRV_VERSION);
+
+	if (rd && (rd_blocks = rd->init()) != 0)
+		rd_rw = rd->rw;
+	tty_puts(rd_blocks ? "UNIX: a RAM disk of 512 KB, /dev/rd0\n" : "UNIX: no RAM disk\n");
+	if (fd && fd->init() == 0) {
+		fd_rw = fd->rw;
+		fd_format = fd->format;
 		tty_puts("UNIX: the diskettes by /boot/fd\n");
-	} else if (got) {
-		tty_puts("UNIX: /boot/fd is no driver - the ROM's way\n");
 	}
 }
