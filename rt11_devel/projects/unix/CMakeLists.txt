@@ -118,7 +118,7 @@ program(pid user/pid.c)
 program(rm user/rm.c)
 program(mkdir user/mkdir.c)
 program(mkfs user/mkfs.c user/vol.c)
-program(mount user/mount.c user/vol.c user/clone.c)
+program(mount user/mount.c user/vol.c)
 program(umount user/umount.c)
 program(fdformat user/fdformat.c)
 program(pwd user/pwd.c user/cwd.c)
@@ -199,7 +199,9 @@ set(VOLUME_FILES
     /bin/bigmem=bigmem.x
     /bin/rt11=rt11.x
     --dir /tmp
-    --dir /home)
+    --dir /home
+    --dir /mnt/floppy1
+    --dir /mnt/floppy2)
 set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin rd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns

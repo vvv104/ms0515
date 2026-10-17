@@ -1,52 +1,57 @@
-/* mount.c - mount(device, dir, top) and umount(device).  top is the
- * inode of the volume's directory put at dir - 0, its root: the whole
- * volume - which /bin/mount finds by the path on the volume.
- * mount(device, "/", 0) makes the volume the root in place of the boot's
+/* mount.c - mount(from, dir) and umount(device).
+ *
+ * from is a block device - its volume put at dir whole - or a directory
+ * of a volume mounted already, put at dir as well: the volume then in
+ * the table twice, its root at the one place and that directory at the
+ * other, the rest unseen there.  So /etc/rc has the boot diskette at
+ * /mnt/floppy1 and its /home at /home.  A directory of the root's volume
+ * is not put elsewhere, nor a volume on a directory of its own.  umount
+ * takes every place of the device's volume out at once.
+ *
+ * mount(device, "/") makes the volume the root in place of the boot's
  * (fs.c fs_pivot): /bin/ramroot's, the system copied to the RAM disk. */
 #include "sys.h"
 
 #define mounts (HIGH->mounts)
 #define itab (HIGH->itab)
 
-/* The block device at path: its number, or -1 and the error. */
-static int device_at(const char *path, int *error)
+/* What path names: a block device - its number, *top ROOT_INO - or a
+ * directory of a mounted volume - its device, *top the directory's inode;
+ * -1 and the error for anything else. */
+static int source(const char *path, unsigned *top, int *error)
 {
 	struct inode *ip = namei(path, error);
-	int dev;
+	unsigned mode;
+	int dev = -1;
 
 	if (!ip)
 		return -1;
-	dev = (ip->d.mode & S_IFMT) == S_IFBLK ? (int)ip->d.ext[0].start : -1;
+	mode = ip->d.mode & S_IFMT;
+	*top = ROOT_INO;
+	if (mode == S_IFBLK) {
+		dev = (int)ip->d.ext[0].start;
+	} else if (mode == S_IFDIR && ip->dev != mounts[0].dev) {
+		dev = (int)ip->dev;
+		*top = ip->ino;
+	}
 	iput(ip);
 	if (dev < 0)
-		*error = ENOTBLK;
+		*error = mode == S_IFDIR ? EINVAL : ENOTBLK;
 	return dev;
 }
 
-/* 0 when inode n of dev is a directory, else the error. */
-static int directory(unsigned dev, unsigned n)
+/* The volume of from into the tree at dir. */
+static int mount_on(const char *from, const char *dir)
 {
-	struct inode *ip = iget(dev, n);
-	int error;
-
-	if (!ip)
-		return ENFILE;
-	error = (ip->d.mode & S_IFMT) == S_IFDIR ? 0 : ENOTDIR;
-	iput(ip);
-	return error;
-}
-
-/* The volume on the device into the tree at dir, its directory top
- * there. */
-static int mount_on(const char *device, const char *dir, unsigned top)
-{
-	struct mount *m = 0;
+	struct mount *m = 0, *had;
 	struct inode *dp;
+	unsigned top;
 	int dev, error = 0, i;
 
-	if ((dev = device_at(device, &error)) < 0)
+	if ((dev = source(from, &top, &error)) < 0)
 		return error;
-	if (fs_mounted((unsigned)dev))
+	had = mount_of((unsigned)dev);
+	if (top == ROOT_INO ? fs_mounted((unsigned)dev) : !had)	/* a whole volume once */
 		return EBUSY;
 	if (dir[0] == '/' && !dir[1])
 		return fs_pivot((unsigned)dev);
@@ -57,41 +62,44 @@ static int mount_on(const char *device, const char *dir, unsigned top)
 		return ENFILE;
 	if (!(dp = namei(dir, &error)))
 		return error;
-	if ((dp->d.mode & S_IFMT) != S_IFDIR || dp->ino == ROOT_INO || covering(dp)) {
+	if ((dp->d.mode & S_IFMT) != S_IFDIR || dp->ino == ROOT_INO || covering(dp) || dp->dev == (unsigned)dev) {
 		iput(dp);
 		return (dp->d.mode & S_IFMT) != S_IFDIR ? ENOTDIR : EBUSY;
 	}
-	if ((error = read_super((unsigned)dev, &m->sb)) != 0) {
+	if (had)
+		memcpy(&m->sb, &had->sb, sizeof m->sb);
+	else if ((error = read_super((unsigned)dev, &m->sb)) != 0) {
 		iput(dp);
 		return error;
 	}
 	m->dev = (unsigned)dev;
 	m->on = dp;				/* held while it is covered */
-	m->top = top ? top : ROOT_INO;
-	m->used = 1;				/* in the table: its inodes are to be had */
-	if ((error = m->top > m->sb.inodes ? EINVAL : directory((unsigned)dev, m->top)) != 0) {
-		m->used = 0;
-		iput(dp);
-	}
-	return error;
+	m->top = top;
+	m->used = 1;
+	return 0;
 }
 
-/* The volume taken out, when nothing on it is held. */
+/* The device's volume taken out of every place it has, when nothing on
+ * it is held. */
 static int umount(const char *device)
 {
 	struct mount *m;
 	struct inode *ip;
+	unsigned top;
 	int dev, error = 0;
 
-	if ((dev = device_at(device, &error)) < 0)
-		return error;
+	if ((dev = source(device, &top, &error)) < 0 || top != ROOT_INO)
+		return error ? error : ENOTBLK;
 	if (!(m = mount_of((unsigned)dev)) || m == &mounts[0])
 		return EINVAL;
 	for (ip = itab; ip < itab + NINODE; ip++)
 		if (ip->count && ip->dev == (unsigned)dev)
 			return EBUSY;
-	iput(m->on);
-	m->used = 0;
+	for (m = mounts + 1; m < mounts + NMOUNT; m++)
+		if (m->used && m->dev == (unsigned)dev) {
+			iput(m->on);
+			m->used = 0;
+		}
 	bforget((unsigned)dev);			/* the diskette may be changed now */
 	return 0;
 }
@@ -102,7 +110,7 @@ int sys_mount(struct trapframe *tf, const unsigned *arg)
 
 	if ((error = user_string(arg[0], PATHMAX)) != 0 || (error = user_string(arg[1], PATHMAX)) != 0)
 		return error;
-	if ((error = mount_on((const char *)arg[0], (const char *)arg[1], arg[2])) != 0)
+	if ((error = mount_on((const char *)arg[0], (const char *)arg[1])) != 0)
 		return error;
 	tf->r0 = 0;
 	return 0;

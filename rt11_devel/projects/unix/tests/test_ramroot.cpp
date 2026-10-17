@@ -1,12 +1,13 @@
 /*
  * test_ramroot.cpp - the root in the RAM disk.  With the EX board /etc/rc
- * runs "ramroot /home /home" first: the system on the boot diskette -
- * all but what /home and /tmp hold - copied to the RAM disk, the copy made
- * the root (mount(device, "/", 0)), and the diskette's /home mounted at
- * /home (mount's third argument, a directory of the volume).  So the
- * system runs from memory and the user's files stay on the diskette; with
- * cd out of /home, umount lets the diskette go and it is taken out.
- * Without the board the root stays the diskette's.
+ * runs "ramroot /mnt/floppy1 /home" first: the system on the boot diskette
+ * - all but what /home and /tmp hold - copied to the RAM disk, the copy
+ * made the root (mount(device, "/")), the diskette mounted at
+ * /mnt/floppy1 and its /home at /home (mount of a directory of a mounted
+ * volume).  So the system runs from memory and the user's files stay on
+ * the diskette; with cd out of /home, umount takes both places out and
+ * the diskette is taken out.  Without the board the root stays the
+ * diskette's.
  */
 #include "Machine.hpp"
 #include "Volume.hpp"
@@ -60,7 +61,9 @@ TEST_CASE("with the RAM disk the system is copied there, the root is the copy, /
     MESSAGE("booted with the root in the RAM disk in " << frames << " frames");
     INFO(m.screen());
     REQUIRE(frames < 3000);
-    CHECK(m.screen().find("ramroot: the root in /dev/rd0, /home of /dev/fdx0 at /home") != std::string::npos);
+    CHECK(m.screen().find("ramroot: the root in /dev/rd0, /dev/fdx0 at /mnt/floppy1, /home at /home") != std::string::npos);
+    REQUIRE(m.command("ls /mnt/floppy1"));
+    CHECK(after(m, "ls /mnt/floppy1").find("bin") != std::string::npos);
     REQUIRE(m.command("echo kept > /home/f"));
     REQUIRE(m.command("echo in memory > /tmp/g"));
     REQUIRE(m.command("cat /home/f"));
@@ -135,14 +138,17 @@ TEST_CASE("the diskette let go and taken out: the system runs on from memory") {
     CHECK(m.screen().find("panic") == std::string::npos);
 }
 
-TEST_CASE("another diskette's /home mounted at /home by mount DEVICE DIR PATH") {
+TEST_CASE("another diskette at /mnt/floppy1 and its /home at /home") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     REQUIRE(m.boot());
     REQUIRE(m.command("cd /"));
     REQUIRE(m.command("umount /dev/fdx0"));
+    REQUIRE(m.command("ls /mnt/floppy1"));                    /* both places gone */
+    CHECK(after(m, "ls /mnt/floppy1").find("bin") == std::string::npos);
     m.insertFirst(withUserFiles());
-    REQUIRE(m.command("mount /dev/fdx0 /home /home", 3000));
+    REQUIRE(m.command("mount /dev/fdx0 /mnt/floppy1", 3000));
+    REQUIRE(m.command("mount /mnt/floppy1/home /home", 3000));
     REQUIRE(m.command("cat /home/u", 3000));
     INFO(m.screen());
     CHECK(after(m, "cat /home/u").find("\nmine\n#") != std::string::npos);
@@ -151,21 +157,29 @@ TEST_CASE("another diskette's /home mounted at /home by mount DEVICE DIR PATH") 
     CHECK(after(m, "pwd").find("\n/home\n#") != std::string::npos);
 }
 
-TEST_CASE("mount with a path refused: none on the volume, a file, a busy device") {
+TEST_CASE("a directory of a mounted volume put elsewhere; what is refused") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), false);
     m.insertSecond(unixos::readImage());
     REQUIRE(m.boot());
-    REQUIRE(m.command("mount /dev/fdx1 /tmp /nosuch", 3000));
-    CHECK(after(m, "mount /dev/fdx1 /tmp /nosuch").find("mount: /nosuch: not found") != std::string::npos);
-    REQUIRE(m.command("mount /dev/fdx1 /tmp /etc/motd", 3000));
-    CHECK(after(m, "mount /dev/fdx1 /tmp /etc/motd").find("mount: /etc/motd: not a directory") != std::string::npos);
-    REQUIRE(m.command("mount /dev/fdx1 /tmp /etc", 3000));
+    REQUIRE(m.command("mount /mnt/floppy2/etc /tmp", 3000));      /* not mounted yet: none there */
+    CHECK(after(m, "mount /mnt/floppy2/etc /tmp").find("mount: /mnt/floppy2/etc: not found") != std::string::npos);
+    REQUIRE(m.command("mount /dev/fdx1 /mnt/floppy2", 3000));
+    REQUIRE(m.command("mount /mnt/floppy2/etc /tmp", 3000));
     REQUIRE(m.command("ls /tmp", 3000));
     INFO(m.screen());
     CHECK(after(m, "ls /tmp").find("motd") != std::string::npos);
-    REQUIRE(m.command("mount /dev/fdx1 /home /bin", 3000));
-    CHECK(after(m, "mount /dev/fdx1 /home /bin").find("busy") != std::string::npos);
+    REQUIRE(m.command("mount /etc/motd /home", 3000));
+    CHECK(after(m, "mount /etc/motd /home").find("mount: /etc/motd: not a block device") != std::string::npos);
+    REQUIRE(m.command("mount /etc /home", 3000));                  /* the root's own */
+    CHECK(after(m, "mount /etc /home").find("mount: /etc: no file system there") != std::string::npos);
+    REQUIRE(m.command("mount /dev/fdx1 /home", 3000));             /* whole, a second time */
+    CHECK(after(m, "mount /dev/fdx1 /home").find("busy") != std::string::npos);
+    REQUIRE(m.command("mount /mnt/floppy2/bin /mnt/floppy2/home", 3000));   /* on itself */
+    CHECK(after(m, "mount /mnt/floppy2/bin /mnt/floppy2/home").find("busy") != std::string::npos);
+    REQUIRE(m.command("umount /dev/fdx1", 3000));
+    REQUIRE(m.command("ls /tmp", 3000));
+    CHECK(after(m, "ls /tmp").find("motd") == std::string::npos);  /* every place of it out */
 }
 
 TEST_CASE("the root's device is not made anew: mkfs of the RAM disk refused") {

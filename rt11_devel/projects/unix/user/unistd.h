@@ -38,7 +38,7 @@ int unlink(const char *path);
 int chmod(const char *path, int rights);	/* 0..7: r 4, w 2, x 1 */
 int mkdir(const char *path);
 int sync(void);
-int mount(const char *device, const char *dir, unsigned top);	/* top: a directory's inode, 0 the root */
+int mount(const char *from, const char *dir);	/* from: a device, or a directory of a mounted volume */
 int umount(const char *device);
 int ioctl(int fd, int cmd, void *arg);
 long lseek(int fd, long off, int whence);

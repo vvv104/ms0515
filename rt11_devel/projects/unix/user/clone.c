@@ -1,6 +1,5 @@
-/* clone.c - a volume read and copied by its blocks (clone.h): the system
- * into the RAM disk (ramroot), onto a diskette that boots (mkboot), a
- * directory of a volume found for mount. */
+/* clone.c - a volume copied by its blocks (clone.h): the system into the
+ * RAM disk (ramroot), onto a diskette that boots (mkboot). */
 #include "unistd.h"
 #include "clone.h"
 #include "../kernel/fs.h"
@@ -85,26 +84,6 @@ static int super(int fd, struct superblock *sb)
 		return -1;
 	itable = sb->itable;
 	return 0;
-}
-
-unsigned volume_inode(int fd, const char *path)
-{
-	struct superblock sb;
-	unsigned n = ROOT_INO;
-	int len;
-
-	if (super(fd, &sb) < 0)
-		return 0;
-	while (n && *path) {
-		while (*path == '/')
-			path++;
-		for (len = 0; path[len] && path[len] != '/'; len++)
-			;
-		if (len)
-			n = lookup(fd, n, path, len);
-		path += len;
-	}
-	return n;
 }
 
 unsigned device_blocks(int fd)

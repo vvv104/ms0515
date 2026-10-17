@@ -21,7 +21,7 @@
 #define NSHADOW 15			/* more in the shadow copy of bank 1 */
 #define SCRATCH SHADOW_BLOCK(NSHADOW)	/* its last block: fork's bounce */
 
-#define NMOUNT 3
+#define NMOUNT 4			/* the root, two diskettes, /home */
 #define NINODE 8
 #define LINE 80				/* the console's line in hand */
 #define QUEUE 256			/* the lines typed, not yet read */
@@ -35,7 +35,8 @@ struct shadow {
 
 /* A volume in the tree: the root (the table's first), or one mounted on a
  * directory, which it covers while it is there - the volume's root, or a
- * directory of it, whose inode is top: the rest of the volume unseen. */
+ * directory of it, whose inode is top, the rest of the volume unseen
+ * there (mount.c): one volume may be in the table twice. */
 struct mount {
 	unsigned dev;
 	struct superblock sb;

@@ -75,6 +75,7 @@ int fs_pivot(unsigned dev)
 	if ((error = read_super(dev, &mounts[1].sb)) != 0)	/* the free place's, to check */
 		return error;
 	memcpy(&mounts[0].sb, &mounts[1].sb, sizeof mounts[0].sb);
+	mounts[0].top = ROOT_INO;
 	for (p = HIGH->procs; p < HIGH->procs + NPROC; p++)
 		if (p->cwd && p->cwd->dev == rootdev) {
 			iput(p->cwd);

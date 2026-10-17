@@ -9,13 +9,15 @@ Stages 1-5 are done.  The native ROM-B boots the system's diskette, the
 boot block loads the kernel, /boot/kernel, and the kernel mounts the root,
 loads its drivers - /boot/rd finds the EX board's RAM disk, /boot/fd takes
 the diskettes - and runs /etc/init.  init gives its place
-to the shell on /etc/rc: with the RAM disk `ramroot /home /home` copies
-the system there - the boot diskette's volume block for block, all but
-what /home and /tmp hold - makes the copy the root (`mount(rd0, "/", 0)`)
-and mounts the diskette's /home at /home: `mount` takes a directory of a
-volume as well as the whole, `mount DEVICE DIR [PATH]`.  So the system
+to the shell on /etc/rc: with the RAM disk `ramroot /mnt/floppy1 /home`
+copies the system there - the boot diskette's volume block for block, all
+but what /home and /tmp hold - makes the copy the root (`mount(rd0,
+"/")`), mounts the diskette at /mnt/floppy1 and its /home at /home:
+`mount` puts a directory of a mounted volume elsewhere as well as a
+device's whole volume, `mount /mnt/floppy1/home /home`.  So the system
 runs from memory and the user's files stay on the diskette; with `cd`
-out of /home, `umount /dev/fdx0` lets it go and it is taken out.  The
+out of /home, `umount /dev/fdx0` takes both places out and the diskette
+is taken out.  /mnt/floppy2 is there for the second drive.  The
 copy costs the boot some 8 seconds, 940 frames against 510.
 `mkboot [-a] DEVICE` copies the root's volume - the RAM disk's or the
 diskette's - to a diskette that then boots, the system alone or with -a
@@ -182,12 +184,12 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   `cwd.c` (getcwd: the directory's path, up by .. - pwd's and the shell's
   prompt's), and the programs of /bin: `sh.c` (scripts too, the prompt
   with the directory, Tab's completion), `ls.c`,
-  `cat.c`, `echo.c`, `rm.c`, `mkdir.c`, `mkfs.c`, `mount.c` (a directory of a volume too; `mount -a`:
+  `cat.c`, `echo.c`, `rm.c`, `mkdir.c`, `mkfs.c`, `mount.c` (a directory of a mounted volume too; `mount -a`:
   /etc/fstab's volumes, in one process), `umount.c`,
   `fdformat.c` (a diskette's tracks built and written, a side or both),
   `ramroot.c` (the root into the RAM disk), `mkboot.c` (a diskette
   that boots), `clone.c` (a volume copied block for block, the user's
-  files left out, theirs; a path found on a volume not mounted, mount's),
+  files left out, theirs),
   `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `user/own/` - the little library of a program that owns the machine:
   `crt0.s` (the loader, run first at 040020 and then from 157000, reading
@@ -234,8 +236,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   (`Machine::ramDisk`), `..` out of a volume, umount; the system copied to
   the RAM disk without the user's files - a second name of a system file
   among them counted down, their blocks free in the copy - the diskette's
-  /home at /home, pwd and .. through it, let go and taken out with the
-  system running on, another diskette's /home mounted, a path refused, the
+  diskette at /mnt/floppy1 and its /home at /home, pwd and .. through it,
+  let go and taken out with the system running on, another diskette and
+  its /home mounted, a directory put elsewhere and what is refused, the
   root's device refused for mkfs; mkboot from the RAM root and from the
   diskette's, the system alone and all, to both sides and to one, into the
   boot drive with its diskette changed, each copy booted, and refused for a
@@ -283,7 +286,7 @@ The build reports the kernel's memory and stops past its limits
 the drivers' place - with four places in the process table, the two
 slots', a parked one's and a zombie's, and their kernel stacks at 320
 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 14904 bytes, 1436 bytes free below 040000, 1816 free in
+an image of 14994 bytes, 1346 bytes free below 040000, 1760 free in
 bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory, which keep -O2.
