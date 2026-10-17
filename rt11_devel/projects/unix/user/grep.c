@@ -1,50 +1,22 @@
 /* grep.c - /bin/grep [-vnc] PATTERN [FILE...]: the lines of each file, or of
  * the input with none, that hold the pattern - with -v those that do not,
  * -n each with its number, -c only how many; the file's name before each
- * when there are several.  In the pattern ^ is the line's start, $ its
- * end, . any character, x* any number of x; the rest stands for itself.
+ * when there are several.  The pattern is re.c's: ^ the line's start, $
+ * its end, . any character, x* any number of x, \x the x itself.
  * The status: 0 a line found, 1 none, 2 a file not read. */
 #include "unistd.h"
+#include "re.h"
 
 #define LINE 256
 
 static int invert, numbered, counted, named;
 
-static int here(const char *re, const char *text);
-
-/* c* at the start of the text, the rest of the pattern after it. */
-static int star(int c, const char *re, const char *text)
+/* Whether the line holds the pattern (re.c). */
+static int match(const char *re, const char *line)
 {
-	do {
-		if (here(re, text))
-			return 1;
-	} while (*text && (*text++ == c || c == '.'));
-	return 0;
-}
+	const char *start;
 
-/* Whether the pattern matches at the start of the text. */
-static int here(const char *re, const char *text)
-{
-	if (!re[0])
-		return 1;
-	if (re[1] == '*')
-		return star(re[0], re + 2, text);
-	if (re[0] == '$' && !re[1])
-		return !*text;
-	if (*text && (re[0] == '.' || re[0] == *text))
-		return here(re + 1, text + 1);
-	return 0;
-}
-
-static int match(const char *re, const char *text)
-{
-	if (re[0] == '^')
-		return here(re + 1, text);
-	do {
-		if (here(re, text))
-			return 1;
-	} while (*text++);
-	return 0;
+	return re_match(re, line, &start) != 0;
 }
 
 /* The lines of fd against the pattern: how many were told. */

@@ -35,6 +35,7 @@ add_executable(unix_tests
     test_intr.cpp
     test_history.cpp
     test_text.cpp
+    test_ed.cpp
     test_kstack.cpp
 )
 

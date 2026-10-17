@@ -439,7 +439,7 @@ already usable.  The sizes are estimates for GCC `-Os`.
 | Level | Utilities | Estimate |
 | --- | --- | --- |
 | 1. Minimum | `init`, `sh` (pipes, `<` `>`, `&`, scripts), `ls`, `cat`, `cp`, `mv`, `rm`, `ln`, `mkdir`, `rmdir` (done), `pwd`, `echo`, `ps`, `kill`, `mount`, `umount`, `sync`, `df`, `date` | ~30-40 KB in all, `sh` ~6-8 KB |
-| 2. Text | `ed`, `grep` (done), `wc` (done), `head` (done), `tail` (done), `tr`, `uniq`, `cmp`, `od`, `sort` (temporary files on the RAM disk), `more` | `ed` ~8 KB |
+| 2. Text | `ed` (done), `grep` (done), `wc` (done), `head` (done), `tail` (done), `tr`, `uniq`, `cmp`, `od`, `sort` (temporary files on the RAM disk), `more` | `ed` ~8 KB |
 | 3. Screen editor | vi-like, 80 x 25 | - |
 | 4. Languages | Forth, BASIC, `as` (a PDP-11 assembler), `dc`/`bc`; a C compiler on the machine later, multi-pass | Forth 4-8 KB |
 | 5. MS 0515 specifics | `rt11` (ls/get/put on RT-11 diskettes), `fdformat`, `beep`/`play` (timer channel 2), `view` (`.SCR`), exchange with a PC over RS-232 (XMODEM/Kermit) | - |

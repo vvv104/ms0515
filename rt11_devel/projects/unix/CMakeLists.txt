@@ -134,7 +134,8 @@ program(rmdir user/rmdir.c)
 program(wc user/wc.c)
 program(head user/head.c)
 program(tail user/tail.c)
-program(grep user/grep.c)
+program(grep user/grep.c user/re.c)
+program(ed user/ed.c user/re.c)
 program(ramroot user/ramroot.c user/clone.c)
 program(mkboot user/mkboot.c user/clone.c)
 
@@ -204,6 +205,7 @@ set(VOLUME_FILES
     /bin/head=head.x
     /bin/tail=tail.x
     /bin/grep=grep.x
+    /bin/ed=ed.x
     /bin/ramroot=ramroot.x
     /bin/mkboot=mkboot.x
     /bin/bigmem=bigmem.x

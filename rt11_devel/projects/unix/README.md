@@ -57,7 +57,9 @@ The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls` (`-l`, `-a`), `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `du`, `df`, `chmod`, `mkfs`,
 `mount`, `umount`,
 `fdformat`, `sleep`, `ramroot`, `mkboot`, `rmdir`, `wc`, `head`, `tail`,
-`grep` (`-v`, `-n`, `-c`; `^ $ . *`), `hello`, `fail`, `pid`, `bigmem` (a program that owns
+`grep` (`-v`, `-n`, `-c`; `^ $ . *`), `ed` (the line editor: a i c d p n
+s j m t = w r e f q, addresses by number, . $ +N -N /re/ ?re?, the file in
+memory, 16 KB), `hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine), `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
 `rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd` (alone: /home), `t` (the time),
@@ -204,7 +206,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   that boots), `clone.c` (a volume copied block for block, the user's
   files left out, theirs),
   `rmdir.c`, `wc.c`, `head.c`, `tail.c` (the input's last 2 KB kept),
-  `grep.c` (Kernighan and Pike's matcher),
+  `grep.c`, `re.c` (the patterns grep and ed share: Kernighan and Pike's
+  matcher, with `\x` and the match's ends), `ed.c`,
   `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `user/own/` - the little library of a program that owns the machine:
   `crt0.s` (the loader, run first at 040020 and then from 157000, reading
@@ -262,7 +265,10 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   given up; wc, head and tail of a file and of their input, grep's
   patterns, -v, -n, -c and its status, rmdir taking an empty directory
   and its block and refusing one with names, a file, one in use, the
-  root; mkboot from the RAM root and from the
+  root; ed making a file, printing by every kind of address, substituting
+  with g and &, deleting, changing, inserting, joining, moving, copying,
+  reading and writing other files, its ? and q twice, its commands from a
+  file; mkboot from the RAM root and from the
   diskette's, the system alone and all, to both sides and to one, into the
   boot drive with its diskette changed, each copy booted, and refused for a
   busy or empty drive or no device; /etc/rc
