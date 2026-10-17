@@ -109,7 +109,7 @@ function(program name)
 endfunction()
 program(init user/init.c)
 program(sh user/sh.c user/cwd.c)
-program(ls user/ls.c)
+program(ls user/ls.c user/when.c)
 program(cat user/cat.c)
 program(echo user/echo.c)
 program(hello user/hello.c)
@@ -146,6 +146,7 @@ program(sync user/sync.c)
 program(ps user/ps.c)
 program(kill user/kill.c)
 program(more user/more.c)
+program(date user/date.c user/when.c)
 program(ramroot user/ramroot.c user/clone.c)
 program(mkboot user/mkboot.c user/clone.c)
 
@@ -222,6 +223,7 @@ set(SYSTEM_FILES
     /bin/ps=ps.x
     /bin/kill=kill.x
     /bin/more=more.x
+    /bin/date=date.x
     /bin/ramroot=ramroot.x
     /bin/mkboot=mkboot.x
     /bin/rt11=rt11.x

@@ -21,7 +21,7 @@ enum {
 	SYS_CHMOD = 15, SYS_STAT = 18, SYS_LSEEK = 19, SYS_GETPID = 20, SYS_FSTAT = 28,
 	SYS_MOUNT = 21, SYS_UMOUNT = 22,
 	SYS_SYNC = 36, SYS_DUP = 41, SYS_IOCTL = 54, SYS_GETPPID = 64,
-	SYS_KILL = 37, SYS_GETPROC = 65,
+	SYS_KILL = 37, SYS_GETPROC = 65, SYS_STIME = 25,
 	SYS_MKDIR = 136, SYS_RMDIR = 137
 };
 enum { ESPIPE = 29 };
@@ -439,6 +439,15 @@ static int sys_getproc(struct trapframe *tf, const unsigned *arg)
 	return 0;
 }
 
+/* stime(t): the date set - t a long, its two words as the compiler keeps
+ * one, the high first. */
+static int sys_stime(struct trapframe *tf, const unsigned *arg)
+{
+	clock_set((const unsigned long *)arg);
+	tf->r0 = 0;
+	return 0;
+}
+
 static int sys_sync(struct trapframe *, const unsigned *)
 {
 	return 0;				/* every write goes through at once */
@@ -496,6 +505,7 @@ static const struct {
 	{SYS_MOUNT, sys_mount}, {SYS_UMOUNT, sys_umount}, {SYS_FSTAT, sys_fstat}, {SYS_SYNC, sys_sync},
 	{SYS_DUP, sys_dup}, {SYS_IOCTL, sys_ioctl}, {SYS_GETPPID, sys_getppid}, {SYS_MKDIR, sys_mkdir},
 	{SYS_RMDIR, sys_rmdir}, {SYS_KILL, sys_kill}, {SYS_GETPROC, sys_getproc},
+	{SYS_STIME, sys_stime},
 };
 
 void syscall(struct trapframe *tf)

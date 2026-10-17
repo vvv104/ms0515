@@ -42,11 +42,23 @@ int clock_intr(void)
 	return resched;
 }
 
+static unsigned long base;		/* the date at the boot: 1970 until stime */
+
+/* The date now, seconds since 1970. */
 unsigned long clock_seconds(void)
 {
 	int s = spl7();
 	unsigned long t = seconds;
 
 	splx(s);
-	return t;
+	return base + t;
+}
+
+/* stime: the date set - there is no calendar clock to keep it. */
+void clock_set(const unsigned long *now)
+{
+	int s = spl7();
+
+	base = *now - seconds;
+	splx(s);
 }

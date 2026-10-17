@@ -81,10 +81,14 @@ TEST_CASE("ls -l: a line a file - its type and rights, links, size, name; -a sho
         const auto ino = v.lookup(std::string("/etc/") + name);
         REQUIRE(ino);
         const auto i = v.inode(*ino);
-        const std::string line = modeString(i.mode) + " " + rightAligned(i.nlink, 2) + " " +
-                                 rightAligned(i.size, 7) + " " + name;
-        CAPTURE(line);
-        CHECK(out.find("\n" + line + "\n") != std::string::npos);
+        /* the type and rights, links, size, then the date (test_date.cpp), the name last */
+        const std::string head = modeString(i.mode) + " " + rightAligned(i.nlink, 2) + " " +
+                                 rightAligned(i.size, 7) + " ";
+        CAPTURE(head);
+        const auto at = out.find("\n" + head);
+        REQUIRE(at != std::string::npos);
+        const std::string line = out.substr(at + 1, out.find('\n', at + 1) - at - 1);
+        CHECK(line.substr(line.size() - std::string(name).size() - 1) == std::string(" ") + name);
     }
     REQUIRE(m.command("ls -a /"));
     CHECK(after(m, "ls -a /").find(".  ..") != std::string::npos);

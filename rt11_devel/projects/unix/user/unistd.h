@@ -42,6 +42,7 @@ int chmod(const char *path, int rights);	/* 0..7: r 4, w 2, x 1 */
 int mkdir(const char *path);
 int rmdir(const char *path);		/* an empty directory */
 int kill(int pid, int sig);		/* the process taken out, whatever sig */
+int stime(long t);			/* the date set: seconds since 1970 */
 int getproc(int n, struct pinfo *info);	/* the process table's nth place */
 int sync(void);
 int mount(const char *from, const char *dir);	/* from: a device, or a directory of a mounted volume */

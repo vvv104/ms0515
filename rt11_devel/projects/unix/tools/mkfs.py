@@ -27,6 +27,8 @@ Words go down the low byte first, a long as two words, the high word first,
 as the PDP-11's compiler keeps one.
 """
 import argparse
+import os
+import time
 import random
 import struct
 import subprocess
@@ -62,6 +64,11 @@ def offset(lbn, sides=2):
     track = (n // 10 + 1) % 80
     sector = (INTERLEAVE[n % 10] + 2 * track - 2) % 10
     return side * 5120 + track * 5120 * sides + sector * 512
+
+
+# The files' time: the build's, or SOURCE_DATE_EPOCH's for one made again
+# the same.
+BUILT = int(os.environ.get("SOURCE_DATE_EPOCH", time.time()))
 
 
 def long_(value):
@@ -171,7 +178,7 @@ class Volume:
             ext = struct.pack("<HH", start, count) if count else b""
             if device:
                 ext = struct.pack("<HH", start, 0)
-            raw = (struct.pack("<HBB", mode, nlink, 1 if count else 0) + long_(len(data)) + long_(0) +
+            raw = (struct.pack("<HBB", mode, nlink, 1 if count else 0) + long_(len(data)) + long_(BUILT) +
                    ext.ljust(20, b"\0"))
             table[(n - 1) * 32:n * 32] = raw
         for i in range(IBLOCKS):

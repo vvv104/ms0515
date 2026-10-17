@@ -438,7 +438,7 @@ already usable.  The sizes are estimates for GCC `-Os`.
 
 | Level | Utilities | Estimate |
 | --- | --- | --- |
-| 1. Minimum | `init`, `sh` (pipes, `<` `>`, `&`, scripts), `ls`, `cat`, `cp`, `mv`, `rm`, `ln`, `mkdir`, `rmdir` (done), `pwd`, `echo`, `ps` (done), `kill` (done), `mount`, `umount`, `sync` (done), `df`, `date` | ~30-40 KB in all, `sh` ~6-8 KB |
+| 1. Minimum | `init`, `sh` (pipes, `<` `>`, `&`, scripts), `ls`, `cat`, `cp`, `mv`, `rm`, `ln`, `mkdir`, `rmdir` (done), `pwd`, `echo`, `ps` (done), `kill` (done), `mount`, `umount`, `sync` (done), `df`, `date` (done: no calendar clock, set after each boot) | ~30-40 KB in all, `sh` ~6-8 KB |
 | 2. Text | `ed` (done), `grep` (done), `wc` (done), `head` (done), `tail` (done), `tr`, `uniq`, `cmp`, `od`, `sort` (all done; sort in memory), `more` (done) | `ed` ~8 KB |
 | 3. Screen editor | vi-like, 80 x 25 | - |
 | 4. Languages | Forth, BASIC, `as` (a PDP-11 assembler), `dc`/`bc`; a C compiler on the machine later, multi-pass | Forth 4-8 KB |

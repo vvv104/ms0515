@@ -55,6 +55,7 @@ void *memset(void *p, int c, unsigned n);
 /* clock.c */
 void clock_start(void);
 unsigned long clock_seconds(void);
+void clock_set(const unsigned long *now);
 
 /* tty.c */
 int tty_read(char *buf, int n);

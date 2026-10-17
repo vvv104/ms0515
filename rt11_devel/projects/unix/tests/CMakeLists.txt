@@ -40,6 +40,7 @@ add_executable(unix_tests
     test_util.cpp
     test_ps.cpp
     test_more.cpp
+    test_date.cpp
     test_kstack.cpp
 )
 

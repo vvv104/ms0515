@@ -228,6 +228,7 @@ static struct inode *ialloc(unsigned dev, unsigned mode)
 		memset(&ip->d, 0, sizeof ip->d);
 		ip->d.mode = mode;
 		ip->d.nlink = 1;
+		ip->d.mtime = clock_seconds();
 		iupdate(ip);
 		return ip;
 	}
@@ -339,6 +340,7 @@ int writei(struct inode *ip, unsigned long off, const char *buf, unsigned n)
 		if (off > ip->d.size)
 			ip->d.size = off;
 	}
+	ip->d.mtime = clock_seconds();
 	iupdate(ip);
 	if (put == 0 && n > 0)
 		return -ENOSPC;

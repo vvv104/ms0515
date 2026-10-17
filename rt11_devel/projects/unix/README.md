@@ -64,7 +64,10 @@ memory, 16 KB), `sort` (`-r`, `-n`, `-u`), `uniq` (`-c`, `-d`), `tr` (ranges,
 `-d`), `cmp` (`-s`), `od` (`-b`, `-c`, `-x`), `find` (`-name` with `*` and
 `?`, `-type`), `sync`, `ps` (pid, parent, state, & for the background,
 name), `kill` (as Ctrl+C, a sleeping one woken; not the session's shell),
-`more` (23 lines and --More--: space, Enter, q), `hello`, `fail`, `pid`, `bigmem` (a program that owns
+`more` (23 lines and --More--: space, Enter, q), `date` (`YYMMDDhhmm[.ss]`
+sets it: the machine has no calendar clock, so after the boot it counts
+from 1970 until set; a file written takes the time, `ls -l` shows it, the
+images' files have their build's), `hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine), `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
 `rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd` (alone: /home), `t` (the time),
@@ -206,6 +209,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   time, getpid, sync, dup, getppid, mkdir, rmdir (an empty directory, no
   process in it, nothing holding it), kill (37), getproc (65: the
   process table's place n, its head as it is - kernel/pinfo.h for ps),
+  stime (25: the date set),
   chmod, stat, link and the
   rest; the open files, the system's, shared by a fork's descriptors.
   When pid 1 exits, a new shell runs in its place.
@@ -226,7 +230,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   matcher, with `\x` and the match's ends), `ed.c`, `sort.c` (Shell's
   sort, the lines in memory), `uniq.c`, `tr.c`, `cmp.c`, `od.c`, `find.c`,
   `sync.c`, `ps.c`, `kill.c`, `more.c` (its keys from the console, 2, in
-  the raw mode),
+  the raw mode), `date.c`, `when.c` (seconds since 1970 to the calendar
+  and back, date's and ls's),
   `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `user/own/` - the little library of a program that owns the machine:
   `crt0.s` (the loader, run first at 040020 and then from 157000, reading
@@ -292,6 +297,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   itself, a background command's & and its name, kill taking it out and
   refusing the session's shell and a pid not there; more a page, space,
   Enter, q, a pipe, a file whole, its output not the console, Ctrl+C;
+  date from 1970, set and going on, refused, a file's time and ls -l's;
   mkboot from the RAM root and from the
   diskette's, the system alone and all, to both sides and to one, into the
   boot drive with its diskette changed, each copy booted, and refused for a
@@ -339,7 +345,7 @@ The build reports the kernel's memory and stops past its limits
 the drivers' place - with four places in the process table, the two
 slots', a parked one's and a zombie's, and their kernel stacks at 320
 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 15918 bytes, 460 bytes free below 040000, 1680 free in
+an image of 16040 bytes, 342 bytes free below 040000, 1672 free in
 bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory, which keep -O2.
