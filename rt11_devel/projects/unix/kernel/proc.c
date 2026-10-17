@@ -219,6 +219,7 @@ int fork(struct trapframe *tf)
 	c->ppid = curproc->pid;
 	c->killed = 0;
 	c->bg = curproc->bg;
+	memcpy(c->name, curproc->name, PNAME);
 	c->chan = 0;
 	for (i = 0; i < NOFILE; i++)
 		if ((c->ofile[i] = curproc->ofile[i]) != 0)
@@ -293,6 +294,31 @@ int pwait(unsigned status_ptr)
 		}
 		if (!any)
 			return -ECHILD;
+		if (curproc->killed)
+			return -EINTR;
 		sleep(curproc);
 	}
 }
+
+/* kill(pid): the process marked to exit as Ctrl+C marks it (preempt), one
+ * asleep woken to see it - each sleep is in a loop that looks again; not
+ * the session's shell.  0, or the error. */
+int pkill(int pid)
+{
+	struct proc *p;
+
+	for (p = procs; p < procs + NPROC; p++)
+		if ((p->state == P_RUN || p->state == P_SLEEP) && p->pid == pid) {
+			if (pid == 1)
+				return EACCES;
+			p->killed = 1;
+			if (p->state == P_SLEEP)
+				p->state = P_RUN;
+			resched = 1;
+			return 0;
+		}
+	return ESRCH;
+}
+
+/* ps's view of a process is its head as it is (pinfo.h). */
+_Static_assert(sizeof(struct pinfo) == __builtin_offsetof(struct proc, kstack), "pinfo.h is not proc.h's head");

@@ -62,7 +62,9 @@ The file system is written, each change going to the disk at once.  /bin has
 s j m t = w r e f q, addresses by number, . $ +N -N /re/ ?re?, the file in
 memory, 16 KB), `sort` (`-r`, `-n`, `-u`), `uniq` (`-c`, `-d`), `tr` (ranges,
 `-d`), `cmp` (`-s`), `od` (`-b`, `-c`, `-x`), `find` (`-name` with `*` and
-`?`, `-type`), `sync`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
+`?`, `-type`), `sync`, `ps` (pid, parent, state, & for the background,
+name), `kill` (as Ctrl+C, a sleeping one woken; not the session's shell),
+`hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine), `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
 `rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd` (alone: /home), `t` (the time),
@@ -200,7 +202,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
 - `kernel/sys.c` - the system calls by V6's numbers: exit, fork, read,
   write, open (to read, to write, both), close, wait, creat, unlink, exec,
   time, getpid, sync, dup, getppid, mkdir, rmdir (an empty directory, no
-  process in it, nothing holding it), chmod, stat, link and the
+  process in it, nothing holding it), kill (37), getproc (65: the
+  process table's place n, its head as it is - kernel/pinfo.h for ps),
+  chmod, stat, link and the
   rest; the open files, the system's, shared by a fork's descriptors.
   When pid 1 exits, a new shell runs in its place.
 - `user/` - a process's start (`crt0.s`, `main(argc, argv)`), the calls as
@@ -219,7 +223,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   `grep.c`, `re.c` (the patterns grep and ed share: Kernighan and Pike's
   matcher, with `\x` and the match's ends), `ed.c`, `sort.c` (Shell's
   sort, the lines in memory), `uniq.c`, `tr.c`, `cmp.c`, `od.c`, `find.c`,
-  `sync.c`,
+  `sync.c`, `ps.c`, `kill.c`,
   `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `user/own/` - the little library of a program that owns the machine:
   `crt0.s` (the loader, run first at 040020 and then from 157000, reading
@@ -281,7 +285,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   with g and &, deleting, changing, inserting, joining, moving, copying,
   reading and writing other files, its ? and q twice, its commands from a
   file; ls in order, sort -r -n -u, uniq -c -d, tr, cmp and -s, od's
-  four forms, find with -name and -type, sync; mkboot from the RAM root and from the
+  four forms, find with -name and -type, sync; ps with the shell and
+  itself, a background command's & and its name, kill taking it out and
+  refusing the session's shell and a pid not there; mkboot from the RAM root and from the
   diskette's, the system alone and all, to both sides and to one, into the
   boot drive with its diskette changed, each copy booted, and refused for a
   busy or empty drive or no device; /etc/rc
@@ -328,7 +334,7 @@ The build reports the kernel's memory and stops past its limits
 the drivers' place - with four places in the process table, the two
 slots', a parked one's and a zombie's, and their kernel stacks at 320
 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 15550 bytes, 808 bytes free below 040000, 1734 free in
+an image of 15854 bytes, 524 bytes free below 040000, 1682 free in
 bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory, which keep -O2.

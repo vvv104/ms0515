@@ -4,10 +4,12 @@
 #define UNIX_UNISTD_H
 
 #include "../kernel/stat.h"
+#include "../kernel/pinfo.h"
 
 extern int errno;
 #define PATHMAX 64			/* a path a call takes, its NUL too */
 #define ENOENT 2
+#define ESRCH 3
 #define E2BIG 7				/* a path or the arguments too long */
 #define EAGAIN 11
 #define EEXIST 17
@@ -39,6 +41,8 @@ int unlink(const char *path);
 int chmod(const char *path, int rights);	/* 0..7: r 4, w 2, x 1 */
 int mkdir(const char *path);
 int rmdir(const char *path);		/* an empty directory */
+int kill(int pid, int sig);		/* the process taken out, whatever sig */
+int getproc(int n, struct pinfo *info);	/* the process table's nth place */
 int sync(void);
 int mount(const char *from, const char *dir);	/* from: a device, or a directory of a mounted volume */
 int umount(const char *device);

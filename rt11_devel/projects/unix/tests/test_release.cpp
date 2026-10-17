@@ -99,7 +99,7 @@ TEST_CASE("ubix.dsk boots with the RAM disk and without, ubix01.dsk without") {
             CHECK(m.screen().find("UBIX V0.1") != std::string::npos);
             CHECK((m.screen().find("ramroot: the root in /dev/rd0") != std::string::npos) == ram);
             REQUIRE(m.command("echo kept > /home/f"));
-            REQUIRE(m.command("ls /bin | grep -c ed"));
+            REQUIRE(m.command("ls /bin | grep -c ed", 4000));      /* through /tmp on the diskette without one */
             CHECK(after(m, "ls /bin | grep -c ed").find("\n1\n#") != std::string::npos);
             Volume v(m.imageNow());
             CHECK(v.lookup("/home/f"));                     /* on the diskette either way */

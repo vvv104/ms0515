@@ -21,6 +21,7 @@ enum {
 	SYS_CHMOD = 15, SYS_STAT = 18, SYS_LSEEK = 19, SYS_GETPID = 20, SYS_FSTAT = 28,
 	SYS_MOUNT = 21, SYS_UMOUNT = 22,
 	SYS_SYNC = 36, SYS_DUP = 41, SYS_IOCTL = 54, SYS_GETPPID = 64,
+	SYS_KILL = 37, SYS_GETPROC = 65,
 	SYS_MKDIR = 136, SYS_RMDIR = 137
 };
 enum { ESPIPE = 29 };
@@ -415,6 +416,29 @@ static int sys_rmdir(struct trapframe *, const unsigned *arg)
 	return sys_path(arg, fs_rmdir);
 }
 
+/* kill(pid, sig): the process taken out, whatever the signal. */
+static int sys_kill(struct trapframe *tf, const unsigned *arg)
+{
+	int error = pkill((int)arg[0]);
+
+	if (!error)
+		tf->r0 = 0;
+	return error;
+}
+
+/* getproc(n, info): the process table's nth place, its head copied out
+ * as it is (pinfo.h). */
+static int sys_getproc(struct trapframe *tf, const unsigned *arg)
+{
+	if (arg[0] >= NPROC)
+		return EINVAL;
+	if (!inside(arg[1], sizeof(struct pinfo)))
+		return EFAULT;
+	memcpy((void *)arg[1], &HIGH->procs[arg[0]], sizeof(struct pinfo));
+	tf->r0 = 0;
+	return 0;
+}
+
 static int sys_sync(struct trapframe *, const unsigned *)
 {
 	return 0;				/* every write goes through at once */
@@ -471,7 +495,7 @@ static const struct {
 	{SYS_TIME, sys_time}, {SYS_CHMOD, sys_chmod}, {SYS_STAT, sys_stat}, {SYS_LSEEK, sys_lseek}, {SYS_GETPID, sys_getpid},
 	{SYS_MOUNT, sys_mount}, {SYS_UMOUNT, sys_umount}, {SYS_FSTAT, sys_fstat}, {SYS_SYNC, sys_sync},
 	{SYS_DUP, sys_dup}, {SYS_IOCTL, sys_ioctl}, {SYS_GETPPID, sys_getppid}, {SYS_MKDIR, sys_mkdir},
-	{SYS_RMDIR, sys_rmdir},
+	{SYS_RMDIR, sys_rmdir}, {SYS_KILL, sys_kill}, {SYS_GETPROC, sys_getproc},
 };
 
 void syscall(struct trapframe *tf)

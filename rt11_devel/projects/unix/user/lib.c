@@ -37,7 +37,7 @@ void putnum(unsigned n)
 
 /* Why, by errno: each the number's byte, then the words, a NUL after. */
 static const char why[] =
-	"\002not found\0" "\024not a directory\0" "\013no room for another process\0"
+	"\002not found\0" "\003no such process\0" "\024not a directory\0" "\013no room for another process\0"
 	"\021there already\0" "\025a directory\0" "\034no room on the volume\0"
 	"\017not a block device\0" "\020busy\0" "\026no file system there\0"
 	"\022on another volume\0" "\023not without /boot/fd\0" "\015not allowed\0"

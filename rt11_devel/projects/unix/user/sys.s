@@ -7,6 +7,7 @@
 	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
 	.globl	_time, _getpid, _getppid, _dup, _creat, _unlink, _mkdir, _rmdir, _sync
 	.globl	_mount, _umount, _ioctl, _lseek, _chdir, _stat, _fstat, _link, _chmod
+	.globl	_kill, _getproc
 	.globl	_errno
 
 _exit:	trap	1
@@ -64,6 +65,15 @@ _mkdir:	trap	136
 	br	done
 
 _rmdir:	trap	137
+	br	done
+
+/ int kill(int pid, int sig): the process taken out, whatever sig.
+_kill:	trap	37
+	br	done
+
+/ int getproc(int n, struct pinfo *info): the process table's nth place.
+_getproc:
+	trap	65
 	br	done
 
 _sync:	trap	36

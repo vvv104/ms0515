@@ -29,7 +29,7 @@ std::string after(Machine &m, const std::string &command)
  * state the second word, its pid the third (proc.h). */
 int othersAlive(Machine &m)
 {
-    constexpr unsigned kBank6 = 0140000, kDriver = 0155000, kProc = 38, kCanary = 0122525;
+    constexpr unsigned kBank6 = 0140000, kDriver = 0155000, kProc = 46, kCanary = 0122525;
     int alive = 0;
     for (unsigned a = kBank6 + kProc; a < kDriver; a += 2) {
         if (m.emulator().readWord(static_cast<uint16_t>(a)) != kCanary) continue;

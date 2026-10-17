@@ -2,9 +2,10 @@
 #ifndef UNIX_PROC_H
 #define UNIX_PROC_H
 
+#include "pinfo.h"
+
 #define NPROC 4				/* the process table: a slot each, the parked one, a zombie */
 #define NSLOT 2				/* slots: banks 2-5, primary and extra */
-#define NOFILE 8			/* a process's open files */
 #define NFILE 16			/* the open files of all */
 #define KSTACK 320			/* a process's kernel stack: 242 the deepest measured */
 
@@ -32,6 +33,7 @@ struct proc {
 	struct inode *cwd;		/* its own directory, held; 0 the root */
 	char killed;			/* Ctrl+C: to exit at its next way out of the kernel */
 	char bg;			/* put in the background: Ctrl+C leaves it (TTY_BG) */
+	char name[PNAME];		/* argv[0]'s last part, for ps */
 	char kstack[KSTACK];
 };
 
@@ -48,6 +50,7 @@ void setslot(int slot);
 int fork(struct trapframe *tf);
 void pexit(int status);
 int pwait(unsigned status_ptr);
+int pkill(int pid);
 
 /* trap.s */
 void swtch(struct proc *from, struct proc *to);

@@ -73,6 +73,12 @@ int exec(const char *path, const char *const *argv)
 	iput(ip);
 	memset((char *)USER_BASE + size, 0, h.bss);
 	curproc->brk = USER_BASE + size + h.bss;
+	for (s = argbuf, i = 0; argc && *s; s++)	/* the name: argv[0]'s last part */
+		if (*s == '/')
+			i = 0;
+		else if (i < PNAME - 1)
+			curproc->name[i++] = *s;
+	curproc->name[argc ? i : 0] = 0;
 
 	sp = (USER_TOP - ((used + 1) & ~1u));		/* the strings, at the top */
 	memcpy((char *)sp, argbuf, used);

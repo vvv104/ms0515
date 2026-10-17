@@ -143,6 +143,8 @@ program(cmp user/cmp.c)
 program(od user/od.c)
 program(find user/find.c)
 program(sync user/sync.c)
+program(ps user/ps.c)
+program(kill user/kill.c)
 program(ramroot user/ramroot.c user/clone.c)
 program(mkboot user/mkboot.c user/clone.c)
 
@@ -216,6 +218,8 @@ set(SYSTEM_FILES
     /bin/od=od.x
     /bin/find=find.x
     /bin/sync=sync.x
+    /bin/ps=ps.x
+    /bin/kill=kill.x
     /bin/ramroot=ramroot.x
     /bin/mkboot=mkboot.x
     /bin/rt11=rt11.x
