@@ -612,7 +612,23 @@ int fs_link(const char *old, const char *new_name)
 	return error;
 }
 
-int fs_unlink(const char *path)
+/* Whether directory ip has no names but its "." and "..", the first two. */
+static int empty(struct inode *ip)
+{
+	struct direct d;
+	unsigned long off;
+
+	for (off = 2 * sizeof d; off < ip->d.size; off += sizeof d)
+		if (readi(ip, off, (char *)&d, sizeof d) != sizeof d || d.ino)
+			return 0;
+	return 1;
+}
+
+/* The name at path taken away: a file's (unlink) - with w - or an empty
+ * directory's (rmdir), one no process is in, nothing holds open and no
+ * volume covers, its parent's ".." link going with it.  The inode goes
+ * when its last link and its last holder have. */
+static int unname(const char *path, int dir)
 {
 	const char *name;
 	int len, error = 0;
@@ -631,7 +647,10 @@ int fs_unlink(const char *path)
 		iput(dp);
 		return ENOENT;
 	}
-	error = (ip->d.mode & S_IFMT) == S_IFDIR ? EISDIR : !(ip->d.mode & S_W) ? EACCES : 0;
+	if (dir)
+		error = (ip->d.mode & S_IFMT) != S_IFDIR ? ENOTDIR : ip->count > 1 ? EBUSY : !empty(ip) ? ENOTEMPTY : 0;
+	else
+		error = (ip->d.mode & S_IFMT) == S_IFDIR ? EISDIR : !(ip->d.mode & S_W) ? EACCES : 0;
 	if (error) {
 		iput(ip);
 		iput(dp);
@@ -639,11 +658,27 @@ int fs_unlink(const char *path)
 	}
 	memset(&d, 0, sizeof d);
 	writei(dp, where, (const char *)&d, sizeof d);
-	ip->d.nlink--;
+	if (dir) {
+		ip->d.nlink = 0;		/* its name and its "." */
+		dp->d.nlink--;			/* its ".." */
+		iupdate(dp);
+	} else {
+		ip->d.nlink--;
+	}
 	iupdate(ip);
 	iput(ip);
 	iput(dp);
 	return 0;
+}
+
+int fs_unlink(const char *path)
+{
+	return unname(path, 0);
+}
+
+int fs_rmdir(const char *path)
+{
+	return unname(path, 1);
 }
 
 /* -- devices and volumes ---------------------------------------------- */

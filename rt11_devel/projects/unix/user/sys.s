@@ -5,7 +5,7 @@
 
 	.text
 	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
-	.globl	_time, _getpid, _getppid, _dup, _creat, _unlink, _mkdir, _sync
+	.globl	_time, _getpid, _getppid, _dup, _creat, _unlink, _mkdir, _rmdir, _sync
 	.globl	_mount, _umount, _ioctl, _lseek, _chdir, _stat, _fstat, _link, _chmod
 	.globl	_errno
 
@@ -61,6 +61,9 @@ _unlink:
 	br	done
 
 _mkdir:	trap	136
+	br	done
+
+_rmdir:	trap	137
 	br	done
 
 _sync:	trap	36

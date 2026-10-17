@@ -35,19 +35,27 @@ void putnum(unsigned n)
 	write(1, digits + i, (int)sizeof digits - i);
 }
 
+/* Why, by errno: each the number's byte, then the words, a NUL after. */
+static const char why[] =
+	"\002not found\0" "\024not a directory\0" "\013no room for another process\0"
+	"\021there already\0" "\025a directory\0" "\034no room on the volume\0"
+	"\017not a block device\0" "\020busy\0" "\026no file system there\0"
+	"\022on another volume\0" "\023not without /boot/fd\0" "\015not allowed\0"
+	"\007too long\0" "\102not empty\0";
+
 /* who: what: and why, by errno, on the error output. */
 void complain(const char *who, const char *what)
 {
+	const char *s = why;
+
+	while (*s && *s != errno)
+		s += strlen(s) + 1;
 	puts_fd(2, who);
 	puts_fd(2, ": ");
 	puts_fd(2, what);
-	puts_fd(2, errno == ENOENT ? ": not found\n" : errno == ENOTDIR ? ": not a directory\n" :
-		   errno == EAGAIN ? ": no room for another process\n" : errno == EEXIST ? ": there already\n" :
-		   errno == EISDIR ? ": a directory\n" : errno == ENOSPC ? ": no room on the volume\n" :
-		   errno == ENOTBLK ? ": not a block device\n" : errno == EBUSY ? ": busy\n" :
-		   errno == EINVAL ? ": no file system there\n" : errno == EXDEV ? ": on another volume\n" :
-		   errno == ENODEV ? ": not without /boot/fd\n" : errno == EACCES ? ": not allowed\n" :
-		   errno == E2BIG ? ": too long\n" : ": cannot\n");
+	puts_fd(2, ": ");
+	puts_fd(2, *s ? s + 1 : "cannot");
+	puts_fd(2, "\n");
 }
 
 /* dir, a '/' after it unless it ends in one, and the first n bytes of name

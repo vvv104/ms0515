@@ -20,6 +20,7 @@ extern int errno;
 #define ENODEV 19
 #define EXDEV 18
 #define EACCES 13
+#define ENOTEMPTY 66
 
 void exit(int status);
 int fork(void);
@@ -37,6 +38,7 @@ int creat(const char *path);
 int unlink(const char *path);
 int chmod(const char *path, int rights);	/* 0..7: r 4, w 2, x 1 */
 int mkdir(const char *path);
+int rmdir(const char *path);		/* an empty directory */
 int sync(void);
 int mount(const char *from, const char *dir);	/* from: a device, or a directory of a mounted volume */
 int umount(const char *device);

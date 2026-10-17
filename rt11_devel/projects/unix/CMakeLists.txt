@@ -130,6 +130,11 @@ program(du user/du.c)
 program(df user/df.c)
 program(chmod user/chmod.c)
 program(sleep user/sleep.c)
+program(rmdir user/rmdir.c)
+program(wc user/wc.c)
+program(head user/head.c)
+program(tail user/tail.c)
+program(grep user/grep.c)
 program(ramroot user/ramroot.c user/clone.c)
 program(mkboot user/mkboot.c user/clone.c)
 
@@ -194,6 +199,11 @@ set(VOLUME_FILES
     /bin/df=df.x
     /bin/chmod=chmod.x
     /bin/sleep=sleep.x
+    /bin/rmdir=rmdir.x
+    /bin/wc=wc.x
+    /bin/head=head.x
+    /bin/tail=tail.x
+    /bin/grep=grep.x
     /bin/ramroot=ramroot.x
     /bin/mkboot=mkboot.x
     /bin/bigmem=bigmem.x

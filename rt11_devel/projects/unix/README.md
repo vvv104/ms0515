@@ -56,7 +56,8 @@ over - the rest rw-; a new file is rw-, `chmod r-x FILE`
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls` (`-l`, `-a`), `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `du`, `df`, `chmod`, `mkfs`,
 `mount`, `umount`,
-`fdformat`, `sleep`, `ramroot`, `mkboot`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
+`fdformat`, `sleep`, `ramroot`, `mkboot`, `rmdir`, `wc`, `head`, `tail`,
+`grep` (`-v`, `-n`, `-c`; `^ $ . *`), `hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine), `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
 `rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd` (alone: /home), `t` (the time),
@@ -186,7 +187,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   called on a stack of 157000-157400, under its cells.
 - `kernel/sys.c` - the system calls by V6's numbers: exit, fork, read,
   write, open (to read, to write, both), close, wait, creat, unlink, exec,
-  time, getpid, sync, dup, getppid, mkdir, chmod, stat, link and the
+  time, getpid, sync, dup, getppid, mkdir, rmdir (an empty directory, no
+  process in it, nothing holding it), chmod, stat, link and the
   rest; the open files, the system's, shared by a fork's descriptors.
   When pid 1 exits, a new shell runs in its place.
 - `user/` - a process's start (`crt0.s`, `main(argc, argv)`), the calls as
@@ -201,6 +203,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   `ramroot.c` (the root into the RAM disk), `mkboot.c` (a diskette
   that boots), `clone.c` (a volume copied block for block, the user's
   files left out, theirs),
+  `rmdir.c`, `wc.c`, `head.c`, `tail.c` (the input's last 2 KB kept),
+  `grep.c` (Kernighan and Pike's matcher),
   `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `user/own/` - the little library of a program that owns the machine:
   `crt0.s` (the loader, run first at 040020 and then from 157000, reading
@@ -255,7 +259,10 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   console and one at work, status 130, the background left alone, a fresh
   line at the prompt; the arrows walking the lines typed, one called up
   edited and run, Ctrl+U, the arrows nothing to cat, the oldest lines
-  given up; mkboot from the RAM root and from the
+  given up; wc, head and tail of a file and of their input, grep's
+  patterns, -v, -n, -c and its status, rmdir taking an empty directory
+  and its block and refusing one with names, a file, one in use, the
+  root; mkboot from the RAM root and from the
   diskette's, the system alone and all, to both sides and to one, into the
   boot drive with its diskette changed, each copy booted, and refused for a
   busy or empty drive or no device; /etc/rc
@@ -302,7 +309,7 @@ The build reports the kernel's memory and stops past its limits
 the drivers' place - with four places in the process table, the two
 slots', a parked one's and a zombie's, and their kernel stacks at 320
 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 15336 bytes, 1018 bytes free below 040000, 1738 free in
+an image of 15550 bytes, 808 bytes free below 040000, 1734 free in
 bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory, which keep -O2.
