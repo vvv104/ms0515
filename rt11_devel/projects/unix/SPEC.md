@@ -95,10 +95,10 @@ is gone.
 
 | Addresses (octal) | Bank | Use |
 | --- | --- | --- |
-| 000000-017777 | 0 | Vectors, kernel data, the kernel stack.  Not switched: the vectors are here. |
+| 000000-017777 | 0 | Vectors, the kernel stack, kernel code.  Not switched: the vectors are here. |
 | 020000-037777 | 1 | Kernel code.  The shadow copy is the buffer cache. |
 | 040000-137777 | 2-5 | The process's space, 32 KB.  The primary copies are slot A, the extra ones slot B. |
-| 140000-157777 | 6 | Kernel data and code: the tables (high.h) up to 151600, the kernel's second part /boot/hi at 151600-155000 (kernel/hi.h: the calls the boot does not need - mount, umount, ioctl, a program that owns the machine - linked there against the kernel's symbols, loaded once the root is mounted), the diskettes' driver /boot/fd at 155000-157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is free: the kernel's stacks are in the primary one, so a copy into it would want a bounce in bank 0. |
+| 140000-157777 | 6 | Kernel data: the kernel is linked with its data here, start.s copies their first values up from the image and clears the bss, the tables (high.h) a part of it - all below 155000; the diskettes' driver /boot/fd at 155000-157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is free: the kernel's stacks are in the primary one, so a copy into it would want a bounce in bank 0. |
 | 160000-177377 | - | ROM (the upper 8 KB), always seen. |
 | 177400-177777 | - | I/O registers. |
 
@@ -114,10 +114,11 @@ is gone.
   trap.
 - **The kernel's budget:** 24 KB less ~0.5 KB of vectors and the stack, ~0.2
   KB of the ROM's cells - about 20-22 KB for code and data.  Banks 0 and 1
-  hold the code and the small data, loaded from the diskette; bank 6, up to
-  155000, the big tables (the processes with their kernel stacks, the
-  buffers, the pipes), cleared at the start, and the driver above them.
-  Every build reports both.
+  hold the code, bank 6 up to 155000 the data - the strings, the values,
+  and the big tables (the processes with their kernel stacks, the buffers,
+  the pipes) - and the driver above them.  The kernel is one file,
+  /boot/kernel: the code, then the data's first values, which start.s
+  copies up.  Every build reports both.
 
 ## The ROM: native ROM-B first, own later
 
@@ -525,7 +526,7 @@ hands over.
    loader, the first bytes of its text: exec of one checks the device and
    the command line, writes the cache out, reads the file's first block
    into the process's slot and enters the loader with the file's extents
-   (kernel/hi/own.c).  The loader takes the size from the header - a reset
+   (kernel/own.c).  The loader takes the size from the header - a reset
    when it does not fit, tools/own_aout.py having checked it at the build -
    moves itself to 157000 and, through the ROM's 160010, lays the file over
    everything, the kernel too - its header at 000760, the text at 001000 -

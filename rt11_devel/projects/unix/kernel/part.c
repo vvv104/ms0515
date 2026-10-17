@@ -1,12 +1,8 @@
 /* part.c - the parts of the system that are files: /boot/fd, the
- * diskettes' driver (dev.c), and /boot/hi, the kernel's second part
- * (hi.h), each read in flat once the root is mounted. */
-#include "hi.h"
+ * diskettes' driver (dev.c), read in flat once the root is mounted. */
+#include "sys.h"
 
 #define HEADER_WORDS 3			/* the magic, the version, the size */
-
-const struct hi_part *hi;
-unsigned kernel_key = 1;		/* its address is the key, in .data after all the code */
 
 int part_load(const char *path, unsigned base, unsigned room, unsigned magic, unsigned version)
 {
@@ -22,19 +18,4 @@ int part_load(const char *path, unsigned base, unsigned room, unsigned magic, un
 		h[0] == magic && h[1] == version && h[2] == size;
 	iput(ip);
 	return right ? 1 : -1;
-}
-
-/* /boot/hi read in, its bss cleared, when it is this kernel's; else said
- * so, and its calls stay ENOSYS. */
-void hi_load(void)
-{
-	const struct hi_part *h = (const struct hi_part *)HI_BASE;
-	int got = part_load("/boot/hi", HI_BASE, HI_TOP - HI_BASE, HI_MAGIC, HI_VERSION);
-
-	if (got > 0 && h->key == (unsigned)&kernel_key) {
-		memset((char *)HI_BASE + h->size, 0, HI_TOP - HI_BASE - h->size);
-		hi = h;
-	} else if (got) {
-		tty_puts("UNIX: /boot/hi is not this kernel's\n");
-	}
 }

@@ -12,7 +12,7 @@
  * covers.  A block device is an inode of its own kind, its number in the
  * first extent's start; read and written, it is its blocks one after
  * another. */
-#include "hi.h"
+#include "sys.h"
 
 #define IPB (BSIZE / sizeof(struct dinode))	/* inodes a block: 16 */
 #define mounts (HIGH->mounts)

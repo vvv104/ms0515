@@ -14,7 +14,7 @@
  * sizes are the loader's to check - a reset if they do not fit - and
  * tools/own_aout.py's when the program is built; the kernel only checks
  * the device and the command line and hands over. */
-#include "../hi.h"
+#include "sys.h"
 
 #define HEADER 16
 #define OWN_ARGS 128			/* what the loader's room takes of exec's strings */

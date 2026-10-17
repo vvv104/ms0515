@@ -68,8 +68,8 @@ void dev_canon(unsigned *dev, unsigned *block);
 int dev_overlap(unsigned a, unsigned b);
 
 /* The diskettes' driver as a file, /boot/fd (drivers/fd.s): put down
- * flat at DRV_BASE in bank 6, over the tables (high.h), its header first.
- * rw's and format's unit is the ROM's, a drive's side; rw's block 0..799,
+ * flat at DRV_BASE in bank 6, over the kernel's data (high.h), its header
+ * first.  rw's and format's unit is the ROM's, a drive's side; rw's block 0..799,
  * format's track the cylinder, 0..79, the image WRITE TRACK's (ioctl.h). */
 #define DRV_BASE 0155000u
 #define DRV_TOP 0157000u

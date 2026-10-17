@@ -29,8 +29,7 @@
 
 #define procs (HIGH->procs)
 
-/* The size of the bank-6 tables, for tools/mkfs.py's report. */
-const unsigned high_size = sizeof(struct high);
+struct high high;
 
 struct proc *curproc;
 unsigned kstack_top;
@@ -49,13 +48,12 @@ void setslot(int slot)
 	splx(s);
 }
 
-/* The bank-6 tables cleared, and the first process, pid 1, in slot 0:
- * init, then the shell it becomes. */
+/* The first process, pid 1, in slot 0: init, then the shell it becomes.
+ * The tables are the bss, start.s has cleared them. */
 void proc_init(void)
 {
 	struct proc *p = &procs[0];
 
-	memset(HIGH, 0, sizeof(struct high));
 	p->state = P_RUN;
 	p->pid = nextpid++;
 	p->ppid = 0;

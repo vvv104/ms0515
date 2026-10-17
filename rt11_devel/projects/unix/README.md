@@ -86,18 +86,13 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   /boot/fd, or one that is no driver, the ROM's 160010 stays.  A file
   copied takes half the time it took through the ROM.  format writes a
   track from the image fdformat built, by WRITE TRACK at priority 7.
-- `kernel/hi.h`, `kernel/part.c`, `kernel/hi/` - the kernel's second
-  part, /boot/hi: the low banks are full, so the calls the boot does not
-  need are linked at 151600 in bank 6 against the kernel's own symbols and
-  put down flat, their header first (head.s, tail.s), read in once the
-  root is mounted as /boot/fd is (part.c, one loader for both) and called
-  through the header; one of another kernel - its key, the address of
-  the kernel's `kernel_key` - is said so, and the calls are ENOSYS.  In
-  it: `own.c` (a program that owns the machine: an a.out of magic 0401
-  checked, the cache written out, its first block - the header and its
-  own loader - read into the slot and the loader entered with the file's
-  extents; the system is gone after), `ioctl.c` (a diskette's track
-  written), `mount.c` (mount and umount).
+- `kernel/sys.h` - what the calls' files share; `kernel/own.c` (a
+  program that owns the machine: an a.out of magic 0401 from a diskette,
+  the cache written out, its first block - the header and its own loader
+  - read into the slot and the loader entered with the file's extents;
+  the system is gone after), `kernel/ioctl.c` (a diskette's track
+  written), `kernel/mount.c` (mount and umount), `kernel/part.c` (/boot/fd
+  read in).
 - `kernel/ioctl.h` - what `ioctl` does, for the kernel and the programs:
   FD_WTRACK, a diskette's track written anew through /boot/fd.
 - `kernel/bio.c` - the buffer cache in two levels: three blocks in hand in
@@ -122,8 +117,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   in trap.s), swap - a file in one extent cut into 32 KB areas, a
   process's used blocks out to one and back - fork into the free slot or
   straight to swap, exit, wait.
-- `kernel/high.h` - the big tables in bank 6, 140000-155000, outside the
-  kernel's image: the mount table, the processes with their kernel stacks,
+- `kernel/high.h` - the big tables in bank 6, a part of the kernel's
+  bss there, all of its data being in bank 6: the mount table, the processes with their kernel stacks,
   the block buffers and the shadow bank's index, the pipes, the inodes, the
   open files, the console's line and queue, exec's arguments.  The ROM is
   called on a stack of 157000-157400, under its cells.
@@ -201,8 +196,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   toolset's HELLO, ARITH and INPUT, and SABOT2 to its game - from
   `rt11test.dsk`, the system with /rt11 of what the build found (the
   toolset's examples when they are built, SABOT2 when the recovery corpus
-  holds it), a .SAV not there refused; /boot/hi of another kernel kept
-  out, its calls failing and the system running.
+  holds it), a .SAV not there refused; the kernel one file, no /boot/hi.
   `bare.dsk`, the image without
   /etc/rc, is for the tests that mount and swap by hand.
   `Machine::command` types a line and waits for the prompt, so the next is
@@ -221,14 +215,13 @@ register pair the pointer was in came out wrong, and -Os walked the
 kernel's tables by multiplying.
 
 The build reports the kernel's memory and stops past its limits
-(mkfs.py): the image's size, the low part from 01000 to `_end` against
-040000, the bank-6 tables (the kernel's `_high_size`) against the 4992
-bytes up to 151600, and /boot/hi against its 1664 up to the driver's
-place - with the kernel stacks at 320 bytes (242 the deepest measured,
-tests/test_kstack.cpp keeping a margin): an image of 15064 bytes, 760
-bytes free below 040000, 92 free for the tables, /boot/hi 1462 bytes,
-202 free.  The big tables live in bank 6: below 040000 there is no room
-for them beside the code.  The kernel is built -Os - a quarter off its code - but for the loops
+(mkfs.py): the image's size, the code from 01000 to `_etext` against
+040000, and the data from 140000 to `_end` against the 6656 bytes up to
+the driver's place - with three processes and their kernel stacks at 320
+bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
+an image of 15836 bytes, 598 bytes free below 040000, 1510 free in bank
+6.  The kernel's data, the big tables with it, live in bank 6: the low
+banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.
 
 Two things of ROM-B's keyboard the console turns round.  A bare Latin key

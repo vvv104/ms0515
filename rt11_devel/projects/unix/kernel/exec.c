@@ -10,7 +10,7 @@
  * first, which the new one overwrites.  The open files stay open, as Unix
  * has it.  An a.out of magic 0401 is a program that owns the machine: own.c
  * runs it over everything. */
-#include "hi.h"
+#include "sys.h"
 #include "proc.h"
 
 #define AOUT_MAGIC 0407
@@ -55,7 +55,7 @@ int exec(const char *path, const char *const *argv)
 		return ENOEXEC;
 	}
 	if (h.magic == OWN_MAGIC) {
-		error = hi ? hi->own_exec(ip, argc, used) : ENOSYS;
+		error = own_exec(ip, argc, used);
 		iput(ip);
 		return error;
 	}

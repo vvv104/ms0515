@@ -13,7 +13,7 @@
  * reader sleeps while it is empty and gets the end of the file once no
  * writer is left; the writer sleeps while it is full and gets EPIPE once no
  * reader is.  When pid 1 exits, init runs again in its place. */
-#include "hi.h"
+#include "sys.h"
 #include "ioctl.h"
 #include "stat.h"
 
@@ -25,7 +25,7 @@ enum {
 	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_IOCTL = 54, SYS_GETPPID = 64, SYS_SWAPON = 85,
 	SYS_MKDIR = 136
 };
-enum { EPIPE = 32 };
+enum { EPIPE = 32, ESPIPE = 29 };
 
 
 #define files (HIGH->files)
@@ -507,25 +507,30 @@ static int sys_getppid(struct trapframe *tf, const unsigned *)
 	return 0;
 }
 
-/* /boot/hi's calls, ENOSYS without it. */
-static int sys_mount(struct trapframe *tf, const unsigned *arg)
-{
-	return hi ? hi->mount(tf, arg) : ENOSYS;
-}
-
-static int sys_umount(struct trapframe *tf, const unsigned *arg)
-{
-	return hi ? hi->umount(tf, arg) : ENOSYS;
-}
-
-static int sys_ioctl(struct trapframe *tf, const unsigned *arg)
-{
-	return hi ? hi->ioctl(tf, arg) : ENOSYS;
-}
-
+/* lseek(fd, off, whence): the file's offset from its start (0), from where
+ * it is (1) or from its end (2); the new one in r0:r1, the high word in r0
+ * - a long as the compiler keeps it, high word first in arg[1]. */
 static int sys_lseek(struct trapframe *tf, const unsigned *arg)
 {
-	return hi ? hi->lseek(tf, arg) : ENOSYS;
+	struct file *f = file_of(arg[0]);
+	long off = (long)((unsigned long)arg[1] << 16 | arg[2]);
+
+	if (!f)
+		return EBADF;
+	if (f->kind != F_INODE)
+		return ESPIPE;
+	if (arg[3] == 1)
+		off += (long)f->off;
+	else if (arg[3] == 2)
+		off += (long)f->ip->d.size;
+	else if (arg[3] != 0)
+		return EINVAL;
+	if (off < 0)
+		return EINVAL;
+	f->off = (unsigned long)off;
+	tf->r0 = (unsigned)(f->off >> 16);
+	tf->r1 = (unsigned)f->off;
+	return 0;
 }
 
 /* The calls by their numbers: each gets the frame and the arguments, puts

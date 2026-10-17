@@ -1,7 +1,7 @@
-/* ioctl.c - /boot/hi: ioctl(fd, cmd, arg) (kernel/ioctl.h) - FD_WTRACK on
- * a diskette's device open to write, a track written anew by /boot/fd. */
-#include "../hi.h"
-#include "../ioctl.h"
+/* ioctl.c - ioctl(fd, cmd, arg) (ioctl.h): FD_WTRACK on a diskette's
+ * device open to write, a track written anew by /boot/fd. */
+#include "sys.h"
+#include "ioctl.h"
 
 #define SIDE 800
 

@@ -16,13 +16,12 @@ fdx1 the drives' both sides, rd0 the RAM disk (kernel/kernel.h's numbers)
 first extent's start; every file is laid down whole in one extent, the
 next after the last.  The file at /boot/kernel is the kernel: the
 superblock names its blocks for the boot block, which loads it at 01000 and
-enters it there.
+enters it there - below 070000, where the boot block runs.
 
 With --nm and --kernel-out (the kernel's a.out) the kernel's memory is
-reported and held to its limits: the low part, 01000 to `_end`, below
-040000, and the tables in bank 6 (kernel/high.h), whose size the kernel
-keeps in `_high_size`, below 155000, where the diskettes' driver goes -
-from 140000, 6656 bytes.
+reported and held to its limits: its code, 01000 to `_etext`, below
+040000, and its data with the tables (kernel/high.h), 140000 to `_end` in
+bank 6, below 155000, where the diskettes' driver goes - 6656 bytes.
 
 Words go down the low byte first, a long as two words, the high word first,
 as the PDP-11's compiler keeps one.
@@ -45,8 +44,8 @@ DATA = SWAP + SWAPBLOCKS    # 139
 ROOT = 1
 KERNEL_LOAD = 0o1000
 KERNEL_TOP = 0o40000
-HIGH_BASE, HIGH_TOP = 0o140000, 0o151600   # /boot/hi above (kernel/hi.h), then the driver
-HI_TOP = 0o155000                           # /boot/hi's room: HIGH_TOP up to the driver's
+LOAD_TOP = 0o70000                          # the boot block's place
+HIGH_BASE, HIGH_TOP = 0o140000, 0o155000   # the kernel's data, the driver's place above
 S_IFDIR, S_IFREG, S_IFBLK = 0o040000, 0o100000, 0o060000
 DEVICES = {"fd0": 0, "fd1": 1, "fd2": 2, "fd3": 3, "fdx0": 4, "fdx1": 5, "rd0": 6}
 DIRSIZ = 14
@@ -201,21 +200,17 @@ def symbol(nm, program, name):
     raise SystemExit(f"{program}: no {name}")
 
 
-def memory_report(nm, kernel_out, image, hi):
+def memory_report(nm, kernel_out, image):
     """The kernel's memory: printed, and refused past any limit."""
+    etext = symbol(nm, kernel_out, "_etext")
     end = symbol(nm, kernel_out, "_end")
-    at = symbol(nm, kernel_out, "_high_size") - KERNEL_LOAD
-    high = struct.unpack_from("<H", image, at)[0]
-    room = HIGH_TOP - HIGH_BASE
-    print(f"kernel: image {len(image)} bytes; low 001000..{end:06o} of {KERNEL_TOP:06o}, "
-          f"{KERNEL_TOP - end} bytes free; bank 6 {high} of {room} bytes, {room - high} free; "
-          f"/boot/hi {len(hi)} of {HI_TOP - HIGH_TOP}, {HI_TOP - HIGH_TOP - len(hi)} free")
-    if len(hi) > HI_TOP - HIGH_TOP:
-        raise SystemExit(f"/boot/hi: {len(hi)} bytes, past its {HI_TOP - HIGH_TOP}")
-    if end > KERNEL_TOP:
-        raise SystemExit(f"{kernel_out}: the kernel ends at {end:o}, past {KERNEL_TOP:o}")
+    high, room = end - HIGH_BASE, HIGH_TOP - HIGH_BASE
+    print(f"kernel: image {len(image)} bytes; code 001000..{etext:06o} of {KERNEL_TOP:06o}, "
+          f"{KERNEL_TOP - etext} bytes free; data in bank 6 {high} of {room} bytes, {room - high} free")
+    if etext > KERNEL_TOP:
+        raise SystemExit(f"{kernel_out}: the code ends at {etext:o}, past {KERNEL_TOP:o}")
     if high > room:
-        raise SystemExit(f"{kernel_out}: the bank-6 tables take {high} bytes, past {room}")
+        raise SystemExit(f"{kernel_out}: the data end at {end:o}, past {HIGH_TOP:o}")
 
 
 def main():
@@ -243,19 +238,16 @@ def main():
     for path in args.dir:
         vol.directory(path)
     kernel_ino = None
-    hi = b""
     for spec in args.files:
         path, _, host = spec.partition("=")
         data = Path(host).read_bytes()
         n = vol.add(path, data)
-        if path.strip("/") == "boot/hi":
-            hi = data
         if path.strip("/") == "boot/kernel":
             kernel_ino = n
-            if KERNEL_LOAD + len(data) > KERNEL_TOP:
-                raise SystemExit(f"{host}: {len(data)} bytes from 01000 pass {KERNEL_TOP:o}")
+            if KERNEL_LOAD + len(data) > LOAD_TOP:
+                raise SystemExit(f"{host}: {len(data)} bytes from 01000 pass {LOAD_TOP:o}")
     if args.nm and args.kernel_out and kernel_ino:
-        memory_report(args.nm, args.kernel_out, vol.inodes[kernel_ino][2], hi)
+        memory_report(args.nm, args.kernel_out, vol.inodes[kernel_ino][2])
     volume = args.volume if args.volume is not None else random.getrandbits(32)
     if args.swap:                       # last: the kernel and the programs nearer block 0
         vol.add("/swap", bytes(args.swap * 1024))

@@ -1,5 +1,5 @@
-/* mount.c - /boot/hi: mount(device, dir) and umount(device). */
-#include "../hi.h"
+/* mount.c - mount(device, dir) and umount(device). */
+#include "sys.h"
 
 #define mounts (HIGH->mounts)
 #define itab (HIGH->itab)

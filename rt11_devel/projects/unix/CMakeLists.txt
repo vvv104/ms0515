@@ -48,6 +48,9 @@ add_executable(kernel
     kernel/proc.c
     kernel/ramdisk.c
     kernel/sys.c
+    kernel/mount.c
+    kernel/ioctl.c
+    kernel/own.c
     kernel/part.c
     "${ARITH}")
 target_compile_options(kernel PRIVATE -Wall -Wextra -Werror)
@@ -56,6 +59,8 @@ target_compile_options(kernel PRIVATE -Wall -Wextra -Werror)
 # keep -O2, coming last on the command line.
 target_compile_options(kernel PRIVATE -Os)
 set_source_files_properties(kernel/lib.c kernel/ramdisk.c PROPERTIES COMPILE_OPTIONS -O2)
+# The code at 01000, the data at 140000 in bank 6 (kernel/high.h).
+target_link_options(kernel PRIVATE -Wl,-Tdata,0xC000)
 
 # flat(<target>): the program's text and data as they lie in memory.
 function(flat target)
@@ -65,19 +70,18 @@ function(flat target)
         COMMENT "${target}.bin")
 endfunction()
 flat(boot)
-flat(kernel)
 
-# /boot/hi, the kernel's second part (kernel/hi.h): linked at 151600 in
-# bank 6 against the kernel's own symbols - its calls into the kernel, the
-# kernel's arithmetic too - and put down flat, its header first, tail.s
-# last.
-add_executable(hi kernel/hi/head.s kernel/hi/own.c kernel/hi/ioctl.c kernel/hi/mount.c
-               kernel/hi/files.c kernel/hi/tail.s)
-target_compile_options(hi PRIVATE -Wall -Wextra -Werror -Os)
-target_link_options(hi PRIVATE -Wl,-Ttext,0xD380 "-Wl,--just-symbols=$<TARGET_FILE:kernel>")
-set_target_properties(hi PROPERTIES SUFFIX ".out" LINK_DEPENDS "$<TARGET_FILE:kernel>")
-add_dependencies(hi kernel)
-flat(hi)
+# kernel.bin: the code, then the data's first values - start.s copies them
+# up to bank 6, where they are linked.
+add_custom_command(OUTPUT kernel.bin
+    COMMAND "${PDP11_OBJCOPY}" -O binary -j .text $<TARGET_FILE:kernel> kernel.text
+    COMMAND "${PDP11_OBJCOPY}" -O binary -j .data $<TARGET_FILE:kernel> kernel.data
+    COMMAND "${Python3_EXECUTABLE}" -c
+            "import sys; open(sys.argv[3], 'wb').write(open(sys.argv[1], 'rb').read() + open(sys.argv[2], 'rb').read())"
+            kernel.text kernel.data kernel.bin
+    DEPENDS kernel
+    COMMENT "kernel.bin"
+    VERBATIM)
 
 # The diskettes' driver, /boot/fd: linked at 155000 in bank 6 (kernel.h
 # DRV_BASE), put down flat, its header first.
@@ -158,7 +162,6 @@ set(MKFS "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py")
 # The volume's files, for both images: the system and its programs.
 set(VOLUME_FILES
     /boot/kernel=kernel.bin
-    /boot/hi=hi.bin
     /etc/init=init.x
     /etc/getty=getty.x
     /etc/motd=${ROOT}/etc/motd
@@ -188,7 +191,7 @@ set(VOLUME_FILES
     /bin/rt11=rt11.x
     --dir /tmp
     --swap 64)
-set(VOLUME_DEPENDS boot.bin kernel.bin hi.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
+set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns
 # swap on by /etc/fstab.  bare.dsk: the same without /etc/rc, init going

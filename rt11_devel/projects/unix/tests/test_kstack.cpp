@@ -9,15 +9,17 @@
 #include "Machine.hpp"
 
 #include <string>
+#include <vector>
 
 using unixos::Machine;
 
 namespace {
 
-/* high.h's layout: the mount table first, then the processes, each with
- * its kernel stack at its end (proc.h). */
-constexpr unsigned kHighBase = 0140000, kMounts = 162, kProc = 40, kKstack = 320, kProcs = 3;
-constexpr unsigned kMargin = 32;
+/* The tables lie in bank 6 where the kernel's link put them (high.h):
+ * the processes one after another, each with its kernel stack at its end
+ * (proc.h), the canary its bottom word. */
+constexpr unsigned kBank6 = 0140000, kDriver = 0155000, kProc = 40, kKstack = 320, kProcs = 3;
+constexpr unsigned kCanary = 0122525, kMargin = 32;
 
 } // namespace
 
@@ -39,8 +41,13 @@ TEST_CASE("the kernel stacks keep a margin under the heaviest calls") {
     }
     INFO(m.screen());
     CHECK(m.screen().find("panic") == std::string::npos);
+    std::vector<unsigned> canaries;
+    for (unsigned a = kBank6; a < kDriver; a += 2)
+        if (m.emulator().readWord(static_cast<uint16_t>(a)) == kCanary) canaries.push_back(a);
+    REQUIRE(canaries.size() == kProcs);
+    for (unsigned p = 1; p < kProcs; ++p) CHECK(canaries[p] - canaries[p - 1] == kProc + kKstack);
     for (unsigned p = 0; p < kProcs; ++p) {
-        const unsigned bottom = kHighBase + kMounts + p * (kProc + kKstack) + kProc;
+        const unsigned bottom = canaries[p];
         CAPTURE(p);
         unsigned touched = 0;
         for (unsigned a = bottom + 2; a < bottom + 2 + kMargin; a += 2)

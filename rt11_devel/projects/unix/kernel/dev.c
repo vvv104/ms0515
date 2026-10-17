@@ -8,7 +8,7 @@
  * side of a drive side * 2 + drive (RT-11's DZ0..DZ3), so fd1 is its unit
  * 2 and fd2 its unit 1.  A block of fdx is the same block of a side's
  * device: dev_canon gives the cache one name for it. */
-#include "hi.h"
+#include "sys.h"
 #include "ramdisk.h"
 #include "rom.h"
 

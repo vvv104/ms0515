@@ -20,7 +20,7 @@ add_executable(unix_tests
     test_format.cpp
     test_own.cpp
     test_rt11.cpp
-    test_hi.cpp
+    test_kernel.cpp
     test_dirs.cpp
     test_links.cpp
     test_rtfs.cpp
