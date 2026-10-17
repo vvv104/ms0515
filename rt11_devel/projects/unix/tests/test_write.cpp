@@ -23,7 +23,7 @@ void atPrompt(Machine &m)
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -53,7 +53,7 @@ TEST_CASE("a file made by > is there to read, on the machine and on the diskette
     REQUIRE(m.command("echo hello file > /etc/hi"));
     REQUIRE(m.command("cat /etc/hi"));
     INFO(m.screen());
-    CHECK(after(m, "cat /etc/hi").find("\nhello file\n$") != std::string::npos);
+    CHECK(after(m, "cat /etc/hi").find("\nhello file\n#") != std::string::npos);
     Volume v(m.imageNow());
     const auto hi = v.lookup("/etc/hi");
     REQUIRE(hi);
@@ -99,7 +99,7 @@ TEST_CASE("mkdir makes a directory with . and .., a file goes in it; rm takes th
     REQUIRE(m.command("echo inside > /work/u/f"));
     REQUIRE(m.command("ls /work/u"));
     INFO(m.screen());
-    CHECK(after(m, "ls /work/u").find("\nf\n$") != std::string::npos);
+    CHECK(after(m, "ls /work/u").find("\nf\n#") != std::string::npos);
     {
         Volume v(m.imageNow());
         const auto work = v.lookup("/work"), u = v.lookup("/work/u");
@@ -158,7 +158,7 @@ TEST_CASE("what was written stays: the diskette booted again has the file") {
     atPrompt(again);
     REQUIRE(again.command("cat /kept"));
     INFO(again.screen());
-    CHECK(after(again, "cat /kept").find("\nkept\n$") != std::string::npos);
+    CHECK(after(again, "cat /kept").find("\nkept\n#") != std::string::npos);
 }
 
 TEST_CASE("errors: no such directory, a file is no directory, rm of what is not there") {

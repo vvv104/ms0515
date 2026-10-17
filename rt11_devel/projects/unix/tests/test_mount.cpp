@@ -21,7 +21,7 @@ void atPrompt(Machine &m)
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -60,8 +60,8 @@ TEST_CASE("mkfs makes a volume on the RAM disk, mount puts it at /tmp, a file go
     REQUIRE(m.command("ls /tmp"));
     REQUIRE(m.command("cat /tmp/f"));
     INFO(m.screen());
-    CHECK(after(m, "ls /tmp").find("\nf\n$") != std::string::npos);
-    CHECK(after(m, "cat /tmp/f").find("\nin ram\n$") != std::string::npos);
+    CHECK(after(m, "ls /tmp").find("\nf\n#") != std::string::npos);
+    CHECK(after(m, "cat /tmp/f").find("\nin ram\n#") != std::string::npos);
     /* On the RAM disk, as the host reads the board's memory: mkfs.py's
      * format, the file at its root. */
     Volume rv(m.ramDisk(), true);
@@ -101,7 +101,7 @@ TEST_CASE("umount takes the volume out: /tmp is the diskette's again; mounted an
     REQUIRE(m.command("mount /dev/rd0 /tmp"));
     REQUIRE(m.command("cat /tmp/k"));
     INFO(m.screen());
-    CHECK(after(m, "cat /tmp/k").find("\nkept in ram\n$") != std::string::npos);
+    CHECK(after(m, "cat /tmp/k").find("\nkept in ram\n#") != std::string::npos);
 }
 
 TEST_CASE("mount refuses what is not a volume, a device mounted twice, and a file for a directory") {

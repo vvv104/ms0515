@@ -41,19 +41,19 @@ TEST_CASE("a line typed is echoed and read by the shell as a line") {
     REQUIRE(m.boot());
     REQUIRE(m.command("echo hi there"));
     INFO(m.screen());
-    CHECK(m.screen().find("$ echo hi there\n") != std::string::npos);   /* the echo */
-    CHECK(m.screen().find("\nhi there\n$") != std::string::npos);       /* the program's, and the prompt */
+    CHECK(m.screen().find("# echo hi there\n") != std::string::npos);   /* the echo */
+    CHECK(m.screen().find("\nhi there\n#") != std::string::npos);       /* the program's, and the prompt */
 }
 
 TEST_CASE("an empty line is no command: the shell asks again") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
     REQUIRE(m.boot());
-    const std::size_t before = count(m.screen(), "$");
+    const std::size_t before = count(m.screen(), "#");
     REQUIRE(m.command(""));
     REQUIRE(m.command("   "));
     INFO(m.screen());
-    CHECK(count(m.screen(), "$") == before + 2);
+    CHECK(count(m.screen(), "#") == before + 2);
     CHECK(m.screen().find("not found") == std::string::npos);
 }
 
@@ -79,7 +79,7 @@ TEST_CASE("a Russian word, small letters bare, is read as it was typed") {
     const std::string vanya = "\xD7\xC1\xCE\xD1";                  /* KOI-8: в а н я */
     REQUIRE(m.command("echo " + vanya));
     INFO(m.screen());
-    CHECK(m.screen().find("\n" + vanya + "\n$") != std::string::npos);
+    CHECK(m.screen().find("\n" + vanya + "\n#") != std::string::npos);
 }
 
 TEST_CASE("a line is edited before it is read: backspace takes the last character back") {
@@ -89,7 +89,7 @@ TEST_CASE("a line is edited before it is read: backspace takes the last characte
     m.typeAndSettle("echo roox\b\bot\r", 50);
     m.waitPrompt();
     INFO(m.screen());
-    CHECK(m.screen().find("\nroot\n$") != std::string::npos);
+    CHECK(m.screen().find("\nroot\n#") != std::string::npos);
     CHECK(m.screen().find("\nroo\n") == std::string::npos);
 }
 
@@ -116,7 +116,7 @@ TEST_CASE("an unknown command is reported, and the shell asks again") {
     REQUIRE(m.boot());
     REQUIRE(m.command("xyz"));
     INFO(m.screen());
-    CHECK(m.screen().find("xyz: not found\n$") != std::string::npos);
+    CHECK(m.screen().find("xyz: not found\n#") != std::string::npos);
 }
 
 }

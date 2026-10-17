@@ -21,7 +21,7 @@ void atPrompt(Machine &m)
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -89,7 +89,7 @@ TEST_CASE("ls -l: a line a file - its type and rights, links, size, name; -a sho
     REQUIRE(m.command("ls -a /"));
     CHECK(after(m, "ls -a /").find(".  ..") != std::string::npos);
     REQUIRE(m.command("ls -l /etc/motd"));                 /* a file named: its own line, as named */
-    CHECK(after(m, "ls -l /etc/motd").find(" /etc/motd\n$") != std::string::npos);
+    CHECK(after(m, "ls -l /etc/motd").find(" /etc/motd\n#") != std::string::npos);
 }
 
 TEST_CASE("du: the blocks under each directory, and -s the total alone") {
@@ -106,7 +106,7 @@ TEST_CASE("du: the blocks under each directory, and -s the total alone") {
     REQUIRE(d);
     REQUIRE(etc);
     CHECK(after(m, "du /d").find("\n" + std::to_string(blocksUnder(v, *d)) + " /d\n") != std::string::npos);
-    CHECK(after(m, "du -s /etc").find("\n" + std::to_string(blocksUnder(v, *etc)) + " /etc\n$") != std::string::npos);
+    CHECK(after(m, "du -s /etc").find("\n" + std::to_string(blocksUnder(v, *etc)) + " /etc\n#") != std::string::npos);
 }
 
 TEST_CASE("df: each volume's blocks, used and free, by its own superblock and bitmap") {

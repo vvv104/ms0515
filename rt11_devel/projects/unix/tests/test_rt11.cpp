@@ -104,7 +104,7 @@ TEST_CASE("rt11 runs SABOT2: its loader finds SABOT2.DAT on DZ0: and the game ta
     m.run(1500);
     INFO(m.screen());
     CHECK(m.screen().find("NAJDEN") == std::string::npos);     /* its loader's "not found" */
-    CHECK(m.screen().find("\n$") == std::string::npos);        /* not the system again */
+    CHECK(m.screen().find("\n#") == std::string::npos);        /* not the system again */
     /* The game's own: the screen 320 x 200, as its loader sets it once it
      * has the data, and the machine not halted. */
     CHECK_FALSE(ms0515::internal::board(m.emulator()).hires_mode);

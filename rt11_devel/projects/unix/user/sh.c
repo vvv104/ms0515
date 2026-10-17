@@ -239,7 +239,7 @@ int main(int argc, char **argv)
 	}
 	for (;;) {
 		if (!script)
-			say("$ ");
+			say("# ");			/* not $: the ROM's font has the currency sign there */
 		if (next_line(from, line, sizeof line) < 0)
 			exit(0);
 		n = words(line, word, MAXARGS + MAXCMDS);

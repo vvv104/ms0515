@@ -23,7 +23,7 @@ void atPrompt(Machine &m)
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -53,7 +53,7 @@ TEST_CASE("ln: a second name for the same inode, its links counted; rm of one le
     }
     REQUIRE(m.command("rm /a"));
     REQUIRE(m.command("cat /b"));
-    CHECK(after(m, "cat /b").find("\nsame\n$") != std::string::npos);
+    CHECK(after(m, "cat /b").find("\nsame\n#") != std::string::npos);
     Volume v(m.imageNow());
     CHECK_FALSE(v.lookup("/a"));
     REQUIRE(v.lookup("/b"));
@@ -83,11 +83,11 @@ TEST_CASE("mv: a name moved on its volume, into a directory, and to another volu
     REQUIRE(m.command("mkdir /d"));
     REQUIRE(m.command("mv /b /d"));
     REQUIRE(m.command("cat /d/b"));
-    CHECK(after(m, "cat /d/b").find("\nmoving\n$") != std::string::npos);
+    CHECK(after(m, "cat /d/b").find("\nmoving\n#") != std::string::npos);
     REQUIRE(m.command("mv /d/b /tmp/c", 3000));         /* the RAM disk: copied, then removed */
     REQUIRE(m.command("cat /tmp/c"));
     INFO(m.screen());
-    CHECK(after(m, "cat /tmp/c").find("\nmoving\n$") != std::string::npos);
+    CHECK(after(m, "cat /tmp/c").find("\nmoving\n#") != std::string::npos);
     Volume v(m.imageNow());
     CHECK_FALSE(v.lookup("/a"));
     CHECK_FALSE(v.lookup("/b"));

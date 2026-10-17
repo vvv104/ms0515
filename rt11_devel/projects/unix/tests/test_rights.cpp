@@ -18,7 +18,7 @@ namespace {
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -104,7 +104,7 @@ TEST_CASE("chmod: x lets a file run, no w keeps it, no r shuts it") {
     CHECK(after(m, "cat t").find("cat: t: not allowed") != std::string::npos);
     REQUIRE(m.command("chmod 6 t"));
     REQUIRE(m.command("cat t"));
-    CHECK(after(m, "cat t").find("\ntext\n$") != std::string::npos);
+    CHECK(after(m, "cat t").find("\ntext\n#") != std::string::npos);
     REQUIRE(m.command("chmod rwz t"));
     INFO(m.screen());
     CHECK(after(m, "chmod rwz t").find("chmod:") != std::string::npos);

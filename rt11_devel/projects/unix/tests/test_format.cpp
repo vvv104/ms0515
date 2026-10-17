@@ -29,7 +29,7 @@ void atPrompt(Machine &m)
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -63,7 +63,7 @@ TEST_CASE("fdformat writes a side's 80 tracks anew; the other side untouched; mk
     REQUIRE(m.command("mount /dev/fd2 /tmp"));
     REQUIRE(m.command("echo new > /tmp/n"));
     REQUIRE(m.command("cat /tmp/n"));
-    CHECK(after(m, "cat /tmp/n").find("\nnew\n$") != std::string::npos);
+    CHECK(after(m, "cat /tmp/n").find("\nnew\n#") != std::string::npos);
     Volume v(m.secondNow());
     CHECK(v.lookup("/n"));
 }

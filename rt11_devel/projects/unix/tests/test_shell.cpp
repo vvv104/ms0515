@@ -20,7 +20,7 @@ void atPrompt(Machine &m)
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -35,8 +35,8 @@ TEST_CASE("the shell runs a program and comes back to its prompt") {
     m.command("echo one two");
     m.command("hello");
     INFO(m.screen());
-    CHECK(after(m, "echo one two").find("one two\n$") != std::string::npos);
-    CHECK(after(m, "hello").find("hello, world\n$") != std::string::npos);
+    CHECK(after(m, "echo one two").find("one two\n#") != std::string::npos);
+    CHECK(after(m, "hello").find("hello, world\n#") != std::string::npos);
 }
 
 TEST_CASE("a command is looked for in /bin, or taken by its path; one not there is reported") {
@@ -49,7 +49,7 @@ TEST_CASE("a command is looked for in /bin, or taken by its path; one not there 
     INFO(m.screen());
     CHECK(m.screen().find("by path") != std::string::npos);
     CHECK(m.screen().find("nope: not found") != std::string::npos);
-    CHECK(after(m, "echo still here").find("still here\n$") != std::string::npos);
+    CHECK(after(m, "echo still here").find("still here\n#") != std::string::npos);
 }
 
 TEST_CASE("ls and cat are programs of /bin now") {
@@ -104,8 +104,8 @@ TEST_CASE("the shell's exit ends the session: a new shell takes its place") {
     REQUIRE(m.command("exit"));
     REQUIRE(m.command("echo again"));
     INFO(m.screen());
-    CHECK(after(m, "exit").find("\n$") != std::string::npos);
-    CHECK(after(m, "echo again").find("\nagain\n$") != std::string::npos);
+    CHECK(after(m, "exit").find("\n#") != std::string::npos);
+    CHECK(after(m, "echo again").find("\nagain\n#") != std::string::npos);
 }
 
 }

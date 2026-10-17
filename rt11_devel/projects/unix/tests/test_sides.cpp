@@ -29,7 +29,7 @@ void atPrompt(Machine &m)
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -48,7 +48,7 @@ TEST_CASE("the single-sided system boots from one side: swap on its /swap, the p
     REQUIRE(m.command("echo one > /f"));
     REQUIRE(m.command("cat /f"));
     INFO(m.screen());
-    CHECK(after(m, "cat /f").find("\none\n$") != std::string::npos);
+    CHECK(after(m, "cat /f").find("\none\n#") != std::string::npos);
     Volume v(m.imageNow());
     CHECK(v.word(1, 4) == 800);                       /* the superblock's size */
     CHECK(v.lookup("/f"));
@@ -65,7 +65,7 @@ TEST_CASE("a diskette in the second drive: made a volume, mounted, written, read
     REQUIRE(m.command("echo two > /tmp/g"));
     REQUIRE(m.command("cat /tmp/g"));
     INFO(m.screen());
-    CHECK(after(m, "cat /tmp/g").find("\ntwo\n$") != std::string::npos);
+    CHECK(after(m, "cat /tmp/g").find("\ntwo\n#") != std::string::npos);
     Volume v(m.secondNow());
     const auto g = v.lookup("/g");
     REQUIRE(g);

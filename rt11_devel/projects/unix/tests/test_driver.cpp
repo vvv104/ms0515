@@ -55,7 +55,7 @@ void atPrompt(Machine &m)
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -69,7 +69,7 @@ int framesOf(Machine &m, const std::string &command)
         frames += 5;
         std::string s = m.screen();
         while (!s.empty() && (s.back() == '\n' || s.back() == ' ')) s.pop_back();
-        if (s.size() >= 2 && s.substr(s.size() - 2) == "\n$") break;
+        if (s.size() >= 2 && s.substr(s.size() - 2) == "\n#") break;
     }
     return frames;
 }
@@ -105,7 +105,7 @@ TEST_CASE("the system's /boot/fd drives the VG93 itself: no block through the RO
     INFO(m.screen());
     CHECK(driverCalls > 0);
     CHECK(romCalls == 0);
-    CHECK(after(m, "cat /k").find("\nfour\n$") != std::string::npos);
+    CHECK(after(m, "cat /k").find("\nfour\n#") != std::string::npos);
     Volume v(m.imageNow());
     const auto k = v.lookup("/k");
     REQUIRE(k);
@@ -133,7 +133,7 @@ TEST_CASE("with no /boot/fd the ROM's own way: no word of a driver, the system r
     atPrompt(m);
     REQUIRE(m.command("echo three > /h"));
     REQUIRE(m.command("cat /h"));
-    CHECK(after(m, "cat /h").find("\nthree\n$") != std::string::npos);
+    CHECK(after(m, "cat /h").find("\nthree\n#") != std::string::npos);
 }
 
 TEST_CASE("a /boot/fd longer than the driver's room is refused, whatever its header says") {

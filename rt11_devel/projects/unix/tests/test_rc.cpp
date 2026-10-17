@@ -27,7 +27,7 @@ void atPrompt(Machine &m)
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -43,12 +43,12 @@ TEST_CASE("with the RAM disk: /tmp is its volume, swap a file on it, before the 
     INFO(boot);
     CHECK(boot.find("mount: /dev/rd0 on /tmp") != std::string::npos);
     CHECK(boot.find("swap: /tmp/swap") != std::string::npos);
-    CHECK(boot.find("mount: /dev/rd0 on /tmp") < boot.rfind("$"));
+    CHECK(boot.find("mount: /dev/rd0 on /tmp") < boot.rfind("#"));
     atPrompt(m);
     REQUIRE(m.command("ls /tmp"));
-    CHECK(after(m, "ls /tmp").find("\nswap\n$") != std::string::npos);
+    CHECK(after(m, "ls /tmp").find("\nswap\n#") != std::string::npos);
     REQUIRE(m.command("echo a | cat"));
-    CHECK(after(m, "echo a | cat").find("\na\n$") != std::string::npos);
+    CHECK(after(m, "echo a | cat").find("\na\n#") != std::string::npos);
 }
 
 TEST_CASE("without the RAM disk: no volume at /tmp, swap the diskette's /swap") {
@@ -70,7 +70,7 @@ TEST_CASE("the session's end brings a new shell in /home, and /etc/rc is not run
     REQUIRE(m.command("exit"));
     REQUIRE(m.command("pwd"));
     INFO(m.screen());
-    CHECK(after(m, "pwd").find("\n/home\n$") != std::string::npos);
+    CHECK(after(m, "pwd").find("\n/home\n#") != std::string::npos);
     CHECK(count(m.screen(), "mount: /dev/rd0") == 1);
 }
 
@@ -94,7 +94,7 @@ TEST_CASE("sh runs a script: a file of commands, without a prompt") {
     /* /etc/rc is such a script, its comments passed by: the boot shows it. */
     REQUIRE(m.command("sh /tmp/s"));
     INFO(m.screen());
-    CHECK(after(m, "sh /tmp/s").find("\none\n$") != std::string::npos);
+    CHECK(after(m, "sh /tmp/s").find("\none\n#") != std::string::npos);
 }
 
 }

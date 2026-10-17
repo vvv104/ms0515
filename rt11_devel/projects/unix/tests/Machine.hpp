@@ -187,7 +187,7 @@ public:
         return waitPrompt(limit);
     }
 
-    /* The shell's prompt on the screen: its last line is "$" alone - while a
+    /* The shell's prompt on the screen: its last line is "#" alone - while a
      * command runs it is the line typed, or the command's output.  Frames
      * run until it is, at most `limit`. */
     bool waitPrompt(int limit = 1500)
@@ -196,7 +196,7 @@ public:
             std::string s = screen();
             while (!s.empty() && (s.back() == '\n' || s.back() == ' ')) s.pop_back();
             const auto nl = s.rfind('\n');
-            return s.substr(nl == std::string::npos ? 0 : nl + 1) == "$";
+            return s.substr(nl == std::string::npos ? 0 : nl + 1) == "#";
         };
         for (int f = 0; f < limit; f += 5) {
             run(5);

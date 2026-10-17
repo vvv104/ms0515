@@ -25,7 +25,7 @@ void atPrompt(Machine &m)
 std::string after(Machine &m, const std::string &command)
 {
     const std::string s = m.screen();
-    const auto at = s.rfind("$ " + command);
+    const auto at = s.rfind("# " + command);
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
@@ -33,7 +33,7 @@ std::string after(Machine &m, const std::string &command)
 std::string output(Machine &m, const std::string &command)
 {
     const std::string s = after(m, command);
-    return s.substr(0, s.find("\n$"));
+    return s.substr(0, s.find("\n#"));
 }
 
 } // namespace
