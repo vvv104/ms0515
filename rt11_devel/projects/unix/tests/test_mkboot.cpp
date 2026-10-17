@@ -1,8 +1,9 @@
 /*
- * test_mkboot.cpp - mkboot DEVICE: the system's volume, the root's, copied
- * to a diskette that then boots - its boot block and /boot/kernel's blocks
- * where the superblock says, its size the diskette's, a volume number of
- * its own.  The root in the RAM disk or on the diskette alike; into the
+ * test_mkboot.cpp - mkboot [-a] DEVICE: the system's volume, the root's,
+ * copied to a diskette that then boots - its boot block and /boot/kernel's
+ * blocks where the superblock says, its size the diskette's, a volume
+ * number of its own; the system alone, /home and /tmp left empty, or with
+ * -a all of it.  The root in the RAM disk or on the diskette alike; into the
  * second drive, or into the boot drive once its diskette is let go and
  * another put in.
  */
@@ -51,7 +52,6 @@ TEST_CASE("mkboot from the RAM root to the second drive: the copy boots") {
     Machine m(image, true);
     m.insertSecond(std::vector<uint8_t>(819200, 0));
     REQUIRE(m.boot());
-    REQUIRE(m.command("echo mine > /home/mine"));
     REQUIRE(m.command("mkboot /dev/fdx1", 6000));
     INFO(m.screen());
     CHECK(after(m, "mkboot /dev/fdx1").find("mkboot: /dev/fdx1: 1600 blocks") != std::string::npos);
@@ -60,9 +60,6 @@ TEST_CASE("mkboot from the RAM root to the second drive: the copy boots") {
     CHECK(superWord(clone, 3) == superWord(image, 3));        /* the kernel's blocks where they were */
     CHECK(superWord(clone, 4) == superWord(image, 4));
     CHECK(Volume(clone).longAt(1, 28) != Volume(image).longAt(1, 28));   /* a volume number of its own */
-    Volume v(clone);
-    REQUIRE(v.lookup("/home/mine"));
-    CHECK(v.content(v.inode(*v.lookup("/home/mine"))) == "mine\n");
     boots(clone);
 }
 
@@ -84,10 +81,31 @@ TEST_CASE("mkboot with the root on the diskette: the copy boots") {
     Machine m(unixos::readImage(), false);
     m.insertSecond(std::vector<uint8_t>(819200, 0));
     REQUIRE(m.boot());
+    REQUIRE(m.command("echo mine > /home/mine"));
+    REQUIRE(m.command("mkdir /home/d"));
+    REQUIRE(m.command("echo scratch > /tmp/t"));
     REQUIRE(m.command("mkboot /dev/fdx1", 6000));
     INFO(m.screen());
     CHECK(after(m, "mkboot /dev/fdx1").find("mkboot: /dev/fdx1: 1600 blocks") != std::string::npos);
-    boots(m.secondNow());
+    {
+        const auto clone = m.secondNow();
+        Volume v(clone);
+        CHECK_FALSE(v.lookup("/home/mine"));                  /* the system alone */
+        CHECK_FALSE(v.lookup("/home/d"));
+        CHECK_FALSE(v.lookup("/tmp/t"));
+        REQUIRE(v.lookup("/home"));
+        CHECK(v.inode(*v.lookup("/home")).nlink == 2);
+        CHECK(v.lookup("/bin/sh"));
+        boots(clone);
+    }
+    REQUIRE(m.command("mkboot -a /dev/fdx1", 6000));
+    CHECK(after(m, "mkboot -a /dev/fdx1").find("mkboot: /dev/fdx1: 1600 blocks") != std::string::npos);
+    const auto all = m.secondNow();
+    Volume v(all);
+    REQUIRE(v.lookup("/home/mine"));
+    CHECK(v.content(v.inode(*v.lookup("/home/mine"))) == "mine\n");
+    CHECK(v.lookup("/home/d"));
+    boots(all);
 }
 
 TEST_CASE("mkboot refused: the root's own diskette, a mounted one, no diskette, no device") {
@@ -103,7 +121,7 @@ TEST_CASE("mkboot refused: the root's own diskette, a mounted one, no diskette, 
     REQUIRE(m.command("mkboot /etc/motd"));
     CHECK(after(m, "mkboot /etc/motd").find("mkboot: /etc/motd: not a block device") != std::string::npos);
     REQUIRE(m.command("mkboot"));
-    CHECK(after(m, "mkboot").find("usage: mkboot DEVICE") != std::string::npos);
+    CHECK(after(m, "mkboot").find("usage: mkboot [-a] DEVICE") != std::string::npos);
     INFO(m.screen());
     REQUIRE(m.command("ls /bin"));
     CHECK(after(m, "ls /bin").find("sh") != std::string::npos);
@@ -113,6 +131,7 @@ TEST_CASE("one drive: the system in memory, its diskette let go, a blank one put
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     REQUIRE(m.boot());
+    REQUIRE(m.command("cd /"));                                 /* out of /home, the diskette's */
     REQUIRE(m.command("umount /dev/fdx0"));
     m.insertFirst(std::vector<uint8_t>(819200, 0));
     REQUIRE(m.command("mkboot /dev/fdx0", 6000));

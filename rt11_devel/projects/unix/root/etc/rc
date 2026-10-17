@@ -1,6 +1,7 @@
 # /etc/rc - run by init at the boot: the system into the RAM disk and the
-# root there when the machine has one (/bin/ramroot, the diskette then at
-# /disk), the volumes of /etc/fstab, then the shell for the console.
-ramroot
+# root there when the machine has one (/bin/ramroot), the diskette's /home
+# then mounted at /home - the files the user's, kept on the diskette; the
+# volumes of /etc/fstab; then the shell for the console.
+ramroot /home /home
 mount -a
 exec /bin/sh

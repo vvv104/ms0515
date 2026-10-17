@@ -96,7 +96,7 @@ TEST_CASE("the RAM disk by /boot/rd: a file written on it and read back") {
     Machine m(unixos::readImage(), true);
     REQUIRE(m.boot(3000));
     REQUIRE(m.command("cat /etc/numbers > /tmp/n", 3000));        /* the root is the RAM disk's */
-    REQUIRE(m.command("cat /tmp/n | cat > /disk/home/n", 4000));  /* the diskette's */
+    REQUIRE(m.command("cat /tmp/n | cat > /home/n", 4000));       /* the diskette's */
     INFO(m.screen());
     Volume v(m.imageNow());
     const auto numbers = v.lookup("/etc/numbers"), copy = v.lookup("/home/n");

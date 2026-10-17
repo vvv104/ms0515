@@ -347,19 +347,29 @@ device; what is mounted where `/etc/fstab` says:
 fd0           /      root
 ```
 
+`mount(device, dir, top)` puts a volume at dir - its root, or with top a
+directory of it, by its inode, the rest of the volume unseen; `..` at
+that directory goes out to dir's parent.  `/bin/mount DEVICE DIR PATH`
+finds PATH's inode by reading the volume's blocks, before it is in the
+tree.
+
 With the RAM disk the root is not the diskette's for long: `/etc/rc` runs
-`ramroot` first, which copies the diskette's volume to rd0 block for
-block - the blocks below the data area and those the bitmap has taken -
-tells the copy's superblock the RAM disk's 1024 blocks, and makes the copy
-the root by `mount("/dev/rd0", "/")`: the kernel swaps the root's place in
-the mount table when nothing else is mounted, the processes in the old
-root's directories going to the new root, what they hold open of the old
-volume staying theirs.  The diskette's volume then goes to `/disk`.  /tmp
-is the copy's.  `umount` forgets the device's blocks in the cache, so the
-diskette may be changed.  `mkboot DEVICE` makes a diskette of the system
-the same way: the root's volume copied block for block, the boot block
-and the kernel's blocks where the superblock says, the copy told the
-diskette's size and a volume number of its own.
+`ramroot /home /home` first, which copies the system to rd0 block for
+block - the blocks below the data area and those the bitmap has taken,
+less what /home and /tmp hold: those directories are left empty in the
+copy, their files' inodes cleared, their blocks free, a file with a name
+elsewhere too only its links counted down - tells the copy's superblock
+the RAM disk's 1024 blocks, and makes the copy the root by
+`mount("/dev/rd0", "/", 0)`: the kernel swaps the root's place in the
+mount table when nothing else is mounted, the processes in the old root's
+directories going to the new root, what they hold open of the old volume
+staying theirs.  The diskette's /home then goes to /home: the system runs
+from memory, the user's files are on the diskette.  /tmp is the copy's.
+`umount` forgets the device's blocks in the cache, so the diskette may be
+changed.  `mkboot [-a] DEVICE` makes a diskette of the system the same
+way: the root's volume copied block for block - the system alone, or all
+with -a - the boot block and the kernel's blocks where the superblock
+says, the copy told the diskette's size and a volume number of its own.
 
 What the system has for it:
 
@@ -396,9 +406,9 @@ reading the kernel off the diskette.
    slot A.
 5. `init` does `exec sh /etc/rc`: pid 1 becomes the shell running the
    script, and the second slot is free.
-6. `/etc/rc`: `ramroot`, the root into the RAM disk and the diskette at
-   /disk when there is the board, then `mount -a` by `fstab`, each in the
-   second slot.
+6. `/etc/rc`: `ramroot /home /home`, the system into the RAM disk and the
+   diskette's /home at /home when there is the board, then `mount -a` by
+   `fstab`, each in the second slot.
 7. At its end `/etc/rc` does `exec /bin/sh`: the shell for the console.
    When the session ends the kernel runs a new shell in its place.  The
    session's shell, pid 1, starts in /home, and `cd` alone goes there.
@@ -415,8 +425,7 @@ file by name, "insert the system diskette" with waiting.
 /etc/init  /etc/rc
 /bin/      sh, ls, cat, ed, ...
 /tmp/
-/home/
-/disk/     (empty; with a RAM disk the root is its copy, the diskette here)
+/home/     (with a RAM disk: the diskette's, the rest a copy in memory)
 ```
 
 ## The user environment

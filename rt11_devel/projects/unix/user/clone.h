@@ -1,5 +1,5 @@
-/* clone.h - a volume copied block for block, for ramroot and mkboot
- * (clone.c). */
+/* clone.h - a volume read and copied by its blocks, for ramroot, mkboot
+ * and mount (clone.c). */
 #ifndef UNIX_CLONE_H
 #define UNIX_CLONE_H
 
@@ -11,11 +11,17 @@ const char *device_path(unsigned dev);
  * block read to tell; 0 when none of them reads. */
 unsigned device_blocks(int fd);
 
+/* The inode of path on the volume of the device open at fd, read by its
+ * blocks, not mounted: 0 when there is none. */
+unsigned volume_inode(int fd, const char *path);
+
 /* The volume on from copied to to, a device of `blocks`: the blocks below
  * its data area and those its bitmap has taken, each where it was, so the
- * boot block finds the kernel where the superblock says; the copy's
- * superblock told its size, the label and a volume number of its own.
- * 0, or -1 with errno - ENOSPC when a block taken lies past the end. */
-int clone_volume(int from, int to, unsigned blocks, const char *label);
+ * boot block finds the kernel where the superblock says; with `system`
+ * the system alone - /home and /tmp left empty, their files neither read
+ * nor kept.  The copy's superblock is told its size, the label and a
+ * volume number of its own.  0, or -1 with errno - ENOSPC when a block
+ * taken lies past the end. */
+int clone_volume(int from, int to, unsigned blocks, const char *label, int system);
 
 #endif

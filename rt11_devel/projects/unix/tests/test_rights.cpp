@@ -34,11 +34,11 @@ TEST_SUITE("UNIX") {
 
 TEST_CASE("the rights laid down: r-x the system's, rw- the rest; a new file rw-") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
-    Machine m(unixos::readImage(), true);
+    Machine m(unixos::readImage(), false);
     REQUIRE(m.boot());
     REQUIRE(m.command("echo x > /home/f"));
     REQUIRE(m.command("mkdir /home/d"));
-    Volume v(m.ramDisk(), true);                               /* the root: the diskette's copy, rights kept */
+    Volume v(m.imageNow());
     for (const char *path : {"/boot/kernel", "/boot/fd", "/bin/sh", "/bin/ls", "/etc/init"}) {
         CAPTURE(path);
         CHECK(rights(v, path) == 5);

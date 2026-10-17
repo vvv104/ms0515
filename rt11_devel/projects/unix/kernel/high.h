@@ -34,11 +34,13 @@ struct shadow {
 };
 
 /* A volume in the tree: the root (the table's first), or one mounted on a
- * directory, which it covers while it is there. */
+ * directory, which it covers while it is there - the volume's root, or a
+ * directory of it, whose inode is top: the rest of the volume unseen. */
 struct mount {
 	unsigned dev;
 	struct superblock sb;
 	struct inode *on;		/* the directory covered, held */
+	unsigned top;			/* the inode seen at on: ROOT_INO, or a directory's */
 	char used;
 };
 

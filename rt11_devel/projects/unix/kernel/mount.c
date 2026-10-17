@@ -1,6 +1,8 @@
-/* mount.c - mount(device, dir) and umount(device).  mount(device, "/")
- * makes the volume the root in place of the boot's (fs.c fs_pivot):
- * /bin/ramroot's, the system copied to the RAM disk. */
+/* mount.c - mount(device, dir, top) and umount(device).  top is the
+ * inode of the volume's directory put at dir - 0, its root: the whole
+ * volume - which /bin/mount finds by the path on the volume.
+ * mount(device, "/", 0) makes the volume the root in place of the boot's
+ * (fs.c fs_pivot): /bin/ramroot's, the system copied to the RAM disk. */
 #include "sys.h"
 
 #define mounts (HIGH->mounts)
@@ -21,8 +23,22 @@ static int device_at(const char *path, int *error)
 	return dev;
 }
 
-/* The volume on the device into the tree at dir. */
-static int mount_on(const char *device, const char *dir)
+/* 0 when inode n of dev is a directory, else the error. */
+static int directory(unsigned dev, unsigned n)
+{
+	struct inode *ip = iget(dev, n);
+	int error;
+
+	if (!ip)
+		return ENFILE;
+	error = (ip->d.mode & S_IFMT) == S_IFDIR ? 0 : ENOTDIR;
+	iput(ip);
+	return error;
+}
+
+/* The volume on the device into the tree at dir, its directory top
+ * there. */
+static int mount_on(const char *device, const char *dir, unsigned top)
 {
 	struct mount *m = 0;
 	struct inode *dp;
@@ -51,8 +67,13 @@ static int mount_on(const char *device, const char *dir)
 	}
 	m->dev = (unsigned)dev;
 	m->on = dp;				/* held while it is covered */
-	m->used = 1;
-	return 0;
+	m->top = top ? top : ROOT_INO;
+	m->used = 1;				/* in the table: its inodes are to be had */
+	if ((error = m->top > m->sb.inodes ? EINVAL : directory((unsigned)dev, m->top)) != 0) {
+		m->used = 0;
+		iput(dp);
+	}
+	return error;
 }
 
 /* The volume taken out, when nothing on it is held. */
@@ -81,7 +102,7 @@ int sys_mount(struct trapframe *tf, const unsigned *arg)
 
 	if ((error = user_string(arg[0], PATHMAX)) != 0 || (error = user_string(arg[1], PATHMAX)) != 0)
 		return error;
-	if ((error = mount_on((const char *)arg[0], (const char *)arg[1])) != 0)
+	if ((error = mount_on((const char *)arg[0], (const char *)arg[1], arg[2])) != 0)
 		return error;
 	tf->r0 = 0;
 	return 0;

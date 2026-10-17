@@ -1,8 +1,9 @@
-/* mkboot.c - /bin/mkboot DEVICE: the system copied to a diskette that
- * boots.
+/* mkboot.c - /bin/mkboot [-a] DEVICE: the system copied to a diskette
+ * that boots.
  *
  * The root's volume - the RAM disk's when the system runs from it, else
- * the boot diskette's - goes to DEVICE block for block (clone.c): the boot
+ * the boot diskette's - goes to DEVICE block for block (clone.c), the
+ * system alone - /home and /tmp left empty - or with -a all of it: the boot
  * block and /boot/kernel's blocks where the superblock says, the rest as
  * the bitmap has it, the copy told DEVICE's size - 1600 blocks on fdx, 800
  * on a side - and a volume number of its own.  The diskette is to be
@@ -18,12 +19,13 @@ int main(int argc, char **argv)
 	struct stat st;
 	const char *root;
 	unsigned blocks;
-	int from, to, bad;
+	int from, to, bad, all = argc == 3 && !strcmp(argv[1], "-a");
 
-	if (argc != 2) {
-		puts_fd(2, "usage: mkboot DEVICE\n");
+	if (argc != 2 + all) {
+		puts_fd(2, "usage: mkboot [-a] DEVICE\n");
 		return 1;
 	}
+	argv += all;
 	if (stat(argv[1], &st) < 0) {
 		complain("mkboot", argv[1]);
 		return 1;
@@ -46,7 +48,7 @@ int main(int argc, char **argv)
 		errno = 0;			/* no diskette in the drive, or not formatted */
 		complain("mkboot", argv[1]);
 		bad = -1;
-	} else if ((bad = clone_volume(from, to, blocks, "UNIX")) < 0) {
+	} else if ((bad = clone_volume(from, to, blocks, "UNIX", !all)) < 0) {
 		complain("mkboot", argv[1]);
 	}
 	close(from);

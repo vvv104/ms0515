@@ -11,6 +11,7 @@
  * "optional" lets it fail without a word. */
 #include "unistd.h"
 #include "vol.h"
+#include "clone.h"
 
 #define MAXLINES 8
 #define MAXFSTAB 1024			/* /etc/fstab's bytes at most */
@@ -108,7 +109,7 @@ static int volume(struct entry *e)
 
 	if (option(e, "mkfs") && mkfs_volume(dev, 1024) < 0)
 		return -1;
-	if (mount(dev, e->where) < 0)
+	if (mount(dev, e->where, 0) < 0)
 		return -1;
 	e->done = 1;
 	tell("mount: ", dev, " on ");
@@ -135,16 +136,40 @@ static int all(void)
 	return bad;
 }
 
+/* PATH of the volume on device: its inode, read off the volume's blocks
+ * (clone.c), the volume not yet in the tree; 0 with the error told. */
+static unsigned directory(const char *device, const char *path)
+{
+	int fd = open(device, 0);
+	unsigned n;
+
+	if (fd < 0) {
+		complain("mount", device);
+		return 0;
+	}
+	n = volume_inode(fd, path);
+	close(fd);
+	if (!n) {
+		errno = ENOENT;
+		complain("mount", path);
+	}
+	return n;
+}
+
 int main(int argc, char **argv)
 {
+	unsigned top = 0;
+
 	if (argc == 2 && !strcmp(argv[1], "-a"))
 		return all();
-	if (argc != 3) {
-		puts_fd(2, "usage: mount DEVICE DIR, or mount -a\n");
+	if (argc != 3 && argc != 4) {
+		puts_fd(2, "usage: mount DEVICE DIR [PATH], or mount -a\n");
 		return 1;
 	}
-	if (mount(argv[1], argv[2]) < 0) {
-		complain("mount", argv[1]);
+	if (argc == 4 && !(top = directory(argv[1], argv[3])))
+		return 1;
+	if (mount(argv[1], argv[2], top) < 0) {
+		complain("mount", argc == 4 ? argv[3] : argv[1]);
 		return 1;
 	}
 	return 0;

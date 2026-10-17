@@ -405,9 +405,9 @@ static struct inode *step(struct inode *dp, const char *name, int len)
 	struct inode *ip;
 	unsigned n;
 
-	if (len == 2 && name[0] == '.' && name[1] == '.' && dp->ino == ROOT_INO)
+	if (len == 2 && name[0] == '.' && name[1] == '.')
 		for (m = mounts + 1; m < mounts + NMOUNT; m++)
-			if (m->used && m->dev == dp->dev) {
+			if (m->used && m->dev == dp->dev && dp->ino == m->top) {
 				iput(dp);
 				dp = m->on;
 				dp->count++;
@@ -418,7 +418,7 @@ static struct inode *step(struct inode *dp, const char *name, int len)
 	iput(dp);
 	if (ip && (m = covering(ip)) != 0) {
 		iput(ip);
-		ip = iget(m->dev, ROOT_INO);
+		ip = iget(m->dev, m->top);
 	}
 	return ip;
 }
