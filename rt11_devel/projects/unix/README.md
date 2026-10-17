@@ -14,9 +14,9 @@ volume, else the diskette's /swap - and getty asks for a name at `login:` and st
 each command as a child - fork, exec, wait - and comes back with its prompt;
 `a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`,
 `>> file` and `< file` redirect.  A process has its own directory, its
-children's the same; a path not beginning with / goes from it.  Four processes at most - the shell and a pipe of
-three; two are resident, one in each slot, and with swap on the other two
-wait in the swap file, 96 KB, and come in when they are to run.
+children's the same; a path not beginning with / goes from it.  Three processes at most - the shell and a pipe of
+two; two are resident, one in each slot, and with swap on the third waits
+in the swap file, 64 KB, and comes in when it is to run.
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls` (`-l`, `-a`), `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `du`, `df`, `mkfs`,
 `mount`, `umount`,
@@ -183,7 +183,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   (`Machine::ramDisk`), `..` out of a volume, umount; swap on the RAM
   disk's file and the diskette's, the swap file held, the RAM disk's
   swap file laid down by mkfs with the volume, on 5 frames after it (860
-  once, zeros written), four processes at most; /etc/rc with the
+  once, zeros written), three processes at most; /etc/rc with the
   board and without, getty again after a session, a mounted device
   refused for mkfs, a script; the single-sided system booted, a diskette
   in the second drive made a volume and read on the host, the double-sided

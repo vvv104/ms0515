@@ -16,7 +16,7 @@ namespace {
 
 /* high.h's layout: the mount table first, then the processes, each with
  * its kernel stack at its end (proc.h). */
-constexpr unsigned kHighBase = 0140000, kMounts = 162, kProc = 40, kKstack = 320, kProcs = 4;
+constexpr unsigned kHighBase = 0140000, kMounts = 162, kProc = 40, kKstack = 320, kProcs = 3;
 constexpr unsigned kMargin = 32;
 
 } // namespace
@@ -30,10 +30,10 @@ TEST_CASE("the kernel stacks keep a margin under the heaviest calls") {
     m.run(20);
     m.typeAndSettle("root\r", 60);
     REQUIRE(m.waitPrompt());
-    for (const char *c : {"ls /bin", "cat /etc/numbers | cat | cat", "echo a > /tmp/x", "cat < /tmp/x",
+    for (const char *c : {"ls /bin", "cat /etc/numbers | cat", "echo a > /tmp/x", "cat < /tmp/x",
                           "mkdir /tmp/d", "echo b > /tmp/d/y", "ls /tmp/d", "rm /tmp/d/y", "pid &", "pid",
                           "echo ls /tmp > /tmp/s", "sh /tmp/s", "umount /dev/rd0", "mkfs /dev/rd0",
-                          "mount /dev/rd0 /tmp", "cat /etc/numbers | cat | cat | cat", "xyz", "ls /dev"}) {
+                          "mount /dev/rd0 /tmp", "cat /etc/numbers | cat | cat", "xyz", "ls /dev"}) {
         INFO(c << "\n" << m.screen());
         REQUIRE(m.command(c, 3000));
     }

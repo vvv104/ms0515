@@ -71,11 +71,11 @@ later take the native one's place without changing the kernel.
                      | TRAP - system calls      |  Diskette - own FS        |
   +------------------v-------------------+      |  800 blocks a side, or    |
   | Kernel - the file /boot/kernel       |<---->|  1600 on both; /boot, /bin|
-  | banks 0, 1, 6; up to 22 KB           |  FS  |  swap 3 x 32 KB when      |
+  | banks 0, 1, 6; up to 22 KB           |  FS  |  swap 2 x 32 KB when      |
   | processes, FS, swap, system calls    | swap |  there is no RAM disk     |
   | buffer cache in shadow bank 1        |      |                           |
   +------------------+-------------------+      |  RAM disk 512 KB (option) |
-                     | one jump table           |  swap 3 x 32 KB, /tmp     |
+                     | one jump table           |  swap 2 x 32 KB, /tmp     |
   +------------------v-------------------+      |  /tmp                     |
   | ROM: native ROM-B first, own later   |----->|                           |
   | console, keyboard, disk block, font  | boot +---------------------------+
@@ -214,8 +214,9 @@ processes resident, the others in swap.
 - With a RAM disk it is `/tmp/swap` there (see "Volumes, swap and
   fstab"): a 32 KB image moves in ~0.15-0.3 s.  Without one it is `/swap`
   on the diskette, ~1.5-2 s an image.  Each 32 KB of the file is a
-  process's area, one kept for the exchange: three areas, 96 KB, for the
-  two processes out; a smaller file allows fewer.  Only the image's used
+  process's area, one kept for the exchange: two areas, 64 KB, for the
+  one process out - three processes at most, the shell and a pipe of two;
+  a smaller file allows fewer.  Only the image's used
   part moves.
 - The file's bytes do not matter, only its inode and its blocks: `mkfs -s`
   lays it down with the volume, nothing written into it.
@@ -345,7 +346,7 @@ device; what is mounted where, and where swap is, `/etc/fstab` says:
 ```
 # device      where  what to do
 fd0           /      root
-rd0           /tmp   mkfs,swap=96,optional  # made at the boot with /swap in it; no board - skipped
+rd0           /tmp   mkfs,swap=64,optional  # made at the boot with /swap in it; no board - skipped
 /tmp/swap     swap   optional            # the RAM disk's swap file turned on
 /swap         swap   optional            # the fallback: a file on the diskette
 ```

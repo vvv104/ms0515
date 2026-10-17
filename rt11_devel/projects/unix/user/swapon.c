@@ -2,7 +2,7 @@
  *
  * The kernel takes a file in one extent only - mkfs -s lays one down with
  * a volume.  Each 32 KB of it is a process's area, one kept for the
- * exchange: 96 KB for the four processes there may be. */
+ * exchange: 64 KB for the three processes there may be. */
 #include "unistd.h"
 
 int main(int argc, char **argv)

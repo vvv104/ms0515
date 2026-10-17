@@ -2,7 +2,7 @@
 #ifndef UNIX_PROC_H
 #define UNIX_PROC_H
 
-#define NPROC 4				/* the process table: the shell and a pipe of three */
+#define NPROC 3				/* the process table: the shell and a pipe of two */
 #define NSLOT 2				/* slots: banks 2-5, primary and extra */
 #define NOFILE 8			/* a process's open files */
 #define NFILE 16			/* the open files of all */

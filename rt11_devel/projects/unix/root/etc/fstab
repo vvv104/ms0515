@@ -4,9 +4,9 @@
 # The root is the boot drive's - fd0, or fdx0 when the volume takes both
 # sides - mounted by the kernel itself.
 fd0          /      root
-# The RAM disk, a volume made anew at each boot with a swap file of 96 KB
-# in it - four processes; no board, no volume.
-rd0          /tmp   mkfs,swap=96,optional
+# The RAM disk, a volume made anew at each boot with a swap file of 64 KB
+# in it - three processes; no board, no volume.
+rd0          /tmp   mkfs,swap=64,optional
 # Swap: the first of these that can be had - on the RAM disk's volume,
 # else the diskette's own /swap.
 /tmp/swap    swap   optional

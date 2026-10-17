@@ -50,8 +50,8 @@ TEST_CASE("with the RAM disk: /tmp is its volume, swap a file on it, before logi
     atPrompt(m);
     REQUIRE(m.command("ls /tmp"));
     CHECK(after(m, "ls /tmp").find("\nswap\n$") != std::string::npos);
-    REQUIRE(m.command("echo a | cat | cat"));
-    CHECK(after(m, "echo a | cat | cat").find("\na\n$") != std::string::npos);
+    REQUIRE(m.command("echo a | cat"));
+    CHECK(after(m, "echo a | cat").find("\na\n$") != std::string::npos);
 }
 
 TEST_CASE("without the RAM disk: no volume at /tmp, swap the diskette's /swap") {

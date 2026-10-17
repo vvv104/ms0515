@@ -187,7 +187,7 @@ set(VOLUME_FILES
     /bin/bigmem=bigmem.x
     /bin/rt11=rt11.x
     --dir /tmp
-    --swap 96)
+    --swap 64)
 set(VOLUME_DEPENDS boot.bin kernel.bin hi.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns
