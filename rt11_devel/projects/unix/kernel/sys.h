@@ -32,6 +32,7 @@ int own_exec(struct inode *ip, unsigned argc, unsigned used);
 struct mount *mount_of(unsigned dev);
 struct mount *covering(const struct inode *ip);
 int read_super(unsigned dev, struct superblock *sb);
+int fs_pivot(unsigned dev);
 extern const unsigned char dev_place[];
 extern int (*fd_format)(unsigned unit, unsigned track, const void *image, unsigned len);
 

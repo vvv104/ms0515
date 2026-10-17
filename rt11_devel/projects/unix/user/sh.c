@@ -394,8 +394,11 @@ static int own(char **word, int n, int *done)
 	}
 	if (!strcmp(word[0], "exec") && n > 1) {
 		char path[PATHMAX];
+		int fd;
 
 		pathof(word[1], path);
+		for (fd = 3; fd < 8; fd++)	/* a script's own, not the command's: /etc/rc's */
+			close(fd);
 		execv(path, word + 1);
 		complain("sh", word[1]);
 		return 1;

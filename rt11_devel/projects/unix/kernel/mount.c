@@ -1,4 +1,6 @@
-/* mount.c - mount(device, dir) and umount(device). */
+/* mount.c - mount(device, dir) and umount(device).  mount(device, "/")
+ * makes the volume the root in place of the boot's (fs.c fs_pivot):
+ * /bin/ramroot's, the system copied to the RAM disk. */
 #include "sys.h"
 
 #define mounts (HIGH->mounts)
@@ -30,6 +32,8 @@ static int mount_on(const char *device, const char *dir)
 		return error;
 	if (fs_mounted((unsigned)dev))
 		return EBUSY;
+	if (dir[0] == '/' && !dir[1])
+		return fs_pivot((unsigned)dev);
 	for (i = 1; i < NMOUNT && !m; i++)
 		if (!mounts[i].used)
 			m = &mounts[i];

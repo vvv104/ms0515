@@ -9,8 +9,14 @@ Stages 1-5 are done.  The native ROM-B boots the system's diskette, the
 boot block loads the kernel, /boot/kernel, and the kernel mounts the root,
 loads its drivers - /boot/rd finds the EX board's RAM disk, /boot/fd takes
 the diskettes - and runs /etc/init.  init gives its place
-to the shell on /etc/rc: `mount -a` makes the RAM disk a volume at /tmp
-by /etc/fstab, and gives its place to /bin/sh for the console, which runs
+to the shell on /etc/rc: with the RAM disk `ramroot` copies the boot
+diskette's volume there - the blocks it has taken, about 200 - makes the
+copy the root (`mount(rd0, "/")`) and puts the diskette's volume at /disk,
+so the system runs from memory and the diskette is let go by `umount
+/dev/fdx0` and taken out, files saved and own programs run under /disk;
+the copy costs the boot some 8 seconds, 860 frames against 470.  Then
+`mount -a` mounts what /etc/fstab says, and rc gives its place to /bin/sh
+for the console, which runs
 each command as a child - fork, exec, wait - and comes back with its prompt,
 which tells its directory, `/home# `; Tab completes the word in hand - a
 command from /bin, a path from its directory - several names that go on
@@ -39,7 +45,7 @@ over - the rest rw-; a new file is rw-, `chmod r-x FILE`
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls` (`-l`, `-a`), `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `du`, `df`, `chmod`, `mkfs`,
 `mount`, `umount`,
-`fdformat`, `sleep`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
+`fdformat`, `sleep`, `ramroot`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine), `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
 `rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd` (alone: /home), `t` (the time),
@@ -172,7 +178,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   `cat.c`, `echo.c`, `rm.c`, `mkdir.c`, `mkfs.c`, `mount.c` (`mount -a`:
   /etc/fstab's volumes, in one process), `umount.c`,
   `fdformat.c` (a diskette's tracks built and written, a side or both),
-  `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
+  `ramroot.c` (the root into the RAM disk), `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `user/own/` - the little library of a program that owns the machine:
   `crt0.s` (the loader, run first at 040020 and then from 157000, reading
   the file through the ROM's 160010 to 000760 and up, the command line
@@ -215,8 +221,10 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   rm, `<`, a file kept across a boot, the errors - each then read off the
   diskette on the host, its bitmap counted (`Machine::imageNow`); /dev, mkfs
   and mount on the RAM disk read on the host from the board's memory
-  (`Machine::ramDisk`), `..` out of a volume, umount; /etc/rc with the
-  board and without, a new shell in / after a session, a mounted device
+  (`Machine::ramDisk`), `..` out of a volume, umount; the root copied to
+  the RAM disk, the diskette at /disk written there, let go and taken out
+  with the system running on, the root's device refused for mkfs; /etc/rc
+  with the board and without, a new shell in / after a session, a mounted device
   refused for mkfs, a script; the single-sided system booted, a diskette
   in the second drive made a volume and read on the host, the double-sided
   root's sides busy, an empty drive; /boot/fd taking the diskettes over,
@@ -259,7 +267,7 @@ The build reports the kernel's memory and stops past its limits
 the drivers' place - with four places in the process table, the two
 slots', a parked one's and a zombie's, and their kernel stacks at 320
 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 14542 bytes, 1790 bytes free below 040000, 1830 free in
+an image of 14690 bytes, 1650 bytes free below 040000, 1822 free in
 bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory, which keep -O2.

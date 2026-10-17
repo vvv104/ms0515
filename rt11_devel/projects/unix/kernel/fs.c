@@ -7,7 +7,8 @@
  * the inode and the directory too (bio.c writes through).
  *
  * The volumes are in the mount table (bank 6): the root, on the boot
- * drive, and those mounted on a directory, which the path then goes into -
+ * drive or, once fs_pivot has put it there, the RAM disk, and those
+ * mounted on a directory, which the path then goes into -
  * and out of again by "..", from the volume's root to the directory it
  * covers.  A block device is an inode of its own kind, its number in the
  * first extent's start; read and written, it is its blocks one after
@@ -56,6 +57,30 @@ int fs_mount(void)
 		rootdev = DEV_FDX0;
 	mounts[0].dev = rootdev;
 	mounts[0].used = 1;
+	return 0;
+}
+
+/* The volume on dev made the root in place of the one there, nothing else
+ * being mounted (mount(device, "/")): the processes in the old root's
+ * directories go to the new root; what they hold open of the old volume
+ * stays theirs.  0, or the error. */
+int fs_pivot(unsigned dev)
+{
+	struct proc *p;
+	int i, error;
+
+	for (i = 1; i < NMOUNT; i++)
+		if (mounts[i].used)
+			return EBUSY;
+	if ((error = read_super(dev, &mounts[1].sb)) != 0)	/* the free place's, to check */
+		return error;
+	memcpy(&mounts[0].sb, &mounts[1].sb, sizeof mounts[0].sb);
+	for (p = HIGH->procs; p < HIGH->procs + NPROC; p++)
+		if (p->cwd && p->cwd->dev == rootdev) {
+			iput(p->cwd);
+			p->cwd = 0;
+		}
+	mounts[0].dev = rootdev = dev;
 	return 0;
 }
 

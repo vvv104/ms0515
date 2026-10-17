@@ -25,7 +25,8 @@ TEST_CASE("the kernel is one file: no /boot/hi, and mount is the kernel's own") 
     Machine m(image, true);
     REQUIRE(m.boot(3000));
     INFO(m.screen());
-    CHECK(m.screen().find("mount: /dev/rd0 on /tmp") != std::string::npos);   /* /etc/rc's mount -a */
+    /* /etc/rc's ramroot: mount(rd0, "/") and the diskette at /disk, the kernel's own mount. */
+    CHECK(m.screen().find("ramroot: the root in /dev/rd0, the diskette at /disk") != std::string::npos);
 }
 
 }

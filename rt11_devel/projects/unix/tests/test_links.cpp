@@ -62,16 +62,16 @@ TEST_CASE("ln: a second name for the same inode, its links counted; rm of one le
 
 TEST_CASE("ln refused: a name there already, a directory, another volume") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
-    Machine m(unixos::readImage(), true);               /* the RAM disk at /tmp */
+    Machine m(unixos::readImage(), true);               /* the root in the RAM disk, the diskette at /disk */
     atPrompt(m);
     REQUIRE(m.command("echo x > /a"));
     REQUIRE(m.command("ln /a /etc/motd"));
     REQUIRE(m.command("ln /etc /e"));
-    REQUIRE(m.command("ln /a /tmp/a"));
+    REQUIRE(m.command("ln /a /disk/a"));
     INFO(m.screen());
     CHECK(after(m, "ln /a /etc/motd").find("ln: /etc/motd: there already") != std::string::npos);
     CHECK(after(m, "ln /etc /e").find("ln: /etc: a directory") != std::string::npos);
-    CHECK(after(m, "ln /a /tmp/a").find("ln: /tmp/a: on another volume") != std::string::npos);
+    CHECK(after(m, "ln /a /disk/a").find("ln: /disk/a: on another volume") != std::string::npos);
 }
 
 TEST_CASE("mv: a name moved on its volume, into a directory, and to another volume by a copy") {

@@ -38,8 +38,7 @@ TEST_CASE("the rights laid down: r-x the system's, rw- the rest; a new file rw-"
     REQUIRE(m.boot());
     REQUIRE(m.command("echo x > /home/f"));
     REQUIRE(m.command("mkdir /home/d"));
-    const auto image = m.imageNow();
-    Volume v(image);
+    Volume v(m.ramDisk(), true);                               /* the root: the diskette's copy, rights kept */
     for (const char *path : {"/boot/kernel", "/boot/fd", "/bin/sh", "/bin/ls", "/etc/init"}) {
         CAPTURE(path);
         CHECK(rights(v, path) == 5);
@@ -52,8 +51,6 @@ TEST_CASE("the rights laid down: r-x the system's, rw- the rest; a new file rw-"
         CAPTURE(path);
         CHECK(rights(v, path) == 7);
     }
-    Volume rd(m.ramDisk(), true);                              /* made by mkfs on the machine */
-    CHECK(rights(rd, "/") == 7);
     REQUIRE(m.command("chmod 0 /home/f"));
     REQUIRE(m.command("ls -l /bin/sh /etc/motd /home/f"));
     const std::string out = after(m, "ls -l /bin/sh /etc/motd /home/f");

@@ -95,8 +95,8 @@ TEST_CASE("the RAM disk by /boot/rd: a file written on it and read back") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     REQUIRE(m.boot(3000));
-    REQUIRE(m.command("cat /etc/numbers > /tmp/n", 3000));
-    REQUIRE(m.command("cat /tmp/n | cat > /home/n", 4000));
+    REQUIRE(m.command("cat /etc/numbers > /tmp/n", 3000));        /* the root is the RAM disk's */
+    REQUIRE(m.command("cat /tmp/n | cat > /disk/home/n", 4000));  /* the diskette's */
     INFO(m.screen());
     Volume v(m.imageNow());
     const auto numbers = v.lookup("/etc/numbers"), copy = v.lookup("/home/n");
@@ -104,7 +104,7 @@ TEST_CASE("the RAM disk by /boot/rd: a file written on it and read back") {
     REQUIRE(copy);
     CHECK(v.content(v.inode(*copy)) == v.content(v.inode(*numbers)));
     Volume rd(m.ramDisk(), true);
-    const auto n = rd.lookup("/n");
+    const auto n = rd.lookup("/tmp/n");
     REQUIRE(n);
     CHECK(rd.content(rd.inode(*n)) == v.content(v.inode(*numbers)));
 }

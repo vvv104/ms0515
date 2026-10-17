@@ -345,8 +345,17 @@ device; what is mounted where `/etc/fstab` says:
 ```
 # device      where  what to do
 fd0           /      root
-rd0           /tmp   mkfs,optional       # made at the boot; no board - skipped
 ```
+
+With the RAM disk the root is not the diskette's for long: `/etc/rc` runs
+`ramroot` first, which copies the diskette's volume to rd0 block for
+block - the blocks below the data area and those the bitmap has taken -
+tells the copy's superblock the RAM disk's 1024 blocks, and makes the copy
+the root by `mount("/dev/rd0", "/")`: the kernel swaps the root's place in
+the mount table when nothing else is mounted, the processes in the old
+root's directories going to the new root, what they hold open of the old
+volume staying theirs.  The diskette's volume then goes to `/disk`.  /tmp
+is the copy's.
 
 What the system has for it:
 
@@ -383,8 +392,9 @@ reading the kernel off the diskette.
    slot A.
 5. `init` does `exec sh /etc/rc`: pid 1 becomes the shell running the
    script, and the second slot is free.
-6. `/etc/rc` by `fstab`: `mkfs rd0` and `mount rd0 /tmp` in the second
-   slot.
+6. `/etc/rc`: `ramroot`, the root into the RAM disk and the diskette at
+   /disk when there is the board, then `mount -a` by `fstab`, each in the
+   second slot.
 7. At its end `/etc/rc` does `exec /bin/sh`: the shell for the console.
    When the session ends the kernel runs a new shell in its place.  The
    session's shell, pid 1, starts in /home, and `cd` alone goes there.
@@ -400,8 +410,9 @@ file by name, "insert the system diskette" with waiting.
 /boot/kernel
 /etc/init  /etc/rc
 /bin/      sh, ls, cat, ed, ...
-/tmp/      (the RAM disk mounted, when there is one)
+/tmp/
 /home/
+/disk/     (with a RAM disk: the root is its copy, the diskette here)
 ```
 
 ## The user environment
@@ -474,12 +485,11 @@ hands over.
   machine.
 - Whether the floppy driver keeps up reading sectors 1:1 or needs a 2:1
   interleave.
-- After the one-volume system: the machine has a single drive.  How to
-  free it of the system diskette after the boot and work with a second
-  diskette, changing them on the go: with a RAM disk the root copied there;
-  without one a resident `sh` with built-in commands; a diskette changed by
-  a command that flushes the cache, a volume number in the superblock to
-  check it.  To be settled once the one-volume system is done.
+- After the one-volume system: the machine has a single drive.  With a
+  RAM disk the root is copied there and the diskette let go by umount
+  (done: `ramroot`).  Without one: a resident `sh` with built-in
+  commands?  A diskette changed under a mounted volume: the cache flushed
+  and the volume number in the superblock checked - not done.
 - For stage 9: the pinout of the K573RF4 and the fitness of a 28C64 as a
   replacement - to be checked against the board's schematic.
 - How the VG93 behaves when a DRQ is missed (a byte lost) - how the driver

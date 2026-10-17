@@ -35,14 +35,14 @@ std::string after(Machine &m, const std::string &command)
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("with the RAM disk: /tmp is its volume, before the shell's prompt") {
+TEST_CASE("with the RAM disk: the root its copy, /tmp with it, before the shell's prompt") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     REQUIRE(m.boot(3000));
     const std::string boot = m.screen();
     INFO(boot);
-    CHECK(boot.find("mount: /dev/rd0 on /tmp") != std::string::npos);
-    CHECK(boot.find("mount: /dev/rd0 on /tmp") < boot.rfind("#"));
+    CHECK(boot.find("ramroot: the root in /dev/rd0") != std::string::npos);
+    CHECK(boot.find("ramroot: the root in /dev/rd0") < boot.rfind("#"));
     atPrompt(m);
     REQUIRE(m.command("ls /tmp"));
     INFO(m.screen());
@@ -70,7 +70,7 @@ TEST_CASE("the session's end brings a new shell in /home, and /etc/rc is not run
     REQUIRE(m.command("pwd"));
     INFO(m.screen());
     CHECK(after(m, "pwd").find("\n/home\n#") != std::string::npos);
-    CHECK(count(m.screen(), "mount: /dev/rd0") == 1);
+    CHECK(count(m.screen(), "ramroot:") == 1);
 }
 
 TEST_CASE("a mounted device is not written under its volume: mkfs is refused") {
