@@ -28,3 +28,6 @@ CMakeLists.txt text eol=lf
 *.PAS   -text
 rt11_devel/projects/minesweeper/MINE.HLP binary
 rt11_devel/projects/minesweeper/MINE.DAT binary
+
+# The files the UNIX diskette carries as they are: a Unix text ends its lines in LF
+rt11_devel/projects/unix/root/** text eol=lf

@@ -1,0 +1,12 @@
+# /etc/rc - run by init at the boot: the system into the RAM disk and the
+# root there when the machine has one (/bin/ramroot), the boot diskette
+# then at /mnt/floppy1 and its /home at /home - the user's files kept on
+# the diskette; the volumes of /etc/fstab.  What the boot said goes then:
+# the screen wiped, the system's name, what is mounted where - take the
+# line out not to have it - and the shell for the console.
+ramroot /mnt/floppy1 /home
+mount -a
+clear
+uname
+mount
+exec /bin/sh

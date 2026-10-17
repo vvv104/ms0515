@@ -25,8 +25,9 @@ rt11_devel/toolset/gcc/
 ├── machine/             the screen, the clock, the keyboard, the joystick, the speaker
 ├── include/             rt11.h, ms0515.h, fx.h, stdio.h, stdlib.h, string.h, ctype.h
 ├── examples/            HELLO, ARITH, LIBC, LIBC2, INPUT, FX, MACHINE, HELD, PORTS, DRAW,
-│                        STREAM, FILES, DEEP (the runtime checked), CMPLONG (the
-│                        compiler's comparison of longs), CALC (the benchmark)
+│                        STREAM, FILES, DEEP (the runtime checked), CMPLONG, LONGP0,
+│                        LONGPS, MULCOST, BSSZERO, VARSHIFT (the compiler's faults,
+│                        fixed), CALC (the benchmark)
 └── tests/               the examples run by ms0515-run's machine (doctest)
 ```
 
@@ -155,6 +156,33 @@ The same patch changes one more thing: a shift by a constant.  Without
 longer one as a loop - four words, three instructions a step - so `x >>
 5` cost seventeen instructions; the patch writes shifts out up to 8
 when speed is wanted (`-O2`), and keeps the loop from 4 under `-Os`.
+
+Two more faults the patch mends.  A **long read through a pointer**
+into the register pair the pointer was in - the pointer in `r0`, the
+long for `r0:r1` - was loaded high word first, over the pointer, and the
+low word read through what had just come in (`mov 4(r0),r0` / `mov
+6(r0),r1`): every such read at `-O0`, and at `-Os` where a function gave
+the pointer back.  The move now loads the address register last;
+`examples/longptr.c`, built at `-O0` (LONGP0) and at `-Os` (LONGPS), is
+the proof.  And the backend priced a **multiply** as one `MUL`, which
+the T-11 has not - under `-Os` as any one instruction - when without EIS
+it is a call of `__mulhi3`, some eighty instructions: `-Os` rewrote a
+walk over a table by a pointer as a step count times the element's
+size, two calls a step.  Multiply, divide and remainder are priced as
+the calls they are now; `examples/mulcost.c` reads its own walk for a
+call and finds none.  Last, **zeroed variables** were written into
+`.data` as `.=.+N`, so a program's file carried its zeros; they go to
+`.bss` now, and `examples/bsszero.c` finds its arrays between `_edata`
+and `_end`.  (A `.SAV` holds its memory whole, bss and all; the gain is
+for programs loaded by a loader that clears the bss, as the UNIX
+kernel's.)  And a **shift by a count in a variable**, a loop without
+`ASH`, counted down a copy of the count the pattern clobbered by
+`match_dup`; copy propagation put the count itself in the copy's place,
+so a loop's index shifted by came out of it as 0 and the loop round it
+never ended (`ls -l`'s permission bits found it).  The clobbered register
+is an output of its own now, the count tied to it; `examples/varshift.c`
+hangs without the fix.  The five tests fail on a compiler without the
+patch.
 
 `-m10` also means the PDP-11/10, which had no `XOR` and no `SOB`; the
 T-11 has both, and GCC asks for a `__xorhi3` instead (in `rt/arith.s`).

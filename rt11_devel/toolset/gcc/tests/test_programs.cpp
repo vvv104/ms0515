@@ -184,6 +184,103 @@ TEST_CASE("CMPLONG: signed comparisons of longs, the compiler's fix in place") {
     CHECK(got[n] == "CMPLONG DONE");
 }
 
+/* GCC 15.2's pdp11 backend read a long through a pointer into the
+ * registers the pointer was in high word first, over the pointer; the
+ * patch orders the words (README.md, "A trap in the compiler").  LONGP0
+ * is examples/longptr.c at -O0, LONGPS the same at -Os; both fail on a
+ * compiler without the fix. */
+static void checkLongptr(const char *name)
+{
+    if (!built(name)) { MESSAGE(name << ".SAV not built - skipped"); return; }
+    const Run r = run(name);
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    struct Record { unsigned long size; long delta; };
+    constexpr Record kRecords[] = {{0x12345678UL, -70000L}, {0x0001FFFFUL, 40000L}};
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == 3);
+    for (std::size_t k = 0; k < 2; ++k) {
+        const auto &rec = kRecords[k];
+        char expected[80];
+        std::snprintf(expected, sizeof expected, "%lx %x %lx %lx %lx", rec.size,
+                      static_cast<unsigned>(rec.size & 0xFFFF), (rec.size + 0x10001UL) & 0xFFFFFFFFUL,
+                      static_cast<unsigned long>(rec.delta) & 0xFFFFFFFFUL, rec.size);
+        CAPTURE(k);
+        CHECK(got[k] == expected);
+    }
+    CHECK(got[2] == "LONGPTR DONE");
+}
+
+TEST_CASE("LONGP0: a long through a pointer at -O0, the compiler's fix in place") { checkLongptr("LONGP0"); }
+TEST_CASE("LONGPS: a long through a pointer a function gave back, at -Os") { checkLongptr("LONGPS"); }
+
+/* GCC 15.2's pdp11 backend priced a multiply as one MUL, which the T-11
+ * has not: under -Os it walked a table by a pointer as a step number
+ * times the structure's size, a call of __mulhi3 for each.  MULCOST
+ * (examples/mulcost.c, -Os) counts what in its own walk refers to
+ * __mulhi3 and prints what the walks found.  It fails on a compiler
+ * without the fix. */
+TEST_CASE("MULCOST: a walk over a table by a pointer calls no __mulhi3 at -Os") {
+    if (!built("MULCOST")) { MESSAGE("MULCOST.SAV not built - skipped"); return; }
+    const Run r = run("MULCOST");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == 18);
+    CHECK(got[0] == "MULHI3 CALLS 0 0");
+    CHECK(got[1] == "WOKEN 4 0");      /* the odd ones wait on devs; then none is left */
+    for (unsigned k = 0; k < 15; ++k) {
+        char expected[24];
+        if (k == 7)
+            std::snprintf(expected, sizeof expected, "65535 0");    /* the entry not in use */
+        else
+            std::snprintf(expected, sizeof expected, "%u %o", k * 10, 070000u + k * 512u);
+        CAPTURE(k);
+        CHECK(got[k + 2] == expected);
+    }
+    CHECK(got[17] == "MULCOST DONE");
+}
+
+/* GCC 15.2's pdp11 backend wrote zeroed variables into .data, so a
+ * program's file carried its zeros; the patch puts them in the bss.
+ * BSSZERO (examples/bsszero.c) says where its arrays are - zeroed ones
+ * between _edata and _end, the initialized one not - and that they read
+ * as they should.  It fails on a compiler without the fix. */
+TEST_CASE("BSSZERO: zeroed arrays in the bss, read as zeros; an initialized one in .data") {
+    if (!built("BSSZERO")) { MESSAGE("BSSZERO.SAV not built - skipped"); return; }
+    const Run r = run("BSSZERO");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == 3);
+    CHECK(got[0] == "BLOCK 1 TABLE 1 SEED 0");
+    CHECK(got[1] == "NONZERO 0 SEED 1234");
+    CHECK(got[2] == "BSSZERO DONE");
+}
+
+/* GCC 15.2's pdp11 backend shifted by a variable count in a loop that
+ * counted down the count's own register, once copy propagation had put
+ * the copy it was meant for back to the count; the patch gives the loop a
+ * register of its own.  VARSHIFT (examples/varshift.c) hangs on a compiler
+ * without the fix. */
+TEST_CASE("VARSHIFT: shifts by a count in a variable, the count kept") {
+    if (!built("VARSHIFT")) { MESSAGE("VARSHIFT.SAV not built - skipped"); return; }
+    const Run r = run("VARSHIFT");
+    REQUIRE(r.ended);
+    CHECK_FALSE(r.failed);
+    const auto got = lines(r.printed);
+    REQUIRE(got.size() == 18);
+    CHECK(got[0] == "-rw-r--r--  1    1234 motd");
+    for (int i = 0; i < 16; ++i) {
+        const std::string expected = std::to_string(i) + " " + std::to_string(1u << i) + " " +
+                                     std::to_string(0100000u >> i) + " " +
+                                     std::to_string(static_cast<int16_t>(-32768) >> i);
+        CAPTURE(i);
+        CHECK(got[static_cast<std::size_t>(i) + 1] == expected);
+    }
+    CHECK(got[17] == "VARSHIFT DONE");
+}
+
 /* MACHINE (examples/machine.c) over the machine library: the screen in
  * colour with a diagonal and one cell's attribute, the clock counting
  * while it waits, the keyboard taken until Q, the console back. */

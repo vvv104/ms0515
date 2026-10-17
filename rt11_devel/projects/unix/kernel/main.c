@@ -1,0 +1,36 @@
+/* main.c - the kernel's start: the vectors, the clock, the console, the
+ * root file system, and the first process, /etc/init, run by exec. */
+#include "sys.h"
+#include "proc.h"
+#include "rom.h"
+
+void panic(const char *why)
+{
+	tty_puts("\npanic: ");
+	tty_puts(why);
+	tty_puts("\n");
+	for (;;)
+		;
+}
+
+int main(void)
+{
+	static const char *const argv[] = {"init", 0};
+
+	REG_C = SCREEN_BLACK;			/* the console white on black from the start */
+	VECTOR(034, trap_entry, 0);		/* TRAP, priority 0 */
+	VECTOR(0130, tty_entry, 0340);		/* the keyboard */
+	clock_start();
+	proc_init();
+	files_init();
+	if (fs_mount() != 0)
+		panic("no file system");
+	tty_puts("\n" UBIX "\n");		/* the system and its version, as RT-11 says its own */
+	tty_puts("kernel: 128 KB, 2 slots of 32 KB, a cache of 18 blocks\n");
+	tty_puts(HIGH->mounts[0].dev == DEV_FDX0 ? "kernel: the root /dev/fdx0\n" : "kernel: the root /dev/fd0\n");
+	drivers_load();
+	tty_puts("kernel: /etc/init\n");
+	exec("/etc/init", argv);
+	panic("no /etc/init");
+	return 0;
+}

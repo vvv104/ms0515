@@ -1,0 +1,7 @@
+# /etc/fstab - the volumes, read by mount -a at the boot.
+#
+# device     where  what to do
+# The root is the boot drive's - fd0, or fdx0 when the volume takes both
+# sides - mounted by the kernel itself; with a RAM disk /etc/rc's ramroot
+# copies it there and makes the copy the root, /tmp with it.
+fd0          /      root
