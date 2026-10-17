@@ -85,7 +85,9 @@ cmake --build rt11_devel/projects/unix/build
 ms0515 --rom src/assets/rom/ms0515-romb.rom --disk0 rt11_devel/projects/unix/build/unix.dsk
 ```
 
-The kernel says `UBIX V0.1` first at the boot (`kernel/kernel.h`), as
+The kernel turns the screen black at its start - register C's border
+black in 640x200, the letters its complement, white - and says
+`UBIX V0.1` first (`kernel/kernel.h`), as
 RT-11 says its own name.  The system as it is given out is the system
 alone, without the tests' programs and data: `ubix.dsk`, both sides, for
 this emulator and the machine, booting with the RAM disk and without; and

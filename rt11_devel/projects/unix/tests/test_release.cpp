@@ -36,6 +36,15 @@ std::string after(Machine &m, const std::string &command)
 
 TEST_SUITE("UNIX") {
 
+TEST_CASE("the kernel makes the screen black, the letters white, at its start") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), false);
+    REQUIRE(m.boot());
+    /* Register C: 640x200 (bit 3), the border black (bits 2-0), so the
+     * background black and the letters its complement, white. */
+    CHECK(ms0515::internal::board(m.emulator()).reg_c == 010);
+}
+
 TEST_CASE("the kernel says UBIX and its version first") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), false);

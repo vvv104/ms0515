@@ -17,6 +17,7 @@ int main(void)
 {
 	static const char *const argv[] = {"init", 0};
 
+	REG_C = SCREEN_BLACK;			/* the console white on black from the start */
 	VECTOR(034, trap_entry, 0);		/* TRAP, priority 0 */
 	VECTOR(0130, tty_entry, 0340);		/* the keyboard */
 	clock_start();

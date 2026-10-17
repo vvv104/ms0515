@@ -17,6 +17,8 @@
 void xcopy(void *to, const void *from, unsigned words, unsigned disp);
 #define DISP_TIMER 01000				/* bit 9: the frame interrupt */
 #define REG_B      (*(volatile unsigned *)0177602)
+#define REG_C      (*(volatile unsigned *)0177604)	/* write only: the video mode, the border */
+#define SCREEN_BLACK 010		/* 640x200, the border black: the background black, the letters white */
 #define KBD_ROWS   (*(volatile unsigned char *)0177540)	/* the MS 7007's rows */
 
 /* The process's space: slot A, banks 2-5. */
