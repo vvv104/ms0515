@@ -36,7 +36,6 @@
 
 #define MAXARGS 16
 #define MAXCMDS 6
-#define PATHMAX 64
 #define HOME "/home"
 #define DIRSIZ 14
 

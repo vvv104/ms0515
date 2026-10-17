@@ -6,7 +6,6 @@
 #include "unistd.h"
 #include "../kernel/fs.h"
 
-#define PATHMAX 64
 
 static int longform, all;
 
@@ -58,7 +57,7 @@ static int list(const char *dir)
 	} d;
 	char name[15], path[PATHMAX];
 	struct stat st;
-	int fd, first = 1, n, i, bad = 0;
+	int fd, first = 1, bad = 0;
 
 	if (stat(dir, &st) < 0) {
 		complain("ls", dir);
@@ -81,13 +80,12 @@ static int list(const char *dir)
 		memcpy(name, d.name, 14);
 		name[14] = 0;
 		if (longform) {
-			for (n = 0; dir[n] && n < PATHMAX - 16; n++)
-				path[n] = dir[n];
-			path[n++] = '/';
-			for (i = 0; name[i]; i++)
-				path[n++] = name[i];
-			path[n] = 0;
-			bad |= line(path, name);
+			if (join(path, dir, name, 14) < 0) {
+				complain("ls", name);
+				bad = 1;
+			} else {
+				bad |= line(path, name);
+			}
 			continue;
 		}
 		if (!first)

@@ -70,8 +70,14 @@ int getcwd(char *buf, int size)
 			return -1;
 		if (ups.dev == me.dev && ups.ino == me.ino)
 			break;				/* the root */
-		if (depth == DEPTH || n + 3 >= UP || find(up, &ups, &me, names[depth]) < 0)
+		if (depth == DEPTH || n + 3 >= UP) {
+			errno = E2BIG;
 			return -1;
+		}
+		if (find(up, &ups, &me, names[depth]) < 0) {
+			errno = ENOENT;
+			return -1;
+		}
 		depth++;
 		me = ups;
 		up[n++] = '/';				/* one more ../ */
@@ -82,8 +88,10 @@ int getcwd(char *buf, int size)
 	if (!depth)
 		buf[at++] = '/';
 	while (depth--) {
-		if (at + 1 + strlen(names[depth]) >= size)
+		if (at + 1 + strlen(names[depth]) >= size) {
+			errno = E2BIG;
 			return -1;
+		}
 		buf[at++] = '/';
 		for (i = 0; names[depth][i]; i++)
 			buf[at++] = names[depth][i];

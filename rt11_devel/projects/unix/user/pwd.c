@@ -5,10 +5,10 @@
 
 int main(void)
 {
-	char path[128];
+	char path[PATHMAX];
 
-	if (getcwd(path, sizeof path) < 0) {
-		puts_fd(2, "pwd: lost on the way up\n");
+	if (getcwd(path, sizeof path) < 0) {	/* deeper than a path names, or lost */
+		complain("pwd", ".");
 		return 1;
 	}
 	puts_fd(1, path);

@@ -24,7 +24,10 @@ int main(int argc, char **argv)
 		complain("mv", argv[1]);
 		return 1;
 	}
-	target(argv[1], argv[2], to);
+	if (target(argv[1], argv[2], to) < 0) {
+		complain("mv", argv[2]);
+		return 1;
+	}
 	if (link(argv[1], to) < 0) {
 		if (errno != EXDEV) {
 			complain("mv", errno == EEXIST ? to : argv[1]);

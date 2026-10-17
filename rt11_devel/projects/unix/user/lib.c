@@ -47,7 +47,29 @@ void complain(const char *who, const char *what)
 		   errno == ENOTBLK ? ": not a block device\n" : errno == EBUSY ? ": busy\n" :
 		   errno == EINVAL ? ": no file system there\n" : errno == EXDEV ? ": on another volume\n" :
 		   errno == ENODEV ? ": not without /boot/fd\n" : errno == EACCES ? ": not allowed\n" :
-		   ": cannot\n");
+		   errno == E2BIG ? ": too long\n" : ": cannot\n");
+}
+
+/* dir, a '/' after it unless it ends in one, and the first n bytes of name
+ * up to its NUL, into path, PATHMAX bytes with the NUL: 0, or -1 with
+ * errno E2BIG when it does not fit - never a path cut short, which would
+ * name another file. */
+int join(char *path, const char *dir, const char *name, int n)
+{
+	int at = 0;
+
+	while (*dir && at < PATHMAX)
+		path[at++] = *dir++;
+	if (at && path[at - 1] != '/' && n && *name && at < PATHMAX)
+		path[at++] = '/';
+	while (n-- && *name && at < PATHMAX)
+		path[at++] = *name++;
+	if (at == PATHMAX) {
+		errno = E2BIG;
+		return -1;
+	}
+	path[at] = 0;
+	return 0;
 }
 
 int memcmp(const void *a, const void *b, unsigned n)

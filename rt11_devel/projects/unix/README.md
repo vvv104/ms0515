@@ -16,7 +16,13 @@ which tells its directory, `/home# `; Tab completes the word in hand - a
 command from /bin, a path from its directory - several names that go on
 alike listed; `a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`,
 `>> file` and `< file` redirect.  A process has its own directory, its
-children's the same; a path not beginning with / goes from it.  Two
+children's the same; a path not beginning with / goes from it.  A path a
+call takes is 64 bytes at most, its NUL too, a longer one refused, "too
+long"; directories go deeper by relative paths, and the kernel walks a
+path without recursion, while the programs that make paths - `du`, `ls
+-l`, `cp`, `mv`, `pwd`, the prompt - refuse one that does not fit rather
+than cut it short (`join` in lib.c): a deeper directory is still used
+from inside, its path not told.  Two
 processes run at once, one in each slot, the clock switching between them
 every 4 frames; there is no swap, but a fork with both slots taken parks
 the shell - its used part, some 6.5 KB - in the shadow copy of bank 6 until
@@ -197,7 +203,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   `cat`, `ls`, a file across blocks line by line, a file not there, a
   program with its arguments; the prompt's directory after cd, Tab
   completing a command, a directory, a file, BS back over it, names listed
-  and the line drawn again, the shell small enough to park; the shell back at its prompt after a command,
+  and the line drawn again, the shell small enough to park; directories
+  deeper than a path names, and paths too long, refused by pwd, ls -l, cat,
+  du and cp, the system running on; the shell back at its prompt after a command,
   a command by name and by path and one not there, the exit status, the
   children's pids, `exit` bringing a new shell; a pipe, a pipeline of
   three carrying a file of several blocks, its files in /tmp gone after,

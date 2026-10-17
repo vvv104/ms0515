@@ -11,6 +11,9 @@ int main(int argc, char **argv)
 		puts_fd(2, "usage: cp FROM TO\n");
 		return 1;
 	}
-	target(argv[1], argv[2], to);
+	if (target(argv[1], argv[2], to) < 0) {
+		complain("cp", argv[2]);
+		return 1;
+	}
 	return copy("cp", argv[1], to) < 0 ? 1 : 0;
 }

@@ -5,7 +5,6 @@
 #include "unistd.h"
 #include "../kernel/fs.h"
 
-#define PATHMAX 64
 
 static unsigned char block[512];
 

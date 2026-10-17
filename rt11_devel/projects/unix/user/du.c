@@ -7,7 +7,6 @@
 #include "unistd.h"
 #include "../kernel/fs.h"
 
-#define PATHMAX 64
 
 static int summary;
 
@@ -40,7 +39,7 @@ static unsigned long du(const char *path, int top)
 	char child[PATHMAX];
 	struct stat st;
 	unsigned long blocks, off;
-	int fd, n, i, got;
+	int fd, got;
 
 	if (stat(path, &st) < 0) {
 		complain("du", path);
@@ -59,14 +58,10 @@ static unsigned long du(const char *path, int top)
 				break;
 			if (!d.ino || (d.name[0] == '.' && (!d.name[1] || (d.name[1] == '.' && !d.name[2]))))
 				continue;
-			for (n = 0; path[n] && n < PATHMAX - 16; n++)
-				child[n] = path[n];
-			if (n && child[n - 1] != '/')
-				child[n++] = '/';
-			for (i = 0; i < 14 && d.name[i]; i++)
-				child[n++] = d.name[i];
-			child[n] = 0;
-			blocks += du(child, 0);
+			if (join(child, path, d.name, 14) < 0)	/* not cut short: deeper is not looked at */
+				complain("du", path);
+			else
+				blocks += du(child, 0);
 		}
 		if (!summary || top)
 			say(blocks, path);

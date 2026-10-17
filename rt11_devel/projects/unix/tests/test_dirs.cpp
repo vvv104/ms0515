@@ -95,4 +95,44 @@ TEST_CASE("cd into a mounted volume and out of it by ..; pwd across the mount; w
     says(m, "pwd", "/");
 }
 
+/* A path a call takes is 64 bytes at most, its NUL too; directories go as
+ * deep as one likes by relative paths, past what a path can name from the
+ * root.  Nothing of that brings the system down: the kernel walks a path
+ * without recursion, and the programs that build paths - du, ls -l, cp,
+ * the shell's prompt and pwd - refuse one that does not fit instead of
+ * cutting it, du's recursion with it. */
+TEST_CASE("deep directories and long paths: refused, the system runs on") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), false);
+    atPrompt(m);
+    const std::string name = "abcdefghijklmn";              /* 14, a name's most */
+    for (int i = 0; i < 5; ++i) {                            /* /home and 5 * 15 = 80 */
+        REQUIRE(m.command("mkdir " + name, 3000));
+        REQUIRE(m.command("cd " + name, 3000));
+    }
+    REQUIRE(m.command("echo deep > f", 3000));
+    REQUIRE(m.command("cat f", 3000));
+    CHECK(after(m, "cat f").find("\ndeep\n#") != std::string::npos);
+    REQUIRE(m.command("pwd", 3000));
+    CHECK(after(m, "pwd").find("pwd: .: too long") != std::string::npos);
+    REQUIRE(m.command("ls -l", 3000));
+    CHECK(after(m, "ls -l").find(" f\n") != std::string::npos);
+    const std::string longPath = "/home/" + name + "/" + name + "/" + name + "/" + name + "/f";
+    REQUIRE(m.command("cat " + longPath, 3000));
+    CHECK(after(m, "cat " + longPath).find(": too lo") != std::string::npos);   /* the row ends there */
+    REQUIRE(m.command("cd", 3000));
+    REQUIRE(m.command("du /home", 6000));
+    {
+        INFO(m.screen());
+        CHECK(after(m, "du /home").find(": too long") != std::string::npos);
+    }
+    const std::string deep = name + "/" + name + "/" + name + "/" + name;
+    REQUIRE(m.command("cp /etc/motd " + deep, 3000));
+    CHECK(after(m, "cp /etc/motd " + deep).find(": too long") != std::string::npos);
+    INFO(m.screen());
+    CHECK(m.screen().find("panic") == std::string::npos);
+    says(m, "pwd", "/home");
+    says(m, "echo alive", "alive");
+}
+
 }

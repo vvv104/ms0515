@@ -6,7 +6,9 @@
 #include "../kernel/stat.h"
 
 extern int errno;
+#define PATHMAX 64			/* a path a call takes, its NUL too */
 #define ENOENT 2
+#define E2BIG 7				/* a path or the arguments too long */
 #define EAGAIN 11
 #define EEXIST 17
 #define ENOTDIR 20
@@ -51,6 +53,7 @@ int strcmp(const char *a, const char *b);
 void puts_fd(int fd, const char *s);	/* the string as it is, no newline added */
 void putnum(unsigned n);		/* in decimal, to 1 */
 void complain(const char *who, const char *what);	/* "who: what: why" to 2 */
+int join(char *path, const char *dir, const char *name, int n);	/* dir/name: 0, or -1 too long */
 int memcmp(const void *a, const void *b, unsigned n);
 void *memcpy(void *to, const void *from, unsigned n);
 void *memset(void *p, int c, unsigned n);

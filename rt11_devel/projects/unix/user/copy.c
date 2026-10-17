@@ -8,25 +8,20 @@
 
 static char buf[CHUNK];
 
-void target(const char *from, const char *to, char *path)
+int target(const char *from, const char *to, char *path)
 {
 	struct stat st;
 	const char *last = from, *s;
 	int n = 0;
 
-	for (s = to; *s && n < PATHMAX - 1; s++)
-		path[n++] = *s;
-	path[n] = 0;
 	if (stat(to, &st) < 0 || (st.mode & S_IFMT) != S_IFDIR)
-		return;
+		return join(path, to, "", 0);
 	for (s = from; *s; s++)
 		if (*s == '/' && s[1])
 			last = s + 1;
-	if (n && path[n - 1] != '/' && n < PATHMAX - 1)
-		path[n++] = '/';
-	for (s = last; *s && *s != '/' && n < PATHMAX - 1; s++)
-		path[n++] = *s;
-	path[n] = 0;
+	while (last[n] && last[n] != '/')
+		n++;
+	return join(path, to, last, n);
 }
 
 int copy(const char *who, const char *from, const char *to)
