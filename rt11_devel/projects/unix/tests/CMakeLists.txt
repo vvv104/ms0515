@@ -39,6 +39,7 @@ add_executable(unix_tests
     test_release.cpp
     test_util.cpp
     test_ps.cpp
+    test_more.cpp
     test_kstack.cpp
 )
 

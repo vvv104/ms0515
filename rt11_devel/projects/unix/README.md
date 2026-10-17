@@ -64,7 +64,7 @@ memory, 16 KB), `sort` (`-r`, `-n`, `-u`), `uniq` (`-c`, `-d`), `tr` (ranges,
 `-d`), `cmp` (`-s`), `od` (`-b`, `-c`, `-x`), `find` (`-name` with `*` and
 `?`, `-type`), `sync`, `ps` (pid, parent, state, & for the background,
 name), `kill` (as Ctrl+C, a sleeping one woken; not the session's shell),
-`hello`, `fail`, `pid`, `bigmem` (a program that owns
+`more` (23 lines and --More--: space, Enter, q), `hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine), `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
 `rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd` (alone: /home), `t` (the time),
@@ -130,6 +130,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   The arrows up and down - VT52's ESC A and ESC B from the ROM - hand the
   shell its line too, for its history, which puts the line it recalls in
   place by Ctrl+U, the line wiped, and the text; other escapes are dropped.
+  TTY_RAW gives each key to read() as it comes, with no echo and no line -
+  more's - the shell's TTY_TAB the line again.
   Ctrl+D ends the input - read() gives 0 on an empty line, the part typed
   without a newline else; Ctrl+C takes out the command in front: every
   process but the session's shell and the background's (TTY_BG, set by
@@ -223,7 +225,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   `grep.c`, `re.c` (the patterns grep and ed share: Kernighan and Pike's
   matcher, with `\x` and the match's ends), `ed.c`, `sort.c` (Shell's
   sort, the lines in memory), `uniq.c`, `tr.c`, `cmp.c`, `od.c`, `find.c`,
-  `sync.c`, `ps.c`, `kill.c`,
+  `sync.c`, `ps.c`, `kill.c`, `more.c` (its keys from the console, 2, in
+  the raw mode),
   `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `user/own/` - the little library of a program that owns the machine:
   `crt0.s` (the loader, run first at 040020 and then from 157000, reading
@@ -287,7 +290,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   file; ls in order, sort -r -n -u, uniq -c -d, tr, cmp and -s, od's
   four forms, find with -name and -type, sync; ps with the shell and
   itself, a background command's & and its name, kill taking it out and
-  refusing the session's shell and a pid not there; mkboot from the RAM root and from the
+  refusing the session's shell and a pid not there; more a page, space,
+  Enter, q, a pipe, a file whole, its output not the console, Ctrl+C;
+  mkboot from the RAM root and from the
   diskette's, the system alone and all, to both sides and to one, into the
   boot drive with its diskette changed, each copy booted, and refused for a
   busy or empty drive or no device; /etc/rc
@@ -334,7 +339,7 @@ The build reports the kernel's memory and stops past its limits
 the drivers' place - with four places in the process table, the two
 slots', a parked one's and a zombie's, and their kernel stacks at 320
 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 15854 bytes, 524 bytes free below 040000, 1682 free in
+an image of 15918 bytes, 460 bytes free below 040000, 1680 free in
 bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory, which keep -O2.

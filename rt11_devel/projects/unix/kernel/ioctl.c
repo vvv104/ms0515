@@ -37,15 +37,18 @@ int sys_ioctl(struct trapframe *tf, const unsigned *arg)
 	const struct fd_track *t = (const struct fd_track *)arg[2];
 	int error;
 
-	if (f && f->kind == F_TTY && arg[1] == TTY_TAB) {
-		if ((error = user_string(arg[2], LINE)) != 0)
-			return error;
-		tty_tab((const char *)arg[2]);
-		tf->r0 = 0;
-		return 0;
-	}
-	if (f && f->kind == F_TTY && arg[1] == TTY_BG) {
-		curproc->bg = 1;
+	if (f && f->kind == F_TTY) {
+		if (arg[1] == TTY_TAB) {
+			if ((error = user_string(arg[2], LINE)) != 0)
+				return error;
+			tty_tab((const char *)arg[2]);
+		} else if (arg[1] == TTY_BG) {
+			curproc->bg = 1;
+		} else if (arg[1] == TTY_RAW) {
+			tty_raw(arg[2] != 0);
+		} else {
+			return ENOTTY;
+		}
 		tf->r0 = 0;
 		return 0;
 	}

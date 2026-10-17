@@ -22,6 +22,7 @@
 #define FD_WTRACK 1
 #define TTY_TAB 2
 #define TTY_BG 3			/* the process and its children put in the background: Ctrl+C leaves them */
+#define TTY_RAW 4			/* arg 1: each key to read() as it comes, no echo; 0 the line again */
 
 struct fd_track {
 	unsigned track;

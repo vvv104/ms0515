@@ -61,6 +61,7 @@ int tty_read(char *buf, int n);
 int tty_write(const char *buf, int n);
 void tty_puts(const char *s);
 void tty_tab(const char *s);
+void tty_raw(int on);
 
 /* dev.c: the block devices */
 #define DEV_FD0 0			/* the boot drive's side 0; fd1 its side 1 */

@@ -60,21 +60,21 @@ TEST_CASE("/boot/rd is a driver: its header, and it fits its room beside /boot/f
 TEST_CASE("the kernel has no word of the EX board: its ports are the driver's alone") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     const auto kernel = buildFile("kernel.bin"), rd = buildFile("rd.bin");
+    /* A port's word, not an offset after an instruction whose operand is
+     * PC-relative (mode 67: a call's or a branch's distance is a word like
+     * any other, and two of the kernel's have been 177536 and 177532). */
     const auto holds = [](const std::vector<uint8_t> &d, unsigned w) {
-        for (std::size_t i = 0; i + 1 < d.size(); i += 2)
-            if (word(d, i) == w) return true;
+        for (std::size_t i = 2; i + 1 < d.size(); i += 2) {
+            const unsigned before = word(d, i - 2);
+            if (word(d, i) == w && (before & 077) != 067 && (before >> 6 & 077) != 067) return true;
+        }
         return false;
     };
-    /* The board's four registers: all of them the driver's; in the kernel
-     * one may stand by chance - a call's offset is a word like any other -
-     * not the set. */
-    int inKernel = 0;
     for (unsigned port : {0177530u, 0177532u, 0177536u, 0177550u}) {
         CAPTURE(port);
-        inKernel += holds(kernel, port);
+        CHECK_FALSE(holds(kernel, port));
         CHECK(holds(rd, port));
     }
-    CHECK(inKernel <= 1);
 }
 
 TEST_CASE("a /boot/rd that is no driver is said so: no RAM disk, the system runs") {

@@ -30,6 +30,7 @@ static int len;
 static volatile int head, tail;		/* the queue: taken at tail, put at head */
 static char tabs;			/* Tab hands the line over (tty_tab) */
 static char esc;			/* an ESC came: the next byte is an arrow's */
+static char raw;			/* each key to read() as it comes (TTY_RAW) */
 
 static void put(int c)
 {
@@ -108,6 +109,11 @@ static void input(int c)
 		c += 'a' - 'A';
 	else if (c >= 'a' && c <= 'z')
 		c -= 'a' - 'A';
+	if (raw && c != 003) {			/* a key as it is, no echo, no line */
+		put(c);
+		wakeup(queue);
+		return;
+	}
 	switch (c) {
 	case 016:			/* SO, SI: the letters come as KOI-8 already */
 	case 017:
@@ -145,7 +151,15 @@ void tty_tab(const char *s)
 	while (*s)
 		add(*s++);
 	tabs = 1;
+	raw = 0;				/* the shell's line again */
 	splx(ps);
+}
+
+/* TTY_RAW: the keys to read() one at a time as they come, or the line
+ * again. */
+void tty_raw(int on)
+{
+	raw = (char)on;
 }
 
 void tty_intr(void)
