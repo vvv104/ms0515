@@ -79,22 +79,22 @@ ms0515 --rom src/assets/rom/ms0515-romb.rom --disk0 rt11_devel/projects/unix/bui
 ```
 
 The kernel says `UBIX V0.1` first at the boot (`kernel/kernel.h`), as
-RT-11 says its own name.  The system as it is given out is `ubix.dsk`,
-both sides, and `ubix400.dsk`, one: the system alone, without the tests'
-programs and data, each booting with the RAM disk and without.  The tests
-boot the images below, which have those besides.
+RT-11 says its own name.  The system as it is given out is the system
+alone, without the tests' programs and data: `ubix.dsk`, both sides, for
+this emulator and the machine, booting with the RAM disk and without; and
+`ubix01.dsk`, one side, for the other emulators - none of the three takes
+an 800 KB image, and none has the RAM disk, so it has no /boot/rd either.
+It boots in Titus's EmuStudio, in MAME (`mame ms0515 -flop1 ubix01.dsk`)
+and in ms0515btl, which on an image with /boot/rd stops at the monitor:
+its access to the RAM disk's port, not there, halts the machine there,
+where the T-11 traps to 4, as in MAME and here.  The tests boot the images
+below, which have the tests' programs besides.
 
 The compiler is `$MS0515_GCC/bin/pdp11-aout-gcc`, or on the PATH; on
 Windows the build runs in WSL.  `unix.dsk` is a double-sided diskette,
 819200 bytes, its volume on both sides (`fdx0`); `--disk0` puts both its
 sides in the first drive.  `unix400.dsk` is the same system on one side,
-409600 bytes (`fd0`), for the emulators that take no other: none of the
-three others takes an 800 KB image.  It boots in Titus's EmuStudio and in
-MAME (`mame ms0515 -flop1 unix400.dsk`, its format the single-sided one).
-In ms0515btl the boot stops at the monitor: its access to a port that is
-not there - the RAM disk's, looked for by /boot/rd - halts the machine
-there, where the T-11 traps to 4, as in MAME and here; without /boot/rd it
-boots, slowly.
+409600 bytes (`fd0`), for the tests of the single-sided system.
 
 A second diskette there is the second drive, `/dev/fd2`: `mkfs /dev/fd2`
 makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
