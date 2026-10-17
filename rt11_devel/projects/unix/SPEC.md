@@ -522,9 +522,11 @@ hands over.
 7. **Programs that own the machine** (the mechanism and RT-11 programs
    done).  The mode is the binary's own - magic 0401 in the a.out header -
    and such a program is run as any other, by its name.  It brings its own
-   loader, the first bytes of its text: exec of one checks it, writes the
-   cache out, reads the file's first block into the process's slot and
-   enters the loader with the file's extents (kernel/hi/own.c).  The loader
+   loader, the first bytes of its text: exec of one checks the device and
+   the command line, writes the cache out, reads the file's first block
+   into the process's slot and enters the loader with the file's extents
+   (kernel/hi/own.c).  The loader takes the size from the header - a reset
+   when it does not fit, tools/own_aout.py having checked it at the build -
    moves itself to 157000 and, through the ROM's 160010, lays the file over
    everything, the kernel too - its header at 000760, the text at 001000 -
    so the file is to be on a diskette.  The program has 001000-157000, some

@@ -27,8 +27,7 @@ struct hi_part {
 	unsigned magic, version;
 	unsigned size;			/* the image's bytes, the header's too */
 	unsigned key;			/* &kernel_key of the kernel it was linked against */
-	int (*own_exec)(struct inode *ip, unsigned size, unsigned bss, unsigned entry,
-			unsigned argc, unsigned used);
+	int (*own_exec)(struct inode *ip, unsigned argc, unsigned used);
 	int (*ioctl)(struct trapframe *tf, const unsigned *arg);
 	int (*mount)(struct trapframe *tf, const unsigned *arg);
 	int (*umount)(struct trapframe *tf, const unsigned *arg);

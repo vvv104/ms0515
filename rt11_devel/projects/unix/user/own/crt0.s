@@ -3,10 +3,12 @@
 /
 / The loader is the text's first bytes, inside the file's first block,
 / which the kernel has read into the process's slot (kernel/own.c): it is
-/ entered at 040020, SP pointing at the blocks to read, the ROM's unit,
-/ whether the volume is both sides of the drive, the file's five extents
-/ (start, length), and the command line - its count and 128 bytes of its
-/ strings, one after another.  It copies itself and the words to 157000,
+/ entered at 040020, SP pointing at the ROM's unit, whether the volume is
+/ both sides of the drive, the file's five extents (start, length), and
+/ the command line - its count and 128 bytes of its strings, one after
+/ another.  The blocks to read it takes from the header above it, the
+/ header's 16 bytes and the text and the data, a reset when they would
+/ come up to its own place.  It copies itself and the words to 157000,
 / the strings to 000400 - under the file's place, over the vectors' -
 / above
 / all the program may take - and from there reads the file block by block
@@ -36,12 +38,20 @@ ROMELM	= 0157730		/ the ROM's cell for the disk element's address
 ROMREGA	= 0157720		/ the ROM's copy of register A, the motor flags
 ROMDISK	= 0160010		/ a disk block by the element
 ROMRESET = 0172000		/ the ROM's reset
-INFOW	= 14			/ the kernel's words, the strings' 128 bytes after them
+INFOW	= 13			/ the kernel's words, the strings' 128 bytes after them
 ARGS	= 0400			/ where the strings go
 
 own:	mtps	$0340
 	mov	pc, r1
 1:	sub	$1b - own, r1		/ r1 -> own, where the kernel put it
+	mov	-14(r1), r0		/ the header's text
+	add	-12(r1), r0		/ and data
+	add	$16 + 511, r0		/ and the header: blocks, rounded up
+	clrb	r0
+	swab	r0
+	asr	r0
+	cmp	r0, $110		/ (157000 - 760) over 512: the loader's place above
+	bhi	lfail
 	mov	$LOADER, r2
 	mov	r1, r3
 	add	$linfo - own, r3	/ r3 -> its end
@@ -55,6 +65,7 @@ own:	mtps	$0340
 	mov	$64, r3
 4:	mov	(sp)+, (r2)+
 	sob	r3, 4b
+	mov	r0, *$LOADER + lblocks - own
 	mov	$LSTACK, sp
 	jmp	*$LOADER + lrun - own
 
@@ -107,8 +118,8 @@ ldone:	mov	*$ENTRY, r0
 	jmp	(r0)
 
 lelem:	.word	0, 0, 0, 0		/ the disk element: block, unit, buffer, words
-linfo:					/ the kernel's words, copied here:
 lblocks: .word	0			/ the blocks left to read
+linfo:					/ the kernel's words, copied here:
 lunit:	.word	0			/ the ROM's unit: drive, side 0
 lboth:	.word	0			/ the volume both sides
 lext:	.word	0, 0, 0, 0, 0, 0, 0, 0, 0, 0
