@@ -549,12 +549,24 @@ EMSCRIPTEN_KEEPALIVE int ms_ld_size(void) { return static_cast<int>(gLd.size());
 EMSCRIPTEN_KEEPALIVE Handle *ms_create(void)
 {
     auto *h = new Handle;
+    /* The EX board's 512 KB RAM disk, as on the desktop: RT-11's EX0: and
+     * UBIX's /dev/rd0 find it. */
+    h->emu.enableRamDisk();
     bindSpeaker(h);
     h->emu.setMechCallback([h](const ms0515::MechEvent &e) { h->mech.push_back(e); });
     return h;
 }
 
 EMSCRIPTEN_KEEPALIVE void ms_destroy(Handle *h) { delete h; }
+
+/* The RAM disk board: `on` 1 puts it in (fresh memory), 0 takes it out,
+ * -1 only asks; whether it is in now.  The page sets it before a Reset. */
+EMSCRIPTEN_KEEPALIVE int ms_ramdisk(Handle *h, int on)
+{
+    if (on == 1 && !h->emu.ramDiskEnabled()) h->emu.enableRamDisk();
+    if (on == 0) h->emu.disableRamDisk();
+    return h->emu.ramDiskEnabled() ? 1 : 0;
+}
 
 EMSCRIPTEN_KEEPALIVE void ms_reset(Handle *h) { h->emu.reset(); }
 

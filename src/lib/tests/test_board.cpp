@@ -379,4 +379,26 @@ TEST_CASE("DATI (no bracket): counter ticks once per standalone read") {
     CHECK(board.ramdisk.counter == 0);  /* wrapped 256→0 */
 }
 
+/*
+ * The board taken out and put back, as a front end's switch does: out,
+ * its memory is gone and its registers are not on the bus; back in, it
+ * has fresh memory.
+ */
+TEST_CASE("RAM disk board: enabled, disabled, enabled again") {
+    ms0515::Emulator emu;
+    emu.reset();
+    auto &board = ms0515::internal::board(emu);
+    CHECK_FALSE(emu.ramDiskEnabled());
+    emu.enableRamDisk();
+    CHECK(emu.ramDiskEnabled());
+    REQUIRE(board.ramdisk.ram != nullptr);
+    emu.disableRamDisk();
+    CHECK_FALSE(emu.ramDiskEnabled());
+    CHECK(board.ramdisk.ram == nullptr);
+    emu.writeByte(0177550, 0x42);       /* no board: nothing takes it, nothing breaks */
+    emu.enableRamDisk();
+    CHECK(emu.ramDiskEnabled());
+    CHECK(board.ramdisk.ram != nullptr);
+}
+
 } /* TEST_SUITE */
