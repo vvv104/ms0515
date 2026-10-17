@@ -24,7 +24,7 @@ int main(void)
 	files_init();
 	if (fs_mount() != 0)
 		panic("no file system");
-	tty_puts("\n");
+	tty_puts("\n" UBIX "\n");		/* the system and its version, as RT-11 says its own */
 	drivers_load();
 	exec("/etc/init", argv);
 	panic("no /etc/init");

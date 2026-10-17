@@ -171,20 +171,17 @@ set_source_files_properties(user/rt11/monbin.s PROPERTIES
 
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/root")
 set(MKFS "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py")
-# The volume's files, for both images: the system and its programs.
-set(VOLUME_FILES
+# The system's files, the release images' (ubix.dsk, ubix400.dsk); the
+# tests' images have the tests' programs and data besides.
+set(SYSTEM_FILES
     /boot/kernel=kernel.bin
     /boot/rd=rd.bin
     /etc/init=init.x
     /etc/motd=${ROOT}/etc/motd
-    /etc/numbers=${ROOT}/etc/numbers
     /bin/sh=sh.x
     /bin/ls=ls.x
     /bin/cat=cat.x
     /bin/echo=echo.x
-    /bin/hello=hello.x
-    /bin/fail=fail.x
-    /bin/pid=pid.x
     /bin/rm=rm.x
     /bin/mkdir=mkdir.x
     /bin/mkfs=mkfs.x
@@ -208,12 +205,18 @@ set(VOLUME_FILES
     /bin/ed=ed.x
     /bin/ramroot=ramroot.x
     /bin/mkboot=mkboot.x
-    /bin/bigmem=bigmem.x
     /bin/rt11=rt11.x
     --dir /tmp
     --dir /home
     --dir /mnt/floppy1
     --dir /mnt/floppy2)
+set(VOLUME_FILES
+    /etc/numbers=${ROOT}/etc/numbers
+    /bin/hello=hello.x
+    /bin/fail=fail.x
+    /bin/pid=pid.x
+    /bin/bigmem=bigmem.x
+    ${SYSTEM_FILES})
 set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin rd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns
@@ -262,4 +265,16 @@ add_custom_command(OUTPUT unix400.dsk
             /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${VOLUME_FILES}
     DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
     COMMENT "unix400.dsk")
-add_custom_target(image ALL DEPENDS unix.dsk bare.dsk unix400.dsk rt11test.dsk)
+# ubix.dsk and ubix400.dsk: UBIX as it is given out, both sides and one,
+# the system alone - with a RAM disk or without.
+add_custom_command(OUTPUT ubix.dsk
+    COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --boot boot.bin ubix.dsk
+            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${SYSTEM_FILES}
+    DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
+    COMMENT "ubix.dsk")
+add_custom_command(OUTPUT ubix400.dsk
+    COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --sides 1 --boot boot.bin ubix400.dsk
+            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${SYSTEM_FILES}
+    DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
+    COMMENT "ubix400.dsk")
+add_custom_target(image ALL DEPENDS unix.dsk bare.dsk unix400.dsk rt11test.dsk ubix.dsk ubix400.dsk)

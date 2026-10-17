@@ -142,7 +142,7 @@ TEST_CASE("< gives a command a file for its input") {
     atPrompt(m);
     REQUIRE(m.command("cat < /etc/motd"));
     INFO(m.screen());
-    CHECK(after(m, "cat < /etc/motd").find("Welcome to UNIX") != std::string::npos);
+    CHECK(after(m, "cat < /etc/motd").find("Welcome to UBIX") != std::string::npos);
 }
 
 TEST_CASE("what was written stays: the diskette booted again has the file") {

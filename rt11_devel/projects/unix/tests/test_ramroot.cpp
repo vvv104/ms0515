@@ -129,7 +129,7 @@ TEST_CASE("the diskette let go and taken out: the system runs on from memory") {
     m.emulator().unmountDisk(0);
     m.emulator().unmountDisk(2);
     REQUIRE(m.command("cat /etc/motd", 3000));
-    CHECK(after(m, "cat /etc/motd").find("Welcome to UNIX") != std::string::npos);
+    CHECK(after(m, "cat /etc/motd").find("Welcome to UBIX") != std::string::npos);
     REQUIRE(m.command("echo x | cat", 3000));
     CHECK(after(m, "echo x | cat").find("\nx\n#") != std::string::npos);
     REQUIRE(m.command("ls /bin", 3000));

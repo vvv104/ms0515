@@ -33,7 +33,7 @@ void boots(const std::vector<uint8_t> &clone)
     REQUIRE(c.boot());
     REQUIRE(c.command("cat /etc/motd"));
     INFO(c.screen());
-    CHECK(after(c, "cat /etc/motd").find("Welcome to UNIX") != std::string::npos);
+    CHECK(after(c, "cat /etc/motd").find("Welcome to UBIX") != std::string::npos);
 }
 
 unsigned superWord(const std::vector<uint8_t> &image, int word)

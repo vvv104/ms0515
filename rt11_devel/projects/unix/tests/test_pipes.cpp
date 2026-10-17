@@ -122,7 +122,7 @@ TEST_CASE("two commands of one's own at once: one in the background, one in fron
     const bool back = m.command("cat motd");                  /* the shell parked for it, and back */
     INFO(m.screen());
     REQUIRE(back);
-    CHECK(after(m, "cat motd").find("Welcome to UNIX") != std::string::npos);
+    CHECK(after(m, "cat motd").find("Welcome to UBIX") != std::string::npos);
     CHECK(m.screen().find("no room") == std::string::npos);
     REQUIRE(m.command("pwd"));                                /* its own state came back with it */
     CHECK(after(m, "pwd").find("\n/etc\n#") != std::string::npos);

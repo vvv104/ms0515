@@ -74,7 +74,7 @@ TEST_CASE("Tab completes a path: a directory with its /, a file with a space") {
     INFO(m.shown());
     CHECK(lastLine(m) == "/home# cat /etc/motd");
     REQUIRE(m.command(""));
-    CHECK(after(m, "cat /etc/motd").find("Welcome to UNIX") != std::string::npos);
+    CHECK(after(m, "cat /etc/motd").find("Welcome to UBIX") != std::string::npos);
     REQUIRE(m.command("cd /etc"));
     m.typeAndSettle("cat num\t", 30);                    /* from the shell's directory */
     CHECK(lastLine(m) == "/etc# cat numbers");
@@ -89,7 +89,7 @@ TEST_CASE("BS goes back over a completion as over what was typed") {
     CHECK(lastLine(m) == "/home# cat /etc/m");
     REQUIRE(m.command("otd"));
     INFO(m.shown());
-    CHECK(after(m, "cat /etc/motd").find("Welcome to UNIX") != std::string::npos);
+    CHECK(after(m, "cat /etc/motd").find("Welcome to UBIX") != std::string::npos);
 }
 
 TEST_CASE("names that go on alike are listed, the line drawn again; none, nothing changes") {

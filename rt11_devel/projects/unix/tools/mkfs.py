@@ -227,7 +227,7 @@ def main():
     ap.add_argument("--boot", type=Path, help="the boot block for block 0")
     ap.add_argument("--nm", help="nm of the toolchain, to check the kernel's end")
     ap.add_argument("--kernel-out", type=Path, help="the kernel's a.out, for its _end")
-    ap.add_argument("--label", default="UNIX")
+    ap.add_argument("--label", default="UBIX")
     ap.add_argument("--volume", type=int, help="the volume's number (at random when left out)")
     ap.add_argument("--dir", action="append", default=[], help="an empty directory to make")
     ap.add_argument("--sides", type=int, choices=(1, 2), default=2, help="one side, 400 KB, or both")

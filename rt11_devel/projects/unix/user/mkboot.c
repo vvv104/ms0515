@@ -48,7 +48,7 @@ int main(int argc, char **argv)
 		errno = 0;			/* no diskette in the drive, or not formatted */
 		complain("mkboot", argv[1]);
 		bad = -1;
-	} else if ((bad = clone_volume(from, to, blocks, "UNIX", !all)) < 0) {
+	} else if ((bad = clone_volume(from, to, blocks, "UBIX", !all)) < 0) {
 		complain("mkboot", argv[1]);
 	}
 	close(from);

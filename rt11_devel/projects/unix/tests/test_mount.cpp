@@ -85,7 +85,7 @@ TEST_CASE(".. from the mounted volume's root comes out to the directory above it
     REQUIRE(m.command("cat /tmp/../etc/motd"));
     REQUIRE(m.command("ls /tmp/.."));
     INFO(m.screen());
-    CHECK(after(m, "cat /tmp/../etc/motd").find("Welcome to UNIX") != std::string::npos);
+    CHECK(after(m, "cat /tmp/../etc/motd").find("Welcome to UBIX") != std::string::npos);
     CHECK(after(m, "ls /tmp/..").find("etc") != std::string::npos);
 }
 

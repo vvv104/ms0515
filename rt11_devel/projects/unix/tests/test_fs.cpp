@@ -83,12 +83,13 @@ TEST_CASE("cat shows a file, ls a directory") {
     m.command("ls /");
     m.command("ls /bin");
     INFO(m.screen());
-    CHECK(m.screen().find("Welcome to UNIX on the Elektronika MS 0515.") != std::string::npos);
+    CHECK(m.screen().find("Welcome to UBIX on the Elektronika MS 0515.") != std::string::npos);
     for (const char *n : {"boot", "etc", "bin", "dev", "home", "tmp"}) {
         CAPTURE(n);
         CHECK(m.screen().find(n) != std::string::npos);
     }
-    CHECK(m.screen().find("echo  hello") != std::string::npos);
+    CHECK(m.screen().find("  echo  ") != std::string::npos);
+    CHECK(m.screen().find("hello  ") != std::string::npos);
 }
 
 TEST_CASE("a file of several blocks is read whole, across the blocks") {

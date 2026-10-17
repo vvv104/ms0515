@@ -64,7 +64,7 @@ TEST_CASE("ls and cat are programs of /bin now") {
         CAPTURE(p);
         CHECK(after(m, "ls /bin").find(p) != std::string::npos);
     }
-    CHECK(m.screen().find("Welcome to UNIX on the Elektronika MS 0515.") != std::string::npos);
+    CHECK(m.screen().find("Welcome to UBIX on the Elektronika MS 0515.") != std::string::npos);
     CHECK(m.screen().find("cat: /etc/nothing: not found") != std::string::npos);
 }
 
