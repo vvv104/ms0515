@@ -295,9 +295,9 @@ The module carries `ms0515-run`'s machine (`src/tools/run`): ROM-B, the dec
 system and a state with the monitor booted are compiled into it, the
 program's folder is a directory of the module's file system, and the
 monitor's own `RUN` starts the program - no diskette, no boot, no prompt.
-The build makes that machine of the software collection's dec kit
-(`$MS0515_SOFTWARE_DIR`, else the collection beside the repository); a
-build without the collection has no run machine (`ms_run_built()` is 0).
+The build makes that machine of `src/tools/run/system/system.dsk`, the
+dec system diskette kept in the repository (its README says where it
+comes from); `ms_run_built()` says whether the module carries one.
 
 `?run=URL` opens the page at a card:
 

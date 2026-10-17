@@ -25,14 +25,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # The software collection: ms0515-run carries the dec system inside,
-      # and its build step composes and boots that system's diskette from
-      # the collection's kit (src/tools/run).
-      - uses: actions/checkout@v6
-        with:
-          repository: vvv104/ms0515-software
-          path: ms0515-software
-
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -80,7 +72,6 @@ jobs:
         env:
           CC: ${{ runner.os == 'Linux' && 'gcc-13' || '' }}
           CXX: ${{ runner.os == 'Linux' && 'g++-13' || '' }}
-          MS0515_SOFTWARE_DIR: ${{ github.workspace }}/ms0515-software
         run: conan build . --build=missing
 
       - name: Pack artifact
