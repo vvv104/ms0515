@@ -19,7 +19,7 @@ struct superblock {
 	unsigned kload, kentry;		/* where it goes, where it starts */
 	unsigned bitmap;		/* the bitmap of the blocks taken, a bit a block */
 	unsigned itable, iblocks;	/* the inode table */
-	unsigned swap, swapblocks;	/* the swap area, none on a diskette of data */
+	unsigned swap, swapblocks;	/* the swap area of old: 0, none */
 	unsigned data;			/* the first block of the data area */
 	unsigned inodes;		/* how many */
 	unsigned long volume;		/* the volume's number, at random */

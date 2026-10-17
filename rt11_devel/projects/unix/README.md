@@ -1,31 +1,33 @@
 # UNIX for the MS 0515
 
 An own Unix-like system for the machine, written from scratch in C and
-PDP-11 assembler: LSX and Mini-Unix in reach - multitasking without memory
-protection, a file system with directories, a shell with pipes.
+PDP-11 assembler: LSX in reach - two processes at once without memory
+protection, a file system with directories, a shell with pipelines.
 [`SPEC.md`](SPEC.md) is the specification and the plan of stages.
 
 Stages 1-5 are done.  The native ROM-B boots the system's diskette, the
 boot block loads the kernel, /boot/kernel, and the kernel mounts the root,
 looks for the EX board's RAM disk and runs /etc/init.  init gives its place
-to the shell on /etc/rc: `mount -a` makes the RAM disk a volume at /tmp and
-turns swap on by /etc/fstab - /tmp/swap, laid down by mkfs with the
-volume, else the diskette's /swap - and gives its place to /bin/sh for the console, which runs
+to the shell on /etc/rc: `mount -a` makes the RAM disk a volume at /tmp
+by /etc/fstab, and gives its place to /bin/sh for the console, which runs
 each command as a child - fork, exec, wait - and comes back with its prompt;
 `a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`,
 `>> file` and `< file` redirect.  A process has its own directory, its
-children's the same; a path not beginning with / goes from it.  Three processes at most - the shell and a pipe of
-two; two are resident, one in each slot, and with swap on the third waits
-in the swap file, 64 KB, and comes in when it is to run.
+children's the same; a path not beginning with / goes from it.  Two
+processes at once, one in each slot - the shell and a command - and no
+swap: a pipeline's commands run one after another, each one's output a
+file of /tmp the next one reads; `sh FILE` typed at the shell runs the
+file in the shell itself; while a command runs in the background the next
+finds no room, and a pipeline is not put in the background.
 A file has one rwx, there being no users, kept in its inode: r to read
 it, w to write it, empty it or remove it, x to run it.  The system's files,
 /boot's and /bin's and every program, are r-x - neither removed nor written
-over - the swap file ---, the rest rw-; a new file is rw-, `chmod r-x FILE`
+over - the rest rw-; a new file is rw-, `chmod r-x FILE`
 (or a digit, 5) changes it.  A directory's rights are not looked at.
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls` (`-l`, `-a`), `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `du`, `df`, `chmod`, `mkfs`,
 `mount`, `umount`,
-`swapon`, `fdformat`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
+`fdformat`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine), `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
 `rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd` (alone: /home), `t` (the time),
@@ -122,12 +124,12 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
 - `kernel/proc.c`, `proc.h` - the processes: the table, the two slots
   (banks 2-5 primary and extra, dispatcher bits 2-5), a kernel stack of 320 bytes
   each with a canary at its bottom, sleep and wakeup, the switch (`swtch`
-  in trap.s), swap - a file in one extent cut into 32 KB areas, a
-  process's used blocks out to one and back - fork into the free slot or
-  straight to swap, exit, wait.
+  in trap.s), fork into the free slot - none, EAGAIN - exit, which
+  gives the slot back at once, a zombie keeping its place in the table
+  until wait.
 - `kernel/high.h` - the big tables in bank 6, a part of the kernel's
   bss there, all of its data being in bank 6: the mount table, the processes with their kernel stacks,
-  the block buffers and the shadow bank's index, the pipes, the inodes, the
+  the block buffers and the shadow bank's index, the inodes, the
   open files, the console's line and queue, exec's arguments.  The ROM is
   called on a stack of 157000-157400, under its cells.
 - `kernel/ramdisk.c` - the EX board: found by two pages written and one
@@ -135,15 +137,15 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   its PPI and data port, each with the interrupts masked.
 - `kernel/sys.c` - the system calls by V6's numbers: exit, fork, read,
   write, open (to read, to write, both), close, wait, creat, unlink, exec,
-  time, getpid, sync, dup, pipe, getppid, mkdir; the open files, the
-  system's, shared by a fork's descriptors; the pipes, a buffer of 256
-  bytes each.  When pid 1 exits, init runs again.
+  time, getpid, sync, dup, getppid, mkdir, chmod, stat, link and the
+  rest; the open files, the system's, shared by a fork's descriptors.
+  When pid 1 exits, a new shell runs in its place.
 - `user/` - a process's start (`crt0.s`, `main(argc, argv)`), the calls as
   C functions (`sys.s`, `unistd.h`), a little library (`lib.c`), volumes
-  and swap files (`vol.c`: mkfs.py's layout made on the machine), `init.c`,
+  (`vol.c`: mkfs.py's layout made on the machine), `init.c`,
   and the programs of /bin: `sh.c` (scripts too), `ls.c`,
   `cat.c`, `echo.c`, `rm.c`, `mkdir.c`, `mkfs.c`, `mount.c` (`mount -a`:
-  /etc/fstab's volumes and swap, in one process), `umount.c`, `swapon.c`,
+  /etc/fstab's volumes, in one process), `umount.c`,
   `fdformat.c` (a diskette's tracks built and written, a side or both),
   `hello.c`, `fail.c` (exits with 3), `pid.c` (its pid and its parent's).
 - `user/own/` - the little library of a program that owns the machine:
@@ -176,17 +178,15 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   `cat`, `ls`, a file across blocks line by line, a file not there, a
   program with its arguments; the shell back at its prompt after a command,
   a command by name and by path and one not there, the exit status, the
-  children's pids, `exit` bringing a new shell; with the RAM disk a pipe, a
-  pipeline of two carrying a file of several blocks, the background, the
-  shell's state across swaps, and without it a pipe refused; files made by
+  children's pids, `exit` bringing a new shell; a pipe, a pipeline of
+  three carrying a file of several blocks, its files in /tmp gone after,
+  with the RAM disk and without, a pipeline's exit status, the background
+  and a pipeline refused there, no swap file anywhere; files made by
   `>` and written over, a file of several blocks in one extent, mkdir and
   rm, `<`, a file kept across a boot, the errors - each then read off the
   diskette on the host, its bitmap counted (`Machine::imageNow`); /dev, mkfs
   and mount on the RAM disk read on the host from the board's memory
-  (`Machine::ramDisk`), `..` out of a volume, umount; swap on the RAM
-  disk's file and the diskette's, the swap file held, the RAM disk's
-  swap file laid down by mkfs with the volume, on 5 frames after it (860
-  once, zeros written), three processes at most; /etc/rc with the
+  (`Machine::ramDisk`), `..` out of a volume, umount; /etc/rc with the
   board and without, a new shell in / after a session, a mounted device
   refused for mkfs, a script; the single-sided system booted, a diskette
   in the second drive made a volume and read on the host, the double-sided
@@ -206,7 +206,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   toolset's examples when they are built, SABOT2 when the recovery corpus
   holds it), a .SAV not there refused; the kernel one file, no /boot/hi.
   `bare.dsk`, the image without
-  /etc/rc, is for the tests that mount and swap by hand.
+  /etc/rc, is for the tests that mount by hand.
   `Machine::command` types a line and waits for the prompt, so the next is
   not typed into the last one's output; `Machine(image, true)` has the RAM
   disk.  Skipped when the image is not
@@ -225,10 +225,10 @@ kernel's tables by multiplying.
 The build reports the kernel's memory and stops past its limits
 (mkfs.py): the image's size, the code from 01000 to `_etext` against
 040000, and the data from 140000 to `_end` against the 6656 bytes up to
-the driver's place - with three processes and their kernel stacks at 320
-bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 15836 bytes, 598 bytes free below 040000, 1510 free in bank
-6.  The kernel's data, the big tables with it, live in bank 6: the low
+the driver's place - with three places in the process table, the two
+slots' and a zombie's, and their kernel stacks at 320 bytes (242 the
+deepest measured, tests/test_kstack.cpp keeping a margin): an image of
+14462 bytes, 1926 bytes free below 040000, 2138 free in bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory and the RAM disk's pages, which keep -O2.
 

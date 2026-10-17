@@ -5,8 +5,8 @@
 
 	.text
 	.globl	_exit, _fork, _read, _write, _open, _close, _wait, _execv
-	.globl	_time, _getpid, _getppid, _dup, _pipe, _creat, _unlink, _mkdir, _sync
-	.globl	_mount, _umount, _swapon, _ioctl, _lseek, _chdir, _stat, _fstat, _link, _chmod
+	.globl	_time, _getpid, _getppid, _dup, _creat, _unlink, _mkdir, _sync
+	.globl	_mount, _umount, _ioctl, _lseek, _chdir, _stat, _fstat, _link, _chmod
 	.globl	_errno
 
 _exit:	trap	1
@@ -52,11 +52,7 @@ _getppid:
 _dup:	trap	41
 	br	done
 
-/ int pipe(int fd[2]): the reading end in fd[0], the writing one in fd[1].
-_pipe:	trap	42
-	br	done
-
-/ int creat(const char *path, int mode): the file made or emptied, open to write.
+/ int creat(const char *path): the file made or emptied, open to write, rw-.
 _creat:	trap	8
 	br	done
 
@@ -76,11 +72,6 @@ _mount:	trap	21
 
 _umount:
 	trap	22
-	br	done
-
-/ int swapon(const char *file): the file, in one extent, swap from now on.
-_swapon:
-	trap	85
 	br	done
 
 / int chdir(const char *dir), stat(const char *path, struct stat *st),

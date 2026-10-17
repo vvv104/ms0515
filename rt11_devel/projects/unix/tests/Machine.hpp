@@ -57,7 +57,7 @@ inline std::vector<uint8_t> readImage()
 }
 
 /* The image without /etc/rc, beside the system's in the build folder: init
- * goes straight to the shell, nothing mounted, no swap - for the tests that
+ * goes straight to the shell, nothing mounted - for the tests that
  * do it by hand. */
 inline std::vector<uint8_t> readBareImage()
 {

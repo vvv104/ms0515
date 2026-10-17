@@ -7,7 +7,7 @@ An MS 0515 diskette: double-sided, 819200 bytes, 1600 blocks - side 0 for
 409600 bytes, 800 blocks, the volume of fd0 - the image the other
 emulators take.  Laid out as kernel/fs.h has it: block 0 the boot
 block, 1 the superblock, 2 the bitmap of the blocks taken, 3..10 the inode
-table (128 inodes of 32 bytes), 11..138 the swap area, the data from 139.
+table (128 inodes of 32 bytes), the data from 11.
 Each PATH=FILE puts the host's FILE at PATH on the volume, its directories
 made as they are needed; each --dir PATH makes an empty directory, and
 /dev always has the block devices - fd0..fd3 the drives' sides, fdx0 and
@@ -39,8 +39,8 @@ VERSION = 2
 BITMAP = 2
 ITABLE, IBLOCKS = 3, 8
 INODES = IBLOCKS * BLOCK // 32
-SWAP, SWAPBLOCKS = 11, 128
-DATA = SWAP + SWAPBLOCKS    # 139
+SWAP, SWAPBLOCKS = 0, 0     # the superblock's swap area: none
+DATA = 11
 ROOT = 1
 KERNEL_LOAD = 0o1000
 KERNEL_TOP = 0o40000
@@ -194,10 +194,8 @@ class Volume:
 
 def rights(path, data):
     """A file's one rwx (kernel/fs.h): r-x the system's - /boot's, /bin's
-    and any program, an a.out - --- the swap file, rw- the rest."""
+    and any program, an a.out - rw- the rest."""
     path = "/" + path.strip("/")
-    if path == "/swap":
-        return 0
     if path.startswith(("/boot/", "/bin/")) or data[:2] in (b"\x07\x01", b"\x01\x01"):
         return 0o5
     return 0o6
@@ -232,7 +230,6 @@ def main():
     ap.add_argument("--label", default="UNIX")
     ap.add_argument("--volume", type=int, help="the volume's number (at random when left out)")
     ap.add_argument("--dir", action="append", default=[], help="an empty directory to make")
-    ap.add_argument("--swap", type=int, default=0, help="a swap file /swap of so many KB, in one extent")
     ap.add_argument("--sides", type=int, choices=(1, 2), default=2, help="one side, 400 KB, or both")
     ap.add_argument("out", type=Path)
     ap.add_argument("files", nargs="*", help="PATH=FILE")
@@ -260,8 +257,6 @@ def main():
     if args.nm and args.kernel_out and kernel_ino:
         memory_report(args.nm, args.kernel_out, vol.inodes[kernel_ino][2])
     volume = args.volume if args.volume is not None else random.getrandbits(32)
-    if args.swap:                       # last: the kernel and the programs nearer block 0
-        vol.add("/swap", bytes(args.swap * 1024))
     vol.finish(args.label, volume, boot, kernel_ino)
     args.out.write_bytes(vol.image)
     print(f"{args.out.name}: {len(vol.inodes)} inodes, blocks {DATA}..{vol.next_block - 1} taken")

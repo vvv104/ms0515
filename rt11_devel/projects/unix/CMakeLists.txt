@@ -116,7 +116,6 @@ program(mkdir user/mkdir.c)
 program(mkfs user/mkfs.c user/vol.c)
 program(mount user/mount.c user/vol.c)
 program(umount user/umount.c)
-program(swapon user/swapon.c)
 program(fdformat user/fdformat.c)
 program(pwd user/pwd.c)
 program(ln user/ln.c)
@@ -177,7 +176,6 @@ set(VOLUME_FILES
     /bin/mkfs=mkfs.x
     /bin/mount=mount.x
     /bin/umount=umount.x
-    /bin/swapon=swapon.x
     /bin/fdformat=fdformat.x
     /bin/pwd=pwd.x
     /bin/ln=ln.x
@@ -190,13 +188,12 @@ set(VOLUME_FILES
     /bin/bigmem=bigmem.x
     /bin/rt11=rt11.x
     --dir /tmp
-    --dir /home
-    --swap 64)
+    --dir /home)
 set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns
-# swap on by /etc/fstab.  bare.dsk: the same without /etc/rc, init going
-# straight to the shell, for the tests that mount and swap by hand.
+# no more.  bare.dsk: the same without /etc/rc, init going straight to the
+# shell, for the tests that mount by hand.
 add_custom_command(OUTPUT unix.dsk
     COMMAND "${Python3_EXECUTABLE}" "${MKFS}"
             --boot boot.bin --nm "${PDP11_NM}" --kernel-out $<TARGET_FILE:kernel> unix.dsk

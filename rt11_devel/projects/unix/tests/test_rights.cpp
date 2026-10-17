@@ -2,8 +2,7 @@
  * test_rights.cpp - a file's rights: one rwx, there being no users, kept in
  * its inode.  r to read it, w to write it, empty it or remove it, x to run
  * it; the system's files are r-x, so they are neither removed nor written
- * over, the rest rw-, the swap file ---.  A new file is rw-, chmod changes
- * it.  A directory's rights are not looked at.
+ * over, the rest rw-.  A new file is rw-, chmod changes it.  A directory's rights are not looked at.
  */
 #include "Machine.hpp"
 #include "Volume.hpp"
@@ -33,7 +32,7 @@ unsigned rights(const Volume &v, const char *path)
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("the rights laid down: r-x the system's, rw- the rest, --- the swap file; a new file rw-") {
+TEST_CASE("the rights laid down: r-x the system's, rw- the rest; a new file rw-") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     REQUIRE(m.boot());
@@ -53,12 +52,11 @@ TEST_CASE("the rights laid down: r-x the system's, rw- the rest, --- the swap fi
         CAPTURE(path);
         CHECK(rights(v, path) == 7);
     }
-    CHECK(rights(v, "/swap") == 0);
     Volume rd(m.ramDisk(), true);                              /* made by mkfs on the machine */
     CHECK(rights(rd, "/") == 7);
-    CHECK(rights(rd, "/swap") == 0);
-    REQUIRE(m.command("ls -l /bin/sh /etc/motd /swap"));
-    const std::string out = after(m, "ls -l /bin/sh /etc/motd /swap");
+    REQUIRE(m.command("chmod 0 /home/f"));
+    REQUIRE(m.command("ls -l /bin/sh /etc/motd /home/f"));
+    const std::string out = after(m, "ls -l /bin/sh /etc/motd /home/f");
     INFO(m.screen());
     CHECK(out.find("\n-r-x ") != std::string::npos);
     CHECK(out.find("\n-rw- ") != std::string::npos);

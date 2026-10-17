@@ -38,7 +38,7 @@ void says(Machine &m, const std::string &command, const std::string &text)
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("the session starts in /home; cd alone goes there, a shell started by hand stays put") {
+TEST_CASE("the session starts in /home; cd alone goes there; a script typed runs in the shell, its cd kept") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     atPrompt(m);
@@ -50,7 +50,10 @@ TEST_CASE("the session starts in /home; cd alone goes there, a shell started by 
     says(m, "cat /home/notes", "mine");
     REQUIRE(m.command("cd /etc"));
     REQUIRE(m.command("echo pwd > /tmp/p"));
-    says(m, "sh /tmp/p", "/etc");                             /* not the session's: where it was run */
+    says(m, "sh /tmp/p", "/etc");
+    REQUIRE(m.command("echo cd /bin > /tmp/c"));
+    REQUIRE(m.command("sh /tmp/c"));                          /* in this shell: no slot for another */
+    says(m, "pwd", "/bin");
 }
 
 TEST_CASE("cd and pwd: paths from a process's own directory, .. up, its children's the same") {

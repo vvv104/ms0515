@@ -12,7 +12,7 @@ add_executable(unix_tests
     test_console.cpp
     test_fs.cpp
     test_shell.cpp
-    test_swap.cpp
+    test_pipes.cpp
     test_write.cpp
     test_mount.cpp
     test_rc.cpp

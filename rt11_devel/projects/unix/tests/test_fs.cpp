@@ -40,7 +40,7 @@ TEST_CASE("the volume: the superblock, the areas, the root's directories, a file
     CHECK(v.word(1, 14) == 2);                     /* the bitmap */
     CHECK(v.word(1, 16) == 3);                     /* the inode table, 8 blocks */
     CHECK(v.word(1, 18) == 8);
-    CHECK(v.word(1, 24) == 139);                   /* the data */
+    CHECK(v.word(1, 24) == 11);                    /* the data: no swap area */
     CHECK(v.word(1, 26) == 128);                   /* inodes */
     const auto root = v.inode(1);
     CHECK((root.mode & 0170000) == 0040000);
@@ -84,7 +84,7 @@ TEST_CASE("cat shows a file, ls a directory") {
     m.command("ls /bin");
     INFO(m.screen());
     CHECK(m.screen().find("Welcome to UNIX on the Elektronika MS 0515.") != std::string::npos);
-    for (const char *n : {"boot", "etc", "bin", "dev", "home", "tmp", "swap"}) {
+    for (const char *n : {"boot", "etc", "bin", "dev", "home", "tmp"}) {
         CAPTURE(n);
         CHECK(m.screen().find(n) != std::string::npos);
     }

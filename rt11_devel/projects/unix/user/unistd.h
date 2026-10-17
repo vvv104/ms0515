@@ -31,7 +31,6 @@ long time(void);			/* the seconds since the boot */
 int getpid(void);
 int getppid(void);
 int dup(int fd);
-int pipe(int fd[2]);
 int creat(const char *path);
 int unlink(const char *path);
 int chmod(const char *path, int rights);	/* 0..7: r 4, w 2, x 1 */
@@ -39,7 +38,6 @@ int mkdir(const char *path);
 int sync(void);
 int mount(const char *device, const char *dir);
 int umount(const char *device);
-int swapon(const char *file);
 int ioctl(int fd, int cmd, void *arg);
 long lseek(int fd, long off, int whence);
 int chdir(const char *dir);

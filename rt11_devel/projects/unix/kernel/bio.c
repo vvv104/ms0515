@@ -118,9 +118,9 @@ struct buf *getblk(unsigned dev, unsigned block)
 	return b;
 }
 
-/* The blocks of dev [start, start + n) forgotten in both levels: swap
- * writes them past the cache.  A block at a time, each by its side's
- * name. */
+/* The blocks of dev [start, start + n) forgotten in both levels: a
+ * track formatted is written past the cache.  A block at a time, each by
+ * its side's name. */
 void binval(unsigned dev, unsigned start, unsigned n)
 {
 	struct shadow *s;

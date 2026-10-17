@@ -1,10 +1,10 @@
 /* init.c - the first process: it gives its place to the shell running
- * /etc/rc - the volumes and the swap, then the shell for the console - or,
- * without /etc/rc, straight to the shell.
+ * /etc/rc - the volumes, then the shell for the console - or, without
+ * /etc/rc, straight to the shell.
  *
- * init does not stay as a process of its own: until /etc/rc has turned swap
- * on the machine keeps two processes at once, and the script needs the
- * other slot for its commands. */
+ * init does not stay as a process of its own: the machine keeps two
+ * processes at once, and the script needs the other slot for its
+ * commands. */
 #include "unistd.h"
 
 int main(void)

@@ -5,7 +5,7 @@
  * start.s copies the data there from the image and clears the bss.  The
  * big tables are a part of the bss: the process table with each process's
  * kernel stack, the block buffers and the shadow bank's index of more,
- * the pipes, the inodes, the open files, the console's line and queue,
+ * the inodes, the open files, the console's line and queue,
  * exec's arguments.  The data end below 155000, where the diskettes'
  * driver, /boot/fd, goes (kernel.h DRV_BASE).  The top of the bank, from
  * 157000, is left to the ROM: the stack the kernel calls it on,
@@ -20,14 +20,6 @@
 #define NBUF 3				/* the buffers in hand */
 #define NSHADOW 15			/* more in the shadow copy of bank 1 */
 #define SCRATCH SHADOW_BLOCK(NSHADOW)	/* its last block: fork's bounce */
-#define NPIPE 2
-#define PIPESIZ 256
-
-struct pipe {
-	char buf[PIPESIZ];
-	unsigned head, tail, count;	/* taken at tail, put at head */
-	unsigned char readers, writers;
-};
 
 #define NMOUNT 3
 #define NINODE 8
@@ -55,7 +47,6 @@ struct high {
 	struct proc procs[NPROC];
 	struct buf bufs[NBUF];
 	struct shadow shadow[NSHADOW];
-	struct pipe pipes[NPIPE];
 	struct inode itab[NINODE];
 	struct file files[NFILE];
 	char line[LINE];

@@ -8,11 +8,9 @@
  *
  * The open files are the system's, shared by the descriptors that point at
  * them - a fork's child gets its parent's - each with its offset; the
- * console is one of them, the first process's 0, 1 and 2.  A pipe is two of
- * them, its reading end and its writing end, over a buffer in bank 6: the
- * reader sleeps while it is empty and gets the end of the file once no
- * writer is left; the writer sleeps while it is full and gets EPIPE once no
- * reader is.  When pid 1 exits, init runs again in its place. */
+ * console is one of them, the first process's 0, 1 and 2.  There are no
+ * pipes: the shell runs a pipeline's commands one after another through
+ * files.  When pid 1 exits, a new shell runs in its place. */
 #include "sys.h"
 #include "ioctl.h"
 #include "stat.h"
@@ -22,10 +20,10 @@ enum {
 	SYS_WAIT = 7, SYS_CREAT = 8, SYS_LINK = 9, SYS_UNLINK = 10, SYS_EXEC = 11, SYS_CHDIR = 12, SYS_TIME = 13,
 	SYS_CHMOD = 15, SYS_STAT = 18, SYS_LSEEK = 19, SYS_GETPID = 20, SYS_FSTAT = 28,
 	SYS_MOUNT = 21, SYS_UMOUNT = 22,
-	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_IOCTL = 54, SYS_GETPPID = 64, SYS_SWAPON = 85,
+	SYS_SYNC = 36, SYS_DUP = 41, SYS_IOCTL = 54, SYS_GETPPID = 64,
 	SYS_MKDIR = 136
 };
-enum { EPIPE = 32, ESPIPE = 29 };
+enum { ESPIPE = 29 };
 
 
 #define files (HIGH->files)
@@ -69,55 +67,8 @@ void fclose(struct file *f)
 	if (--f->count == 0) {
 		if (f->kind == F_INODE)
 			iput(f->ip);
-		if (f->kind == F_PIPE_R)
-			f->pp->readers--;
-		if (f->kind == F_PIPE_W)
-			f->pp->writers--;
-		if (f->kind == F_PIPE_R || f->kind == F_PIPE_W)
-			wakeup(f->pp);
 		f->kind = F_NONE;
 	}
-}
-
-static int pipe_read(struct pipe *pp, char *buf, unsigned n)
-{
-	unsigned got = 0;
-	int s = spl7();
-
-	while (pp->count == 0 && pp->writers > 0)
-		sleep(pp);
-	while (got < n && pp->count > 0) {
-		buf[got++] = pp->buf[pp->tail];
-		pp->tail = (pp->tail + 1) % PIPESIZ;
-		pp->count--;
-	}
-	wakeup(pp);
-	splx(s);
-	return (int)got;
-}
-
-static int pipe_write(struct pipe *pp, const char *buf, unsigned n)
-{
-	unsigned put = 0;
-	int s = spl7();
-
-	while (put < n) {
-		if (pp->readers == 0) {
-			splx(s);
-			return put ? (int)put : -EPIPE;
-		}
-		if (pp->count == PIPESIZ) {
-			wakeup(pp);
-			sleep(pp);
-			continue;
-		}
-		pp->buf[pp->head] = buf[put++];
-		pp->head = (pp->head + 1) % PIPESIZ;
-		pp->count++;
-	}
-	wakeup(pp);
-	splx(s);
-	return (int)put;
 }
 
 /* The console for the first process: 0, 1 and 2. */
@@ -140,8 +91,8 @@ struct file *file_of(unsigned fd)
 	return fd < NOFILE ? curproc->ofile[fd] : 0;
 }
 
-/* read and write: the console's, a pipe's end, a file's or a device's
- * bytes from the offset on, which moves past them. */
+/* read and write: the console's, a file's or a device's bytes from the
+ * offset on, which moves past them. */
 static int rw(struct trapframe *tf, const unsigned *arg, int writing)
 {
 	struct file *f = file_of(arg[0]);
@@ -156,8 +107,6 @@ static int rw(struct trapframe *tf, const unsigned *arg, int writing)
 		n = writing ? tty_write(buf, (int)arg[2]) : tty_read(buf, (int)arg[2]);
 	else if (writing ? !f->writable : !f->readable)
 		return EBADF;
-	else if (f->kind != F_INODE)
-		n = writing ? pipe_write(f->pp, buf, arg[2]) : pipe_read(f->pp, buf, arg[2]);
 	else {
 		if ((f->ip->d.mode & S_IFMT) == S_IFBLK)
 			n = devrw(f->ip, f->off, buf, arg[2], writing);
@@ -205,46 +154,6 @@ static int sys_dup(struct trapframe *tf, const unsigned *arg)
 	f->count++;
 	curproc->ofile[fd] = f;
 	tf->r0 = (unsigned)fd;
-	return 0;
-}
-
-/* pipe(int fd[2]): the reading end in fd[0], the writing one in fd[1]. */
-static int sys_pipe(struct trapframe *, const unsigned *arg)
-{
-	struct pipe *pp = 0;
-	struct file *r, *w;
-	int i, rfd, wfd;
-
-	if (!inside(arg[0], 4))
-		return EFAULT;
-	for (i = 0; i < NPIPE && !pp; i++)
-		if (!HIGH->pipes[i].readers && !HIGH->pipes[i].writers)
-			pp = &HIGH->pipes[i];
-	if (!pp)
-		return ENFILE;
-	if ((rfd = fd_free()) < 0)
-		return EMFILE;
-	if (!(r = falloc()))
-		return ENFILE;
-	curproc->ofile[rfd] = r;
-	if ((wfd = fd_free()) < 0 || !(w = falloc())) {
-		curproc->ofile[rfd] = 0;
-		r->count = 0;
-		return wfd < 0 ? EMFILE : ENFILE;
-	}
-	pp->head = pp->tail = pp->count = 0;
-	pp->readers = pp->writers = 1;
-	r->kind = F_PIPE_R;
-	r->readable = 1;
-	r->writable = 0;
-	r->pp = pp;
-	w->kind = F_PIPE_W;
-	w->readable = 0;
-	w->writable = 1;
-	w->pp = pp;
-	curproc->ofile[wfd] = w;
-	((int *)arg[0])[0] = rfd;
-	((int *)arg[0])[1] = wfd;
 	return 0;
 }
 
@@ -353,19 +262,6 @@ static int sys_exec(struct trapframe *, const unsigned *arg)
 			return error;
 	}
 	return exec((const char *)arg[0], (const char *const *)argv);
-}
-
-/* swapon(file): the file, held, becomes swap (proc.c). */
-static int sys_swapon(struct trapframe *, const unsigned *arg)
-{
-	struct inode *ip;
-	int error = 0;
-
-	if (!(ip = user_inode(arg[0], &error)))
-		return error;
-	if ((error = swap_on(ip)) != 0)
-		iput(ip);
-	return error;
 }
 
 /* link(old, new). */
@@ -569,8 +465,7 @@ static const struct {
 	{SYS_LINK, sys_link}, {SYS_UNLINK, sys_unlink}, {SYS_EXEC, sys_exec}, {SYS_CHDIR, sys_chdir},
 	{SYS_TIME, sys_time}, {SYS_CHMOD, sys_chmod}, {SYS_STAT, sys_stat}, {SYS_LSEEK, sys_lseek}, {SYS_GETPID, sys_getpid},
 	{SYS_MOUNT, sys_mount}, {SYS_UMOUNT, sys_umount}, {SYS_FSTAT, sys_fstat}, {SYS_SYNC, sys_sync},
-	{SYS_DUP, sys_dup}, {SYS_PIPE, sys_pipe}, {SYS_IOCTL, sys_ioctl}, {SYS_GETPPID, sys_getppid},
-	{SYS_SWAPON, sys_swapon}, {SYS_MKDIR, sys_mkdir},
+	{SYS_DUP, sys_dup}, {SYS_IOCTL, sys_ioctl}, {SYS_GETPPID, sys_getppid}, {SYS_MKDIR, sys_mkdir},
 };
 
 void syscall(struct trapframe *tf)

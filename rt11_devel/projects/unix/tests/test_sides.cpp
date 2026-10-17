@@ -37,11 +37,10 @@ std::string after(Machine &m, const std::string &command)
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("the single-sided system boots from one side: swap on its /swap, the programs run") {
+TEST_CASE("the single-sided system boots from one side, the programs run") {
     if (!built400()) { MESSAGE("unix400.dsk not built - skipped"); return; }
     Machine m(unixos::readImage400(), false);
     REQUIRE(m.boot(3000));
-    CHECK(m.screen().find("swap: /swap") != std::string::npos);
     atPrompt(m);
     REQUIRE(m.command("ls /dev"));
     CHECK(after(m, "ls /dev").find("fd0  fd1  fd2  fd3  fdx0  fdx1  rd0") != std::string::npos);

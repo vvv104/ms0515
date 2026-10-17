@@ -1,8 +1,8 @@
 /*
  * test_rc.cpp - stage 5, the boot by /etc/rc: init runs the shell on the
- * script, mount -a makes the RAM disk a volume at /tmp and turns swap on by
- * /etc/fstab - the RAM disk's file, else the diskette's - and the shell
- * takes its place; a session's end brings a new shell, not the script.
+ * script, mount -a makes the RAM disk a volume at /tmp by /etc/fstab, and
+ * the shell takes its place; a session's end brings a new shell, not the
+ * script.
  */
 #include "Machine.hpp"
 
@@ -35,31 +35,30 @@ std::string after(Machine &m, const std::string &command)
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("with the RAM disk: /tmp is its volume, swap a file on it, before the shell's prompt") {
+TEST_CASE("with the RAM disk: /tmp is its volume, before the shell's prompt") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     REQUIRE(m.boot(3000));
     const std::string boot = m.screen();
     INFO(boot);
     CHECK(boot.find("mount: /dev/rd0 on /tmp") != std::string::npos);
-    CHECK(boot.find("swap: /tmp/swap") != std::string::npos);
     CHECK(boot.find("mount: /dev/rd0 on /tmp") < boot.rfind("#"));
     atPrompt(m);
     REQUIRE(m.command("ls /tmp"));
-    CHECK(after(m, "ls /tmp").find("\nswap\n#") != std::string::npos);
+    INFO(m.screen());
+    CHECK(after(m, "ls /tmp").find_first_not_of(" \n#") == std::string::npos);   /* an empty volume */
     REQUIRE(m.command("echo a | cat"));
     CHECK(after(m, "echo a | cat").find("\na\n#") != std::string::npos);
 }
 
-TEST_CASE("without the RAM disk: no volume at /tmp, swap the diskette's /swap") {
+TEST_CASE("without the RAM disk: no volume at /tmp, the diskette's directory") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), false);
     REQUIRE(m.boot(3000));
     const std::string boot = m.screen();
     INFO(boot);
     CHECK(boot.find("mount:") == std::string::npos);    /* optional: no word */
-    CHECK(boot.find("swap: /swap") != std::string::npos);
-    CHECK(boot.find("swap: /tmp/swap") == std::string::npos);
+    CHECK(boot.find("swap") == std::string::npos);
 }
 
 TEST_CASE("the session's end brings a new shell in /home, and /etc/rc is not run again") {
@@ -78,11 +77,12 @@ TEST_CASE("a mounted device is not written under its volume: mkfs is refused") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     atPrompt(m);
+    REQUIRE(m.command("echo kept > /tmp/k"));
     REQUIRE(m.command("mkfs /dev/rd0"));
     REQUIRE(m.command("ls /tmp"));
     INFO(m.screen());
     CHECK(m.screen().find("mkfs: /dev/rd0: busy") != std::string::npos);
-    CHECK(after(m, "ls /tmp").find("swap") != std::string::npos);
+    CHECK(after(m, "ls /tmp").find("\nk\n#") != std::string::npos);
 }
 
 TEST_CASE("sh runs a script: a file of commands, without a prompt") {

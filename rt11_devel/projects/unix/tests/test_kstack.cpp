@@ -3,7 +3,7 @@
  * bytes of kernel stack in bank 6 (proc.h KSTACK), a canary in its bottom
  * word that swtch() checks; the deepest calls measured took 242.  Bank 6 is
  * cleared at the boot, so a stack's untouched part is still zero: after a
- * heavy run - pipelines over swap, writing, mkfs and mount, a script - the
+ * heavy run - pipelines, writing, mkfs and mount, a script - the
  * lowest 32 bytes above each canary are.
  */
 #include "Machine.hpp"
@@ -18,7 +18,7 @@ namespace {
 /* The tables lie in bank 6 where the kernel's link put them (high.h):
  * the processes one after another, each with its kernel stack at its end
  * (proc.h), the canary its bottom word. */
-constexpr unsigned kBank6 = 0140000, kDriver = 0155000, kProc = 40, kKstack = 320, kProcs = 3;
+constexpr unsigned kBank6 = 0140000, kDriver = 0155000, kProc = 36, kKstack = 320, kProcs = 3;
 constexpr unsigned kCanary = 0122525, kMargin = 32;
 
 } // namespace

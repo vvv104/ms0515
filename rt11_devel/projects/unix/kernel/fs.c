@@ -605,8 +605,7 @@ int fs_unlink(const char *path)
 		iput(dp);
 		return ENOENT;
 	}
-	error = (ip->d.mode & S_IFMT) == S_IFDIR ? EISDIR : swap_file(ip) ? EBUSY :
-		!(ip->d.mode & S_W) ? EACCES : 0;
+	error = (ip->d.mode & S_IFMT) == S_IFDIR ? EISDIR : !(ip->d.mode & S_W) ? EACCES : 0;
 	if (error) {
 		iput(ip);
 		iput(dp);

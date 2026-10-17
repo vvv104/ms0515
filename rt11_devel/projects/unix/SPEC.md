@@ -9,9 +9,9 @@ The goal is an own Unix-like operating system for the MS 0515, written from
 scratch in C and PDP-11 assembler.  It is not Linux: the Linux kernel needs a
 32-bit processor and megabytes of memory.
 
-The target in features is LSX and Mini-Unix of the mid-1970s: multitasking
-without memory protection, a file system with directories, a shell with pipes,
-a set of utilities.
+The target in features is LSX of the mid-1970s: two processes at once
+without memory protection, a file system with directories, a shell with
+pipelines, a set of utilities.
 
 - Target platforms: this emulator and the real machine.
 - Tools: GCC 15 for `pdp11-aout` with `-m10` from `rt11_devel/toolset/gcc`.
@@ -71,12 +71,12 @@ later take the native one's place without changing the kernel.
                      | TRAP - system calls      |  Diskette - own FS        |
   +------------------v-------------------+      |  800 blocks a side, or    |
   | Kernel - the file /boot/kernel       |<---->|  1600 on both; /boot, /bin|
-  | banks 0, 1, 6; up to 22 KB           |  FS  |  swap 2 x 32 KB when      |
-  | processes, FS, swap, system calls    | swap |  there is no RAM disk     |
+  | banks 0, 1, 6; up to 22 KB           |  FS  |                           |
+  | processes, FS, system calls          |      |                           |
   | buffer cache in shadow bank 1        |      |                           |
   +------------------+-------------------+      |  RAM disk 512 KB (option) |
-                     | one jump table           |  swap 2 x 32 KB, /tmp     |
-  +------------------v-------------------+      |  /tmp                     |
+                     | one jump table           |  /tmp                     |
+  +------------------v-------------------+      |                           |
   | ROM: native ROM-B first, own later   |----->|                           |
   | console, keyboard, disk block, font  | boot +---------------------------+
   +--------------------------------------+
@@ -84,8 +84,8 @@ later take the native one's place without changing the kernel.
 
 Processes enter the kernel through `TRAP`; the kernel reaches the console and
 the disk through the ROM's services (native ROM-B first, then the own ROM),
-the rest of the hardware by itself.  Swap goes to the RAM disk when the board
-is there, else to the diskette.
+the rest of the hardware by itself.  There is no swap: two processes, one
+in each slot.
 
 ## Memory map
 
@@ -193,42 +193,34 @@ erasing: the pinout to be checked against the schematic.
 ## The kernel
 
 The kernel is loaded from the diskette, takes up to 20-22 KB and keeps two
-processes resident, the others in swap.
+processes, one in each slot; there is no swap.
 
 **Processes and scheduling.**
 
 - Two slots in banks 2-5 (A and B), switched by a write to the dispatcher
   177400.
-- Four processes at most - the shell and a pipe of three, as the two pipes
-  the kernel has: the machine is not for more.  The two outside the slots
-  lie in swap.
-- A quantum by the timer interrupt (vector 0100), that is 50 Hz.  Preemptive
-  switching only between resident processes; swapping out and in on a block or
-  after several quanta.
+- Two processes at once, the shell and a command: the machine is not for
+  more.  A fork with both slots taken fails.  A process that has exited
+  gives its slot back at once and keeps its place in the table, a zombie,
+  until its parent waits: three places in the table.
+- No pipes in the kernel: the shell runs a pipeline's commands one after
+  another, each one's output a file of /tmp the next one reads, the files
+  removed after.  `sh FILE` typed at the shell runs the file in the shell
+  itself - a shell of its own would take the slot its commands need.
+- A quantum by the timer interrupt (vector 0100), that is 50 Hz, switching
+  between the two.
 - No protection: a process can spoil the kernel.  This is an accepted limit.
 
-**Swap.**
-
-- Swap is a file on some volume, contiguous, in one extent: `swapon`
-  checks that, and the kernel writes its blocks directly, past the file
-  system.  The file cannot be removed while swap is on.
-- With a RAM disk it is `/tmp/swap` there (see "Volumes, swap and
-  fstab"): a 32 KB image moves in ~0.15-0.3 s.  Without one it is `/swap`
-  on the diskette, ~1.5-2 s an image.  Each 32 KB of the file is a
-  process's area, one kept for the exchange: two areas, 64 KB, for the
-  one process out - three processes at most, the shell and a pipe of two;
-  a smaller file allows fewer.  Only the image's used
-  part moves.
-- The file's bytes do not matter, only its inode and its blocks: `mkfs -s`
-  lays it down with the volume, nothing written into it.
-- Until swap is on there are no more processes than slots, two; whether
-  the board is there is found at the start, as EX.SYS does: a pattern
-  written and checked.
+**Swap - none.**  It was there - a file in one extent, cut into 32 KB
+areas - and went: it cost the kernel some 1.5 KB of code with the pipes,
+for a third process the machine is not for.  Whether the RAM disk's board
+is there is found at the start, as EX.SYS does: a pattern written and
+checked.
 
 **System calls.**  Through `TRAP` (vector 034); the number in the instruction,
 the arguments in registers.  The first set (~25): `fork`, `exec`, `exit`,
 `wait`, `getpid`, `kill`, `signal`, `open`, `close`, `read`, `write`, `lseek`,
-`creat`, `unlink`, `link`, `mkdir`, `chdir`, `stat`, `pipe`, `dup`, `mount`,
+`creat`, `unlink`, `link`, `mkdir`, `chdir`, `stat`, `chmod`, `dup`, `mount`,
 `sync`, `time`, `brk`; `ioctl` for what a device does besides its blocks -
 a diskette's track written (`kernel/ioctl.h`).
 
@@ -292,14 +284,13 @@ half a block a file, about 4% of the diskette.
 | 1 | The superblock: the magic, the version, the volume size, the starts of the areas, the number of inodes, the label; the kernel's extents for the boot block |
 | 2 | The bitmap of free blocks (a bit a block, 200 bytes at most) |
 | 3-10 | The inode table: 8 blocks x 16 inodes = 128 files |
-| 11-138 | Reserved: once the swap area; swap is a file now ("Volumes, swap and fstab") |
-| 139-1599 | Data |
+| 11-1599 | Data (the swap area of old, 11-138, is no more) |
 
 **The superblock (block 1)**, words: the magic 054125, the version, the
 volume's blocks, /boot/kernel's first block and blocks with its load address
 and entry (for the boot block, which needs no file system), the bitmap's
 block, the inode table's first block and blocks, the swap area's first block
-and blocks, the data's first block, the number of inodes, the volume's number
+and blocks (0, none), the data's first block, the number of inodes, the volume's number
 (a long), a label of 16 bytes.  A long is two words, the high word first, as
 the compiler keeps one.
 
@@ -337,19 +328,17 @@ does), and the driver puts block n in sector (ILV[n mod 10] + 2 * track - 2)
 mod 10 + 1 - 2:1 and two sectors of skew a track, the machine's own
 diskettes' layout.
 
-## Volumes, swap and fstab
+## Volumes and fstab
 
 A volume is a file system on a block device: `/dev/fd0`..`/dev/fd3` and
 `/dev/fdx0`, `/dev/fdx1` the diskettes ("The devices"), `/dev/rd0` the RAM
 disk.  To the kernel the RAM disk is just another
-device; what is mounted where, and where swap is, `/etc/fstab` says:
+device; what is mounted where `/etc/fstab` says:
 
 ```
 # device      where  what to do
 fd0           /      root
-rd0           /tmp   mkfs,swap=64,optional  # made at the boot with /swap in it; no board - skipped
-/tmp/swap     swap   optional            # the RAM disk's swap file turned on
-/swap         swap   optional            # the fallback: a file on the diskette
+rd0           /tmp   mkfs,optional       # made at the boot; no board - skipped
 ```
 
 What the system has for it:
@@ -361,20 +350,9 @@ What the system has for it:
    given out by the bitmap, `sync`.
 3. `mount`/`umount`: several volumes in one tree.
 4. `mkfs` on the machine itself - the format of `tools/mkfs.py`; the tests
-   hold one against the other.  `mkfs -s KB` puts a swap file `/swap` of
-   KB kilobytes in the new volume: its inode, one extent, its blocks
-   taken.
-5. `swapon` with a file's path: the file in one extent, its blocks written
-   directly, not to be removed while swap is on.
-6. `/etc/rc` and the reading of `fstab`: `mount -a` makes and mounts the
-   volumes and then turns on the first swap line it can - a file under a
-   volume that did not mount passed by - all in one process, since two are
-   all there may be before swap is on.
-
-The raw swap on the RAM disk of stage 4, a 32 KB area a process with no
-file system, goes: a file on a mounted volume takes its place.  Swapping
-processes out and in stays as it is; only where it writes changes.  Blocks
-11-138 of the diskette, kept for swap, become a reserve.
+   hold one against the other.
+5. `/etc/rc` and the reading of `fstab`: `mount -a` makes and mounts the
+   volumes, all in one process, since two are all there may be.
 
 ## The boot sequence
 
@@ -395,17 +373,16 @@ reading the kernel off the diskette.
 4. The kernel: its own vectors, the bank-6 tables cleared, the RAM disk
    looked for, the root mounted from fd0 (fdx0 when it takes both
    sides), process 1 out of `/etc/init` in
-   slot A.  No swap yet, two processes at most.
+   slot A.
 5. `init` does `exec sh /etc/rc`: pid 1 becomes the shell running the
    script, and the second slot is free.
-6. `/etc/rc` by `fstab`: `mkfs rd0` in the second slot, `mount rd0 /tmp`,
-   `swapon` - now there is swap, and more processes may be.
+6. `/etc/rc` by `fstab`: `mkfs rd0` and `mount rd0 /tmp` in the second
+   slot.
 7. At its end `/etc/rc` does `exec /bin/sh`: the shell for the console.
    When the session ends the kernel runs a new shell in its place.  The
    session's shell, pid 1, starts in /home, and `cd` alone goes there.
    There is no login: one console, and no protection a password
-   could stand on.  The classic init, staying a process of its own and
-   sleeping in swap, may come back later.
+   could stand on.
 
 The own ROM will later add a menu: RT-11 or the new system, another kernel
 file by name, "insert the system diskette" with waiting.
@@ -511,11 +488,10 @@ hands over.
 3. **FS** (done).  `mkfs` on the host, `open`/`read`/`exec`.
 4. **Multitasking** (done).  Two slots, a kernel stack each,
    `fork`/`exit`/`wait`, `sh`, pipes and the background, swap on the RAM
-   disk (raw for now).
-5. **Volumes and the swap file** (done).  The block devices fd0 and rd0, writing
-   to the file system, `mount`, `mkfs` on the machine, `swapon` with a
-   file, `/etc/rc` and `fstab` ("Volumes, swap and fstab"); swap to the
-   diskette is the file `/swap` by the same means.
+   disk (raw for now) - pipes and swap gone later, two processes kept.
+5. **Volumes** (done).  The block devices fd0 and rd0, writing to the
+   file system, `mount`, `mkfs` on the machine, `/etc/rc` and `fstab`
+   ("Volumes and fstab"); the swap file of then is gone.
 6. **The floppy** (done).  An own VG93 driver instead of 160010, for speed:
    /boot/fd, a driver as a file.  Formatting is a program, `fdformat`, not
    the kernel's: whatever can live in a process does.  It builds each

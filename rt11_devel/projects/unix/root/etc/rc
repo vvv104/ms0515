@@ -1,4 +1,4 @@
-# /etc/rc - run by init at the boot: the volumes and the swap of
-# /etc/fstab, then the shell for the console.
+# /etc/rc - run by init at the boot: the volumes of /etc/fstab, then the
+# shell for the console.
 mount -a
 exec /bin/sh

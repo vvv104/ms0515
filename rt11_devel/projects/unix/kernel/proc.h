@@ -2,21 +2,18 @@
 #ifndef UNIX_PROC_H
 #define UNIX_PROC_H
 
-#define NPROC 3				/* the process table: the shell and a pipe of two */
+#define NPROC 3				/* the process table: a slot each, and a zombie */
 #define NSLOT 2				/* slots: banks 2-5, primary and extra */
 #define NOFILE 8			/* a process's open files */
 #define NFILE 16			/* the open files of all */
 #define KSTACK 320			/* a process's kernel stack: 242 the deepest measured */
 
-struct pipe;
-
 /* An open file, shared by the processes a fork made, its offset with it. */
 struct file {
-	enum { F_NONE, F_TTY, F_INODE, F_PIPE_R, F_PIPE_W } kind;
+	enum { F_NONE, F_TTY, F_INODE } kind;
 	unsigned char readable, writable;
 	unsigned count;			/* the descriptors that hold it */
 	struct inode *ip;
-	struct pipe *pp;
 	unsigned long off;
 };
 
@@ -27,9 +24,6 @@ struct proc {
 	enum pstate state;
 	int pid, ppid;
 	int slot;			/* 0: banks 2-5 primary, 1: extra */
-	char resident;			/* in its slot; else in its area of swap */
-	signed char area;		/* that area, -1 when it has none */
-	unsigned stack_lo;		/* the stack's low end, as it went out */
 	const void *chan;		/* what it sleeps on */
 	int status;			/* the exit status, while a zombie */
 	unsigned brk;			/* the end of its text, data and bss */
@@ -50,8 +44,6 @@ void setslot(int slot);
 int fork(struct trapframe *tf);
 void pexit(int status);
 int pwait(unsigned status_ptr);
-int swap_on(struct inode *ip);
-int swap_file(const struct inode *ip);
 
 /* trap.s */
 void swtch(struct proc *from, struct proc *to);
