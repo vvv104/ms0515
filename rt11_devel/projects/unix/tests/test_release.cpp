@@ -53,7 +53,12 @@ TEST_CASE("the kernel says UBIX and its version first") {
     INFO(s);
     const auto banner = s.find("UBIX V0.1");
     REQUIRE(banner != std::string::npos);
-    CHECK(banner < s.find("kernel:"));
+    /* The boot's log, no RAM disk: the tests' /etc/rc wipes nothing. */
+    CHECK(s.substr(banner).rfind("UBIX V0.1\n"
+                                 "kernel: the root /dev/fdx0\n"         /* both sides */
+                                 "kernel: the diskettes by /boot/fd\n"
+                                 "kernel: /etc/init\n"
+                                 "init: /etc/rc\n", 0) == 0);
     REQUIRE(m.command("cat /etc/motd"));
     CHECK(after(m, "cat /etc/motd").find("Welcome to UBIX") != std::string::npos);
 }
@@ -87,7 +92,7 @@ TEST_CASE("ubix01.dsk, for the other emulators: no RAM disk even with the board"
         Machine m(image, ram);
         REQUIRE(m.boot());
         INFO(m.screen());
-        CHECK(m.screen().find("kernel: no RAM disk") != std::string::npos);
+        CHECK(m.screen().find("RAM disk") == std::string::npos);
         CHECK(m.screen().find("ramroot") == std::string::npos);
         REQUIRE(m.command("echo ok"));
         CHECK(after(m, "echo ok").find("\nok\n#") != std::string::npos);
@@ -106,7 +111,12 @@ TEST_CASE("ubix.dsk boots with the RAM disk and without, ubix01.dsk without") {
             REQUIRE(m.boot());
             INFO(m.screen());
             CHECK(m.screen().find("UBIX V0.1") != std::string::npos);
-            CHECK((m.screen().find("ramroot: the root in /dev/rd0") != std::string::npos) == ram);
+            /* The log wiped: the name, mount's table, the prompt. */
+            CHECK(m.screen().find("kernel:") == std::string::npos);
+            CHECK((m.screen().find("UBIX V0.1\n  /dev/rd0 ") != std::string::npos) == ram);
+            const std::string disk = std::string(name) == "ubix.dsk" ? "  /dev/fdx0         /\n#"
+                                                                     : "  /dev/fd0          /\n#";
+            CHECK((m.screen().find("UBIX V0.1\n" + disk) != std::string::npos) == !ram);
             REQUIRE(m.command("echo kept > /home/f"));
             REQUIRE(m.command("ls /bin | grep -c ed", 4000));      /* through /tmp on the diskette without one */
             CHECK(after(m, "ls /bin | grep -c ed").find("\n1\n#") != std::string::npos);

@@ -61,7 +61,10 @@ TEST_CASE("with the RAM disk the system is copied there, the root is the copy, /
     MESSAGE("booted with the root in the RAM disk in " << frames << " frames");
     INFO(m.screen());
     REQUIRE(frames < 3000);
-    CHECK(m.screen().find("ramroot: the root in /dev/rd0, /dev/fdx0 at /mnt/floppy1, /home at /home") != std::string::npos);
+    CHECK(m.screen().find("UBIX V0.1\n"
+                              "  /dev/rd0          /\n"
+                              "  /dev/fdx0         /mnt/floppy1\n"
+                              "  /dev/fdx0:/home   /home\n") != std::string::npos);
     REQUIRE(m.command("ls /mnt/floppy1"));
     CHECK(after(m, "ls /mnt/floppy1").find("bin") != std::string::npos);
     REQUIRE(m.command("echo kept > /home/f"));
@@ -205,6 +208,23 @@ TEST_CASE("without the RAM disk the root stays the diskette's") {
     REQUIRE(m.command("echo on the diskette > /home/f"));
     Volume fd(m.imageNow());
     CHECK(fd.lookup("/home/f"));
+}
+
+TEST_CASE("mount alone tells what is where: /etc/mtab, kept by mount and umount") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), true);
+    REQUIRE(m.boot(3000));
+    REQUIRE(m.command("cd /"));
+    REQUIRE(m.command("umount /dev/fdx0"));                     /* every place of it */
+    REQUIRE(m.command("mount"));
+    INFO(m.screen());
+    CHECK(after(m, "mount").find("\n  /dev/rd0          /\n#") != std::string::npos);
+    REQUIRE(m.command("mount /dev/fdx0 /mnt/floppy1"));
+    REQUIRE(m.command("mount /mnt/floppy1/home /home"));       /* a directory: DEVICE:PATH */
+    REQUIRE(m.command("mount"));
+    CHECK(after(m, "mount").find("\n  /dev/rd0          /\n"
+                                 "  /dev/fdx0         /mnt/floppy1\n"
+                                 "  /dev/fdx0:/home   /home\n#") != std::string::npos);
 }
 
 }

@@ -81,9 +81,9 @@ static const void *driver(const char *path, unsigned base, unsigned top, unsigne
 	return got > 0 ? (const void *)base : 0;
 }
 
-/* The drivers, once the root is mounted: /boot/rd's board found, or no RAM
- * disk; /boot/fd made the diskettes' way once its init is ready, else the
- * ROM's way kept. */
+/* The drivers, once the root is mounted, the boot's log told: /boot/rd's
+ * board found - nothing said without one; /boot/fd made the diskettes'
+ * way once its init is ready, else the ROM's way kept. */
 void drivers_load(void)
 {
 	const struct rd_driver *rd = driver("/boot/rd", RD_BASE, DRV_TOP, RD_MAGIC, RD_VERSION);
@@ -91,10 +91,11 @@ void drivers_load(void)
 
 	if (rd && (rd_blocks = rd->init()) != 0)
 		rd_rw = rd->rw;
-	tty_puts(rd_blocks ? "kernel: a RAM disk of 512 KB, /dev/rd0\n" : "kernel: no RAM disk\n");
+	if (rd_blocks)
+		tty_puts("kernel: a RAM disk of 512 KB, /dev/rd0\n");
 	if (fd && fd->init() == 0) {
 		fd_rw = fd->rw;
 		fd_format = fd->format;
-		tty_puts("kernel: the diskettes by /boot/fd\n");
 	}
+	tty_puts(fd_format ? "kernel: the diskettes by /boot/fd\n" : "kernel: the diskettes by the ROM\n");
 }

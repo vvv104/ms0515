@@ -25,8 +25,13 @@ TEST_CASE("the kernel is one file: no /boot/hi, and mount is the kernel's own") 
     Machine m(image, true);
     REQUIRE(m.boot(3000));
     INFO(m.screen());
-    /* /etc/rc's ramroot: mount(rd0, "/"), the diskette and its /home, the kernel's own mount. */
-    CHECK(m.screen().find("ramroot: the root in /dev/rd0, /dev/fdx0 at /mnt/floppy1, /home at /home") != std::string::npos);
+    /* /etc/rc's ramroot: mount(rd0, "/"), the diskette and its /home, the kernel's own mount;
+     * uname and mount's table after. */
+    CHECK(m.screen().find("ramroot: the system into /dev/rd0") != std::string::npos);
+    CHECK(m.screen().find("UBIX V0.1\n"
+                              "  /dev/rd0          /\n"
+                              "  /dev/fdx0         /mnt/floppy1\n"
+                              "  /dev/fdx0:/home   /home\n") != std::string::npos);
 }
 
 }

@@ -15,6 +15,7 @@ int main(void)
 
 	if (fd >= 0) {
 		close(fd);
+		puts_fd(1, "init: /etc/rc\n");	/* the boot's log */
 		execv("/bin/sh", rc);
 		complain("init", "/bin/sh");
 	}

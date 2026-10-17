@@ -41,8 +41,8 @@ TEST_CASE("with the RAM disk: the root its copy, /tmp with it, before the shell'
     REQUIRE(m.boot(3000));
     const std::string boot = m.screen();
     INFO(boot);
-    CHECK(boot.find("ramroot: the root in /dev/rd0") != std::string::npos);
-    CHECK(boot.find("ramroot: the root in /dev/rd0") < boot.rfind("#"));
+    CHECK(boot.find("ramroot: the system into /dev/rd0") != std::string::npos);
+    CHECK(boot.find("ramroot: the system into /dev/rd0") < boot.rfind("#"));
     atPrompt(m);
     REQUIRE(m.command("ls /tmp"));
     INFO(m.screen());

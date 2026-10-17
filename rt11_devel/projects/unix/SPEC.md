@@ -410,7 +410,11 @@ reading the kernel off the diskette.
 6. `/etc/rc`: `ramroot /mnt/floppy1 /home`, the system into the RAM disk,
    the diskette at /mnt/floppy1 and its /home at /home when there is the
    board, then `mount -a` by
-   `fstab`, each in the second slot.
+   `fstab`, each in the second slot.  Steps 4-6 are told as they go, the
+   boot's log; then `clear` wipes it, `uname` says UBIX and its version,
+   `mount` alone shows /etc/mtab - what is mounted where, which ramroot
+   begins and mount and umount keep - each line of rc the owner's to keep
+   or take out.
 7. At its end `/etc/rc` does `exec /bin/sh`: the shell for the console.
    When the session ends the kernel runs a new shell in its place.  The
    session's shell, pid 1, starts in /home, and `cd` alone goes there.

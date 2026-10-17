@@ -26,7 +26,9 @@ int main(void)
 	if (fs_mount() != 0)
 		panic("no file system");
 	tty_puts("\n" UBIX "\n");		/* the system and its version, as RT-11 says its own */
+	tty_puts(HIGH->mounts[0].dev == DEV_FDX0 ? "kernel: the root /dev/fdx0\n" : "kernel: the root /dev/fd0\n");
 	drivers_load();
+	tty_puts("kernel: /etc/init\n");
 	exec("/etc/init", argv);
 	panic("no /etc/init");
 	return 0;

@@ -36,7 +36,7 @@ TEST_CASE("the kernel tells at the boot whether it found the RAM disk") {
     INFO(with.screen());
     INFO(without.screen());
     CHECK(with.screen().find("a RAM disk of 512 KB, /dev/rd0") != std::string::npos);
-    CHECK(without.screen().find("no RAM disk") != std::string::npos);
+    CHECK(without.screen().find("RAM disk") == std::string::npos);   /* none: nothing said */
 }
 
 TEST_CASE("no swap: no swap file on the volume, no swapon") {

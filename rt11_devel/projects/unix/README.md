@@ -25,7 +25,12 @@ diskette's - to a diskette that then boots, the system alone or with -a
 all: into the second drive, or, the system in memory, into the boot
 drive with another diskette put in after the umount (which forgets the
 device's blocks in the cache).  Then
-`mount -a` mounts what /etc/fstab says, and rc gives its place to /bin/sh
+`mount -a` mounts what /etc/fstab says.  Each step is told as it goes -
+the kernel's root and drivers, init, ramroot's copy, mount's volumes - the
+boot's log; then rc wipes it (`clear`), says the system's name (`uname`,
+UBIX V0.1) and what is mounted where (`mount` alone, /etc/mtab, which
+ramroot begins and mount and umount keep) - the lines taken out of
+/etc/rc not to have them - and gives its place to /bin/sh
 for the console, which runs
 each command as a child - fork, exec, wait - and comes back with its prompt,
 which tells its directory, `/home# `; Tab completes the word in hand - a
@@ -56,7 +61,7 @@ over - the rest rw-; a new file is rw-, `chmod r-x FILE`
 (or a digit, 5) changes it.  A directory's rights are not looked at.
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls` (`-l`, `-a`), `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `du`, `df`, `chmod`, `mkfs`,
-`mount`, `umount`,
+`mount` (alone: the table), `umount`, `clear`, `uname`,
 `fdformat`, `sleep`, `ramroot`, `mkboot`, `rmdir`, `wc`, `head`, `tail`,
 `grep` (`-v`, `-n`, `-c`; `^ $ . *`), `ed` (the line editor: a i c d p n
 s j m t = w r e f q, addresses by number, . $ +N -N /re/ ?re?, the file in
@@ -222,7 +227,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   prompt's), and the programs of /bin: `sh.c` (scripts too, the prompt
   with the directory, Tab's completion), `ls.c`,
   `cat.c`, `echo.c`, `rm.c`, `mkdir.c`, `mkfs.c`, `mount.c` (a directory of a mounted volume too; `mount -a`:
-  /etc/fstab's volumes, in one process), `umount.c`,
+  /etc/fstab's volumes, in one process), `umount.c`, `mtab.c` (/etc/mtab:
+  mount's, umount's and ramroot's), `clear.c`, `uname.c`,
   `fdformat.c` (a diskette's tracks built and written, a side or both),
   `ramroot.c` (the root into the RAM disk), `mkboot.c` (a diskette
   that boots), `clone.c` (a volume copied block for block, the user's
@@ -325,7 +331,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   toolset's examples when they are built, SABOT2 when the recovery corpus
   holds it), a .SAV not there refused; the kernel one file, no /boot/hi.
   `bare.dsk`, the image without
-  /etc/rc, is for the tests that mount by hand.
+  /etc/rc, is for the tests that mount by hand; the tests' images take
+  /etc/rc without its `clear`, so that the boot's log stays on the screen
+  for them, the release images keep it.
   `Machine::command` types a line and waits for the prompt, so the next is
   not typed into the last one's output; `Machine(image, true)` has the RAM
   disk.  Skipped when the image is not

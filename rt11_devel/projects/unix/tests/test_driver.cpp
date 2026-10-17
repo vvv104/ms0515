@@ -92,6 +92,7 @@ TEST_CASE("the system's /boot/fd drives the VG93 itself: no block through the RO
     {
         INFO(m.screen());
         CHECK(m.screen().find("kernel: the diskettes by /boot/fd") != std::string::npos);
+        CHECK(m.screen().find("no driver") == std::string::npos);
     }
     atPrompt(m);
     driverEntry = static_cast<uint16_t>(header(d, 4));
@@ -130,6 +131,7 @@ TEST_CASE("with no /boot/fd the ROM's own way: no word of a driver, the system r
     Machine m(unixos::readBareImage(), false);
     REQUIRE(m.boot(3000));
     CHECK(m.screen().find("/boot/fd") == std::string::npos);
+    CHECK(m.screen().find("kernel: the diskettes by the ROM") != std::string::npos);
     atPrompt(m);
     REQUIRE(m.command("echo three > /h"));
     REQUIRE(m.command("cat /h"));

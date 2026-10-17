@@ -4,7 +4,7 @@
 
 #include "fs.h"
 
-#define UBIX "UBIX V0.1"		/* the system's name and version, said at the boot */
+#include "version.h"
 
 /* The machine's write-only registers and the ROM's copies of them. */
 #define DISPATCHER (*(volatile unsigned *)0177400)

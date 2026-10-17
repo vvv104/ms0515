@@ -11,6 +11,7 @@
  * "optional" lets it fail without a word. */
 #include "unistd.h"
 #include "vol.h"
+#include "mtab.h"
 
 #define MAXLINES 8
 #define MAXFSTAB 1024			/* /etc/fstab's bytes at most */
@@ -111,6 +112,7 @@ static int volume(struct entry *e)
 	if (mount(dev, e->where) < 0)
 		return -1;
 	e->done = 1;
+	mtab_add(dev, e->where);
 	tell("mount: ", dev, " on ");
 	tell(e->where, "\n", "");
 	return 0;
@@ -137,15 +139,27 @@ static int all(void)
 
 int main(int argc, char **argv)
 {
+	char what[PATHMAX];
+	struct stat st;
+
+	if (argc == 1) {			/* what is mounted where (/etc/mtab) */
+		mtab_show();
+		return 0;
+	}
 	if (argc == 2 && !strcmp(argv[1], "-a"))
 		return all();
 	if (argc != 3) {
-		puts_fd(2, "usage: mount DEVICE DIR, mount DIR DIR, or mount -a\n");
+		puts_fd(2, "usage: mount [DEVICE DIR], mount DIR DIR, or mount -a\n");
 		return 1;
 	}
 	if (mount(argv[1], argv[2]) < 0) {
 		complain("mount", argv[1]);
 		return 1;
 	}
+	/* The table's line: the device, or for a directory DEVICE:PATH. */
+	if (stat(argv[1], &st) == 0 && (st.mode & 0170000) == 0040000 && mtab_what(argv[1], what, sizeof what) == 0)
+		mtab_add(what, argv[2]);
+	else
+		mtab_add(argv[1], argv[2]);
 	return 0;
 }

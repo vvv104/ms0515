@@ -1,6 +1,7 @@
 /* umount.c - /bin/umount DEVICE: the volume taken out of the tree, when
  * nothing on it is in use. */
 #include "unistd.h"
+#include "mtab.h"
 
 int main(int argc, char **argv)
 {
@@ -12,5 +13,6 @@ int main(int argc, char **argv)
 		complain("umount", argv[1]);
 		return 1;
 	}
+	mtab_drop(argv[1]);			/* every place of it */
 	return 0;
 }

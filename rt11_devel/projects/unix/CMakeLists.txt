@@ -118,8 +118,8 @@ program(pid user/pid.c)
 program(rm user/rm.c)
 program(mkdir user/mkdir.c)
 program(mkfs user/mkfs.c user/vol.c)
-program(mount user/mount.c user/vol.c)
-program(umount user/umount.c)
+program(mount user/mount.c user/vol.c user/mtab.c)
+program(umount user/umount.c user/mtab.c)
 program(fdformat user/fdformat.c)
 program(pwd user/pwd.c user/cwd.c)
 program(ln user/ln.c)
@@ -147,7 +147,9 @@ program(ps user/ps.c)
 program(kill user/kill.c)
 program(more user/more.c)
 program(date user/date.c user/when.c)
-program(ramroot user/ramroot.c user/clone.c)
+program(clear user/clear.c)
+program(uname user/uname.c)
+program(ramroot user/ramroot.c user/clone.c user/mtab.c)
 program(mkboot user/mkboot.c user/clone.c)
 
 # own_program(<name> <sources>): a program that owns the machine
@@ -224,6 +226,8 @@ set(SYSTEM_FILES
     /bin/kill=kill.x
     /bin/more=more.x
     /bin/date=date.x
+    /bin/clear=clear.x
+    /bin/uname=uname.x
     /bin/ramroot=ramroot.x
     /bin/mkboot=mkboot.x
     /bin/rt11=rt11.x
@@ -241,14 +245,23 @@ set(VOLUME_FILES
     ${SYSTEM_FILES})
 set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin rd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 
+# The tests' /etc/rc: the system's without its clear, so that what the
+# boot said stays on the screen for them to read; the release images keep
+# the clear.
+file(READ ${ROOT}/etc/rc RC_TEXT)
+string(REPLACE "\nclear\n" "\n" RC_TEST "${RC_TEXT}")
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/rc.test "${RC_TEST}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${ROOT}/etc/rc)
+set(RC_TEST ${CMAKE_CURRENT_BINARY_DIR}/rc.test)
+
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns
 # no more.  bare.dsk: the same without /etc/rc, init going straight to the
 # shell, for the tests that mount by hand.
 add_custom_command(OUTPUT unix.dsk
     COMMAND "${Python3_EXECUTABLE}" "${MKFS}"
             --boot boot.bin --nm "${PDP11_NM}" --kernel-out $<TARGET_FILE:kernel> unix.dsk
-            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${VOLUME_FILES}
-    DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
+            /etc/rc=${RC_TEST} /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${VOLUME_FILES}
+    DEPENDS ${VOLUME_DEPENDS} ${RC_TEST} ${ROOT}/etc/fstab
     COMMENT "unix.dsk")
 # rt11test.dsk: the system with /rt11 of RT-11 programs, for the tests of
 # /bin/rt11 alone - the GCC toolset's examples when they are built
@@ -272,9 +285,9 @@ if(EXISTS "${SABOT2}/SABOT2.SAV" AND EXISTS "${SABOT2}/SABOT2.DAT")
 endif()
 add_custom_command(OUTPUT rt11test.dsk
     COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --boot boot.bin --dir /rt11 rt11test.dsk
-            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${RT11_FILES}
+            /etc/rc=${RC_TEST} /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${RT11_FILES}
             ${VOLUME_FILES}
-    DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab ${RT11_DEPENDS}
+    DEPENDS ${VOLUME_DEPENDS} ${RC_TEST} ${ROOT}/etc/fstab ${RT11_DEPENDS}
     COMMENT "rt11test.dsk")
 add_custom_command(OUTPUT bare.dsk
     COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --boot boot.bin bare.dsk ${VOLUME_FILES}
@@ -284,8 +297,8 @@ add_custom_command(OUTPUT bare.dsk
 # emulators take; a second one in the second drive is fd2.
 add_custom_command(OUTPUT unix400.dsk
     COMMAND "${Python3_EXECUTABLE}" "${MKFS}" --sides 1 --boot boot.bin unix400.dsk
-            /etc/rc=${ROOT}/etc/rc /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${VOLUME_FILES}
-    DEPENDS ${VOLUME_DEPENDS} ${ROOT}/etc/rc ${ROOT}/etc/fstab
+            /etc/rc=${RC_TEST} /etc/fstab=${ROOT}/etc/fstab /boot/fd=fd.bin ${VOLUME_FILES}
+    DEPENDS ${VOLUME_DEPENDS} ${RC_TEST} ${ROOT}/etc/fstab
     COMMENT "unix400.dsk")
 # ubix.dsk and ubix01.dsk: UBIX as it is given out, the system alone.
 # ubix.dsk, both sides, for this emulator and the machine, with a RAM disk
