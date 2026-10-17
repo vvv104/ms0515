@@ -74,6 +74,7 @@ fresh machine.  CI runs them all in the `web / emscripten` job.
 |---|---|
 | `ms_create()` / `ms_destroy(h)` / `ms_reset(h)` | one machine |
 | `ms_load_rom(h, path)` | the ROM from the module's file system |
+| `ms_ramdisk(h, on)` | the EX board's 512 KB RAM disk: 1 puts it in (fresh memory), 0 takes it out, -1 asks; whether it is in. `ms_create` puts it in |
 | `ms_mount(h, unit, path)` / `ms_unmount(h, unit)` | FDC unit = side × 2 + drive (FD0 / FD1 the drives' side 0, FD2 / FD3 their side 1); a double-sided image goes on both units of its drive |
 | `ms_disk_active(h, unit)` / `ms_hd_active(h)` | the activity lamps |
 | `ms_mount_hd(h, path)` / `ms_unmount_hd(h)` | the paravirtual HD: image (any multiple of 512 bytes); mounting presents the controller |
@@ -113,6 +114,12 @@ ROM-A, Rodionov's needs it); when such a disk goes into drive A, the ROM
 selector follows it and the page says so.  `?disks=URL` takes the list
 from elsewhere - the CI serves `src/` and points it at `web/test-disks/`, a
 test fixture, so the checks do not depend on the network.
+
+The RAM disk box next to the ROM selector is the EX board, as the desktop
+front end has it - RT-11's EX0:, UBIX's /dev/rd0.  It is ticked unless the
+user took it off; the next Reset puts the board in or takes it out, and the
+choice is remembered with the mounts (`ex` in `ms0515.mounts`).  A restored
+state brings the board as it had it, and the box follows.
 
 `?disk=games.dsk&disk1=...&hd=...&rom=a` picks the images for drive A,
 drive B, the HD and the ROM (over the remembered mounts); `autostart=0`

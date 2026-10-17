@@ -113,6 +113,9 @@ if (await evaluate('document.getElementById("spin").hidden') !== true)
 // followed the disk into drive A, whatever the page had before.
 if (await evaluate('document.getElementById("rom").value') !== "b")
   throw new Error("the ROM did not follow the disk in drive A (the index says b)");
+// The RAM disk board is in unless the user took it out: on by default.
+if (peek.ramdisk !== 1 || await evaluate('document.getElementById("ramdisk").checked') !== true)
+  throw new Error("the RAM disk is not in by default");
 
 // Sound is on when the page opens.  Before anything has been touched a
 // browser allows no more than a suspended context, so that is what this

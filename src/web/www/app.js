@@ -155,11 +155,12 @@ const pathOf = (name) => "/disks/" + name;
 
 function saveMounts() {
   if (startFile) return;                   // a start visit leaves the remembered mounts alone
-  localStorage.setItem("ms0515.mounts", JSON.stringify({ rom: $("rom").value, fd: slots.fd, hd: slots.hd }));
+  localStorage.setItem("ms0515.mounts", JSON.stringify({ rom: $("rom").value, ex: $("ramdisk").checked,
+                                                       fd: slots.fd, hd: slots.hd }));
 }
 function loadMounts() {
   const q = new URLSearchParams(location.search);
-  let m = { rom: "a", fd: [DISKS[0]?.name ?? "", "", "", ""], hd: "" };
+  let m = { rom: "a", ex: true, fd: [DISKS[0]?.name ?? "", "", "", ""], hd: "" };
   try { m = { ...m, ...JSON.parse(localStorage.getItem("ms0515.mounts") ?? "{}") }; } catch {}
   if (q.get("rom")) m.rom = q.get("rom");
   if (q.has("disk")) m.fd[0] = q.get("disk");
@@ -561,6 +562,7 @@ async function boot() {
   const rom = $("rom").value;
   M.FS.writeFile("/rom.bin", await fetchBytes(ROMS[rom]));
   if (!api.loadRom(h, "/rom.bin")) throw new Error("ROM load failed");
+  api.ramdisk(h, $("ramdisk").checked ? 1 : 0);
   api.reset(h);
   setHalted(false);
   saveMounts();
@@ -940,6 +942,8 @@ async function restoreState() {
   M.FS.writeFile(STATE_PATH, rec.bytes);
   if (!api.load(h, STATE_PATH)) { say("restore failed: the state does not fit this ROM"); return; }
   api.history(h, HISTORY_EVENTS);   // the state brought its own ring: ours again
+  $("ramdisk").checked = !!api.ramdisk(h, -1);   // the board as the state had it
+  saveMounts();
   paint();
   // The snapshot mounts the floppies by the paths they had; an image that
   // is not in this session leaves its drive empty.
@@ -1291,6 +1295,7 @@ function bindApi() {
     create:  c("ms_create", "number", []),
     reset:   c("ms_reset", null, ["number"]),
     loadRom: c("ms_load_rom", "number", ["number", "string"]),
+    ramdisk: c("ms_ramdisk", "number", ["number", "number"]),   // 1 in, 0 out, -1 asks
     mount:   c("ms_mount", "number", ["number", "number", "string"]),
     unmount: c("ms_unmount", null, ["number", "number"]),
     diskActive: c("ms_disk_active", "number", ["number", "number"]),
@@ -1363,6 +1368,7 @@ function bindControls() {
     d.addEventListener("toggle", () => { if (d.open) for (const o of panels) if (o !== d) o.open = false; });
   document.addEventListener("click", (e) => { if (!e.target.closest("details.dev")) for (const o of panels) o.open = false; });
   $("rom").onchange = saveMounts;
+  $("ramdisk").onchange = saveMounts;
   // A click on a toolbar button must not keep the focus: the keys are the
   // Full screen: the button, F11; hidden where the API is not there (an iPhone).
   $("fullscreen").hidden = !(document.fullscreenEnabled || document.webkitFullscreenEnabled);
@@ -1446,6 +1452,7 @@ async function main() {
   const m = startFile ? { rom: startFile.meta.rom, fd: [...startFile.meta.disks.fd], hd: startFile.meta.disks.hd }
                       : loadMounts();
   $("rom").value = m.rom;
+  $("ramdisk").checked = m.ex !== false;   // the board is in unless the user took it out
   bindControls();
   if (startFile) setJoystick(startFile.meta.joystick);   // the game's word: the arrows and Space are the port's
   renderDevices();
@@ -1537,7 +1544,7 @@ window.__ms = () => {
            speakerTransitions, regC: h ? api.regC(h).toString(8).padStart(3, "0") : null,
            joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null,
            fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null,
-           halted, embed: EMBED,
+           halted, embed: EMBED, ramdisk: h ? api.ramdisk(h, -1) : null,
            start: startFile ? { title: startFile.meta.title, disks: [...startFile.disks.keys()] } : null,
            run: startFile?.run ? { program: startFile.run.program, over: startFile.run.over,
                                    about: $("abouttext").textContent,

@@ -427,6 +427,16 @@ void Emulator::enableRamDisk()
     board_ramdisk_enable(&impl_->board);
 }
 
+void Emulator::disableRamDisk()
+{
+    board_ramdisk_free(&impl_->board);
+}
+
+bool Emulator::ramDiskEnabled() const noexcept
+{
+    return impl_->board.ramdisk.enabled;
+}
+
 /* ── Paravirtual hard disk (HD:) ────────────────────────────────────────── */
 
 void Emulator::setHdEnabled(bool enabled)

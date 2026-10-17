@@ -60,4 +60,17 @@ console.log(`frames 150, cycles ${cycles}, audio samples ${samples}, ${w}x${hgt}
             `${sorted.length} colours, foreground pixels ${foreground}, key max ${api.keyMax()}`);
 if (foreground < 2000) throw new Error("the screen shows nothing: expected RT-11's boot text");
 if (samples < 100) throw new Error("no audio samples");
+// The EX board is in, as on the desktop: its 512 KB RAM disk travels in the
+// machine's snapshot, which without the board is a fraction of that.
+const save = M.cwrap("ms_save_state", "number", ["number", "string"]);
+if (!save(h, "/state.ms0515")) throw new Error("snapshot failed");
+const state = M.FS.stat("/state.ms0515").size;
+console.log(`snapshot ${state} bytes`);
+if (state < 512 * 1024) throw new Error("no RAM disk: the snapshot carries no 512 KB of it");
+// The page's switch: the board taken out, then put back.
+const ramdisk = M.cwrap("ms_ramdisk", "number", ["number", "number"]);
+if (ramdisk(h, -1) !== 1 || ramdisk(h, 0) !== 0 || ramdisk(h, -1) !== 0) throw new Error("the RAM disk would not come out");
+save(h, "/state.ms0515");
+if (M.FS.stat("/state.ms0515").size >= 512 * 1024) throw new Error("taken out, the RAM disk is still in the snapshot");
+if (ramdisk(h, 1) !== 1) throw new Error("the RAM disk would not go back in");
 console.log("smoke OK");

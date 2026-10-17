@@ -201,7 +201,11 @@ public:
      * visible blip in any UI status indicator. */
     [[nodiscard]] bool diskActive(int unit) const noexcept;
 
+    /* The EX board's 512 KB RAM disk: put in (fresh memory, as at power
+     * on), taken out (its memory freed, its ports off the bus), asked. */
     void enableRamDisk();
+    void disableRamDisk();
+    [[nodiscard]] bool ramDiskEnabled() const noexcept;
 
     /* ── Paravirtual hard disk (HD:) ───────────────────────────────────── */
     /* Two independent concepts:

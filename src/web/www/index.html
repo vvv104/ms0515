@@ -239,6 +239,7 @@
 <header>
   <h1>MS-0515</h1><span id="ver" title="the emulator version, as built"></span>
   <label>ROM <select id="rom"><option value="a">A</option><option value="b">B</option></select></label>
+  <label title="the EX board's 512 KB RAM disk - EX0: in RT-11, /dev/rd0 in UBIX; put in or taken out at the next Reset"><input type="checkbox" id="ramdisk" checked> RAM disk</label>
   <button id="boot" title="start the machine again, with the ROM and the disks set now - whatever it is doing is lost">Reset</button>
   <div class="devices">
     <details class="dev" id="dev0">
