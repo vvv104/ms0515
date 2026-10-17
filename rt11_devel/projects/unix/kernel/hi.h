@@ -22,8 +22,6 @@
 #define HI_MAGIC 044111			/* "IH" */
 #define HI_VERSION 1
 #define PATHMAX 64			/* a path a call is given, its NUL too */
-#define PATHMAX 64			/* a path a call is given, its NUL too */
-#define PATHMAX 64			/* a path a call is given, its NUL too */
 
 struct hi_part {
 	unsigned magic, version;

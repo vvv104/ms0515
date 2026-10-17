@@ -140,67 +140,46 @@ struct file *file_of(unsigned fd)
 	return fd < NOFILE ? curproc->ofile[fd] : 0;
 }
 
-static int sys_read(struct trapframe *tf, const unsigned *arg)
+/* read and write: the console's, a pipe's end, a file's or a device's
+ * bytes from the offset on, which moves past them. */
+static int rw(struct trapframe *tf, const unsigned *arg, int writing)
 {
 	struct file *f = file_of(arg[0]);
+	char *buf = (char *)arg[1];
 	int n;
 
 	if (!f)
 		return EBADF;
 	if (!inside(arg[1], arg[2]))
 		return EFAULT;
-	if (f->kind == F_TTY) {
-		tf->r0 = (unsigned)tty_read((char *)arg[1], (int)arg[2]);
-		return 0;
-	}
-	if (!f->readable)
+	if (f->kind == F_TTY)
+		n = writing ? tty_write(buf, (int)arg[2]) : tty_read(buf, (int)arg[2]);
+	else if (writing ? !f->writable : !f->readable)
 		return EBADF;
-	if (f->kind == F_PIPE_R) {
-		tf->r0 = (unsigned)pipe_read(f->pp, (char *)arg[1], arg[2]);
-		return 0;
+	else if (f->kind != F_INODE)
+		n = writing ? pipe_write(f->pp, buf, arg[2]) : pipe_read(f->pp, buf, arg[2]);
+	else {
+		if ((f->ip->d.mode & S_IFMT) == S_IFBLK)
+			n = devrw(f->ip, f->off, buf, arg[2], writing);
+		else
+			n = writing ? writei(f->ip, f->off, buf, arg[2]) : readi(f->ip, f->off, buf, arg[2]);
+		if (n > 0)
+			f->off += (unsigned)n;
 	}
-	if ((f->ip->d.mode & S_IFMT) == S_IFBLK)
-		n = devrw(f->ip, f->off, (char *)arg[1], arg[2], 0);
-	else
-		n = readi(f->ip, f->off, (char *)arg[1], arg[2]);
 	if (n < 0)
 		return -n;
-	f->off += (unsigned)n;
 	tf->r0 = (unsigned)n;
 	return 0;
 }
 
+static int sys_read(struct trapframe *tf, const unsigned *arg)
+{
+	return rw(tf, arg, 0);
+}
+
 static int sys_write(struct trapframe *tf, const unsigned *arg)
 {
-	struct file *f = file_of(arg[0]);
-	int n;
-
-	if (!f)
-		return EBADF;
-	if (!inside(arg[1], arg[2]))
-		return EFAULT;
-	if (f->kind == F_TTY) {
-		tf->r0 = (unsigned)tty_write((const char *)arg[1], (int)arg[2]);
-		return 0;
-	}
-	if (!f->writable)
-		return EBADF;
-	if (f->kind == F_INODE) {
-		if ((f->ip->d.mode & S_IFMT) == S_IFBLK)
-			n = devrw(f->ip, f->off, (char *)arg[1], arg[2], 1);
-		else
-			n = writei(f->ip, f->off, (const char *)arg[1], arg[2]);
-		if (n < 0)
-			return -n;
-		f->off += (unsigned)n;
-		tf->r0 = (unsigned)n;
-		return 0;
-	}
-	n = pipe_write(f->pp, (const char *)arg[1], arg[2]);
-	if (n < 0)
-		return -n;
-	tf->r0 = (unsigned)n;
-	return 0;
+	return rw(tf, arg, 1);
 }
 
 /* The lowest descriptor free, or -1. */
@@ -230,7 +209,7 @@ static int sys_dup(struct trapframe *tf, const unsigned *arg)
 }
 
 /* pipe(int fd[2]): the reading end in fd[0], the writing one in fd[1]. */
-static int sys_pipe(struct trapframe *tf, const unsigned *arg)
+static int sys_pipe(struct trapframe *, const unsigned *arg)
 {
 	struct pipe *pp = 0;
 	struct file *r, *w;
@@ -266,7 +245,6 @@ static int sys_pipe(struct trapframe *tf, const unsigned *arg)
 	curproc->ofile[wfd] = w;
 	((int *)arg[0])[0] = rfd;
 	((int *)arg[0])[1] = wfd;
-	tf->r0 = 0;
 	return 0;
 }
 
@@ -328,19 +306,16 @@ static int sys_creat(struct trapframe *tf, const unsigned *arg)
 }
 
 /* unlink(path) and mkdir(path): the path checked, the work fs.c's. */
-static int sys_path(struct trapframe *tf, const unsigned *arg, int (*op)(const char *))
+static int sys_path(const unsigned *arg, int (*op)(const char *))
 {
 	int error;
 
 	if ((error = user_string(arg[0], PATHMAX)) != 0)
 		return error;
-	if ((error = op((const char *)arg[0])) != 0)
-		return error;
-	tf->r0 = 0;
-	return 0;
+	return op((const char *)arg[0]);
 }
 
-static int sys_close(struct trapframe *tf, const unsigned *arg)
+static int sys_close(struct trapframe *, const unsigned *arg)
 {
 	struct file *f = file_of(arg[0]);
 
@@ -348,11 +323,10 @@ static int sys_close(struct trapframe *tf, const unsigned *arg)
 		return EBADF;
 	fclose(f);
 	curproc->ofile[arg[0]] = 0;
-	tf->r0 = 0;
 	return 0;
 }
 
-static int sys_exec(const unsigned *arg)
+static int sys_exec(struct trapframe *, const unsigned *arg)
 {
 	const unsigned *argv = (const unsigned *)arg[1];
 	int error, i;
@@ -371,7 +345,7 @@ static int sys_exec(const unsigned *arg)
 }
 
 /* swapon(file): the file, held, becomes swap (proc.c). */
-static int sys_swapon(struct trapframe *tf, const unsigned *arg)
+static int sys_swapon(struct trapframe *, const unsigned *arg)
 {
 	struct inode *ip;
 	int error = 0;
@@ -380,29 +354,23 @@ static int sys_swapon(struct trapframe *tf, const unsigned *arg)
 		return error;
 	if (!(ip = namei((const char *)arg[0], &error)))
 		return error;
-	if ((error = swap_on(ip)) != 0) {
+	if ((error = swap_on(ip)) != 0)
 		iput(ip);
-		return error;
-	}
-	tf->r0 = 0;
-	return 0;
+	return error;
 }
 
 /* link(old, new). */
-static int sys_link(struct trapframe *tf, const unsigned *arg)
+static int sys_link(struct trapframe *, const unsigned *arg)
 {
 	int error;
 
 	if ((error = user_string(arg[0], PATHMAX)) != 0 || (error = user_string(arg[1], PATHMAX)) != 0)
 		return error;
-	if ((error = fs_link((const char *)arg[0], (const char *)arg[1])) != 0)
-		return error;
-	tf->r0 = 0;
-	return 0;
+	return fs_link((const char *)arg[0], (const char *)arg[1]);
 }
 
 /* chdir(path): the process's own directory from now on. */
-static int sys_chdir(struct trapframe *tf, const unsigned *arg)
+static int sys_chdir(struct trapframe *, const unsigned *arg)
 {
 	struct inode *ip;
 	int error;
@@ -418,7 +386,6 @@ static int sys_chdir(struct trapframe *tf, const unsigned *arg)
 	if (curproc->cwd)
 		iput(curproc->cwd);
 	curproc->cwd = ip;
-	tf->r0 = 0;
 	return 0;
 }
 
@@ -438,31 +405,32 @@ static int stat_out(const struct inode *ip, unsigned p)
 	return 0;
 }
 
-/* stat(path, &st), fstat(fd, &st). */
-static int sys_stat(struct trapframe *tf, const unsigned *arg, int by_fd)
+/* stat(path, &st). */
+static int sys_stat(struct trapframe *, const unsigned *arg)
 {
-	struct file *f;
 	struct inode *ip;
 	int error;
 
-	if (by_fd) {
-		if (!(f = file_of(arg[0])) || f->kind != F_INODE)
-			return EBADF;
-		error = stat_out(f->ip, arg[1]);
-	} else {
-		if ((error = user_string(arg[0], PATHMAX)) != 0)
-			return error;
-		if (!(ip = namei((const char *)arg[0], &error)))
-			return error;
-		error = stat_out(ip, arg[1]);
-		iput(ip);
-	}
-	if (!error)
-		tf->r0 = 0;
+	if ((error = user_string(arg[0], PATHMAX)) != 0)
+		return error;
+	if (!(ip = namei((const char *)arg[0], &error)))
+		return error;
+	error = stat_out(ip, arg[1]);
+	iput(ip);
 	return error;
 }
 
-static int sys_time(struct trapframe *tf)
+/* fstat(fd, &st). */
+static int sys_fstat(struct trapframe *, const unsigned *arg)
+{
+	struct file *f = file_of(arg[0]);
+
+	if (!f || f->kind != F_INODE)
+		return EBADF;
+	return stat_out(f->ip, arg[1]);
+}
+
+static int sys_time(struct trapframe *tf, const unsigned *)
 {
 	unsigned long t = clock_seconds();
 
@@ -471,7 +439,7 @@ static int sys_time(struct trapframe *tf)
 	return 0;
 }
 
-static int sys_fork(struct trapframe *tf)
+static int sys_fork(struct trapframe *tf, const unsigned *)
 {
 	int pid = fork(tf);
 
@@ -496,7 +464,7 @@ static int sys_wait(struct trapframe *tf, const unsigned *arg)
 
 /* The process gone; pid 1's place goes to getty again - not init, /etc/rc
  * is the boot's - its files closed. */
-static void sys_exit(const unsigned *arg)
+static int sys_exit(struct trapframe *, const unsigned *arg)
 {
 	static const char *const argv[] = {"getty", 0};
 	int i;
@@ -512,94 +480,84 @@ static void sys_exit(const unsigned *arg)
 	panic("no /etc/getty");
 }
 
+static int sys_unlink(struct trapframe *, const unsigned *arg)
+{
+	return sys_path(arg, fs_unlink);
+}
+
+static int sys_mkdir(struct trapframe *, const unsigned *arg)
+{
+	return sys_path(arg, fs_mkdir);
+}
+
+static int sys_sync(struct trapframe *, const unsigned *)
+{
+	return 0;				/* every write goes through at once */
+}
+
+static int sys_getpid(struct trapframe *tf, const unsigned *)
+{
+	tf->r0 = (unsigned)curproc->pid;
+	return 0;
+}
+
+static int sys_getppid(struct trapframe *tf, const unsigned *)
+{
+	tf->r0 = (unsigned)curproc->ppid;
+	return 0;
+}
+
+/* /boot/hi's calls, ENOSYS without it. */
+static int sys_mount(struct trapframe *tf, const unsigned *arg)
+{
+	return hi ? hi->mount(tf, arg) : ENOSYS;
+}
+
+static int sys_umount(struct trapframe *tf, const unsigned *arg)
+{
+	return hi ? hi->umount(tf, arg) : ENOSYS;
+}
+
+static int sys_ioctl(struct trapframe *tf, const unsigned *arg)
+{
+	return hi ? hi->ioctl(tf, arg) : ENOSYS;
+}
+
+static int sys_lseek(struct trapframe *tf, const unsigned *arg)
+{
+	return hi ? hi->lseek(tf, arg) : ENOSYS;
+}
+
+/* The calls by their numbers: each gets the frame and the arguments, puts
+ * its result in the frame's r0 - 0 there unless it does - and returns 0 or
+ * the error. */
+static const struct {
+	unsigned no;
+	int (*call)(struct trapframe *tf, const unsigned *arg);
+} calls[] = {
+	{SYS_EXIT, sys_exit}, {SYS_FORK, sys_fork}, {SYS_READ, sys_read}, {SYS_WRITE, sys_write},
+	{SYS_OPEN, sys_open}, {SYS_CLOSE, sys_close}, {SYS_WAIT, sys_wait}, {SYS_CREAT, sys_creat},
+	{SYS_LINK, sys_link}, {SYS_UNLINK, sys_unlink}, {SYS_EXEC, sys_exec}, {SYS_CHDIR, sys_chdir},
+	{SYS_TIME, sys_time}, {SYS_STAT, sys_stat}, {SYS_LSEEK, sys_lseek}, {SYS_GETPID, sys_getpid},
+	{SYS_MOUNT, sys_mount}, {SYS_UMOUNT, sys_umount}, {SYS_FSTAT, sys_fstat}, {SYS_SYNC, sys_sync},
+	{SYS_DUP, sys_dup}, {SYS_PIPE, sys_pipe}, {SYS_IOCTL, sys_ioctl}, {SYS_GETPPID, sys_getppid},
+	{SYS_SWAPON, sys_swapon}, {SYS_MKDIR, sys_mkdir},
+};
+
 void syscall(struct trapframe *tf)
 {
 	const unsigned *arg = (const unsigned *)(tf + 1) + 1;
-	int error = 0;
+	unsigned no = *(unsigned *)(tf->pc - 2) & 0377;
+	int error = ENOSYS;
+	unsigned i;
 
 	curproc->tf = tf;
-	switch (*(unsigned *)(tf->pc - 2) & 0377) {
-	case SYS_EXIT:
-		sys_exit(arg);
-		return;
-	case SYS_FORK:
-		error = sys_fork(tf);
-		break;
-	case SYS_READ:
-		error = sys_read(tf, arg);
-		break;
-	case SYS_WRITE:
-		error = sys_write(tf, arg);
-		break;
-	case SYS_OPEN:
-		error = sys_open(tf, arg);
-		break;
-	case SYS_CLOSE:
-		error = sys_close(tf, arg);
-		break;
-	case SYS_CREAT:
-		error = sys_creat(tf, arg);
-		break;
-	case SYS_UNLINK:
-		error = sys_path(tf, arg, fs_unlink);
-		break;
-	case SYS_MKDIR:
-		error = sys_path(tf, arg, fs_mkdir);
-		break;
-	case SYS_MOUNT:				/* /boot/hi's */
-		error = hi ? hi->mount(tf, arg) : ENOSYS;
-		break;
-	case SYS_UMOUNT:
-		error = hi ? hi->umount(tf, arg) : ENOSYS;
-		break;
-	case SYS_SWAPON:
-		error = sys_swapon(tf, arg);
-		break;
-	case SYS_SYNC:				/* every write goes through at once */
-		tf->r0 = 0;
-		break;
-	case SYS_WAIT:
-		error = sys_wait(tf, arg);
-		break;
-	case SYS_EXEC:
-		error = sys_exec(arg);
-		break;
-	case SYS_TIME:
-		error = sys_time(tf);
-		break;
-	case SYS_GETPID:
-		tf->r0 = (unsigned)curproc->pid;
-		break;
-	case SYS_DUP:
-		error = sys_dup(tf, arg);
-		break;
-	case SYS_PIPE:
-		error = sys_pipe(tf, arg);
-		break;
-	case SYS_GETPPID:
-		tf->r0 = (unsigned)curproc->ppid;
-		break;
-	case SYS_IOCTL:
-		error = hi ? hi->ioctl(tf, arg) : ENOSYS;
-		break;
-	case SYS_LSEEK:
-		error = hi ? hi->lseek(tf, arg) : ENOSYS;
-		break;
-	case SYS_CHDIR:
-		error = sys_chdir(tf, arg);
-		break;
-	case SYS_LINK:
-		error = sys_link(tf, arg);
-		break;
-	case SYS_STAT:
-		error = sys_stat(tf, arg, 0);
-		break;
-	case SYS_FSTAT:
-		error = sys_stat(tf, arg, 1);
-		break;
-	default:
-		error = ENOSYS;
-	}
+	tf->r0 = 0;
+	for (i = 0; i < sizeof calls / sizeof calls[0]; i++)
+		if (calls[i].no == no) {
+			error = calls[i].call(tf, arg);
+			break;
+		}
 	bflush();				/* what the call changed is on the disk */
 	if (error) {
 		tf->r0 = (unsigned)error;
