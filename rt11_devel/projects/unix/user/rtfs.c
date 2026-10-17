@@ -145,7 +145,7 @@ static int get(const char *want, const char *to)
 		puts_fd(2, r < 0 ? ": the directory unread\n" : ": not found\n");
 		return 1;
 	}
-	if ((out = creat(to, 0644)) < 0) {
+	if ((out = creat(to)) < 0) {
 		complain("rtfs", to);
 		return 1;
 	}

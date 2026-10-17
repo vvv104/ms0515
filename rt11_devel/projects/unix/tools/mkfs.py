@@ -97,7 +97,7 @@ class Volume:
         return n
 
     def mkdir(self, parent, name):
-        n = self.inode(S_IFDIR | 0o755)
+        n = self.inode(S_IFDIR)
         self.dirs[n] = {".": n, "..": parent if parent else n}
         if parent:
             self.link(parent, name, n)
@@ -127,7 +127,7 @@ class Volume:
 
     def add(self, path, data):
         directory, name = self.walk(path)
-        n = self.inode(S_IFREG | 0o755)
+        n = self.inode(S_IFREG)
         self.inodes[n][2] = data
         self.link(directory, name, n)
         return n
@@ -138,7 +138,7 @@ class Volume:
 
     def device(self, path, number):
         directory, name = self.walk(path)
-        n = self.inode(S_IFBLK | 0o600)
+        n = self.inode(S_IFBLK)
         self.inodes[n][3] = number            # its "start": the device's number
         self.inodes[n].append("device")
         self.link(directory, name, n)

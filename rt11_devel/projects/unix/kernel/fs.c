@@ -510,7 +510,7 @@ struct inode *fs_creat(const char *path, int *error)
 		itrunc(ip);
 		return ip;
 	}
-	if (!(ip = ialloc(dp->dev, S_IFREG | 0644))) {
+	if (!(ip = ialloc(dp->dev, S_IFREG))) {
 		iput(dp);
 		*error = ENOSPC;
 		return 0;
@@ -536,7 +536,7 @@ int fs_mkdir(const char *path)
 		iput(dp);
 		return EEXIST;
 	}
-	if (!(ip = ialloc(dp->dev, S_IFDIR | 0755))) {
+	if (!(ip = ialloc(dp->dev, S_IFDIR))) {
 		iput(dp);
 		return ENOSPC;
 	}

@@ -307,7 +307,7 @@ the compiler keeps one.
 
 ```c
 struct dinode {
-    uint16_t mode;      /* type (file/directory/device) + permissions */
+    uint16_t mode;      /* type (file/directory/device) alone: no users, no permissions */
     uint8_t  nlink;
     uint8_t  nextents;  /* 0..5 */
     uint32_t size;      /* bytes */

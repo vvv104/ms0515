@@ -25,16 +25,11 @@ std::string after(Machine &m, const std::string &command)
     return at == std::string::npos ? std::string() : s.substr(at + 2 + command.size());
 }
 
-/* ls -l's mode: the type, then rwx three times. */
-std::string modeString(unsigned mode)
+/* ls -l's type: d a directory, b a device, - a file.  No permissions:
+ * there are no users. */
+std::string typeString(unsigned mode)
 {
-    std::string s = (mode & 0170000) == 0040000 ? "d" : (mode & 0170000) == 0060000 ? "b" : "-";
-    for (int shift = 6; shift >= 0; shift -= 3) {
-        s += (mode >> shift) & 4 ? 'r' : '-';
-        s += (mode >> shift) & 2 ? 'w' : '-';
-        s += (mode >> shift) & 1 ? 'x' : '-';
-    }
-    return s;
+    return (mode & 0170000) == 0040000 ? "d" : (mode & 0170000) == 0060000 ? "b" : "-";
 }
 
 std::string rightAligned(unsigned long n, std::size_t width)
@@ -70,7 +65,30 @@ unsigned taken(const Volume &v, const std::vector<uint8_t> &image, int blocks)
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("ls -l: a line a file - its type and permissions, links, size, name; -a shows . and ..") {
+TEST_CASE("no permissions: an inode's mode is its type alone, the volume's and the machine's alike") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), true);
+    atPrompt(m);
+    REQUIRE(m.command("echo x > /f"));
+    REQUIRE(m.command("mkdir /d"));
+    const auto image = m.imageNow();
+    Volume v(image);
+    for (const char *path : {"/", "/etc/motd", "/bin/sh", "/dev/fd0", "/home", "/f", "/d"}) {
+        CAPTURE(path);
+        const auto ino = v.lookup(path);
+        REQUIRE(ino);
+        CHECK((v.inode(*ino).mode & 07777) == 0);
+    }
+    Volume rd(m.ramDisk(), true);                              /* made by mkfs on the machine */
+    for (const char *path : {"/", "/swap"}) {
+        CAPTURE(path);
+        const auto ino = rd.lookup(path);
+        REQUIRE(ino);
+        CHECK((rd.inode(*ino).mode & 07777) == 0);
+    }
+}
+
+TEST_CASE("ls -l: a line a file - its type, links, size, name; -a shows . and ..") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), false);
     atPrompt(m);
@@ -82,7 +100,7 @@ TEST_CASE("ls -l: a line a file - its type and permissions, links, size, name; -
         const auto ino = v.lookup(std::string("/etc/") + name);
         REQUIRE(ino);
         const auto i = v.inode(*ino);
-        const std::string line = modeString(i.mode) + " " + rightAligned(i.nlink, 2) + " " +
+        const std::string line = typeString(i.mode) + " " + rightAligned(i.nlink, 2) + " " +
                                  rightAligned(i.size, 7) + " " + name;
         CAPTURE(line);
         CHECK(out.find("\n" + line + "\n") != std::string::npos);

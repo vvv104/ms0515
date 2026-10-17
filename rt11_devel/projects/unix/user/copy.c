@@ -37,7 +37,7 @@ int copy(const char *who, const char *from, const char *to)
 		complain(who, from);
 		return -1;
 	}
-	if ((out = creat(to, 0644)) < 0) {
+	if ((out = creat(to)) < 0) {
 		complain(who, to);
 		close(in);
 		return -1;

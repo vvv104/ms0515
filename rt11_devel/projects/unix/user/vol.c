@@ -61,14 +61,14 @@ int mkfs_volume(const char *device, unsigned blocks, unsigned swap_kb)
 		block[b >> 3] |= (char)(1 << (b & 7));
 	if (put(fd) < 0)
 		goto fail;
-	ino[0].mode = S_IFDIR | 0755;		/* 3..10: the inodes, the root first */
+	ino[0].mode = S_IFDIR;		/* 3..10: the inodes, the root first */
 	ino[0].nlink = 2;
 	ino[0].nextents = 1;
 	ino[0].size = (swap ? 3 : 2) * sizeof(struct direct);
 	ino[0].ext[0].start = DATA;
 	ino[0].ext[0].len = 1;
 	if (swap) {
-		ino[1].mode = S_IFREG | 0600;
+		ino[1].mode = S_IFREG;
 		ino[1].nlink = 1;
 		ino[1].nextents = 1;
 		ino[1].size = (unsigned long)swap * BSIZE;

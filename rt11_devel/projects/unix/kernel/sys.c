@@ -292,7 +292,7 @@ static int sys_open(struct trapframe *tf, const unsigned *arg)
 	return fd_of_inode(tf, ip, arg[1]);
 }
 
-/* creat(path, mode): the file made or emptied, open to write. */
+/* creat(path): the file made or emptied, open to write. */
 static int sys_creat(struct trapframe *tf, const unsigned *arg)
 {
 	struct inode *ip;

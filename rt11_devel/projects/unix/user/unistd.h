@@ -31,7 +31,7 @@ int getpid(void);
 int getppid(void);
 int dup(int fd);
 int pipe(int fd[2]);
-int creat(const char *path, int mode);
+int creat(const char *path);
 int unlink(const char *path);
 int mkdir(const char *path);
 int sync(void);

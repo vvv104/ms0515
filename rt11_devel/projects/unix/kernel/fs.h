@@ -30,7 +30,7 @@ struct superblock {
 
 /* An inode, 32 bytes, 16 a block; inode n is the table's (n - 1)th. */
 struct dinode {
-	unsigned mode;			/* the type and the permissions */
+	unsigned mode;			/* the type alone: no users, no permissions */
 	unsigned char nlink;
 	unsigned char nextents;
 	unsigned long size;		/* bytes */
