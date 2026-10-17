@@ -29,7 +29,9 @@ for the console, which runs
 each command as a child - fork, exec, wait - and comes back with its prompt,
 which tells its directory, `/home# `; Tab completes the word in hand - a
 command from /bin, a path from its directory - several names that go on
-alike listed; `a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`,
+alike listed; the arrows up and down bring back the lines typed, 192
+bytes of them; Ctrl+U wipes the line, Ctrl+D ends the input, Ctrl+C takes
+out the command in front; `a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`,
 `>> file` and `< file` redirect.  A process has its own directory, its
 children's the same; a path not beginning with / goes from it.  A path a
 call takes is 64 bytes at most, its NUL too, a longer one refused, "too
@@ -110,6 +112,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   small, Latin as Russian.  While the shell asks for it (TTY_TAB), Tab
   hands it the line so far, a '\t' after it, the line kept in hand, and
   the shell's completion is typed into the line as if from the keys.
+  The arrows up and down - VT52's ESC A and ESC B from the ROM - hand the
+  shell its line too, for its history, which puts the line it recalls in
+  place by Ctrl+U, the line wiped, and the text; other escapes are dropped.
   Ctrl+D ends the input - read() gives 0 on an empty line, the part typed
   without a newline else; Ctrl+C takes out the command in front: every
   process but the session's shell and the background's (TTY_BG, set by
@@ -248,7 +253,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   root's device refused for mkfs; Ctrl+D ending cat's input, a part of
   a line, the session; Ctrl+C taking out a command waiting for the
   console and one at work, status 130, the background left alone, a fresh
-  line at the prompt; mkboot from the RAM root and from the
+  line at the prompt; the arrows walking the lines typed, one called up
+  edited and run, Ctrl+U, the arrows nothing to cat, the oldest lines
+  given up; mkboot from the RAM root and from the
   diskette's, the system alone and all, to both sides and to one, into the
   boot drive with its diskette changed, each copy booted, and refused for a
   busy or empty drive or no device; /etc/rc
@@ -295,7 +302,7 @@ The build reports the kernel's memory and stops past its limits
 the drivers' place - with four places in the process table, the two
 slots', a parked one's and a zombie's, and their kernel stacks at 320
 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 15236 bytes, 1118 bytes free below 040000, 1738 free in
+an image of 15336 bytes, 1018 bytes free below 040000, 1738 free in
 bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory, which keep -O2.

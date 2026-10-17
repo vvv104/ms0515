@@ -33,6 +33,7 @@ add_executable(unix_tests
     test_ramroot.cpp
     test_mkboot.cpp
     test_intr.cpp
+    test_history.cpp
     test_kstack.cpp
 )
 

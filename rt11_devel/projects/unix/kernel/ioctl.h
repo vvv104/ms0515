@@ -13,7 +13,9 @@
  * if from the keyboard, and Tab made to hand the line to read() up to that
  * moment, a '\t' after it, the line kept in hand - till the line ends.
  * The shell's completion: it reads the line at a Tab and types the rest of
- * the word in. */
+ * the word in.  The arrows up and down hand the line over too, ^P or ^Q
+ * after it: the shell's history, which puts a line in its place by Ctrl+U
+ * and the line's text. */
 #ifndef UNIX_IOCTL_H
 #define UNIX_IOCTL_H
 

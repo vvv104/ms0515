@@ -7,7 +7,10 @@
  * CR or LF ends the line, which goes, with a '\n', to the queue read()
  * takes from - so a line can be typed ahead while the process is busy.
  * Tab, while the shell asks for it (tty_tab), hands the line so far to
- * read() with a '\t' after it, the line kept in hand.  Ctrl+D ends the
+ * read() with a '\t' after it, the line kept in hand, and so do the
+ * arrows up and down - VT52's ESC A and ESC B from the ROM - with ^P and
+ * ^Q after it, for the shell's history; another escape is nothing.  Ctrl+U
+ * wipes the line.  Ctrl+D ends the
  * input: the line so far handed over with no '\n' - empty, read() gives
  * 0.  Ctrl+C takes out the command in front: every process but the
  * session's shell and the background's (TTY_BG) marked to exit, those
@@ -26,6 +29,7 @@ static int len;
 #define queue (HIGH->queue)
 static volatile int head, tail;		/* the queue: taken at tail, put at head */
 static char tabs;			/* Tab hands the line over (tty_tab) */
+static char esc;			/* an ESC came: the next byte is an arrow's */
 
 static void put(int c)
 {
@@ -50,12 +54,25 @@ static void hand(int end)
 	wakeup(queue);
 }
 
+/* c put into the line in hand, echoed: BS or DEL takes the last character
+ * back, Ctrl+U the whole line. */
 static void add(int c)
 {
-	if (len < LINE - 1) {
-		line[len++] = (char)c;
-		rom_putc(c);
-	}
+	do {
+		if (c != 010 && c != 0177 && c != 025) {
+			if (len < LINE - 1) {
+				line[len++] = (char)c;
+				rom_putc(c);
+			}
+			return;
+		}
+		if (!len)
+			return;
+		len--;
+		rom_putc(010);
+		rom_putc(' ');
+		rom_putc(010);
+	} while (c == 025);
 }
 
 /* Ctrl+C: the line dropped, the command in front marked to exit (proc.c
@@ -77,6 +94,16 @@ static void interrupt(void)
 
 static void input(int c)
 {
+	if (esc) {				/* an arrow, its letter as the ROM gives it */
+		esc = 0;
+		if (tabs && (c == 'A' || c == 'B'))
+			hand(c == 'A' ? 020 : 021);
+		return;
+	}
+	if (c == 033) {
+		esc = 1;
+		return;
+	}
 	if (c >= 'A' && c <= 'Z')
 		c += 'a' - 'A';
 	else if (c >= 'a' && c <= 'z')
@@ -91,15 +118,6 @@ static void input(int c)
 	case 004:			/* Ctrl+D: the end of the input */
 		hand(004);
 		len = tabs = 0;
-		return;
-	case 010:			/* BS, DEL */
-	case 0177:
-		if (len > 0) {
-			len--;
-			rom_putc(010);
-			rom_putc(' ');
-			rom_putc(010);
-		}
 		return;
 	case '\t':
 		if (tabs) {
@@ -158,8 +176,8 @@ int tty_read(char *buf, int n)
 		if (c == 004)			/* Ctrl+D's: what came before it, or 0 */
 			break;
 		buf[got++] = (char)c;
-		if (c == '\n' || (c == '\t' && tail == head))	/* a Tab's: the last */
-			break;
+		if (c == '\n' || ((c == '\t' || c == 020 || c == 021) && tail == head))
+			break;			/* a Tab's or an arrow's: the last */
 	}
 	splx(s);
 	return got;

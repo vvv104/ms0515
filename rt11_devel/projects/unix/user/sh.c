@@ -11,8 +11,9 @@
  * A command without a '/' is looked for in /bin; '#' to the line's end is a
  * comment.  The prompt tells the shell's directory, "/home# ".  At the
  * console Tab completes the word in hand (complete()): the first word of a
- * command from /bin, the others from the directory their path names.  Its
- * own commands:
+ * command from /bin, the others from the directory their path names; the
+ * arrows up and down bring back the lines typed before (recall()), 192
+ * bytes of them, the oldest going first.  Its own commands:
  *
  *	cd [DIR]	the shell's own directory, and its children's; /home alone
  *	t		the time since the boot
@@ -39,6 +40,8 @@
 #define MAXCMDS 6
 #define HOME "/home"
 #define DIRSIZ 14
+#define HISTORY 192			/* the lines typed, each with its NUL, the newest last */
+#define LINE 80				/* the console's line (kernel/high.h) */
 
 static int last_status;
 static char cwd[PATHMAX];		/* the prompt's directory */
@@ -320,25 +323,74 @@ static void complete(const char *line)
 	ioctl(0, TTY_TAB, rest);
 }
 
+static char history[HISTORY];
+static int kept;			/* its bytes */
+
+/* A line typed kept, the oldest given up for its room; not an empty one,
+ * nor one the same as the last. */
+static void remember(const char *line)
+{
+	int n = strlen(line) + 1, k, i;
+
+	if (n == 1 || n > HISTORY)
+		return;
+	for (k = kept - 1; k > 0 && history[k - 1]; k--)	/* the last one's start */
+		;
+	if (kept && !strcmp(history + k, line))
+		return;
+	while (kept + n > HISTORY) {
+		k = strlen(history) + 1;
+		for (i = k; i < kept; i++)
+			history[i - k] = history[i];
+		kept -= k;
+	}
+	memcpy(history + kept, line, n);
+	kept += n;
+}
+
+/* An arrow: the line before *at (up) or after it (down) put in the
+ * console's line in place of what is there - kept, the empty line past
+ * the newest. */
+static void recall(int up, int *at)
+{
+	char line[LINE + 1];
+
+	if (up && *at > 0)
+		for (--*at; *at > 0 && history[*at - 1]; --*at)
+			;
+	else if (!up && *at < kept)
+		*at += strlen(history + *at) + 1;
+	line[0] = 025;				/* Ctrl+U: the line wiped */
+	memcpy(line + 1, *at < kept ? history + *at : "", *at < kept ? strlen(history + *at) + 1 : 1);
+	ioctl(0, TTY_TAB, line);
+}
+
 /* A command line typed at the console into line, its '#' and on cut away;
  * -1 at the end - Ctrl+D on an empty line.  A Tab hands the line over as
  * far as it goes, a '\t' after it: the word completed, the line read
  * again; Ctrl+D after a part of it, that part, which is run. */
 static int typed(char *line, int size)
 {
-	int n, end;
+	int n, end, at = kept;
 
 	for (;;) {
-		if ((n = read(0, line, size - 1)) <= 0)
+		if ((n = read(0, line, size - 1)) <= 0) {
+			say("\n");		/* the next shell's prompt on a line of its own */
 			return -1;
+		}
 		end = line[n - 1];
-		if (end == '\n' || end == '\t')
+		if (end == '\n' || end == '\t' || end == 020 || end == 021)
 			n--;
 		line[n] = 0;
-		if (end != '\t')
-			return uncomment(line);
-		complete(line);
+		if (end == '\t')
+			complete(line);
+		else if (end == 020 || end == 021)
+			recall(end == 020, &at);
+		else
+			break;
 	}
+	remember(line);
+	return uncomment(line);
 }
 
 /* The next line of the input into line, its '\n' taken off, '#' and on cut

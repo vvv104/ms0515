@@ -82,7 +82,7 @@ TEST_CASE("Ctrl+D at the prompt ends the session: a new shell in /home") {
     Machine m(unixos::readImage(), false);
     REQUIRE(m.boot());
     REQUIRE(m.command("cd /etc"));
-    m.typeAndSettle("\x04", 0);
+    m.typeAndSettle("\x04", 300);                              /* the new shell started */
     REQUIRE(m.waitPrompt(500));
     REQUIRE(m.command("pwd"));
     INFO(m.screen());
