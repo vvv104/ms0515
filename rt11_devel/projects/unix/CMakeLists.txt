@@ -136,6 +136,13 @@ program(head user/head.c)
 program(tail user/tail.c)
 program(grep user/grep.c user/re.c)
 program(ed user/ed.c user/re.c)
+program(sort user/sort.c)
+program(uniq user/uniq.c)
+program(tr user/tr.c)
+program(cmp user/cmp.c)
+program(od user/od.c)
+program(find user/find.c)
+program(sync user/sync.c)
 program(ramroot user/ramroot.c user/clone.c)
 program(mkboot user/mkboot.c user/clone.c)
 
@@ -202,6 +209,13 @@ set(SYSTEM_FILES
     /bin/tail=tail.x
     /bin/grep=grep.x
     /bin/ed=ed.x
+    /bin/sort=sort.x
+    /bin/uniq=uniq.x
+    /bin/tr=tr.x
+    /bin/cmp=cmp.x
+    /bin/od=od.x
+    /bin/find=find.x
+    /bin/sync=sync.x
     /bin/ramroot=ramroot.x
     /bin/mkboot=mkboot.x
     /bin/rt11=rt11.x

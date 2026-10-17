@@ -2,12 +2,15 @@
  * the process's own by default, on a line; with -l a line a name - its
  * type (d, b or -) and its one rwx, its links, its size in bytes - and a
  * file named
- * is its own line; the names beginning with a dot shown with -a only. */
+ * is its own line; the names beginning with a dot shown with -a only; the
+ * names in order, NAMES of a directory at most. */
 #include "unistd.h"
 #include "../kernel/fs.h"
 
+#define NAMES 256
 
 static int longform, all;
+static char names[NAMES][DIRSIZ + 1];
 
 /* n in decimal, right-aligned in width. */
 static void put_number(unsigned long n, int width)
@@ -49,15 +52,34 @@ static int line(const char *path, const char *name)
 	return 0;
 }
 
-static int list(const char *dir)
+/* The names of the directory open at fd, but those hidden, in order: how
+ * many. */
+static int gather(int fd)
 {
 	struct {
 		unsigned ino;
-		char name[14];
+		char name[DIRSIZ];
 	} d;
-	char name[15], path[PATHMAX];
+	char t[DIRSIZ + 1];
+	int n = 0, i;
+
+	while (n < NAMES && read(fd, &d, sizeof d) == sizeof d) {
+		if (!d.ino || (d.name[0] == '.' && !all))
+			continue;
+		memcpy(t, d.name, DIRSIZ);
+		t[DIRSIZ] = 0;
+		for (i = n++; i > 0 && strcmp(names[i - 1], t) > 0; i--)
+			memcpy(names[i], names[i - 1], DIRSIZ + 1);
+		memcpy(names[i], t, DIRSIZ + 1);
+	}
+	return n;
+}
+
+static int list(const char *dir)
+{
+	char path[PATHMAX];
 	struct stat st;
-	int fd, first = 1, bad = 0;
+	int fd, n, i, bad = 0;
 
 	if (stat(dir, &st) < 0) {
 		complain("ls", dir);
@@ -74,28 +96,24 @@ static int list(const char *dir)
 		complain("ls", dir);
 		return 1;
 	}
-	while (read(fd, &d, sizeof d) == sizeof d) {
-		if (!d.ino || (d.name[0] == '.' && !all))
-			continue;
-		memcpy(name, d.name, 14);
-		name[14] = 0;
+	n = gather(fd);
+	close(fd);
+	for (i = 0; i < n; i++) {
 		if (longform) {
-			if (join(path, dir, name, 14) < 0) {
-				complain("ls", name);
+			if (join(path, dir, names[i], DIRSIZ) < 0) {
+				complain("ls", names[i]);
 				bad = 1;
 			} else {
-				bad |= line(path, name);
+				bad |= line(path, names[i]);
 			}
 			continue;
 		}
-		if (!first)
+		if (i)
 			puts_fd(1, "  ");
-		puts_fd(1, name);
-		first = 0;
+		puts_fd(1, names[i]);
 	}
 	if (!longform)
 		puts_fd(1, "\n");
-	close(fd);
 	return bad;
 }
 
