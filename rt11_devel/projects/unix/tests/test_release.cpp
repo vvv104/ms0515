@@ -55,6 +55,7 @@ TEST_CASE("the kernel says UBIX and its version first") {
     REQUIRE(banner != std::string::npos);
     /* The boot's log, no RAM disk: the tests' /etc/rc wipes nothing. */
     CHECK(s.substr(banner).rfind("UBIX V0.1\n"
+                                 "kernel: 128 KB, 2 slots of 32 KB, a cache of 18 blocks\n"
                                  "kernel: the root /dev/fdx0\n"         /* both sides */
                                  "kernel: the diskettes by /boot/fd\n"
                                  "kernel: /etc/init\n"

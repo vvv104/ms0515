@@ -70,7 +70,7 @@ TEST_CASE("the session's end brings a new shell in /home, and /etc/rc is not run
     REQUIRE(m.command("pwd"));
     INFO(m.screen());
     CHECK(after(m, "pwd").find("\n/home\n#") != std::string::npos);
-    CHECK(count(m.screen(), "ramroot:") == 1);
+    CHECK(count(m.screen(), "ramroot: the system into") == 1);
 }
 
 TEST_CASE("a mounted device is not written under its volume: mkfs is refused") {

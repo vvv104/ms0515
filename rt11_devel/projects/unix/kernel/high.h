@@ -19,6 +19,7 @@
 
 #define NBUF 3				/* the buffers in hand */
 #define NSHADOW 15			/* more in the shadow copy of bank 1 */
+_Static_assert(NBUF + NSHADOW == 18, "main.c tells a cache of 18 blocks");
 #define SCRATCH SHADOW_BLOCK(NSHADOW)	/* its last block: fork's bounce */
 
 #define NMOUNT 4			/* the root, two diskettes, /home */

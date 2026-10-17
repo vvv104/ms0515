@@ -26,7 +26,8 @@ all: into the second drive, or, the system in memory, into the boot
 drive with another diskette put in after the umount (which forgets the
 device's blocks in the cache).  Then
 `mount -a` mounts what /etc/fstab says.  Each step is told as it goes -
-the kernel's root and drivers, init, ramroot's copy, mount's volumes - the
+the kernel's memory, root and drivers, init, ramroot's copy and its
+blocks, mount's volumes - the
 boot's log; then rc wipes it (`clear`), says the system's name (`uname`,
 UBIX V0.1) and what is mounted where (`mount` alone, /etc/mtab, which
 ramroot begins and mount and umount keep) - the lines taken out of

@@ -175,7 +175,7 @@ static int blocks_copied(int from, int to, unsigned first, unsigned end, unsigne
 int clone_volume(int from, int to, unsigned blocks, const char *label, int system)
 {
 	struct superblock sb;
-	unsigned i, top[sizeof users / sizeof *users] = {0, 0};
+	unsigned i, used, top[sizeof users / sizeof *users] = {0, 0};
 
 	errno = EINVAL;
 	if (super(from, &sb) < 0 || at(from, sb.bitmap, 0) < 0)
@@ -200,5 +200,9 @@ int clone_volume(int from, int to, unsigned blocks, const char *label, int syste
 	sb.volume = (unsigned long)time() * 40503u + (unsigned)getpid();
 	memset(sb.label, 0, sizeof sb.label);
 	memcpy(sb.label, label, strlen(label));
-	return io(to, BSIZE, &sb, sizeof sb, 1);
+	if (io(to, BSIZE, &sb, sizeof sb, 1) < 0)
+		return -1;
+	for (i = used = 0; i < sb.blocks; i++)
+		used += map[i >> 3] >> (i & 7) & 1;
+	return (int)used;
 }

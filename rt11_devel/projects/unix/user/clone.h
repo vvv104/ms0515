@@ -16,8 +16,8 @@ unsigned device_blocks(int fd);
  * boot block finds the kernel where the superblock says; with `system`
  * the system alone - /home and /tmp left empty, their files neither read
  * nor kept.  The copy's superblock is told its size, the label and a
- * volume number of its own.  0, or -1 with errno - ENOSPC when a block
- * taken lies past the end. */
+ * volume number of its own.  The blocks the copy holds, or -1 with errno -
+ * ENOSPC when a block taken lies past the end. */
 int clone_volume(int from, int to, unsigned blocks, const char *label, int system);
 
 #endif

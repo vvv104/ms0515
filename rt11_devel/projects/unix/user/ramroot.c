@@ -67,6 +67,10 @@ int main(int argc, char **argv)
 		complain("ramroot", RD);
 		return 1;
 	}
+	puts_fd(1, "ramroot: ");
+	putnum((unsigned)bad);
+	puts_fd(1, " of 1024 blocks\n");
+	bad = 0;
 	mtab_new(RD);
 	if (argc > 1) {
 		if (mount(disk, argv[1]) < 0) {
