@@ -16,11 +16,7 @@ namespace {
 
 void atPrompt(Machine &m)
 {
-    REQUIRE(m.runUntil("login:", 1500));
-    m.run(20);
-    m.typeAndSettle("root\r", 60);
-    REQUIRE(m.screen().find("Hello, root") != std::string::npos);
-    REQUIRE(m.waitPrompt());
+    REQUIRE(m.boot(1500));
 }
 
 /* Swap on, as /etc/rc turned it on at the boot: the RAM disk a volume at
@@ -44,9 +40,9 @@ TEST_SUITE("UNIX") {
 TEST_CASE("the kernel tells at the boot whether it found the RAM disk") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine with(unixos::readImage(), true);
-    REQUIRE(with.runUntil("login:", 1500));
+    REQUIRE(with.boot(1500));
     Machine without(unixos::readImage(), false);
-    REQUIRE(without.runUntil("login:", 1500));
+    REQUIRE(without.boot(1500));
     INFO(with.screen());
     INFO(without.screen());
     CHECK(with.screen().find("a RAM disk of 512 KB, /dev/rd0") != std::string::npos);

@@ -21,20 +21,10 @@ std::string hostFile(const std::string &path)
     return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
-/* The machine booted, logged in, at init's prompt. */
+/* The machine booted, at the shell's prompt. */
 void loggedIn(Machine &m)
 {
-    REQUIRE(m.runUntil("login:", 1500));
-    m.run(20);
-    m.typeAndSettle("root\r", 40);
-    REQUIRE(m.waitPrompt());
-}
-
-std::size_t count(const std::string &text, const std::string &what)
-{
-    std::size_t n = 0;
-    for (auto at = text.find(what); at != std::string::npos; at = text.find(what, at + 1)) ++n;
-    return n;
+    REQUIRE(m.boot(1500));
 }
 
 } // namespace
@@ -146,7 +136,6 @@ TEST_CASE("a program read off the volume by exec gets its arguments") {
     INFO(m.screen());
     CHECK(m.screen().find("hello, world") != std::string::npos);
     CHECK(m.screen().find("one two three") != std::string::npos);
-    CHECK(count(m.screen(), "login:") == 1);
 }
 
 }

@@ -23,7 +23,7 @@ TEST_CASE("the kernel is one file: no /boot/hi, and mount is the kernel's own") 
         CHECK_FALSE(v.lookup("/boot/hi"));
     }
     Machine m(image, true);
-    REQUIRE(m.runUntil("login:", 3000));
+    REQUIRE(m.boot(3000));
     INFO(m.screen());
     CHECK(m.screen().find("mount: /dev/rd0 on /tmp") != std::string::npos);   /* /etc/rc's mount -a */
 }

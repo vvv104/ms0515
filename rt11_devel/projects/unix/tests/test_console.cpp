@@ -1,8 +1,7 @@
 /*
  * test_console.cpp - the console through the kernel's system calls (stage
- * 2): init and the shell after it read and write it; the keyboard comes by
- * its interrupt, a line at a time with echo and erasing, and the clock by
- * the timer's.
+ * 2): the shell reads and writes it; the keyboard comes by its interrupt, a
+ * line at a time with echo and erasing, and the clock by the timer's.
  */
 #include "Machine.hpp"
 
@@ -11,13 +10,6 @@
 using unixos::Machine;
 
 namespace {
-
-/* The machine booted to the process's login: prompt. */
-void booted(Machine &m)
-{
-    REQUIRE(m.runUntil("login:", 1500));
-    m.run(20);
-}
 
 /* The number after the last `word` on the screen, -1 when there is none. */
 long lastNumberAfter(const std::string &screen, const std::string &word)
@@ -32,42 +24,43 @@ long lastNumberAfter(const std::string &screen, const std::string &word)
     return n;
 }
 
+std::size_t count(const std::string &s, const std::string &what)
+{
+    std::size_t n = 0;
+    for (auto at = s.find(what); at != std::string::npos; at = s.find(what, at + 1)) ++n;
+    return n;
+}
+
 } // namespace
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("a name typed after login: is echoed, read by the process as a line, and greeted") {
+TEST_CASE("a line typed is echoed and read by the shell as a line") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
-    booted(m);
-    m.typeAndSettle("root\r", 50);
-    m.waitPrompt();
+    REQUIRE(m.boot());
+    REQUIRE(m.command("echo hi there"));
     INFO(m.screen());
-    CHECK(m.screen().find("login: root") != std::string::npos);    /* the echo */
-    CHECK(m.screen().find("Hello, root") != std::string::npos);    /* the process's answer */
-    CHECK(m.screen().find("Hello, root\n$") != std::string::npos);  /* and its next prompt */
+    CHECK(m.screen().find("$ echo hi there\n") != std::string::npos);   /* the echo */
+    CHECK(m.screen().find("\nhi there\n$") != std::string::npos);       /* the program's, and the prompt */
 }
 
-TEST_CASE("an empty name is no name: login: is asked again") {
+TEST_CASE("an empty line is no command: the shell asks again") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
-    booted(m);
-    m.typeAndSettle("\r", 50);
-    m.typeAndSettle("   \r", 50);
+    REQUIRE(m.boot());
+    const std::size_t before = count(m.screen(), "$");
+    REQUIRE(m.command(""));
+    REQUIRE(m.command("   "));
     INFO(m.screen());
-    CHECK(m.screen().find("Hello") == std::string::npos);
-    m.typeAndSettle("root\r", 50);
-    m.waitPrompt();
-    CHECK(m.screen().find("Hello, root") != std::string::npos);
-    std::size_t logins = 0;
-    for (auto at = m.screen().find("login:"); at != std::string::npos; at = m.screen().find("login:", at + 1)) ++logins;
-    CHECK(logins == 3);
+    CHECK(count(m.screen(), "$") == before + 2);
+    CHECK(m.screen().find("not found") == std::string::npos);
 }
 
 TEST_CASE("letters bare are small, Latin and Russian alike; with Shift capital") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
-    booted(m);
+    REQUIRE(m.boot());
     /* The keys of R, O, O, T pressed bare - the Typist's Key presses carry
      * no Shift - and then a name typed with a capital. */
     for (auto k : {ms0515::Key::R, ms0515::Key::O, ms0515::Key::O, ms0515::Key::T}) m.tapBare(k);
@@ -75,36 +68,35 @@ TEST_CASE("letters bare are small, Latin and Russian alike; with Shift capital")
     m.waitPrompt();
     m.typeAndSettle("Ab\r", 50);
     INFO(m.screen());
-    CHECK(m.screen().find("Hello, root") != std::string::npos);
+    CHECK(m.screen().find("root: not found") != std::string::npos);
     CHECK(m.screen().find("Ab: not found") != std::string::npos);
 }
 
-TEST_CASE("a Russian name, small letters bare, is read as it was typed") {
+TEST_CASE("a Russian word, small letters bare, is read as it was typed") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
-    booted(m);
+    REQUIRE(m.boot());
     const std::string vanya = "\xD7\xC1\xCE\xD1";                  /* KOI-8: в а н я */
-    m.typeAndSettle(vanya + "\r", 60);
+    REQUIRE(m.command("echo " + vanya));
     INFO(m.screen());
-    CHECK(m.screen().find("Hello, " + vanya) != std::string::npos);
+    CHECK(m.screen().find("\n" + vanya + "\n$") != std::string::npos);
 }
 
 TEST_CASE("a line is edited before it is read: backspace takes the last character back") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
-    booted(m);
-    m.typeAndSettle("roox\b\bot\r", 50);
+    REQUIRE(m.boot());
+    m.typeAndSettle("echo roox\b\bot\r", 50);
+    m.waitPrompt();
     INFO(m.screen());
-    CHECK(m.screen().find("Hello, root") != std::string::npos);
-    CHECK(m.screen().find("Hello, roo\n") == std::string::npos);
+    CHECK(m.screen().find("\nroot\n$") != std::string::npos);
+    CHECK(m.screen().find("\nroo\n") == std::string::npos);
 }
 
 TEST_CASE("the clock goes: the time asked twice three seconds apart differs by about three") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
-    booted(m);
-    m.typeAndSettle("root\r", 30);
-    m.waitPrompt();
+    REQUIRE(m.boot());
     m.typeAndSettle("t\r", 30);
     const long first = lastNumberAfter(m.screen(), "time ");
     m.run(150);                                                    /* 3 s at 50 frames a second */
@@ -121,9 +113,7 @@ TEST_CASE("the clock goes: the time asked twice three seconds apart differs by a
 TEST_CASE("an unknown command is reported, and the shell asks again") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
-    booted(m);
-    m.typeAndSettle("root\r", 30);
-    m.waitPrompt();
+    REQUIRE(m.boot());
     REQUIRE(m.command("xyz"));
     INFO(m.screen());
     CHECK(m.screen().find("xyz: not found\n$") != std::string::npos);

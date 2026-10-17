@@ -15,11 +15,7 @@ namespace {
 
 void atPrompt(Machine &m)
 {
-    REQUIRE(m.runUntil("login:", 1500));
-    m.run(20);
-    m.typeAndSettle("root\r", 60);
-    REQUIRE(m.screen().find("Hello, root") != std::string::npos);
-    REQUIRE(m.waitPrompt());
+    REQUIRE(m.boot(1500));
 }
 
 std::string after(Machine &m, const std::string &command)

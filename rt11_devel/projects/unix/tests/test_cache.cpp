@@ -19,10 +19,7 @@ void countDisk(struct ms0515_cpu *) { ++diskReads; }
 
 void atPrompt(Machine &m)
 {
-    REQUIRE(m.runUntil("login:", 3000));
-    m.run(20);
-    m.typeAndSettle("root\r", 60);
-    REQUIRE(m.waitPrompt());
+    REQUIRE(m.boot(3000));
 }
 
 std::string after(Machine &m, const std::string &command)

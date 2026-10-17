@@ -125,7 +125,6 @@ program(cp user/cp.c user/copy.c)
 program(rtfs user/rtfs.c)
 program(du user/du.c)
 program(df user/df.c)
-program(getty user/getty.c)
 
 # own_program(<name> <sources>): a program that owns the machine
 # (kernel/own.c, user/own/own.h): linked at 001000 with the ROM's little
@@ -163,7 +162,6 @@ set(MKFS "${CMAKE_CURRENT_SOURCE_DIR}/tools/mkfs.py")
 set(VOLUME_FILES
     /boot/kernel=kernel.bin
     /etc/init=init.x
-    /etc/getty=getty.x
     /etc/motd=${ROOT}/etc/motd
     /etc/numbers=${ROOT}/etc/numbers
     /bin/sh=sh.x
@@ -195,7 +193,7 @@ set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/
 
 # unix.dsk: the system as it boots - /etc/rc mounts the volumes and turns
 # swap on by /etc/fstab.  bare.dsk: the same without /etc/rc, init going
-# straight to getty, for the tests that mount and swap by hand.
+# straight to the shell, for the tests that mount and swap by hand.
 add_custom_command(OUTPUT unix.dsk
     COMMAND "${Python3_EXECUTABLE}" "${MKFS}"
             --boot boot.bin --nm "${PDP11_NM}" --kernel-out $<TARGET_FILE:kernel> unix.dsk

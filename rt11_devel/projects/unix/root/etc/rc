@@ -1,4 +1,4 @@
-# /etc/rc - run by init at the boot, before anyone logs in: the volumes and
-# the swap of /etc/fstab, then getty, which asks for the name.
+# /etc/rc - run by init at the boot: the volumes and the swap of
+# /etc/fstab, then the shell for the console.
 mount -a
-exec /etc/getty
+exec /bin/sh

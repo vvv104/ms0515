@@ -28,10 +28,7 @@ TEST_SUITE("UNIX") {
 TEST_CASE("the kernel stacks keep a margin under the heaviest calls") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
-    REQUIRE(m.runUntil("login:", 3000));
-    m.run(20);
-    m.typeAndSettle("root\r", 60);
-    REQUIRE(m.waitPrompt());
+    REQUIRE(m.boot(3000));
     for (const char *c : {"ls /bin", "cat /etc/numbers | cat", "echo a > /tmp/x", "cat < /tmp/x",
                           "mkdir /tmp/d", "echo b > /tmp/d/y", "ls /tmp/d", "rm /tmp/d/y", "pid &", "pid",
                           "echo ls /tmp > /tmp/s", "sh /tmp/s", "umount /dev/rd0", "mkfs /dev/rd0",

@@ -13,18 +13,7 @@ namespace {
 
 void atPrompt(Machine &m)
 {
-    REQUIRE(m.runUntil("login:", 1500));
-    m.run(20);
-    m.typeAndSettle("root\r", 60);
-    REQUIRE(m.screen().find("Hello, root") != std::string::npos);
-    REQUIRE(m.waitPrompt());
-}
-
-std::size_t count(const std::string &text, const std::string &what)
-{
-    std::size_t n = 0;
-    for (auto at = text.find(what); at != std::string::npos; at = text.find(what, at + 1)) ++n;
-    return n;
+    REQUIRE(m.boot(1500));
 }
 
 /* What the screen shows after the last time `command` was typed at the prompt. */
@@ -39,7 +28,7 @@ std::string after(Machine &m, const std::string &command)
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("the shell runs a program and comes back to its prompt, not to login:") {
+TEST_CASE("the shell runs a program and comes back to its prompt") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
     atPrompt(m);
@@ -48,7 +37,6 @@ TEST_CASE("the shell runs a program and comes back to its prompt, not to login:"
     INFO(m.screen());
     CHECK(after(m, "echo one two").find("one two\n$") != std::string::npos);
     CHECK(after(m, "hello").find("hello, world\n$") != std::string::npos);
-    CHECK(count(m.screen(), "login:") == 1);
 }
 
 TEST_CASE("a command is looked for in /bin, or taken by its path; one not there is reported") {
@@ -109,13 +97,15 @@ TEST_CASE("each child has a pid of its own, the shell's the same throughout") {
     CHECK(first.substr(0, first.find("parent")) != second.substr(0, second.find("parent")));
 }
 
-TEST_CASE("the shell's exit ends the session: init asks for the name again") {
+TEST_CASE("the shell's exit ends the session: a new shell takes its place") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
     atPrompt(m);
-    m.typeAndSettle("exit\r", 200);
+    REQUIRE(m.command("exit"));
+    REQUIRE(m.command("echo again"));
     INFO(m.screen());
-    CHECK(count(m.screen(), "login:") == 2);
+    CHECK(after(m, "exit").find("\n$") != std::string::npos);
+    CHECK(after(m, "echo again").find("\nagain\n$") != std::string::npos);
 }
 
 }

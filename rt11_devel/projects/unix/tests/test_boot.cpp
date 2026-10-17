@@ -9,10 +9,10 @@ using unixos::Machine;
 
 TEST_SUITE("UNIX") {
 
-TEST_CASE("the ROM boots the boot block, the boot block the kernel, the kernel prints login:") {
+TEST_CASE("the ROM boots the boot block, the boot block the kernel, the kernel the shell") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage());
-    const bool shown = m.runUntil("login:", 1500);
+    const bool shown = m.boot(1500);
     INFO(m.screen());
     CHECK(shown);
     CHECK_FALSE(m.emulator().halted());
@@ -27,7 +27,7 @@ TEST_CASE("a superblock without the system's magic: the boot block does not jump
     Machine m(image);
     m.run(1500);
     INFO(m.screen());
-    CHECK(m.screen().find("login:") == std::string::npos);
+    CHECK(m.screen().find("UNIX:") == std::string::npos);
 }
 
 TEST_CASE("the image is a double-sided diskette, block 0 a boot block the ROM takes") {

@@ -10,7 +10,7 @@ boot block loads the kernel, /boot/kernel, and the kernel mounts the root,
 looks for the EX board's RAM disk and runs /etc/init.  init gives its place
 to the shell on /etc/rc: `mount -a` makes the RAM disk a volume at /tmp and
 turns swap on by /etc/fstab - /tmp/swap, laid down by mkfs with the
-volume, else the diskette's /swap - and getty asks for a name at `login:` and starts /bin/sh, which runs
+volume, else the diskette's /swap - and gives its place to /bin/sh for the console, which runs
 each command as a child - fork, exec, wait - and comes back with its prompt;
 `a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`,
 `>> file` and `< file` redirect.  A process has its own directory, its
@@ -24,8 +24,10 @@ The file system is written, each change going to the disk at once.  /bin has
 the machine), `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
 `rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd`, `t` (the time),
-`status` (the last command's), `exec` and `exit`, which ends the session
-and brings getty back.
+`status` (the last command's), `exec` and `exit`, which ends the session:
+a new shell takes its place, in /.  There is no login: one person at one
+console, and no protection a password could stand on - any program can
+write over the kernel.
 
 ## Building and booting
 
@@ -133,7 +135,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
 - `user/` - a process's start (`crt0.s`, `main(argc, argv)`), the calls as
   C functions (`sys.s`, `unistd.h`), a little library (`lib.c`), volumes
   and swap files (`vol.c`: mkfs.py's layout made on the machine), `init.c`,
-  `getty.c`, and the programs of /bin: `sh.c` (scripts too), `ls.c`,
+  and the programs of /bin: `sh.c` (scripts too), `ls.c`,
   `cat.c`, `echo.c`, `rm.c`, `mkdir.c`, `mkfs.c`, `mount.c` (`mount -a`:
   /etc/fstab's volumes and swap, in one process), `umount.c`, `swapon.c`,
   `fdformat.c` (a diskette's tracks built and written, a side or both),
@@ -161,15 +163,15 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   extent; it refuses a kernel whose bss passes 040000.
 - `tests/` - the system booted through the emulator's library on ROM-B, the
   screen read as text, the keys typed with the library's Typist: the boot to
-  `login:`, a superblock without the magic refused, block 0 where the ROM
-  takes it; a name echoed and greeted, the case of bare and shifted letters,
-  a Russian name, BS, the clock, an unknown command; the volume read on the
+  the shell's prompt, a superblock without the magic refused, block 0 where
+  the ROM takes it; a line echoed and read, an empty one, the case of bare
+  and shifted letters, a Russian word, BS, the clock, an unknown command; the volume read on the
   host by a second reading of the format (`Volume.hpp`), and on the machine
   `cat`, `ls`, a file across blocks line by line, a file not there, a
   program with its arguments; the shell back at its prompt after a command,
   a command by name and by path and one not there, the exit status, the
-  children's pids, `exit` back to `login:`; with the RAM disk a pipe, a
-  pipeline of three carrying a file of several blocks, the background, the
+  children's pids, `exit` bringing a new shell; with the RAM disk a pipe, a
+  pipeline of two carrying a file of several blocks, the background, the
   shell's state across swaps, and without it a pipe refused; files made by
   `>` and written over, a file of several blocks in one extent, mkdir and
   rm, `<`, a file kept across a boot, the errors - each then read off the
@@ -179,7 +181,7 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   disk's file and the diskette's, the swap file held, the RAM disk's
   swap file laid down by mkfs with the volume, on 5 frames after it (860
   once, zeros written), three processes at most; /etc/rc with the
-  board and without, getty again after a session, a mounted device
+  board and without, a new shell in / after a session, a mounted device
   refused for mkfs, a script; the single-sided system booted, a diskette
   in the second drive made a volume and read on the host, the double-sided
   root's sides busy, an empty drive; /boot/fd taking the diskettes over,

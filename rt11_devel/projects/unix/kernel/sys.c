@@ -462,11 +462,12 @@ static int sys_wait(struct trapframe *tf, const unsigned *arg)
 	return 0;
 }
 
-/* The process gone; pid 1's place goes to getty again - not init, /etc/rc
- * is the boot's - its files closed. */
+/* The process gone; pid 1's place goes to a new shell - /etc/rc is the
+ * boot's, not run again - in the root, its files past the console's
+ * closed. */
 static int sys_exit(struct trapframe *, const unsigned *arg)
 {
-	static const char *const argv[] = {"getty", 0};
+	static const char *const argv[] = {"sh", 0};
 	int i;
 
 	if (curproc->pid != 1)
@@ -476,8 +477,12 @@ static int sys_exit(struct trapframe *, const unsigned *arg)
 			fclose(curproc->ofile[i]);
 			curproc->ofile[i] = 0;
 		}
-	exec("/etc/getty", argv);
-	panic("no /etc/getty");
+	if (curproc->cwd) {
+		iput(curproc->cwd);
+		curproc->cwd = 0;
+	}
+	exec("/bin/sh", argv);
+	panic("no /bin/sh");
 }
 
 static int sys_unlink(struct trapframe *, const unsigned *arg)

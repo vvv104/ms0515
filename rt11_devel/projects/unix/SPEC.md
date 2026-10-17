@@ -400,10 +400,11 @@ reading the kernel off the diskette.
    script, and the second slot is free.
 6. `/etc/rc` by `fstab`: `mkfs rd0` in the second slot, `mount rd0 /tmp`,
    `swapon` - now there is swap, and more processes may be.
-7. At its end `/etc/rc` does `exec /etc/getty`: it asks for `login:` and
-   runs `sh`; when the session ends the kernel runs `getty` again.  The
-   classic init, staying a process of its own and sleeping in swap, may
-   come back later.
+7. At its end `/etc/rc` does `exec /bin/sh`: the shell for the console.
+   When the session ends the kernel runs a new shell in its place, in the
+   root.  There is no login: one console, and no protection a password
+   could stand on.  The classic init, staying a process of its own and
+   sleeping in swap, may come back later.
 
 The own ROM will later add a menu: RT-11 or the new system, another kernel
 file by name, "insert the system diskette" with waiting.
@@ -502,8 +503,8 @@ hands over.
 ## Stages
 
 1. **Hello from an own kernel** (done).  The boot block in block 0 on the
-   native ROM-B loads the kernel, the kernel prints `login:` through the
-   ROM's console (160000).
+   native ROM-B loads the kernel, the kernel prints through the ROM's
+   console (160000).
 2. **A minimal kernel** (done).  The timer, the keyboard, one process,
    `TRAP`, `read`/`write` of the console.
 3. **FS** (done).  `mkfs` on the host, `open`/`read`/`exec`.

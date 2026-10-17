@@ -21,10 +21,7 @@ namespace {
 
 void atPrompt(Machine &m)
 {
-    REQUIRE(m.runUntil("login:", 3000));
-    m.run(20);
-    m.typeAndSettle("root\r", 60);
-    REQUIRE(m.waitPrompt());
+    REQUIRE(m.boot(3000));
 }
 
 /* Whether the test image holds the file. */
@@ -44,7 +41,7 @@ void bootsAgain(Machine &m, const std::string &mark)
     int frames = 0;
     for (; frames < 3000 && m.screen().find(mark) != std::string::npos; frames += 10) m.run(10);
     CHECK(frames < 3000);
-    REQUIRE(m.runUntil("login:", 3000));
+    REQUIRE(m.boot(3000));
 }
 
 } // namespace
@@ -95,7 +92,7 @@ TEST_CASE("rt11 refuses a .SAV that is not there, and the end is a reset") {
     int frames = 0;
     for (; frames < 3000 && m.screen().find("not found") != std::string::npos; frames += 10) m.run(10);
     CHECK(frames < 3000);
-    REQUIRE(m.runUntil("login:", 3000));
+    REQUIRE(m.boot(3000));
 }
 
 TEST_CASE("rt11 runs SABOT2: its loader finds SABOT2.DAT on DZ0: and the game takes the machine") {
@@ -107,7 +104,7 @@ TEST_CASE("rt11 runs SABOT2: its loader finds SABOT2.DAT on DZ0: and the game ta
     m.run(1500);
     INFO(m.screen());
     CHECK(m.screen().find("NAJDEN") == std::string::npos);     /* its loader's "not found" */
-    CHECK(m.screen().find("login:") == std::string::npos);
+    CHECK(m.screen().find("\n$") == std::string::npos);        /* not the system again */
     /* The game's own: the screen 320 x 200, as its loader sets it once it
      * has the data, and the machine not halted. */
     CHECK_FALSE(ms0515::internal::board(m.emulator()).hires_mode);

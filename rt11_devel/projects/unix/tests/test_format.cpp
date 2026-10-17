@@ -23,10 +23,7 @@ constexpr uint8_t kOld = 0x55, kFiller = 0xE5;
 
 void atPrompt(Machine &m)
 {
-    REQUIRE(m.runUntil("login:", 3000));
-    m.run(20);
-    m.typeAndSettle("root\r", 60);
-    REQUIRE(m.waitPrompt());
+    REQUIRE(m.boot(3000));
 }
 
 std::string after(Machine &m, const std::string &command)

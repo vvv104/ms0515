@@ -16,10 +16,7 @@ namespace {
 
 void atPrompt(Machine &m)
 {
-    REQUIRE(m.runUntil("login:", 3000));
-    m.run(20);
-    m.typeAndSettle("root\r", 60);
-    REQUIRE(m.waitPrompt());
+    REQUIRE(m.boot(3000));
 }
 
 } // namespace
@@ -46,7 +43,7 @@ TEST_CASE("bigmem owns the machine: all of 001000..150000 its own, the ROM its c
     for (; frames < 3000 && m.screen().find("PRESS A KEY") != std::string::npos; frames += 10) m.run(10);
     CHECK(frames < 3000);
     REQUIRE(m.runUntil("UNIX: the diskettes by /boot/fd", 3000));
-    REQUIRE(m.runUntil("login:", 3000));
+    REQUIRE(m.boot(3000));
     atPrompt(m);
     REQUIRE(m.command("echo again"));
     CHECK(m.screen().find("\nagain\n") != std::string::npos);

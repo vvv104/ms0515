@@ -49,10 +49,7 @@ unsigned header(const std::vector<uint8_t> &d, int word)
 
 void atPrompt(Machine &m)
 {
-    REQUIRE(m.runUntil("login:", 3000));
-    m.run(20);
-    m.typeAndSettle("root\r", 60);
-    REQUIRE(m.waitPrompt());
+    REQUIRE(m.boot(3000));
 }
 
 std::string after(Machine &m, const std::string &command)
@@ -91,7 +88,7 @@ TEST_CASE("the system's /boot/fd drives the VG93 itself: no block through the RO
     CHECK(header(d, 2) == d.size());
     CHECK(d.size() <= 1024);
     Machine m(unixos::readImage(), false);
-    REQUIRE(m.runUntil("login:", 3000));
+    REQUIRE(m.boot(3000));
     {
         INFO(m.screen());
         CHECK(m.screen().find("UNIX: the diskettes by /boot/fd") != std::string::npos);
@@ -131,7 +128,7 @@ TEST_CASE("the driver is faster than the ROM: a file copied in fewer frames") {
 TEST_CASE("with no /boot/fd the ROM's own way: no word of a driver, the system runs") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readBareImage(), false);
-    REQUIRE(m.runUntil("login:", 3000));
+    REQUIRE(m.boot(3000));
     CHECK(m.screen().find("/boot/fd") == std::string::npos);
     atPrompt(m);
     REQUIRE(m.command("echo three > /h"));
@@ -161,7 +158,7 @@ TEST_CASE("a /boot/fd longer than the driver's room is refused, whatever its hea
         put(static_cast<int>(v.inode(*fd).start[0]), 4, 1024);
     }
     Machine m(image, false);
-    REQUIRE(m.runUntil("login:", 3000));
+    REQUIRE(m.boot(3000));
     INFO(m.screen());
     CHECK(m.screen().find("UNIX: /boot/fd is no driver") != std::string::npos);
 }
@@ -176,7 +173,7 @@ TEST_CASE("a /boot/fd that is no driver is said so, and the ROM's way stays") {
         image[v.offset(static_cast<int>(v.inode(*fd).start[0]))] ^= 0xFF;   /* the magic broken */
     }
     Machine m(image, false);
-    REQUIRE(m.runUntil("login:", 3000));
+    REQUIRE(m.boot(3000));
     CHECK(m.screen().find("UNIX: /boot/fd is no driver") != std::string::npos);
     atPrompt(m);
     REQUIRE(m.command("ls /bin"));

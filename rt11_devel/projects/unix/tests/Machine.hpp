@@ -57,8 +57,8 @@ inline std::vector<uint8_t> readImage()
 }
 
 /* The image without /etc/rc, beside the system's in the build folder: init
- * goes straight to getty, nothing mounted, no swap - for the tests that do
- * it by hand. */
+ * goes straight to the shell, nothing mounted, no swap - for the tests that
+ * do it by hand. */
 inline std::vector<uint8_t> readBareImage()
 {
     std::ifstream in(imagePath().parent_path() / "bare.dsk", std::ios::binary);
@@ -177,6 +177,13 @@ public:
     bool command(const std::string &line, int limit = 1500)
     {
         typeAndSettle(line + "\r", 0);
+        return waitPrompt(limit);
+    }
+
+    /* The machine booted: /etc/rc done, the shell's first prompt on the
+     * screen, at most `limit` frames. */
+    bool boot(int limit = 3000)
+    {
         return waitPrompt(limit);
     }
 

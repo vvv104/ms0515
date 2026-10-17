@@ -23,10 +23,7 @@ bool built400()
 
 void atPrompt(Machine &m)
 {
-    REQUIRE(m.runUntil("login:", 3000));
-    m.run(20);
-    m.typeAndSettle("root\r", 60);
-    REQUIRE(m.waitPrompt());
+    REQUIRE(m.boot(3000));
 }
 
 std::string after(Machine &m, const std::string &command)
@@ -43,7 +40,7 @@ TEST_SUITE("UNIX") {
 TEST_CASE("the single-sided system boots from one side: swap on its /swap, the programs run") {
     if (!built400()) { MESSAGE("unix400.dsk not built - skipped"); return; }
     Machine m(unixos::readImage400(), false);
-    REQUIRE(m.runUntil("login:", 3000));
+    REQUIRE(m.boot(3000));
     CHECK(m.screen().find("swap: /swap") != std::string::npos);
     atPrompt(m);
     REQUIRE(m.command("ls /dev"));
