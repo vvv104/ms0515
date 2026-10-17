@@ -62,7 +62,7 @@ TEST_CASE("without the RAM disk: no volume at /tmp, swap the diskette's /swap") 
     CHECK(boot.find("swap: /tmp/swap") == std::string::npos);
 }
 
-TEST_CASE("the session's end brings a new shell in /, and /etc/rc is not run again") {
+TEST_CASE("the session's end brings a new shell in /home, and /etc/rc is not run again") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), true);
     atPrompt(m);
@@ -70,7 +70,7 @@ TEST_CASE("the session's end brings a new shell in /, and /etc/rc is not run aga
     REQUIRE(m.command("exit"));
     REQUIRE(m.command("pwd"));
     INFO(m.screen());
-    CHECK(after(m, "pwd").find("\n/\n$") != std::string::npos);
+    CHECK(after(m, "pwd").find("\n/home\n$") != std::string::npos);
     CHECK(count(m.screen(), "mount: /dev/rd0") == 1);
 }
 

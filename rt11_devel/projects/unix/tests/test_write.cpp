@@ -94,28 +94,28 @@ TEST_CASE("mkdir makes a directory with . and .., a file goes in it; rm takes th
     Machine m(unixos::readImage());
     atPrompt(m);
     const int before = taken(Volume(m.imageNow()), m.imageNow());
-    REQUIRE(m.command("mkdir /home"));
-    REQUIRE(m.command("mkdir /home/u"));
-    REQUIRE(m.command("echo inside > /home/u/f"));
-    REQUIRE(m.command("ls /home/u"));
+    REQUIRE(m.command("mkdir /work"));
+    REQUIRE(m.command("mkdir /work/u"));
+    REQUIRE(m.command("echo inside > /work/u/f"));
+    REQUIRE(m.command("ls /work/u"));
     INFO(m.screen());
-    CHECK(after(m, "ls /home/u").find("\nf\n$") != std::string::npos);
+    CHECK(after(m, "ls /work/u").find("\nf\n$") != std::string::npos);
     {
         Volume v(m.imageNow());
-        const auto home = v.lookup("/home"), u = v.lookup("/home/u");
-        REQUIRE(home);
+        const auto work = v.lookup("/work"), u = v.lookup("/work/u");
+        REQUIRE(work);
         REQUIRE(u);
         CHECK((v.inode(*u).mode & 0170000) == 0040000);
-        CHECK(v.inode(*home).nlink == 3);         /* its own ., the root's entry, u's .. */
-        CHECK(v.lookup("/home/u/..") == home);
-        CHECK(v.content(v.inode(*v.lookup("/home/u/f"))) == "inside\n");
+        CHECK(v.inode(*work).nlink == 3);         /* its own ., the root's entry, u's .. */
+        CHECK(v.lookup("/work/u/..") == work);
+        CHECK(v.content(v.inode(*v.lookup("/work/u/f"))) == "inside\n");
     }
-    REQUIRE(m.command("rm /home/u/f"));
-    REQUIRE(m.command("cat /home/u/f"));
-    CHECK(m.screen().find("cat: /home/u/f: not found") != std::string::npos);
+    REQUIRE(m.command("rm /work/u/f"));
+    REQUIRE(m.command("cat /work/u/f"));
+    CHECK(m.screen().find("cat: /work/u/f: not found") != std::string::npos);
     const auto image = m.imageNow();
     Volume v(image);
-    CHECK_FALSE(v.lookup("/home/u/f"));
+    CHECK_FALSE(v.lookup("/work/u/f"));
     CHECK(taken(v, image) == before + 2);          /* the two directories' blocks alone */
 }
 

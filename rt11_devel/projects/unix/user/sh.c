@@ -9,13 +9,16 @@
  * A command without a '/' is looked for in /bin; '#' to the line's end is a
  * comment.  Its own commands:
  *
+ *	cd [DIR]	the shell's own directory, and its children's; /home alone
  *	t		the time since the boot
  *	status		the exit status of the last command waited for
  *	exec CMD ARGS	the command in the shell's place
  *	exit		the shell's end - and the session's
  *
  * sh FILE runs the commands of the file, without a prompt, and ends at its
- * end - init runs /etc/rc so.
+ * end - init runs /etc/rc so.  The session's shell - pid 1, which /etc/rc
+ * gives its place to and the kernel runs anew when a session ends - starts
+ * in /home; one started by hand stays where it was started.
  *
  * The machine keeps two processes at once; more, a pipeline's or one in
  * the background, need the kernel's swap, and without it the fork that
@@ -25,6 +28,7 @@
 #define MAXARGS 16
 #define MAXCMDS 6
 #define PATHMAX 64
+#define HOME "/home"
 
 static int last_status;
 
@@ -230,6 +234,8 @@ int main(int argc, char **argv)
 			exit(1);
 		}
 		script = 1;
+	} else if (getpid() == 1) {
+		chdir(HOME);			/* none: the root it is */
 	}
 	for (;;) {
 		if (!script)
@@ -251,8 +257,8 @@ int main(int argc, char **argv)
 			continue;
 		}
 		if (!strcmp(word[0], "cd")) {		/* the shell's own directory, and its children's */
-			if (chdir(n > 1 ? word[1] : "/") < 0)
-				complain("sh", n > 1 ? word[1] : "/");
+			if (chdir(n > 1 ? word[1] : HOME) < 0)
+				complain("sh", n > 1 ? word[1] : HOME);
 			continue;
 		}
 		if (!strcmp(word[0], "t")) {

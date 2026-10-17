@@ -188,6 +188,7 @@ set(VOLUME_FILES
     /bin/bigmem=bigmem.x
     /bin/rt11=rt11.x
     --dir /tmp
+    --dir /home
     --swap 64)
 set(VOLUME_DEPENDS boot.bin kernel.bin fd.bin ${PROGRAMS} "${MKFS}" ${ROOT}/etc/motd ${ROOT}/etc/numbers)
 

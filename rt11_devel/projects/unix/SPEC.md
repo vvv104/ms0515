@@ -401,8 +401,9 @@ reading the kernel off the diskette.
 6. `/etc/rc` by `fstab`: `mkfs rd0` in the second slot, `mount rd0 /tmp`,
    `swapon` - now there is swap, and more processes may be.
 7. At its end `/etc/rc` does `exec /bin/sh`: the shell for the console.
-   When the session ends the kernel runs a new shell in its place, in the
-   root.  There is no login: one console, and no protection a password
+   When the session ends the kernel runs a new shell in its place.  The
+   session's shell, pid 1, starts in /home, and `cd` alone goes there.
+   There is no login: one console, and no protection a password
    could stand on.  The classic init, staying a process of its own and
    sleeping in swap, may come back later.
 

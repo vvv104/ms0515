@@ -1,7 +1,8 @@
 /*
  * test_dirs.cpp - a process's own directory: chdir, the shell's cd, paths
  * from it when they do not begin with /, its children's the same; pwd by
- * stat, walking .. up to the root, out of a mounted volume too.
+ * stat, walking .. up to the root, out of a mounted volume too.  The
+ * session's shell starts in /home, and cd alone goes back there.
  */
 #include "Machine.hpp"
 #include "Volume.hpp"
@@ -37,11 +38,25 @@ void says(Machine &m, const std::string &command, const std::string &text)
 
 TEST_SUITE("UNIX") {
 
+TEST_CASE("the session starts in /home; cd alone goes there, a shell started by hand stays put") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), true);
+    atPrompt(m);
+    says(m, "pwd", "/home");
+    REQUIRE(m.command("echo mine > notes"));
+    REQUIRE(m.command("cd /etc"));
+    REQUIRE(m.command("cd"));
+    says(m, "pwd", "/home");
+    says(m, "cat /home/notes", "mine");
+    REQUIRE(m.command("cd /etc"));
+    REQUIRE(m.command("echo pwd > /tmp/p"));
+    says(m, "sh /tmp/p", "/etc");                             /* not the session's: where it was run */
+}
+
 TEST_CASE("cd and pwd: paths from a process's own directory, .. up, its children's the same") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), false);
     atPrompt(m);
-    says(m, "pwd", "/");
     REQUIRE(m.command("mkdir /d1"));
     REQUIRE(m.command("mkdir /d1/d2"));
     REQUIRE(m.command("cd /d1/d2"));
@@ -53,7 +68,7 @@ TEST_CASE("cd and pwd: paths from a process's own directory, .. up, its children
     says(m, "pwd", "/d1");
     says(m, "ls", "d2");
     says(m, "cat d2/f", "here");
-    REQUIRE(m.command("cd"));                         /* home: the root */
+    REQUIRE(m.command("cd /"));
     says(m, "pwd", "/");
     Volume v(m.imageNow());
     CHECK(v.lookup("/d1/d2/f"));

@@ -80,11 +80,11 @@ TEST_CASE("cat shows a file, ls a directory") {
     Machine m(unixos::readImage());
     loggedIn(m);
     m.command("cat /etc/motd");
-    m.command("ls");
+    m.command("ls /");
     m.command("ls /bin");
     INFO(m.screen());
     CHECK(m.screen().find("Welcome to UNIX on the Elektronika MS 0515.") != std::string::npos);
-    for (const char *n : {"boot", "etc", "bin", "dev", "tmp", "swap"}) {
+    for (const char *n : {"boot", "etc", "bin", "dev", "home", "tmp", "swap"}) {
         CAPTURE(n);
         CHECK(m.screen().find(n) != std::string::npos);
     }
