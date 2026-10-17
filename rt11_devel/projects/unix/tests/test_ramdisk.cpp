@@ -85,7 +85,7 @@ TEST_CASE("a /boot/rd that is no driver is said so: no RAM disk, the system runs
     REQUIRE(m.boot(3000));
     REQUIRE(m.command("ls /bin"));
     INFO(m.screen());
-    CHECK(m.screen().find("UNIX: /boot/rd is no driver") != std::string::npos);
+    CHECK(m.screen().find("kernel: /boot/rd is no driver") != std::string::npos);
     CHECK(m.screen().find("no RAM disk") != std::string::npos);
     CHECK(m.screen().find("mount: /dev/rd0 on /tmp") == std::string::npos);
     CHECK(after(m, "ls /bin").find("sh") != std::string::npos);

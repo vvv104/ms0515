@@ -42,7 +42,7 @@ TEST_CASE("bigmem owns the machine: all of 001000..150000 its own, the ROM its c
     int frames = 0;
     for (; frames < 3000 && m.screen().find("PRESS A KEY") != std::string::npos; frames += 10) m.run(10);
     CHECK(frames < 3000);
-    REQUIRE(m.runUntil("UNIX: the diskettes by /boot/fd", 3000));
+    REQUIRE(m.runUntil("kernel: the diskettes by /boot/fd", 3000));
     REQUIRE(m.boot(3000));
     atPrompt(m);
     REQUIRE(m.command("echo again"));

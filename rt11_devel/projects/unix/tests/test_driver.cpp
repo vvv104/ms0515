@@ -91,7 +91,7 @@ TEST_CASE("the system's /boot/fd drives the VG93 itself: no block through the RO
     REQUIRE(m.boot(3000));
     {
         INFO(m.screen());
-        CHECK(m.screen().find("UNIX: the diskettes by /boot/fd") != std::string::npos);
+        CHECK(m.screen().find("kernel: the diskettes by /boot/fd") != std::string::npos);
     }
     atPrompt(m);
     driverEntry = static_cast<uint16_t>(header(d, 4));
@@ -160,7 +160,7 @@ TEST_CASE("a /boot/fd longer than the driver's room is refused, whatever its hea
     Machine m(image, false);
     REQUIRE(m.boot(3000));
     INFO(m.screen());
-    CHECK(m.screen().find("UNIX: /boot/fd is no driver") != std::string::npos);
+    CHECK(m.screen().find("kernel: /boot/fd is no driver") != std::string::npos);
 }
 
 TEST_CASE("a /boot/fd that is no driver is said so, and the ROM's way stays") {
@@ -174,7 +174,7 @@ TEST_CASE("a /boot/fd that is no driver is said so, and the ROM's way stays") {
     }
     Machine m(image, false);
     REQUIRE(m.boot(3000));
-    CHECK(m.screen().find("UNIX: /boot/fd is no driver") != std::string::npos);
+    CHECK(m.screen().find("kernel: /boot/fd is no driver") != std::string::npos);
     atPrompt(m);
     REQUIRE(m.command("ls /bin"));
     CHECK(after(m, "ls /bin").find("sh") != std::string::npos);

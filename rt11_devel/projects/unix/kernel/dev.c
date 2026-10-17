@@ -74,7 +74,7 @@ static const void *driver(const char *path, unsigned base, unsigned top, unsigne
 	int got = part_load(path, base, top - base, magic, version);
 
 	if (got < 0) {
-		tty_puts("UNIX: ");
+		tty_puts("kernel: ");
 		tty_puts(path);
 		tty_puts(" is no driver\n");
 	}
@@ -91,10 +91,10 @@ void drivers_load(void)
 
 	if (rd && (rd_blocks = rd->init()) != 0)
 		rd_rw = rd->rw;
-	tty_puts(rd_blocks ? "UNIX: a RAM disk of 512 KB, /dev/rd0\n" : "UNIX: no RAM disk\n");
+	tty_puts(rd_blocks ? "kernel: a RAM disk of 512 KB, /dev/rd0\n" : "kernel: no RAM disk\n");
 	if (fd && fd->init() == 0) {
 		fd_rw = fd->rw;
 		fd_format = fd->format;
-		tty_puts("UNIX: the diskettes by /boot/fd\n");
+		tty_puts("kernel: the diskettes by /boot/fd\n");
 	}
 }
