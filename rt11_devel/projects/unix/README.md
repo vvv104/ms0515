@@ -14,11 +14,14 @@ each command as a child - fork, exec, wait - and comes back with its prompt;
 `a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`,
 `>> file` and `< file` redirect.  A process has its own directory, its
 children's the same; a path not beginning with / goes from it.  Two
-processes at once, one in each slot - the shell and a command - and no
-swap: a pipeline's commands run one after another, each one's output a
-file of /tmp the next one reads; `sh FILE` typed at the shell runs the
-file in the shell itself; while a command runs in the background the next
-finds no room, and a pipeline is not put in the background.
+processes run at once, one in each slot, the clock switching between them
+every 4 frames; there is no swap, but a fork with both slots taken parks
+the shell - its used part, some 5 KB - in the shadow copy of bank 6 until
+a slot is free, so two commands of one's own run beside it: `sleep 10 &`,
+then anything in front.  A pipeline's commands run one after another,
+each one's output a file of /tmp the next one reads; `sh FILE` typed at
+the shell runs the file in the shell itself; a pipeline is not put in the
+background.
 A file has one rwx, there being no users, kept in its inode: r to read
 it, w to write it, empty it or remove it, x to run it.  The system's files,
 /boot's and /bin's and every program, are r-x - neither removed nor written
@@ -27,7 +30,7 @@ over - the rest rw-; a new file is rw-, `chmod r-x FILE`
 The file system is written, each change going to the disk at once.  /bin has
 `sh`, `ls` (`-l`, `-a`), `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `du`, `df`, `chmod`, `mkfs`,
 `mount`, `umount`,
-`fdformat`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
+`fdformat`, `sleep`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine), `rt11` (an RT-11 program run on the machine: `rt11
 /rt11/game.sav`) and `rtfs` (an RT-11 diskette's side: `rtfs ls /dev/fd2`,
 `rtfs get /dev/fd2 game.sav /rt11/game.sav`, `rtfs put DEVICE FILE [NAME]`); the shell's own commands are `cd` (alone: /home), `t` (the time),
@@ -124,9 +127,11 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
 - `kernel/proc.c`, `proc.h` - the processes: the table, the two slots
   (banks 2-5 primary and extra, dispatcher bits 2-5), a kernel stack of 320 bytes
   each with a canary at its bottom, sleep and wakeup, the switch (`swtch`
-  in trap.s), fork into the free slot - none, EAGAIN - exit, which
-  gives the slot back at once, a zombie keeping its place in the table
-  until wait.
+  in trap.s) - by the clock every 4 frames too, at once in a process's
+  own code, else at its system call's end - fork into the free slot, or,
+  both taken, the parent parked in the shadow copy of bank 6 and the child
+  in its slot, exit, which gives the slot back at once, a zombie keeping
+  its place in the table until wait.
 - `kernel/high.h` - the big tables in bank 6, a part of the kernel's
   bss there, all of its data being in bank 6: the mount table, the processes with their kernel stacks,
   the block buffers and the shadow bank's index, the inodes, the

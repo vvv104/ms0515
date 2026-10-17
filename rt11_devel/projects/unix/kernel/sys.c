@@ -489,4 +489,6 @@ void syscall(struct trapframe *tf)
 	} else {
 		tf->ps &= ~1u;
 	}
+	if (resched)				/* the slice over meanwhile */
+		preempt(tf);
 }

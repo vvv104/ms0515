@@ -98,7 +98,7 @@ is gone.
 | 000000-017777 | 0 | Vectors, the kernel stack, kernel code.  Not switched: the vectors are here. |
 | 020000-037777 | 1 | Kernel code.  The shadow copy is the buffer cache. |
 | 040000-137777 | 2-5 | The process's space, 32 KB.  The primary copies are slot A, the extra ones slot B. |
-| 140000-157777 | 6 | Kernel data: the kernel is linked with its data here, start.s copies their first values up from the image and clears the bss, the tables (high.h) a part of it - all below 155000; the diskettes' driver /boot/fd at 155000-157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is free: the kernel's stacks are in the primary one, so a copy into it would want a bounce in bank 0. |
+| 140000-157777 | 6 | Kernel data: the kernel is linked with its data here, start.s copies their first values up from the image and clears the bss, the tables (high.h) a part of it - all below 155000; the diskettes' driver /boot/fd at 155000-157000, the stack the kernel calls the ROM on at 157000-157400.  The top of the primary copy, 157614-157777, is the ROM's own stack and variables: the kernel leaves it alone.  The shadow copy is the parking of a process with no slot (proc.c), switched in by `xcopy` from bank 0's code, the kernel's stacks being in the primary one. |
 | 160000-177377 | - | ROM (the upper 8 KB), always seen. |
 | 177400-177777 | - | I/O registers. |
 
@@ -199,16 +199,22 @@ processes, one in each slot; there is no swap.
 
 - Two slots in banks 2-5 (A and B), switched by a write to the dispatcher
   177400.
-- Two processes at once, the shell and a command: the machine is not for
-  more.  A fork with both slots taken fails.  A process that has exited
-  gives its slot back at once and keeps its place in the table, a zombie,
-  until its parent waits: three places in the table.
+- Two processes run at once, one in each slot.  A fork with both slots
+  taken parks the parent - the shell, as a rule, which has nothing to do
+  but wait - when its used part, the program to brk and the stack from the
+  frame up, fits the shadow copy of bank 6, 8 KB; the child takes its slot,
+  and the parent comes back into the first slot free.  One process parked
+  at a time; else the fork fails.  So the shell and two commands of one's
+  own.  A process that has exited gives its slot back at once and keeps
+  its place in the table, a zombie, until its parent waits: four places in
+  the table, the two slots', the parked one's and a zombie's.
 - No pipes in the kernel: the shell runs a pipeline's commands one after
   another, each one's output a file of /tmp the next one reads, the files
   removed after.  `sh FILE` typed at the shell runs the file in the shell
   itself - a shell of its own would take the slot its commands need.
-- A quantum by the timer interrupt (vector 0100), that is 50 Hz, switching
-  between the two.
+- A quantum of 4 frames by the timer interrupt (vector 0100): the running
+  process gives the processor to the other at once when the clock came on
+  it in its own code, else at the end of its system call.
 - No protection: a process can spoil the kernel.  This is an accepted limit.
 
 **Swap - none.**  It was there - a file in one extent, cut into 32 KB

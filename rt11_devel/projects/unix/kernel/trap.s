@@ -9,7 +9,7 @@
 / stack of their own, rom.s).
 
 	.text
-	.globl	_trap_entry, _clock_entry, _tty_entry, _forkret, _swtch
+	.globl	_trap_entry, _clock_entry, _tty_entry, _forkret, _swtch, _preempt
 	.globl	_spl7, _splx, _idle, _enter, _nxm_entry, _nxm
 
 / TRAP: the frame r0..r5, pc, ps on the process's stack; syscall(frame) on
@@ -37,11 +37,34 @@ _forkret:
 	rti
 
 / The interrupts: r0 and r1 kept (C keeps the rest), the handler called.
+/ The clock's, when its slice is over and it came on a process in its own
+/ code - the PC in the process's space - goes on as a system call would:
+/ the frame on the process's stack, preempt(frame) on its kernel stack,
+/ and back through the frame, maybe after the other process has run.
 _clock_entry:
 	mov	r0, -(sp)
 	mov	r1, -(sp)
 	jsr	pc, _clock_intr
+	tst	r0
+	beq	1f
+	cmp	4(sp), $040000
+	blo	1f
+	cmp	4(sp), $0140000
+	bhis	1f
 	mov	(sp)+, r1
+	mov	(sp)+, r0
+	mov	r5, -(sp)
+	mov	r4, -(sp)
+	mov	r3, -(sp)
+	mov	r2, -(sp)
+	mov	r1, -(sp)
+	mov	r0, -(sp)
+	mov	sp, r0
+	mov	_kstack_top, sp
+	mov	r0, -(sp)
+	jsr	pc, _preempt
+	jmp	_forkret
+1:	mov	(sp)+, r1
 	mov	(sp)+, r0
 	rti
 

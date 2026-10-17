@@ -2,7 +2,7 @@
 #ifndef UNIX_PROC_H
 #define UNIX_PROC_H
 
-#define NPROC 3				/* the process table: a slot each, and a zombie */
+#define NPROC 4				/* the process table: a slot each, the parked one, a zombie */
 #define NSLOT 2				/* slots: banks 2-5, primary and extra */
 #define NOFILE 8			/* a process's open files */
 #define NFILE 16			/* the open files of all */
@@ -23,7 +23,7 @@ struct proc {
 	unsigned ksp;			/* the saved kernel SP: first, swtch() knows it at 0 */
 	enum pstate state;
 	int pid, ppid;
-	int slot;			/* 0: banks 2-5 primary, 1: extra */
+	int slot;			/* 0: banks 2-5 primary, 1: extra, -1 parked */
 	const void *chan;		/* what it sleeps on */
 	int status;			/* the exit status, while a zombie */
 	unsigned brk;			/* the end of its text, data and bss */
@@ -39,6 +39,8 @@ extern unsigned kstack_top;		/* trap.s takes it for the kernel's SP */
 /* proc.c */
 void proc_init(void);
 void sleep(const void *chan);
+void preempt(struct trapframe *tf);
+extern volatile int resched;		/* clock.c: the slice is over */
 void wakeup(const void *chan);
 void setslot(int slot);
 int fork(struct trapframe *tf);

@@ -125,6 +125,7 @@ program(rtfs user/rtfs.c)
 program(du user/du.c)
 program(df user/df.c)
 program(chmod user/chmod.c)
+program(sleep user/sleep.c)
 
 # own_program(<name> <sources>): a program that owns the machine
 # (kernel/own.c, user/own/own.h): linked at 001000 with the ROM's little
@@ -185,6 +186,7 @@ set(VOLUME_FILES
     /bin/du=du.x
     /bin/df=df.x
     /bin/chmod=chmod.x
+    /bin/sleep=sleep.x
     /bin/bigmem=bigmem.x
     /bin/rt11=rt11.x
     --dir /tmp

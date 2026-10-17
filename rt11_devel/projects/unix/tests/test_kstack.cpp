@@ -18,7 +18,7 @@ namespace {
 /* The tables lie in bank 6 where the kernel's link put them (high.h):
  * the processes one after another, each with its kernel stack at its end
  * (proc.h), the canary its bottom word. */
-constexpr unsigned kBank6 = 0140000, kDriver = 0155000, kProc = 36, kKstack = 320, kProcs = 3;
+constexpr unsigned kBank6 = 0140000, kDriver = 0155000, kProc = 36, kKstack = 320, kProcs = 4;
 constexpr unsigned kCanary = 0122525, kMargin = 32;
 
 } // namespace
@@ -30,7 +30,7 @@ TEST_CASE("the kernel stacks keep a margin under the heaviest calls") {
     Machine m(unixos::readImage(), true);
     REQUIRE(m.boot(3000));
     for (const char *c : {"ls /bin", "cat /etc/numbers | cat", "echo a > /tmp/x", "cat < /tmp/x",
-                          "mkdir /tmp/d", "echo b > /tmp/d/y", "ls /tmp/d", "rm /tmp/d/y", "pid &", "pid",
+                          "mkdir /tmp/d", "echo b > /tmp/d/y", "ls /tmp/d", "rm /tmp/d/y", "pid &", "pid", "sleep 1 &", "ls /bin",
                           "echo ls /tmp > /tmp/s", "sh /tmp/s", "umount /dev/rd0", "mkfs /dev/rd0",
                           "mount /dev/rd0 /tmp", "cat /etc/numbers | cat | cat", "xyz", "ls /dev"}) {
         INFO(c << "\n" << m.screen());
@@ -41,9 +41,11 @@ TEST_CASE("the kernel stacks keep a margin under the heaviest calls") {
     std::vector<unsigned> canaries;
     for (unsigned a = kBank6; a < kDriver; a += 2)
         if (m.emulator().readWord(static_cast<uint16_t>(a)) == kCanary) canaries.push_back(a);
-    REQUIRE(canaries.size() == kProcs);
-    for (unsigned p = 1; p < kProcs; ++p) CHECK(canaries[p] - canaries[p - 1] == kProc + kKstack);
-    for (unsigned p = 0; p < kProcs; ++p) {
+    /* The places used: the run parks the shell once, so all but maybe one. */
+    REQUIRE(canaries.size() >= kProcs - 1);
+    REQUIRE(canaries.size() <= kProcs);
+    for (std::size_t p = 1; p < canaries.size(); ++p) CHECK((canaries[p] - canaries[p - 1]) % (kProc + kKstack) == 0);
+    for (std::size_t p = 0; p < canaries.size(); ++p) {
         const unsigned bottom = canaries[p];
         CAPTURE(p);
         unsigned touched = 0;

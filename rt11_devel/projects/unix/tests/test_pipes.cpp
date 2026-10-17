@@ -1,8 +1,10 @@
 /*
- * test_pipes.cpp - two processes at once, one in each slot, and no swap:
- * the shell and a command.  A pipeline runs one command after another,
- * each one's output a file in /tmp the next one reads, the files gone
- * after; the background takes the other slot.
+ * test_pipes.cpp - two slots and no swap.  A pipeline runs one command
+ * after another, each one's output a file in /tmp the next one reads, the
+ * files gone after.  Two commands of one's own at once: with both slots
+ * taken a fork parks the shell - its used part, a few KB - in the shadow
+ * copy of bank 6, the child in its slot, and the shell comes back when a
+ * slot is free.
  */
 #include "Volume.hpp"
 
@@ -108,6 +110,64 @@ TEST_CASE("the background: the shell does not wait, and takes the next command")
     INFO(m.screen());
     CHECK(m.screen().find("in the background") != std::string::npos);
     CHECK(m.screen().find("echo in front\nin front\n#") != std::string::npos);
+}
+
+TEST_CASE("two commands of one's own at once: one in the background, one in front, the shell parked") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), false);
+    REQUIRE(m.boot());
+    REQUIRE(m.command("cd /etc"));
+    m.typeAndSettle("sleep 4 &\r", 50);
+    REQUIRE(m.waitPrompt());
+    const bool back = m.command("cat motd");                  /* the shell parked for it, and back */
+    INFO(m.screen());
+    REQUIRE(back);
+    CHECK(after(m, "cat motd").find("Welcome to UNIX") != std::string::npos);
+    CHECK(m.screen().find("no room") == std::string::npos);
+    REQUIRE(m.command("pwd"));                                /* its own state came back with it */
+    CHECK(after(m, "pwd").find("\n/etc\n#") != std::string::npos);
+    REQUIRE(m.command("echo still"));
+    CHECK(after(m, "echo still").find("\nstill\n#") != std::string::npos);
+}
+
+TEST_CASE("two in the background: the shell waits parked until one of them ends") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), false);
+    REQUIRE(m.boot());
+    m.typeAndSettle("sleep 2 &\r", 50);
+    REQUIRE(m.waitPrompt());
+    m.typeAndSettle("sleep 2 &\r", 50);
+    REQUIRE(m.waitPrompt(1000));                              /* when the first is gone */
+    REQUIRE(m.command("echo after"));
+    INFO(m.screen());
+    CHECK(m.screen().find("no room") == std::string::npos);
+    CHECK(after(m, "echo after").find("\nafter\n#") != std::string::npos);
+}
+
+TEST_CASE("the processor shared: with a busy one in the background the shell answers at once") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), false);
+    REQUIRE(m.boot());
+    m.typeAndSettle("sleep 8 &\r", 50);
+    REQUIRE(m.waitPrompt());
+    int frames = 0;
+    m.typeAndSettle("t\r", 0);
+    for (; frames < 400 && m.screen().find("\ntime ") == std::string::npos; frames += 5) m.run(5);
+    INFO(m.screen());
+    MESSAGE("the shell answered in " << frames << " frames");
+    CHECK(frames <= 50);                                      /* a second, not the sleep's eight */
+}
+
+TEST_CASE("sleep N: N seconds by the clock") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Machine m(unixos::readImage(), false);
+    REQUIRE(m.boot());
+    int frames = 0;
+    m.typeAndSettle("sleep 2\r", 0);
+    for (; frames < 500 && !m.waitPrompt(5); frames += 5) {}
+    MESSAGE("sleep 2 took " << frames << " frames");
+    CHECK(frames >= 90);                                      /* 50 frames a second */
+    CHECK(frames <= 160);
 }
 
 TEST_CASE("a pipeline is not put in the background: one command at a time in front") {

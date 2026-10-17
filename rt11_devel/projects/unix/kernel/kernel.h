@@ -8,6 +8,7 @@
 #define DISPATCHER (*(volatile unsigned *)0177400)
 #define DISP_COPY  (*(volatile unsigned *)0157700)	/* the ROM's copy */
 #define BANK1_BIT 2			/* dispatcher bit 1: bank 1 primary when set */
+#define BANK6_BIT 0100			/* bit 6: bank 6 primary; its shadow copy is the parking */
 /* The shadow copy of bank 1, seen at 020000-037777 while xcopy has it on:
  * 16 blocks, the buffer cache's second level and the last fork's bounce. */
 #define SHADOW_BLOCK(i) ((char *)020000 + (i) * 512)

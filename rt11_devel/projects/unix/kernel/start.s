@@ -36,16 +36,13 @@ start:
 ___main:
 	rts	pc
 
-/ The data's first word: start.s is linked first.
-	.data
-data:
-
 / void xcopy(void *to, const void *from, unsigned words, unsigned disp):
 / words copied with the dispatcher set to disp - the shadow copy of bank 1
-/ on, another slot - and then back as the ROM's copy of it has it.  It is
-/ here, in bank 0, for code switching bank 1 must not lie in it (SPEC.md
-/ "Memory map"); at priority 7, the handlers being in bank 1 too, and not a
-/ word pushed while the banks are switched.
+/ or of bank 6 on, another slot - and then back as the ROM's copy of it has
+/ it.  It is here, in bank 0's code, for code switching bank 1 or bank 6
+/ must not lie in it (SPEC.md "Memory map"); at priority 7, the handlers
+/ being in bank 1 too, and not a word pushed while the banks are switched:
+/ the kernel's stacks are in bank 6.
 _xcopy:
 	mov	r2, -(sp)
 	mov	r3, -(sp)
@@ -66,3 +63,8 @@ _xcopy:
 	mov	(sp)+, r3
 	mov	(sp)+, r2
 	rts	pc
+
+/ The data's first word: start.s is linked first.  Nothing of the text
+/ after this - the data lie in bank 6, and code switching banks must not.
+	.data
+data:
