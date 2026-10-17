@@ -17,6 +17,7 @@ extern int errno;
 #define ENOSPC 28
 #define ENODEV 19
 #define EXDEV 18
+#define EACCES 13
 
 void exit(int status);
 int fork(void);
@@ -33,6 +34,7 @@ int dup(int fd);
 int pipe(int fd[2]);
 int creat(const char *path);
 int unlink(const char *path);
+int chmod(const char *path, int rights);	/* 0..7: r 4, w 2, x 1 */
 int mkdir(const char *path);
 int sync(void);
 int mount(const char *device, const char *dir);

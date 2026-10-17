@@ -132,7 +132,7 @@ static void child(char **word, int in, int out, int other)
 	pathof(word[0], path);
 	execv(path, word);
 	puts_fd(2, word[0]);
-	puts_fd(2, errno == ENOENT ? ": not found\n" : ": cannot run\n");
+	puts_fd(2, errno == ENOENT ? ": not found\n" : errno == EACCES ? ": not allowed\n" : ": cannot run\n");
 	exit(127);
 }
 

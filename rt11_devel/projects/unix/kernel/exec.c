@@ -45,9 +45,9 @@ int exec(const char *path, const char *const *argv)
 	ip = namei(path, &error);
 	if (!ip)
 		return error;
-	if ((ip->d.mode & S_IFMT) != S_IFREG) {
+	if ((ip->d.mode & S_IFMT) != S_IFREG || !(ip->d.mode & S_X)) {
 		iput(ip);
-		return EISDIR;
+		return (ip->d.mode & S_IFMT) != S_IFREG ? EISDIR : EACCES;
 	}
 	if (readi(ip, 0, (char *)&h, sizeof h) != sizeof h ||
 	    (h.magic != AOUT_MAGIC && h.magic != OWN_MAGIC)) {

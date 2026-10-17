@@ -83,6 +83,7 @@ TEST_CASE("bigmem from side 1 of the second drive: the loader reads it by the RO
     REQUIRE(m.command("mkfs /dev/fd3", 3000));
     REQUIRE(m.command("mount /dev/fd3 /tmp"));
     REQUIRE(m.command("cat /bin/bigmem > /tmp/b", 3000));
+    REQUIRE(m.command("chmod r-x /tmp/b"));                   /* a copy is rw- */
     m.typeAndSettle("/tmp/b\r", 0);
     REQUIRE(m.runUntil("PRESS A KEY", 3000));
     INFO(m.screen());
@@ -95,6 +96,7 @@ TEST_CASE("a program that owns the machine is refused where the ROM cannot read 
     Machine m(unixos::readImage(), true);
     atPrompt(m);
     REQUIRE(m.command("cat /bin/bigmem > /tmp/bigmem"));
+    REQUIRE(m.command("chmod r-x /tmp/bigmem"));
     REQUIRE(m.command("/tmp/bigmem"));
     INFO(m.screen());
     CHECK(m.screen().find("/tmp/bigmem: cannot run") != std::string::npos);

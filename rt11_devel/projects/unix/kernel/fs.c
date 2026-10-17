@@ -502,15 +502,15 @@ struct inode *fs_creat(const char *path, int *error)
 			*error = EIO;
 			return 0;
 		}
-		if ((ip->d.mode & S_IFMT) == S_IFDIR) {
+		if ((ip->d.mode & S_IFMT) == S_IFDIR || !(ip->d.mode & S_W)) {
+			*error = (ip->d.mode & S_IFMT) == S_IFDIR ? EISDIR : EACCES;
 			iput(ip);
-			*error = EISDIR;
 			return 0;
 		}
 		itrunc(ip);
 		return ip;
 	}
-	if (!(ip = ialloc(dp->dev, S_IFREG))) {
+	if (!(ip = ialloc(dp->dev, S_IFREG | S_R | S_W))) {
 		iput(dp);
 		*error = ENOSPC;
 		return 0;
@@ -536,7 +536,7 @@ int fs_mkdir(const char *path)
 		iput(dp);
 		return EEXIST;
 	}
-	if (!(ip = ialloc(dp->dev, S_IFDIR))) {
+	if (!(ip = ialloc(dp->dev, S_IFDIR | S_RIGHTS))) {
 		iput(dp);
 		return ENOSPC;
 	}
@@ -605,10 +605,12 @@ int fs_unlink(const char *path)
 		iput(dp);
 		return ENOENT;
 	}
-	if ((ip->d.mode & S_IFMT) == S_IFDIR || swap_file(ip)) {
+	error = (ip->d.mode & S_IFMT) == S_IFDIR ? EISDIR : swap_file(ip) ? EBUSY :
+		!(ip->d.mode & S_W) ? EACCES : 0;
+	if (error) {
 		iput(ip);
 		iput(dp);
-		return swap_file(ip) ? EBUSY : EISDIR;
+		return error;
 	}
 	memset(&d, 0, sizeof d);
 	writei(dp, where, (const char *)&d, sizeof d);

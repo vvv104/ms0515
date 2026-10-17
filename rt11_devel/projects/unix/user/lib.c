@@ -46,7 +46,8 @@ void complain(const char *who, const char *what)
 		   errno == EISDIR ? ": a directory\n" : errno == ENOSPC ? ": no room on the volume\n" :
 		   errno == ENOTBLK ? ": not a block device\n" : errno == EBUSY ? ": busy\n" :
 		   errno == EINVAL ? ": no file system there\n" : errno == EXDEV ? ": on another volume\n" :
-		   errno == ENODEV ? ": not without /boot/fd\n" : ": cannot\n");
+		   errno == ENODEV ? ": not without /boot/fd\n" : errno == EACCES ? ": not allowed\n" :
+		   ": cannot\n");
 }
 
 int memcmp(const void *a, const void *b, unsigned n)

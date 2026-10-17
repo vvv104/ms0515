@@ -20,7 +20,7 @@
 enum {
 	SYS_EXIT = 1, SYS_FORK = 2, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6,
 	SYS_WAIT = 7, SYS_CREAT = 8, SYS_LINK = 9, SYS_UNLINK = 10, SYS_EXEC = 11, SYS_CHDIR = 12, SYS_TIME = 13,
-	SYS_STAT = 18, SYS_LSEEK = 19, SYS_GETPID = 20, SYS_FSTAT = 28,
+	SYS_CHMOD = 15, SYS_STAT = 18, SYS_LSEEK = 19, SYS_GETPID = 20, SYS_FSTAT = 28,
 	SYS_MOUNT = 21, SYS_UMOUNT = 22,
 	SYS_SYNC = 36, SYS_DUP = 41, SYS_PIPE = 42, SYS_IOCTL = 54, SYS_GETPPID = 64, SYS_SWAPON = 85,
 	SYS_MKDIR = 136
@@ -270,24 +270,35 @@ static int fd_of_inode(struct trapframe *tf, struct inode *ip, unsigned mode)
 	return 0;
 }
 
+/* The inode at the process's path p, held; 0 and the error when there is
+ * none. */
+static struct inode *user_inode(unsigned p, int *error)
+{
+	if ((*error = user_string(p, PATHMAX)) != 0)
+		return 0;
+	return namei((const char *)p, error);
+}
+
 static int sys_open(struct trapframe *tf, const unsigned *arg)
 {
 	struct inode *ip;
+	unsigned mode;
 	int error = 0;
 
-	if ((error = user_string(arg[0], PATHMAX)) != 0)
-		return error;
 	if (arg[1] > 2)
 		return EINVAL;
-	if (!(ip = namei((const char *)arg[0], &error)))
+	if (!(ip = user_inode(arg[0], &error)))
 		return error;
-	if (arg[1] != 0 && (ip->d.mode & S_IFMT) == S_IFDIR) {
+	mode = ip->d.mode;
+	if (arg[1] != 0)			/* to write: no directory, no device under its volume */
+		error = (mode & S_IFMT) == S_IFDIR ? EISDIR :
+			(mode & S_IFMT) == S_IFBLK && fs_mounted(ip->d.ext[0].start) ? EBUSY :
+			!(mode & S_W) ? EACCES : 0;
+	if (!error && arg[1] != 1 && !(mode & S_R))
+		error = EACCES;
+	if (error) {
 		iput(ip);
-		return EISDIR;
-	}
-	if (arg[1] != 0 && (ip->d.mode & S_IFMT) == S_IFBLK && fs_mounted(ip->d.ext[0].start)) {
-		iput(ip);
-		return EBUSY;			/* not to be written under its volume */
+		return error;
 	}
 	return fd_of_inode(tf, ip, arg[1]);
 }
@@ -350,9 +361,7 @@ static int sys_swapon(struct trapframe *, const unsigned *arg)
 	struct inode *ip;
 	int error = 0;
 
-	if ((error = user_string(arg[0], PATHMAX)) != 0)
-		return error;
-	if (!(ip = namei((const char *)arg[0], &error)))
+	if (!(ip = user_inode(arg[0], &error)))
 		return error;
 	if ((error = swap_on(ip)) != 0)
 		iput(ip);
@@ -375,9 +384,7 @@ static int sys_chdir(struct trapframe *, const unsigned *arg)
 	struct inode *ip;
 	int error;
 
-	if ((error = user_string(arg[0], PATHMAX)) != 0)
-		return error;
-	if (!(ip = namei((const char *)arg[0], &error)))
+	if (!(ip = user_inode(arg[0], &error)))
 		return error;
 	if ((ip->d.mode & S_IFMT) != S_IFDIR) {
 		iput(ip);
@@ -405,15 +412,27 @@ static int stat_out(const struct inode *ip, unsigned p)
 	return 0;
 }
 
+/* chmod(path, rights): the file's one rwx (fs.h S_R...). */
+static int sys_chmod(struct trapframe *, const unsigned *arg)
+{
+	struct inode *ip;
+	int error;
+
+	if (!(ip = user_inode(arg[0], &error)))
+		return error;
+	ip->d.mode = (ip->d.mode & ~S_RIGHTS) | (arg[1] & S_RIGHTS);
+	iupdate(ip);
+	iput(ip);
+	return 0;
+}
+
 /* stat(path, &st). */
 static int sys_stat(struct trapframe *, const unsigned *arg)
 {
 	struct inode *ip;
 	int error;
 
-	if ((error = user_string(arg[0], PATHMAX)) != 0)
-		return error;
-	if (!(ip = namei((const char *)arg[0], &error)))
+	if (!(ip = user_inode(arg[0], &error)))
 		return error;
 	error = stat_out(ip, arg[1]);
 	iput(ip);
@@ -548,7 +567,7 @@ static const struct {
 	{SYS_EXIT, sys_exit}, {SYS_FORK, sys_fork}, {SYS_READ, sys_read}, {SYS_WRITE, sys_write},
 	{SYS_OPEN, sys_open}, {SYS_CLOSE, sys_close}, {SYS_WAIT, sys_wait}, {SYS_CREAT, sys_creat},
 	{SYS_LINK, sys_link}, {SYS_UNLINK, sys_unlink}, {SYS_EXEC, sys_exec}, {SYS_CHDIR, sys_chdir},
-	{SYS_TIME, sys_time}, {SYS_STAT, sys_stat}, {SYS_LSEEK, sys_lseek}, {SYS_GETPID, sys_getpid},
+	{SYS_TIME, sys_time}, {SYS_CHMOD, sys_chmod}, {SYS_STAT, sys_stat}, {SYS_LSEEK, sys_lseek}, {SYS_GETPID, sys_getpid},
 	{SYS_MOUNT, sys_mount}, {SYS_UMOUNT, sys_umount}, {SYS_FSTAT, sys_fstat}, {SYS_SYNC, sys_sync},
 	{SYS_DUP, sys_dup}, {SYS_PIPE, sys_pipe}, {SYS_IOCTL, sys_ioctl}, {SYS_GETPPID, sys_getppid},
 	{SYS_SWAPON, sys_swapon}, {SYS_MKDIR, sys_mkdir},

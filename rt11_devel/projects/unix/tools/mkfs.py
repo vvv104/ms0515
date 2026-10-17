@@ -97,7 +97,7 @@ class Volume:
         return n
 
     def mkdir(self, parent, name):
-        n = self.inode(S_IFDIR)
+        n = self.inode(S_IFDIR | 0o7)
         self.dirs[n] = {".": n, "..": parent if parent else n}
         if parent:
             self.link(parent, name, n)
@@ -127,7 +127,7 @@ class Volume:
 
     def add(self, path, data):
         directory, name = self.walk(path)
-        n = self.inode(S_IFREG)
+        n = self.inode(S_IFREG | rights(path, data))
         self.inodes[n][2] = data
         self.link(directory, name, n)
         return n
@@ -138,7 +138,7 @@ class Volume:
 
     def device(self, path, number):
         directory, name = self.walk(path)
-        n = self.inode(S_IFBLK)
+        n = self.inode(S_IFBLK | 0o6)
         self.inodes[n][3] = number            # its "start": the device's number
         self.inodes[n].append("device")
         self.link(directory, name, n)
@@ -190,6 +190,17 @@ class Volume:
         self.put(1, sb)
         if boot:
             self.put(0, boot)
+
+
+def rights(path, data):
+    """A file's one rwx (kernel/fs.h): r-x the system's - /boot's, /bin's
+    and any program, an a.out - --- the swap file, rw- the rest."""
+    path = "/" + path.strip("/")
+    if path == "/swap":
+        return 0
+    if path.startswith(("/boot/", "/bin/")) or data[:2] in (b"\x07\x01", b"\x01\x01"):
+        return 0o5
+    return 0o6
 
 
 def symbol(nm, program, name):

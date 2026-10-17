@@ -17,8 +17,13 @@ each command as a child - fork, exec, wait - and comes back with its prompt;
 children's the same; a path not beginning with / goes from it.  Three processes at most - the shell and a pipe of
 two; two are resident, one in each slot, and with swap on the third waits
 in the swap file, 64 KB, and comes in when it is to run.
+A file has one rwx, there being no users, kept in its inode: r to read
+it, w to write it, empty it or remove it, x to run it.  The system's files,
+/boot's and /bin's and every program, are r-x - neither removed nor written
+over - the swap file ---, the rest rw-; a new file is rw-, `chmod r-x FILE`
+(or a digit, 5) changes it.  A directory's rights are not looked at.
 The file system is written, each change going to the disk at once.  /bin has
-`sh`, `ls` (`-l`, `-a`), `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `du`, `df`, `mkfs`,
+`sh`, `ls` (`-l`, `-a`), `cat`, `echo`, `rm`, `mkdir`, `pwd`, `ln`, `mv`, `cp`, `du`, `df`, `chmod`, `mkfs`,
 `mount`, `umount`,
 `swapon`, `fdformat`, `hello`, `fail`, `pid`, `bigmem` (a program that owns
 the machine), `rt11` (an RT-11 program run on the machine: `rt11

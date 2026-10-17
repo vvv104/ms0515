@@ -30,7 +30,7 @@ struct superblock {
 
 /* An inode, 32 bytes, 16 a block; inode n is the table's (n - 1)th. */
 struct dinode {
-	unsigned mode;			/* the type alone: no users, no permissions */
+	unsigned mode;			/* the type and the one rwx (S_R...) */
 	unsigned char nlink;
 	unsigned char nextents;
 	unsigned long size;		/* bytes */
@@ -44,6 +44,13 @@ struct dinode {
 #define S_IFDIR 0040000
 #define S_IFBLK 0060000			/* a block device: its number in ext[0].start */
 #define S_IFREG 0100000
+/* A file's rights: one rwx, there being no users.  r to read it, w to
+ * write it, empty it or remove it, x to run it; a directory's are not
+ * looked at.  A new file is rw-, a directory rwx. */
+#define S_R 4
+#define S_W 2
+#define S_X 1
+#define S_RIGHTS 7
 
 /* A directory entry, 16 bytes, 32 a block; inode 0 is a free entry. */
 #define DIRSIZ 14

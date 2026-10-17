@@ -1,7 +1,7 @@
 /* ls.c - /bin/ls [-l] [-a] [PATH...]: the names in each directory given,
  * the process's own by default, on a line; with -l a line a name - its
- * type (d, b or -: there are no permissions), its links, its size in
- * bytes - and a file named
+ * type (d, b or -) and its one rwx, its links, its size in bytes - and a
+ * file named
  * is its own line; the names beginning with a dot shown with -a only. */
 #include "unistd.h"
 #include "../kernel/fs.h"
@@ -27,13 +27,20 @@ static void put_number(unsigned long n, int width)
 /* The -l line of the file at path, shown as name. */
 static int line(const char *path, const char *name)
 {
+	char mode[6];
 	struct stat st;
 
 	if (stat(path, &st) < 0) {
 		complain("ls", path);
 		return 1;
 	}
-	puts_fd(1, (st.mode & S_IFMT) == S_IFDIR ? "d " : (st.mode & S_IFMT) == S_IFBLK ? "b " : "- ");
+	mode[0] = (st.mode & S_IFMT) == S_IFDIR ? 'd' : (st.mode & S_IFMT) == S_IFBLK ? 'b' : '-';
+	mode[1] = st.mode & S_R ? 'r' : '-';
+	mode[2] = st.mode & S_W ? 'w' : '-';
+	mode[3] = st.mode & S_X ? 'x' : '-';
+	mode[4] = ' ';
+	mode[5] = 0;
+	puts_fd(1, mode);
 	put_number(st.nlink, 2);
 	puts_fd(1, " ");
 	put_number(st.size, 7);
