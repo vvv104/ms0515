@@ -88,7 +88,8 @@ The compiler is `$MS0515_GCC/bin/pdp11-aout-gcc`, or on the PATH; on
 Windows the build runs in WSL.  `unix.dsk` is a double-sided diskette,
 819200 bytes, its volume on both sides (`fdx0`); `--disk0` puts both its
 sides in the first drive.  `unix400.dsk` is the same system on one side,
-409600 bytes (`fd0`), for the emulators that take no other - in
+409600 bytes (`fd0`), for the emulators that take no other: none of the
+three others takes an 800 KB image.  It boots in Titus's EmuStudio and in
 MAME (`mame ms0515 -flop1 unix400.dsk`, its format the single-sided one).
 In ms0515btl the boot stops at the monitor: its access to a port that is
 not there - the RAM disk's, looked for by /boot/rd - halts the machine
