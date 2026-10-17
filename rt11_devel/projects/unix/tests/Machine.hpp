@@ -220,14 +220,37 @@ public:
         run(frames);
     }
 
-    /* The screen's text, a line a row. */
-    std::string screen()
+    /* The screen's text, a line a row, as it is shown. */
+    std::string shown()
     {
         ms0515::Terminal term;
         auto snap = term.decode(emu_);
         std::string text;
         for (int r = 0; r < ms0515::Terminal::kRows; ++r) text += snap.row(r) + "\n";
         return text;
+    }
+
+    /* The screen's text with the shell's prompts bare: "/home# ls" read as
+     * "# ls" - the directory before the '#' is test_prompt.cpp's, the rest
+     * look at what comes after. */
+    std::string screen()
+    {
+        const std::string text = shown();
+        std::string out;
+        std::size_t at = 0;
+        while (at < text.size()) {
+            std::size_t end = text.find('\n', at);
+            if (end == std::string::npos) end = text.size();
+            std::string row = text.substr(at, end - at);
+            const auto hash = row.find('#');
+            if (!row.empty() && row[0] == '/' && hash != std::string::npos &&
+                row.find(' ') > hash && (hash + 1 == row.size() || row[hash + 1] == ' '))
+                row.erase(0, hash);
+            out += row;
+            if (end < text.size()) out += '\n';
+            at = end + 1;
+        }
+        return out;
     }
 
     /* Frames run until the screen shows `what`, at most `limit`. */

@@ -29,6 +29,7 @@ add_executable(unix_tests
     test_sides.cpp
     test_driver.cpp
     test_ramdisk.cpp
+    test_prompt.cpp
     test_kstack.cpp
 )
 

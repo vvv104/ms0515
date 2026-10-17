@@ -8,7 +8,10 @@
  *	cmd < file	the input from the file
  *
  * A command without a '/' is looked for in /bin; '#' to the line's end is a
- * comment.  Its own commands:
+ * comment.  The prompt tells the shell's directory, "/home# ".  At the
+ * console Tab completes the word in hand (complete()): the first word of a
+ * command from /bin, the others from the directory their path names.  Its
+ * own commands:
  *
  *	cd [DIR]	the shell's own directory, and its children's; /home alone
  *	t		the time since the boot
@@ -28,13 +31,17 @@
  * the next one reads, so a pipeline is not put in the background; while a
  * command runs in the background the next finds no room. */
 #include "unistd.h"
+#include "cwd.h"
+#include "../kernel/ioctl.h"
 
 #define MAXARGS 16
 #define MAXCMDS 6
 #define PATHMAX 64
 #define HOME "/home"
+#define DIRSIZ 14
 
 static int last_status;
+static char cwd[PATHMAX];		/* the prompt's directory */
 
 /* The words of line, cut in place at the spaces: how many. */
 static int words(char *line, char **word, int max)
@@ -205,6 +212,128 @@ struct input {
 	char buf[128];
 };
 
+/* The line cut at its '#': its length. */
+static int uncomment(char *line)
+{
+	int n;
+
+	for (n = 0; line[n] && line[n] != '#'; n++)
+		;
+	line[n] = 0;
+	return n;
+}
+
+static void prompt(void)
+{
+	say(cwd);
+	say("# ");			/* not $: the ROM's font has the currency sign there */
+}
+
+/* A directory's entry. */
+struct entry {
+	unsigned ino;
+	char name[DIRSIZ];
+};
+
+/* The names in dir beginning with the len bytes of part, not . and ..
+ * unless part begins with a dot: how many; the longest beginning they all
+ * share into common, and the last one into last.  With `list` each is
+ * written out. */
+static int match(const char *dir, const char *part, int len, char *common, char *last, int list)
+{
+	struct entry e;
+	int fd, n = 0, i;
+
+	if (len > DIRSIZ || (fd = open(dir, 0)) < 0)
+		return 0;
+	while (read(fd, &e, sizeof e) == sizeof e) {
+		if (!e.ino || (e.name[0] == '.' && part[0] != '.') || memcmp(e.name, part, len))
+			continue;
+		for (i = 0; i < DIRSIZ && e.name[i]; i++)
+			last[i] = e.name[i];
+		last[i] = 0;
+		if (n++ == 0)
+			for (i = 0; (common[i] = last[i]) != 0; i++)
+				;
+		for (i = 0; common[i] && common[i] == last[i]; i++)
+			;
+		common[i] = 0;
+		if (list) {
+			say(last);
+			say("  ");
+		}
+	}
+	close(fd);
+	return n;
+}
+
+/* Tab: the word at the line's end completed - the rest of one name typed
+ * into the console's line, a directory's with its '/', a file's with a
+ * space; the longest beginning several share; or, when they share no more,
+ * their names listed and the line drawn again. */
+static void complete(const char *line)
+{
+	char dir[PATHMAX], common[DIRSIZ + 1], last[DIRSIZ + 1], rest[DIRSIZ + 2];
+	const char *word = line, *part, *s;
+	struct stat st;
+	int n, i, len, found, first = 1;
+
+	for (s = line; *s; s++)
+		if (*s == ' ')
+			word = s + 1;
+	for (s = line; s < word; s++)		/* a command's first word: only spaces or a | before */
+		if (*s != ' ')
+			first = *s == '|';
+	for (part = s = word; *s; s++)
+		if (*s == '/')
+			part = s + 1;
+	if ((n = (int)(part - word)) >= PATHMAX - DIRSIZ - 1)
+		return;
+	if (n)
+		memcpy(dir, word, n);
+	else
+		for (s = first ? "/bin/" : ""; *s; s++)
+			dir[n++] = *s;
+	dir[n] = 0;
+	len = strlen(part);
+	if (!(found = match(n ? dir : ".", part, len, common, last, 0)))
+		return;
+	for (i = 0; common[len + i]; i++)
+		rest[i] = common[len + i];
+	if (found == 1) {			/* one name: all of it */
+		memcpy(dir + n, last, DIRSIZ + 1);
+		rest[i++] = stat(dir, &st) == 0 && (st.mode & 0170000) == 040000 ? '/' : ' ';
+		dir[n] = 0;
+	}
+	rest[i] = 0;
+	if (!i) {
+		say("\n");
+		match(n ? dir : ".", part, len, common, last, 1);
+		say("\n");
+		prompt();
+		say(line);
+	}
+	ioctl(0, TTY_TAB, rest);
+}
+
+/* A command line typed at the console into line, its '#' and on cut away;
+ * -1 at the end.  A Tab hands the line over as far as it goes, a '\t'
+ * after it: the word completed, the line read again. */
+static int typed(char *line, int size)
+{
+	int n, end;
+
+	for (;;) {
+		if ((n = read(0, line, size - 1)) <= 0)
+			return -1;
+		end = line[n - 1];
+		line[n - 1] = 0;
+		if (end != '\t')
+			return uncomment(line);
+		complete(line);
+	}
+}
+
 /* The next line of the input into line, its '\n' taken off, '#' and on cut
  * away; -1 at the end.  A terminal's read gives a line at a time; a file's
  * is read a buffer ahead. */
@@ -231,10 +360,7 @@ static int next_line(struct input *in, char *line, int size)
 			line[n++] = c;
 	}
 	line[n] = 0;
-	for (n = 0; line[n] && line[n] != '#'; n++)
-		;
-	line[n] = 0;
-	return n;
+	return uncomment(line);
 }
 
 static int interpret(char *line);
@@ -278,6 +404,8 @@ static int own(char **word, int n, int *done)
 	if (!strcmp(word[0], "cd")) {		/* the shell's own directory, and its children's */
 		if (chdir(n > 1 ? word[1] : HOME) < 0)
 			complain("sh", n > 1 ? word[1] : HOME);
+		else if (getcwd(cwd, sizeof cwd) < 0)
+			cwd[0] = 0;
 		return 1;
 	}
 	if (!strcmp(word[0], "sh") && n == 2) {	/* a script: here, not in a child */
@@ -334,6 +462,7 @@ int main(int argc, char **argv)
 {
 	struct input in;
 	char line[128];
+	int n;
 
 	if (argc > 1) {
 		source(argv[1]);
@@ -341,11 +470,15 @@ int main(int argc, char **argv)
 	}
 	if (getpid() == 1)
 		chdir(HOME);			/* none: the root it is */
+	if (getcwd(cwd, sizeof cwd) < 0)
+		cwd[0] = 0;
 	in.fd = 0;
 	in.have = in.at = 0;
 	for (;;) {
-		say("# ");			/* not $: the ROM's font has the currency sign there */
-		if (next_line(&in, line, sizeof line) < 0 || interpret(line))
+		prompt();
+		/* At the console Tab completes; from a file the lines as they are. */
+		n = ioctl(0, TTY_TAB, "") == 0 ? typed(line, sizeof line) : next_line(&in, line, sizeof line);
+		if (n < 0 || interpret(line))
 			return 0;
 	}
 }

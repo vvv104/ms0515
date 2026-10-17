@@ -11,13 +11,15 @@ loads its drivers - /boot/rd finds the EX board's RAM disk, /boot/fd takes
 the diskettes - and runs /etc/init.  init gives its place
 to the shell on /etc/rc: `mount -a` makes the RAM disk a volume at /tmp
 by /etc/fstab, and gives its place to /bin/sh for the console, which runs
-each command as a child - fork, exec, wait - and comes back with its prompt;
-`a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`,
+each command as a child - fork, exec, wait - and comes back with its prompt,
+which tells its directory, `/home# `; Tab completes the word in hand - a
+command from /bin, a path from its directory - several names that go on
+alike listed; `a | b | c` is a pipeline, `cmd &` runs without being waited for, `> file`,
 `>> file` and `< file` redirect.  A process has its own directory, its
 children's the same; a path not beginning with / goes from it.  Two
 processes run at once, one in each slot, the clock switching between them
 every 4 frames; there is no swap, but a fork with both slots taken parks
-the shell - its used part, some 5 KB - in the shadow copy of bank 6 until
+the shell - its used part, some 6.5 KB - in the shadow copy of bank 6 until
 a slot is free, so two commands of one's own run beside it: `sleep 10 &`,
 then anything in front.  A pipeline's commands run one after another,
 each one's output a file of /tmp the next one reads; `sh FILE` typed at
@@ -84,7 +86,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   jumpers, the seconds since the boot, the cursor's blink.
 - `kernel/tty.c` - the console: the line edited at the keyboard's
   interrupt with echo and BS, the lines queued for read(); a bare letter is
-  small, Latin as Russian.
+  small, Latin as Russian.  While the shell asks for it (TTY_TAB), Tab
+  hands it the line so far, a '\t' after it, the line kept in hand, and
+  the shell's completion is typed into the line as if from the keys.
 - `kernel/fs.h` - the file system on the disk: the superblock, the 32-byte
   inode with five extents, the 16-byte directory entry.
 - `kernel/dev.c` - the block devices: the diskettes through the ROM's
@@ -117,7 +121,8 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   written), `kernel/mount.c` (mount and umount), `kernel/part.c` (a
   driver read in).
 - `kernel/ioctl.h` - what `ioctl` does, for the kernel and the programs:
-  FD_WTRACK, a diskette's track written anew through /boot/fd.
+  FD_WTRACK, a diskette's track written anew through /boot/fd; TTY_TAB,
+  the console's Tab for the shell's completion.
 - `kernel/bio.c` - the buffer cache in two levels: three blocks in hand in
   bank 6, the least recently used given up to the shadow copy of bank 1,
   15 blocks more, from where it comes back without the device; a write goes
@@ -155,7 +160,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
 - `user/` - a process's start (`crt0.s`, `main(argc, argv)`), the calls as
   C functions (`sys.s`, `unistd.h`), a little library (`lib.c`), volumes
   (`vol.c`: mkfs.py's layout made on the machine), `init.c`,
-  and the programs of /bin: `sh.c` (scripts too), `ls.c`,
+  `cwd.c` (getcwd: the directory's path, up by .. - pwd's and the shell's
+  prompt's), and the programs of /bin: `sh.c` (scripts too, the prompt
+  with the directory, Tab's completion), `ls.c`,
   `cat.c`, `echo.c`, `rm.c`, `mkdir.c`, `mkfs.c`, `mount.c` (`mount -a`:
   /etc/fstab's volumes, in one process), `umount.c`,
   `fdformat.c` (a diskette's tracks built and written, a side or both),
@@ -188,7 +195,9 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   and shifted letters, a Russian word, BS, the clock, an unknown command; the volume read on the
   host by a second reading of the format (`Volume.hpp`), and on the machine
   `cat`, `ls`, a file across blocks line by line, a file not there, a
-  program with its arguments; the shell back at its prompt after a command,
+  program with its arguments; the prompt's directory after cd, Tab
+  completing a command, a directory, a file, BS back over it, names listed
+  and the line drawn again, the shell small enough to park; the shell back at its prompt after a command,
   a command by name and by path and one not there, the exit status, the
   children's pids, `exit` bringing a new shell; a pipe, a pipeline of
   three carrying a file of several blocks, its files in /tmp gone after,
@@ -242,7 +251,7 @@ The build reports the kernel's memory and stops past its limits
 the drivers' place - with four places in the process table, the two
 slots', a parked one's and a zombie's, and their kernel stacks at 320
 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 14344 bytes, 1972 bytes free below 040000, 1848 free in
+an image of 14542 bytes, 1790 bytes free below 040000, 1830 free in
 bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory, which keep -O2.

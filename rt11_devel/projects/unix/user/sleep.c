@@ -1,4 +1,5 @@
-/* sleep.c - /bin/sleep N: N seconds by the clock, and the end. */
+/* sleep.c - /bin/sleep N: N seconds by the clock at the least, and the end:
+ * the clock counts whole seconds, so till the (N+1)th has begun. */
 #include "unistd.h"
 
 int main(int argc, char **argv)
@@ -13,7 +14,7 @@ int main(int argc, char **argv)
 	}
 	for (s = argv[1]; *s >= '0' && *s <= '9'; s++)
 		n = n * 10 + (unsigned)(*s - '0');
-	while (time() - start < (long)n)
+	while (time() - start <= (long)n)
 		;
 	return 0;
 }

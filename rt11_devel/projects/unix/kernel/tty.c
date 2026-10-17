@@ -6,6 +6,8 @@
  * character is put at the line's end, BS or DEL takes the last one back,
  * CR or LF ends the line, which goes, with a '\n', to the queue read()
  * takes from - so a line can be typed ahead while the process is busy.
+ * Tab, while the shell asks for it (tty_tab), hands the line so far to
+ * read() with a '\t' after it, the line kept in hand.
  * Latin letters have their case turned: the ROM gives a bare key's letter
  * upper case and a Russian one lower; here both are lower bare and upper
  * with Shift.  SO and SI, which the ROM sends at RUS/LAT, are dropped: ROM-B
@@ -19,6 +21,7 @@
 static int len;
 #define queue (HIGH->queue)
 static volatile int head, tail;		/* the queue: taken at tail, put at head */
+static char tabs;			/* Tab hands the line over (tty_tab) */
 
 static void put(int c)
 {
@@ -30,10 +33,27 @@ static void put(int c)
 	}
 }
 
-static void input(int c)
+/* The line in hand to the queue, `end` after it. */
+static void hand(int end)
 {
 	int i;
 
+	for (i = 0; i < len; i++)
+		put(line[i]);
+	put(end);
+	wakeup(queue);
+}
+
+static void add(int c)
+{
+	if (len < LINE - 1) {
+		line[len++] = (char)c;
+		rom_putc(c);
+	}
+}
+
+static void input(int c)
+{
 	if (c >= 'A' && c <= 'Z')
 		c += 'a' - 'A';
 	else if (c >= 'a' && c <= 'z')
@@ -51,21 +71,33 @@ static void input(int c)
 			rom_putc(010);
 		}
 		return;
+	case '\t':
+		if (tabs) {
+			hand('\t');
+			return;
+		}
+		break;
 	case '\r':
 	case '\n':
 		rom_putc('\r');
 		rom_putc('\n');
-		for (i = 0; i < len; i++)
-			put(line[i]);
-		put('\n');
-		len = 0;
-		wakeup(queue);
+		hand('\n');
+		len = tabs = 0;
 		return;
 	}
-	if (len < LINE - 1) {
-		line[len++] = (char)c;
-		rom_putc(c);
-	}
+	add(c);
+}
+
+/* TTY_TAB (ioctl.h): s typed into the line, Tab handing it over till the
+ * line ends. */
+void tty_tab(const char *s)
+{
+	int ps = spl7();
+
+	while (*s)
+		add(*s++);
+	tabs = 1;
+	splx(ps);
 }
 
 void tty_intr(void)
@@ -89,7 +121,7 @@ int tty_read(char *buf, int n)
 		c = queue[tail];
 		tail = (tail + 1) % QUEUE;
 		buf[got++] = (char)c;
-		if (c == '\n')
+		if (c == '\n' || (c == '\t' && tail == head))	/* a Tab's: the last */
 			break;
 	}
 	splx(s);

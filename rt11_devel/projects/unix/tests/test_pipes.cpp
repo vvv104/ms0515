@@ -130,6 +130,19 @@ TEST_CASE("two commands of one's own at once: one in the background, one in fron
     CHECK(after(m, "echo still").find("\nstill\n#") != std::string::npos);
 }
 
+TEST_CASE("the shell stays small enough to park: its program at most 7 KB, the stack's room left of 8") {
+    if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
+    Volume v(unixos::readImage());
+    const auto sh = v.lookup("/bin/sh");
+    REQUIRE(sh);
+    const std::string a = v.content(v.inode(*sh));
+    REQUIRE(a.size() >= 16);
+    const auto word = [&](int i) { return static_cast<unsigned>(static_cast<uint8_t>(a[2 * i]) | static_cast<uint8_t>(a[2 * i + 1]) << 8); };
+    const unsigned size = word(1) + word(2) + word(3);       /* text, data, bss */
+    MESSAGE("the shell: " << size << " bytes");
+    CHECK(size <= 7 * 1024);
+}
+
 TEST_CASE("two in the background: the shell waits parked until one of them ends") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), false);
@@ -158,7 +171,7 @@ TEST_CASE("the processor shared: with a busy one in the background the shell ans
     CHECK(frames <= 50);                                      /* a second, not the sleep's eight */
 }
 
-TEST_CASE("sleep N: N seconds by the clock") {
+TEST_CASE("sleep N: N seconds by the clock at the least, not a second more") {
     if (!unixos::built()) { MESSAGE("unix.dsk not built - skipped"); return; }
     Machine m(unixos::readImage(), false);
     REQUIRE(m.boot());
@@ -166,8 +179,8 @@ TEST_CASE("sleep N: N seconds by the clock") {
     m.typeAndSettle("sleep 2\r", 0);
     for (; frames < 500 && !m.waitPrompt(5); frames += 5) {}
     MESSAGE("sleep 2 took " << frames << " frames");
-    CHECK(frames >= 90);                                      /* 50 frames a second */
-    CHECK(frames <= 160);
+    CHECK(frames >= 100);                                     /* 50 frames a second */
+    CHECK(frames <= 165);
 }
 
 TEST_CASE("a pipeline is not put in the background: one command at a time in front") {
