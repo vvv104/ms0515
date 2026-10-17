@@ -135,9 +135,13 @@ static void sched(void)
 }
 
 /* The clock's slice over (clock.c resched): the other one runs, if it
- * can. */
+ * can.  A process Ctrl+C has taken out (tty.c) exits here instead, from
+ * its system call's end or the clock's, with 130 - 128 and the
+ * interrupt's 2, as the shells of UNIX tell it. */
 void preempt(struct trapframe *tf)
 {
+	if (curproc->killed)
+		pexit(130);
 	resched = 0;
 	curproc->tf = tf;
 	sched();
@@ -213,6 +217,8 @@ int fork(struct trapframe *tf)
 	slot_owner[slot] = c;
 	c->pid = nextpid++;
 	c->ppid = curproc->pid;
+	c->killed = 0;
+	c->bg = curproc->bg;
 	c->chan = 0;
 	for (i = 0; i < NOFILE; i++)
 		if ((c->ofile[i] = curproc->ofile[i]) != 0)

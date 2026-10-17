@@ -18,7 +18,7 @@ namespace {
 /* The tables lie in bank 6 where the kernel's link put them (high.h):
  * the processes one after another, each with its kernel stack at its end
  * (proc.h), the canary its bottom word. */
-constexpr unsigned kBank6 = 0140000, kDriver = 0155000, kProc = 36, kKstack = 320, kProcs = 4;
+constexpr unsigned kBank6 = 0140000, kDriver = 0155000, kProc = 38, kKstack = 320, kProcs = 4;
 constexpr unsigned kCanary = 0122525, kMargin = 32;
 
 } // namespace

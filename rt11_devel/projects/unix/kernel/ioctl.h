@@ -19,6 +19,7 @@
 
 #define FD_WTRACK 1
 #define TTY_TAB 2
+#define TTY_BG 3			/* the process and its children put in the background: Ctrl+C leaves them */
 
 struct fd_track {
 	unsigned track;

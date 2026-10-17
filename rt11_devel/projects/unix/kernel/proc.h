@@ -30,6 +30,8 @@ struct proc {
 	struct trapframe *tf;		/* its frame in the last system call */
 	struct file *ofile[NOFILE];
 	struct inode *cwd;		/* its own directory, held; 0 the root */
+	char killed;			/* Ctrl+C: to exit at its next way out of the kernel */
+	char bg;			/* put in the background: Ctrl+C leaves it (TTY_BG) */
 	char kstack[KSTACK];
 };
 

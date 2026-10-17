@@ -110,6 +110,12 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   small, Latin as Russian.  While the shell asks for it (TTY_TAB), Tab
   hands it the line so far, a '\t' after it, the line kept in hand, and
   the shell's completion is typed into the line as if from the keys.
+  Ctrl+D ends the input - read() gives 0 on an empty line, the part typed
+  without a newline else; Ctrl+C takes out the command in front: every
+  process but the session's shell and the background's (TTY_BG, set by
+  the shell for `&`) marked, woken from the console, and gone at its next
+  way out of the kernel - a system call's end or the clock's - with status
+  130.
 - `kernel/fs.h` - the file system on the disk: the superblock, the 32-byte
   inode with five extents, the 16-byte directory entry.
 - `kernel/dev.c` - the block devices: the diskettes through the ROM's
@@ -239,7 +245,10 @@ makes a volume on it, `mount /dev/fd2 /tmp` puts it in the tree.
   diskette at /mnt/floppy1 and its /home at /home, pwd and .. through it,
   let go and taken out with the system running on, another diskette and
   its /home mounted, a directory put elsewhere and what is refused, the
-  root's device refused for mkfs; mkboot from the RAM root and from the
+  root's device refused for mkfs; Ctrl+D ending cat's input, a part of
+  a line, the session; Ctrl+C taking out a command waiting for the
+  console and one at work, status 130, the background left alone, a fresh
+  line at the prompt; mkboot from the RAM root and from the
   diskette's, the system alone and all, to both sides and to one, into the
   boot drive with its diskette changed, each copy booted, and refused for a
   busy or empty drive or no device; /etc/rc
@@ -286,7 +295,7 @@ The build reports the kernel's memory and stops past its limits
 the drivers' place - with four places in the process table, the two
 slots', a parked one's and a zombie's, and their kernel stacks at 320
 bytes (242 the deepest measured, tests/test_kstack.cpp keeping a margin):
-an image of 14994 bytes, 1346 bytes free below 040000, 1760 free in
+an image of 15236 bytes, 1118 bytes free below 040000, 1738 free in
 bank 6.  The kernel's data, the big tables with it, live in bank 6: the low
 banks are its code's.  The kernel is built -Os - a quarter off its code - but for the loops
 that move memory, which keep -O2.

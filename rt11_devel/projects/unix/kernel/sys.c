@@ -489,6 +489,6 @@ void syscall(struct trapframe *tf)
 	} else {
 		tf->ps &= ~1u;
 	}
-	if (resched)				/* the slice over meanwhile */
+	if (resched || curproc->killed)		/* the slice over meanwhile, or Ctrl+C */
 		preempt(tf);
 }

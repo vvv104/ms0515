@@ -3,7 +3,8 @@
  *
  *	a | b | c	a pipeline: each command's output the next one's input,
  *			one command after another through a file in /tmp
- *	cmd &		not waited for: its pid is told, the prompt comes at once
+ *	cmd &		not waited for: its pid is told, the prompt comes at once;
+ *			Ctrl+C, which takes out the command in front, leaves it
  *	cmd > file	the output into the file, made or emptied
  *	cmd < file	the input from the file
  *
@@ -119,11 +120,15 @@ static int redirect(char **word, int *in, int *out)
 	return 0;
 }
 
-/* The child's part: its input and output put in place, the program run. */
-static void child(char **word, int in, int out)
+/* The child's part: its input and output put in place, the program run;
+ * one in the background out of Ctrl+C's way (TTY_BG on the console, 2,
+ * which the shell never redirects). */
+static void child(char **word, int in, int out, int background)
 {
 	char path[PATHMAX];
 
+	if (background)
+		ioctl(2, TTY_BG, 0);
 	if (redirect(word, &in, &out) < 0 || !word[0])
 		exit(1);
 
@@ -152,7 +157,7 @@ static int start(char **word, int in, int out, int background)
 	int pid = fork(), got, status = 0;
 
 	if (pid == 0)
-		child(word, in, out);
+		child(word, in, out, background);
 	if (in != 0)
 		close(in);
 	if (out != 1)
@@ -316,8 +321,9 @@ static void complete(const char *line)
 }
 
 /* A command line typed at the console into line, its '#' and on cut away;
- * -1 at the end.  A Tab hands the line over as far as it goes, a '\t'
- * after it: the word completed, the line read again. */
+ * -1 at the end - Ctrl+D on an empty line.  A Tab hands the line over as
+ * far as it goes, a '\t' after it: the word completed, the line read
+ * again; Ctrl+D after a part of it, that part, which is run. */
 static int typed(char *line, int size)
 {
 	int n, end;
@@ -326,7 +332,9 @@ static int typed(char *line, int size)
 		if ((n = read(0, line, size - 1)) <= 0)
 			return -1;
 		end = line[n - 1];
-		line[n - 1] = 0;
+		if (end == '\n' || end == '\t')
+			n--;
+		line[n] = 0;
 		if (end != '\t')
 			return uncomment(line);
 		complete(line);

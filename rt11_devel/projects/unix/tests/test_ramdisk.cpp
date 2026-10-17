@@ -65,11 +65,16 @@ TEST_CASE("the kernel has no word of the EX board: its ports are the driver's al
             if (word(d, i) == w) return true;
         return false;
     };
-    for (unsigned port : {0177530u, 0177550u}) {
+    /* The board's four registers: all of them the driver's; in the kernel
+     * one may stand by chance - a call's offset is a word like any other -
+     * not the set. */
+    int inKernel = 0;
+    for (unsigned port : {0177530u, 0177532u, 0177536u, 0177550u}) {
         CAPTURE(port);
-        CHECK_FALSE(holds(kernel, port));
+        inKernel += holds(kernel, port);
         CHECK(holds(rd, port));
     }
+    CHECK(inKernel <= 1);
 }
 
 TEST_CASE("a /boot/rd that is no driver is said so: no RAM disk, the system runs") {

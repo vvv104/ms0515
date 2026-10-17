@@ -44,6 +44,11 @@ int sys_ioctl(struct trapframe *tf, const unsigned *arg)
 		tf->r0 = 0;
 		return 0;
 	}
+	if (f && f->kind == F_TTY && arg[1] == TTY_BG) {
+		curproc->bg = 1;
+		tf->r0 = 0;
+		return 0;
+	}
 	if (!f || f->kind != F_INODE || !f->writable)
 		return EBADF;
 	if ((f->ip->d.mode & S_IFMT) != S_IFBLK || arg[1] != FD_WTRACK)
