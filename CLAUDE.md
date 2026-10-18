@@ -7,9 +7,11 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Core** (`src/core/`) — Pure C11, zero OS deps. Fully implemented and verified.
 - **Lib** (`src/lib/`) — C++ wrapper: Emulator, Debugger, Disassembler, GDB RSP.
 - **Libapp** (`src/libapp/`) — Shared host-side app utilities: filesystem paths, YAML config loader/writer, CLI argument parser, disk-mount helpers, screen composition (VRAM→RGBA) and PNG screenshots. Linked by both binaries, so both parse the same flags; the ones only the text mode acts on (`--no-config`, `--state`, `--save-state`) say so in its `--help`. Strictly host-app code — no emulation primitives, no core API.
-- **Platform** (`src/platform/`) — Host abstractions kept out of binary sources. Split into two sublibs because needs barely overlap:
+- **Platform** (`src/platform/`) — Host abstractions kept out of binary sources, a sublib per need, since the needs barely overlap:
   - `platform/cli/` — raw stdin, signal handling, UTF-8 console setup.
-  - `platform/gui/` — file dialogs, font discovery, GUI-subsystem console attach.
+  - `platform/gui/` — file dialogs, font discovery.
+  - `platform/serial/` — a host serial port, raw, 8N1, non-blocking: the window puts one on the
+    machine's keyboard line in place of the MS 7004 model (a keyboard outside the emulator).
 - **CLI** (`src/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer. Ctrl+\ brings the two-panel commander (`src/files/`) up over the running machine, NC-style: the machine's prompt is the command line, Ctrl+O hides the panels, mounts made there go into the machine. `ms0515_cli_core` (mounts applied to the Emulator, the machine's screen as FTXUI rows) is unit-tested in `cli/tests/`.
 - **Frontend** (`src/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
 - **Disk** (`src/disk/`) — Offline RT-11 / MS-0515 disk-image library (lib `ms0515_disk`): LBN→byte geometry mirroring the emulator FDC, directory parse, file read, and volume create/init/put/rm/squeeze + per-entry protect/date metadata, and whole bootable diskettes composed from an exemplar and groups of files (`Compose`). Lib `ms0515_disk_manifest` reads the software collection's `disks.toml` (toml++). No emulator dependency.
@@ -118,6 +120,7 @@ src/                — emulator source code and build files
   profiles/         — Conan profiles: emscripten (browser host), tools (CMake + Ninja from Conan)
   platform/cli/     — CLI host abstractions (Platform_unix.cpp / Platform_win32.cpp)
   platform/gui/     — GUI host abstractions (file dialogs, fonts)
+  platform/serial/  — host serial port (Serial_win32.cpp / Serial_unix.cpp) + tests/
   platform/win7compat/ — the static MSVC runtime's shims so the exes run on Windows 7
   cli/              — text-mode binary (main.cpp, StdioBridge, GuestScreen, Scrollback, MountSync,
                       CommanderHost) + tests/

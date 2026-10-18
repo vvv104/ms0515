@@ -340,6 +340,35 @@ Multiple bits may be set simultaneously (e.g. 0o203 = Wait + Compose).
 |------------|----------------------------------------------------|
 | 266        | Input error — second byte not received within 100ms|
 
+## A keyboard outside the emulator
+
+The keyboard USART talks to the keyboard over one serial line, 4800
+baud, 8N1: scancodes come in, the commands of Table 3 go out.  The
+window can put a host serial port on that line in place of the MS 7004
+model (Keyboard → Keyboard on a serial port; `keyboard_port` in
+`ms0515.yaml`): what the machine writes to the USART's transmitter goes
+to the port, what comes from the port reaches the receiver at the line's
+pace.  The keyboard on the other end is then the whole keyboard - its own
+firmware, typematic, lamps, click - and the PC's keys and the on-screen
+keyboard do not reach the machine.  `Emulator::setExternalKeyboard` is
+the lib's side of it; the text-mode CLI does not offer it.
+
+What can be at the other end:
+
+- **A firmware emulator of the keyboard** - a program that runs the
+  MS 7004's own 8035 firmware and talks over a serial port.  It is
+  connected through a pair of virtual ports, the emulator on one and the
+  program on the other: on Windows com0com (free) or a commercial driver
+  makes the pair; on Linux and macOS
+  `socat -d -d pty,raw,echo=0 pty,raw,echo=0` prints the two device
+  names.
+- **A real MS 7004.**  Its cable ends in a five-pin plug and carries the
+  same line; how its signal levels are brought to a PC's serial port or a
+  USB-UART adapter is not worked out here.
+
+The model of this document stays what the emulator runs when no port is
+chosen.
+
 ## Sources
 
 - Intel 8251 USART datasheet (AFN-01819B)
