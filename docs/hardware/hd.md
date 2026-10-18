@@ -38,8 +38,10 @@ path to interrupts later (vector 0164 is free on the MS 0515).
 
 `HD.SYS` defaults `HDCSR` to `0177720`.  These addresses overlap the
 (stubbed, unused) MS 0515 serial-port TX side, so `board.c` routes them to
-HD **only while an image is mounted** — the HD device and the serial port
-are mutually exclusive on the bus.
+HD **only while the controller is enabled** — via mounting an image, or
+via `hd_enabled` alone with no media (a valid "offline drive," reporting
+size 0) — the HD device and the serial port are mutually exclusive on
+the bus.
 
 | Address  | Name      | Write          | Read              |
 |----------|-----------|----------------|-------------------|

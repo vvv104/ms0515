@@ -43,7 +43,7 @@ Each 16-bit word in VRAM encodes 8 pixels:
 
 | Bit | Name | Description                                        |
 |-----|------|----------------------------------------------------|
-| 15  | F    | Flash: 0=steady, 1=blink at 3 Hz                  |
+| 15  | F    | Flash: 0=steady, 1=blink - the emulator toggles the phase every 30 frames (≈1.66 Hz at 50 Hz, so a full on/off cycle is ≈0.83 Hz), not 3 Hz |
 | 14  | I    | Intensity: 0=dim (half brightness), 1=bright       |
 | 13  | G'   | Background green                                   |
 | 12  | R'   | Background red                                     |

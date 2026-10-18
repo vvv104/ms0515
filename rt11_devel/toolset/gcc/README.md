@@ -75,7 +75,7 @@ CMake target for `target_compile_definitions` and the rest.
 
 ## What a program finds
 
-The reference of it all, function by function, is `docs/c-api.md`; this
+The reference of it all, function by function, is `c-api.md` in this folder; this
 is the shape.
 
 - `int` and pointers are 16 bits, `long` 32, `long long` 64; `-m10`
