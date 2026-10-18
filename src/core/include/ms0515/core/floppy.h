@@ -237,7 +237,7 @@ void    fdc_reset(ms0515_floppy_t *fdc);
  * Track-interleaved is the only DS layout the emulator understands —
  * it matches what raw MS0515 hardware dumps look like.  Other layouts
  * (e.g. side-major concatenations) are not supported; convert with
- * tools/split_double_sided.py first.
+ * ms0515-disk split / merge first.
  *
  * Returns true on success.  The file is kept open until detach.
  */

@@ -99,8 +99,8 @@ static void update_sound(ms0515_board_t *board)
      *     hand, and every program known to make sound is explained without
      *     it: the POST melody gates a mode-3 tone with bits 7+6, the
      *     Spectrum ports (BIRDS, SABOT2, FIST) bit-bang the speaker by
-     *     toggling bit 6 with the gate closed (OUT held high), holding
-     *     bit 5 set.  A guessed model (XOR with OUT) once silenced those
+     *     toggling bit 6 with the gate closed (OUT held high), bit 5
+     *     going with it (0x60 / 0x80).  A guessed model (XOR with OUT) once silenced those
      *     ports; the pattern is pinned by test_sound.cpp.
      */
     int new_value;

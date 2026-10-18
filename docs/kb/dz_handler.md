@@ -147,11 +147,11 @@ first copy from drive 0 to drive 1 failed with a directory I/O error.
 * keep the shadow-register discipline exactly, or the ROM's motor
   time-out will fight it;
 * assemble with `ERL$G` so failures reach the error logger, the way our
-  own `HD.MAC` already does.
+  own `HD.MAC` already does (ms0515-devel's `projects/rt11/handlers/hd/`).
 
 ## Error logging works, and what stands in the way of switching it on
 
-Our `DZ.MAC` carries DEC's error logging under `ERL$G`, by the convention
+Our `DZ.MAC` (ms0515-devel's `projects/rt11/handlers/dz/`) carries DEC's error logging under `ERL$G`, by the convention
 read out of DEC's `DX.MAC`: on a failed try `R2` points at the device's
 registers, `R3` is the most tries a request gets over the number of
 registers, `R4` the device's code over the tries left, `R5` the queue

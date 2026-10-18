@@ -63,11 +63,11 @@ Outcomes:
    `src/assets/rom/`.  The licensing is the same kind of
    gray-zone preservation as the system ROMs we already ship.
 6. Update tests:
-   - `tests/test_ms7004.cpp` — current unit tests assert specific
+   - `src/core/tests/test_ms7004.cpp` — current unit tests assert specific
      byte sequences for each key event; many will need to be
      reframed in terms of expected firmware output (which may
      differ from our state-machine output in fine timing).
-   - `tests/test_keyboard_emulated.cpp` — should keep passing
+   - `src/lib/tests/test_keyboard_emulated.cpp` — should keep passing
      unchanged, since OS-visible behaviour is the contract we
      already verify.
 
@@ -82,7 +82,7 @@ line, etc.).
 ### Priority
 
 Low.  Our current model is correct against real hardware at the
-OS-visible level; this would be a quality-of-emulation improvement,
+OS-visible level, but for the auto-repeat code (below); this would be a quality-of-emulation improvement,
 not a bug fix.  Worth doing when there is appetite for a
 self-contained subsystem rewrite.
 
@@ -90,8 +90,8 @@ self-contained subsystem rewrite.
 
 ### What the firmware does
 
-Alex's disassembly of the MS7004 firmware (the 8035 listing, see the
-forum thread in `docs/kb`) shows the auto-repeat path at `L_2B0`
+Alex's disassembly of the MS7004 firmware (his annotated 8035 listing,
+kept in the owner's archive, not in this repository) shows the auto-repeat path at `L_2B0`
 sending the code **0xB4 (0o264)** to the host on every repeat - the
 LK201's "metronome" code - and never the key's own scancode again.
 The model in `core/src/ms7004.c` re-sends the key's scancode instead

@@ -29,7 +29,7 @@
 ## Mihin (OS-16SJ) — РУС/ЛАТ key prints `^N`/`^O`, locks input on exit
 
 - **ROMs**: ROM-A and ROM-B both affected (different flavours)
-- **Disks**: any Mihinsoft / OS-16SJ image (`mihin.dsk`, `tests/disks/test_mihin.dsk`)
+- **Disks**: any Mihinsoft / OS-16SJ image (`mihin.dsk`, `src/lib/tests/disks/test_mihin.dsk`)
 - **Reproduction**:
   Boot Mihin to its dot prompt, then tap the РУС/ЛАТ key.  The first
   tap prints two characters at the cursor (visible garbage); the
@@ -41,8 +41,8 @@
   quiet flag.
 
 - **Why it happens** (analysed 2026-04-26 from ROM listings + Mihin
-  RT11SJ.SYS / TT.SYS disassembly, see also the diagnostic findings
-  in `project_keyboard_tests.md`):
+  RT11SJ.SYS / TT.SYS disassembly; the emulated-keyboard tests are
+  `src/lib/tests/test_keyboard_emulated.cpp`):
 
   1. The MS7004 firmware sends scancode `0o262` for the РУС/ЛАТ key.
      Both ROMs route this to a small RUS/LAT handler that toggles
@@ -92,7 +92,7 @@
   same system ROMs we ship.  Identical bytes in screen RAM under
   both emulators confirm this is genuine Mihin behaviour and our
   high-level keyboard state machine is byte-accurate at the OS-
-  visible interface.
+  visible interface (but for the auto-repeat code - `TODO.md`).
 
 - **Test impact**: The keyboard emulation suite parametrises every
   TEST_CASE over a `kConfigs` matrix; Mihin entries carry
@@ -105,7 +105,7 @@
 
 - **ROM**: ROM-A only.  ROM-B stalls right after printing
   «НГМД готов, идет загрузка операционной системы…» both with the
-  original `065_full.dsk` and with our trimmed `tests/disks/test_rod.dsk`
+  original `065_full.dsk` and with our trimmed `src/lib/tests/disks/test_rod.dsk`
   fixture, so the boot suite marks `(ms0515-romb.rom, test_rod.dsk)` as
   known-bad.  The protection check is unrelated to the ROM-B stall;
   the disk simply was not built to boot under that ROM.
@@ -213,7 +213,7 @@ Superseded by the genuine DS dump.  Kept here as a worked example of
 how a content-only protection can be partially bypassed without
 knowing the original payload.
 
-### Building `tests/disks/test_rod.dsk` from scratch
+### Building `src/lib/tests/disks/test_rod.dsk` from scratch
 
 The original `065_full.dsk` contains user applications and games that
 are not ours to redistribute, so the test fixture is built from a
@@ -229,7 +229,7 @@ for the protection sector.  Reproduce as follows:
    ```yaml
    disk0: "065_full.dsk"
    disk1: "test_rod.dsk"
-   rom:   "ms0515-roma-original.rom"
+   rom:   "ms0515-roma.rom"
    ```
 3. **Boot RT-15SJ from drive 0** and run, in order:
    ```
@@ -313,7 +313,7 @@ side so the protection's sector read returns real bytes.
 - **Real-hardware behaviour**: pressing `D` without a disk evidently
   produced *some* response on the user's real machine — likely a
   short error indication (text or beep) before / instead of the
-  silent poll loop.  Our ROM image (CRC `0x7b286fb6`) and FDC model
+  silent poll loop.  Our ROM-A image (`ms0515-roma.rom`, CRC `0x7b286fb6`) and FDC model
   produce only the silent spin: `drive_ready()` keeps `NOT_READY`
   asserted as long as `image == NULL`, so the loop never exits.
 - **Once a disk is mounted (via the File menu) the spin breaks
@@ -412,8 +412,8 @@ along.**
 
 The earlier note here blaming `cpu_check_interrupts` reading an
 interrupt's priority from the vector+2 word is withdrawn as the cause of
-this; that modeling question stands on its own merits but has no known
-victim.
+this; the modeling question itself was settled on 2026-09-19 (below):
+requests are arbitrated by the encoder's order, not by the vectors' PS.
 
 Worth doing someday: run the C* timing matrices in the emulator and
 compare against Alex_K's real-hardware numbers (7.5 MHz) - a free

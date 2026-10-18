@@ -20,7 +20,7 @@ It is not a system resource — it's a fast data transfer medium.
 | D4,D5: КР1102АП15 | RS-232 line drivers |
 | D6: К555АП6 | Data bus buffer |
 
-Sources: `reference/docs/ext/l1_1.doc.txt` (BOM), `l2-l5` (schematics).
+Sources: the expansion board's factory documentation (its ТО and schematics, kept in the owner's archive, not in this repository) - the bill of materials and the schematics.
 
 ## Memory Architecture
 
@@ -121,7 +121,7 @@ For addresses crossing a 64 KB boundary, update Port B too.
 
 ## Timing Constraints
 
-From the hardware documentation (`reference/docs/ext/l6_1.doc.txt`):
+From the board's hardware description (in the same documentation):
 
 - Each bus access must complete within **100 μs** (DRAM refresh timing)
 - The driver disables interrupts during page transfers to meet timing

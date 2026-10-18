@@ -265,8 +265,11 @@ Special scancodes:
   used as the "ВР release" code since Shift uses the held-modifier
   protocol.
 - **254** (auto-repeat) — listed in the ТО as auto-repeat scancode,
-  but the ROM maps it to the `$` character.  Real auto-repeat sends
-  the held key's own scancode, not 254.
+  but the ROM maps it to the `$` character.  The keyboard's firmware
+  sends **264** (0xB4) on every repeat, never the key's scancode again;
+  the emulator's model re-sends the held key's own scancode instead - a
+  known deviation, harmless to every program at hand
+  ([`../kb/TODO.md`](../kb/TODO.md)).
 
 ### Table 3 — Host → Keyboard Commands
 
@@ -298,6 +301,11 @@ Auto-repeat and click are independent flags in the firmware's parameters
 byte (bit 5 = repeat, bit 3 = click).  Each command touches exactly one
 bit: 0x99 only clears click; 0xE1 / 0xD9 only clear auto-repeat; 0x90 /
 0xE3 only set auto-repeat.  Verified against the 8035 ROM disasm.
+
+The emulator's repeat timing is its own, not the firmware's 500/33 ms: a
+typing preset (250 ms delay, 30 ms period) and a game preset (125/50 ms).
+It switches to the game preset when a program sends 0x99, as games do at
+startup (`src/core/src/ms7004.c`).
 
 **Two-byte commands (prefix + second byte):**
 

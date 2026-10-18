@@ -93,9 +93,9 @@ inline void putEntry(uint8_t *seg, std::size_t p, uint16_t status, uint16_t n1,
 inline constexpr int kDirLbn = 6;   /* first directory segment block */
 
 /* Home block, matching what INIT writes on a B6 6D blank: a few leading
- * bytes, the FFFF marker at 0x1C0, the directory pointer, version, and the
- * volume/owner/system identity strings; bytes INIT does not touch keep the
- * blank 0xB6 0x6D pattern. */
+ * bytes, 0x84..0x1FF zeroed, the FFFF marker at 0x1C0, the directory
+ * pointer, version, and the volume/owner/system identity strings; only
+ * 0x06..0x83 keeps the blank 0xB6 0x6D pattern. */
 inline std::vector<uint8_t> makeHomeBlock(const std::string &volumeId,
                                           const std::string &owner)
 {

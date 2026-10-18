@@ -71,7 +71,7 @@ Channel 2 output drives the speaker through System Register C:
   the tech description) - not modelled: every program known to make sound
   is explained without it.  The Spectrum ports bit-bang the speaker by
   alternating 0x60 and 0x80 - bit 6 toggled with the gate closed (OUT held
-  high), bit 5 kept set (see `board.c`, `core/tests/test_sound.cpp`)
+  high), bit 5 going with it (see `board.c`, `core/tests/test_sound.cpp`)
 
 The boot sequence plays ascending tones (E1, G#1, B1, E2) using channel 2
 in mode 3 with programmed divisors.

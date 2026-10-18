@@ -58,7 +58,7 @@ timer service.  Added IO_HALT_TIMER constant (not yet handled).
 - [x] 8 general-purpose registers (R0-R5, SP=R6, PC=R7)
 - [x] PSW format: bits 0-4 (C,V,Z,N,T), bits 7-5 (priority), upper byte = 0
 - [x] Mode register = 0xF2FF → start address 172000, restart 172004
-- [x] 66 instructions, no MARK, no FIS (MUL/DIV/ASH/ASHC)
+- [x] 66 instructions, no MARK, no EIS (MUL/DIV/ASH/ASHC)
 - [x] 8 addressing modes (4 direct + 4 indirect)
 - [x] Vectored interrupts: bus error(004), reserved(010), BPT(014), IOT(020),
       EMT(030), TRAP(034)
@@ -136,6 +136,7 @@ Still open:
 
 - Serial port / printer (i8251 at 177700-177722, vectors 110/114): a
   stub - TX bytes go to a host callback, the status and command words are
-  accepted and dropped, nothing is received.  While a hard-disk image is
-  mounted the paravirtual HD: shadows these addresses (`docs/hardware/hd.md`).
+  accepted and dropped, nothing is received.  While the paravirtual HD
+  is enabled (with an image mounted or not) it shadows these addresses
+  (`docs/hardware/hd.md`).
 - Register 177770 (halt/timer service): named in `board.c`, not handled.

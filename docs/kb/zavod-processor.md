@@ -76,5 +76,5 @@ the plant remains unproved; outside these programs it is named nowhere.
 photographs collected by CodeMaster (he worked in the plant's ОКБ from 1986
 to 1993, in department 62, systems programming, and he is the one who sends
 this emulator's bug reports from the forum).  Its frames point at
-`retro.hostronavt.ru`, which does not answer, and the Wayback Machine has no
-copy.  Worth asking him for a mirror.
+`retro.hostronavt.ru`, which does not answer; the Wayback Machine kept the
+listings and a few of the files ([`REFERENCES.md`](REFERENCES.md)).  Worth asking him for a mirror.
