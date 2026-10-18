@@ -199,16 +199,27 @@ TEST_CASE("the lamps and the held modifiers are the line's, not the model's") {
     toKeyboard(0x11); toKeyboard(0x84);
     CHECK_FALSE(emu.capsOn());
 
-    /* The keyboard's modifiers: held from their code to ALL-UP. */
-    kbd.toSend.insert(kbd.toSend.end(), {0256, 0257, 0261});
+    /* КМП is the machine's «Композиция» lamp, mask bit 1. */
+    toKeyboard(0x13); toKeyboard(0x82);
+    CHECK(emu.keyHeld(ms0515::Key::Compose));
+    CHECK_FALSE(emu.capsOn());
+    toKeyboard(0x11); toKeyboard(0x82);
+    CHECK_FALSE(emu.keyHeld(ms0515::Key::Compose));
+
+    /* The register keys - ВР, СУ - are held from their code to ALL-UP. */
+    kbd.toSend.insert(kbd.toSend.end(), {0256, 0257});
     runFrames(emu, 2);
     CHECK(emu.keyHeld(ms0515::Key::ShiftL));
     CHECK(emu.keyHeld(ms0515::Key::Ctrl));
-    CHECK(emu.keyHeld(ms0515::Key::Compose));
     kbd.toSend.push_back(0263);
     runFrames(emu, 2);
     CHECK_FALSE(emu.keyHeld(ms0515::Key::ShiftL));
     CHECK_FALSE(emu.keyHeld(ms0515::Key::Ctrl));
+
+    /* КМП's own code is an ordinary key's: no release follows, and it
+     * holds nothing. */
+    kbd.toSend.push_back(0261);
+    runFrames(emu, 2);
     CHECK_FALSE(emu.keyHeld(ms0515::Key::Compose));
 }
 

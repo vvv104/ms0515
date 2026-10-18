@@ -109,17 +109,20 @@ void cFdcMechTrampoline(void *userdata, int event, int arg)
 
 /* The keyboard's line read for what the model would otherwise report.
  * From the machine: 0x11 / 0x13 with a mask (0200..0217) put the lamps the
- * mask names off / on - bit 2 is ФКС; with no mask after them they are the
- * Latin lamp on / off, and the byte that came is a command of its own.
- * From the keyboard: ВР (0256), СУ (0257), КМП (0261) are held from their
- * code until ALL-UP (0263). */
+ * mask names off / on - bit 2 is ФКС («Фиксация»), bit 1 КМП
+ * («Композиция»); with no mask after them they are the Latin lamp on / off,
+ * and the byte that came is a command of its own.  From the keyboard: the
+ * register keys alone - ВР (0256), СУ (0257) - are held from their code
+ * until ALL-UP (0263), as the MS 7004's firmware has it; КМП (0261) is an
+ * ordinary key with no release code, its state the machine's lamp. */
 void lineFromMachine(ms0515::Emulator::Impl::KeyboardLine &line, uint8_t byte)
 {
     if (line.pending) {
         const uint8_t mode = line.pending;
         line.pending = 0;
         if (byte >= 0200 && byte <= 0217) {
-            if (byte & 0x04) line.caps = (mode == 0x13);
+            if (byte & 0x04) line.caps    = (mode == 0x13);
+            if (byte & 0x02) line.compose = (mode == 0x13);
             return;
         }
         line.latin = (mode == 0x11);
@@ -130,10 +133,9 @@ void lineFromMachine(ms0515::Emulator::Impl::KeyboardLine &line, uint8_t byte)
 void lineFromKeyboard(ms0515::Emulator::Impl::KeyboardLine &line, uint8_t byte)
 {
     switch (byte) {
-    case 0256: line.shift   = true; break;
-    case 0257: line.ctrl    = true; break;
-    case 0261: line.compose = true; break;
-    case 0263: line.shift = line.ctrl = line.compose = false; break;
+    case 0256: line.shift = true; break;
+    case 0257: line.ctrl  = true; break;
+    case 0263: line.shift = line.ctrl = false; break;
     default:   break;
     }
 }
