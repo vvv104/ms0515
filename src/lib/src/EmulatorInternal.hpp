@@ -48,6 +48,8 @@ struct Emulator::Impl {
     uint32_t                    soundCycle = 0;   /* frame cycle of the current machine millisecond */
     Emulator::SerialOutCallback serialOutCb;
     Emulator::SerialInCallback  serialInCb;
+    Emulator::KeyboardLineIn    keyboardIn;     /* set: the keyboard is outside */
+    Emulator::KeyboardLineOut   keyboardOut;
     Emulator::VramWriteCallback vramWriteCb;
 
     /* Folder-backed HD volume (.rtfs mount); null for image mounts. */

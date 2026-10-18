@@ -117,6 +117,9 @@ Host OS abstractions kept out of the binary sources so `cli/` and
 directly.  Two sublibs, one per binary:
 - `platform/cli/` — raw stdin reading, signal handling, UTF-8 console setup
 - `platform/gui/` — file dialogs, font discovery
+- `platform/serial/` — a host serial port, opened raw at a given speed, 8N1,
+  never blocking: the window puts one on the machine's keyboard line in
+  place of the MS 7004 model ([hardware/keyboard.md](hardware/keyboard.md))
 - `platform/win7compat/` — shims that let the static MSVC runtime's exes
   run on Windows 7
 

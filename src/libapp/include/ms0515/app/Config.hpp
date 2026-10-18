@@ -58,6 +58,10 @@ public:
     int         driveVolume    = 100;
     bool        keyboardSounds = true;
     int         keyboardVolume = 100;
+    /* The keyboard outside the emulator, on this serial port (COM7,
+     * /dev/ttyUSB0) in place of the MS 7004 model; "" for the model
+     * (yaml: "keyboard_port"). */
+    std::string keyboardPort;
 
     [[nodiscard]] bool isDefault() const;
 

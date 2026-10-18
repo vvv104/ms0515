@@ -9,4 +9,5 @@
 
 add_subdirectory(cli)
 add_subdirectory(gui)
+add_subdirectory(serial)
 add_subdirectory(win7compat)

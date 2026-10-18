@@ -24,6 +24,22 @@
 
 namespace ms0515_frontend {
 
+namespace {
+
+/* A tooltip for the item just drawn, wrapped to a readable width: a long
+ * line in ImGui's own tooltip runs off the window. */
+void wrappedTooltip(const char *text)
+{
+    if (!ImGui::IsItemHovered()) return;
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
+} // namespace
+
 /* ── Construction / destruction ─────────────────────────────────────── */
 
 App::App(CliArgs cli) : cli_(std::move(cli)) {}
@@ -199,6 +215,7 @@ void App::initEmulator()
 
     emu_.reset();
     applyKeyboardConfig();
+    if (!config_.keyboardPort.empty()) setKeyboardPort(config_.keyboardPort);
     joystick_.setMode(Joystick::modeFromName(config_.joystick));
 
     osk_.loadLayout();
@@ -449,6 +466,62 @@ void App::setHdController(bool on)
     config_.save();
 }
 
+void App::promptMountDrive(int drive)
+{
+    auto title = fmt::format(
+        "Select an image for drive {} (800 KB: the whole drive, 400 KB: its lower side)", drive);
+    std::string p = openFileDialog(
+        window_, title.c_str(),
+        FileDialogKind::Disk, Paths::initialDirFor(FileDialogKind::Disk));
+    if (!p.empty()) mountBySize(drive, p);
+}
+
+void App::resetMachine()
+{
+    dbg_.reset();
+    /* If the emulator paused itself because the CPU halted, Reset
+     * also clears the paused state — otherwise stepFrame never
+     * runs again and the screen stays frozen on pre-reset VRAM. */
+    running_              = true;
+    emuTimeAccumMs_       = 0.0f;
+    emuFramesSinceReset_  = 0;
+    hostMsAtLastReset_    = SDL_GetTicks();
+}
+
+void App::saveStateDialog()
+{
+    bool wasRunning = running_;
+    running_ = false;
+    std::string path = saveFileDialog(
+        window_, "Save State", "state.ms0515",
+        FileDialogKind::State, Paths::initialDirFor(FileDialogKind::State));
+    if (!path.empty())
+        if (auto r = emu_.saveState(path); !r)
+            std::fprintf(stderr, "Save state failed: %s\n", r.error().c_str());
+    running_ = wasRunning;
+}
+
+void App::loadStateDialog()
+{
+    bool wasRunning = running_;
+    running_ = false;
+    std::string path = openFileDialog(
+        window_, "Load State", FileDialogKind::State,
+        Paths::initialDirFor(FileDialogKind::State));
+    if (!path.empty()) {
+        if (auto r = emu_.loadState(path); !r) {
+            std::fprintf(stderr, "Load state failed: %s\n", r.error().c_str());
+        } else {
+            for (int i = 0; i < 4; ++i) {
+                mountedFd_[i] = emu_.diskPath(i);
+                config_.fdPath[i] = mountedFd_[i];
+            }
+            config_.save();
+        }
+    }
+    running_ = wasRunning;
+}
+
 void App::promptMountHd()
 {
     std::string p = openFileDialog(
@@ -570,6 +643,14 @@ void App::tick()
      * on the machine's own clock, inside the frame. */
     joystick_.poll(emu_);
 
+    /* A keyboard port that failed in use: the model back, the reason shown. */
+    if (externalKbd_.failed()) {
+        const std::string name = externalKbd_.portName();
+        externalKbd_.disconnect(emu_);
+        keyboardLineStatus_ = "KBD " + name + ": failed";
+        std::fprintf(stderr, "keyboard port %s failed; the MS 7004 model is back\n", name.c_str());
+    }
+
     /* Run emulated frames based on real elapsed time × speed factor. */
     if (running_) {
         uint32_t nowTick = SDL_GetTicks();
@@ -685,6 +766,7 @@ void App::renderFrame()
             speedDisplay_, targetSpeed_, fpsDisplay_,
             emuFramesSinceReset_, hostMsAtLastReset_,
             mountedFd_.data(), mountedAsDs_.data(),
+            keyboardLineStatus_,
         };
         drawStatusBar(sbs);
     }
@@ -759,6 +841,58 @@ void App::drawMenuBar()
     drawComponentsMenu();
     drawViewMenu();
     ImGui::EndMainMenuBar();
+    drawToolbar();
+}
+
+/* The toolbar, a strip under the menu bar: what the menus do most often,
+ * a click away.  Everything below it is laid out from menuBarHeight_, so
+ * the strip's height is added to it. */
+void App::drawToolbar()
+{
+    const float h = toolbarHeight();
+    const ImGuiViewport *vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x, vp->Pos.y + (float)menuBarHeight_));
+    ImGui::SetNextWindowSize(ImVec2(vp->Size.x, h));
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
+        | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings
+        | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoFocusOnAppearing
+;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    if (ImGui::Begin("##toolbar", nullptr, flags)) {
+        if (toolButton("reset", ToolIcon::Reset, "Reset the machine")) resetMachine();
+        if (toolButton("run", running_ ? ToolIcon::Pause : ToolIcon::Run,
+                       running_ ? "Pause" : "Resume", !running_))
+            running_ = !running_;
+        toolSeparator();
+        if (toolButton("disk0", ToolIcon::Disk0, "Disk 0: mount an image (800 KB: the whole drive, 400 KB: its lower side)"))
+            promptMountDrive(0);
+        if (toolButton("disk1", ToolIcon::Disk1, "Disk 1: mount an image (800 KB: the whole drive, 400 KB: its lower side)"))
+            promptMountDrive(1);
+        if (toolButton("hd", ToolIcon::HardDisk, "Hard disk (HD:): mount an image"))
+            promptMountHd();
+        toolSeparator();
+        if (toolButton("save", ToolIcon::SaveState, "Save the machine's state")) saveStateDialog();
+        if (toolButton("load", ToolIcon::LoadState, "Load a saved state")) loadStateDialog();
+        if (toolButton("shot", ToolIcon::Screenshot, "Save the screen as a PNG")) requestScreenshot();
+        toolSeparator();
+        const bool speedIs100 = (targetSpeed_ == 100.0f);
+        if (toolButton("audio", audioOn_ ? ToolIcon::SoundOn : ToolIcon::SoundOff,
+                       speedIs100 ? (audioOn_ ? "Sound: on" : "Sound: off")
+                                  : "Sound plays at 100% speed only",
+                       false, speedIs100))
+            audioOn_ = !audioOn_;
+        toolSeparator();
+        if (toolButton("osk", ToolIcon::Keyboard, "The on-screen keyboard", showKeyboard_))
+            showKeyboard_ = !showKeyboard_;
+        if (toolButton("dbg", ToolIcon::Debugger, "The debugger", showDebugger_))
+            showDebugger_ = !showDebugger_;
+        if (toolButton("full", ToolIcon::Fullscreen, "Fullscreen (Alt+Enter)"))
+            setFullscreen(!fullscreenOn_);
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    menuBarHeight_ += (int)h;
 }
 
 void App::drawFileMenu()
@@ -806,14 +940,7 @@ void App::drawFileDiskMenu(int drive)
     };
     std::string mountImageLabel = "Mount image...";
     if (!mountedFd_[unit0].empty()) mountImageLabel += held(unit0);
-    if (ImGui::MenuItem(mountImageLabel.c_str())) {
-        auto title = fmt::format(
-            "Select an image for drive {} (800 KB: the whole drive, 400 KB: its lower side)", drive);
-        std::string p = openFileDialog(
-            window_, title.c_str(),
-            FileDialogKind::Disk, Paths::initialDirFor(FileDialogKind::Disk));
-        if (!p.empty()) mountBySize(drive, p);
-    }
+    if (ImGui::MenuItem(mountImageLabel.c_str())) promptMountDrive(drive);
     std::string upperLabel = "Mount upper side...";
     if (!mountedFd_[unit1].empty()) upperLabel += held(unit1);
     if (any && !mountedAsDs_[drive] && ImGui::MenuItem(upperLabel.c_str())) {
@@ -854,16 +981,7 @@ void App::drawMachineMenu()
 {
     if (!ImGui::BeginMenu("Machine")) return;
 
-    if (ImGui::MenuItem("Reset")) {
-        dbg_.reset();
-        /* If the emulator paused itself because the CPU halted, Reset
-         * also clears the paused state — otherwise stepFrame never
-         * runs again and the screen stays frozen on pre-reset VRAM. */
-        running_              = true;
-        emuTimeAccumMs_       = 0.0f;
-        emuFramesSinceReset_  = 0;
-        hostMsAtLastReset_    = SDL_GetTicks();
-    }
+    if (ImGui::MenuItem("Reset")) resetMachine();
     drawRomSubmenu();
 
     ImGui::Separator();
@@ -876,36 +994,8 @@ void App::drawMachineMenu()
     drawSoundsSubmenu();
 
     ImGui::Separator();
-    if (ImGui::MenuItem("Save State...")) {
-        bool wasRunning = running_;
-        running_ = false;
-        std::string path = saveFileDialog(
-            window_, "Save State", "state.ms0515",
-            FileDialogKind::State, Paths::initialDirFor(FileDialogKind::State));
-        if (!path.empty())
-            if (auto r = emu_.saveState(path); !r)
-                std::fprintf(stderr, "Save state failed: %s\n", r.error().c_str());
-        running_ = wasRunning;
-    }
-    if (ImGui::MenuItem("Load State...")) {
-        bool wasRunning = running_;
-        running_ = false;
-        std::string path = openFileDialog(
-            window_, "Load State", FileDialogKind::State,
-            Paths::initialDirFor(FileDialogKind::State));
-        if (!path.empty()) {
-            if (auto r = emu_.loadState(path); !r) {
-                std::fprintf(stderr, "Load state failed: %s\n", r.error().c_str());
-            } else {
-                for (int i = 0; i < 4; ++i) {
-                    mountedFd_[i] = emu_.diskPath(i);
-                    config_.fdPath[i] = mountedFd_[i];
-                }
-                config_.save();
-            }
-        }
-        running_ = wasRunning;
-    }
+    if (ImGui::MenuItem("Save State...")) saveStateDialog();
+    if (ImGui::MenuItem("Load State...")) loadStateDialog();
     ImGui::EndMenu();
 }
 
@@ -1048,6 +1138,8 @@ void App::drawHardDiskSubmenu()
 void App::drawKeyboardSubmenu()
 {
     if (!ImGui::BeginMenu("Keyboard")) return;
+    drawExternalKeyboardMenu();
+    ImGui::Separator();
     auto    settings = emu_.keyboardSettings();
     bool    dirty    = false;
 
@@ -1057,13 +1149,11 @@ void App::drawKeyboardSubmenu()
         config_.kbdAutoRepeat  = repeat ? 1 : 0;
         dirty = true;
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip(
-            "The keyboard's own typematic, as the MS7004 powers up with it.  "
-            "Off by default here so a key held does not run away in a program "
-            "that never turns it off.\nThe keyboard clicks on every repeat it "
-            "sends - that is the only click it makes.");
-    }
+    wrappedTooltip(
+        "The keyboard's own typematic, as the MS7004 powers up with it.  "
+        "Off by default here so a key held does not run away in a program "
+        "that never turns it off.\nThe keyboard clicks on every repeat it "
+        "sends - that is the only click it makes.");
 
     bool autoGame = settings.autoGameMode;
     if (ImGui::MenuItem("Auto game-mode", nullptr, &autoGame)) {
@@ -1071,12 +1161,10 @@ void App::drawKeyboardSubmenu()
         config_.kbdAutoGameMode  = autoGame ? 1 : 0;
         dirty = true;
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip(
-            "When ON, watch for 'click off' (0x99) from a game and swap "
-            "typematic delay/period to the game preset.  When OFF, always "
-            "typing preset.\nSliders below edit whichever preset is active.");
-    }
+    wrappedTooltip(
+        "When ON, watch for 'click off' (0x99) from a game and swap "
+        "typematic delay/period to the game preset.  When OFF, always "
+        "typing preset.\nSliders below edit whichever preset is active.");
     ImGui::Separator();
 
     /* Snap helper: round v to nearest multiple of step, clamp to [min,max]. */
@@ -1119,6 +1207,57 @@ void App::drawKeyboardSubmenu()
         emu_.applyKeyboardConfig(settings);
         config_.save();
     }
+    ImGui::EndMenu();
+}
+
+void App::setKeyboardPort(const std::string &port)
+{
+    externalKbd_.disconnect(emu_);
+    keyboardLineStatus_.clear();
+    config_.keyboardPort = port;
+    if (!port.empty()) {
+        std::string error;
+        if (externalKbd_.connect(emu_, port, error)) {
+            keyboardLineStatus_ = "KBD " + port;
+        } else {
+            keyboardLineStatus_ = "KBD " + port + ": not opened";
+            std::fprintf(stderr, "keyboard port: %s\n", error.c_str());
+        }
+    }
+    config_.save();
+}
+
+/* The keyboard outside the emulator: a serial port in place of the
+ * MS 7004 model - a firmware emulator over a virtual port pair, or a real
+ * keyboard through an adapter.  While it is on, the PC's keys and the
+ * on-screen keyboard do not reach the machine. */
+void App::drawExternalKeyboardMenu()
+{
+    if (!ImGui::BeginMenu("Keyboard on a serial port")) return;
+    static constexpr const char *kNone = "None (the emulated MS 7004)";
+    if (ImGui::MenuItem(kNone, nullptr, config_.keyboardPort.empty()))
+        setKeyboardPort({});
+    const auto ports = ms0515::serial::listPorts();
+    if (!ports.empty()) ImGui::Separator();
+    for (const auto &port : ports)
+        if (ImGui::MenuItem(port.c_str(), nullptr, config_.keyboardPort == port))
+            setKeyboardPort(port);
+    if (ports.empty()) ImGui::TextDisabled("No serial ports on this computer");
+    if (!config_.keyboardPort.empty() && !externalKbd_.connected())
+        ImGui::TextDisabled("%s did not open", config_.keyboardPort.c_str());
+    /* The word on it below the ports, not a tooltip: a tooltip on the menu
+     * item covers the very submenu it opens.  Wrapped to the menu's own
+     * items, so the menu grows no wider and leaves the one it came from
+     * in reach. */
+    ImGui::Separator();
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::CalcTextSize(kNone).x
+                           + ImGui::GetFontSize() * 2.0f);
+    ImGui::TextDisabled(
+        "A keyboard outside the emulator on the machine's keyboard line, "
+        "4800 baud: a firmware emulator over a virtual port pair, or a real "
+        "MS 7004 through an adapter.  While it is on, the PC's keys do not "
+        "reach the machine.");
+    ImGui::PopTextWrapPos();
     ImGui::EndMenu();
 }
 

@@ -113,8 +113,31 @@ void cFdcMechTrampoline(void *userdata, int event, int arg)
 void cBoardMsTrampoline(void *userdata, uint32_t ms, int frameCycle)
 {
     auto *self = static_cast<ms0515::Emulator *>(userdata);
-    self->impl()->soundCycle = static_cast<uint32_t>(frameCycle);
-    ms7004_tick(&self->impl()->kbd7004, ms);
+    auto *impl = self->impl();
+    impl->soundCycle = static_cast<uint32_t>(frameCycle);
+    if (!impl->keyboardIn) {
+        ms7004_tick(&impl->kbd7004, ms);
+        return;
+    }
+    /* The keyboard outside: its bytes into the USART's FIFO while it has
+     * room; the USART takes them to the receiver at the line's pace. */
+    auto &uart = impl->board.kbd;
+    uint8_t byte = 0;
+    while (uart.fifo_count < static_cast<int>(sizeof uart.fifo) && impl->keyboardIn(byte))
+        kbd_push_scancode(&uart, byte);
+}
+
+/* A byte the machine writes to the keyboard USART: to the MS 7004 model,
+ * or down the line to a keyboard outside. */
+void cKbdTxModelTrampoline(void *ctx, uint8_t byte)
+{
+    ms7004_host_byte(static_cast<ms7004_t *>(ctx), byte);
+}
+
+void cKbdTxLineTrampoline(void *ctx, uint8_t byte)
+{
+    auto *self = static_cast<ms0515::Emulator *>(ctx);
+    if (self->impl()->keyboardOut) self->impl()->keyboardOut(byte);
 }
 
 /* The keyboard's own sounds, stamped with the cycle of the millisecond
@@ -286,12 +309,19 @@ Emulator::Emulator()
     board_init(&impl_->board);
     ms7004_init(&impl_->kbd7004, &impl_->board.kbd);
     board_set_ms_callback(&impl_->board, &cBoardMsTrampoline, this);
+    wireKeyboardTx();
+}
 
-    /* Wire USART TX → ms7004 command channel. */
-    impl_->board.kbd.tx_callback = [](void *ctx, uint8_t byte) {
-        ms7004_host_byte(static_cast<ms7004_t *>(ctx), byte);
-    };
-    impl_->board.kbd.tx_callback_ctx = &impl_->kbd7004;
+/* USART TX → the ms7004 command channel, or the external keyboard's line. */
+void Emulator::wireKeyboardTx()
+{
+    if (impl_->keyboardIn) {
+        impl_->board.kbd.tx_callback     = &cKbdTxLineTrampoline;
+        impl_->board.kbd.tx_callback_ctx = this;
+    } else {
+        impl_->board.kbd.tx_callback     = &cKbdTxModelTrampoline;
+        impl_->board.kbd.tx_callback_ctx = &impl_->kbd7004;
+    }
 }
 
 Emulator::~Emulator()
@@ -567,12 +597,26 @@ void Emulator::setSp(uint16_t address)
 
 void Emulator::keyPress(Key key, bool down)
 {
+    if (impl_->keyboardIn) return;          /* the keyboard is outside */
     ms7004_key(&impl_->kbd7004, static_cast<ms7004_key_t>(key), down);
 }
 
 void Emulator::keyReleaseAll()
 {
+    if (impl_->keyboardIn) return;
     ms7004_release_all(&impl_->kbd7004);
+}
+
+void Emulator::setExternalKeyboard(KeyboardLineIn in, KeyboardLineOut out)
+{
+    impl_->keyboardIn  = std::move(in);
+    impl_->keyboardOut = std::move(out);
+    wireKeyboardTx();
+}
+
+bool Emulator::externalKeyboard() const noexcept
+{
+    return static_cast<bool>(impl_->keyboardIn);
 }
 
 void Emulator::setJoystick(uint8_t bits)
@@ -798,10 +842,7 @@ void Emulator::rewirePointers()
 {
     impl_->board.cpu.board = &impl_->board;
 
-    impl_->board.kbd.tx_callback = [](void *ctx, uint8_t byte) {
-        ms7004_host_byte(static_cast<ms7004_t *>(ctx), byte);
-    };
-    impl_->board.kbd.tx_callback_ctx = &impl_->kbd7004;
+    wireKeyboardTx();
 
     impl_->kbd7004.uart = &impl_->board.kbd;
     board_set_ms_callback(&impl_->board, &cBoardMsTrampoline, this);

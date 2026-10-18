@@ -34,6 +34,7 @@ bool Config::isDefault() const
     if (speakerVolume != 100) return false;
     if (!driveSounds.empty() || driveVolume != 100) return false;
     if (!keyboardSounds || keyboardVolume != 100) return false;
+    if (!keyboardPort.empty()) return false;
     return true;
 }
 
@@ -103,6 +104,7 @@ Config Config::load()
         else if (key == "drive_volume")         cfg.driveVolume       = Paths::parseNumber(val);
         else if (key == "keyboard_sounds")      cfg.keyboardSounds    = (val != "false");
         else if (key == "keyboard_volume")      cfg.keyboardVolume    = Paths::parseNumber(val);
+        else if (key == "keyboard_port")        cfg.keyboardPort      = val;
         /* Unknown keys: silently ignored. */
     }
     return cfg;
@@ -180,6 +182,7 @@ void Config::save() const
     if (driveVolume != 100) f << "drive_volume: " << driveVolume << "\n";
     if (!keyboardSounds) f << "keyboard_sounds: false\n";
     if (keyboardVolume != 100) f << "keyboard_volume: " << keyboardVolume << "\n";
+    if (!keyboardPort.empty()) f << "keyboard_port: " << keyboardPort << "\n";
 }
 
 std::string resolveRom(const std::string &cliRomPath,
