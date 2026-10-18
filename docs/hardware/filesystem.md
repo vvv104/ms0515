@@ -66,7 +66,7 @@ Two other volume kinds are not this diskette geometry:
   independent sides): track = LBN/10, natural sides, no interleave, `DV`
   rotated by one cylinder.  The emulator runs them as it runs any handler
   (the FDC serves physical sectors); `ms0515-disk --dv` / `--mz` reads and
-  writes such images ([`../kb/dz_handler.md`](../kb/dz_handler.md),
+  writes such images ([`dz_handler.md`](https://github.com/vvv104/ms0515-devel/blob/main/projects/rt11/handlers/dz_handler.md) in ms0515-devel,
   `Vol::dv` / `Vol::mz` in `src/disk/include/ms0515/disk/Layout.hpp`).  A
   directory whose entries point past 800 blocks is a sign of this kind.
 - **Linear container (LD:, HD:)** — a plain file holding an RT-11
