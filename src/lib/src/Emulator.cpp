@@ -121,8 +121,9 @@ void lineFromMachine(ms0515::Emulator::Impl::KeyboardLine &line, uint8_t byte)
         const uint8_t mode = line.pending;
         line.pending = 0;
         if (byte >= 0200 && byte <= 0217) {
-            if (byte & 0x04) line.caps    = (mode == 0x13);
-            if (byte & 0x02) line.compose = (mode == 0x13);
+            const auto mask = static_cast<uint8_t>(byte & 0x0F);
+            if (mode == 0x13) line.lamps |= mask;
+            else              line.lamps &= static_cast<uint8_t>(~mask);
             return;
         }
         line.latin = (mode == 0x11);
@@ -669,7 +670,7 @@ uint8_t Emulator::joystick() const noexcept
 /* With the keyboard outside, what its line says; else the model. */
 bool Emulator::capsOn() const noexcept
 {
-    if (impl_->keyboardIn) return impl_->keyboardLine.caps;
+    if (impl_->keyboardIn) return impl_->keyboardLine.lamps & MS7004_LAMP_CAPS;
     return ms7004_caps_on(&impl_->kbd7004);
 }
 
@@ -679,10 +680,13 @@ bool Emulator::ruslatOn() const noexcept
     return ms7004_ruslat_on(&impl_->kbd7004);
 }
 
-bool Emulator::composeOn() const noexcept
+Emulator::KeyboardLamps Emulator::keyboardLamps() const noexcept
 {
-    if (impl_->keyboardIn) return impl_->keyboardLine.compose;
-    return ms7004_compose_lamp(&impl_->kbd7004);
+    const uint8_t lamps = impl_->keyboardIn ? impl_->keyboardLine.lamps
+                                            : ms7004_lamps(&impl_->kbd7004);
+    return {.wait    = (lamps & MS7004_LAMP_WAIT) != 0,
+            .compose = (lamps & MS7004_LAMP_COMPOSE) != 0,
+            .hold    = (lamps & MS7004_LAMP_HOLD) != 0};
 }
 
 bool Emulator::keyHeld(Key key) const noexcept

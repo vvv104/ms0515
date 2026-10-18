@@ -791,21 +791,31 @@ TEST_CASE("КМП sends its code and no ALL-UP when let go") {
     CHECK(buf[0] == ms7004_scancode(MS7004_KEY_A));
 }
 
-/* «Композиция» is lit and put out by the machine: 0x13 / 0x11 followed by
- * a mask with bit 1. */
-TEST_CASE("the Compose lamp follows the machine's LED commands") {
+/* The four lamps - Ожидание, Композиция, Фиксация, Стоп-кадр - are lit and
+ * put out by the machine: 0x13 / 0x11 followed by a mask of them. */
+TEST_CASE("the lamps follow the machine's LED commands") {
     auto uart = make_uart();
     auto kbd  = make_kbd(&uart);
-    CHECK_FALSE(ms7004_compose_lamp(&kbd));
+    CHECK(ms7004_lamps(&kbd) == 0);
     ms7004_host_byte(&kbd, 0x13);
     ms7004_host_byte(&kbd, 0x82);
-    CHECK(ms7004_compose_lamp(&kbd));
+    CHECK(ms7004_lamps(&kbd) == MS7004_LAMP_COMPOSE);
+    ms7004_host_byte(&kbd, 0x13);
+    ms7004_host_byte(&kbd, 0x89);           /* Wait and Hold together */
+    CHECK(ms7004_lamps(&kbd) == (MS7004_LAMP_WAIT | MS7004_LAMP_COMPOSE
+                                 | MS7004_LAMP_HOLD));
     ms7004_host_byte(&kbd, 0x11);
     ms7004_host_byte(&kbd, 0x86);           /* Caps and Compose off at once */
-    CHECK_FALSE(ms7004_compose_lamp(&kbd));
+    CHECK(ms7004_lamps(&kbd) == (MS7004_LAMP_WAIT | MS7004_LAMP_HOLD));
     ms7004_host_byte(&kbd, 0x13);
-    ms7004_host_byte(&kbd, 0x84);           /* Caps alone: Compose stays off */
-    CHECK_FALSE(ms7004_compose_lamp(&kbd));
+    ms7004_host_byte(&kbd, 0x84);
+    CHECK((ms7004_lamps(&kbd) & MS7004_LAMP_CAPS) != 0);
+    ms7004_host_byte(&kbd, 0x11);           /* a standalone Latin command */
+    ms7004_host_byte(&kbd, 0xA7);           /* (a bell next) leaves them be */
+    CHECK(ms7004_lamps(&kbd) == (MS7004_LAMP_WAIT | MS7004_LAMP_CAPS
+                                 | MS7004_LAMP_HOLD));
+    ms7004_host_byte(&kbd, 0xFD);           /* the power-up reset: all out */
+    CHECK(ms7004_lamps(&kbd) == 0);
 }
 
 } /* TEST_SUITE */

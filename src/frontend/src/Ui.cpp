@@ -256,14 +256,18 @@ void drawStatusBar(const StatusBarState &s)
     bool vrOn  = s.emu.keyHeld(ms0515::Key::ShiftL)
               || s.emu.keyHeld(ms0515::Key::ShiftR);
     bool suOn  = s.emu.keyHeld(ms0515::Key::Ctrl);
-    bool kmpOn = s.emu.composeOn();               /* КМП's lamp */
+    const auto lamps = s.emu.keyboardLamps();
     ImGui::TextColored(modCol(vrOn),         "\xd0\x92\xd0\xa0");        /* ВР */
     ImGui::SameLine();
     ImGui::TextColored(modCol(suOn),         "\xd0\xa1\xd0\xa3");        /* СУ */
     ImGui::SameLine();
     ImGui::TextColored(modCol(s.emu.capsOn()),"\xd0\xa4\xd0\x9a\xd0\xa1");/* ФКС */
     ImGui::SameLine();
-    ImGui::TextColored(modCol(kmpOn),        "\xd0\x9a\xd0\x9c\xd0\x9f");/* КМП */
+    ImGui::TextColored(modCol(lamps.compose),"\xd0\x9a\xd0\x9c\xd0\x9f");/* КМП */
+    ImGui::SameLine();
+    ImGui::TextColored(modCol(lamps.hold),   "\xd0\xa1\xd0\xa2\xd0\x9e\xd0\x9f");/* СТОП */
+    ImGui::SameLine();
+    ImGui::TextColored(modCol(lamps.wait),   "\xd0\x9e\xd0\x96\xd0\x94");/* ОЖД */
     ImGui::SameLine();
     if (s.emu.ruslatOn())
         ImGui::TextColored(modCol(true),     "\xd0\xa0\xd0\xa3\xd0\xa1");/* РУС */

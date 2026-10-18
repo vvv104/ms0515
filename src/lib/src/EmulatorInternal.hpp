@@ -52,15 +52,15 @@ struct Emulator::Impl {
     Emulator::KeyboardLineOut   keyboardOut;
 
     /* What the keyboard's line says while the keyboard is outside: the
-     * lamps the machine has set (ФКС, КМП, ЛАТ) and the register keys the
-     * keyboard holds down (ВР, СУ) - what the model would report otherwise. */
+     * lamps the machine has set (the mask's four, ЛАТ) and the register
+     * keys the keyboard holds down (ВР, СУ) - what the model would report
+     * otherwise. */
     struct KeyboardLine {
         uint8_t pending = 0;        /* 0x11 / 0x13 waiting for its mask */
-        bool    caps    = false;
+        uint8_t lamps   = 0;        /* MS7004_LAMP_* */
         bool    latin   = true;
         bool    shift   = false;
         bool    ctrl    = false;
-        bool    compose = false;
     } keyboardLine;
     Emulator::VramWriteCallback vramWriteCb;
 

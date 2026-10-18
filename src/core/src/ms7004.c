@@ -655,9 +655,8 @@ static bool cmd_second_byte(ms7004_t *kbd, uint8_t first, uint8_t second)
      * second byte is re-processed as a new command (return false). */
     case 0x11:  /* LED OFF mode / Latin indicator ON */
         if (second >= 0x80 && second <= 0x8F) {
-            /* Valid LED mask — turn off selected LEDs (bits 0-3).
-             * Of them only «Композиция» is kept: it is КМП's indicator. */
-            if (second & 0x02) kbd->compose_lamp = false;
+            /* Valid LED mask — turn off selected LEDs (bits 0-3). */
+            kbd->lamps &= (uint8_t)~(second & 0x0F);
             return true;
         }
         /* No valid mask — apply standalone Latin indicator ON. */
@@ -667,7 +666,7 @@ static bool cmd_second_byte(ms7004_t *kbd, uint8_t first, uint8_t second)
     case 0x13:  /* LED ON mode / Latin indicator OFF */
         if (second >= 0x80 && second <= 0x8F) {
             /* Valid LED mask — turn on selected LEDs. */
-            if (second & 0x02) kbd->compose_lamp = true;
+            kbd->lamps |= (uint8_t)(second & 0x0F);
             return true;
         }
         /* No valid mask — apply standalone Latin indicator OFF. */
@@ -715,7 +714,7 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
         kbd->sound_enabled   = true;
         kbd->click_enabled   = true;
         kbd->latin_indicator = false;
-        kbd->compose_lamp    = false;
+        kbd->lamps           = 0;
         enter_typing_mode(kbd);   /* full reset → typing preset */
         if (kbd->uart) {
             kbd_flush_fifo(kbd->uart);
@@ -800,7 +799,7 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
 
 bool ms7004_caps_on  (const ms7004_t *kbd) { return kbd->caps_on; }
 bool ms7004_ruslat_on(const ms7004_t *kbd) { return kbd->ruslat_on; }
-bool ms7004_compose_lamp(const ms7004_t *kbd) { return kbd->compose_lamp; }
+uint8_t ms7004_lamps(const ms7004_t *kbd) { return kbd->lamps; }
 
 bool ms7004_is_held(const ms7004_t *kbd, ms7004_key_t key)
 {

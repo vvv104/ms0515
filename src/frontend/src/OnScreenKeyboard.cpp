@@ -225,8 +225,9 @@ bool OnScreenKeyboard::highlighted(const Cap &c,
         if (stickyKeys_.count((int)c.key)) return true;
     }
 
-    /* КМП: lit by the machine's «Композиция» lamp. */
-    if (c.key == ms0515::Key::Compose && emu.composeOn()) return true;
+    /* КМП and Стоп кадр: lit by the machine's lamps above them. */
+    if (c.key == ms0515::Key::Compose && emu.keyboardLamps().compose) return true;
+    if (c.key == ms0515::Key::F1      && emu.keyboardLamps().hold)    return true;
 
     /* All keys: lit when physically held in the ms7004 model. */
     return emu.keyHeld(c.key);

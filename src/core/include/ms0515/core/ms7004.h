@@ -261,9 +261,9 @@ typedef struct ms7004 {
     bool         sound_enabled;      /* bell sound enabled */
     bool         click_enabled;      /* keyclick enabled */
     bool         latin_indicator;    /* Latin indicator LED */
-    bool         compose_lamp;       /* «Композиция» LED (mask bit 1);
-                                      * the machine relights it, so it
-                                      * stays out of the snapshot */
+    uint8_t      lamps;              /* MS7004_LAMP_* the machine has lit;
+                                      * it relights them, so they stay
+                                      * out of the snapshot */
 
     /* The listener for the keyboard's own sounds (see ms7004_sound_event). */
     ms7004_sound_fn sound_cb;
@@ -320,7 +320,16 @@ void ms7004_recompute_live_repeat(ms7004_t *kbd);
 /* Queries for the OSK / UI. */
 bool    ms7004_caps_on  (const ms7004_t *kbd);
 bool    ms7004_ruslat_on(const ms7004_t *kbd);
-bool    ms7004_compose_lamp(const ms7004_t *kbd);
+
+/* The lamps the machine lights with 0x13 / 0x11 + a mask: the mask's bits.
+ * Фиксация's lamp is here as the machine set it; ms7004_caps_on is the
+ * model's own ФКС, which is what decides the case. */
+#define MS7004_LAMP_WAIT     0x01   /* Ожидание */
+#define MS7004_LAMP_COMPOSE  0x02   /* Композиция - КМП's */
+#define MS7004_LAMP_CAPS     0x04   /* Фиксация */
+#define MS7004_LAMP_HOLD     0x08   /* Стоп-кадр */
+uint8_t ms7004_lamps(const ms7004_t *kbd);
+
 bool    ms7004_is_held  (const ms7004_t *kbd, ms7004_key_t key);
 
 /* Lookup: MS 7004 scancode for a key.  Returns 0 for MS7004_KEY_NONE
