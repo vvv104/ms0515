@@ -30,7 +30,7 @@ add_executable(ms0515-run-bake
 
 target_link_libraries(ms0515-run-bake
     PRIVATE ms0515_run_base
-    PRIVATE ms0515_disk_manifest
+    PRIVATE ms0515_disk
     PRIVATE fmt::fmt
 )
 
@@ -46,68 +46,21 @@ if(EMSCRIPTEN)
 endif()
 
 # ── The system the state is made of ─────────────────────────────────────────
-# The dec kit comes from the software collection: $MS0515_SOFTWARE_DIR, else
-# the collection checked out next to this repository.  Without it there is
-# nothing to bake and the tool is left out; the rest of the build goes on.
-if(DEFINED ENV{MS0515_SOFTWARE_DIR})
-    file(TO_CMAKE_PATH "$ENV{MS0515_SOFTWARE_DIR}" MS0515_SOFTWARE_DIR)
-else()
-    get_filename_component(MS0515_SOFTWARE_DIR
-        "${CMAKE_SOURCE_DIR}/../../ms0515-software" ABSOLUTE)
-endif()
-
-if(NOT EXISTS "${MS0515_SOFTWARE_DIR}/kits/dec/bundles.toml")
-    message(STATUS "ms0515-run: no dec kit at ${MS0515_SOFTWARE_DIR} "
-                   "(set MS0515_SOFTWARE_DIR) - not built")
-    return()
-endif()
-
+# system/system.dsk: the dec system diskette, kept here as it is so that the
+# emulator builds from its own files alone.  It is made of the software
+# collection's kits (system/README.md says how, and how it is brought up to
+# date); the build only boots it and bakes.
 set(RUN_ROM       "${CMAKE_SOURCE_DIR}/assets/rom/ms0515-romb.rom")
-set(RUN_SYSTEM    "${CMAKE_CURRENT_BINARY_DIR}/system.dsk")
+set(RUN_SYSTEM    "${CMAKE_CURRENT_SOURCE_DIR}/system/system.dsk")
 set(RUN_EMBEDDED  "${CMAKE_CURRENT_BINARY_DIR}/Embedded.cpp")
 
-# The diskette: the monitor, the swap file, the three handlers and EM, the
-# emulator of the EIS/FIS instructions the processor lacks - nothing of
-# the system's suggested utilities.
-set(RUN_SYSTEM_FILES
-    "${MS0515_SOFTWARE_DIR}/kits/dec/bundles.toml"
-    "${MS0515_SOFTWARE_DIR}/kits/dec/RT11SJ.SYS"
-    "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/DZ.SYS"
-    "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/TT.SYS"
-    "${MS0515_SOFTWARE_DIR}/kits/dec/handlers/HD.SYS"
-    "${MS0515_SOFTWARE_DIR}/kits/osa/handlers/EM.SYS"
-    "${MS0515_SOFTWARE_DIR}/kits/osa/bundles.toml"
+add_custom_command(
+    OUTPUT  "${RUN_EMBEDDED}"
+    COMMAND ms0515-run-bake "${RUN_ROM}" "${RUN_SYSTEM}" "${RUN_EMBEDDED}"
+    DEPENDS ms0515-run-bake "${RUN_ROM}" "${RUN_SYSTEM}"
+    COMMENT "Baking the ROM, the diskette and the state into ms0515-run"
+    VERBATIM
 )
-
-if(EMSCRIPTEN)
-    # No ms0515-disk in the browser build: the bake composes the same
-    # diskette of the collection itself.
-    add_custom_command(
-        OUTPUT  "${RUN_EMBEDDED}"
-        COMMAND ms0515-run-bake "${RUN_ROM}" "${MS0515_SOFTWARE_DIR}" "${RUN_EMBEDDED}"
-        DEPENDS ms0515-run-bake "${RUN_ROM}" ${RUN_SYSTEM_FILES}
-        COMMENT "Baking the ROM, the diskette and the state into the page's run machine"
-        VERBATIM
-    )
-else()
-    add_custom_command(
-        OUTPUT  "${RUN_SYSTEM}"
-        COMMAND ${CMAKE_COMMAND} -E rm -f "${RUN_SYSTEM}"
-        COMMAND ms0515-disk compose --repo "${MS0515_SOFTWARE_DIR}"
-                --system dec --media ss --add hd-rt11 --add em "${RUN_SYSTEM}"
-        DEPENDS ms0515-disk ${RUN_SYSTEM_FILES}
-        COMMENT "Composing the dec system diskette for ms0515-run"
-        VERBATIM
-    )
-
-    add_custom_command(
-        OUTPUT  "${RUN_EMBEDDED}"
-        COMMAND ms0515-run-bake "${RUN_ROM}" "${RUN_SYSTEM}" "${RUN_EMBEDDED}"
-        DEPENDS ms0515-run-bake "${RUN_ROM}" "${RUN_SYSTEM}"
-        COMMENT "Baking the ROM, the diskette and the state into ms0515-run"
-        VERBATIM
-    )
-endif()
 
 # ── The machine ──────────────────────────────────────────────────────────────
 add_library(ms0515_run_core STATIC
