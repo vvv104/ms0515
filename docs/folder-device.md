@@ -93,12 +93,14 @@ until a remount.
 
 ## Status
 
-Implemented and OS-validated end to end (`rt11_devel/projects/rt11/handlers/hd/
-validate_rtfs.py` and `validate_rtfs_floppy.py`): folder-as-HD, folder-as-
+Implemented and OS-validated end to end (ms0515-devel's
+`projects/rt11/handlers/hd/validate_rtfs.py` and `validate_rtfs_floppy.py`):
+folder-as-HD, folder-as-
 floppy with boot file (RT-11 boots standalone from a host folder), guest
 create/delete/rename/protect, volume-id/owner round-trip including guest
-`INIT`, live manual-edit pickup.  The `rt11_devel` build toolchain runs
-entirely on folder devices (see `rt11_devel/toolset/README.md`).
+`INIT`, live manual-edit pickup.  The development repository's build
+toolchain runs entirely on folder devices (see `toolset/README.md` in
+<https://github.com/vvv104/ms0515-devel>).
 
 Parked: text-encoding conversion (host UTF-8 ↔ KOI-8R / CP866 / KOI-7) —
 design agreed, deliberately not in v1; all content passes byte-exact.

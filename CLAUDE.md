@@ -17,6 +17,14 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Files** (`src/files/`) — The RT-11 file manager as libraries: `ms0515_files` (the model — a device's volume, the mounts, the panels, the operations between volumes and the host, the viewer; no terminal, unit-tested) and `ms0515_files_ui` (the two panels, dialogs and viewer drawn with FTXUI via Conan). Used by the commander inside `ms0515-cli`.
 - **Tools** (`src/tools/`) — Standalone offline binaries over the libs. `tools/disk/` builds `ms0515-disk` (`create/init/put/rm/squeeze/protect/unprotect/setdate/get/dir/boot/system/split/merge/compose`). Heuristic recovery (consensus/donor) stays out — see `disk_recovery/`. `tools/run/` builds `ms0515-run [switches] PROGRAM[.SAV] [its command line]`: one RT-11 program run from its folder, with ROM-B, the dec system diskette and a saved state compiled in (`bake/` makes them at build time of `assets/system.dsk`, the dec system diskette kept in the repository with the programs its tests run - their bytes from the software collection, taken anew by `tools/run_assets.py`, so the emulator builds from its own files alone). The monitor's own `RUN` starts the program (`src/Starter.hpp` says how); no assets, no settings. A program that prints and ends runs unthrottled with its text on stdout - MACRO, LINK and the compilers are run from the host this way; one a person sits at runs at the machine's pace, in a window once it draws. `ms0515-run-probe` (build tree only) reports such a run without a terminal or a window.
 
+## What is not here
+The programs for the machine and the toolset that builds them (MACRO/LINK
+by ms0515-run, GCC for pdp11-aout, the games' ports, UBIX, the RT-11 kit
+from sources) and the handbook for writing them (`docs/programming.md`)
+live in ms0515-devel (https://github.com/vvv104/ms0515-devel), with their history; it uses this
+repository (`add_subdirectory` of src/, `tools/emu_driver.py`, the
+binaries in package/), never the other way round.
+
 ## Key rules
 - All code, comments, and documentation must be in **English only**.
 - Write original code based on architecture knowledge, do not copy from reference projects.
@@ -54,7 +62,7 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Revert failed attempts**: always roll back changes from unsuccessful approaches to avoid accumulating dead code and clutter.
 - **The language standard is declared once**, in `src/CMakeLists.txt`
   (`CMAKE_CXX_STANDARD` / `CMAKE_C_STANDARD`); every target — existing or
-  added later, `rt11_devel/` included — inherits it. Never repeat it with
+  added later — inherits it. Never repeat it with
   `target_compile_features(... cxx_std_NN)` per target: that is how the
   project ended up with the same standard spelled out in 15 files, one
   edit away from a target silently building against another one. A target
@@ -72,7 +80,7 @@ Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
   assistant session is configured with, this rule wins; strip the link
   before committing.
 - **No vendored third-party sources**: never store external source files in the repo. All dependencies must be managed through Conan.
-- **No machine-specific paths in tracked files**: never a user's home directory (`C:\Users\...`, `/home/...`), a drive letter or any absolute path of one machine - not as a default in code, not in docs, not in configs. External resources (the original game, tools) are located through an environment variable with a repository-relative fallback (see `rt11_devel/projects/fist/source/wotef_dir.py`); examples in docs use `$PWD` or relative paths. Before every commit `git grep -i "users[.]voron"` (and the equivalent for the machine at hand) must return nothing.
+- **No machine-specific paths in tracked files**: never a user's home directory (`C:\Users\...`, `/home/...`), a drive letter or any absolute path of one machine - not as a default in code, not in docs, not in configs. External resources (the original game, tools) are located through an environment variable with a repository-relative fallback (see `projects/fist/source/wotef_dir.py` in ms0515-devel); examples in docs use `$PWD` or relative paths. Before every commit `git grep -i "users[.]voron"` (and the equivalent for the machine at hand) must return nothing.
 
 ## Project structure
 ```
@@ -99,12 +107,7 @@ src/                — emulator source code and build files
                       from the ms0515-software releases; the original disks the tests need live in
                       lib/tests/disks/originals/ as test_*.dsk
 package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.exe, ms0515.yaml, assets/
-rt11_devel/         — RT-11 guest programs: toolset/ (build.py: MACRO/LINK run with ms0515-run),
-                      projects/<name>/ (sources, generators, README) and projects/<name>/tests/
-                      (the program's own doctest harness on ms0515_lib; pulled in by the emulator's
-                      test build via rt11_devel/CMakeLists.txt - game tests never live under src/)
-docs/               — architecture and subsystem documentation; programming.md = the handbook
-                      for programs on the machine (read it before writing MACRO-11 for it)
+docs/               — architecture and subsystem documentation
   kb/              — knowledge base (references, verification, known issues)
 disk_recovery/      — disk-recovery knowledge base + verified-image vault (no build inputs)
 tools/              — misc Python utilities: pdp11 disassembler, Extended-CPC convert, state dump,

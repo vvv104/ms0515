@@ -10,9 +10,6 @@ cmake-build-*/
 *.ilk
 *.exp
 *.lib
-# RT-11 toolchain libraries (PDP-11 object modules, not MSVC build output)
-!rt11_devel/toolset/build_tools/*.OBJ
-!rt11_devel/projects/rt11/tools/*.OBJ
 
 # Conan
 CMakeUserPresets.json
@@ -41,34 +38,6 @@ disk_recovery/work/
 
 # Per-operator canonical picks; local to whoever runs the GUI.
 disk_recovery/decisions.tsv
-
-# RT-11 build outputs — regenerate with:
-#   python rt11_devel/toolset/build.py rt11_devel/projects/<name>/build.toml
-rt11_devel/projects/rt11/handlers/hd/HD.SYS
-rt11_devel/projects/saper/SAPER.SAV
-rt11_devel/projects/saper/SAPER.MAC
-rt11_devel/projects/saper/SAPER.DAT
-rt11_devel/projects/saper/SAPER.HLP
-
-# FIST artifacts embed the original game's (copyrighted) art - never commit;
-# regenerate from the external tape (WOTEF_DIR) via the build above.
-rt11_devel/projects/fist/*.MAC
-# FLOAD.MAC is the exception: a hand-written loader with none of the
-# original in it, and the build needs it as a source.
-!rt11_devel/projects/fist/FLOAD.MAC
-rt11_devel/projects/fist/FIST.SAV
-rt11_devel/projects/fist/FIST.DAT
-# MANICM: the data file is the original's, the image is built
-rt11_devel/projects/manicm/MANICM.DAT
-rt11_devel/projects/manicm/MANICM.SAV
-rt11_devel/projects/manicm/MANICM.MAP
-rt11_devel/projects/fist/FLOAD.SAV
-rt11_devel/projects/fist/*.MAP
-rt11_devel/projects/fist/*.png
-rt11_devel/projects/fist/*.bin
-rt11_devel/projects/fist/*.json
-rt11_devel/projects/banktest/*.SAV
-rt11_devel/projects/banktest/*.MAP
 
 # KiCad per-user/local state (hw/)
 *.kicad_prl

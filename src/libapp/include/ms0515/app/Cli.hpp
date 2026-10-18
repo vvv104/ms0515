@@ -53,7 +53,7 @@ struct CliArgs {
     std::string statePath;
     std::string saveStatePath;
     /* --no-config: ignore ms0515.yaml entirely.  Automated runs (the
-     * rt11_devel toolset, oracle scripts) pass explicit flags; whatever
+     * development repository's toolset, oracle scripts) pass explicit flags; whatever
      * the GUI last saved must not leak into them (e.g. a yaml
      * disk0_side0 conflicting with a scripted --disk0 silently skips
      * drive 0). */

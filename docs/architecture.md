@@ -294,7 +294,7 @@ is kept out of these primitives — its knowledge base lives in `disk_recovery/`
 - [filesystem.md](hardware/filesystem.md) — RT-11 disk layout, sector interleave
 - [ramdisk.md](hardware/ramdisk.md) — 512 KB RAM disk expansion board
 - [hd.md](hardware/hd.md) — paravirtual hard disk registers
-- [programming.md](programming.md) — the handbook: what a program running on the machine under RT-11 has to know, from the ports
+- [programming.md](https://github.com/vvv104/ms0515-devel/blob/main/docs/programming.md) (in ms0515-devel) — the handbook: what a program running on the machine under RT-11 has to know, from the ports
 
 ## Key Sources
 
