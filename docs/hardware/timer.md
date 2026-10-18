@@ -38,7 +38,7 @@ The timer has **separate read and write addresses** (unlike the standard 8253):
 
 | Bits | Name | Description                                      |
 |------|------|--------------------------------------------------|
-| 7-6  | SC   | Channel select: 00=ch0, 01=ch1, 1x=ch2          |
+| 7-6  | SC   | Channel select: 00=ch0, 01=ch1, 10=ch2, 11=ignored (the 8254 read-back function; this is an 8253, and `timer_write` skips SC=11 as a no-op) |
 | 5-4  | RW   | R/W mode: 00=latch, 01=LSB, 10=MSB, 11=LSB+MSB  |
 | 3-1  | M    | Operating mode (0–5)                              |
 | 0    | BCD  | 0=binary, 1=BCD counting                         |
@@ -50,7 +50,7 @@ The timer has **separate read and write addresses** (unlike the standard 8253):
 | 0    | Interrupt on terminal count | OUT low, goes high when count = 0    |
 | 1    | Programmable one-shot       | Triggered by GATE rising edge        |
 | 2    | Rate generator              | OUT low for 1 cycle, reloads         |
-| 3    | Square wave generator       | 50% duty cycle, decrements by 2      |
+| 3    | Square wave generator       | decrements by 2; an odd reload is not exactly 50/50 - the high phase is `ceil(N/2)`, the low `floor(N/2)` (reloaded even on purpose - see `core/tests/test_timer.cpp`, "mode 3: an odd divisor gives both even and odd counts") |
 | 4    | Software-triggered strobe   | OUT pulses low for 1 cycle at zero   |
 | 5    | Hardware-triggered strobe   | Like mode 4, triggered by GATE       |
 

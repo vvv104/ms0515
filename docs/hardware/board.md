@@ -63,7 +63,7 @@ All addresses in octal.  Offsets are relative to 177400 base, in decimal hex.
 |-----|------|---------------------------------------------------|
 | 0-1 | DS   | Floppy drive select (0–3)                         |
 | 2   | MOTR | Motor on (active low: 0 = on)                     |
-| 3   | SIDE | Side select (active low: 0 = upper, 1 = lower)    |
+| 3   | SIDE | Side select: `0 = fdc_select side 1, 1 = fdc_select side 0` in `board.c`'s own reading of this bit ("active low"); the physical upper/lower labelling of side 0/1 is unresolved - `board.h`'s and `floppy.h`'s own header comments give it the *opposite* way round (`1 = upper`) from this table.  Needs the NS4 schematic (section 4.8) to settle. |
 | 4   | VD9  | LED VD9 control                                   |
 | 5   | VD16 | LED VD16 control                                  |
 | 6   | CASS | Cassette output signal                            |
@@ -124,24 +124,33 @@ Boot configuration: code 202 (octal) = mode 0, port B input, ports A/C output.
 | VBlank (60 Hz)   | 60 Hz      | 16.7 ms    |
 | VBlank (72 Hz)   | 72 Hz      | 13.9 ms    |
 
-Timer is ticked every ~4 CPU cycles (7.5 / 2 = 3.75, rounded to 4).
+The timer runs on an exact quarter-cycle accumulator: 15 quarter-cycles a
+tick against 4 quarter-cycles a CPU clock, an average of 3.75 cycles/tick
+with no drift (the "4 CPU cycles" figure is a separate, rounded divisor
+the emulator uses only to pace the keyboard USART, not the timer itself).
 At 50 Hz: 150,000 CPU cycles per frame.
 
 ## Interrupt Routing
 
+Only three sources are actually wired to an interrupt in the emulator -
+Timer, Keyboard MS7004 and Monitor (VBlank):
+
 | Source         | IRQ line | Vector | Priority | Gating                   |
 |----------------|----------|--------|----------|--------------------------|
 | Timer          | 11       | 0100   | 6        | Dispatcher bit 9, VBlank |
-| Serial RX      | 9        | 0110   | 6        | USART RxRDY              |
-| Serial TX      | 8        | 0114   | 6        | USART TxRDY              |
 | Keyboard MS7004| 5        | 0130   | 5        | USART RxRDY + RxEN       |
-| Keyboard MS7007| 3        | 0060   | 4        | Key matrix scan          |
 | Monitor (VBlank)| 2       | 0064   | 4        | Dispatcher bit 8         |
+
+Serial RX/TX and the MS7007 key matrix are in the NS4 tech description but
+raise no interrupt in this emulator: the serial port is a stub that
+accepts and discards, and no software at hand scans a matrix through the
+MS7007 PPI (it is wired here only as the joystick input port).
 
 ## Boot Sequence
 
 1. CPU reads mode register → start address 172000
-2. CPU loads PC from [172000], PSW from [172002]
+2. CPU begins fetching instructions directly at 0172000; PSW starts at
+   0340 (priority 7) - it is not loaded from a PC/PSW pair at 172000/172002
 3. BIOS programs PPI (code 202), Reg C (border white, no sound, 320x200)
 4. BIOS programs timer channels 0 and 1 (4800 baud)
 5. BIOS initializes keyboard USART (3 zeros + reset + mode + command)

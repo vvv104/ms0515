@@ -73,7 +73,7 @@ Drive selection and motor control are handled through the PPI, not the FDC:
 |------|--------------------------------------------------|
 | 1-0  | Physical drive select (0 or 1)                   |
 | 2    | Motor on (active low: 0 = motor on)              |
-| 3    | Side select (active low: 0 = upper, 1 = lower)  |
+| 3    | Side select: `board.c` reads it "active low" into `fdc_select`'s side argument (bit 0 -> side 1, bit 1 -> side 0); which physical side (upper/lower) that side 0/1 is remains unresolved - see `board.md`'s System Register A table. |
 
 The logical unit is computed as: `unit = side × 2 + drive`, where
 `side = (reg_a & 0x08) ? 0 : 1` (active-low).
@@ -107,6 +107,13 @@ polls the DRQ and INTRQ bits in System Register B during disk operations.
 |--------------|------------|---------------------------------|
 | Read Sector  | 0x80–0x9F  | Read sector into data register  |
 | Write Sector | 0xA0–0xBF  | Write sector from data register |
+
+### Type III — Format/Address
+
+| Command       | Code (hex) | Description                                          |
+|---------------|------------|-------------------------------------------------------|
+| Read Address  | 0xC0–0xCF  | Report the current track (the BIOS head-position self-test) |
+| Write Track   | 0xF0–0xFF  | Format the track under the head                       |
 
 ### Type IV — Control
 
