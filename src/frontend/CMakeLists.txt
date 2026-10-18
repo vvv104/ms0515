@@ -45,6 +45,7 @@ add_executable(ms0515 WIN32
     src/App.cpp
     src/Config.cpp
     src/ExternalKeyboard.cpp
+    src/Toolbar.cpp
     src/Joystick.cpp
     src/OnScreenKeyboard.cpp
     src/Ui.cpp

@@ -14,6 +14,7 @@
 
 #include "Audio.hpp"
 #include "ExternalKeyboard.hpp"
+#include "Toolbar.hpp"
 #include "Config.hpp"   /* re-exports CliArgs/Config from libapp */
 #include "OnScreenKeyboard.hpp"
 #include "Joystick.hpp"
@@ -73,6 +74,12 @@ private:
     void drawComponentsMenu();
     void drawHardDiskSubmenu();
     void drawKeyboardSubmenu();
+    void drawToolbar();
+    /* What the menus and the toolbar both do. */
+    void resetMachine();
+    void saveStateDialog();
+    void loadStateDialog();
+    void promptMountDrive(int drive);
     void drawExternalKeyboardMenu();
     /* The keyboard outside on `port` ("": the MS 7004 model), kept in
      * the config; a port that does not open leaves the model, saying why. */

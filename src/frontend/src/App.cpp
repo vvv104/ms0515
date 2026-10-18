@@ -466,6 +466,62 @@ void App::setHdController(bool on)
     config_.save();
 }
 
+void App::promptMountDrive(int drive)
+{
+    auto title = fmt::format(
+        "Select an image for drive {} (800 KB: the whole drive, 400 KB: its lower side)", drive);
+    std::string p = openFileDialog(
+        window_, title.c_str(),
+        FileDialogKind::Disk, Paths::initialDirFor(FileDialogKind::Disk));
+    if (!p.empty()) mountBySize(drive, p);
+}
+
+void App::resetMachine()
+{
+    dbg_.reset();
+    /* If the emulator paused itself because the CPU halted, Reset
+     * also clears the paused state — otherwise stepFrame never
+     * runs again and the screen stays frozen on pre-reset VRAM. */
+    running_              = true;
+    emuTimeAccumMs_       = 0.0f;
+    emuFramesSinceReset_  = 0;
+    hostMsAtLastReset_    = SDL_GetTicks();
+}
+
+void App::saveStateDialog()
+{
+    bool wasRunning = running_;
+    running_ = false;
+    std::string path = saveFileDialog(
+        window_, "Save State", "state.ms0515",
+        FileDialogKind::State, Paths::initialDirFor(FileDialogKind::State));
+    if (!path.empty())
+        if (auto r = emu_.saveState(path); !r)
+            std::fprintf(stderr, "Save state failed: %s\n", r.error().c_str());
+    running_ = wasRunning;
+}
+
+void App::loadStateDialog()
+{
+    bool wasRunning = running_;
+    running_ = false;
+    std::string path = openFileDialog(
+        window_, "Load State", FileDialogKind::State,
+        Paths::initialDirFor(FileDialogKind::State));
+    if (!path.empty()) {
+        if (auto r = emu_.loadState(path); !r) {
+            std::fprintf(stderr, "Load state failed: %s\n", r.error().c_str());
+        } else {
+            for (int i = 0; i < 4; ++i) {
+                mountedFd_[i] = emu_.diskPath(i);
+                config_.fdPath[i] = mountedFd_[i];
+            }
+            config_.save();
+        }
+    }
+    running_ = wasRunning;
+}
+
 void App::promptMountHd()
 {
     std::string p = openFileDialog(
@@ -785,6 +841,58 @@ void App::drawMenuBar()
     drawComponentsMenu();
     drawViewMenu();
     ImGui::EndMainMenuBar();
+    drawToolbar();
+}
+
+/* The toolbar, a strip under the menu bar: what the menus do most often,
+ * a click away.  Everything below it is laid out from menuBarHeight_, so
+ * the strip's height is added to it. */
+void App::drawToolbar()
+{
+    const float h = toolbarHeight();
+    const ImGuiViewport *vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x, vp->Pos.y + (float)menuBarHeight_));
+    ImGui::SetNextWindowSize(ImVec2(vp->Size.x, h));
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
+        | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings
+        | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoFocusOnAppearing
+;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    if (ImGui::Begin("##toolbar", nullptr, flags)) {
+        if (toolButton("reset", ToolIcon::Reset, "Reset the machine")) resetMachine();
+        if (toolButton("run", running_ ? ToolIcon::Pause : ToolIcon::Run,
+                       running_ ? "Pause" : "Resume", !running_))
+            running_ = !running_;
+        toolSeparator();
+        if (toolButton("disk0", ToolIcon::Disk0, "Disk 0: mount an image (800 KB: the whole drive, 400 KB: its lower side)"))
+            promptMountDrive(0);
+        if (toolButton("disk1", ToolIcon::Disk1, "Disk 1: mount an image (800 KB: the whole drive, 400 KB: its lower side)"))
+            promptMountDrive(1);
+        if (toolButton("hd", ToolIcon::HardDisk, "Hard disk (HD:): mount an image"))
+            promptMountHd();
+        toolSeparator();
+        if (toolButton("save", ToolIcon::SaveState, "Save the machine's state")) saveStateDialog();
+        if (toolButton("load", ToolIcon::LoadState, "Load a saved state")) loadStateDialog();
+        if (toolButton("shot", ToolIcon::Screenshot, "Save the screen as a PNG")) requestScreenshot();
+        toolSeparator();
+        const bool speedIs100 = (targetSpeed_ == 100.0f);
+        if (toolButton("audio", audioOn_ ? ToolIcon::SoundOn : ToolIcon::SoundOff,
+                       speedIs100 ? (audioOn_ ? "Sound: on" : "Sound: off")
+                                  : "Sound plays at 100% speed only",
+                       false, speedIs100))
+            audioOn_ = !audioOn_;
+        toolSeparator();
+        if (toolButton("osk", ToolIcon::Keyboard, "The on-screen keyboard", showKeyboard_))
+            showKeyboard_ = !showKeyboard_;
+        if (toolButton("dbg", ToolIcon::Debugger, "The debugger", showDebugger_))
+            showDebugger_ = !showDebugger_;
+        if (toolButton("full", ToolIcon::Fullscreen, "Fullscreen (Alt+Enter)"))
+            setFullscreen(!fullscreenOn_);
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    menuBarHeight_ += (int)h;
 }
 
 void App::drawFileMenu()
@@ -832,14 +940,7 @@ void App::drawFileDiskMenu(int drive)
     };
     std::string mountImageLabel = "Mount image...";
     if (!mountedFd_[unit0].empty()) mountImageLabel += held(unit0);
-    if (ImGui::MenuItem(mountImageLabel.c_str())) {
-        auto title = fmt::format(
-            "Select an image for drive {} (800 KB: the whole drive, 400 KB: its lower side)", drive);
-        std::string p = openFileDialog(
-            window_, title.c_str(),
-            FileDialogKind::Disk, Paths::initialDirFor(FileDialogKind::Disk));
-        if (!p.empty()) mountBySize(drive, p);
-    }
+    if (ImGui::MenuItem(mountImageLabel.c_str())) promptMountDrive(drive);
     std::string upperLabel = "Mount upper side...";
     if (!mountedFd_[unit1].empty()) upperLabel += held(unit1);
     if (any && !mountedAsDs_[drive] && ImGui::MenuItem(upperLabel.c_str())) {
@@ -880,16 +981,7 @@ void App::drawMachineMenu()
 {
     if (!ImGui::BeginMenu("Machine")) return;
 
-    if (ImGui::MenuItem("Reset")) {
-        dbg_.reset();
-        /* If the emulator paused itself because the CPU halted, Reset
-         * also clears the paused state — otherwise stepFrame never
-         * runs again and the screen stays frozen on pre-reset VRAM. */
-        running_              = true;
-        emuTimeAccumMs_       = 0.0f;
-        emuFramesSinceReset_  = 0;
-        hostMsAtLastReset_    = SDL_GetTicks();
-    }
+    if (ImGui::MenuItem("Reset")) resetMachine();
     drawRomSubmenu();
 
     ImGui::Separator();
@@ -902,36 +994,8 @@ void App::drawMachineMenu()
     drawSoundsSubmenu();
 
     ImGui::Separator();
-    if (ImGui::MenuItem("Save State...")) {
-        bool wasRunning = running_;
-        running_ = false;
-        std::string path = saveFileDialog(
-            window_, "Save State", "state.ms0515",
-            FileDialogKind::State, Paths::initialDirFor(FileDialogKind::State));
-        if (!path.empty())
-            if (auto r = emu_.saveState(path); !r)
-                std::fprintf(stderr, "Save state failed: %s\n", r.error().c_str());
-        running_ = wasRunning;
-    }
-    if (ImGui::MenuItem("Load State...")) {
-        bool wasRunning = running_;
-        running_ = false;
-        std::string path = openFileDialog(
-            window_, "Load State", FileDialogKind::State,
-            Paths::initialDirFor(FileDialogKind::State));
-        if (!path.empty()) {
-            if (auto r = emu_.loadState(path); !r) {
-                std::fprintf(stderr, "Load state failed: %s\n", r.error().c_str());
-            } else {
-                for (int i = 0; i < 4; ++i) {
-                    mountedFd_[i] = emu_.diskPath(i);
-                    config_.fdPath[i] = mountedFd_[i];
-                }
-                config_.save();
-            }
-        }
-        running_ = wasRunning;
-    }
+    if (ImGui::MenuItem("Save State...")) saveStateDialog();
+    if (ImGui::MenuItem("Load State...")) loadStateDialog();
     ImGui::EndMenu();
 }
 
