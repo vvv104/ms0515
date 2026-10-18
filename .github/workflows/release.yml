@@ -18,9 +18,11 @@ jobs:
           - os: ubuntu-latest
             platform: linux-x64
             archive_ext: tar.gz
+            ci_job: ubuntu-latest-gcc-13
           - os: windows-latest
             platform: windows-x64
             archive_ext: zip
+            ci_job: windows-latest-msvc
 
     steps:
       - uses: actions/checkout@v6
@@ -31,6 +33,18 @@ jobs:
 
       - name: Install Conan
         run: pip install "conan>=2.0" ninja
+
+      # The packages CI built on main for the same profile (ci.yml's job of
+      # the same compiler, its cache key): SDL2 and the rest are not built
+      # again.  Restored only - a tag's run saves no cache of its own.  The
+      # version PR's CI on main runs just before a release, so it is fresh.
+      - name: Restore CI's Conan packages
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.conan2
+          key: conan-${{ matrix.ci_job }}-${{ hashFiles('src/conanfile.py') }}
+          restore-keys: |
+            conan-${{ matrix.ci_job }}-
 
       - name: Install GCC 13 (Linux)
         if: runner.os == 'Linux'
