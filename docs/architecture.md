@@ -269,7 +269,8 @@ The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
 is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified
 against the real OS in the emulator (`src/lib/tests/test_dir_vs_os.cpp`).
 Heuristic multi-source recovery (consensus, donor matching, confidence tiers)
-is kept out of these primitives — its knowledge base lives in `disk_recovery/`.
+is kept out of these primitives — its knowledge base lives in the software
+collection, [`recovery/`](https://github.com/vvv104/ms0515-software/tree/main/recovery).
 
 ## Hardware Summary
 

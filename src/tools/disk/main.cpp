@@ -19,7 +19,8 @@
  * double-sided) and matches the emulator FDC.  Wildcards use '*' only.
  *
  * Format-level operations only.  Heuristic multi-source recovery lives in
- * Python under disk_recovery/, on top of these primitives.
+ * Python under recovery/ of the software collection, on top of these
+ * primitives.
  */
 
 #include "ComposeCommand.hpp"
