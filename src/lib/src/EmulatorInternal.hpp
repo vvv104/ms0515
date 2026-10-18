@@ -50,6 +50,18 @@ struct Emulator::Impl {
     Emulator::SerialInCallback  serialInCb;
     Emulator::KeyboardLineIn    keyboardIn;     /* set: the keyboard is outside */
     Emulator::KeyboardLineOut   keyboardOut;
+
+    /* What the keyboard's line says while the keyboard is outside: the
+     * lamps the machine has set (ФКС, ЛАТ) and the modifiers the keyboard
+     * holds down (ВР, СУ, КМП) - what the model would report otherwise. */
+    struct KeyboardLine {
+        uint8_t pending = 0;        /* 0x11 / 0x13 waiting for its mask */
+        bool    caps    = false;
+        bool    latin   = true;
+        bool    shift   = false;
+        bool    ctrl    = false;
+        bool    compose = false;
+    } keyboardLine;
     Emulator::VramWriteCallback vramWriteCb;
 
     /* Folder-backed HD volume (.rtfs mount); null for image mounts. */

@@ -107,6 +107,37 @@ void cFdcMechTrampoline(void *userdata, int event, int arg)
                          static_cast<uint32_t>(board.frame_cycle_pos)});
 }
 
+/* The keyboard's line read for what the model would otherwise report.
+ * From the machine: 0x11 / 0x13 with a mask (0200..0217) put the lamps the
+ * mask names off / on - bit 2 is ФКС; with no mask after them they are the
+ * Latin lamp on / off, and the byte that came is a command of its own.
+ * From the keyboard: ВР (0256), СУ (0257), КМП (0261) are held from their
+ * code until ALL-UP (0263). */
+void lineFromMachine(ms0515::Emulator::Impl::KeyboardLine &line, uint8_t byte)
+{
+    if (line.pending) {
+        const uint8_t mode = line.pending;
+        line.pending = 0;
+        if (byte >= 0200 && byte <= 0217) {
+            if (byte & 0x04) line.caps = (mode == 0x13);
+            return;
+        }
+        line.latin = (mode == 0x11);
+    }
+    if (byte == 0x11 || byte == 0x13) line.pending = byte;
+}
+
+void lineFromKeyboard(ms0515::Emulator::Impl::KeyboardLine &line, uint8_t byte)
+{
+    switch (byte) {
+    case 0256: line.shift   = true; break;
+    case 0257: line.ctrl    = true; break;
+    case 0261: line.compose = true; break;
+    case 0263: line.shift = line.ctrl = line.compose = false; break;
+    default:   break;
+    }
+}
+
 /* The machine's own millisecond: the keyboard's typematic runs on it, so
  * a repeat falls where it falls inside the frame and not where the host
  * happened to look. */
@@ -123,8 +154,10 @@ void cBoardMsTrampoline(void *userdata, uint32_t ms, int frameCycle)
      * room; the USART takes them to the receiver at the line's pace. */
     auto &uart = impl->board.kbd;
     uint8_t byte = 0;
-    while (uart.fifo_count < static_cast<int>(sizeof uart.fifo) && impl->keyboardIn(byte))
+    while (uart.fifo_count < static_cast<int>(sizeof uart.fifo) && impl->keyboardIn(byte)) {
+        lineFromKeyboard(impl->keyboardLine, byte);
         kbd_push_scancode(&uart, byte);
+    }
 }
 
 /* A byte the machine writes to the keyboard USART: to the MS 7004 model,
@@ -137,6 +170,7 @@ void cKbdTxModelTrampoline(void *ctx, uint8_t byte)
 void cKbdTxLineTrampoline(void *ctx, uint8_t byte)
 {
     auto *self = static_cast<ms0515::Emulator *>(ctx);
+    lineFromMachine(self->impl()->keyboardLine, byte);
     if (self->impl()->keyboardOut) self->impl()->keyboardOut(byte);
 }
 
@@ -609,8 +643,9 @@ void Emulator::keyReleaseAll()
 
 void Emulator::setExternalKeyboard(KeyboardLineIn in, KeyboardLineOut out)
 {
-    impl_->keyboardIn  = std::move(in);
-    impl_->keyboardOut = std::move(out);
+    impl_->keyboardIn   = std::move(in);
+    impl_->keyboardOut  = std::move(out);
+    impl_->keyboardLine = {};
     wireKeyboardTx();
 }
 
@@ -629,11 +664,31 @@ uint8_t Emulator::joystick() const noexcept
     return impl_->board.joystick;
 }
 
-bool Emulator::capsOn()   const noexcept { return ms7004_caps_on(&impl_->kbd7004); }
-bool Emulator::ruslatOn() const noexcept { return ms7004_ruslat_on(&impl_->kbd7004); }
+/* With the keyboard outside, what its line says; else the model. */
+bool Emulator::capsOn() const noexcept
+{
+    if (impl_->keyboardIn) return impl_->keyboardLine.caps;
+    return ms7004_caps_on(&impl_->kbd7004);
+}
+
+bool Emulator::ruslatOn() const noexcept
+{
+    if (impl_->keyboardIn) return !impl_->keyboardLine.latin;
+    return ms7004_ruslat_on(&impl_->kbd7004);
+}
 
 bool Emulator::keyHeld(Key key) const noexcept
 {
+    if (impl_->keyboardIn) {
+        const auto &line = impl_->keyboardLine;
+        switch (key) {
+        case Key::ShiftL:
+        case Key::ShiftR:  return line.shift;
+        case Key::Ctrl:    return line.ctrl;
+        case Key::Compose: return line.compose;
+        default:           return false;
+        }
+    }
     return ms7004_is_held(&impl_->kbd7004, static_cast<ms7004_key_t>(key));
 }
 
