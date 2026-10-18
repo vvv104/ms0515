@@ -84,8 +84,8 @@ jobs:
           rm -f package/ms0515.yaml
           rm -rf package/assets/disks
 
-          # ms0515-run is left out of a build that has no software
-          # collection, without an error: a release must not go out so.
+          # Every binary must be in the package: a build that silently
+          # left one out must not go out as a release.
           EXE=""
           if [ "${{ runner.os }}" = "Windows" ]; then EXE=".exe"; fi
           for binary in ms0515 ms0515-cli ms0515-disk ms0515-run; do

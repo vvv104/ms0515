@@ -46,17 +46,26 @@ The emulator is structured as a stack of libraries with two binaries on top:
                 └─────────────────────────────────────────┘
 ```
 
-`libapp` is linked by both binaries, so any host-app feature added to one
-(new CLI flag, new config field, new mount helper) becomes available in the
-other automatically.  `platform/` is split into two sublibs because the
-CLI's needs (raw stdin, signals, UTF-8 console) and the GUI's needs (file
-dialogs, fonts, console-attach) have very little overlap — pulling SDL
-into the CLI link would just be dead weight.
+`libapp` is linked by both binaries, so a host-app feature added to it
+(a CLI flag, a config field, a mount helper) is there for both; a binary
+still has to act on it (the flags only the text mode acts on are named in
+its `--help`).  `platform/` is split into two sublibs because the CLI's
+needs (raw stdin, signals, UTF-8 console) and the GUI's needs (file
+dialogs, fonts) have very little overlap — pulling SDL into the CLI link
+would just be dead weight.
+
+Beside this stack, over the same lib: the offline disk library and
+`ms0515-disk` (`src/disk/`, `src/tools/disk/`), the RT-11 file manager the
+CLI draws (`src/files/`), `ms0515-run` - one program run with no boot
+(`src/tools/run/`) - and the browser build (`src/web/`), each described
+below.
 
 ### Core Layer (C11)
 
-Pure emulation logic with zero OS dependencies.  Only uses `<stdint.h>`,
-`<stdbool.h>`, `<string.h>`, and `<assert.h>`.  This layer is fully
+Pure emulation logic with zero OS dependencies.  Only uses the C standard
+library's freestanding-friendly parts - `<stdint.h>`, `<stdbool.h>`,
+`<stddef.h>`, `<string.h>`, `<assert.h>` - and `<stdlib.h>`, for the
+memory the HD and RAM disk images and the trace ring take.  This layer is fully
 portable and can be compiled for any platform.
 
 Files:
@@ -82,6 +91,13 @@ C++ wrapper providing higher-level features:
 - `Debugger` — breakpoints, watchpoints, single-step, register inspection
 - `Disassembler` — PDP-11 instruction decoding to human-readable text
 - GDB RSP stub — allows remote debugging with standard GDB
+- `Terminal`, `VramMirror` — the screen as text for a host terminal (a
+  decoded snapshot with scrollback; a mirror driven by the VRAM writes)
+- `Typist` — characters typed on the machine's keyboard, with the
+  modifiers each needs; `Koi8` — a host's UTF-8 input as KOI-8R
+- `Audio` — the speaker and the drive's and keyboard's recordings as PCM,
+  one renderer for the SDL front-end and the browser
+- `KeyboardLayout` — the on-screen keyboard's caps, labels and keys
 
 ### Libapp Layer (C++)
 
@@ -91,6 +107,8 @@ code — no emulation primitives, no `core` API:
 - `Config` — YAML config file load/save (disk paths, window state, options)
 - `Cli` — command-line argument parser (shared flag set across binaries)
 - `Disks` — disk-mounting helpers operating on `ms0515::Emulator`
+- `Screen` — VRAM to a 640x400 RGBA frame, and PNG screenshots of it
+- `Sounds` — where the drive's and keyboard's recordings are found
 
 ### Platform Layer (C++)
 
@@ -98,7 +116,9 @@ Host OS abstractions kept out of the binary sources so `cli/` and
 `frontend/` proper do not pull `<windows.h>` / `<commdlg.h>` / `<termios.h>`
 directly.  Two sublibs, one per binary:
 - `platform/cli/` — raw stdin reading, signal handling, UTF-8 console setup
-- `platform/gui/` — file dialogs, font discovery, GUI-subsystem console attach
+- `platform/gui/` — file dialogs, font discovery
+- `platform/win7compat/` — shims that let the static MSVC runtime's exes
+  run on Windows 7
 
 ### Frontend Binary — `ms0515.exe` (C++ / SDL2 / ImGui)
 
@@ -211,6 +231,13 @@ tool that read and write images directly, without running the machine.
   follows the image size; `--hd`, `--dv` and `--mz` pick the other volume
   kinds, and `dir` says when the content rather parses as another one.
 
+The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
+is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified
+against the real OS in the emulator (`src/lib/tests/test_dir_vs_os.cpp`).
+Heuristic multi-source recovery (consensus, donor matching, confidence tiers)
+is kept out of these primitives — its knowledge base lives in the software
+collection, [`recovery/`](https://github.com/vvv104/ms0515-software/tree/main/recovery).
+
 ### The File Manager — `src/files/` (C++)
 
 Two panels over the machine's disks - never the host's file system - in
@@ -240,7 +267,7 @@ section above).  Two libraries: the model and the FTXUI panels.
   devices by content), `Panel` (cursor, marks, selection), `Ops` (copy /
   move / delete / rename / protect between volumes, import / export, with
   an explicit policy for overwriting and protected files), `Viewer` (text
-  in ASCII / KOI-8R / KOI-7 / KOI-7 with ^N ^O / CP866, octal and hex
+  in ASCII / KOI-8R / KOI-8 Rodionov / KOI-7 / KOI-7 with ^N ^O / CP866, octal and hex
   dumps, search).  Unit-tested on scratch copies of the fixture disks.
 - The front-end (`ms0515_files_ui`: `Commander.cpp` the page and the
   panels, `CommanderDialogs.cpp`, `CommanderActions.cpp`,
@@ -265,12 +292,28 @@ section above).  Two libraries: the model and the FTXUI panels.
   them, mc's hidden files.  All state stays in the model; the panels are
   unit-tested by rendering into an FTXUI screen (`test_commander`).
 
-The geometry source of truth is the FDC (`src/core/src/floppy.c`); the format
-is documented in [filesystem.md](hardware/filesystem.md).  The tool is verified
-against the real OS in the emulator (`src/lib/tests/test_dir_vs_os.cpp`).
-Heuristic multi-source recovery (consensus, donor matching, confidence tiers)
-is kept out of these primitives — its knowledge base lives in the software
-collection, [`recovery/`](https://github.com/vvv104/ms0515-software/tree/main/recovery).
+### One Program Run — `ms0515-run` (C++)
+
+`ms0515-run [switches] PROGRAM[.SAV] [its command line]` runs one RT-11
+program from its folder, with no boot: ROM-B, the dec system diskette
+(`src/tools/run/assets/system.dsk`, kept in the repository and refreshed
+from the software collection by `tools/run_assets.py`) and the machine
+booted on it are compiled in - `bake/` boots it at build time and saves
+the state.  The monitor's own `RUN` starts the program (`src/Starter.hpp`).
+A program that prints and ends runs unthrottled with its text on stdout
+(MACRO, LINK, the compilers run from the host this way); one a person
+sits at runs at the machine's pace, in a window once it draws.
+`ms0515-run-probe` (`probe/`, build tree only) reports such a run without
+a terminal or a window.
+
+### The Browser Build — `src/web/` (Emscripten)
+
+The core, the lib, the disk library and `ms0515-run`'s machine compiled
+with Emscripten behind a flat C API, and a static page that runs the
+machine in the tab: the drives and the HD, the commander, the disk wizard,
+`?run=` run cards, the bug report.  Configured only under the Emscripten
+profile (`src/profiles/emscripten`); no host layers.  The C API, the page
+and the checks are in [`src/web/README.md`](../src/web/README.md).
 
 ## Hardware Summary
 
@@ -304,4 +347,4 @@ collection, [`recovery/`](https://github.com/vvv104/ms0515-software/tree/main/re
 3. T-11 User's Guide (EK-DCT11-UG)
 4. Intel 8253, 8251, 8255 datasheets
 5. WD1793 datasheet
-6. MAME driver: <https://github.com/mamedev/mame/blob/master/src/mame/drivers/ms0515.cpp>
+6. MAME driver: <https://github.com/mamedev/mame/blob/master/src/mame/ussr/ms0515.cpp>

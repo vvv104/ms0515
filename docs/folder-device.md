@@ -98,9 +98,10 @@ Implemented and OS-validated end to end (ms0515-devel's
 folder-as-HD, folder-as-
 floppy with boot file (RT-11 boots standalone from a host folder), guest
 create/delete/rename/protect, volume-id/owner round-trip including guest
-`INIT`, live manual-edit pickup.  The development repository's build
-toolchain runs entirely on folder devices (see `toolset/README.md` in
-<https://github.com/vvv104/ms0515-devel>).
+`INIT`, live manual-edit pickup.  The development repository
+(<https://github.com/vvv104/ms0515-devel>) boots its games' tests from a
+folder device (its `toolset/README.md`); its builds run the tools with
+`ms0515-run`.
 
 Parked: text-encoding conversion (host UTF-8 ↔ KOI-8R / CP866 / KOI-7) —
 design agreed, deliberately not in v1; all content passes byte-exact.

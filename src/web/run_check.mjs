@@ -26,7 +26,7 @@ const api = {
 };
 const fail = (why) => { console.error("FAIL: " + why); process.exit(1); };
 
-if (!api.runBuilt()) fail("the module was built without the run machine (no software collection at build time)");
+if (!api.runBuilt()) fail("the module was built without the run machine");
 
 M.FS.mkdirTree("/run");
 M.FS.writeFile("/run/DIR.SAV", readFileSync(join(system, "DIR.SAV")));

@@ -2,7 +2,10 @@
 """
 PDP-11 (T-11 / KR1807VM1) disassembler for MS0515 ROM images.
 
-Produces output in the same format as the existing .lst files:
+    python tools/pdp11_disasm.py FILE [BASE]    (BASE in octal, 140000)
+
+With no FILE, both ROMs of src/assets/rom/ are disassembled to
+<name>.disasm.lst in the current directory.  Output lines:
     AAAAAA: MNEMONIC  operands
 
 All addresses and immediate values are in octal.
@@ -319,7 +322,7 @@ def disassemble_rom(rom_path: str, base_addr: int) -> str:
 def main():
     if len(sys.argv) < 2:
         # Default: disassemble both MS0515 ROMs
-        ref_dir = Path(__file__).parent.parent / 'reference' / 'docs'
+        ref_dir = Path(__file__).parent.parent / 'src' / 'assets' / 'rom'
 
         for name in ['ms0515-roma', 'ms0515-romb']:
             rom_path = ref_dir / f'{name}.rom'
@@ -333,7 +336,7 @@ def main():
             base_addr = 0o140000  # Full 16 KB from 140000
 
             listing = disassemble_rom(str(rom_path), base_addr)
-            out_path = ref_dir / f'{name}.disasm.lst'
+            out_path = Path(f'{name}.disasm.lst')
             out_path.write_text(listing, encoding='utf-8')
             print(f'Wrote {out_path} ({len(listing)} bytes)')
     else:
