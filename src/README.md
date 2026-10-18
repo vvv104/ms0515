@@ -8,7 +8,7 @@
   - macOS: Apple Clang 13+ (macOS 11 Big Sur and newer, Intel or Apple
     silicon — the Command Line Tools alone are enough, full Xcode is not)
 - **[Conan 2](https://conan.io/)** package manager (`pip install conan`)
-- **CMake** 3.16+ and **Ninja** on PATH.  A machine that has neither can
+- **CMake** 3.21+ and **Ninja** on PATH.  A machine that has neither can
   take them from Conan too — add the `profiles/tools` add-on to the build
   command (see [Build](#build) below); the emulator itself then needs
   nothing but a compiler and Conan.
@@ -55,20 +55,24 @@ dependencies are compiled in their own environment, which a recipe's
 `fmt` from source stops at `cmake: command not found`.
 
 This single command runs `conan install`, `cmake configure`, and
-`cmake build`. Third-party dependencies (SDL2, Dear ImGui) are
-downloaded and built automatically on first run.
+`cmake build`. Third-party dependencies (SDL2, Dear ImGui, fmt, toml++,
+FTXUI, stb, doctest) are downloaded and built automatically on first run.
 
 The build output goes to `build/Release/`.
 
 ## Package
 
-A post-build step copies the executable and runtime assets into a
+A post-build step copies the executables and runtime assets into a
 self-contained `package/` directory at the **repo root** (one level
 above `src/`):
 
 ```
 <repo>/package/
-  ms0515(.exe)
+  ms0515(.exe)       the window
+  ms0515-cli(.exe)   the text mode
+  ms0515-disk(.exe)  the offline disk tool
+  ms0515-run(.exe)   one RT-11 program run from its folder
+  DISKS.txt          where the bootable diskettes come from
   assets/
     rom/          ROM images
     keyboard/     Keyboard layout data
@@ -81,19 +85,22 @@ above `src/`):
 conanfile.py      Conan recipe (dependencies + build steps)
 CMakeLists.txt    Top-level CMake project
 core/             Hardware emulation in pure C11 (no OS dependencies)
-                  Includes snapshot serialization (snapshot.c)
+                  Includes snapshot serialization (snapshot.c) and the
+                  trace ring (trace.c)
 lib/              C++ wrapper (Emulator, Debugger, Disassembler, GDB stub)
 libapp/           Shared host-app utilities (paths, YAML config, CLI parser,
                   disk-mount helpers, screen composition + PNG screenshots)
 platform/         Host OS abstractions kept out of the binaries: cli/ (raw
-                  stdin, signals, UTF-8 console), gui/ (file dialogs, fonts)
+                  stdin, signals, UTF-8 console), gui/ (file dialogs, fonts),
+                  win7compat/ (the static MSVC runtime's shims for Windows 7)
 cli/              ms0515-cli.exe - the text-mode binary
 frontend/         SDL2 + Dear ImGui application
-disk/             Offline RT-11 / MS-0515 disk-image library and tool
+disk/             Offline RT-11 / MS-0515 disk-image library
 files/            The RT-11 file manager (model + FTXUI panels)
-tools/            ms0515-disk and other standalone offline binaries
+tools/            The standalone binaries: disk/ = ms0515-disk, run/ = ms0515-run
 web/              The Emscripten browser build (see src/web/README.md)
-profiles/         Conan host profiles (emscripten)
+profiles/         Conan profiles: emscripten (the browser build's host),
+                  tools (CMake and Ninja from Conan)
 assets/           Runtime resources copied into package/
 ```
 
@@ -107,11 +114,9 @@ each layer does and how they depend on one another.
 | `MS0515_BUILD_FRONTEND` | `ON` | Build the SDL2/ImGui frontend |
 | `MS0515_BUILD_TESTS` | `OFF` | Build unit tests |
 
-Pass via Conan:
-
-```bash
-conan build . --build=missing -o "&:MS0515_BUILD_TESTS=True"
-```
+The defaults are a plain CMake configure's: `conan build` always turns
+both on for a native build and both off for the browser one
+(`conanfile.py`'s `build()`).
 
 ## Built inside another project
 
@@ -138,19 +143,8 @@ cd ../package
 ./ms0515 --disk0 path/to/disk.dsk
 ```
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--rom <path>` | | ROM image (default: `assets/rom/ms0515-roma.rom`) |
-| `--disk0 <path>` | `-d0` | Drive 0 by the image's size: an 819200-byte track-interleaved image both sides, a 409600-byte SS image the lower side |
-| `--disk0-side0 <path>` | `-d0s0` | Drive 0, lower side (409600-byte SS image) |
-| `--disk0-side1 <path>` | `-d0s1` | Drive 0, upper side - with `--disk0 <SS image>`, two images on one drive |
-| `--disk1 <path>` | `-d1` | Drive 1 by the image's size, as `--disk0` |
-| `--disk1-side0 <path>` | `-d1s0` | Drive 1, lower side |
-| `--disk1-side1 <path>` | `-d1s1` | Drive 1, upper side |
-
-`--diskN` with a DS image and `--diskN-sideM` for the same N are mutually
-exclusive; with an SS image `--diskN` is `--diskN-side0`.  A drive named on
-the command line takes nothing from `ms0515.yaml`.
+The options are listed in the [top-level README](../README.md#running);
+`ms0515-cli --help` prints them all.
 
 Disks can also be mounted at runtime via the **File** menu: Mount image
 takes either size the same way, and once one side is in, Mount upper side

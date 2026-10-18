@@ -14,8 +14,6 @@ cmake-build-*/
 # Conan
 CMakeUserPresets.json
 
-
-
 # Python
 __pycache__/
 
