@@ -1,6 +1,8 @@
 # Reference Materials
 
-External resources for the MS0515 emulator project.
+External resources for the MS0515 emulator project.  `ms0515_data/`, where
+some of them are kept, is the owner's archive of working materials, not
+part of any repository.
 
 ## The plant and the machine's origin
 - zx-pk.ru thread 24333, «История завода "Процессор" г. Воронеж»: https://zx-pk.ru/threads/24333-istoriya-zavoda-quot-protsessor-quot-g-voronezh/

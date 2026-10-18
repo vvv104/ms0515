@@ -539,7 +539,8 @@ A player's bug report (forum thread 36741, 2026-09-08) had the machine
 turn to coloured garbage while walking left out of the "BIKE ARRIVED"
 screen.  The report's snapshot reproduced it in minutes, and a state
 saved half a second before the fault reproduces it **with no input at
-all** (`ms0515_data/bugreports/sabot2/t000-doomed-no-input.ms0515` -
+all** (`ms0515_data/bugreports/sabot2/t000-doomed-no-input.ms0515`, in the
+owner's archive -
 `ms0515-cli --state <it> --frames 900`), which made the whole
 investigation deterministic.
 
