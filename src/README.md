@@ -113,6 +113,17 @@ Pass via Conan:
 conan build . --build=missing -o "&:MS0515_BUILD_TESTS=True"
 ```
 
+## Built inside another project
+
+`src/` can be taken into another CMake project with `add_subdirectory`
+(the RT-11 development repository builds its programs' harnesses that
+way): the targets - `ms0515_lib`, `ms0515_disk`, `ms0515_run_core`,
+`ms0515-run`, ... - are that project's to link, the emulator's folders are
+named by `ms0515_SOURCE_DIR` / `ms0515_BINARY_DIR`, and nothing is copied
+into `package/`, which is the emulator's own build's alone.  The other
+project brings the same Conan packages (its recipe can take this one's
+`requirements()`) and its own language standard.
+
 Or directly with CMake after `conan install`:
 
 ```bash

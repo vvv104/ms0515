@@ -16,7 +16,7 @@ if(TARGET ms0515_run_core)
     target_compile_definitions(ms0515_web PRIVATE MS0515_WEB_RUN)
 endif()
 
-set(WEB_DIST "${CMAKE_BINARY_DIR}/web/dist")
+set(WEB_DIST "${ms0515_BINARY_DIR}/web/dist")
 
 set_target_properties(ms0515_web PROPERTIES
     OUTPUT_NAME       ms0515
@@ -42,7 +42,7 @@ target_link_options(ms0515_web PRIVATE
 
 # The page and the assets next to the module.  No disks: the page loads
 # them from the software collection's Pages (see DISK_SITE in app.js).
-set(WEB_ASSETS_DIR "${CMAKE_SOURCE_DIR}/assets")
+set(WEB_ASSETS_DIR "${ms0515_SOURCE_DIR}/assets")
 set(WEB_COPIES)
 # index.html and app.js carry a build stamp in their script URLs (cache
 # busting); the rest is copied as is.

@@ -22,7 +22,7 @@ add_executable(ms0515_files_tests
 
 target_compile_definitions(ms0515_files_tests PRIVATE
     TESTS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"
-    FIXTURE_DISKS_DIR="${CMAKE_SOURCE_DIR}/lib/tests/disks"
+    FIXTURE_DISKS_DIR="${ms0515_SOURCE_DIR}/lib/tests/disks"
 )
 
 target_link_libraries(ms0515_files_tests

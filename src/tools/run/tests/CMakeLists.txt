@@ -17,7 +17,7 @@ add_executable(ms0515_run_tests
 target_compile_definitions(ms0515_run_tests PRIVATE
     TESTS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"
     RT11_SYSTEM_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../assets"
-    RT11_PROJECTS_DIR="${CMAKE_SOURCE_DIR}/../rt11_devel/projects"
+    RT11_PROJECTS_DIR="${ms0515_SOURCE_DIR}/../rt11_devel/projects"
 )
 
 target_link_libraries(ms0515_run_tests

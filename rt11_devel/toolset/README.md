@@ -15,7 +15,9 @@ rt11_devel/toolset/
 │                    collection, for the builders that need a booted
 │                    monitor (see "Builds that need a system" below);
 │                    build.py takes only the collection's location from it
-├── emu_driver.py    generic stdio bridge to ms0515-cli (or any subprocess)
+├── emu_driver.py    the emulator's stdio bridge to ms0515-cli (its
+│                    tools/emu_driver.py), loaded from $MS0515_DIR, else
+│                    from the repository this tree is in or ../ms0515
 ├── rt11.py          RT-11 monitor session (boot, dot prompt, command + errors)
 ├── system/          the vvv104 ОМЕГА as a bootable FOLDER (.rtfs device):
 │                    what the games' tests (fist, manicm) boot to run them;
@@ -113,6 +115,9 @@ can never leak into a build.
 ## Module overview
 
 ### `emu_driver.EmulatorDriver`
+
+The emulator's own (its `tools/emu_driver.py`, tested there); this
+folder's `emu_driver.py` only finds it and loads it under the same name.
 
 Captures stdout into a rolling byte buffer on a reader thread, lets you
 ``send`` bytes, and (most importantly) ``wait_for`` regex patterns with
@@ -227,7 +232,6 @@ Coverage:
 
 | File                  | What it covers                                       |
 |-----------------------|------------------------------------------------------|
-| ``test_emu_driver.py``| Buffer capture, idle-aware ``wait_for``, ANSI strip in decoded output, lifecycle errors |
 | ``test_rt11.py``      | ``boot`` reaches the prompt, ``command`` returns only new output, ``RT11CommandError`` on ``?xxx-F-``, ``chain`` ordering, ``DOT_PROMPT`` regex |
 | ``test_build.py``     | Recipe table sanity (the programs' own syntax), manifest → ``BuildPlan`` resolution, `{name}` substitution, the toolchain found in the collection's folders, a command run through a stand-in for ``ms0515-run`` (failure, diagnostic, warning), manifest-validation errors |
 

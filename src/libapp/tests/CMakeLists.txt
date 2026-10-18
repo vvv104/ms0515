@@ -18,7 +18,7 @@ add_executable(ms0515_libapp_tests
 )
 
 target_compile_definitions(ms0515_libapp_tests PRIVATE
-    ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+    ASSETS_DIR="${ms0515_SOURCE_DIR}/assets"
     TESTS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"
 )
 
