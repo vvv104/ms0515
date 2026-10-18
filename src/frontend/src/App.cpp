@@ -1170,7 +1170,8 @@ void App::setKeyboardPort(const std::string &port)
 void App::drawExternalKeyboardMenu()
 {
     if (!ImGui::BeginMenu("Keyboard on a serial port")) return;
-    if (ImGui::MenuItem("None (the emulated MS 7004)", nullptr, config_.keyboardPort.empty()))
+    static constexpr const char *kNone = "None (the emulated MS 7004)";
+    if (ImGui::MenuItem(kNone, nullptr, config_.keyboardPort.empty()))
         setKeyboardPort({});
     const auto ports = ms0515::serial::listPorts();
     if (!ports.empty()) ImGui::Separator();
@@ -1181,9 +1182,12 @@ void App::drawExternalKeyboardMenu()
     if (!config_.keyboardPort.empty() && !externalKbd_.connected())
         ImGui::TextDisabled("%s did not open", config_.keyboardPort.c_str());
     /* The word on it below the ports, not a tooltip: a tooltip on the menu
-     * item covers the very submenu it opens. */
+     * item covers the very submenu it opens.  Wrapped to the menu's own
+     * items, so the menu grows no wider and leaves the one it came from
+     * in reach. */
     ImGui::Separator();
-    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 22.0f);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::CalcTextSize(kNone).x
+                           + ImGui::GetFontSize() * 2.0f);
     ImGui::TextDisabled(
         "A keyboard outside the emulator on the machine's keyboard line, "
         "4800 baud: a firmware emulator over a virtual port pair, or a real "
