@@ -46,12 +46,12 @@ if(EMSCRIPTEN)
 endif()
 
 # ── The system the state is made of ─────────────────────────────────────────
-# system/system.dsk: the dec system diskette, kept here as it is so that the
+# assets/system.dsk: the dec system diskette, kept here as it is so that the
 # emulator builds from its own files alone.  It is made of the software
 # collection's kits (system/README.md says how, and how it is brought up to
 # date); the build only boots it and bakes.
 set(RUN_ROM       "${CMAKE_SOURCE_DIR}/assets/rom/ms0515-romb.rom")
-set(RUN_SYSTEM    "${CMAKE_CURRENT_SOURCE_DIR}/system/system.dsk")
+set(RUN_SYSTEM    "${CMAKE_CURRENT_SOURCE_DIR}/assets/system.dsk")
 set(RUN_EMBEDDED  "${CMAKE_CURRENT_BINARY_DIR}/Embedded.cpp")
 
 add_custom_command(

@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = process.argv[2] ?? "build/emscripten-release/web/dist";
-const system = join(here, "../../rt11_devel/toolset/system");
+const system = join(here, "../tools/run/assets");
 const { default: createMs0515 } = await import(pathToFileURL(join(dist, "ms0515.js")).href);
 const M = await createMs0515();
 const api = {
