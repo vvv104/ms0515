@@ -139,6 +139,7 @@ TEST_CASE("non-default values written by save() come back through load()") {
         out.driveVolume    = 70;
         out.keyboardSounds = false;
         out.keyboardVolume = 30;
+        out.keyboardPort   = "COM7";
         out.save();
 
         app::Config in_ = app::Config::load();
@@ -156,6 +157,7 @@ TEST_CASE("non-default values written by save() come back through load()") {
         CHECK(in_.driveVolume          == out.driveVolume);
         CHECK(in_.keyboardSounds       == out.keyboardSounds);
         CHECK(in_.keyboardVolume       == out.keyboardVolume);
+        CHECK(in_.keyboardPort         == out.keyboardPort);
         CHECK_FALSE(in_.isDefault());
     }
 
@@ -285,6 +287,14 @@ TEST_CASE("the defaults: the first drive set, the keyboard on, full volume; anyt
     CHECK_FALSE(c.isDefault());
     c = app::Config{};
     c.speakerVolume = 50;
+    CHECK_FALSE(c.isDefault());
+}
+
+TEST_CASE("the keyboard on a serial port: none by default, a port named is not default") {
+    app::Config c;
+    CHECK(c.keyboardPort.empty());
+    CHECK(c.isDefault());
+    c.keyboardPort = "/dev/ttyUSB0";
     CHECK_FALSE(c.isDefault());
 }
 

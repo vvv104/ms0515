@@ -13,6 +13,7 @@
 #pragma once
 
 #include "Audio.hpp"
+#include "ExternalKeyboard.hpp"
 #include "Config.hpp"   /* re-exports CliArgs/Config from libapp */
 #include "OnScreenKeyboard.hpp"
 #include "Joystick.hpp"
@@ -72,6 +73,10 @@ private:
     void drawComponentsMenu();
     void drawHardDiskSubmenu();
     void drawKeyboardSubmenu();
+    void drawExternalKeyboardMenu();
+    /* The keyboard outside on `port` ("": the MS 7004 model), kept in
+     * the config; a port that does not open leaves the model, saying why. */
+    void setKeyboardPort(const std::string &port);
     void drawJoystickSubmenu();
     void drawSoundsSubmenu();
     void drawViewMenu();
@@ -120,6 +125,8 @@ private:
     PhysicalKeyboard     physKbd_;
     OnScreenKeyboard     osk_;
     Joystick             joystick_;
+    ExternalKeyboard     externalKbd_;
+    std::string          keyboardLineStatus_;  /* the status bar's word on it */
 
     /* ── Mount state ────────────────────────────────────────────────── */
     std::array<std::string, 4> mountedFd_;

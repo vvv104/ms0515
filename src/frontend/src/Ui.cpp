@@ -235,6 +235,14 @@ void drawStatusBar(const StatusBarState &s)
                 emuS  / 3600, (emuS  / 60) % 60, emuS  % 60);
     ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
 
+    /* The keyboard outside, on a serial port; red when it failed. */
+    if (!s.keyboardLine.empty()) {
+        const bool bad = s.keyboardLine.find(": ") != std::string::npos;
+        ImGui::TextColored(bad ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f) : ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                           "%s", s.keyboardLine.c_str());
+        ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
+    }
+
     /* Host mode indicator — keyboard disconnected from emulator. */
     if (s.physKbd.hostMode()) {
         ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "HOST");

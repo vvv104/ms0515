@@ -199,6 +199,7 @@ void App::initEmulator()
 
     emu_.reset();
     applyKeyboardConfig();
+    if (!config_.keyboardPort.empty()) setKeyboardPort(config_.keyboardPort);
     joystick_.setMode(Joystick::modeFromName(config_.joystick));
 
     osk_.loadLayout();
@@ -570,6 +571,14 @@ void App::tick()
      * on the machine's own clock, inside the frame. */
     joystick_.poll(emu_);
 
+    /* A keyboard port that failed in use: the model back, the reason shown. */
+    if (externalKbd_.failed()) {
+        const std::string name = externalKbd_.portName();
+        externalKbd_.disconnect(emu_);
+        keyboardLineStatus_ = "KBD " + name + ": failed";
+        std::fprintf(stderr, "keyboard port %s failed; the MS 7004 model is back\n", name.c_str());
+    }
+
     /* Run emulated frames based on real elapsed time × speed factor. */
     if (running_) {
         uint32_t nowTick = SDL_GetTicks();
@@ -685,6 +694,7 @@ void App::renderFrame()
             speedDisplay_, targetSpeed_, fpsDisplay_,
             emuFramesSinceReset_, hostMsAtLastReset_,
             mountedFd_.data(), mountedAsDs_.data(),
+            keyboardLineStatus_,
         };
         drawStatusBar(sbs);
     }
@@ -1048,6 +1058,8 @@ void App::drawHardDiskSubmenu()
 void App::drawKeyboardSubmenu()
 {
     if (!ImGui::BeginMenu("Keyboard")) return;
+    drawExternalKeyboardMenu();
+    ImGui::Separator();
     auto    settings = emu_.keyboardSettings();
     bool    dirty    = false;
 
@@ -1120,6 +1132,49 @@ void App::drawKeyboardSubmenu()
         config_.save();
     }
     ImGui::EndMenu();
+}
+
+void App::setKeyboardPort(const std::string &port)
+{
+    externalKbd_.disconnect(emu_);
+    keyboardLineStatus_.clear();
+    config_.keyboardPort = port;
+    if (!port.empty()) {
+        std::string error;
+        if (externalKbd_.connect(emu_, port, error)) {
+            keyboardLineStatus_ = "KBD " + port;
+        } else {
+            keyboardLineStatus_ = "KBD " + port + ": not opened";
+            std::fprintf(stderr, "keyboard port: %s\n", error.c_str());
+        }
+    }
+    config_.save();
+}
+
+/* The keyboard outside the emulator: a serial port in place of the
+ * MS 7004 model - a firmware emulator over a virtual port pair, or a real
+ * keyboard through an adapter.  While it is on, the PC's keys and the
+ * on-screen keyboard do not reach the machine. */
+void App::drawExternalKeyboardMenu()
+{
+    if (!ImGui::BeginMenu("Keyboard on a serial port")) return;
+    if (ImGui::MenuItem("None (the emulated MS 7004)", nullptr, config_.keyboardPort.empty()))
+        setKeyboardPort({});
+    const auto ports = ms0515::serial::listPorts();
+    if (!ports.empty()) ImGui::Separator();
+    for (const auto &port : ports)
+        if (ImGui::MenuItem(port.c_str(), nullptr, config_.keyboardPort == port))
+            setKeyboardPort(port);
+    if (ports.empty()) ImGui::TextDisabled("No serial ports on this computer");
+    if (!config_.keyboardPort.empty() && !externalKbd_.connected())
+        ImGui::TextDisabled("%s did not open", config_.keyboardPort.c_str());
+    ImGui::EndMenu();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "A keyboard outside the emulator on the machine's keyboard line, "
+            "4800 baud: a firmware emulator over a virtual port pair, or a "
+            "real MS 7004 through an adapter.  While it is on, the PC's keys "
+            "do not reach the machine.");
 }
 
 void App::drawViewMenu()

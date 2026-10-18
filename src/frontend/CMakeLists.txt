@@ -44,6 +44,7 @@ add_executable(ms0515 WIN32
     src/main.cpp
     src/App.cpp
     src/Config.cpp
+    src/ExternalKeyboard.cpp
     src/Joystick.cpp
     src/OnScreenKeyboard.cpp
     src/Ui.cpp
@@ -62,6 +63,7 @@ target_link_libraries(ms0515
     PRIVATE ms0515_sdl_io
     PRIVATE ms0515_libapp
     PRIVATE ms0515_platform_gui
+    PRIVATE ms0515_platform_serial
     PRIVATE ms0515_win7compat
     PRIVATE SDL2::SDL2 SDL2::SDL2main
     PRIVATE imgui::imgui

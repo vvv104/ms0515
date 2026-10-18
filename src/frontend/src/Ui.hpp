@@ -54,6 +54,7 @@ struct StatusBarState {
     uint32_t                  hostMsAtLastReset;
     const std::string        *mountedFd;   /* [4] */
     const bool               *mountedAsDs; /* [2] */
+    const std::string        &keyboardLine; /* the keyboard's port, "" for the model */
 };
 
 void drawStatusBar(const StatusBarState &s);
