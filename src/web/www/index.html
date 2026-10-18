@@ -381,9 +381,9 @@
   // and fetch nothing, because none of them is served from here.  A fork that
   // wants its own numbers puts its own host and its own site in.
   //
-  // A page in somebody's frame (?start=...&embed=1) is a visit too: the
+  // A page in somebody's frame (?run=...&embed=1) is a visit too: the
   // script skips frames unless told otherwise, and the path it records
-  // keeps the query, so each start file - and, by the referrer, each site
+  // keeps the query, so each card - and, by the referrer, each site
   // that embeds it - counts on its own.
   const COUNTER = location.hostname === "vvv104.github.io" ? "vvv104" : "";
   if (COUNTER && location.protocol !== "file:") {

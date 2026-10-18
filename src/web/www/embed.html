@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Saboteur II on the MS-0515 - an embedded start</title>
+<title>Saboteur II on the MS-0515 - an embedded game</title>
 <style>
   body { max-width: 44em; margin: 2em auto; padding: 0 1em; font: 16px/1.5 system-ui, sans-serif; color: #222; background: #fafafa; }
   h1 { font-size: 1.4em; }
@@ -15,20 +15,20 @@
 <body>
 <h1>Saboteur II on the MS-0515</h1>
 <p>The machine below is the emulator's page in a frame, opened at a
-<em>start file</em>: a snapshot taken right after <code>R SABOT2</code>, the
-diskette the game runs from, and the settings (the drive and the keyboard
-quiet, the speaker on).  Click the arrow, then play: the keys go to the
-game.  Reset in the full page is the same moment again.</p>
-<iframe src="./?start=starts/sabot2.zip&embed=1" title="Saboteur II on the MS-0515" allow="autoplay; fullscreen"></iframe>
-<p>The frame is one line of HTML; <code>start=</code> names the file and
-<code>embed=1</code> leaves the toolbar out.  Open
-<a href="./?start=starts/sabot2.zip">the same start in the full page</a>
-to see the drives and the settings behind it.</p>
-<pre>&lt;iframe src="https://vvv104.github.io/ms0515/?start=starts/sabot2.zip&amp;embed=1"
+<em>run card</em>: a few lines of JSON naming the game and its files, which
+the page starts at once - no diskette, no boot - on the machine it carries
+(ROM-B, DEC's RT-11).  Click the arrow, then play: the keys go to the
+game.</p>
+<iframe src="./?run=https://vvv104.github.io/ms0515-software/play/sabot2.json&embed=1" title="Saboteur II on the MS-0515" allow="autoplay; fullscreen"></iframe>
+<p>The frame is one line of HTML; <code>run=</code> names the card and
+<code>embed=1</code> leaves the toolbar and the card's words out.  Open
+<a href="./?run=https://vvv104.github.io/ms0515-software/play/sabot2.json">the same card in the full page</a> to see what to
+press.</p>
+<pre>&lt;iframe src="https://vvv104.github.io/ms0515/?run=https://vvv104.github.io/ms0515-software/play/sabot2.json&amp;embed=1"
         width="640" height="400" allow="autoplay; fullscreen"&gt;&lt;/iframe&gt;</pre>
-<p>A start file of your own: a card (the title, the disk, what to type,
-the sounds) and <code>tools/make_start.py</code> in the emulator's
-repository make one; put it on any server that lets this page fetch it
-and name it in full in <code>start=</code>.</p>
+<p>The cards of the games are the software collection's
+(<a href="https://github.com/vvv104/ms0515-software/tree/main/play">ms0515-software,
+<code>play/</code></a>); a card of your own goes on any server that lets this
+page fetch it, named in full in <code>run=</code>.</p>
 </body>
 </html>
