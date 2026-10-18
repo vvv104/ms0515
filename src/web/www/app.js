@@ -20,7 +20,6 @@ import { Commander, rt11Name } from "./fm.js?v=@STAMP@";
 import { encodeText, decodeBytes } from "./edit.js?v=@STAMP@";
 import * as bugreport from "./bugreport.js?v=@STAMP@";
 import { DiskComposer } from "./wizard.js?v=@STAMP@";
-import { parseStart, DEFAULT_SOUND } from "./start.js?v=@STAMP@";
 
 // The floppy images offered: the software collection's released disks, as
 // its index.json lists them - title, media (a two-sided image takes both
@@ -91,7 +90,7 @@ let softkbd = null;                        // the OS's on-screen keyboard (softk
 let commander = null;                      // the files of the mounted images (fm.js)
 const QUERY = new URLSearchParams(location.search);
 const EMBED = QUERY.get("embed") === "1";   // the screen alone: the page in somebody's frame
-let startFile = null;                      // ?start=URL: the moment the page opens at (start.js)
+let runCard = null;                        // ?run=URL: the program the page opens at, from its card
                                            // ?run=URL: a program run from its card - the same visit, with `run` set
 const RUN_DIR = "/run";                    // the program's folder in the module's file system
 // The visitor's languages, the first first: what a card's texts are picked by.
@@ -154,7 +153,7 @@ const staged = new Map();                          // FS path -> mtime at the la
 const pathOf = (name) => "/disks/" + name;
 
 function saveMounts() {
-  if (startFile) return;                   // a start visit leaves the remembered mounts alone
+  if (runCard) return;                     // a run visit leaves the remembered mounts alone
   localStorage.setItem("ms0515.mounts", JSON.stringify({ rom: $("rom").value, ex: $("ramdisk").checked,
                                                        fd: slots.fd, hd: slots.hd }));
 }
@@ -346,7 +345,6 @@ function select(kind, value, onchange) {
   add("", "— empty —");
   if (kind === "fd")
     for (const d of DISKS) add(d.name, `${d.title} (${sidesLabel(d.sides)})`);
-  if (startFile) for (const name of startFile.disks.keys()) add(name, `${name} (from the start file)`);
   for (const [name, size] of own) {
     const floppy = size === SS_SIZE || size === DS_SIZE;
     if (floppy === (kind === "fd")) add(name, `${name} (${floppy ? sidesLabel(size / SS_SIZE) : fmtSize(size)}, local copy)`);
@@ -557,7 +555,7 @@ async function boot() {
   say("loading…");
   stop();
   keyboard.reset();
-  if (startFile?.run) { startRun(); start(); return; }
+  if (runCard) { startRun(); start(); return; }
   followRom(slots.fd[unitOf(0, 0)]);       // a mount restored from the last visit, or ?disk=
   const rom = $("rom").value;
   M.FS.writeFile("/rom.bin", await fetchBytes(ROMS[rom]));
@@ -567,45 +565,9 @@ async function boot() {
   setHalted(false);
   saveMounts();
   const disk = slots.fd[unitOf(0, 0)];
-  if (startFile) await resumeStart();
-  else if (!disk) hint("nothing in drive A: open its panel, pick an image, Reset");
+  if (!disk) hint("nothing in drive A: open its panel, pick an image, Reset");
   else hint(SHIPPED.get(disk)?.hint || "the machine boots from drive A side 0");
   start();
-}
-
-// ── a start file: the machine at a chosen moment (start.js) ───────────────
-// `?start=URL` opens the page at it - a game just started, say.  The file
-// carries the snapshot, the images the drives held and the settings; the
-// images go into the module's file system under their names, straight
-// from the file (not into IndexedDB: a start is the same every time it is
-// opened, and what the guest writes stays with the visit), the ROM and the
-// settings are the page's for this visit and remembered by nobody, and
-// every boot - the first, a Reset - is the snapshot again.
-async function loadStart(url) {
-  say("loading the start file…");
-  const start = await parseStart(await fetchBytes(url));
-  M.FS.mkdirTree("/disks");
-  for (const [name, bytes] of start.disks) M.FS.writeFile(pathOf(name), bytes);
-  return start;
-}
-
-// The snapshot in, then the images by the drives start.json names: a
-// snapshot mounts by the paths of the machine it was taken on, which are
-// not this one's.
-async function resumeStart() {
-  M.FS.writeFile(STATE_PATH, startFile.state);
-  if (!api.load(h, STATE_PATH)) throw new Error("the start file's snapshot does not load on this ROM");
-  api.history(h, HISTORY_EVENTS);   // the state brought its own ring: ours again
-  for (let unit = 0; unit < 4; ++unit) {
-    const name = slots.fd[unit];
-    if (!name) continue;
-    const path = pathOf(name), drive = driveOf(unit);
-    const ok = ds[drive] ? api.mount(h, unitOf(drive, 0), path) && api.mount(h, unitOf(drive, 1), path)
-                         : api.mount(h, unit, path);
-    if (!ok) throw new Error(`${name}: mount after the snapshot failed`);
-  }
-  if (slots.hd && !api.mountHd(h, pathOf(slots.hd))) throw new Error(`${slots.hd}: mount after the snapshot failed`);
-  say(startFile.meta.title || "the start file's moment");
 }
 
 // ── a program run from its card ───────────────────────────────────────────
@@ -623,7 +585,7 @@ async function resumeStart() {
 //     "files": ["BIRDS.SAV", ...],       URLs, relative to the card
 //     "joystick": false,                 the arrows and Space drive the MS7007 port
 //     "em": false,                       the EIS/FIS instruction emulator on
-//     "sound": { "speaker": true },      as in a start file
+//     "sound": { "speaker": true },      the speaker on, the drive and the keyboard quiet unless said
 //     "text": { "en": "...", "ru": "..." },    what to do; a blank line parts paragraphs
 //     "sources": { "files": ["LINES.BAS", ...], "type": "LOAD {NAME}\r",
 //                  "other": [ { "name": "PRAW.BAC", "type": "RUN PRAW.BAC\r" } ],
@@ -641,8 +603,8 @@ async function resumeStart() {
 // for a file from the visitor's computer: it joins the names under an
 // RT-11 name made of its own.
 //
-// The visit is a start visit in everything else: nothing of it is
-// remembered, and what the program writes stays with the tab.
+// Nothing of the visit is remembered, and what the program writes stays
+// with the tab.
 async function loadRun(url) {
   say("loading the program…");
   if (!api.runBuilt()) throw new Error("this build of the page cannot run a program by itself");
@@ -657,8 +619,7 @@ async function loadRun(url) {
     M.FS.writeFile(`${RUN_DIR}/${baseName(f)}`, await fetchBytes(new URL(f, url)))));
   return {
     meta: { title: inLanguage(card.title), rom: "b", disks: { fd: ["", "", "", ""], hd: "" },
-            sound: { ...DEFAULT_SOUND, ...(card.sound ?? {}) }, joystick: !!card.joystick, speed: 100 },
-    disks: new Map(),
+            sound: { speaker: true, drive: false, kbd: false, ...(card.sound ?? {}) }, joystick: !!card.joystick, speed: 100 },
     run: { program: `${RUN_DIR}/${baseName(card.program)}`, arguments: card.arguments ?? "", em: !!card.em,
            text: inLanguage(card.text), over: 0, ready: card.ready ?? 2500,
            sources: card.sources ? {
@@ -672,7 +633,7 @@ async function loadRun(url) {
 async function runTyped(text) {
   typing.queue.length = 0;
   await boot();
-  typing.type(text, startFile.run.ready);
+  typing.type(text, runCard.run.ready);
 }
 
 // ── a card's sources: the texts the program can be handed ─────────────────
@@ -692,7 +653,7 @@ const pageText = (bytes) => {
 };
 
 function selectSource(name) {
-  const s = startFile.run.sources;
+  const s = runCard.run.sources;
   sources.name = name;
   const other = s.other.find((o) => o.name === name);
   const box = $("srctext");
@@ -705,7 +666,7 @@ function selectSource(name) {
 }
 
 async function loadSource() {
-  const s = startFile.run.sources;
+  const s = runCard.run.sources;
   const name = sources.name;
   if (!name) return;
   const other = s.other.find((o) => o.name === name);
@@ -764,7 +725,7 @@ function bindSplit() {
 }
 
 function showSources() {
-  const s = startFile.run.sources;
+  const s = runCard.run.sources;
   $("sources").hidden = !s;
   document.body.classList.toggle("sources", !!s);
   if (!s) return;
@@ -786,19 +747,19 @@ function showSources() {
 // The program started, on the machine the module carries; every boot of a
 // run visit - the first, the one after the program has ended - is this.
 function startRun() {
-  const run = startFile.run;
+  const run = runCard.run;
   if (!api.run(h, run.program, run.arguments, run.em ? 1 : 0)) throw new Error(api.runError());
   api.history(h, HISTORY_EVENTS);
   run.over = 0;
   setHalted(false);
   $("start").hidden = true;
-  say(startFile.meta.title || "the program");
+  say(runCard.meta.title || "the program");
 }
 
 // The program has ended - a game left by its own key: the machine stands
 // still on its last picture, and the arrow starts it again.
 function runOver(how) {
-  startFile.run.over = how;
+  runCard.run.over = how;
   stop();
   paint();
   say(how === 2 ? "the program has stopped with an error" : "the program has ended");
@@ -809,9 +770,9 @@ function runOver(how) {
 // The card's words under the screen.
 function showAbout() {
   document.body.classList.add("run");
-  document.title = startFile.meta.title || document.title;
-  $("abouttitle").textContent = startFile.meta.title;
-  $("abouttext").replaceChildren(...startFile.run.text.split(/\n\s*\n/).map((p) => el("p", null, p.trim())));
+  document.title = runCard.meta.title || document.title;
+  $("abouttitle").textContent = runCard.meta.title;
+  $("abouttext").replaceChildren(...runCard.run.text.split(/\n\s*\n/).map((p) => el("p", null, p.trim())));
   showSources();
   $("about").hidden = EMBED;               // in somebody's frame the words are theirs to give
   fit();                                   // the screen has less room now
@@ -855,7 +816,7 @@ function step(now) {
   ++frames;
   speakerTransitions += api.transitions(h);
   if (cycles === 0) { setHalted(true); say("CPU halted — \"Bug report\" saves everything needed to look into it"); stop(); return; }
-  if (startFile?.run) { const over = api.runEnded(h); if (over) { runOver(over); return; } }
+  if (runCard) { const over = api.runEnded(h); if (over) { runOver(over); return; } }
   if (speaker && speedPct === 100) queueAudio();
   if ((frames & 63) === 0) flushDisks();
 }
@@ -1049,7 +1010,7 @@ function soundWish() {
   try { return { ...d, ...JSON.parse(localStorage.getItem(SOUND_KEY) ?? "{}") }; } catch { return d; }
 }
 function saveSound() {
-  if (startFile) return;                   // the file's choice, for this visit only
+  if (runCard) return;                     // the card's choice, for this visit only
   localStorage.setItem(SOUND_KEY, JSON.stringify({
     on: !!audio, speaker: $("sndSpeaker").checked,
     drive: $("sndDrive").checked, kbd: $("sndKbd").checked }));
@@ -1447,27 +1408,26 @@ async function main() {
   api.history(h, HISTORY_EVENTS);   // the machine's own trail, for a bug report
 
   await loadDiskList();
-  if (QUERY.get("start")) startFile = await loadStart(new URL(QUERY.get("start"), location.href));
-  else if (QUERY.get("run")) { startFile = await loadRun(new URL(QUERY.get("run"), location.href)); showAbout(); }
-  const m = startFile ? { rom: startFile.meta.rom, fd: [...startFile.meta.disks.fd], hd: startFile.meta.disks.hd }
+  if (QUERY.get("run")) { runCard = await loadRun(new URL(QUERY.get("run"), location.href)); showAbout(); }
+  const m = runCard ? { rom: runCard.meta.rom, fd: [...runCard.meta.disks.fd], hd: runCard.meta.disks.hd }
                       : loadMounts();
   $("rom").value = m.rom;
   $("ramdisk").checked = m.ex !== false;   // the board is in unless the user took it out
   bindControls();
-  if (startFile) setJoystick(startFile.meta.joystick);   // the game's word: the arrows and Space are the port's
+  if (runCard) setJoystick(runCard.meta.joystick);   // the game's word: the arrows and Space are the port's
   renderDevices();
   // A remembered image that is neither offered any more nor the user's own
   // (the disks the site used to carry) gives way to the first one offered.
   const known = async (name) => SHIPPED.has(name) || own.has(name) || !!(await dbGet(name));
-  if (!startFile) for (let unit = 0; unit < 4; ++unit)
+  if (!runCard) for (let unit = 0; unit < 4; ++unit)
     if (m.fd[unit] && !(await known(m.fd[unit]))) m.fd[unit] = unit === 0 ? DISKS[0]?.name ?? "" : "";
   for (let unit = 0; unit < 4; ++unit)
     if (m.fd[unit]) await mountFd(unit, m.fd[unit]).catch(fail);
   if (m.hd) await mountHd(m.hd).catch(fail);
 
   const wish = soundWish();
-  if (startFile) Object.assign(wish, startFile.meta.sound);   // the file's word on which sounds, the visitor's on whether
-  if (startFile?.run) wish.on = true;      // a game page has no sound button to find
+  if (runCard) Object.assign(wish, runCard.meta.sound);   // the card's word on which sounds, the visitor's on whether
+  if (runCard) wish.on = true;      // a game page has no sound button to find
   $("sndSpeaker").checked = wish.speaker;
   $("sndDrive").checked = wish.drive;
   $("sndKbd").checked = wish.kbd;
@@ -1482,7 +1442,7 @@ async function main() {
 
   say("ready");
   const q = QUERY;
-  if (startFile) setSpeed(startFile.meta.speed, false);
+  if (runCard) setSpeed(runCard.meta.speed, false);
   if (q.get("speed")) setSpeed(q.get("speed"), false);   // `speed=200`: for this visit only
   if (q.get("autostart") !== "0") {
     autostart().then(() => {
@@ -1545,10 +1505,9 @@ window.__ms = () => {
            joystick: joystick ? { on: joystick.enabled, bits: joystick.keyBits | joystick.touchBits } : null,
            fullscreen: fullscreenOn(), softkbd: softkbd ? softkbd.open : false, ruslat: h ? api.ruslat(h) : null,
            halted, embed: EMBED, ramdisk: h ? api.ramdisk(h, -1) : null,
-           start: startFile ? { title: startFile.meta.title, disks: [...startFile.disks.keys()] } : null,
-           run: startFile?.run ? { program: startFile.run.program, over: startFile.run.over,
+           run: runCard ? { program: runCard.run.program, over: runCard.run.over,
                                    about: $("abouttext").textContent,
-                                   sources: startFile.run.sources ? { names: $("srcnames").children.length,
+                                   sources: runCard.run.sources ? { names: $("srcnames").children.length,
                                                                       name: sources.name } : null } : null };
 };
 window.__ms.type = (text) => typing.type(text);
