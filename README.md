@@ -6,11 +6,13 @@ T-11), produced in the late 1980s.
 
 ## Features
 
-| ROM self-test | OSA (RT-11): `DIR` |
-|:---:|:---:|
-| ![ROM self-test](docs/images/rom-test.png) | ![OSA: DIR](docs/images/osa-dir.png) |
-| **The Way of the Exploding Fist**, ported to the MS-0515 | **Saboteur 2** (1990) |
-| ![FIST](docs/images/fist.png) | ![SABOT2](docs/images/sabot2.png) |
+| ROM self-test | OSA (RT-11): `DIR` | DEC's RT-11 V5.4, built for the machine |
+|:---:|:---:|:---:|
+| ![ROM self-test](docs/images/rom-test.png) | ![OSA: DIR](docs/images/osa-dir.png) | ![dec: DIR/BRIEF](docs/images/dec-dir.png) |
+| **Saboteur 2** (1990) | **The Way of the Exploding Fist**, ported to the MS-0515 | **Manic Miner**, ported to the MS-0515 |
+| ![SABOT2](docs/images/sabot2.png) | ![FIST](docs/images/fist.png) | ![MANICM](docs/images/manicm.png) |
+| **EXPRES** (1990), a train arcade | **Minesweeper** (1995), Expert | **UBIX**, a UNIX for the MS-0515 |
+| ![EXPRES](docs/images/expres.png) | ![MINE](docs/images/mine.png) | ![UBIX](docs/images/ubix.png) |
 
 ![The browser build: the two-pane file manager over the mounted RT-11 disks](docs/images/web-files.png)
 
