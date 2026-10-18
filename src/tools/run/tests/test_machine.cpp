@@ -391,7 +391,7 @@ TEST_CASE("a file the program asks for by name is given from its folder") {
  * (their data files are not in the repository): graphics programs that
  * read a data file of their own and never come back to the monitor. */
 TEST_CASE("a graphics game starts the same way and takes the screen") {
-    const fs::path projects = fs::path(RT11_SYSTEM_DIR) / ".." / ".." / "projects";
+    const fs::path projects = RT11_PROJECTS_DIR;
     for (const char *game : {"manicm/MANICM", "saper/SAPER"}) {
         const fs::path sav = projects / (std::string{game} + ".SAV");
         const fs::path dat = projects / (std::string{game} + ".DAT");
