@@ -313,7 +313,7 @@ side so the protection's sector read returns real bytes.
 - **Real-hardware behaviour**: pressing `D` without a disk evidently
   produced *some* response on the user's real machine — likely a
   short error indication (text or beep) before / instead of the
-  silent poll loop.  Our ROM image (CRC `0x81c627ac`) and FDC model
+  silent poll loop.  Our ROM image (CRC `0x7b286fb6`) and FDC model
   produce only the silent spin: `drive_ready()` keeps `NOT_READY`
   asserted as long as `image == NULL`, so the loop never exits.
 - **Once a disk is mounted (via the File menu) the spin breaks

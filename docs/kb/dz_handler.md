@@ -174,18 +174,16 @@ with `ERL$G`, drive 1 left empty and `DIR DZ1:` asked for, `ERROUT` said:
 RX50.)  `SET EL LOG` starts it; the `RUN` of the handler's own comments is
 an older spelling.
 
-It is not switched on in the dec profile, and cannot be yet.  A monitor
-takes only handlers whose sysgen word is its own, so `ERL$G` in the
-monitor asks it of every handler, and two of the machine's exist only as
-kit binaries without it: `TT` and `VM`.  DEC's own `TT.MAC` builds and
-loads, and output through it hangs - `DUMP` to `TT:` never prints, while
-the same `DUMP` to a file finishes - because the machine's console goes
-through the ROM and DEC's handler waits for a DL11 transmitter interrupt
-that does not exist here; ОМЕГА's `TT.SYS` is a reworked one.  The word
-cannot be patched in either: with `ERL$G` the monitor fills one more
-pointer (`$ELPTR`) at a handler's end, and a handler without the slot gets
-it written over something else - the `$TIMIT` story again.  So `TT` is the
-next handler to write, and the switch comes after it.
+It is not switched on in the `dec` profile - not for want of a handler
+any more: `TT` and `VM` are both written from scratch with `ERL$G`
+support now (`rt11_devel/projects/rt11/handlers/tt/`,
+`rt11_devel/projects/rt11/handlers/vm/`), the same way `DZ` already had
+it.  `ERL$G` stays off in `dec`/`dec-ru` by policy instead: it is a
+SYSGEN conditional, all or nothing, so a monitor built with it refuses
+every kit handler - too much to pay for a log that stays empty on sound
+media (see `rt11_devel/projects/rt11/README.md`, "Error logging: in the
+sources, not in the collection", for the diagnostic build that turns it
+on).
 
 ## DV and MZ are one handler with one constant changed
 

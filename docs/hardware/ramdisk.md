@@ -79,7 +79,7 @@ Port B is output-only for RAM disk operation:
 | 4 | — | Not used |
 | 5 | СБРОС | Reset: sets counter (MA00-MA07) to 0 |
 | 6 | — | Not used |
-| 7 | СТАРТ | Start: enables data transfer |
+| 7 | СТАРТ | Start (real hardware: enables data transfer).  The emulator stores the bit but does not gate on it - `ramdisk.c`'s Port B write handler only inspects СБРОС, and the data-port handlers gate on the RAM being allocated, not on СТАРТ having been written; a simplification against real 8255/DRAM timing. |
 
 ## Data Transfer Protocol
 
@@ -136,8 +136,14 @@ The EX.SYS driver detects the board by:
 2. Reading it back
 3. Checking for non-uniform data (distinguishes real DRAM from bus float)
 
-Bus float (no board present) returns 0xFF. Zero-filled memory (wrong
-initialization) returns 0x00. Real DRAM powers on with random content.
+Bus float (no board present) returns 0xFF on real hardware; zero-filled
+memory (wrong initialization) returns 0x00; real DRAM powers on with
+random content.  In the emulator, a genuinely absent board reads 0x00
+(the generic unhandled-I/O fallback in `board.c`, gated by
+`ramdisk.enabled`) - the 0xFF branch inside `ramdisk_read()` is for
+`rd->ram == NULL`, a state that cannot arise once the board is actually
+enabled (`ramdisk_enable` only sets `enabled` after a successful
+allocation).
 
 ## Implementation
 

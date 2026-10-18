@@ -73,7 +73,7 @@ rt11_devel/projects/fist/
     ├── gamelogic_mac.py the routine-level generator + verification images (FIST_GL=...)
     ├── game_build.py    the full game (FIST_GL=gamebg): captures the state, assembles
     ├── game_*.py        its MACRO text per subsystem: loader, dojo, compose, round,
-    │                    hud, sound, keys; gst_addr.py the GST address helper
+    │                    text (the HUD), music, sound, keys; gst_addr.py the GST address helper
     ├── gamelogic_ref.py Python reference of the game logic (validated vs the sim)
     ├── fighter_mac.py   the fighter decoder port; decoder_ref.py its reference
     ├── setup_ref.py     the draw set-up chain reference ($C101 / $BF13 ...)

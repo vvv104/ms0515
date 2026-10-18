@@ -81,7 +81,7 @@ fresh machine.  CI runs them all in the `web / emscripten` job.
 | `ms_frame(h)` | one 50 Hz frame; returns the CPU cycles (0 = halted) |
 | `ms_render(h)` | the picture: 640 × 400 RGBA, line-doubled like the SDL front-end |
 | `ms_audio(h, out, max, rate)` | the last frame's speaker as 16-bit PCM |
-| `ms_key(h, key, down)` / `ms_key_tick(h, ms)` | `ms0515::Key` values (`www/keys.js` mirrors the enum, `ms_key_max()` guards the drift); the tick drives auto-repeat |
+| `ms_key(h, key, down)` | `ms0515::Key` values (`www/keys.js` mirrors the enum, `ms_key_max()` guards the drift) |
 | `ms_save_state(h, path)` / `ms_load_state(h, path)` | snapshots in the module's file system |
 | `ms_run(h, program, arguments, em)` / `ms_run_ended(h)` / `ms_run_error()` / `ms_run_built()` | one program run with no boot, the way `ms0515-run` does it on the host: the handle becomes the machine the module carries (ROM-B, the dec system, the monitor booted) and the program starts from its folder in the module's file system; `ms_run_ended` is 0 while it runs, 1 when the monitor is back, 2 when it ended badly |
 | `ms_history(h, events)` | the event ring - reg A and dispatcher writes, FDC commands, traps, HALTs - which the snapshot carries in its HIST chunk; the page turns it on at startup so every bug report holds the machine's last steps |
@@ -143,7 +143,8 @@ characters on its caps; in РУС mode - the machine's lamp, read through
 `ms_ruslat` - the letters are positional ЙЦУКЕН), a synthetic Shift makes
 up the difference and is undone at release, CAPS + Shift inverts a letter,
 the numpad / * + and a few РУС-mode symbols are special cases.  The host's
-auto-repeat is ignored: the MS7004 repeats itself (`ms_key_tick`).
+auto-repeat is ignored (`www/app.js` drops any `KeyboardEvent` with
+`repeat` set): the MS7004 repeats itself, inside the emulated core.
 
 Full screen (the button, F11): the picture alone on the display, through
 the Fullscreen API on `<main>` (not on an iPhone, which has none: there
