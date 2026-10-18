@@ -120,7 +120,6 @@ docs/               — architecture.md, folder-device.md and the subsystems
   hardware/        — the machine's parts as the emulator models them
   kb/              — knowledge base (references, verification, known issues, TODO)
   refs/            — the factory documentation transcribed (Russian, as the originals)
-  rt11/            — manuals found on the RT-11 diskettes, converted to Markdown
   images/          — the README's screenshots
 tools/              — the emulator's Python utilities: emu_driver.py (drive ms0515-cli from a script;
                       ms0515-devel uses it too) and run_program.py on it (boot a disk headless, type,

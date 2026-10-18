@@ -65,7 +65,7 @@ T-11), produced in the late 1980s.
 
 ```
 docs/           Technical documentation (architecture, hardware, kb, the
-                transcribed original manuals)
+                factory documentation transcribed)
 src/            Emulator source code and build system - each part with
                 its tests/; src/README.md lists them
   core/         Hardware emulation in pure C11
