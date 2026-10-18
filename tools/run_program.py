@@ -18,7 +18,7 @@ volume when the image is one, else onto side 0).  `--realtime` throttles
 the emulator to the machine's 50 Hz for programs that time themselves.
 
 The binaries are looked up in $MS0515_PACKAGE, else in the repository's
-package/ directory.  Uses rt11_devel/toolset/emu_driver.py.
+package/ directory.  Uses tools/emu_driver.py.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "rt11_devel" / "toolset"))
+sys.path.insert(0, str(ROOT / "tools"))
 from emu_driver import EmulatorDriver  # noqa: E402
 
 PACKAGE = Path(os.environ.get("MS0515_PACKAGE", ROOT / "package"))

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21)
 # Single source of truth for the version: src/VERSION (also read by
 # conanfile.py).  One file to bump, never two literals to keep in sync.
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" MS0515_VERSION)
@@ -23,6 +23,15 @@ add_compile_definitions(MS0515_VERSION_STRING="${PROJECT_VERSION}")
 # ── Build options ────────────────────────────────────────────────────────────
 option(MS0515_BUILD_FRONTEND "Build the SDL2/ImGui frontend"  ON)
 option(MS0515_BUILD_TESTS    "Build unit tests"               OFF)
+
+# ── package/ ────────────────────────────────────────────────────────────────
+# A build of the emulator alone puts its binaries, and the frontend its
+# assets, into package/ beside src/.  A project that builds the emulator
+# inside its own (add_subdirectory) takes the targets and leaves package/
+# alone: MS0515_PACKAGE_DIR is then empty and nothing is copied.
+if(PROJECT_IS_TOP_LEVEL)
+    set(MS0515_PACKAGE_DIR "${ms0515_SOURCE_DIR}/../package")
+endif()
 
 # ── Compiler warnings ───────────────────────────────────────────────────────
 if(MSVC)
@@ -105,6 +114,6 @@ endif()
 # The RT-11 development tree's program harnesses (rt11_devel/projects/*/tests)
 # test built guest programs through the lib - they are tests of those
 # programs, so they live with them, not under src/.
-if(MS0515_BUILD_TESTS AND EXISTS "${CMAKE_SOURCE_DIR}/../rt11_devel/CMakeLists.txt")
-    add_subdirectory("${CMAKE_SOURCE_DIR}/../rt11_devel" "${CMAKE_BINARY_DIR}/rt11_devel")
+if(MS0515_BUILD_TESTS AND EXISTS "${ms0515_SOURCE_DIR}/../rt11_devel/CMakeLists.txt")
+    add_subdirectory("${ms0515_SOURCE_DIR}/../rt11_devel" "${ms0515_BINARY_DIR}/rt11_devel")
 endif()

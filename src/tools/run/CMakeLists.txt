@@ -50,7 +50,7 @@ endif()
 # emulator builds from its own files alone.  It is made of the software
 # collection's kits (system/README.md says how, and how it is brought up to
 # date); the build only boots it and bakes.
-set(RUN_ROM       "${CMAKE_SOURCE_DIR}/assets/rom/ms0515-romb.rom")
+set(RUN_ROM       "${ms0515_SOURCE_DIR}/assets/rom/ms0515-romb.rom")
 set(RUN_SYSTEM    "${CMAKE_CURRENT_SOURCE_DIR}/assets/system.dsk")
 set(RUN_EMBEDDED  "${CMAKE_CURRENT_BINARY_DIR}/Embedded.cpp")
 
@@ -127,9 +127,11 @@ endif()
 
 # ── Package output ──────────────────────────────────────────────────────────
 # Next to the other binaries, though it needs nothing of what lies there.
-set(PACKAGE_DIR "${CMAKE_SOURCE_DIR}/../package")
-add_custom_command(TARGET ms0515-run POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}"
-    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ms0515-run>" "${PACKAGE_DIR}/"
-    COMMENT "Copying ms0515-run into ${PACKAGE_DIR}"
-)
+set(PACKAGE_DIR "${MS0515_PACKAGE_DIR}")
+if(PACKAGE_DIR)
+    add_custom_command(TARGET ms0515-run POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${PACKAGE_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ms0515-run>" "${PACKAGE_DIR}/"
+        COMMENT "Copying ms0515-run into ${PACKAGE_DIR}"
+    )
+endif()

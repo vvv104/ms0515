@@ -47,11 +47,11 @@ add_dependencies(ms0515_lib_tests ms0515-disk)
 # `internal::board()` accessors.  Frontend code never gets this
 # include path — that's the structural seam the API revision keeps.
 target_include_directories(ms0515_lib_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/lib/src
+    ${ms0515_SOURCE_DIR}/lib/src
 )
 
 target_compile_definitions(ms0515_lib_tests PRIVATE
-    ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+    ASSETS_DIR="${ms0515_SOURCE_DIR}/assets"
     TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     TESTS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"
 )
