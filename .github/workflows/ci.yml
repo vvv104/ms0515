@@ -64,7 +64,7 @@ jobs:
           conan profile detect --force
           PROFILE=~/.conan2/profiles/default
 
-          # C++23 on every compiler
+          # C++20 on every compiler
           sed -i.bak -e 's/^compiler.cppstd=.*/compiler.cppstd=20/' "$PROFILE"
 
           # Pin compiler + version for Linux jobs (auto-detect uses system default)
@@ -108,11 +108,9 @@ jobs:
           CXX: ${{ matrix.cxx }}
         run: conan build . --build=missing
 
-      # The disk and CLI suites as well as the core's and the lib's: the
-      # folder volume and the keyboard typing they cover are what
-      # ms0515-run stands on.  Its own suite runs programs on the machine
-      # baked above; it must be there - a build that silently left the
-      # tool out would pass with nothing tested.
+      # Every suite the build makes.  ms0515-run's runs programs on the
+      # machine baked above; it must be there - a build that silently left
+      # the tool out would pass with nothing tested.
       - name: Run tests
         shell: bash
         working-directory: src/build/Release
@@ -121,9 +119,20 @@ jobs:
           if [ "${{ runner.os }}" = "Windows" ]; then EXE=".exe"; fi
           ./core/tests/ms0515_core_tests$EXE
           ./lib/tests/ms0515_lib_tests$EXE
+          ./libapp/tests/ms0515_libapp_tests$EXE
           ./disk/tests/ms0515_disk_tests$EXE
+          ./tools/disk/tests/ms0515_disk_tool_tests$EXE
+          ./files/tests/ms0515_files_tests$EXE
           ./cli/tests/ms0515_cli_tests$EXE
           ./tools/run/tests/ms0515_run_tests$EXE
+
+      # The Python utilities' tests (emu_driver.py, which ms0515-devel
+      # drives the emulator with).
+      - name: Python tests
+        shell: bash
+        run: |
+          pip install pytest
+          python -m pytest -q tools/tests
 
   web:
     name: web / emscripten

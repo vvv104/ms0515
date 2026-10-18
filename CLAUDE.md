@@ -6,7 +6,7 @@
 Layered emulator for the Elektronika MS 0515 Soviet PDP-11 computer:
 - **Core** (`src/core/`) — Pure C11, zero OS deps. Fully implemented and verified.
 - **Lib** (`src/lib/`) — C++ wrapper: Emulator, Debugger, Disassembler, GDB RSP.
-- **Libapp** (`src/libapp/`) — Shared host-side app utilities: filesystem paths, YAML config loader/writer, CLI argument parser, disk-mount helpers, screen composition (VRAM→RGBA) and PNG screenshots. Linked by both binaries so any flag added to one is automatically supported by the other. Strictly host-app code — no emulation primitives, no core API.
+- **Libapp** (`src/libapp/`) — Shared host-side app utilities: filesystem paths, YAML config loader/writer, CLI argument parser, disk-mount helpers, screen composition (VRAM→RGBA) and PNG screenshots. Linked by both binaries, so both parse the same flags; the ones only the text mode acts on (`--no-config`, `--state`, `--save-state`) say so in its `--help`. Strictly host-app code — no emulation primitives, no core API.
 - **Platform** (`src/platform/`) — Host abstractions kept out of binary sources. Split into two sublibs because needs barely overlap:
   - `platform/cli/` — raw stdin, signal handling, UTF-8 console setup.
   - `platform/gui/` — file dialogs, font discovery, GUI-subsystem console attach.
@@ -26,6 +26,18 @@ repository (`add_subdirectory` of src/, `tools/emu_driver.py`, the
 binaries in package/), never the other way round.
 
 ## Key rules
+- **This repository is the emulator and nothing else.**  The emulator is an
+  independent environment responsible only for emulating the machine: its
+  sources, its tests and their fixtures, its own tools and the documentation
+  of the machine as it emulates it.  Its artifacts (the libraries, the
+  binaries, `tools/`) may be used by the other repositories - ms0515-devel
+  (programs for the machine and the toolset that builds them) and
+  ms0515-software (the software collection: the diskettes' files, their
+  manuals, disk recovery) - never the other way round: nothing here reads
+  from them at build or test time, and what concerns guest software, its
+  development or the collection goes to its repository, not here.  A
+  copy of what the emulator needs from them (`src/tools/run/assets/`) is
+  kept here and refreshed by a script (`tools/run_assets.py`).
 - All code, comments, and documentation must be in **English only**.
 - Write original code based on architecture knowledge, do not copy from reference projects.
 - **Never commit or push** without explicit user permission.  Commits to a
@@ -85,30 +97,42 @@ binaries in package/), never the other way round.
 ## Project structure
 ```
 src/                — emulator source code and build files
-  core/src/         — cpu.c, cpu_ops.c, memory.c, timer.c, keyboard.c, floppy.c, board.c
+  core/src/         — cpu.c, cpu_ops.c, memory.c, timer.c, keyboard.c, ms7004.c, floppy.c, hd.c,
+                      ramdisk.c, cassette.c, board.c, snapshot.c, trace.c
   core/include/     — ms0515/core/*.h headers
   core/tests/       — pure-core unit tests (link only against ms0515_core)
-  lib/              — C++ wrapper (Emulator, Debugger, Disassembler, GdbStub)
+  lib/              — C++ wrapper (Emulator, Debugger, Disassembler, GdbStub, Terminal, VramMirror,
+                      Typist, Audio, KeyboardLayout, Koi8)
   lib/tests/        — lib-level tests (Emulator/Terminal/KeyboardLayout/...) + disk fixtures
-  libapp/           — shared host-app utilities (Paths, Config, Cli, Disks, Screen)
+  libapp/           — shared host-app utilities (Paths, Config, Cli, Disks, Screen, Screenshot, Sounds)
   libapp/tests/     — libapp unit tests (paths/config/cli/disks)
-  disk/             — offline RT-11 disk-image lib (Layout, Directory, Image, Build)
+  disk/             — offline RT-11 disk-image lib (Layout, Directory, Image, Build, Compose, Manifest,
+                      Wizard, Rtfs/FolderVolume/SparseVolume for folder devices)
   disk/tests/       — disk lib unit tests
-  tools/disk/       — ms0515-disk binary (offline disk utility)
+  tools/disk/       — ms0515-disk binary (offline disk utility) + tests/
+  tools/run/        — ms0515-run: src/, bake/ (the saved machine), assets/ (system.dsk, DIR/PIP),
+                      probe/ (ms0515-run-probe), tests/
   files/            — the RT-11 file manager libs: model (ms0515_files) + FTXUI panels (ms0515_files_ui) + tests/
-  web/              — browser build: C API shim, www/ page, smoke.mjs / zip_check.mjs / browser_check.mjs (Emscripten only)
-  profiles/         — Conan host profiles (emscripten)
+  web/              — browser build: C API shim (src/), www/ page, test-disks/, the Node checks
+                      (smoke, wizard, zip, diff, keys, encoding, run) and browser_check.mjs (Emscripten only)
+  profiles/         — Conan profiles: emscripten (browser host), tools (CMake + Ninja from Conan)
   platform/cli/     — CLI host abstractions (Platform_unix.cpp / Platform_win32.cpp)
-  platform/gui/     — GUI host abstractions (file dialogs, fonts, console attach) + tests/
-  cli/              — text-mode binary (main.cpp, StdioBridge, Koi8)
+  platform/gui/     — GUI host abstractions (file dialogs, fonts)
+  platform/win7compat/ — the static MSVC runtime's shims so the exes run on Windows 7
+  cli/              — text-mode binary (main.cpp, StdioBridge, GuestScreen, Scrollback, MountSync,
+                      CommanderHost) + tests/
   frontend/         — SDL2 + ImGui application
   frontend/tests/   — placeholder for future frontend tests
-  assets/           — runtime resources (ROM files, keyboard layout, DISKS.txt) - no disks: they come
+  assets/           — runtime resources (ROM files, keyboard firmware + layout, sounds, DISKS.txt) - no disks: they come
                       from the ms0515-software releases; the original disks the tests need live in
                       lib/tests/disks/originals/ as test_*.dsk
-package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.exe, ms0515.yaml, assets/
-docs/               — architecture and subsystem documentation
-  kb/              — knowledge base (references, verification, known issues)
+package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.exe, ms0515-run.exe, DISKS.txt,
+                      ms0515.yaml (once settings are saved), assets/
+docs/               — architecture.md, folder-device.md and the subsystems
+  hardware/        — the machine's parts as the emulator models them
+  kb/              — knowledge base (references, verification, known issues, TODO)
+  refs/            — the factory documentation transcribed (Russian, as the originals)
+  images/          — the README's screenshots
 tools/              — the emulator's Python utilities: emu_driver.py (drive ms0515-cli from a script;
                       ms0515-devel uses it too) and run_program.py on it (boot a disk headless, type,
                       keep the text and the screen PNG); bugreport.py (open a report the browser build

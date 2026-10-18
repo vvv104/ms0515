@@ -48,7 +48,8 @@ class Ms0515Recipe(ConanFile):
         self.requires("tomlplusplus/3.4.0")
 
         # The browser build (os=Emscripten, profiles/emscripten) compiles the
-        # core and the lib only: no SDL / ImGui, no host tests.
+        # core, the lib, the disk library and ms0515-run's machine only: no
+        # SDL / ImGui, no host tests.
         if self.settings.os == "Emscripten":
             return
         self.requires("sdl/2.30.7")

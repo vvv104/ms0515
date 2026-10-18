@@ -4,8 +4,8 @@
 
 The KR1807VM1 (КР1807ВМ1) is a Soviet 16-bit microprocessor, a clone of the
 DEC T-11 (DCT11-AA).  It implements a subset of the PDP-11 instruction set
-without the Floating-Point Instruction Set (FIS) and without memory management
-(MMU).
+without the Extended Instruction Set (EIS: MUL, DIV, ASH, ASHC), floating point
+and memory management (MMU).
 
 ## Key Specifications
 
@@ -14,7 +14,7 @@ without the Floating-Point Instruction Set (FIS) and without memory management
 | Clock frequency        | 7.5 MHz                                    |
 | Base microcycle        | 400 ns (3 clock phases × 133 ns)           |
 | Registers              | 8 × 16-bit (R0–R5, SP=R6, PC=R7)          |
-| Instruction count      | 66                                         |
+| Instruction count      | 66 (DEC's count; the list below names 81 mnemonics) |
 | Addressing modes       | 8 (4 direct + 4 indirect)                  |
 | Interrupt levels       | 4 priority levels, vectored                |
 | Data bus               | 16-bit multiplexed address/data            |
@@ -107,7 +107,7 @@ CCC (clear all), SCC (set all), and individual CLC/CLV/CLZ/CLN, SEC/SEV/SEZ/SEN
 EMT, TRAP
 
 ### Not supported
-MARK, MUL, DIV, ASH, ASHC (FIS instructions), and all MMU/FPP instructions.
+MARK; MUL, DIV, ASH, ASHC (EIS); and all MMU/FPP instructions.
 
 ## Interrupt System
 

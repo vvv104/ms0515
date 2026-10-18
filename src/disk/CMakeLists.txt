@@ -1,6 +1,6 @@
 # ── ms0515_disk ──────────────────────────────────────────────────────────────
 # Host-side RT-11 / MS-0515 disk tooling: physical layouts, directory
-# parsing, file extraction, and multi-source recovery.  Standalone C++20 —
+# parsing, file extraction, volume building.  Standalone C++20 —
 # no emulation primitives, no core API.  Reads disk images offline; it does
 # not run the machine.  See recovery/ of the software
 # collection for the methodology this serves.

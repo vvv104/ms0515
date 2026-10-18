@@ -5,7 +5,7 @@
  *     ms0515-run-bake ROM SYSTEM.dsk OUT.cpp
  *
  * SYSTEM.dsk is the dec system diskette as `ms0515-disk compose` makes
- * it (../system/README.md).  The startup file is taken off it and the starter put on; the
+ * it (../assets/README.md).  The startup file is taken off it and the starter put on; the
  * machine is booted from it, the date set, HD loaded and made DK:, the
  * instruction emulator EM fitted to this monitor (and left off), and the
  * starter run.  With the starter waiting on a cleared screen the state

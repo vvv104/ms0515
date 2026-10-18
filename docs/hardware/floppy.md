@@ -41,7 +41,8 @@ hardware designation, and the emulator deliberately avoids it.)
 
 The user-facing emulator CLI / YAML / GUI describe each unit as
 "drive N, side M" (e.g. `--disk0-side0`, `disk0_side0:` in the YAML
-config, "Disk 0 side 0" in the File menu).  That maps onto the
+config, "Disk N" with Mount image / Mount upper side in the File
+menu).  That maps onto the
 hardware naming above as
 
 | User-facing       | Core unit |
@@ -51,10 +52,10 @@ hardware naming above as
 | disk 1, side 0    | FD1       |
 | disk 1, side 1    | FD3       |
 
-`--disk0` (and `--disk1`) is a convenience for one 819200-byte
-double-sided image: it mounts the same file on both side units of
-the drive, and `fdc_attach` picks the right offset for each side
-automatically.
+`--disk0` (and `--disk1`) mounts by the image's size: an 819200-byte
+double-sided image goes on both side units of the drive (`fdc_attach`
+picks the right offset for each side), a 409600-byte one on the lower
+side.
 
 ## FDC Register Addresses
 
@@ -136,7 +137,8 @@ Total image size: **409,600 bytes** (400 KB, 800 sectors).
 
 Sectors within a track are stored in physical order (1–10).  The
 mapping from RT-11 logical blocks to physical sectors is the **same**
-on every MS0515 diskette — a 2:1 interleave plus a +2-sectors-per-track
+on every `DZ:` volume (the `DV:`/`MZ:` whole-diskette volumes are the
+exception - [`filesystem.md`](filesystem.md)) — a 2:1 interleave plus a +2-sectors-per-track
 skew (OSA, Omega, Mihin and rodionov were all verified byte-for-byte to
 use it; the FDC itself does no interleave — it serves physical sectors,
 and the OS driver applies the mapping).  See
@@ -174,4 +176,4 @@ encoding method:
 
 - WD1793 datasheet (Western Digital, 1983)
 - NS4 technical description (3.858.420 TO), section 4.11
-- WD1793 reference: http://msx.hansotten.com/technical-info/wd1793/
+- WD1793 reference: Hans Otten's pages, now at https://hansotten.file-hunter.com/ (see [`../kb/REFERENCES.md`](../kb/REFERENCES.md))

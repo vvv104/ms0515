@@ -1,11 +1,13 @@
 # Reference Materials
 
-External resources for the MS0515 emulator project.
+External resources for the MS0515 emulator project.  `ms0515_data/`, where
+some of them are kept, is the owner's archive of working materials, not
+part of any repository.
 
 ## The plant and the machine's origin
 - zx-pk.ru thread 24333, «История завода "Процессор" г. Воронеж»: https://zx-pk.ru/threads/24333-istoriya-zavoda-quot-protsessor-quot-g-voronezh/
   (read in full 2026-09-22; what it gives is in [zavod-processor.md](zavod-processor.md), its attachments in `ms0515_data/docs/zavod-processor/`)
-- CodeMaster's scans of the plant's documentation: http://retro.codemaster.ru/Processor/ — the frames point at retro.hostronavt.ru, which does not answer.  The Wayback Machine crawled it once, 23-25 October 2016 (https://web.archive.org/web/20161024100032/http://retro.codemaster.ru/Processor/): the listings of `Docs`, `PCBs` and `Photos` survived whole - 127 files - but the pages were a gallery and only 27 of the files themselves came through.  Those 25 and `INDEX.md`, the list of everything that was there, are in `ms0515_data/docs/codemaster-processor/`; the `Diskette` folder was already empty when the crawler saw it.  Worth asking him for the rest
+- CodeMaster's scans of the plant's documentation: http://retro.codemaster.ru/Processor/ — the frames point at retro.hostronavt.ru, which does not answer.  The Wayback Machine crawled it once, 23-25 October 2016 (https://web.archive.org/web/20161024100032/http://retro.codemaster.ru/Processor/): the listings of `Docs`, `PCBs` and `Photos` survived whole - 127 files - but the pages were a gallery and only 27 of the files themselves came through.  Those 27 and `INDEX.md`, the list of everything that was there, are in `ms0515_data/docs/codemaster-processor/`; the `Diskette` folder was already empty when the crawler saw it.  Worth asking him for the rest
 
 ## Board scans
 - NS4 board — the MS 0515 itself (revision 3A), both sides: https://radon.su/files/scan/brd/processor/NS4/

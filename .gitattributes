@@ -13,10 +13,11 @@
 *.yml   text eol=lf
 *.cmake text eol=lf
 *.json  text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.html  text eol=lf
+*.in    text eol=lf
 CMakeLists.txt text eol=lf
-*.sh    text eol=lf
-*.s     text eol=lf
-*.patch text eol=lf
 
 # Binary files
 *.rom   binary
@@ -24,6 +25,5 @@ CMakeLists.txt text eol=lf
 *.bmp   binary
 *.png   binary
 *.dsk   binary
-
-# The machine's Pascal sources: KOI-8 and CR LF, as PAS1 reads them
-*.PAS   -text
+*.wav   binary
+*.SAV   binary

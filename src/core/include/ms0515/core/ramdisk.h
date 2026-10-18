@@ -55,7 +55,8 @@
  *   The driver disables interrupts (MTPS #340) during page transfers.
  *
  * Sources:
- *   - Expansion board schematics (reference/docs/ext/l1-l6)
+ *   - Expansion board schematics and hardware description (the owner's
+ *     archive; docs/hardware/ramdisk.md)
  *   - EX.SYS driver disassembly
  */
 

@@ -17,9 +17,12 @@ Download ms0515-disks-<date>.zip (or a single .dsk) and boot one:
                 to build them on the screen at boot
   rodionov.dsk  Rodionov's RT15SJ, straight into ROSA Commander
   mihin.dsk     Mihin's OS-16SJ with his formatter and utilities
+  dec.dsk       RT-11 V5.4, DEC's own, built for the machine from sources
+  ubix.dsk      UBIX, a UNIX for the machine (boots on ROM-B)
 
-The collection also has five bare exemplar systems in its systems/
-folder, one per monitor build.
+The collection keeps every system as a kit (its kits/ folder: OSA,
+Omega, Mihin, Rodionov, DEC's), and any of them goes on a disk of your
+own.
 
 A disk of your own: ms0515-disk, beside this file, composes any
 combination of a system and bundles of software from a copy of the

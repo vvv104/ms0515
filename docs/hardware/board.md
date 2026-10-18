@@ -37,8 +37,11 @@ All addresses in octal.  Offsets are relative to 177400 base, in decimal hex.
 | 177460            | 0x30   | Keyboard TX data (write)        |
 | 177462            | 0x32   | Keyboard command (write)        |
 | 177500 – 177506   | 0x40   | Timer read (ch 0–2, control)    |
+| 177510 – 177516   | 0x48   | RAM disk PPI, read side (when fitted - [ramdisk.md](ramdisk.md)) |
 | 177520 – 177526   | 0x50   | Timer write (ch 0–2, control)   |
+| 177530 – 177536   | 0x58   | RAM disk PPI, write side        |
 | 177540 – 177546   | 0x60   | MS7007 PPI: A rows latch, B the joystick (in), C in |
+| 177550, 177570    | 0x68, 0x78 | RAM disk data port (and the mirror EX.SYS uses) |
 | 177600            | 0x80   | System Register A (write)       |
 | 177602            | 0x82   | System Register B (read)        |
 | 177604            | 0x84   | System Register C (write)       |
@@ -46,8 +49,8 @@ All addresses in octal.  Offsets are relative to 177400 base, in decimal hex.
 | 177640 – 177646   | 0xA0   | FDC registers                   |
 | 177700            | 0xC0   | Serial RX data (read)           |
 | 177702            | 0xC2   | Serial status/command           |
-| 177720            | 0xD0   | Serial TX data (write)          |
-| 177722            | 0xD2   | Serial command (write)          |
+| 177720            | 0xD0   | Serial TX data (write); HDCSR while the paravirtual HD is enabled ([hd.md](hd.md)) |
+| 177722            | 0xD2   | Serial command (write); HDDAT while the HD is enabled |
 | 177770            | 0xF8   | Halt/timer service address      |
 
 ## System Register A (177600) — Output
@@ -141,6 +144,11 @@ Timer, Keyboard MS7004 and Monitor (VBlank):
 | Keyboard MS7004| 5        | 0130   | 5        | USART RxRDY + RxEN       |
 | Monitor (VBlank)| 2       | 0064   | 4        | Dispatcher bit 8         |
 
+When several are pending, the emulator takes them in the board's
+encoder order but for the monitor, which comes first: monitor, keyboard,
+timer (`kEncoderOrder` in `src/core/src/cpu.c`; why, in
+[`../kb/KNOWN_ISSUES.md`](../kb/KNOWN_ISSUES.md), the 2026-09-19 entry).
+
 Serial RX/TX and the MS7007 key matrix are in the NS4 tech description but
 raise no interrupt in this emulator: the serial port is a stub that
 accepts and discards, and no software at hand scans a matrix through the
@@ -160,4 +168,4 @@ MS7007 PPI (it is wired here only as the joystick input port).
 ## Sources
 
 - NS4 technical description (3.858.420 TO), sections 4.1–4.10, Appendix 1
-- MAME driver: https://github.com/mamedev/mame/blob/master/src/mame/drivers/ms0515.cpp
+- MAME driver: https://github.com/mamedev/mame/blob/master/src/mame/ussr/ms0515.cpp

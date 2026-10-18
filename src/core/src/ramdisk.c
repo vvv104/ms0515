@@ -23,9 +23,9 @@
  * before reading/writing the data port).
  *
  * Sources:
- *   - Expansion board schematics (reference/docs/ext/)
+ *   - Expansion board schematics and hardware description (the owner's
+ *     archive; docs/hardware/ramdisk.md)
  *   - EX.SYS driver disassembly
- *   - reference/docs/ext/l6_1.doc.txt (hardware description)
  */
 
 #include <ms0515/core/ramdisk.h>

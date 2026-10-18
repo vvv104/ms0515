@@ -29,8 +29,9 @@ truth.  It is two layers:
    Track 1 has skew 0, so LBN 0..9 (boot, home, directory, first data)
    coincide with a plain 2:1-interleave placement.  That is why metadata
    parses even under a wrong assumption, and why the file-data mapping
-   **cannot be told from structure alone** (see PITFALLS — the
-   canonical/skew ambiguity).
+   **cannot be told from structure alone** (see the software collection's
+   [`recovery/PITFALLS.md`](https://github.com/vvv104/ms0515-software/blob/main/recovery/PITFALLS.md) — the canonical/skew
+   ambiguity).
 
 So a diskette is fully described by its **size** (SS/DS) and, for DS,
 the **side**.  There is no per-OS "layout" choice: OSA / Omega / Mihin
@@ -58,20 +59,22 @@ Earlier (pre-FDC) recovery work catalogued several `LBN→byte` "layouts"
 - `ss-osa-skew` *is* the standard mapping above (the "osa" in the old
   name is misleading — the skew is universal, not OSA-specific).
 
-Two genuinely different, **non-diskette** container types exist and are
-out of scope for the diskette geometry above:
+Two other volume kinds are not this diskette geometry:
 
-- **DS-spanning volume** — a whole double-sided disk addressed as one
-  ~1600-block RT-11 volume (not two independent sides).  A real format
-  (ARCSAV / disk4 / disk5 family, per historical recovery) that the
-  **emulator does not support**; it needs its own recombine and has not
-  been re-verified under the FDC model.  A directory whose entries point
-  past 800 blocks is a sign of this kind.
-- **Logical-disk (LD) container** — a plain file living inside a
-  diskette's filesystem, mounted by the OS's LD driver.  Same RT-11
-  filesystem, but addressed **linearly** (`byte = N * 512`), any size
-  that is a multiple of 512 and strictly smaller than a diskette
-  (e.g. a 106 KB PROGRAMS sub-volume).  Not yet handled by the tooling.
+- **Whole-diskette volume (DV:, MZ:)** — the `DV` and `MZ` handlers
+  address a double-sided diskette as one 1600-block RT-11 volume (not two
+  independent sides): track = LBN/10, natural sides, no interleave, `DV`
+  rotated by one cylinder.  The emulator runs them as it runs any handler
+  (the FDC serves physical sectors); `ms0515-disk --dv` / `--mz` reads and
+  writes such images ([`../kb/dz_handler.md`](../kb/dz_handler.md),
+  `Vol::dv` / `Vol::mz` in `src/disk/include/ms0515/disk/Layout.hpp`).  A
+  directory whose entries point past 800 blocks is a sign of this kind.
+- **Linear container (LD:, HD:)** — a plain file holding an RT-11
+  volume addressed **linearly** (`byte = N * 512`), any size that is a
+  multiple of 512: a logical disk inside a diskette's filesystem, mounted
+  by the OS's LD driver (e.g. a 106 KB PROGRAMS sub-volume), or the
+  paravirtual hard disk's image.  `ms0515-disk --hd` (alias `--linear`)
+  reads and writes it (`Vol::linear`).
 
 ## Block-to-Byte formula (diskette)
 
@@ -138,9 +141,10 @@ prints `?BOOT-U-No boot on volume`, then zeros.  The first bytes are
 
 ## Home Block (LBN 1)
 
-`INIT` writes a few leading bytes (`00 00 00 F0 FF 0F`), an `FF FF`
-marker at `0x1C0`, and the identity/parameter fields near the end;
-bytes it does not touch keep the blank `B6 6D` pattern.  Key fields at
+`INIT` writes a few leading bytes (`00 00 00 F0 FF 0F`), zeroes
+`0x84..0x1FF`, and puts an `FF FF` marker at `0x1C0` and the
+identity/parameter fields near the end; only `0x06..0x83` keeps the
+blank `B6 6D` pattern.  Key fields at
 the standard RT-11 octal offsets (`0o722` and up):
 
 | Hex offset | Size | Field          | Description                       |
@@ -151,7 +155,7 @@ the standard RT-11 octal offsets (`0o722` and up):
 | `0x1D8`    |   12 | volume_id      | Volume label (ASCII/KOI-8, space-padded) |
 | `0x1E4`    |   12 | owner_name     | Owner name (space-padded)         |
 | `0x1F0`    |   12 | system_id      | System identification ("DECRT11A") |
-| `0x1FC`    |    2 | checksum       | Home-block checksum               |
+| `0x1FE`    |    2 | checksum       | Home-block checksum (`0o776`); `ms0515-disk` leaves it 0 |
 
 ## Directory Format
 
@@ -243,10 +247,12 @@ The emulator's `fdc_attach` looks at the file size; for the DS variant
 it sets `track_stride = 2 * 5120` and offsets the side-1 logical units
 (FD2/FD3) by 5120 into each track slot.
 
-Other containers — a DS-spanning whole-disk volume, an LD container, an
-LBN-linear flat dump, Extended-CPC DSK, or TeleDisk TD0 — are **not**
-read directly: an offline ingest step normalises them to one of the two
-forms above before the emulator (or the `ms0515-disk` tool) sees them.
+A whole-diskette DV/MZ volume is still one of these two image forms
+(800 KB), only addressed differently by its handler.  An LD/HD linear
+container is read by `ms0515-disk --hd`.  Foreign capture formats -
+Extended-CPC DSK, TeleDisk TD0 - are **not** read directly: the software
+collection's `recovery/` pipeline normalises them to the forms above
+before the emulator (or `ms0515-disk`) sees them.
 
 ## Sources
 

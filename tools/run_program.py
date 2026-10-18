@@ -8,7 +8,7 @@ through the CLI's hotkey so the CLI writes the real 640x400 screen as a
 PNG on the way out.  The terminal text of the whole session is printed
 (or saved) as well - graphics programs show nothing there, hence the PNG.
 
-    python tools/run_program.py --disk systems/omega.dsk \\
+    python tools/run_program.py --disk my.dsk \\
         --put MAYATN.BAS --type "R BASICO" --type "LOAD MAYATN" --type RUN \\
         --shot mayatn.png --text mayatn.txt
 
@@ -38,8 +38,9 @@ sys.path.insert(0, str(ROOT / "tools"))
 from emu_driver import EmulatorDriver  # noqa: E402
 
 PACKAGE = Path(os.environ.get("MS0515_PACKAGE", ROOT / "package"))
-CLI = PACKAGE / "ms0515-cli.exe"
-DISKTOOL = PACKAGE / "ms0515-disk.exe"
+EXE = ".exe" if os.name == "nt" else ""
+CLI = PACKAGE / f"ms0515-cli{EXE}"
+DISKTOOL = PACKAGE / f"ms0515-disk{EXE}"
 
 ANSI = re.compile(r"\x1B\[[0-9;?]*[a-zA-Z]")
 # The monitor prompt is a lone dot at the end of the screen (two when a

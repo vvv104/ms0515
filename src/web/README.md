@@ -22,12 +22,16 @@ The Emscripten SDK comes from Conan Center as a tool requirement (about
 export EM_NODE_JS="$(which node)"          # bash; Windows: the node.exe path
 ```
 
-The site lands in `build/emscripten-release/web/dist/`:
+The site lands in `src/build/emscripten-release/web/dist/`:
 
 ```
 ms0515.js, ms0515.wasm   the module (MODULARIZE, createMs0515())
-index.html, app.js, keys.js
+index.html, embed.html   the page, and the frame other sites embed
+*.js                     the page's scripts (www/): app, keys, softkeys,
+                         joystick, fm/edit/diff (the commander), zip,
+                         bugreport, wizard, audio-worklet
 rom/                     ms0515-roma.rom, ms0515-romb.rom
+sounds/                  the drive's and the keyboard's recordings
 ```
 
 Serve the folder as is (`python -m http.server` in it, or GitHub Pages);
@@ -54,7 +58,8 @@ its own site code in that one line.
 
 ## Check
 
-`node src/web/smoke.mjs build/emscripten-release/web/dist` boots the OSA
+From the repository's root, with `D=src/build/emscripten-release/web/dist`:
+`node src/web/smoke.mjs $D` boots the OSA
 disk for three seconds and expects RT-11's screen (the same oracle the
 native tests use).  `node src/web/browser_check.mjs http://localhost:8515/`
 does the same through the page in a headless Chromium-family browser
@@ -64,7 +69,12 @@ also has the page pack a bug report and looks at what went in.
 `node src/web/zip_check.mjs` reads the page's archive writer (`www/zip.js`)
 back: the central directory, every local header, the CRC of each entry and
 the deflated ones inflated again - no build needed.
-CI runs them all in the `web / emscripten` job.
+`node src/web/wizard_check.mjs $D` drives the disk wizard's API (a
+collection made of the OSA fixture, a plan, a saved choice, a composed disk
+booting); `diff_check.mjs`, `keys_check.mjs` and `encoding_check.mjs` check
+the commander's compare view, the right Shift's F-keys and the commander's
+encodings, no build needed; `run_check.mjs $D` runs a program with no boot
+(below).  CI runs them all in the `web / emscripten` job.
 
 ## The C API
 
@@ -92,6 +102,22 @@ CI runs them all in the `web / emscripten` job.
 | `ms_disk_grow(path, blocks)` | a linear image enlarged: the commander grows a logical disk a file does not fit into |
 | `ms_ld_create(blocks, segments, volumeId)` / `ms_ld_put(name, data, len, y, m, d, prot)` / `ms_ld_data()` + `ms_ld_size()` | a logical disk built in memory - the linear file the system's LD handler mounts as a volume (`MOUNT LD0: DZn:NAME.DSK`) |
 | `ms_joystick(h, bits)` | the joystick on the MS7007 port: bits 0-4 right, left, down, up, fire (`joystick.js`: the arrows and Space, or a touch overlay) |
+| `ms_disk_detect(path)` | every volume an image's content holds, as JSON (`[{"vol":N,"side":S}]`): two DZ sides, a DV: or an MZ: whole-disk volume, or nothing for a blank |
+| `ms_drive_sound(h, name, data, len)` / `ms_drive_sounds(h, on)` / `ms_keyboard_sounds(h, on)` / `ms_speaker_sound(h, on)` | the drive's recordings handed over by name, and the page's sound checkboxes |
+| `ms_version()` / `ms_width()` / `ms_height()` | the version as built, the picture's size |
+| `ms_transitions(h)` / `ms_reg_c(h)` | diagnostics for `window.__ms()`: the speaker's transitions in the last frame, system register C |
+
+The disk wizard (`www/wizard.js`) has its own entry points
+(`src/wizard_web.cpp`), the native wizard's rules compiled from the same
+sources, JSON out: `wiz_open(manifest, paths, sizes)` starts over the
+collection's `disks.toml` and its files' list; `wiz_state()` is everything
+the page draws; `wiz_set_media`, `wiz_set_system`, `wiz_fold`,
+`wiz_toggle`, `wiz_set_field`, `wiz_set_text` make the choice (each `""`
+when taken, else why not); `wiz_needed()` names the files a plan or a
+build reads, which the page fetches into `/software/`; `wiz_plan()` and
+`wiz_build(out)` place and write the disk; `wiz_save()` / `wiz_load(text)`
+keep a choice as its own TOML; `wiz_details(key)` describes a bundle;
+`wiz_error()` says what failed.
 
 ## The page
 
@@ -325,7 +351,7 @@ report.json     the version, the browser, the mounts (name, size, CRC-32
                 note
 state.ms0515    the snapshot (ms_save_state): CPU, memory, video RAM, the
                 timer, the FDC, the MS7004, and the event ring the page
-                keeps running (`ms_history`) - File / Load State opens it,
+                keeps running (`ms_history`) - Machine / Load State opens it,
                 tools/dump_state.py prints the ring
 rom.bin         the ROM as loaded (a snapshot carries its CRC and refuses
                 to load against another one)

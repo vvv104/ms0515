@@ -64,18 +64,23 @@ T-11), produced in the late 1980s.
 ## Repository structure
 
 ```
-docs/           Technical documentation (architecture, hardware, kb, TODO)
-src/            Emulator source code and build system
+docs/           Technical documentation (architecture, hardware, kb, the
+                factory documentation transcribed)
+src/            Emulator source code and build system - each part with
+                its tests/; src/README.md lists them
   core/         Hardware emulation in pure C11
-    tests/      Unit tests for the C core (cpu, memory, timer, …)
   lib/          C++ wrapper (Emulator, Debugger, Disassembler, GDB stub)
-    tests/      Lib-level tests + trimmed-OS disk fixtures (boot smoke,
-                screen reader, terminal, emulated keyboard)
-  frontend/     SDL2 + Dear ImGui application
-    tests/      Placeholder for future frontend tests
+  libapp/       What both binaries share: paths, config, command line,
+                disk mounting, screen composition
+  frontend/     SDL2 + Dear ImGui application (ms0515)
+  cli/          Text-mode binary (ms0515-cli) with the two-panel commander
+  disk/, files/ The disk-image library and the RT-11 file manager
+  tools/        ms0515-disk and ms0515-run
+  web/          The browser build (Emscripten)
   assets/       Runtime resources shipped to end users (ROMs, keyboard
-                layout, original-OS disk images)
-tools/          Utility scripts (PDP-11 disassembler, disk tools)
+                firmware and layout, drive and keyboard sounds)
+tools/          Python utilities: drive the emulator from a script, open a
+                browser bug report, dump a state file, PDP-11 disassembler
 ```
 
 ## Building
@@ -88,7 +93,7 @@ tools/          Utility scripts (PDP-11 disassembler, disk tools)
   - macOS: Apple Clang 13+ (macOS 11 Big Sur and newer, Intel or Apple
     silicon — the Command Line Tools alone are enough, full Xcode is not)
 - [Conan 2](https://conan.io/) package manager
-- CMake 3.16+ and Ninja (Conan installs Ninja automatically if missing)
+- CMake 3.21+ and Ninja (Conan installs both if missing)
 
 See `src/README.md` for the full set-up guide and Conan profile tips.
 
@@ -100,7 +105,8 @@ conan build . --build=missing
 ```
 
 The build produces a self-contained `package/` directory (at the repo
-root) with the executable and all required assets.
+root) with the executables (`ms0515`, `ms0515-cli`, `ms0515-disk`,
+`ms0515-run`) and all required assets.
 
 ### Running
 
@@ -114,20 +120,28 @@ Command-line options:
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--rom <path>` | | ROM image (default: `assets/rom/ms0515-roma.rom`) |
-| `--disk0 <path>` | `-d0` | Drive 0 by the image's size: a 819200-byte track-interleaved DS image both sides, a 409600-byte SS image the lower side |
+| `--disk0 <path>` | `-d0` | Drive 0 by the image's size: an 819200-byte track-interleaved DS image both sides, a 409600-byte SS image the lower side |
 | `--disk0-side0 <path>` | `-d0s0` | Drive 0, lower side (409600-byte SS image) |
 | `--disk0-side1 <path>` | `-d0s1` | Drive 0, upper side - with `--disk0 <SS image>`, two images on one drive |
 | `--disk1 <path>` | `-d1` | Drive 1 by the image's size, as `--disk0` |
 | `--disk1-side0 <path>` | `-d1s0` | Drive 1, lower side |
 | `--disk1-side1 <path>` | `-d1s1` | Drive 1, upper side |
+| `--hd <path>` | | The paravirtual hard disk (HD:): an image of any 512-byte multiple; the guest needs `HD.SYS` |
+| `--drive-sounds <set>` | | The drive's motor and seeks from a recorded set (`off` for none) |
+| `--keyboard-sounds on\|off` | | The MS7004's click and bell |
+| `--speaker-volume N`, `--drive-volume N`, `--keyboard-volume N` | | Volumes in percent (100 by default) |
+| `--frames N` | | Stop after N frames |
+| `--screenshot <path>` | | Save the machine's screen as a PNG when the run ends (or at `--screenshot-frame N`) |
 
+Any disk path may also be a `.rtfs` descriptor, mounting a host folder as
+the device ([docs/folder-device.md](docs/folder-device.md)).
 `--diskN` with a DS image and `--diskN-sideM` for the same N are mutually
 exclusive; with an SS image `--diskN` is `--diskN-side0`.  A drive named on
 the command line takes nothing from `ms0515.yaml`.
-Diagnostic flags for headless / debugging runs: `--frames` is `ms0515-cli`
-only, documented in its own `--help` (`src/cli/src/main.cpp`); `--history-*`
-is documented in the source comment at the top of
-`src/frontend/src/main.cpp`.
+`ms0515-cli` also takes `--no-config` (ignore `ms0515.yaml`), `--state` /
+`--save-state` (load a snapshot at the start, write one at the end);
+its `--help` lists everything.  The `--history-*` trace flags
+are documented at the top of `src/frontend/src/main.cpp`.
 
 Disks can also be mounted at runtime via the File menu: Mount image takes
 either size the same way, and once one side is in, Mount upper side puts
@@ -182,8 +196,9 @@ The emulator's sources, tools and documentation are released under the
 [MIT License](LICENSE) — use them freely, keep the copyright notice with
 its link to this repository.
 
-The files under `src/assets/` (the machine's ROMs, the original operating
-system and program disk images) are historical artifacts of the
-Elektronika MS 0515 and its software, preserved here for the emulator to
-run them; they are not covered by the license above and remain the
+The machine's ROMs and the MS7004 keyboard's firmware under
+`src/assets/`, and the original disk images the tests boot
+(`src/lib/tests/disks/`, `src/tools/run/assets/`), are historical
+artifacts of the Elektronika MS 0515 and its software, preserved here for
+the emulator to run them; they are not covered by the license above and remain the
 property of their respective authors.

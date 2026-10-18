@@ -4,7 +4,8 @@ What the МС 0515 is on the factory's own terms, read out of the zx-pk.ru
 thread «История завода "Процессор" г. Воронеж» (thread 24333, 20 pages,
 191 posts, read in full on 2026-09-22).  The thread's attachments, an
 interview with a plant engineer among them, are kept in
-`ms0515_data/docs/zavod-processor/`, which also holds the quotes in full.
+`ms0515_data/docs/zavod-processor/` (the owner's archive), which also holds
+the quotes in full.
 
 ## The machine is board НС4, and it was called УБПК-16
 
@@ -76,5 +77,5 @@ the plant remains unproved; outside these programs it is named nowhere.
 photographs collected by CodeMaster (he worked in the plant's ОКБ from 1986
 to 1993, in department 62, systems programming, and he is the one who sends
 this emulator's bug reports from the forum).  Its frames point at
-`retro.hostronavt.ru`, which does not answer, and the Wayback Machine has no
-copy.  Worth asking him for a mirror.
+`retro.hostronavt.ru`, which does not answer; the Wayback Machine kept the
+listings and a few of the files ([`REFERENCES.md`](REFERENCES.md)).  Worth asking him for a mirror.
