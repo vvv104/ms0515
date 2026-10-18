@@ -1,7 +1,7 @@
 # The MS 0515 floppy handler, taken apart
 
 What the kits' `DZ.SYS` does, read out of the binaries with
-`tools/rt11_handler.py`.  Written down because we have no source for any
+ms0515-devel's `tools/rt11_handler.py`.  Written down because we have no source for any
 of them and will be writing our own.
 
 ## The shape of a handler file

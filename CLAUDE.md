@@ -109,11 +109,12 @@ src/                — emulator source code and build files
 package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.exe, ms0515.yaml, assets/
 docs/               — architecture and subsystem documentation
   kb/              — knowledge base (references, verification, known issues)
-tools/              — misc Python utilities: pdp11 disassembler, Extended-CPC convert, state dump,
-                      bugreport.py (open a report the browser build saved: unpack, summarise, place the images);
-                      run_program.py (boot a disk headless, type, keep the text and the screen PNG),
-                      scr2png.py (.SCR video-RAM dumps to PNG), sample2wav.py (the home-made
-                      sampler's recordings to WAV)
+tools/              — the emulator's Python utilities: emu_driver.py (drive ms0515-cli from a script;
+                      ms0515-devel uses it too) and run_program.py on it (boot a disk headless, type,
+                      keep the text and the screen PNG); bugreport.py (open a report the browser build
+                      saved: unpack, summarise, place the images); dump_state.py (a state file's chunks
+                      and the trace ring); pdp11_disasm.py (the PDP-11 disassembler); run_assets.py
+                      (ms0515-run's assets taken anew from the software collection); tests/
 ```
 
 The top-level `tests/` folder is intentionally gone — each layer owns its own
