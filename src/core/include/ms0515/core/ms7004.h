@@ -23,7 +23,7 @@
  * Scancode semantics (LK201-derived)
  * ----------------------------------
  *   - Regular key pressed : emit its scancode once.
- *   - Held modifier (ВР/СУ/КМП) pressed : emit its scancode, set internal
+ *   - Held modifier (ВР/СУ) pressed : emit its scancode, set internal
  *     "held" flag.
  *   - Held modifier released : emit nothing immediately; emit ALL-UP
  *     (0o263) only when the LAST held key (regular OR modifier) is
@@ -133,7 +133,7 @@ typedef enum ms7004_key {
     MS7004_KEY_SHIFT_R,         /* ВР right — shares scancode 0o256 */
 
     /* ── Row 5: bottom row (space etc.) ──────────────────────────── */
-    MS7004_KEY_COMPOSE,         /* КМП    sc 0o261 (held) */
+    MS7004_KEY_COMPOSE,         /* КМП    sc 0o261 */
     MS7004_KEY_SPACE,           /*        sc 0o324 */
     MS7004_KEY_KP0_WIDE,        /* wide 0 sc 0o222 */
     MS7004_KEY_KP_ENTER,        /* ВВОД   sc 0o225 */
@@ -261,6 +261,9 @@ typedef struct ms7004 {
     bool         sound_enabled;      /* bell sound enabled */
     bool         click_enabled;      /* keyclick enabled */
     bool         latin_indicator;    /* Latin indicator LED */
+    bool         compose_lamp;       /* «Композиция» LED (mask bit 1);
+                                      * the machine relights it, so it
+                                      * stays out of the snapshot */
 
     /* The listener for the keyboard's own sounds (see ms7004_sound_event). */
     ms7004_sound_fn sound_cb;
@@ -317,6 +320,7 @@ void ms7004_recompute_live_repeat(ms7004_t *kbd);
 /* Queries for the OSK / UI. */
 bool    ms7004_caps_on  (const ms7004_t *kbd);
 bool    ms7004_ruslat_on(const ms7004_t *kbd);
+bool    ms7004_compose_lamp(const ms7004_t *kbd);
 bool    ms7004_is_held  (const ms7004_t *kbd, ms7004_key_t key);
 
 /* Lookup: MS 7004 scancode for a key.  Returns 0 for MS7004_KEY_NONE

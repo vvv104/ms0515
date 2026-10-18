@@ -263,7 +263,9 @@ Special scancodes:
 - **256** (ВР press) — sent when either Shift key is pressed.
 - **263** (ALL-UP) — sent when the last held key is released.  Also
   used as the "ВР release" code since Shift uses the held-modifier
-  protocol.
+  protocol.  Only ВР and СУ are held that way; КМП (261) is sent on the
+  press like any other key, and what shows it is on is the machine's
+  «Композиция» lamp (Table 3).
 - **254** (auto-repeat) — listed in the ТО as auto-repeat scancode,
   but the ROM maps it to the `$` character.  The keyboard's firmware
   sends **264** (0xB4) on every repeat, never the key's scancode again;

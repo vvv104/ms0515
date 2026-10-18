@@ -679,6 +679,12 @@ bool Emulator::ruslatOn() const noexcept
     return ms7004_ruslat_on(&impl_->kbd7004);
 }
 
+bool Emulator::composeOn() const noexcept
+{
+    if (impl_->keyboardIn) return impl_->keyboardLine.compose;
+    return ms7004_compose_lamp(&impl_->kbd7004);
+}
+
 bool Emulator::keyHeld(Key key) const noexcept
 {
     if (impl_->keyboardIn) {
@@ -687,7 +693,6 @@ bool Emulator::keyHeld(Key key) const noexcept
         case Key::ShiftL:
         case Key::ShiftR:  return line.shift;
         case Key::Ctrl:    return line.ctrl;
-        case Key::Compose: return line.compose;
         default:           return false;
         }
     }

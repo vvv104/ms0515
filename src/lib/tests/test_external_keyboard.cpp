@@ -201,10 +201,11 @@ TEST_CASE("the lamps and the held modifiers are the line's, not the model's") {
 
     /* КМП is the machine's «Композиция» lamp, mask bit 1. */
     toKeyboard(0x13); toKeyboard(0x82);
-    CHECK(emu.keyHeld(ms0515::Key::Compose));
+    CHECK(emu.composeOn());
+    CHECK_FALSE(emu.keyHeld(ms0515::Key::Compose));
     CHECK_FALSE(emu.capsOn());
     toKeyboard(0x11); toKeyboard(0x82);
-    CHECK_FALSE(emu.keyHeld(ms0515::Key::Compose));
+    CHECK_FALSE(emu.composeOn());
 
     /* The register keys - ВР, СУ - are held from their code to ALL-UP. */
     kbd.toSend.insert(kbd.toSend.end(), {0256, 0257});

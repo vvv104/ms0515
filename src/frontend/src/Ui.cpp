@@ -256,7 +256,7 @@ void drawStatusBar(const StatusBarState &s)
     bool vrOn  = s.emu.keyHeld(ms0515::Key::ShiftL)
               || s.emu.keyHeld(ms0515::Key::ShiftR);
     bool suOn  = s.emu.keyHeld(ms0515::Key::Ctrl);
-    bool kmpOn = s.emu.keyHeld(ms0515::Key::Compose);
+    bool kmpOn = s.emu.composeOn();               /* КМП's lamp */
     ImGui::TextColored(modCol(vrOn),         "\xd0\x92\xd0\xa0");        /* ВР */
     ImGui::SameLine();
     ImGui::TextColored(modCol(suOn),         "\xd0\xa1\xd0\xa3");        /* СУ */

@@ -304,6 +304,9 @@ public:
 
     [[nodiscard]] bool capsOn()   const noexcept;
     [[nodiscard]] bool ruslatOn() const noexcept;
+    /* The «Композиция» lamp the machine lights - КМП's indicator; the
+     * key itself is an ordinary one, never held. */
+    [[nodiscard]] bool composeOn() const noexcept;
     [[nodiscard]] bool keyHeld(Key key) const noexcept;
 
     /* User-tunable keyboard settings.  Frontend reads via

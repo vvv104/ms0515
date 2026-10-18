@@ -764,4 +764,48 @@ TEST_CASE("ms7004 works without uart (NULL)") {
     CHECK(kbd.held_count == 0);
 }
 
+/* ── КМП: an ordinary key; its lamp is the machine's ─────────────────────── */
+
+/* The firmware's register keys - the ones that send ALL-UP on release -
+ * are СУ and the two ВР alone (Alex's listing); КМП sends its code on the
+ * press and nothing on the release, like a letter. */
+TEST_CASE("КМП sends its code and no ALL-UP when let go") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+    uint8_t buf[8];
+
+    ms7004_key(&kbd, MS7004_KEY_COMPOSE, true);
+    int n = drain_fifo(&uart, buf, 8);
+    REQUIRE(n == 1);
+    CHECK(buf[0] == 0261);
+
+    ms7004_key(&kbd, MS7004_KEY_COMPOSE, false);
+    CHECK(drain_fifo(&uart, buf, 8) == 0);
+    CHECK(kbd.held_count == 0);
+
+    /* Nor does a letter after it lose its case: КМП holds no Shift. */
+    ms7004_key(&kbd, MS7004_KEY_A, true);
+    ms7004_key(&kbd, MS7004_KEY_A, false);
+    n = drain_fifo(&uart, buf, 8);
+    REQUIRE(n == 1);
+    CHECK(buf[0] == ms7004_scancode(MS7004_KEY_A));
+}
+
+/* «Композиция» is lit and put out by the machine: 0x13 / 0x11 followed by
+ * a mask with bit 1. */
+TEST_CASE("the Compose lamp follows the machine's LED commands") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+    CHECK_FALSE(ms7004_compose_lamp(&kbd));
+    ms7004_host_byte(&kbd, 0x13);
+    ms7004_host_byte(&kbd, 0x82);
+    CHECK(ms7004_compose_lamp(&kbd));
+    ms7004_host_byte(&kbd, 0x11);
+    ms7004_host_byte(&kbd, 0x86);           /* Caps and Compose off at once */
+    CHECK_FALSE(ms7004_compose_lamp(&kbd));
+    ms7004_host_byte(&kbd, 0x13);
+    ms7004_host_byte(&kbd, 0x84);           /* Caps alone: Compose stays off */
+    CHECK_FALSE(ms7004_compose_lamp(&kbd));
+}
+
 } /* TEST_SUITE */
