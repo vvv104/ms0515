@@ -72,7 +72,10 @@ class Ms0515Recipe(ConanFile):
     def build(self):
         cmake = CMake(self)
         web = self.settings.os == "Emscripten"
-        variables = {"MS0515_BUILD_TESTS":    "OFF" if web else "ON",
+        # The tests are built unless asked not to: the release build, whose
+        # commit CI has just tested, passes -c user.ms0515:tests=False.
+        tests = not web and self.conf.get("user.ms0515:tests", default=True, check_type=bool)
+        variables = {"MS0515_BUILD_TESTS":    "ON" if tests else "OFF",
                      "MS0515_BUILD_FRONTEND": "OFF" if web else "ON"}
         cmake.configure(variables=variables)
         cmake.build()

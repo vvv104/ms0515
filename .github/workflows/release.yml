@@ -80,13 +80,15 @@ jobs:
             fi
           } >> "$PROFILE"
 
+      # The binaries alone: the tests of this commit ran in CI on main before
+      # the tag went on, so the release does not build them again.
       - name: Build
         shell: bash
         working-directory: src
         env:
           CC: ${{ runner.os == 'Linux' && 'gcc-13' || '' }}
           CXX: ${{ runner.os == 'Linux' && 'g++-13' || '' }}
-        run: conan build . --build=missing
+        run: conan build . --build=missing -c user.ms0515:tests=False
 
       - name: Pack artifact
         shell: bash
