@@ -35,6 +35,7 @@ add_executable(ms0515_lib_tests
     test_foreign_volume.cpp
     test_memory_state.cpp
     test_typist.cpp
+    test_external_keyboard.cpp
 )
 
 # CLI integration tests need the path to the ms0515-disk binary at test time.

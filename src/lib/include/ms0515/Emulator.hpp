@@ -136,6 +136,10 @@ public:
     using MechCallback      = std::function<void(const MechEvent &)>;
     using SerialOutCallback = std::function<bool(uint8_t byte)>;
     using SerialInCallback  = std::function<bool(uint8_t &byte)>;
+    /* The keyboard's serial line, for a keyboard outside the emulator:
+     * the next byte it has sent, if any, and a byte the machine sends it. */
+    using KeyboardLineIn    = std::function<bool(uint8_t &byte)>;
+    using KeyboardLineOut   = std::function<void(uint8_t byte)>;
 
     /* Forward-declared opaque state.  Defined in EmulatorInternal.hpp,
      * reachable only from lib/src.  The struct is intentionally
@@ -352,6 +356,17 @@ public:
     void setMechCallback(MechCallback cb);
     void setSerialCallbacks(SerialInCallback in, SerialOutCallback out);
 
+    /* A keyboard outside the emulator on the keyboard's serial line - a
+     * firmware emulator over a serial port, or a real MS 7004 - in place
+     * of the MS 7004 model.  The bytes the machine writes to the keyboard
+     * USART go to `out`; `in` is asked for the keyboard's bytes every
+     * millisecond of the machine, while the USART's FIFO has room, and
+     * they reach the receiver at the line's pace.  Meanwhile the model is
+     * out of the way: keyPress() and keyReleaseAll() do nothing.  Both
+     * empty: the model again. */
+    void setExternalKeyboard(KeyboardLineIn in, KeyboardLineOut out);
+    [[nodiscard]] bool externalKeyboard() const noexcept;
+
     /* Observation callback for every byte the CPU writes into VRAM.
      * Fires AFTER the byte has been stored in the VRAM array — the
      * observer can read the byte through `vram[offset]` itself or
@@ -402,6 +417,7 @@ public:
 
 private:
     void rewirePointers();
+    void wireKeyboardTx();
 
     std::unique_ptr<Impl> impl_;
     std::array<std::string, 4> diskPath_;
