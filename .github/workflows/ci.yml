@@ -123,6 +123,7 @@ jobs:
           ./disk/tests/ms0515_disk_tests$EXE
           ./tools/disk/tests/ms0515_disk_tool_tests$EXE
           ./files/tests/ms0515_files_tests$EXE
+          ./platform/serial/tests/ms0515_platform_serial_tests$EXE
           ./cli/tests/ms0515_cli_tests$EXE
           ./tools/run/tests/ms0515_run_tests$EXE
 
