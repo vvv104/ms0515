@@ -176,12 +176,12 @@ an older spelling.
 
 It is not switched on in the `dec` profile - not for want of a handler
 any more: `TT` and `VM` are both written from scratch with `ERL$G`
-support now (`rt11_devel/projects/rt11/handlers/tt/`,
-`rt11_devel/projects/rt11/handlers/vm/`), the same way `DZ` already had
+support now (ms0515-devel's `projects/rt11/handlers/tt/` and
+`projects/rt11/handlers/vm/`), the same way `DZ` already had
 it.  `ERL$G` stays off in `dec`/`dec-ru` by policy instead: it is a
 SYSGEN conditional, all or nothing, so a monitor built with it refuses
 every kit handler - too much to pay for a log that stays empty on sound
-media (see `rt11_devel/projects/rt11/README.md`, "Error logging: in the
+media (see ms0515-devel's `projects/rt11/README.md`, "Error logging: in the
 sources, not in the collection", for the diagnostic build that turns it
 on).
 

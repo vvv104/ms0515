@@ -6,7 +6,7 @@ project(ms0515 VERSION ${MS0515_VERSION} LANGUAGES C CXX)
 
 # ── Language standard ───────────────────────────────────────────────────────
 # Declared once for the whole project: every target created below inherits
-# it, including the ones in rt11_devel/ and any added later.  A target that
+# it, including any added later.  A target that
 # genuinely needs something else says so itself with target_compile_features;
 # nothing else should repeat these.
 set(CMAKE_C_STANDARD              11)
@@ -109,11 +109,4 @@ else()
         add_subdirectory(frontend)
     endif()
     add_subdirectory(tools)
-endif()
-
-# The RT-11 development tree's program harnesses (rt11_devel/projects/*/tests)
-# test built guest programs through the lib - they are tests of those
-# programs, so they live with them, not under src/.
-if(MS0515_BUILD_TESTS AND EXISTS "${ms0515_SOURCE_DIR}/../rt11_devel/CMakeLists.txt")
-    add_subdirectory("${ms0515_SOURCE_DIR}/../rt11_devel" "${ms0515_BINARY_DIR}/rt11_devel")
 endif()

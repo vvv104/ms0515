@@ -50,10 +50,10 @@ T-11), produced in the late 1980s.
   disks the guest writes to stay in the browser's storage, and "Bug report"
   saves a file with the machine's state, the ROM and the mounted images -
   enough to put a fault back on the developer's screen
-- Guest programs built with the real RT-11 toolchain inside the emulator
-  (`rt11_devel/`): a faithful MACRO-11 port of *The Way of the Exploding
-  Fist* (`rt11_devel/projects/fist/`), on the collection's games disk
-  (`R FIST`), and *Manic Miner* (`rt11_devel/projects/manicm/`), written
+- Guest programs built with the real RT-11 toolchain inside the emulator,
+  in their own repository (<https://github.com/vvv104/ms0515-devel>): a faithful MACRO-11 port of *The
+  Way of the Exploding Fist* (`projects/fist/` there), on the collection's
+  games disk (`R FIST`), and *Manic Miner* (`projects/manicm/`), written
   to be read - the game in one file, the machine in another, for whoever
   ports it on to another PDP-11
 - No disks of its own: the bootable diskettes come from the software
