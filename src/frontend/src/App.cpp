@@ -24,6 +24,22 @@
 
 namespace ms0515_frontend {
 
+namespace {
+
+/* A tooltip for the item just drawn, wrapped to a readable width: a long
+ * line in ImGui's own tooltip runs off the window. */
+void wrappedTooltip(const char *text)
+{
+    if (!ImGui::IsItemHovered()) return;
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
+} // namespace
+
 /* ── Construction / destruction ─────────────────────────────────────── */
 
 App::App(CliArgs cli) : cli_(std::move(cli)) {}
@@ -1069,13 +1085,11 @@ void App::drawKeyboardSubmenu()
         config_.kbdAutoRepeat  = repeat ? 1 : 0;
         dirty = true;
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip(
-            "The keyboard's own typematic, as the MS7004 powers up with it.  "
-            "Off by default here so a key held does not run away in a program "
-            "that never turns it off.\nThe keyboard clicks on every repeat it "
-            "sends - that is the only click it makes.");
-    }
+    wrappedTooltip(
+        "The keyboard's own typematic, as the MS7004 powers up with it.  "
+        "Off by default here so a key held does not run away in a program "
+        "that never turns it off.\nThe keyboard clicks on every repeat it "
+        "sends - that is the only click it makes.");
 
     bool autoGame = settings.autoGameMode;
     if (ImGui::MenuItem("Auto game-mode", nullptr, &autoGame)) {
@@ -1083,12 +1097,10 @@ void App::drawKeyboardSubmenu()
         config_.kbdAutoGameMode  = autoGame ? 1 : 0;
         dirty = true;
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip(
-            "When ON, watch for 'click off' (0x99) from a game and swap "
-            "typematic delay/period to the game preset.  When OFF, always "
-            "typing preset.\nSliders below edit whichever preset is active.");
-    }
+    wrappedTooltip(
+        "When ON, watch for 'click off' (0x99) from a game and swap "
+        "typematic delay/period to the game preset.  When OFF, always "
+        "typing preset.\nSliders below edit whichever preset is active.");
     ImGui::Separator();
 
     /* Snap helper: round v to nearest multiple of step, clamp to [min,max]. */
