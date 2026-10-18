@@ -4,16 +4,15 @@ An emulator for the **Elektronika MS 0515** — a Soviet PDP-11-compatible
 personal computer built around the KR1807VM1 CPU (a clone of the DEC
 T-11), produced in the late 1980s.
 
-## Features
-
-| ROM self-test | OSA (RT-11): `DIR` |
-|:---:|:---:|
-| ![ROM self-test](docs/images/rom-test.png) | ![OSA: DIR](docs/images/osa-dir.png) |
-| **The Way of the Exploding Fist**, ported to the MS-0515 | **Saboteur 2** (1990) |
-| ![FIST](docs/images/fist.png) | ![SABOT2](docs/images/sabot2.png) |
+<table>
+<tr><td align="center"><img src="docs/images/rom-test.png" alt="ROM self-test"><br><sub>ROM self-test</sub></td><td align="center"><img src="docs/images/osa-dir.png" alt="OSA: DIR"><br><sub>OSA: DIR</sub></td><td align="center"><img src="docs/images/dec-dir.png" alt="DEC's RT-11 V5.4"><br><sub>DEC's RT-11 V5.4</sub></td></tr>
+<tr><td align="center"><img src="docs/images/sabot2.png" alt="Saboteur 2"><br><sub>Saboteur 2</sub></td><td align="center"><img src="docs/images/fist.png" alt="The Way of the Exploding Fist"><br><sub>The Way of the Exploding Fist</sub></td><td align="center"><img src="docs/images/manicm.png" alt="Manic Miner"><br><sub>Manic Miner</sub></td></tr>
+<tr><td align="center"><img src="docs/images/expres.png" alt="EXPRES"><br><sub>EXPRES</sub></td><td align="center"><img src="docs/images/mine.png" alt="Minesweeper"><br><sub>Minesweeper</sub></td><td align="center"><img src="docs/images/ubix.png" alt="UBIX"><br><sub>UBIX</sub></td></tr>
+</table>
 
 ![The browser build: the two-pane file manager over the mounted RT-11 disks](docs/images/web-files.png)
 
+## Features
 
 - KR1807VM1 CPU emulation (PDP-11 instruction set, 81 instructions)
 - Full memory subsystem with bank switching and 512 KB RAM-disk expansion
