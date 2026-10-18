@@ -26,6 +26,18 @@ repository (`add_subdirectory` of src/, `tools/emu_driver.py`, the
 binaries in package/), never the other way round.
 
 ## Key rules
+- **This repository is the emulator and nothing else.**  The emulator is an
+  independent environment responsible only for emulating the machine: its
+  sources, its tests and their fixtures, its own tools and the documentation
+  of the machine as it emulates it.  Its artifacts (the libraries, the
+  binaries, `tools/`) may be used by the other repositories - ms0515-devel
+  (programs for the machine and the toolset that builds them) and
+  ms0515-software (the software collection: the diskettes' files, their
+  manuals, disk recovery) - never the other way round: nothing here reads
+  from them at build or test time, and what concerns guest software, its
+  development or the collection goes to its repository, not here.  A
+  copy of what the emulator needs from them (`src/tools/run/assets/`) is
+  kept here and refreshed by a script (`tools/run_assets.py`).
 - All code, comments, and documentation must be in **English only**.
 - Write original code based on architecture knowledge, do not copy from reference projects.
 - **Never commit or push** without explicit user permission.  Commits to a
