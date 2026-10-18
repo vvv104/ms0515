@@ -131,7 +131,9 @@ package/            — build output: ms0515.exe, ms0515-cli.exe, ms0515-disk.ex
 docs/               — architecture.md, folder-device.md and the subsystems
   hardware/        — the machine's parts as the emulator models them
   kb/              — knowledge base (references, verification, known issues, TODO)
-  refs/            — the factory documentation transcribed (Russian, as the originals)
+                      Not here, with their history: the factory documentation transcribed is the
+                      software collection's refs/, the plant's story its history/, the floppy
+                      handlers taken apart ms0515-devel's projects/rt11/handlers/dz_handler.md
   images/          — the README's screenshots
 tools/              — the emulator's Python utilities: emu_driver.py (drive ms0515-cli from a script;
                       ms0515-devel uses it too) and run_program.py on it (boot a disk headless, type,
