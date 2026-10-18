@@ -121,9 +121,12 @@ void drawIcon(ImDrawList *dl, ToolIcon icon, const Box &b, ImU32 c)
         /* A bug: the body, the head, three legs a side. */
         dl->AddEllipseFilled(b.at(0.50f, 0.58f), ImVec2(b.s * 0.20f, b.s * 0.27f), c);
         dl->AddCircleFilled(b.at(0.50f, 0.24f), b.s * 0.11f, c);
-        for (float y : {0.44f, 0.58f, 0.72f}) {
-            dl->AddLine(b.at(0.32f, y), b.at(0.06f, y - 0.10f), c, t * 0.7f);
-            dl->AddLine(b.at(0.68f, y), b.at(0.94f, y - 0.10f), c, t * 0.7f);
+        /* Each leg goes up from the body to its knee, then down to the foot. */
+        for (float y : {0.46f, 0.60f, 0.74f}) {
+            const ImVec2 left[]  = {b.at(0.32f, y), b.at(0.18f, y - 0.12f), b.at(0.05f, y + 0.06f)};
+            const ImVec2 right[] = {b.at(0.68f, y), b.at(0.82f, y - 0.12f), b.at(0.95f, y + 0.06f)};
+            dl->AddPolyline(left,  3, c, ImDrawFlags_None, t * 0.7f);
+            dl->AddPolyline(right, 3, c, ImDrawFlags_None, t * 0.7f);
         }
         break;
     }
