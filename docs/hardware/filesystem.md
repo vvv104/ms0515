@@ -207,7 +207,8 @@ is no free-block bitmap — `E_MPTY` entries describe runs of free space.
 **File length is in whole blocks only — there is no byte-exact length.**
 The tail of a file's last block, from the logical end of content to the
 512-byte boundary, is **NUL-padded** by the OS (verified on real text
-command files).  See `../../disk_recovery/METHODOLOGY.md` for why this
+command files).  See the software collection's
+[`recovery/METHODOLOGY.md`](https://github.com/vvv104/ms0515-software/blob/main/recovery/METHODOLOGY.md) for why this
 matters to recovery (distinguishing authentic padding zeros from a
 lost sector).
 

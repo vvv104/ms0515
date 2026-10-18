@@ -33,16 +33,5 @@ Thumbs.db
 # Claude Code local settings
 .claude/
 
-# Local recovery working data (raw captures, merges — may hold personal data)
-disk_recovery/work/
-
-# Per-operator canonical picks; local to whoever runs the GUI.
-disk_recovery/decisions.tsv
-
-# KiCad per-user/local state (hw/)
-*.kicad_prl
-*-backups/
-fp-info-cache
-
 # what src/web/browser_check.mjs leaves behind when it runs
 browser_check.png
