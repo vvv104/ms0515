@@ -75,3 +75,25 @@ TEST_CASE("bytes go both ways through a port opened by name") {
     port.reset();
     ::close(master);
 }
+
+TEST_CASE("a write the other end does not take is dropped, never waited on") {
+    const int master = posix_openpt(O_RDWR | O_NOCTTY);
+    REQUIRE(master >= 0);
+    REQUIRE(grantpt(master) == 0);
+    REQUIRE(unlockpt(master) == 0);
+    std::string error;
+    auto port = SerialPort::open(ptsname(master), 4800, error);
+    REQUIRE_MESSAGE(port != nullptr, error);
+
+    /* The master never reads: the line fills up, and still every write
+     * comes back at once and none is a failure. */
+    const auto start = std::chrono::steady_clock::now();
+    bool allOk = true;
+    for (int i = 0; i < 200000; ++i) allOk = port->write(0x55) && allOk;
+    const auto took = std::chrono::steady_clock::now() - start;
+    CHECK(allOk);
+    CHECK(took < std::chrono::seconds(5));
+
+    port.reset();
+    ::close(master);
+}

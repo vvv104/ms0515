@@ -32,7 +32,8 @@ public:
      * (0 when nothing has), -1 when the port failed. */
     virtual int read(uint8_t *buffer, std::size_t max) = 0;
 
-    /* One byte to the line; false when the port failed. */
+    /* One byte to the line, never waiting long: a byte the line cannot
+     * take now is dropped.  False only when the port failed. */
     virtual bool write(uint8_t byte) = 0;
 
     [[nodiscard]] const std::string &name() const noexcept { return name_; }

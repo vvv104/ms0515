@@ -44,13 +44,16 @@ public:
         return (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) ? 0 : -1;
     }
 
+    /* A byte the line cannot take now - nobody at the other end, the
+     * driver's buffer full - is dropped, as on a cable with nothing on
+     * it; only an error of the port is a failure. */
     bool write(uint8_t byte) override
     {
         for (;;) {
             const ssize_t n = ::write(fd_, &byte, 1);
             if (n == 1) return true;
             if (n < 0 && errno == EINTR) continue;
-            return false;
+            return n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK);
         }
     }
 

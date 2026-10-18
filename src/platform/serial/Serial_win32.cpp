@@ -41,10 +41,13 @@ public:
         return static_cast<int>(got);
     }
 
+    /* A byte nobody takes - the other end of the line not there yet -
+     * times out and is dropped, as on a cable with nothing on it; only
+     * an error of the port is a failure. */
     bool write(uint8_t byte) override
     {
         DWORD put = 0;
-        return WriteFile(handle_, &byte, 1, &put, nullptr) && put == 1;
+        return WriteFile(handle_, &byte, 1, &put, nullptr) != 0;
     }
 
 private:
@@ -84,7 +87,8 @@ std::unique_ptr<SerialPort> SerialPort::open(const std::string &name, int baud,
     dcb.fOutX        = FALSE;
     dcb.fInX         = FALSE;
     COMMTIMEOUTS timeouts{};
-    timeouts.ReadIntervalTimeout = MAXDWORD;    /* read returns at once */
+    timeouts.ReadIntervalTimeout        = MAXDWORD; /* read returns at once */
+    timeouts.WriteTotalTimeoutConstant  = 10;       /* a write never hangs the caller */
     if (!SetCommState(h, &dcb) || !SetCommTimeouts(h, &timeouts)) {
         error = name + ": " + lastError();
         CloseHandle(h);
