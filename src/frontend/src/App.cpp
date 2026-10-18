@@ -1168,13 +1168,17 @@ void App::drawExternalKeyboardMenu()
     if (ports.empty()) ImGui::TextDisabled("No serial ports on this computer");
     if (!config_.keyboardPort.empty() && !externalKbd_.connected())
         ImGui::TextDisabled("%s did not open", config_.keyboardPort.c_str());
+    /* The word on it below the ports, not a tooltip: a tooltip on the menu
+     * item covers the very submenu it opens. */
+    ImGui::Separator();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 22.0f);
+    ImGui::TextDisabled(
+        "A keyboard outside the emulator on the machine's keyboard line, "
+        "4800 baud: a firmware emulator over a virtual port pair, or a real "
+        "MS 7004 through an adapter.  While it is on, the PC's keys do not "
+        "reach the machine.");
+    ImGui::PopTextWrapPos();
     ImGui::EndMenu();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "A keyboard outside the emulator on the machine's keyboard line, "
-            "4800 baud: a firmware emulator over a virtual port pair, or a "
-            "real MS 7004 through an adapter.  While it is on, the PC's keys "
-            "do not reach the machine.");
 }
 
 void App::drawViewMenu()
