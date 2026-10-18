@@ -34,6 +34,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # The software collection, for rt11_devel's SL tests alone: they boot
+      # the dec system composed with SL.SYS from the collection's kit.  The
+      # emulator itself needs none of it; this goes with rt11_devel when it
+      # moves to its own repository.
+      - uses: actions/checkout@v6
+        with:
+          repository: vvv104/ms0515-software
+          path: ms0515-software
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -106,6 +115,7 @@ jobs:
         env:
           CC: ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
+          MS0515_SOFTWARE_DIR: ${{ github.workspace }}/ms0515-software
         run: conan build . --build=missing
 
       # GCC for the machine (rt11_devel/toolset/gcc): the cross compiler
