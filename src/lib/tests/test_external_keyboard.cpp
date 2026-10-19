@@ -172,6 +172,63 @@ TEST_CASE("the line is asked for a byte only while the USART's FIFO has room") {
     CHECK(full == 0);
 }
 
+TEST_CASE("the lamps and the held modifiers are the line's, not the model's") {
+    ms0515::Emulator emu;
+    REQUIRE(emu.loadRomFile(ASSETS_DIR "/rom/ms0515-roma.rom"));
+    emu.reset();
+    FakeKeyboard kbd;
+    kbd.attach(emu);
+    runFrames(emu, 400);
+    auto &board = ms0515::internal::board(emu);
+    auto toKeyboard = [&](uint8_t b) { kbd_write(&board.kbd, 0, b); };
+
+    /* The machine's self-test lit the Latin lamp: ЛАТ, not РУС. */
+    CHECK_FALSE(emu.ruslatOn());
+
+    /* The machine's lamp commands: Latin off (РУС), Latin on (ЛАТ). */
+    toKeyboard(0x13); toKeyboard(0xA7);     /* 0x13 standalone, then a bell */
+    CHECK(emu.ruslatOn());
+    toKeyboard(0x11); toKeyboard(0x90);
+    CHECK_FALSE(emu.ruslatOn());
+
+    /* ФКС's lamp: 0x13 + mask with bit 2 on, 0x11 + the same mask off. */
+    CHECK_FALSE(emu.capsOn());
+    toKeyboard(0x13); toKeyboard(0x84);
+    CHECK(emu.capsOn());
+    CHECK_FALSE(emu.ruslatOn());            /* a mask is no Latin command */
+    toKeyboard(0x11); toKeyboard(0x84);
+    CHECK_FALSE(emu.capsOn());
+
+    /* The other lamps: Ожидание, Композиция (КМП's), Стоп-кадр. */
+    toKeyboard(0x13); toKeyboard(0x82);
+    CHECK(emu.keyboardLamps().compose);
+    CHECK_FALSE(emu.keyHeld(ms0515::Key::Compose));
+    CHECK_FALSE(emu.capsOn());
+    toKeyboard(0x13); toKeyboard(0x89);
+    CHECK(emu.keyboardLamps().wait);
+    CHECK(emu.keyboardLamps().hold);
+    toKeyboard(0x11); toKeyboard(0x8B);
+    CHECK_FALSE(emu.keyboardLamps().wait);
+    CHECK_FALSE(emu.keyboardLamps().compose);
+    CHECK_FALSE(emu.keyboardLamps().hold);
+
+    /* The register keys - ВР, СУ - are held from their code to ALL-UP. */
+    kbd.toSend.insert(kbd.toSend.end(), {0256, 0257});
+    runFrames(emu, 2);
+    CHECK(emu.keyHeld(ms0515::Key::ShiftL));
+    CHECK(emu.keyHeld(ms0515::Key::Ctrl));
+    kbd.toSend.push_back(0263);
+    runFrames(emu, 2);
+    CHECK_FALSE(emu.keyHeld(ms0515::Key::ShiftL));
+    CHECK_FALSE(emu.keyHeld(ms0515::Key::Ctrl));
+
+    /* КМП's own code is an ordinary key's: no release follows, and it
+     * holds nothing. */
+    kbd.toSend.push_back(0261);
+    runFrames(emu, 2);
+    CHECK_FALSE(emu.keyHeld(ms0515::Key::Compose));
+}
+
 TEST_CASE("without the line the MS 7004 model is back") {
     ms0515::Emulator emu;
     REQUIRE(emu.loadRomFile(ASSETS_DIR "/rom/ms0515-roma.rom"));

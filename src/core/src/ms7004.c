@@ -208,12 +208,15 @@ static bool is_toggle(ms7004_key_t k)
     return k == MS7004_KEY_CAPS || k == MS7004_KEY_RUSLAT;
 }
 
+/* The firmware's register keys - the ones held until ALL-UP - are СУ and
+ * the two ВР alone (8035 ROM disassembly).  КМП is not one: it sends its
+ * code on the press like a letter, and the machine answers with the
+ * «Композиция» lamp. */
 static bool is_modifier(ms7004_key_t k)
 {
     return k == MS7004_KEY_CTRL
         || k == MS7004_KEY_SHIFT_L
-        || k == MS7004_KEY_SHIFT_R
-        || k == MS7004_KEY_COMPOSE;
+        || k == MS7004_KEY_SHIFT_R;
 }
 
 /* Keys that do not auto-repeat on the real MS-7004.  Logic copied
@@ -463,7 +466,7 @@ void ms7004_key(ms7004_t *kbd, ms7004_key_t key, bool down)
          * physical Shift state we sandwich the key between ALL-UP and
          * SC_SHIFT to flip the OS's view for this one keypress.
          *
-         * Modifier keys (Shift/Ctrl/Compose) emit their own make code
+         * Modifier keys (Shift/Ctrl) emit their own make code
          * and never need wrapping — they ARE the state that other
          * keys reference.
          */
@@ -652,8 +655,8 @@ static bool cmd_second_byte(ms7004_t *kbd, uint8_t first, uint8_t second)
      * second byte is re-processed as a new command (return false). */
     case 0x11:  /* LED OFF mode / Latin indicator ON */
         if (second >= 0x80 && second <= 0x8F) {
-            /* Valid LED mask — turn off selected LEDs (bits 0-3).
-             * We don't track individual LED state, just accept. */
+            /* Valid LED mask — turn off selected LEDs (bits 0-3). */
+            kbd->lamps &= (uint8_t)~(second & 0x0F);
             return true;
         }
         /* No valid mask — apply standalone Latin indicator ON. */
@@ -663,6 +666,7 @@ static bool cmd_second_byte(ms7004_t *kbd, uint8_t first, uint8_t second)
     case 0x13:  /* LED ON mode / Latin indicator OFF */
         if (second >= 0x80 && second <= 0x8F) {
             /* Valid LED mask — turn on selected LEDs. */
+            kbd->lamps |= (uint8_t)(second & 0x0F);
             return true;
         }
         /* No valid mask — apply standalone Latin indicator OFF. */
@@ -710,6 +714,7 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
         kbd->sound_enabled   = true;
         kbd->click_enabled   = true;
         kbd->latin_indicator = false;
+        kbd->lamps           = 0;
         enter_typing_mode(kbd);   /* full reset → typing preset */
         if (kbd->uart) {
             kbd_flush_fifo(kbd->uart);
@@ -794,6 +799,7 @@ void ms7004_host_byte(ms7004_t *kbd, uint8_t byte)
 
 bool ms7004_caps_on  (const ms7004_t *kbd) { return kbd->caps_on; }
 bool ms7004_ruslat_on(const ms7004_t *kbd) { return kbd->ruslat_on; }
+uint8_t ms7004_lamps(const ms7004_t *kbd) { return kbd->lamps; }
 
 bool ms7004_is_held(const ms7004_t *kbd, ms7004_key_t key)
 {

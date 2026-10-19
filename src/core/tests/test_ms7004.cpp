@@ -764,4 +764,58 @@ TEST_CASE("ms7004 works without uart (NULL)") {
     CHECK(kbd.held_count == 0);
 }
 
+/* ── КМП: an ordinary key; its lamp is the machine's ─────────────────────── */
+
+/* The firmware's register keys - the ones that send ALL-UP on release -
+ * are СУ and the two ВР alone (Alex's listing); КМП sends its code on the
+ * press and nothing on the release, like a letter. */
+TEST_CASE("КМП sends its code and no ALL-UP when let go") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+    uint8_t buf[8];
+
+    ms7004_key(&kbd, MS7004_KEY_COMPOSE, true);
+    int n = drain_fifo(&uart, buf, 8);
+    REQUIRE(n == 1);
+    CHECK(buf[0] == 0261);
+
+    ms7004_key(&kbd, MS7004_KEY_COMPOSE, false);
+    CHECK(drain_fifo(&uart, buf, 8) == 0);
+    CHECK(kbd.held_count == 0);
+
+    /* Nor does a letter after it lose its case: КМП holds no Shift. */
+    ms7004_key(&kbd, MS7004_KEY_A, true);
+    ms7004_key(&kbd, MS7004_KEY_A, false);
+    n = drain_fifo(&uart, buf, 8);
+    REQUIRE(n == 1);
+    CHECK(buf[0] == ms7004_scancode(MS7004_KEY_A));
+}
+
+/* The four lamps - Ожидание, Композиция, Фиксация, Стоп-кадр - are lit and
+ * put out by the machine: 0x13 / 0x11 followed by a mask of them. */
+TEST_CASE("the lamps follow the machine's LED commands") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+    CHECK(ms7004_lamps(&kbd) == 0);
+    ms7004_host_byte(&kbd, 0x13);
+    ms7004_host_byte(&kbd, 0x82);
+    CHECK(ms7004_lamps(&kbd) == MS7004_LAMP_COMPOSE);
+    ms7004_host_byte(&kbd, 0x13);
+    ms7004_host_byte(&kbd, 0x89);           /* Wait and Hold together */
+    CHECK(ms7004_lamps(&kbd) == (MS7004_LAMP_WAIT | MS7004_LAMP_COMPOSE
+                                 | MS7004_LAMP_HOLD));
+    ms7004_host_byte(&kbd, 0x11);
+    ms7004_host_byte(&kbd, 0x86);           /* Caps and Compose off at once */
+    CHECK(ms7004_lamps(&kbd) == (MS7004_LAMP_WAIT | MS7004_LAMP_HOLD));
+    ms7004_host_byte(&kbd, 0x13);
+    ms7004_host_byte(&kbd, 0x84);
+    CHECK((ms7004_lamps(&kbd) & MS7004_LAMP_CAPS) != 0);
+    ms7004_host_byte(&kbd, 0x11);           /* a standalone Latin command */
+    ms7004_host_byte(&kbd, 0xA7);           /* (a bell next) leaves them be */
+    CHECK(ms7004_lamps(&kbd) == (MS7004_LAMP_WAIT | MS7004_LAMP_CAPS
+                                 | MS7004_LAMP_HOLD));
+    ms7004_host_byte(&kbd, 0xFD);           /* the power-up reset: all out */
+    CHECK(ms7004_lamps(&kbd) == 0);
+}
+
 } /* TEST_SUITE */

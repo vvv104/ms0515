@@ -304,6 +304,15 @@ public:
 
     [[nodiscard]] bool capsOn()   const noexcept;
     [[nodiscard]] bool ruslatOn() const noexcept;
+    /* The keyboard's lamps the machine lights besides ФКС: Ожидание,
+     * Композиция (КМП's - the key itself is an ordinary one, never held)
+     * and Стоп-кадр. */
+    struct KeyboardLamps {
+        bool wait    = false;
+        bool compose = false;
+        bool hold    = false;
+    };
+    [[nodiscard]] KeyboardLamps keyboardLamps() const noexcept;
     [[nodiscard]] bool keyHeld(Key key) const noexcept;
 
     /* User-tunable keyboard settings.  Frontend reads via
