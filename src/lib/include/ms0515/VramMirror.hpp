@@ -3,7 +3,7 @@
  *
  * Subscribes to the C-core VRAM-write hook (Emulator::setVramWriteCallback)
  * and turns the stream of byte writes into a stream of ANSI-positioned
- * KOI-8 characters on a host FILE*.  Unlike Terminal, it never polls
+ * KOI-8 characters through a host writer.  Unlike Terminal, it never polls
  * VRAM — every byte the CPU stores is observed in order, so transient
  * paints don't slip between sampling frames.
  *
@@ -30,10 +30,11 @@
 
 #include <array>
 #include <cstdint>
-#include <cstdio>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 
 namespace ms0515 {
 
@@ -96,16 +97,18 @@ public:
      * Safe to call when nothing was attached. */
     void detach();
 
-    /* Set the host stream for ANSI-positioned char output.  Pass nullptr
-     * to disable the mirror to FILE while keeping history accumulation
+    /* Where a frame's ANSI-positioned output goes: the writer gets each
+     * frame's bytes in one piece at the end of flushFrame().  An empty
+     * one disables the output while keeping history accumulation
      * (history() always grows from the per-cell emissions). */
-    void setOutput(FILE *f) noexcept { out_ = f; }
+    using Writer = std::function<void(std::string_view)>;
+    void setOutput(Writer w) { out_ = std::move(w); }
     /* Where it writes now - for a caller that takes the terminal for a
      * while and hands it back. */
-    [[nodiscard]] FILE *output() const noexcept { return out_; }
+    [[nodiscard]] const Writer &output() const noexcept { return out_; }
 
     /* Plain-text history.  One char per emit, in order.  No ANSI escape
-     * sequences — host-terminal positioning lives in the FILE* path only. */
+     * sequences — host-terminal positioning goes to the writer only. */
     [[nodiscard]] const std::string &history() const noexcept { return history_; }
 
     /* Discard accumulated history; keeps the cell shadow + cursor state. */
@@ -220,7 +223,8 @@ private:
     void emitKoi8(uint8_t code);
 
     Emulator *emu_ = nullptr;
-    FILE     *out_ = nullptr;
+    Writer      out_;
+    std::string frame_;     /* this frame's output, handed to out_ at its end */
     std::string history_;
 
     std::unordered_map<uint64_t, uint8_t> glyphMap_;

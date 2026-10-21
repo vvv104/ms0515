@@ -443,14 +443,14 @@ std::string VramMirror::utf8FromRomBCode(uint8_t code)
 
 void VramMirror::emitAnsi(std::string_view s)
 {
-    if (out_) std::fwrite(s.data(), 1, s.size(), out_);
+    if (out_) frame_.append(s);
 }
 
 void VramMirror::emitKoi8(uint8_t code)
 {
     auto utf = utf8FromKoi8(code);
     history_.append(utf);
-    if (out_) std::fwrite(utf.data(), 1, utf.size(), out_);
+    if (out_) frame_.append(utf);
 }
 
 void VramMirror::emitCellChange(int row, int col, uint8_t newCode, bool inverted)
@@ -468,7 +468,7 @@ void VramMirror::emitCellChange(int row, int col, uint8_t newCode, bool inverted
     /* Wrap inverted cells with SGR reverse-video pair.  Done per-cell
      * because emit order is dirty-driven, not left-to-right, so we
      * can't easily batch contiguous spans without keeping more state.
-     * Escapes go only to the FILE* (via emitAnsi); history_ keeps
+     * Escapes go only to the writer (via emitAnsi); history_ keeps
      * plain KOI-8 text from emitKoi8. */
     if (inverted) emitAnsi("\x1B[7m");
     emitKoi8(newCode);
@@ -698,7 +698,8 @@ void VramMirror::flushFrame()
 
     emitAnsi("\x1B[?2026l");
 
-    if (out_) std::fflush(out_);
+    if (out_) out_(frame_);
+    frame_.clear();
 }
 
 std::string VramMirror::Snapshot::row(int r) const
