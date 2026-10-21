@@ -316,6 +316,22 @@ static uint8_t read_byte_op(ms0515_cpu_t *cpu, int mode, int reg, uint16_t addr)
     return bus_read_byte(cpu, addr);
 }
 
+/*
+ * A register source is read when the operation uses it, after the
+ * destination's address steps (T-11 User's Guide B.2): MOV R0,(R0)+ stores
+ * R0 + 2, MOV R0,-(R0) R0 - 2, MOV PC,X(R) the opcode's address + 4.  A
+ * source read from memory is the one read before.
+ */
+static uint16_t word_source_after(const ms0515_cpu_t *cpu, int sm, int sr, uint16_t read)
+{
+    return sm == 0 ? cpu->r[sr] : read;
+}
+
+static uint8_t byte_source_after(const ms0515_cpu_t *cpu, int sm, int sr, uint8_t read)
+{
+    return sm == 0 ? (uint8_t)(cpu->r[sr] & 0xFF) : read;
+}
+
 static void write_byte_op(ms0515_cpu_t *cpu, int mode, int reg,
                            uint16_t addr, uint8_t val)
 {
@@ -466,16 +482,8 @@ static void op_reset(ms0515_cpu_t *cpu)
 /* ── RTI — Return from Interrupt ──────────────────────────────────────────── */
 
 /*
- * On the KR1807VM1 (DEC T-11 / PDP-11/03 family), RTI and RTT are
- * identical: both pop PC and PSW from the stack and inhibit the T-bit
- * trap for one instruction.  This differs from later PDP-11 models
- * (PDP-11/34, /40, /44, /70) where RTI checks the T-bit immediately.
- *
- * The MS0515 uses the KR1807VM1, so RTI must inhibit the T-trap.
- * This matters when code accidentally executes RTI (e.g. JSR to an
- * address where the word 000002 is data, not an instruction) — the
- * restored PSW may have T=1, and without inhibition, the emulator
- * would fire an unexpected BPT trap that crashes the guest.
+ * An RTI that sets T traps at once, before the next instruction (T-11
+ * User's Guide 6.3.5.8); only RTT lets one instruction run first.
  */
 static void op_rti(ms0515_cpu_t *cpu)
 {
@@ -483,15 +491,15 @@ static void op_rti(ms0515_cpu_t *cpu)
     cpu->psw            = pop(cpu) & 0377;
     /* Appendix B's figure covers the stack work above as well. */
     cpu->cycles = 8 * MICROCYCLE;   /* Appendix B: RTI */
-    /* KR1807VM1: RTI inhibits T-bit trap, same as RTT */
-    cpu->irq_tbit = false;
+    if (cpu->psw & CPU_PSW_T)
+        cpu->irq_tbit = true;
 }
 
 /* ── RTT — Return from Trap ──────────────────────────────────────────────── */
 
 /*
- * On the KR1807VM1, RTT is identical to RTI — both inhibit the T-bit
- * trap for one instruction after restoring PSW.
+ * RTT is RTI but for T: the instruction it returns to runs before the
+ * trace trap.
  */
 static void op_rtt(ms0515_cpu_t *cpu)
 {
@@ -970,8 +978,8 @@ static void op_mtps(ms0515_cpu_t *cpu)
     int reg  = DST_REG(cpu->instruction);
     uint16_t addr = get_byte_addr(cpu, mode, reg);
     uint8_t val   = read_byte_op(cpu, mode, reg, addr);
-    /* On T-11, MTPS can only change the low byte of PSW */
-    cpu->psw = (cpu->psw & 0xFF00) | val;
+    /* The low byte of the PS but T, which MTPS cannot set (UG p. B-5) */
+    cpu->psw = (uint16_t)((cpu->psw & (0xFF00 | CPU_PSW_T)) | (val & ~CPU_PSW_T & 0xFF));
     cpu->cycles = MTPS_MICROCYCLES[mode] * MICROCYCLE;
 }
 
@@ -1009,6 +1017,7 @@ static void op_mov(ms0515_cpu_t *cpu)
     uint16_t val   = read_word_op(cpu, sm, sr, saddr);
 
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    val = word_source_after(cpu, sm, sr, val);
     datio_begin(cpu, dm);
     discard_read_word(cpu, dm, daddr);          /* BDIN phase of DATIO */
     write_word_op(cpu, dm, dr, daddr, val);     /* BDOUT phase of DATIO */
@@ -1031,6 +1040,7 @@ static void op_movb(ms0515_cpu_t *cpu)
         cpu->r[dr] = (val & 0x80) ? (0xFF00 | val) : val;
     } else {
         uint16_t daddr = get_byte_addr(cpu, dm, dr);
+        val = byte_source_after(cpu, sm, sr, val);
         datio_begin(cpu, dm);
         discard_read_byte(cpu, dm, daddr);      /* BDIN phase of DATIO */
         write_byte_op(cpu, dm, dr, daddr, val); /* BDOUT phase of DATIO */
@@ -1055,6 +1065,7 @@ static void op_cmp(ms0515_cpu_t *cpu)
     uint16_t saddr = get_word_addr(cpu, sm, sr);
     uint16_t s     = read_word_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    s = word_source_after(cpu, sm, sr, s);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
     uint16_t result = s - d;
@@ -1076,6 +1087,7 @@ static void op_cmpb(ms0515_cpu_t *cpu)
     uint16_t saddr = get_byte_addr(cpu, sm, sr);
     uint8_t s      = read_byte_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_byte_addr(cpu, dm, dr);
+    s = byte_source_after(cpu, sm, sr, s);
     uint8_t d      = read_byte_op(cpu, dm, dr, daddr);
 
     uint8_t result = s - d;
@@ -1094,6 +1106,7 @@ static void op_add(ms0515_cpu_t *cpu)
     uint16_t saddr = get_word_addr(cpu, sm, sr);
     uint16_t s     = read_word_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    s = word_source_after(cpu, sm, sr, s);
     datio_begin(cpu, dm);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
@@ -1116,6 +1129,7 @@ static void op_sub(ms0515_cpu_t *cpu)
     uint16_t saddr = get_word_addr(cpu, sm, sr);
     uint16_t s     = read_word_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    s = word_source_after(cpu, sm, sr, s);
     datio_begin(cpu, dm);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
@@ -1142,6 +1156,7 @@ static void op_bit(ms0515_cpu_t *cpu)
     uint16_t saddr = get_word_addr(cpu, sm, sr);
     uint16_t s     = read_word_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    s = word_source_after(cpu, sm, sr, s);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
     uint16_t result = s & d;
@@ -1161,6 +1176,7 @@ static void op_bitb(ms0515_cpu_t *cpu)
     uint16_t saddr = get_byte_addr(cpu, sm, sr);
     uint8_t s      = read_byte_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_byte_addr(cpu, dm, dr);
+    s = byte_source_after(cpu, sm, sr, s);
     uint8_t d      = read_byte_op(cpu, dm, dr, daddr);
 
     uint8_t result = s & d;
@@ -1178,6 +1194,7 @@ static void op_bic(ms0515_cpu_t *cpu)
     uint16_t saddr = get_word_addr(cpu, sm, sr);
     uint16_t s     = read_word_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    s = word_source_after(cpu, sm, sr, s);
     datio_begin(cpu, dm);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
@@ -1196,6 +1213,7 @@ static void op_bicb(ms0515_cpu_t *cpu)
     uint16_t saddr = get_byte_addr(cpu, sm, sr);
     uint8_t s      = read_byte_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_byte_addr(cpu, dm, dr);
+    s = byte_source_after(cpu, sm, sr, s);
     datio_begin(cpu, dm);
     uint8_t d      = read_byte_op(cpu, dm, dr, daddr);
 
@@ -1216,6 +1234,7 @@ static void op_bis(ms0515_cpu_t *cpu)
     uint16_t saddr = get_word_addr(cpu, sm, sr);
     uint16_t s     = read_word_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    s = word_source_after(cpu, sm, sr, s);
     datio_begin(cpu, dm);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
@@ -1234,6 +1253,7 @@ static void op_bisb(ms0515_cpu_t *cpu)
     uint16_t saddr = get_byte_addr(cpu, sm, sr);
     uint8_t s      = read_byte_op(cpu, sm, sr, saddr);
     uint16_t daddr = get_byte_addr(cpu, dm, dr);
+    s = byte_source_after(cpu, sm, sr, s);
     datio_begin(cpu, dm);
     uint8_t d      = read_byte_op(cpu, dm, dr, daddr);
 
@@ -1251,8 +1271,8 @@ static void op_xor(ms0515_cpu_t *cpu)
     int sr = (cpu->instruction >> 6) & 7;
     int dm = DST_MODE(cpu->instruction), dr = DST_REG(cpu->instruction);
 
-    uint16_t s = cpu->r[sr];
     uint16_t daddr = get_word_addr(cpu, dm, dr);
+    uint16_t s = cpu->r[sr];    /* after the destination moved it (UG B.2) */
     datio_begin(cpu, dm);
     uint16_t d     = read_word_op(cpu, dm, dr, daddr);
 
