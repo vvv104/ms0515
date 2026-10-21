@@ -36,7 +36,7 @@
  * System Register A (0177600) — output:
  *   Bits 1-0  Floppy drive select (0–3)
  *   Bit  2    Motor on (active low)
- *   Bit  3    Side select (1 = upper)
+ *   Bit  3    Side select (1 = side 0, the lower; 0 = side 1, the upper)
  *   Bit  4    LED VD9
  *   Bit  5    LED VD16
  *   Bit  6    Cassette output

@@ -66,7 +66,7 @@ All addresses in octal.  Offsets are relative to 177400 base, in decimal hex.
 |-----|------|---------------------------------------------------|
 | 0-1 | DS   | Floppy drive select (0–3)                         |
 | 2   | MOTR | Motor on (active low: 0 = on)                     |
-| 3   | SIDE | Side select: `0 = fdc_select side 1, 1 = fdc_select side 0` in `board.c`'s own reading of this bit ("active low"); the physical upper/lower labelling of side 0/1 is unresolved - `board.h`'s and `floppy.h`'s own header comments give it the *opposite* way round (`1 = upper`) from this table.  Needs the NS4 schematic (section 4.8) to settle. |
+| 3   | SIDE | Side select: 1 = side 0 (the lower), 0 = side 1 (the upper).  On the NS4 schematic (`3.858.420 Э3` sheet 5) the bit, ПОВЕР H off D76's PA3, goes through D8 (К155ЛП9, a non-inverting open-collector buffer) to ВБП, contact 32 of the drive connector XP4 - the drive's side select, which picks side 1, the upper head, when pulled low (the TEAC FD-55 specification; the МС 5305 is its 80-track twin). |
 | 4   | VD9  | LED VD9 control                                   |
 | 5   | VD16 | LED VD16 control                                  |
 | 6   | CASS | Cassette output signal                            |
