@@ -57,7 +57,7 @@ struct CommanderHost::Impl {
     VramMirror &mirror;
     app::CliArgs cli;
     CommanderHost::Writer out;      /* the terminal, or empty for none */
-    FILE *mirrorOut = nullptr;      /* where the mirror wrote before we took the screen */
+    VramMirror::Writer mirrorOut;   /* where the mirror wrote before we took the screen */
     app::Config scratchConfig;      /* the commander writes its mounts here; stored for real at shutdown */
     files::RouteState state;
     std::optional<files::Commander> commander;

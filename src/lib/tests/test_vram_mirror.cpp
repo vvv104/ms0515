@@ -187,46 +187,23 @@ TEST_CASE("overwriting a cell with a different glyph re-emits the new char") {
     CHECK(snap.cells[0 * kCols + 0] == 'B');
 }
 
-TEST_CASE("FILE* output writes ANSI cursor positioning + UTF-8 char") {
+TEST_CASE("the writer gets ANSI cursor positioning + UTF-8 char") {
     if (!std::filesystem::exists(kRomPath)) return;
     ms0515::Emulator emu;
     REQUIRE(emu.loadRomFile(kRomPath));
     enable_vram_window(emu);
 
-    /* Open a temp file path explicitly so we don't fight MSVC's
-     * deprecation of std::tmpfile() (CRT preferred sibling is the
-     * not-quite-portable `tmpfile_s`).  Removed at the end of the
-     * test. */
-    const auto tmpPath =
-        (std::filesystem::temp_directory_path() / "ms0515_vrammirror_test.bin")
-            .string();
-    FILE *tmp = nullptr;
-#if defined(_MSC_VER)
-    REQUIRE(fopen_s(&tmp, tmpPath.c_str(), "wb+") == 0);
-#else
-    tmp = std::fopen(tmpPath.c_str(), "wb+");
-#endif
-    REQUIRE(tmp != nullptr);
-
+    std::string out;
     ms0515::VramMirror mirror;
-    mirror.setOutput(tmp);
+    mirror.setOutput([&out](std::string_view bytes) { out.append(bytes); });
     mirror.attach(emu);
     mirror.flushFrame();
-    /* Drain whatever the all-blanks first flush wrote. */
-    std::fflush(tmp);
-    long drained = std::ftell(tmp);
+    /* Drop whatever the all-blanks first flush wrote. */
+    out.clear();
 
     RomFont font;
     paint_glyph(emu, 4, 7, font.glyphFor(emu, 'Z'));
     mirror.flushFrame();
-    std::fflush(tmp);
-    std::fseek(tmp, drained, SEEK_SET);
-
-    std::string out;
-    int ch;
-    while ((ch = std::fgetc(tmp)) != EOF) out.push_back(static_cast<char>(ch));
-    std::fclose(tmp);
-    std::filesystem::remove(tmpPath);
 
     /* Expect ESC[?2026h ESC[5;8H Z ESC[?2026l — the cell paint
      * sandwiched between the DEC 2026 synchronized-output begin/end

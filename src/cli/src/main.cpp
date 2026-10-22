@@ -258,9 +258,13 @@ int main(int argc, char **argv)
     /* VramMirror — hook-driven cell-by-cell mirror of the hires text
      * plane.  Per-frame flushFrame emits ANSI cursor-positioned UTF-8
      * for every changed cell to stdout. */
+    const auto toTerminal = [](std::string_view bytes) {
+        ms0515::cli::writeStdout(bytes.data(), bytes.size());
+        ms0515::cli::flushStdout();
+    };
     ms0515::VramMirror mirror;
     mirror.attach(emu);
-    mirror.setOutput(stdout);
+    mirror.setOutput(toTerminal);
     /* Clear screen, home cursor, and hide the host-terminal cursor.
      * The guest OS draws its own cursor as a blinking `_` glyph in
      * VRAM (which the mirror renders cell-by-cell like any other
@@ -274,10 +278,7 @@ int main(int argc, char **argv)
      * terminal; a pipe drives the machine alone. */
     std::optional<ms0515::cli::CommanderHost> commander;
     if (ms0515::cli::stdinIsTerminal()) {
-        commander.emplace(emu, mirror, cli, [](std::string_view bytes) {
-            ms0515::cli::writeStdout(bytes.data(), bytes.size());
-            ms0515::cli::flushStdout();
-        });
+        commander.emplace(emu, mirror, cli, toTerminal);
         ms0515::cli::bridge::setHostKeySink([&commander](const ms0515::files::HostKey &k) { return commander->onKey(k); });
     }
 
