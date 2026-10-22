@@ -222,18 +222,11 @@ void cHdWriteThrough(void *userdata, uint32_t byteOffset,
     if (path.empty())
         return;
 
-    std::FILE *fp = nullptr;
-#ifdef _WIN32
-    if (fopen_s(&fp, path.c_str(), "r+b") != 0)
-        fp = nullptr;
-#else
-    fp = std::fopen(path.c_str(), "r+b");
-#endif
-    if (!fp)
+    std::fstream f(path, std::ios::in | std::ios::out | std::ios::binary);
+    if (!f)
         return;
-    if (std::fseek(fp, static_cast<long>(byteOffset), SEEK_SET) == 0)
-        std::fwrite(data, 1, len, fp);
-    std::fclose(fp);
+    f.seekp(static_cast<std::streamoff>(byteOffset));
+    f.write(reinterpret_cast<const char *>(data), static_cast<std::streamsize>(len));
 }
 
 /* Folder-backed floppy unit: raw FDC sectors -> RT-11 logical blocks via
