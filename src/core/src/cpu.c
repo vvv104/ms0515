@@ -230,6 +230,7 @@ void cpu_reset(ms0515_cpu_t *cpu)
     for (int i = 0; i < 8; i++)
         cpu->r[i] = 0;
 
+    cpu->r[CPU_REG_SP] = 0376;     /* the power-up ASPI loads it (ES p. 9, UG 3.5.2.5) */
     cpu->r[CPU_REG_PC] = 0172000;
     cpu->psw           = 0340;
 
