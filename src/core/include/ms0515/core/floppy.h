@@ -26,7 +26,9 @@
  * (port 0177600, bits 0–3), per NS4 section 4.8 (Рис.15):
  *   Bits 1-0  Physical drive select (0..3)
  *   Bit  2    Motor on (0 = on, active low)
- *   Bit  3    Side select (0 = lower, 1 = upper)
+ *   Bit  3    Side select (1 = side 0, the lower; 0 = side 1, the upper:
+ *             the bit, ПОВЕР, goes to the drive's side-select line
+ *             unchanged, and the line pulled low selects side 1)
  *
  * Logical unit = side * 2 + drive (matches OS DZ numbering):
  *   FD0 = DZ0 = drive 0, side 0    FD1 = DZ1 = drive 1, side 0

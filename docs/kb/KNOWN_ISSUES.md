@@ -297,7 +297,17 @@ side so the protection's sector read returns real bytes.
   hint that the answer was a simple R2 adjustment, but we did not
   converge on the exact value `0o740` until the DS dump arrived.
 
-## ROM monitor `D` command with no disk attached — silent BIOS spin
+## EXPLAINED: ROM monitor `D` command with no disk attached — silent BIOS spin
+
+- **2026-10-21: the machine does the same.**  The drive's READY (НГТ)
+  comes only from its index pulses: on at the third index after the
+  spindle starts, off when none has come for 450 ms («Ремонт
+  дисководов», Солон 1995, ch. 1 pp. 7-9, the МС 5305's one-shot
+  DD7.2).  Without a diskette - or with the latch open - there is no
+  index, the VG93 reports NOT READY, and ROM-A's loop below waits for
+  it as long as it takes.  Closing the latch on a diskette is what
+  ends it: the owner's "the machine reacted to closing the latch".
+  What follows is the original analysis.
 
 - **Scenario**: From the ROM monitor prompt, press `D` to boot from
   drive 0 (FD0 in the core's logical-unit naming) without any disk
