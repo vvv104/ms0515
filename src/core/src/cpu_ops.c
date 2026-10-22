@@ -474,9 +474,10 @@ static void op_reset(ms0515_cpu_t *cpu)
     /* board_reset_devices() would be called here through the board pointer.
      * For now, this is a placeholder — actual device reset is handled
      * at the board level when it detects a RESET instruction. */
-    /* 14.60 us - not a whole number of microcycles, and a microcycle
-     * less than Appendix B's 39.  The manual's figure wins here too. */
-    cpu->cycles = 110;   /* Table A-21: RESET, 14.60 us */
+    /* Appendix B's 39 microcycles; the User's Manual's Table A-21 gives
+     * 14.60 us, not a whole number of them.  No program of the collection
+     * tells the two apart. */
+    cpu->cycles = 39 * MICROCYCLE;   /* Appendix B: RESET */
 }
 
 /* ── RTI — Return from Interrupt ──────────────────────────────────────────── */
@@ -507,9 +508,9 @@ static void op_rtt(ms0515_cpu_t *cpu)
     cpu->psw            = pop(cpu) & 0377;
     /* The figure covers the stack work above as well.  Appendix B gives
      * RTT the same 8 microcycles as RTI; the User's Manual, taken from a
-     * later microcode revision, gives 4.40 us against RTI's 3.20 - and it
-     * is the manual the two agree on everywhere else. */
-    cpu->cycles = 11 * MICROCYCLE;   /* Table A-20: RTT, 4.40 us */
+     * later microcode revision, gives 4.40 us against RTI's 3.20.  No
+     * program of the collection tells the two apart. */
+    cpu->cycles = 8 * MICROCYCLE;    /* Appendix B: RTT */
     /* RTT inhibits the T-bit trap for the next instruction */
     cpu->irq_tbit = false;
 }

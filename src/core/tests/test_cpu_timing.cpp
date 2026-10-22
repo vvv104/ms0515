@@ -9,7 +9,7 @@
  * processor.  One microcycle is three clocks of the 7.5 MHz input
  * (400 ns) and the core counts clocks, so most expectations below are
  * written as `microcycles * MICROCYCLE`.  Where the two documents differ
- * - RTT and RESET - the manual wins and the figure is spelled out.
+ * - RTT and RESET - Appendix B is taken, as the FPGA rebuild takes it.
  *
  * The manual's tables have separate columns for memory refresh on and
  * off.  The MS 0515 runs its dynamic RAM from the processor's own refresh
@@ -139,7 +139,7 @@ TEST_CASE("SOB, JMP, JSR, RTS") {
 TEST_CASE("EMT, RTI and RTT") {
     CHECK(time_of({0104000}) == 16 * MICROCYCLE);   /* EMT 0 */
     CHECK(time_of({0000002}) ==  8 * MICROCYCLE);   /* RTI   */
-    CHECK(time_of({0000006}) == 11 * MICROCYCLE);   /* RTT, 4.40 us */
+    CHECK(time_of({0000006}) ==  8 * MICROCYCLE);   /* RTT, Appendix B */
 }
 
 /* ── Miscellaneous and condition codes ──────────────────────────────────── */
@@ -151,7 +151,7 @@ TEST_CASE("NOP, the condition-code group, MFPT, HALT, WAIT and RESET") {
     CHECK(time_of({0000007}) ==  5 * MICROCYCLE);   /* MFPT  */
     CHECK(time_of({0000000}) == 14 * MICROCYCLE);   /* HALT  */
     CHECK(time_of({0000001}) ==  4 * MICROCYCLE);   /* WAIT  */
-    CHECK(time_of({0000005}) == 110);               /* RESET, 14.60 us */
+    CHECK(time_of({0000005}) == 39 * MICROCYCLE);   /* RESET, Appendix B */
 }
 
 /* ── Cross-check against the machine's own documentation ────────────────── */
