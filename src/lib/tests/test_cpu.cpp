@@ -947,4 +947,63 @@ TEST_CASE("setExecHook sees the instruction at its address about to run") {
     CHECK(g_hookCalls == 1);
 }
 
+/* ── Where the T-11's own documents decide ──────────────────────────────── */
+
+/* A stack at SP_AT holding the PC and the PS an RTI or RTT pops. */
+static void stack_frame(ms0515::Emulator &emu, uint16_t pc, uint16_t ps)
+{
+    constexpr uint16_t SP_AT = 0x2000;
+    emu.writeWord(SP_AT, pc);
+    emu.writeWord(SP_AT + 2, ps);
+    ms0515::internal::cpu(emu).r[CPU_REG_SP] = SP_AT;
+}
+
+TEST_CASE("RTI that sets T traps at once (UG 6.3.5.8)") {
+    ms0515::Emulator emu;
+    emu.reset();
+    stack_frame(emu, BASE + 0x100, CPU_PSW_T);
+    run_at(emu, BASE, {0000002});                       /* RTI */
+    CHECK(ms0515::internal::cpu(emu).irq_tbit);         /* before the next instruction */
+}
+
+TEST_CASE("RTT that sets T waits one instruction") {
+    ms0515::Emulator emu;
+    emu.reset();
+    stack_frame(emu, BASE + 0x100, CPU_PSW_T);
+    run_at(emu, BASE, {0000006});                       /* RTT */
+    CHECK_FALSE(ms0515::internal::cpu(emu).irq_tbit);
+}
+
+TEST_CASE("MTPS cannot set T (UG p. B-5)") {
+    ms0515::Emulator emu;
+    emu.reset();
+    ms0515::internal::cpu(emu).psw = 0;
+    run_at(emu, BASE, {0106427, 0000377});              /* MTPS #377 */
+    CHECK(ms0515::internal::cpu(emu).psw == 0357);        /* 0377 but T */
+}
+
+TEST_CASE("the stack pointer after power-up is 000376 (ES p. 9)") {
+    ms0515::Emulator emu;
+    emu.reset();
+    CHECK(ms0515::internal::cpu(emu).r[CPU_REG_SP] == 0376);
+}
+
+TEST_CASE("Rn as the source of an (Rn)+ destination is Rn moved (UG B.2)") {
+    ms0515::Emulator emu;
+    emu.reset();
+    ms0515::internal::cpu(emu).r[0] = BASE + 0x100;
+    run_at(emu, BASE, {0010020});                       /* MOV R0,(R0)+ */
+    CHECK(emu.readWord(BASE + 0x100) == BASE + 0x102);
+    CHECK(ms0515::internal::cpu(emu).r[0] == BASE + 0x102);
+}
+
+TEST_CASE("Rn as the source of a -(Rn) destination is Rn moved (UG B.2)") {
+    ms0515::Emulator emu;
+    emu.reset();
+    ms0515::internal::cpu(emu).r[2] = BASE + 0x100;
+    emu.writeWord(BASE + 0xFE, 0);
+    run_at(emu, BASE, {0074242});                       /* XOR R2,-(R2) */
+    CHECK(emu.readWord(BASE + 0xFE) == BASE + 0xFE);
+}
+
 } /* TEST_SUITE */

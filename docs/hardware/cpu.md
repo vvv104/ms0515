@@ -109,6 +109,23 @@ EMT, TRAP
 ### Not supported
 MARK; MUL, DIV, ASH, ASHC (EIS); and all MMU/FPP instructions.
 
+### Where the T-11 is not another PDP-11
+
+As DEC's T-11 User's Guide and Engineering Specification have them, and
+as the core does:
+
+- a register source is read after the destination's address steps (UG
+  B.2): `MOV R0,(R0)+` stores R0 + 2, `XOR R2,-(R2)` uses R2 - 2,
+  `MOV PC,X(R)` the opcode's address + 4;
+- an RTI that sets T traps at once; an RTT lets the instruction it
+  returns to run first (UG 6.3.5.8);
+- MTPS cannot set T (UG p. B-5);
+- SP is 000376 after power-up (ES p. 9, UG 3.5.2.5).
+
+An RTI that inhibited the trap as RTT does was once taken for the cure of
+RUS/LAT switching (b97c30c, April 2026); with the trap at once every boot
+and keyboard test passes, RUS/LAT included.
+
 ## Interrupt System
 
 The T-11 uses internal vector decoding via 4 interrupt request lines (CP0–CP3).
