@@ -39,8 +39,11 @@ if (!api.mount(h, 0, "/disks/osa.dsk")) throw new Error("mount failed");
 api.reset(h);
 
 const pcm = M._malloc(4096 * 2);
+// Three seconds of the machine at its 60 Hz: the ROM's banner is up by
+// then (150 frames were the same seconds at the 50 Hz it used to start at).
+const FRAMES = 180;
 let cycles = 0, samples = 0;
-for (let i = 0; i < 150; ++i) {
+for (let i = 0; i < FRAMES; ++i) {
   const c = api.frame(h);
   if (c === 0) throw new Error(`CPU halted at frame ${i}`);
   cycles += c;
@@ -56,7 +59,7 @@ for (const v of px) hist.set(v, (hist.get(v) ?? 0) + 1);
 const sorted = [...hist.entries()].sort((a, b) => b[1] - a[1]);
 const background = sorted[0][1];
 const foreground = w * hgt - background;
-console.log(`frames 150, cycles ${cycles}, audio samples ${samples}, ${w}x${hgt}, ` +
+console.log(`frames ${FRAMES}, cycles ${cycles}, audio samples ${samples}, ${w}x${hgt}, ` +
             `${sorted.length} colours, foreground pixels ${foreground}, key max ${api.keyMax()}`);
 if (foreground < 2000) throw new Error("the screen shows nothing: expected RT-11's boot text");
 if (samples < 100) throw new Error("no audio samples");
