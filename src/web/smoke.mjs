@@ -39,8 +39,8 @@ if (!api.mount(h, 0, "/disks/osa.dsk")) throw new Error("mount failed");
 api.reset(h);
 
 const pcm = M._malloc(4096 * 2);
-// Three seconds of the machine at its 60 Hz: the ROM's banner is up by
-// then (150 frames were the same seconds at the 50 Hz it used to start at).
+// Three and a half seconds of the machine at its 50 Hz: the ROM's banner is
+// up by then.
 const FRAMES = 180;
 let cycles = 0, samples = 0;
 for (let i = 0; i < FRAMES; ++i) {

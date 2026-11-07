@@ -3,8 +3,8 @@
  *
  * Connects all hardware components through the I/O bus and manages
  * the timing relationships between the CPU (7.5 MHz), timer (2 MHz),
- * and video (60 Hz as the boards were built; 50 and 72 Hz by the
- * jumpers E3/E4).
+ * and video (50 Hz as the machines ran; 60 and 72 Hz by the jumpers
+ * E3/E4).
  *
  * The I/O dispatch maps CPU addresses 0177400–0177776 to the
  * appropriate peripheral registers (see board.h for the full map).
@@ -23,7 +23,7 @@
 /*
  * CPU clock: 7.5 MHz
  * Timer clock: 2 MHz (one timer tick every 3.75 CPU cycles, rounded to 4)
- * VBlank at 60 Hz: 125000 CPU cycles per frame
+ * VBlank at 50 Hz: 150000 CPU cycles per frame
  */
 #define CPU_CLOCK_HZ        7500000
 #define TIMER_PERIOD_Q      15      /* The exact timer period in quarter CPU cycles:
@@ -567,11 +567,14 @@ void board_init(ms0515_board_t *board)
     cpu_init(&board->cpu, board);
 
     /* The frame rate is the jumpers E3/E4 (NS4 TO Table 6), read back as
-     * Register B bits 4-3 (Table 10).  Every build on the schematic's
-     * sheet 1 and the owner's own board had E4 fitted and E3 open: 60 Hz,
-     * 260 lines, 16.7 ms a frame.  50 Hz needs both fitted, which no
-     * build has (ms0515-fpga, netlist/variants.md). */
-    board->dip_refresh   = 2;  /* 60 Hz */
+     * Register B bits 4-3 (Table 10).  The timer interrupt is the frame
+     * sync itself (D60.1, clocked by КСИ), so an RT-11 kit's clock runs
+     * at the frame rate: the kits of two bureaus say CLOCK = 50., and the
+     * machines kept time in banks - at 60 Hz they would have gained 4.8
+     * hours a day.  So the machines ran at 50 Hz, both jumpers fitted,
+     * whatever the assembly drawing's standard list says (ms0515-fpga,
+     * netlist/variants.md); 312 lines, 20 ms a frame. */
+    board->dip_refresh   = 0;  /* 50 Hz */
     board->timer_counter = TIMER_PERIOD_Q;
     board->frame_counter = board_frame_cycles(board);
 

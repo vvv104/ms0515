@@ -99,7 +99,7 @@ options:
   --screenshot-frame <N>  Take the shot at frame N.  Implies --frames N
                           when no cap was given, so the run ends there.
   --realtime              Throttle the emulator to the MS-0515's
-                          own frame rate (60 Hz), so OS-side timing
+                          own frame rate (50 Hz), so OS-side timing
                           (sleep-driven UIs, timer-based code)
                           matches the hardware, and the diskette
                           turns (a sector is read when it comes
@@ -345,7 +345,7 @@ int main(int argc, char **argv)
         }
 
         if (local.realtime) {
-            /* The machine's frame: 16.67 ms at the board's 60 Hz. */
+            /* The machine's frame: 20 ms at the board's 50 Hz. */
             nextFrameAt += std::chrono::microseconds(
                 static_cast<long long>(emu.frameMs() * 1000.0));
             const auto now = Clock::now();

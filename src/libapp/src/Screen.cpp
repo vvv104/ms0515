@@ -72,7 +72,7 @@ void Screen::render(const Emulator &emu, uint32_t frameCounter)
     } else {
         /* The flash phase turns every 8 frames: on the board D59.2
          * (К555ИЕ19) counts the frame sync by 16 and its Q8 is the phase
-         * (docs/hardware/video.md) - 3.75 Hz at 60 frames a second, the
+         * (docs/hardware/video.md) - 3.1 Hz at 50 frames a second, the
          * technical description's "3 Hz". */
         const bool flashOn = (frameCounter / kFlashHalfPeriodFrames) & 1;
         emu.forEachLoResPixel([&](int x, int y, bool lit,

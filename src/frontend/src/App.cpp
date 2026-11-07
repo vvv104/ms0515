@@ -664,7 +664,7 @@ void App::tick()
 
         bool audioEnabled = audioOn_ && (targetSpeed_ == 100.0f);
         /* One emulated frame per frame's worth of real time: 16.67 ms at
-         * the 60 Hz the board is built for (a loaded state may differ). */
+         * the 50 Hz the machines ran at (a loaded state may differ). */
         const float frameMs = static_cast<float>(emu_.frameMs());
         while (emuTimeAccumMs_ >= frameMs && running_) {
             bool ok = emu_.stepFrame();

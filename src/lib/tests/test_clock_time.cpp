@@ -6,10 +6,11 @@
  * The frame is the clock's tick, and the monitor counts 50 of them a
  * second: the kits are generated for a "50-cycle" clock (CLOCK = 50. in
  * their SYCDEC.MAC) and nothing in them reads the rate off Register B,
- * as the technical description asks.  The board's jumpers give 60
- * frames a second, so on the machine as built - the owner's among them -
- * a minute of TIME passes in 50 s.  The test keeps the monitor's minute:
- * 3000 frames.
+ * as the technical description asks.  The machines ran at 50 frames a
+ * second - both jumpers fitted, the kits' clock and the banks' say so
+ * (docs/hardware/board.md) - and a minute of TIME is a minute: the test
+ * counts the monitor's minute, 3000 frames, which is 60 s of the
+ * machine.
  *
  * The vvv104 Omega (test_vvv_system.dsk, ROM-B) has SJ timer support.
  */

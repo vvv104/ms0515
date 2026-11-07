@@ -5,10 +5,12 @@
  * The rate is the jumpers E3/E4 (NS4 TO Table 6): both fitted 50 Hz, E4
  * alone 60 Hz (260 lines of 64 us, 16.7 ms), E3 alone 72 Hz.  The
  * software reads them back as РВК1/РВК0, bits 4-3 of System Register B
- * (Table 10: 00 = 50, 01 = 72, 1x = 60).  Every machine the schematic's
- * sheet 1 lists and the owner's own board had E4 fitted and E3 open; 50 Hz
- * needs both, which no build has.  So the board starts at 60 Hz: a frame
- * of 7 500 000 / 60 = 125 000 CPU cycles (docs/hardware/board.md).
+ * (Table 10: 00 = 50, 01 = 72, 1x = 60).  The machines ran at 50 Hz: the
+ * timer interrupt is the frame sync itself (D60.1 is clocked by КСИ), the
+ * RT-11 kits of two bureaus count it as a 50-cycle clock, and the
+ * machines kept time in banks - at 60 Hz their clocks would have gained
+ * 4.8 hours a day.  So the board starts at 50 Hz: a frame of 7 500 000 /
+ * 50 = 150 000 CPU cycles (docs/hardware/board.md).
  */
 
 #include <doctest/doctest.h>
@@ -38,21 +40,21 @@ void prepare(ms0515_board_t &board)
 
 } /* namespace */
 
-TEST_CASE("the board starts at 60 Hz, as its jumpers were fitted")
+TEST_CASE("the board starts at 50 Hz, as the machines kept time")
 {
     ms0515_board_t board;
     prepare(board);
 
-    CHECK(board.dip_refresh == 2);
-    CHECK(((board_read_byte(&board, REG_B) >> 3) & 0x03) == 0x02);   /* РВК1 = 1 */
-    CHECK(board_frame_cycles(&board) == 125000);
+    CHECK(board.dip_refresh == 0);
+    CHECK(((board_read_byte(&board, REG_B) >> 3) & 0x03) == 0x00);   /* РВК1 = РВК0 = 0 */
+    CHECK(board_frame_cycles(&board) == 150000);
 
     /* A frame is that many cycles, give or take the last instruction. */
     const uint64_t before = board.total_cycles;
     CHECK(board_step_frame(&board));
     const uint64_t ran = board.total_cycles - before;
-    CHECK(ran >= 125000);
-    CHECK(ran <  125000 + 16);
+    CHECK(ran >= 150000);
+    CHECK(ran <  150000 + 16);
 }
 
 TEST_CASE("the jumpers' other settings keep their rates")

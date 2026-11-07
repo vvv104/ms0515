@@ -157,7 +157,7 @@ int run(const std::string &program, const std::vector<std::string> &arguments,
             next = Clock::now();
             continue;
         }
-        /* The machine's pace (a frame is 16.67 ms at the board's 60 Hz);
+        /* The machine's pace (a frame is 20 ms at the board's 50 Hz);
          * a frame that came late is not made up for. */
         const auto frame = std::chrono::microseconds(
             static_cast<long long>(machine.emulator().frameMs() * 1000.0));

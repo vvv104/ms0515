@@ -172,8 +172,8 @@ Boot configuration: code 202 (octal) = mode 0, port B input, ports A/C output.
 | CPU              | 7.5 MHz    | 133 ns     |
 | Timer (PIT)      | 2 MHz      | 500 ns     |
 | Video pixel      | 15 MHz     | 66.7 ns    |
-| VBlank (60 Hz)   | 60 Hz      | 16.7 ms    |
 | VBlank (50 Hz)   | 50 Hz      | 20 ms      |
+| VBlank (60 Hz)   | 60 Hz      | 16.7 ms    |
 | VBlank (72 Hz)   | 72 Hz      | 13.9 ms    |
 
 The timer runs on an exact quarter-cycle accumulator: 15 quarter-cycles a
@@ -183,25 +183,32 @@ the emulator uses only to pace the keyboard USART, not the timer itself).
 The frame rate is the jumpers E3 and E4 (NS4 TO Table 6: both fitted
 50 Hz; E4 alone 60 Hz, 260 lines of 64 us; E3 alone 72 Hz), and a program
 reads them back as РВК1/РВК0, Register B bits 4-3 (Table 10), to know
-its timer tick.  Every build on the schematic's sheet 1 (3.858.420 and
--02 with E4; -01 and -03 with E3, 72 Hz) and the owner's own board had
-E4 fitted and E3 open; 50 Hz needs both, which no build has (the FPGA
-rebuild's `netlist/variants.md`).  So the emulator's board starts at
-**60 Hz, 125,000 CPU cycles per frame** (`dip_refresh` 2 in `board.c`;
-it used to start at 50 Hz, 150,000 cycles, and a saved state keeps the
-rate it was saved with).  The hosts pace the machine by
-`Emulator::frameMs()`, 16.67 ms a frame, never by a constant of their own.
+its timer tick.  The schematic's sheet 1 lists four builds, none with
+both jumpers (3.858.420 and -02 with E4, 60 Hz; -01 and -03 with E3,
+72 Hz), and the assembly drawing's standard list fits E4 without E3; a
+reading of the jumpers off the one photo of the owner's board is not
+possible at its resolution.  The machines themselves say 50 Hz: the
+timer interrupt (vector 100) is the frame sync and nothing else - D60.1,
+a К555ТМ2 with the enable bit on D and КСИ on its clock - so an RT-11
+monitor's clock tick is the frame, and the kits of two bureaus (Omega's
+and OSA's) are generated for a 50-cycle clock; the machines kept time
+in banks, where a clock gaining 4.8 hours a day at 60 Hz would not have
+lasted a week (the owner's own machine came from one).  So the bureaus
+fitted both jumpers for the 50 Hz monitors they shipped, and the
+emulator's board starts at **50 Hz, 150,000 CPU cycles per frame**
+(`dip_refresh` 0 in `board.c`; it started at 60 Hz for a day in 2026-11
+on the drawing's standard list, and a saved state keeps the rate it was
+saved with).  The hosts pace the machine by `Emulator::frameMs()`, 20
+ms a frame, never by a constant of their own.
 
-What the rate does to the software: the timer interrupt (vector 100) is
-strobed by the frame, so it is the monitors' clock tick - and the RT-11
-kits for this machine are generated for a "50-cycle" clock and read
-nothing off Register B (ms0515-devel, `projects/rt11/monitor/README.md`,
-"72 ticks a second").  At the 60 Hz the boards were built with their TIME
-runs 20% fast, as it must have on the owner's machine; the emulator at
-50 Hz hid that.  `lib/tests/test_clock_time.cpp` counts the monitor's
-minute in its 3000 ticks.  Tests that wait for a boot or a command wait
-in frames too: a budget written as "600 frames" at 50 Hz is 720 at 60 -
-the same twelve seconds.
+What the rate does to the software: the timer interrupt is the monitors'
+clock tick, and the RT-11 kits for this machine are generated for a
+"50-cycle" clock and read nothing off Register B (ms0515-devel,
+`projects/rt11/monitor/README.md`, "72 ticks a second"): their TIME is
+right at 50 Hz and 20 % fast at 60.  `lib/tests/test_clock_time.cpp`
+counts the monitor's minute in its 3000 ticks.  Tests that wait for a
+boot or a command wait in frames: a budget of 720 frames is 14.4 s at
+50 Hz (it was written as 12 s at 60 and is left as it is).
 
 ## Interrupt Routing
 
