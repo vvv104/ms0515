@@ -86,7 +86,8 @@ encodings, no build needed; `run_check.mjs $D` runs a program with no boot
 | `ms_mount(h, unit, path)` / `ms_unmount(h, unit)` | FDC unit = side × 2 + drive (FD0 / FD1 the drives' side 0, FD2 / FD3 their side 1); a double-sided image goes on both units of its drive |
 | `ms_disk_active(h, unit)` / `ms_hd_active(h)` | the activity lamps |
 | `ms_mount_hd(h, path)` / `ms_unmount_hd(h)` | the paravirtual HD: image (any multiple of 512 bytes); mounting presents the controller |
-| `ms_frame(h)` | one 50 Hz frame; returns the CPU cycles (0 = halted) |
+| `ms_frame_us(h)` | the machine's frame in microseconds of real time (16667 at its 60 Hz) |
+| `ms_frame(h)` | one frame; returns the CPU cycles (0 = halted) |
 | `ms_render(h)` | the picture: 640 × 400 RGBA, line-doubled like the SDL front-end |
 | `ms_audio(h, out, max, rate)` | the last frame's speaker as 16-bit PCM |
 | `ms_key(h, key, down)` | `ms0515::Key` values (`www/keys.js` mirrors the enum, `ms_key_max()` guards the drift) |

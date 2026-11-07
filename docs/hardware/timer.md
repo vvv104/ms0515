@@ -18,7 +18,8 @@ divides this by 16 (async mode 1/16) to produce the 4800 baud rate.
 
 ## Register Addresses
 
-The timer has **separate read and write addresses** (unlike the standard 8253):
+The technical description gives the timer a read address and a write
+address for each register:
 
 | Channel     | Read address | Write address |
 |-------------|--------------|---------------|
@@ -26,6 +27,15 @@ The timer has **separate read and write addresses** (unlike the standard 8253):
 | Channel 1   | 177502       | 177522        |
 | Channel 2   | 177504       | 177524        |
 | Control word| 177506       | 177526        |
+
+The chip itself has four registers.  The board's decoder ignores address
+bit 4, and the chip's WR takes the bus's write strobe at any address, so
+177500-506 are written exactly as 177520-526 are - the ROM programs
+counters 0 and 1 through 177506/177500/177502 and counter 2 through
+177526/177524.  Its RD is the read strobe gated by АД04, so the chip is
+read at 177500-506 only: at the "+020" addresses the T-11's read before a
+write finds no chip, and a write there cannot disturb a latched count or
+the LSB/MSB sequence.  [board.md](board.md), "The register decoding".
 
 ## Control Word Format
 
@@ -78,12 +88,17 @@ in mode 3 with programmed divisors.
 
 ## Boot Configuration
 
+The ROM (ROM-B at 160070, ROM-A at 160060) programs the baud clocks
+through the low half of the block:
+
 ```
-177526 ← 026 (octal)  → Channel 0, LSB only, mode 3, binary
-177520 ← 032 (octal)  → Channel 0 reload value = 26 decimal
-177526 ← 126 (octal)  → Channel 1, LSB only, mode 3, binary
-177522 ← 032 (octal)  → Channel 1 reload value = 26 decimal
+177506 ← 026 (octal)  → Channel 0, LSB only, mode 3, binary
+177500 ← 032 (octal)  → Channel 0 reload value = 26 decimal
+177506 ← 126 (octal)  → Channel 1, LSB only, mode 3, binary
+177502 ← 032 (octal)  → Channel 1 reload value = 26 decimal
 ```
+
+and the speaker's channel 2 through 177526/177524 (at 174500).
 
 ## Sources
 

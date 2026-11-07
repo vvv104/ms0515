@@ -1,6 +1,6 @@
 /*
  * Audio.cpp — SDL2 audio output: the lib's renderer makes each frame's
- * samples (~882 at 44.1 kHz for a 50 Hz frame), SDL_QueueAudio plays
+ * samples (735 at 44.1 kHz for a 60 Hz frame), SDL_QueueAudio plays
  * them.
  */
 
@@ -49,7 +49,7 @@ void Audio::endFrame(int totalCycles, bool output)
     /* The machine can make sound a little faster than the device plays it
      * (a host frame is not an emulated one), so the queue creeps up.  It
      * used to be kept down by dropping the frame - which threw away
-     * whatever happened in those 20 ms: a keyclick every third repeat
+     * whatever happened in that frame: a keyclick every third repeat
      * simply never reached the ears.  Now nothing rendered is discarded:
      * when the backlog grows past a fifth of a second the queue is cut
      * once, and this frame - clicks and all - goes in behind it. */

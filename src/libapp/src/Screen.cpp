@@ -70,8 +70,11 @@ void Screen::render(const Emulator &emu, uint32_t frameCounter)
             put2(frame_.data(), x, y, lit ? fg : bg);
         });
     } else {
-        /* Flash phase toggles every ~30 frames (≈1.66 Hz at 50 Hz). */
-        const bool flashOn = (frameCounter / 30) & 1;
+        /* The flash phase turns every 8 frames: on the board D59.2
+         * (К555ИЕ19) counts the frame sync by 16 and its Q8 is the phase
+         * (docs/hardware/video.md) - 3.75 Hz at 60 frames a second, the
+         * technical description's "3 Hz". */
+        const bool flashOn = (frameCounter / kFlashHalfPeriodFrames) & 1;
         emu.forEachLoResPixel([&](int x, int y, bool lit,
                                    const LoResAttr &a) {
             uint32_t fg = paletteColor(a.fgGrb, a.bright);

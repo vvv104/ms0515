@@ -55,8 +55,10 @@ jobs:
 
       - name: Install Clang 20
         if: matrix.cc == 'clang-20'
-        run: |
-          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
+        # Ubuntu's own package: apt.llvm.org has no repository for the
+        # runner's release (ubuntu-latest moved to 26.04 "resolute" in
+        # 2026-11, and llvm.sh failed on its missing Release file).
+        run: sudo apt-get install -y clang-20
 
       - name: Configure Conan profile
         shell: bash

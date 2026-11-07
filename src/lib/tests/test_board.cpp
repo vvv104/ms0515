@@ -92,18 +92,28 @@ TEST_CASE("Reg A bit 7 controls extended ROM visibility") {
 
 /* ── System Register B: status input ─────────────────────────────────────── */
 
-TEST_CASE("Reg B reflects DIP switch setting") {
+TEST_CASE("Reg B reflects the jumpers E3/E4") {
     ms0515::Emulator emu;
     emu.reset();
 
-    /* Default dip_refresh = 0 → bits 4:3 = 00 */
+    /* As built: E4 fitted, E3 open - 60 Hz, РВК1 = 1 (bits 4:3 = 10),
+     * 125 000 cycles a frame, 16.67 ms. */
     uint8_t val = emu.readByte(IO_REG_B);
-    CHECK(((val >> 3) & 0x03) == 0);
+    CHECK(((val >> 3) & 0x03) == 2);
+    CHECK(emu.cyclesPerFrame() == 125000u);
+    CHECK(emu.frameMs() == doctest::Approx(16.667).epsilon(0.001));
 
-    /* Change dip to 72 Hz */
+    /* E3 alone: 72 Hz */
     ms0515::internal::board(emu).dip_refresh = 1;
     val = emu.readByte(IO_REG_B);
     CHECK(((val >> 3) & 0x03) == 1);
+    CHECK(emu.cyclesPerFrame() == 104167u);
+
+    /* Both fitted: 50 Hz, 20 ms */
+    ms0515::internal::board(emu).dip_refresh = 0;
+    val = emu.readByte(IO_REG_B);
+    CHECK(((val >> 3) & 0x03) == 0);
+    CHECK(emu.frameMs() == doctest::Approx(20.0));
 }
 
 /* ── System Register C: video and sound ──────────────────────────────────── */

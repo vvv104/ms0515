@@ -43,7 +43,7 @@ Each 16-bit word in VRAM encodes 8 pixels:
 
 | Bit | Name | Description                                        |
 |-----|------|----------------------------------------------------|
-| 15  | F    | Flash: 0=steady, 1=blink - the emulator toggles the phase every 30 frames (≈1.66 Hz at 50 Hz, so a full on/off cycle is ≈0.83 Hz), not 3 Hz |
+| 15  | F    | Flash: 0=steady, 1=the cell shows in the background's colour every other 8 frames (see below) |
 | 14  | I    | Intensity: 0=dim (half brightness), 1=bright       |
 | 13  | G'   | Background green                                   |
 | 12  | R'   | Background red                                     |
@@ -57,6 +57,23 @@ Scan direction: D7 is leftmost, D0 is rightmost.
 
 This is similar to the ZX Spectrum attribute system, but applied per
 8-pixel group (word) rather than per 8x8 character cell.
+
+### The flash
+
+The technical description gives the flash as "the colour of the image
+changes to the colour of the background at 3 Hz".  On the board (schematic
+3.858.420 Э3, sheet 4) the phase comes from D59.2, a К555ИЕ19 counter
+clocked by the frame sync `КСИ Н` with its reset grounded: its Q4 is `ПКЛ Н`
+(the cursor's blink, 16 frames a period) and its Q8 is `ТМ Н`, the flash -
+the phase turns every 8 frames, a full period of 16: 3.75 Hz at 60 frames a
+second, 3.1 Hz at 50 (the "3 Hz").  Read off the board's netlist by the
+FPGA rebuild (ms0515-fpga, `docs/baseline.md`, open list item 11).
+
+The emulator swaps a flashing cell's foreground and background for 8 frames
+out of every 16, counting the machine's frames (`Screen.cpp`,
+`kFlashHalfPeriodFrames`; the browser build's `ms0515_web.cpp` renders the
+same way).  It used to toggle every 30 frames, a figure from its first
+commit with no source behind it.
 
 ### Color Palette (8 colors)
 

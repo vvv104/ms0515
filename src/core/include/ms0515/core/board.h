@@ -12,13 +12,16 @@
  *   - KR580VV55 parallel port (system registers A, B, C)
  *   - KR1818VG93 floppy disk controller
  *
- * I/O register map (from NS4 tech desc, Appendix 1):
+ * I/O register map (from NS4 tech desc, Appendix 1; the board decodes
+ * every register at its address and at that address + 020 for writes,
+ * the USARTs and the timer for writes only - see board.c, io_decode,
+ * and docs/hardware/board.md, "The register decoding"):
  *   0177400–0177437  Memory Dispatcher (bank register)
  *   0177440          Keyboard data (read)
  *   0177442          Keyboard status (read) / command (write)
  *   0177460          Keyboard TX data (write)
  *   0177462          Keyboard command (write)
- *   0177500–0177506  Timer read (channels 0-2, control)
+ *   0177500–0177506  Timer read and write (channels 0-2, control)
  *   0177520–0177526  Timer write (channels 0-2, control)
  *   0177600          System Register A — floppy/ROM control (write)
  *   0177602          System Register B — status input (read)
@@ -46,8 +49,8 @@
  *   Bit  0    FDC INTRQ (0 = ready for command)
  *   Bit  1    FDC DRQ (1 = data byte ready)
  *   Bit  2    Drive ready (0 = ready)
- *   Bits 4-3  DIP switches: video refresh rate
- *                00 = 50 Hz, 01 = 72 Hz, 1x = 60 Hz
+ *   Bits 4-3  РВК1/РВК0, the jumpers E3/E4: the frame rate
+ *                00 = 50 Hz, 01 = 72 Hz, 1x = 60 Hz (NS4 TO Table 10)
  *   Bit  7    Cassette input
  *
  * System Register C (0177604) — output:
@@ -149,8 +152,10 @@ typedef struct ms0515_board {
     int      sound_value;       /* Current speaker level (0 or 1)           */
     int      frame_cycle_pos;   /* CPU cycles elapsed in current frame      */
 
-    /* DIP switch setting */
-    uint8_t  dip_refresh;       /* Video refresh rate: 0=50, 1=72, 2=60 Hz  */
+    /* The jumpers E3/E4 as Register B reads them back (bits 4-3):
+     * 0 = 50 Hz (both fitted), 1 = 72 Hz (E3), 2 = 60 Hz (E4, the
+     * factory's setting - board_init's default). */
+    uint8_t  dip_refresh;
 
     /* Timing accumulators (in CPU clock ticks at 7.5 MHz) */
     int      timer_counter;     /* Counts down to next timer tick           */
@@ -236,9 +241,16 @@ void board_reset(ms0515_board_t *board);
 void board_load_rom(ms0515_board_t *board, const uint8_t *data, uint32_t size);
 
 /*
- * board_step_frame — Execute one video frame worth of CPU cycles.
+ * board_frame_cycles — CPU cycles in one video frame at the board's
+ * jumper setting (dip_refresh): 7.5 MHz over the frame rate - 125000 at
+ * the 60 Hz the boards were built with, 150000 at 50, 104167 at 72.
+ */
+int board_frame_cycles(const ms0515_board_t *board);
+
+/*
+ * board_step_frame — Execute one video frame worth of CPU cycles
+ * (board_frame_cycles).
  *
- * At 7.5 MHz and 50 Hz, this is 150000 cycles per frame.
  * Returns true if the frame completed normally, false if the CPU halted.
  */
 bool board_step_frame(ms0515_board_t *board);

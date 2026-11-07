@@ -144,11 +144,11 @@ TEST_CASE("a system volume the library makes boots, and makes another that boots
                 for (const auto &e : im->directory.permanentFiles())
                     CHECK_MESSAGE(((e.status & kStatusProtected) != 0) == (e.name != s.startup), e.name);
             }
-            CHECK(bootsToPrompt(s.rom[0] == 'a' ? kRomA : kRomB, first, 600));
+            CHECK(bootsToPrompt(s.rom[0] == 'a' ? kRomA : kRomB, first, 720));    /* 12 s at 60 Hz */
 
             const auto second = systemCopy(first, false);   /* the copy can do the same again */
             CHECK(bootedMonitor(second, 0, false) == s.monitor);
-            CHECK(bootsToPrompt(s.rom[0] == 'a' ? kRomA : kRomB, second, 600));
+            CHECK(bootsToPrompt(s.rom[0] == 'a' ? kRomA : kRomB, second, 720));
         }
     }
 }

@@ -162,6 +162,10 @@ bool atPrompt(const ms0515::Emulator &emu)
 /*
  * Wait for the machine to finish booting.
  *
+ * The quiet thresholds are frames of the board's 60 Hz: 1.2 s, 2.4 s,
+ * 3 s, 4 s of a still screen (they were 60, 120, 150, 200 frames at the
+ * 50 Hz the board used to run at - the same seconds).
+ *
  * Waiting for the screen to go quiet is not enough on its own: booting has
  * silent stretches - the OS reading itself in, then settling with neither
  * output nor disk activity - and once the processor runs at the speed its
@@ -174,8 +178,8 @@ bool atPrompt(const ms0515::Emulator &emu)
 void waitForBoot(ms0515::Emulator &emu, ms0515::VramMirror &mirror)
 {
     for (int round = 0; round < 12; ++round) {
-        waitForDiskIdle(emu, mirror, /*quiet=*/60, /*cap=*/20000);
-        waitForIdle(emu, mirror, /*quiet=*/60, /*cap=*/6000);
+        waitForDiskIdle(emu, mirror, /*quiet=*/72, /*cap=*/24000);
+        waitForIdle(emu, mirror, /*quiet=*/72, /*cap=*/7200);
         if (atPrompt(emu)) return;
     }
 }
@@ -265,7 +269,7 @@ void runDirCheck(const DiskConfig &cfg,
 
     waitForBoot(emu, mirror);
     typeLine(emu, mirror, "DIR");
-    waitForIdle(emu, mirror, /*quiet=*/120, /*cap=*/4000);
+    waitForIdle(emu, mirror, /*quiet=*/144, /*cap=*/4800);
 
     auto rows = screenRows(emu);
     osDir   = parseOsDir(rows);
@@ -314,7 +318,7 @@ TEST_CASE("buildVolume is byte-identical to the OS's INIT (OSA)") {
     emu.reset(); waitForBoot(emu, mirror);
     typeLine(emu, mirror, "INIT DZ3:"); waitForIdle(emu, mirror, 80, 2500);
     typeLine(emu, mirror, "Y");
-    waitForDiskIdle(emu, mirror, 200, 60000); waitForIdle(emu, mirror, 150, 6000);
+    waitForDiskIdle(emu, mirror, 240, 72000); waitForIdle(emu, mirror, 180, 7200);
 
     auto osInit = readFileBytes(dstPath);
     auto built  = disk::blankImage(false);
@@ -355,8 +359,8 @@ TEST_CASE("buildDoubleSided is byte-identical to the OS's INIT of both sides (OS
         typeLine(emu, mirror, (std::string("INIT ") + dev).c_str());
         waitForIdle(emu, mirror, 80, 2500);
         typeLine(emu, mirror, "Y");
-        waitForDiskIdle(emu, mirror, 200, 60000);
-        waitForIdle(emu, mirror, 150, 6000);
+        waitForDiskIdle(emu, mirror, 240, 72000);
+        waitForIdle(emu, mirror, 180, 7200);
     }
 
     auto osInit = readFileBytes(dstPath);
@@ -400,12 +404,12 @@ TEST_CASE("OS-oracle: extracted content is byte-exact (OSA single-sided)") {
     typeLine(emu, mirror, "INIT DZ3:");
     waitForIdle(emu, mirror, 80, 2500);
     typeLine(emu, mirror, "Y");                 /* "Are you sure?" */
-    waitForDiskIdle(emu, mirror, 200, 60000);
-    waitForIdle(emu, mirror, 150, 6000);
+    waitForDiskIdle(emu, mirror, 240, 72000);
+    waitForIdle(emu, mirror, 180, 7200);
 
     typeLine(emu, mirror, "PIP DZ3:PIP.SAV=DZ0:PIP.SAV");
     waitForDiskIdle(emu, mirror, 300, 120000);
-    waitForIdle(emu, mirror, 200, 6000);
+    waitForIdle(emu, mirror, 240, 7200);
 
     auto orig = disk::openImage(readFileBytes(sys.path().string()), 0);
     auto copy = disk::openImage(readFileBytes(dstPath), 0);
@@ -470,7 +474,7 @@ TEST_CASE("OS-oracle: removeFile is the same as the OS's own DELETE (OSA)") {
     waitForBoot(emu, mirror);
 
     typeLine(emu, mirror, "DIR DZ3:");
-    waitForIdle(emu, mirror, 150, 6000);
+    waitForIdle(emu, mirror, 180, 7200);
     auto rows = screenRows(emu);
     auto osDir = parseOsDir(rows);
 
@@ -486,8 +490,8 @@ TEST_CASE("OS-oracle: removeFile is the same as the OS's own DELETE (OSA)") {
      * PIP would refuse with no space if the slot survived as empty.  Use
      * a small substitute and check the tool then sees it). */
     typeLine(emu, mirror, "PIP DZ3:NEW.X=DZ0:TT.SYS");
-    waitForDiskIdle(emu, mirror, 200, 60000);
-    waitForIdle(emu, mirror, 150, 6000);
+    waitForDiskIdle(emu, mirror, 240, 72000);
+    waitForIdle(emu, mirror, 180, 7200);
 
     auto after = disk::openImage(readFileBytes(dstPath), 0);
     REQUIRE(after.has_value());
@@ -540,7 +544,7 @@ TEST_CASE("OS-oracle: squeeze leaves a volume the OS reads correctly (OSA)") {
     waitForBoot(emu, mirror);
 
     typeLine(emu, mirror, "DIR DZ3:");
-    waitForIdle(emu, mirror, 150, 6000);
+    waitForIdle(emu, mirror, 180, 7200);
     auto osDir = parseOsDir(screenRows(emu));
     if (osDir != toolDir) dumpRows("after squeeze", screenRows(emu));
     CHECK_MESSAGE(osDir == toolDir, "OS DIR vs tool dir mismatch after squeeze");
@@ -548,8 +552,8 @@ TEST_CASE("OS-oracle: squeeze leaves a volume the OS reads correctly (OSA)") {
     /* The consolidated free area must accept a file no single old hole would
      * have held — proof the trailing empty really covers all freed space. */
     typeLine(emu, mirror, "PIP DZ3:WIDE.X=DZ0:PIP.SAV");   /* PIP.SAV is 30 blocks */
-    waitForDiskIdle(emu, mirror, 200, 60000);
-    waitForIdle(emu, mirror, 150, 6000);
+    waitForDiskIdle(emu, mirror, 240, 72000);
+    waitForIdle(emu, mirror, 180, 7200);
     auto after = disk::openImage(readFileBytes(dstPath), 0);
     REQUIRE(after.has_value());
     REQUIRE_MESSAGE(after->directory.find("WIDE.X") != nullptr,
@@ -588,7 +592,7 @@ TEST_CASE("OS-oracle: rm of the only file leaves a volume the OS can refill (OSA
     waitForBoot(emu, mirror);
 
     typeLine(emu, mirror, "DIR DZ3:");
-    waitForIdle(emu, mirror, 150, 6000);
+    waitForIdle(emu, mirror, 180, 7200);
     auto osDir = parseOsDir(screenRows(emu));
     CHECK_MESSAGE(osDir.empty(),
                   "OS DIR after rm-only-file should list no permanent files");
@@ -596,8 +600,8 @@ TEST_CASE("OS-oracle: rm of the only file leaves a volume the OS can refill (OSA
     /* OS still trusts the volume enough to PIP into it — that's only true
      * when the chain-of-empties left by removeFile is well-formed. */
     typeLine(emu, mirror, "PIP DZ3:REUSE.X=DZ0:TT.SYS");
-    waitForDiskIdle(emu, mirror, 200, 60000);
-    waitForIdle(emu, mirror, 150, 6000);
+    waitForDiskIdle(emu, mirror, 240, 72000);
+    waitForIdle(emu, mirror, 180, 7200);
 
     auto after = disk::openImage(readFileBytes(dstPath), 0);
     REQUIRE(after.has_value());

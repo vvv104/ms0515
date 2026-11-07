@@ -218,13 +218,15 @@ static BootResult runBoot(const std::string &romPath,
     return r;
 }
 
-/* How many frames to boot.  At 50 Hz, 600 frames = 12 seconds of
+/* How many frames to boot.  At 60 Hz, 720 frames = 12 seconds of
  * emulated time — enough for POST + disk boot to reach a command
- * prompt on all known good combinations. */
-static constexpr int kBootFrames = 600;
+ * prompt on all known good combinations (ROM-A + OSA, the slowest,
+ * takes 10.6 s; the budget was 600 frames when the board ran at 50 Hz,
+ * the same 12 s). */
+static constexpr int kBootFrames = 720;
 
-/* Frames for POST-only test (no disk, just ROM self-test). */
-static constexpr int kPostFrames = 100;
+/* Frames for POST-only test (no disk, just ROM self-test): 2 s. */
+static constexpr int kPostFrames = 120;
 
 /* ── POST tests: every ROM boots without disk ───────────────────────────── */
 

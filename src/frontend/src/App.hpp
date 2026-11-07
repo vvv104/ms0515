@@ -152,7 +152,6 @@ private:
     bool quit_          = false;
 
     /* ── Time / pacing ──────────────────────────────────────────────── */
-    static constexpr float kFrameMs = 20.0f;  /* one emulated 50 Hz frame */
     float    targetSpeed_   = 100.0f;
     float    emuTimeAccumMs_= 0.0f;
     uint32_t lastTickMs_    = 0;

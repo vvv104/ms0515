@@ -745,6 +745,16 @@ uint32_t Emulator::frameCyclePos() const noexcept
     return impl_->board.frame_cycle_pos;
 }
 
+uint32_t Emulator::cyclesPerFrame() const noexcept
+{
+    return static_cast<uint32_t>(board_frame_cycles(&impl_->board));
+}
+
+double Emulator::frameMs() const noexcept
+{
+    return board_frame_cycles(&impl_->board) / 7500.0;   /* 7.5 MHz */
+}
+
 bool Emulator::halted() const noexcept
 {
     return impl_->board.cpu.halted;

@@ -89,6 +89,33 @@ TEST_CASE("Screen doubles scanlines in both video modes")
     CHECK(doubled);
 }
 
+TEST_CASE("the flash attribute turns its phase every 8 frames")
+{
+    /* On the board D59.2 (К555ИЕ19) counts the frame sync by 16 and its
+     * Q8 is the flash phase: the phase turns every 8 frames - the
+     * technical description's "3 Hz" at 50 or 60 frames a second
+     * (docs/hardware/video.md).  A word at the top left of VRAM: every
+     * pixel lit, flash + bright, red on black; its neighbour the same
+     * without the flash bit. */
+    ms0515::Emulator emu;
+    emu.writeWord(0177400, 0x0080);        /* VRAM window at 000000, enabled */
+    emu.writeWord(0, 0xC2FF);              /* F=1 I=1 bg=000 fg=010 (red)    */
+    emu.writeWord(2, 0x42FF);              /* the same cell, F=0             */
+
+    const uint32_t red   = app::Screen::paletteColor(0b010, /*bright=*/true);
+    const uint32_t black = app::Screen::paletteColor(0b000, /*bright=*/true);
+
+    app::Screen screen;
+    for (uint32_t frame = 0; frame < 32; ++frame) {
+        screen.render(emu, frame);
+        const uint32_t *px = screen.pixels();
+        const bool swapped = ((frame / 8) & 1) != 0;
+        INFO("frame ", frame);
+        CHECK(px[0]  == (swapped ? black : red));   /* the flashing cell */
+        CHECK(px[16] == red);                       /* the steady one    */
+    }
+}
+
 TEST_CASE("saveScreenshot writes a PNG at the requested path")
 {
     ms0515::Emulator emu;

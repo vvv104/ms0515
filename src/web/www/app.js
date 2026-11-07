@@ -55,7 +55,7 @@ function followRom(name) {
   say(`ROM ${need.toUpperCase()}: ${name} runs on it alone`);
 }
 const SS_SIZE = 409600, DS_SIZE = 2 * SS_SIZE;
-const FRAME_MS = 20;
+let frameMs = 1000 / 60;    // the machine's frame; asked of the module once it runs
 // The speed control: the machine's frames per second of ours, 20% to 500%
 // like the SDL front-end's slider.  Sound is only right at 100% - the
 // worklet plays real time - so it goes quiet at any other speed.
@@ -799,13 +799,14 @@ function loop(now) {
   acc += Math.min(now - lastTick, 200) * (speedPct / 100);
   lastTick = now;
   const budgetEnd = performance.now() + 14;
+  frameMs = api.frameUs(h) / 1000;
   let n = 0;
-  while (acc >= FRAME_MS && running && performance.now() < budgetEnd) {
-    acc -= FRAME_MS;
+  while (acc >= frameMs && running && performance.now() < budgetEnd) {
+    acc -= frameMs;
     step(now);
     ++n;
   }
-  if (acc > 4 * FRAME_MS) acc = 4 * FRAME_MS;
+  if (acc > 4 * frameMs) acc = 4 * frameMs;
   if (n) { paint(); lamps(); }
   requestAnimationFrame(loop);
 }
@@ -1264,6 +1265,7 @@ function bindApi() {
     unmountHd: c("ms_unmount_hd", null, ["number"]),
     hdActive:  c("ms_hd_active", "number", ["number"]),
     frame:   c("ms_frame", "number", ["number"]),
+    frameUs: c("ms_frame_us", "number", ["number"]),
     render:  c("ms_render", "number", ["number"]),
     audio:   c("ms_audio", "number", ["number", "number", "number", "number"]),
     driveSound:  c("ms_drive_sound", "number", ["number", "string", "number", "number"]),

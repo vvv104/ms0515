@@ -15,7 +15,7 @@ PNG on the way out.  The terminal text of the whole session is printed
 The image is never written: it is copied to a scratch file first, and the
 `--put` files go onto the copy with ms0515-disk (onto the DV whole-disk
 volume when the image is one, else onto side 0).  `--realtime` throttles
-the emulator to the machine's 50 Hz for programs that time themselves.
+the emulator to the machine's own pace for programs that time themselves.
 
 The binaries are looked up in $MS0515_PACKAGE, else in the repository's
 package/ directory.  Uses tools/emu_driver.py.
@@ -127,7 +127,7 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=60.0, help="seconds to wait for each line to settle")
     ap.add_argument("--shot", type=Path, help="PNG of the screen at the end")
     ap.add_argument("--text", type=Path, help="terminal text of the session (default: stdout)")
-    ap.add_argument("--realtime", action="store_true", help="run at the machine's 50 Hz")
+    ap.add_argument("--realtime", action="store_true", help="run at the machine's own pace (60 frames a second)")
     ap.add_argument("--rom", type=Path, help="ROM image (Rodionov's system wants ms0515-roma.rom)")
     args = ap.parse_args()
     if not CLI.exists() or not DISKTOOL.exists():
