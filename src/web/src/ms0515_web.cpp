@@ -568,6 +568,15 @@ EMSCRIPTEN_KEEPALIVE int ms_ramdisk(Handle *h, int on)
     return h->emu.ramDiskEnabled() ? 1 : 0;
 }
 
+/* The turning diskette: 1 a sector is read when it comes round (the
+ * machine's pace, for the page's visitor), 0 any sector in 5 ms (the
+ * default, for the checks); whether it turns now. */
+EMSCRIPTEN_KEEPALIVE int ms_turning(Handle *h, int on)
+{
+    if (on == 0 || on == 1) h->emu.setDisketteTurning(on == 1);
+    return h->emu.disketteTurning() ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE void ms_reset(Handle *h) { h->emu.reset(); }
 
 /* The ROM file at `path` in the module's file system. */

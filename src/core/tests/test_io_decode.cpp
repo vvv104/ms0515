@@ -121,7 +121,8 @@ TEST_CASE("the keyboard USART is written at 177440/442 as at 177460/462, read at
     /* A byte from the keyboard: reading the data register at 177460
      * (the T-11's read before a write there) does not take it. */
     board_key_event(&low.b, 0x42);
-    for (int i = 0; i < 20; ++i) kbd_tick(&low.b.kbd);
+    kbd_tick(&low.b.kbd, 0);                /* a character's time, the ROM's clock */
+    for (int i = 0; i < 176; ++i) { kbd_clock_edge(&low.b.kbd); kbd_tick(&low.b.kbd, 98); }
     REQUIRE(low.b.kbd.rx_ready);
     (void)low.r(KBD_DATA_W);
     CHECK(low.b.kbd.rx_ready);

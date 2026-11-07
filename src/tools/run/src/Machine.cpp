@@ -209,6 +209,9 @@ void Machine::carry()
     /* The state does not hold the hard disk controller: it was on the bus
      * when the monitor loaded HD, with no media in it. */
     emu_.setHdEnabled(true);
+    /* A run's time is the host's: the system diskette does not turn,
+     * whatever the emulator handed in (the browser page's does). */
+    emu_.setDisketteTurning(false);
     if (auto r = emu_.loadState(carried(embedded::state, "state")); !r)
         throw std::runtime_error("the carried state does not load: " + r.error());
     auto system = disk::SparseVolume::parse(carried(embedded::disk, "system volume"));

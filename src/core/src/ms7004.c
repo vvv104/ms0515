@@ -61,7 +61,7 @@
 #define SC_COMPOSE  0261  /* КМП */
 #define SC_RUSLAT   0262  /* РУС/ЛАТ (toggle) */
 #define SC_ALLUP    0263  /* emitted when last held key is released */
-#define SC_REPEAT   0254  /* auto-repeat code (sent instead of key's own scancode) */
+#define SC_REPEAT   0264  /* the metronome: sent on every auto-repeat in place of the key's scancode (L_2B0); the ROMs look for it */
 
 /* ── Scancode table, indexed by ms7004_key_t ──────────────────────────── */
 
@@ -585,7 +585,7 @@ void ms7004_tick(ms7004_t *kbd, uint32_t now_ms)
      * would be ours alone - and the clicks of it would land on the same
      * instant and pile up. */
     if ((int32_t)(now_ms - kbd->repeat_next_ms) >= 0) {
-        emit(kbd, kScancode[kbd->repeat_key]);
+        emit(kbd, SC_REPEAT);
         /* The firmware clicks on every repeat it sends (L_2B0: the 0xB4
          * code, then L_0C7) - and only there: a plain make is silent. */
         if (kbd->click_enabled) sound(kbd, MS7004_SOUND_CLICK);

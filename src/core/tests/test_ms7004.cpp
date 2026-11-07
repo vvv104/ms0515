@@ -32,8 +32,10 @@ static int drain_fifo(ms0515_keyboard_t *uart, uint8_t *buf, int max)
 {
     int n = 0;
     while (n < max && uart->fifo_count > 0) {
-        /* Tick enough to transfer one byte from FIFO to rx_data. */
-        for (int i = 0; i < 20; i++) kbd_tick(uart);
+        /* A character's time on the line, with the ROM's clock: 176
+         * edges of RxC, 98 cycles apart. */
+        kbd_tick(uart, 0);
+        for (int i = 0; i < 176; i++) { kbd_clock_edge(uart); kbd_tick(uart, 98); }
         if (uart->rx_ready) {
             buf[n++] = kbd_read(uart, 0);
         } else {
@@ -355,25 +357,28 @@ TEST_CASE("auto-repeat is on at power-on, as the firmware's parameters byte says
     CHECK(uart.fifo_count == 0);
 }
 
-TEST_CASE("auto-repeat emits scancodes when enabled") {
+/* The firmware's auto-repeat (L_2B0) sends the metronome code 0264 on
+ * every repeat, never the key's scancode again; both ROMs look for 264
+ * in their keyboard handlers (ROM-B at 175616, ROM-A at 175710) and
+ * repeat the last key themselves. */
+TEST_CASE("auto-repeat sends the scancode once, then the metronome code 264 every period") {
     auto uart = make_uart();
     auto kbd  = make_kbd(&uart);
     kbd.repeat_enabled = true;
 
     ms7004_key(&kbd, MS7004_KEY_A, true);
-    kbd_flush_fifo(&uart);
-
-    /* Advance past initial delay (500 ms) */
-    ms7004_tick(&kbd, 600);
-
-    CHECK(uart.fifo_count > 0);
-
     uint8_t buf[16];
-    int n = drain_fifo(&uart, buf, 16);
-    CHECK(n > 0);
-    /* All repeat codes should be the key's scancode */
+    REQUIRE(drain_fifo(&uart, buf, 16) == 1);
+    CHECK(buf[0] == ms7004_scancode(MS7004_KEY_A));
+
+    /* past the initial delay, then three periods */
+    ms7004_tick(&kbd, kbd.repeat_delay_ms + 1);
+    for (int i = 1; i <= 3; ++i)
+        ms7004_tick(&kbd, kbd.repeat_delay_ms + 1 + i * kbd.repeat_period_ms);
+    const int n = drain_fifo(&uart, buf, 16);
+    REQUIRE(n == 4);
     for (int i = 0; i < n; i++)
-        CHECK(buf[i] == ms7004_scancode(MS7004_KEY_A));
+        CHECK(buf[i] == 0264);
 }
 
 TEST_CASE("auto-repeat stops when key is released") {

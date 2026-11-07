@@ -101,9 +101,12 @@ options:
   --realtime              Throttle the emulator to the MS-0515's
                           own frame rate (60 Hz), so OS-side timing
                           (sleep-driven UIs, timer-based code)
-                          matches the hardware.  Without this flag
-                          the loop runs as fast as the host CPU
-                          allows.
+                          matches the hardware, and the diskette
+                          turns (a sector is read when it comes
+                          round, a block a turn for a program that
+                          asks for them one by one).  Without this
+                          flag the loop runs as fast as the host CPU
+                          allows and any sector is found in 5 ms.
   -h, --help              Show this help and exit.
   -V, --version           Print version and exit.
 
@@ -221,6 +224,10 @@ int main(int argc, char **argv)
      * implemented in the core, so the CLI just enables it
      * unconditionally for now. */
     emu.enableRamDisk();
+    /* At the machine's pace the diskette turns too: a sector is read
+     * when it comes round.  Flat out, the time is the host's and the
+     * controller finds any sector in 5 ms, as it always did. */
+    emu.setDisketteTurning(local.realtime);
     emu.reset();
 
     /* The event ring, and a state to start from.  A bug report's
@@ -294,8 +301,8 @@ int main(int argc, char **argv)
      * hardware.  Without the flag the loop runs flat-out — useful
      * for compile / batch jobs where wall-clock fidelity doesn't
      * matter and the host CPU should crunch frames as fast as it
-     * can.  Floppy operations are unaffected either way (the FDC
-     * emulator never simulated real seek/read delays). */
+     * can.  The diskette turns with the flag and not without it
+     * (setDisketteTurning above). */
     using Clock = std::chrono::steady_clock;
     auto nextFrameAt = Clock::now();
 

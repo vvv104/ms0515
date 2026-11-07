@@ -31,6 +31,7 @@ add_executable(ms0515_lib_tests
     test_dir_vs_os.cpp
     test_disk_cli.cpp
     test_joystick.cpp
+    test_turning.cpp
     test_system_disk.cpp
     test_foreign_volume.cpp
     test_memory_state.cpp

@@ -32,8 +32,11 @@
  *   3 — FDC WRITE TRACK: the formatter's stream as far as it has been
  *       read (wt_*) follows the v2 trailer.  A shorter chunk loads with
  *       those fields cleared.
+ *   4 — the turning diskette: each drive's angle on the turn and its
+ *       cycles to READY follow the v3 trailer.  A shorter chunk loads
+ *       with the turn at the index and the drives up to speed.
  */
-#define SNAP_VERSION    3
+#define SNAP_VERSION    4
 
 /* ── I/O helpers ─────────────────────────────────────────────────────────── */
 
@@ -327,10 +330,13 @@ static bool read_kbd(snap_io_t *f, ms0515_keyboard_t *kbd)
  * v3 trailer:        wt_bytes_left(4) + wt_field(4) + wt_count(4)
  *                  + wt_id(4) + wt_id_valid(1) + wt_sync(1)
  *                  + wt_starved(4) = 22
- * Total: 532 + 4*6 + 25 + 22 = 603 */
+ * v4 trailer:        per physical drive angle(4) + angle_frac(4)
+ *                  + ready_in(4) = 24
+ * Total: 532 + 4*6 + 25 + 22 + 24 = 627 */
 #define FDC_V3_TRAILER (4 + 4 + 4 + 4 + 1 + 1 + 4)
+#define FDC_V4_TRAILER (2 * (4 + 4 + 4))
 #define FDC_CHUNK_SIZE (4 + 5 + 3 + FDC_SECTOR_SIZE + 2*4 + 4*6 + 6*4 + 1 \
-                        + FDC_V3_TRAILER)
+                        + FDC_V3_TRAILER + FDC_V4_TRAILER)
 
 static bool write_fdc(snap_io_t *f, const ms0515_floppy_t *fdc)
 {
@@ -366,6 +372,11 @@ static bool write_fdc(snap_io_t *f, const ms0515_floppy_t *fdc)
     if (!write_bool(f, fdc->wt_id_valid)) return false;
     if (!write_bool(f, fdc->wt_sync)) return false;
     if (!write_i32(f, fdc->wt_starved)) return false;
+    for (int d = 0; d < 2; ++d) {
+        if (!write_i32(f, fdc->angle[d])) return false;
+        if (!write_i32(f, fdc->angle_frac[d])) return false;
+        if (!write_i32(f, fdc->ready_in[d])) return false;
+    }
     return true;
 }
 
@@ -472,6 +483,10 @@ static bool read_fdc(snap_io_t *f, ms0515_floppy_t *fdc, uint32_t chunk_size)
     if (!read_i32(f, &fdc->step_rate_cycles)) return false;
     if (!read_i32(f, &fdc->settle_cycles)) return false;
     if (!read_u8(f, &fdc->next_status)) return false;
+    /* The turn stands at the index and the drives are up to speed unless
+     * a v4 trailer says where it is. */
+    for (int d = 0; d < 2; ++d)
+        fdc->angle[d] = fdc->angle_frac[d] = fdc->ready_in[d] = 0;
     if (chunk_size < v2_total + FDC_V3_TRAILER)
         return true;
     if (!read_i32(f, &fdc->wt_bytes_left)) return false;
@@ -486,6 +501,17 @@ static bool read_fdc(snap_io_t *f, ms0515_floppy_t *fdc, uint32_t chunk_size)
         || fdc->wt_count > FDC_SECTOR_SIZE + 1
         || (fdc->wt_field == 1 && fdc->wt_count > 3))
         return false;
+    if (chunk_size < v2_total + FDC_V3_TRAILER + FDC_V4_TRAILER)
+        return true;
+    for (int d = 0; d < 2; ++d) {
+        if (!read_i32(f, &fdc->angle[d])) return false;
+        if (!read_i32(f, &fdc->angle_frac[d])) return false;
+        if (!read_i32(f, &fdc->ready_in[d])) return false;
+        if (fdc->angle[d] < 0 || fdc->angle[d] >= FDC_TURN_BYTES
+            || fdc->angle_frac[d] < 0 || fdc->angle_frac[d] >= FDC_BYTE_CYCLES
+            || fdc->ready_in[d] < 0 || fdc->ready_in[d] > FDC_READY_CYCLES)
+            return false;
+    }
     return true;
 }
 
@@ -932,6 +958,20 @@ snap_error_t snap_load(ms0515_board_t *board,
     /* Verify essential chunks were present */
     if (!got_cpu || !got_mem || !got_brd)
         return SNAP_ERR_CORRUPT;
+
+    /* A state saved before format 4 may have counters 0 and 1 - the
+     * keyboard's and the serial port's baud clocks - unprogrammed: the
+     * ROM's writes to them at 177500-506 were dropped until 2026-11,
+     * and nothing listened to them.  Now the keyboard USART is clocked
+     * by counter 0, so such a state gets the ROM's words (mode 3, 26 from
+     * 2 MHz, 4800 baud) where its counter stands still. */
+    if (version < 4)
+        for (int ch = 0; ch < 2; ch++)
+            if (board->timer.ch[ch].mode != 3) {
+                timer_write(&board->timer, 3, (uint8_t)(0x36 | ch << 6));
+                timer_write(&board->timer, ch, 26);
+                timer_write(&board->timer, ch, 0);
+            }
 
     (void)got_tmr; (void)got_kbd; (void)got_fdc;
     (void)got_rdk; (void)got_7004; (void)got_disk;

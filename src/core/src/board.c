@@ -26,18 +26,12 @@
  * VBlank at 60 Hz: 125000 CPU cycles per frame
  */
 #define CPU_CLOCK_HZ        7500000
-#define TIMER_DIVIDER       4       /* CPU cycles per timer tick, rounded (7.5/2); the
-                                     * keyboard UART divider builds on it            */
 #define TIMER_PERIOD_Q      15      /* The exact timer period in quarter CPU cycles:
                                      * 7.5 MHz / 2 MHz = 3.75 cycles = 15 quarters      */
 #define CPU_CYCLE_Q         4       /* Quarter cycles per CPU cycle                     */
 #define FRAME_CYCLES_50HZ   150000  /* 7500000 / 50 */
 #define FRAME_CYCLES_60HZ   125000  /* 7500000 / 60 */
 #define FRAME_CYCLES_72HZ   104167  /* 7500000 / 72 (approximate) */
-
-/* Keyboard UART clock divider — 4800 baud from 2 MHz needs ~417 timer ticks.
- * We call kbd_tick() every 512 timer ticks for simplicity. */
-#define KBD_TICK_DIVIDER    512
 
 /* ── I/O port offsets (relative to 0177400 base) ─────────────────────────── */
 
@@ -669,7 +663,6 @@ bool board_step_frame(ms0515_board_t *board)
 {
     int frame_cycles = board_frame_cycles(board);
     int cycles_left  = frame_cycles;
-    static int kbd_counter = 0;
 
     board->frame_cycle_pos = 0;
 
@@ -691,6 +684,12 @@ bool board_step_frame(ms0515_board_t *board)
             board->timer_counter += TIMER_PERIOD_Q;
             timer_tick(&board->timer);
             update_sound(board);
+            /* Counter 0's output is the keyboard USART's clock (D9 OUT0
+             * = СИНХР1 to D22's TxC and RxC): a rising edge clocks it. */
+            const bool out0 = timer_get_out(&board->timer, 0);
+            if (out0 && !board->kbd_clock_was)
+                kbd_clock_edge(&board->kbd);
+            board->kbd_clock_was = out0;
 
             /*
              * Timer interrupt — vector 0100, priority 6.
@@ -713,22 +712,19 @@ bool board_step_frame(ms0515_board_t *board)
                 board->ms_cb(board->ms_userdata, board->ms_clock, board->frame_cycle_pos);
         }
 
-        /* Tick keyboard UART periodically */
-        kbd_counter += c;
-        if (kbd_counter >= KBD_TICK_DIVIDER * TIMER_DIVIDER) {
-            kbd_counter = 0;
-            kbd_tick(&board->kbd);
+        /* The keyboard's line moves on by the instruction's cycles; its
+         * clock, the timer's OUT0, was given above. */
+        kbd_tick(&board->kbd, c);
 
-            /* Check keyboard interrupt — vector 0130, priority 5.
-             * The real i8251 drives an active-high level signal, not
-             * an edge.  We must assert when IRQ is active and clear
-             * when it deasserts, so a latched-but-unserviced interrupt
-             * is cancelled once the CPU reads the data register. */
-            if (board->kbd.irq)
-                cpu_interrupt(&board->cpu, 5, 0130);
-            else
-                cpu_clear_interrupt(&board->cpu, 5);
-        }
+        /* Check keyboard interrupt — vector 0130, priority 5.
+         * The real i8251 drives an active-high level signal, not
+         * an edge.  We must assert when IRQ is active and clear
+         * when it deasserts, so a latched-but-unserviced interrupt
+         * is cancelled once the CPU reads the data register. */
+        if (board->kbd.irq)
+            cpu_interrupt(&board->cpu, 5, 0130);
+        else
+            cpu_clear_interrupt(&board->cpu, 5);
 
         /* Advance the FDC state machine by the cycles of this instruction. */
         fdc_tick(&board->fdc, c);

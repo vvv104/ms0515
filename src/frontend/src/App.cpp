@@ -193,6 +193,9 @@ void App::initEmulator()
     mountInitialDisks();
     config_.save();
     emu_.enableRamDisk();
+    /* A person sits at this machine: the diskette turns, and a program
+     * that reads a block at a time waits a turn for each, as it did. */
+    emu_.setDisketteTurning(true);
 
     /* History ring + watchpoints — diagnostic features, routed through
      * the Debugger so the public Emulator API stays free of these.

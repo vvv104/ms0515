@@ -211,6 +211,16 @@ public:
     void disableRamDisk();
     [[nodiscard]] bool ramDiskEnabled() const noexcept;
 
+    /* The diskette turns (the default): a sector is read when it comes
+     * under the head, 200 ms a turn, and a drive is READY two turns
+     * after its motor starts - the machine's own pace, a block a turn
+     * for a program that asks for them one at a time.  Off, the
+     * controller finds any sector 5 ms after the command and a drive
+     * is ready at once: for ms0515-run and tests, where the time is
+     * the host's.  Not part of a saved state. */
+    void setDisketteTurning(bool on);
+    [[nodiscard]] bool disketteTurning() const noexcept;
+
     /* ── Paravirtual hard disk (HD:) ───────────────────────────────────── */
     /* Two independent concepts:
      *   - the controller's presence on the bus (setHdEnabled/hdEnabled),

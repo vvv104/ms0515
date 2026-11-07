@@ -83,6 +83,7 @@ encodings, no build needed; `run_check.mjs $D` runs a program with no boot
 | `ms_create()` / `ms_destroy(h)` / `ms_reset(h)` | one machine |
 | `ms_load_rom(h, path)` | the ROM from the module's file system |
 | `ms_ramdisk(h, on)` | the EX board's 512 KB RAM disk: 1 puts it in (fresh memory), 0 takes it out, -1 asks; whether it is in. `ms_create` puts it in |
+| `ms_turning(h, on)` | the diskette's turn: 1 a sector is read when it comes round (200 ms a turn, READY two turns after the motor starts), 0 any sector in 5 ms, -1 asks; whether it turns. `ms_create` leaves it off; the page turns it on, `ms_run` runs without it |
 | `ms_mount(h, unit, path)` / `ms_unmount(h, unit)` | FDC unit = side × 2 + drive (FD0 / FD1 the drives' side 0, FD2 / FD3 their side 1); a double-sided image goes on both units of its drive |
 | `ms_disk_active(h, unit)` / `ms_hd_active(h)` | the activity lamps |
 | `ms_mount_hd(h, path)` / `ms_unmount_hd(h)` | the paravirtual HD: image (any multiple of 512 bytes); mounting presents the controller |

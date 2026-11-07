@@ -214,7 +214,44 @@ typedef struct ms0515_floppy {
     ms0515_fdc_mech_fn mech_cb;
     void       *mech_userdata;
     bool        spinning[2];
+
+    /* The diskette's turn.  While `turning`, a sector is found where it
+     * lies on the turn (fdc_id_at, fdc_data_at) and READY comes at the
+     * drive's third index - the machine's pace, for a person at the
+     * machine; off (the default), every search takes 5 ms and the drive
+     * is ready as its motor starts - for ms0515-run, scripted runs and
+     * the tests, where the time is the host's.  Per physical drive: the
+     * byte of the turn under the head, the cycles toward the next byte,
+     * and the cycles left until READY after the motor started. */
+    bool        turning;
+    int         angle[2];
+    int         angle_frac[2];
+    int         ready_in[2];
 } ms0515_floppy_t;
+
+/* ── The turn ─────────────────────────────────────────────────────────────── */
+
+/* 200 ms at 300 rpm is 6250 bytes at 250 kbit/s (MFM); one byte every 32 us
+ * is 240 CPU cycles at 7.5 MHz.  The index pulse is the drive's 4 ms. */
+#define FDC_TURN_BYTES      6250
+#define FDC_BYTE_CYCLES     240
+#define FDC_TURN_CYCLES     (FDC_TURN_BYTES * FDC_BYTE_CYCLES)
+#define FDC_INDEX_BYTES     125
+/* READY on the third index after the motor starts (the МС 5305's one-shot
+ * counts them), the first index being at the start: two turns. */
+#define FDC_READY_CYCLES    (2 * FDC_TURN_CYCLES)
+
+/* Where a sector's ID field and its first data byte lie on the turn, in
+ * bytes from the index, for sectors 1..FDC_SECTORS in the physical order
+ * the machine's formatters write (the IBM System 34 double-density
+ * layout the WRITE TRACK tests feed: 146 bytes to the first ID, then
+ * 604 a sector - a 22-byte ID field, 22 of gap, 16 of sync and mark,
+ * 512 of data, 2 of CRC and 30 of gap). */
+int     fdc_id_at(int sector);
+int     fdc_data_at(int sector);
+
+/* The diskette turns, or every search takes 5 ms (the default). */
+void    fdc_set_turning(ms0515_floppy_t *fdc, bool on);
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
