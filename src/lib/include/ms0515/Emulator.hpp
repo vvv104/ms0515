@@ -107,7 +107,7 @@ struct KeyboardSettings {
  * to touch raw VRAM.  Frontend palette translation (GRB → RGBA) and
  * plotting stay on its side. */
 struct LoResAttr {
-    bool    flash;       /* swap fg/bg at ~2 Hz when set                 */
+    bool    flash;       /* swap fg/bg every 8 frames when set           */
     bool    bright;      /* full intensity when set, half when clear     */
     uint8_t bgGrb;       /* 3-bit GRB index for unlit pixels             */
     uint8_t fgGrb;       /* 3-bit GRB index for lit pixels               */

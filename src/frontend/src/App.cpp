@@ -693,7 +693,9 @@ void App::renderFrame()
 {
     /* ── Screen decode + texture upload ─── */
     ++frameCounter_;
-    screen_.render(emu_, frameCounter_);
+    /* The flash attribute counts the machine's frames, not the host's:
+     * its phase must not change with the monitor's rate or the speed. */
+    screen_.render(emu_, emuFramesSinceReset_);
     SDL_UpdateTexture(frameTex_, nullptr, screen_.pixels(), kScreenWidth * 4);
 
     /* CLI / hotkey screenshot. */

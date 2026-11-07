@@ -12,7 +12,7 @@
  * The picture is rendered the way the SDL front-end renders it
  * (libapp Screen.cpp): 640x400 RGBA, both modes line-doubled, lo-res pixels
  * doubled horizontally, the 3-bit GRB palette, flash swapping fg/bg every
- * 30 frames.  The sound is the front-end's too (Audio.cpp): the speaker
+ * 8 frames.  The sound is the front-end's too (Audio.cpp): the speaker
  * level transitions of the frame, stamped with their CPU cycle, resampled
  * to PCM at the rate the page asks for.
  */
@@ -132,7 +132,7 @@ void render(Handle &h)
             put2(frame, x, y, lit ? fg : bg);
         });
     } else {
-        const bool flashOn = (h.frameCount / 30) & 1;
+        const bool flashOn = (h.frameCount / 8) & 1;   /* as Screen.cpp: D59.2 */
         emu.forEachLoResPixel([&](int x, int y, bool lit, const ms0515::LoResAttr &a) {
             uint32_t fg = paletteColor(a.fgGrb, a.bright);
             uint32_t bg = paletteColor(a.bgGrb, a.bright);

@@ -33,9 +33,13 @@ class Screen {
 public:
     Screen();
 
+    /* The flash attribute's phase turns every 8 of the machine's frames
+     * (the frame-sync counter D59.2 on the board; docs/hardware/video.md). */
+    static constexpr uint32_t kFlashHalfPeriodFrames = 8;
+
     /* Decode the emulator's current VRAM into the internal RGBA buffer.
-     * `frameCounter` increments once per host frame — used to drive the
-     * ~2 Hz flash attribute. */
+     * `frameCounter` counts the machine's frames — it drives the flash
+     * attribute. */
     void render(const Emulator &emu, uint32_t frameCounter);
 
     /* Pointer to the RGBA8888 framebuffer (640x400x4 bytes). */
