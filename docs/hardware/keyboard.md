@@ -305,7 +305,18 @@ Special scancodes:
   themselves.  A program that reads the USART itself sees the key's
   code once and then 264 at the repeat period, as on the machine.  The
   ТО lists **254** as the auto-repeat scancode; the ROM maps that one to
-  the `$` character.
+  the `$` character.  What follows from it, seen in Saboteur 2
+  (2026-11-07): run left, jump with Up while Left is still held, let Up
+  go - the man kicks upward after landing instead of running on.  The
+  firmware sends nothing when a regular key is released (`L_237`..
+  `L_27D` only shift its stack of held keys; 0xB3 is the register keys'
+  alone) and its repeat for the key still held is 264 again (`L_1EF`,
+  `L_29B`, `L_2B0`), and ROM-B's 264 handler (175626) rewinds its
+  type-ahead buffer and hands the game its last character - Up.  The
+  model used to re-send the held key's own code on a fall-back, which
+  gave the game Left; that was the model's convenience, not the
+  keyboard's.  Whether the machine itself ran or kicked nobody
+  remembers; the model follows the firmware.
 
 ### Table 3 — Host → Keyboard Commands
 
