@@ -318,6 +318,39 @@ machine in the tab: the drives and the HD, the commander, the disk wizard,
 profile (`src/profiles/emscripten`); no host layers.  The C API, the page
 and the checks are in [`src/web/README.md`](../src/web/README.md).
 
+## Layers in brief
+
+What each layer is and what may not go into it (moved here from
+`CLAUDE.md` on 2026-11-08; the sections above describe them in depth):
+
+- **Core** (`src/core/`) — Pure C11, zero OS deps.  Fully implemented and verified.
+- **Lib** (`src/lib/`) — C++ wrapper: Emulator, Debugger, Disassembler, GDB RSP.
+- **Libapp** (`src/libapp/`) — Shared host-side app utilities: filesystem paths, YAML config loader/writer, CLI argument parser, disk-mount helpers, screen composition (VRAM→RGBA) and PNG screenshots.  Linked by both binaries, so both parse the same flags; the ones only the text mode acts on (`--no-config`, `--state`, `--save-state`) say so in its `--help`.  Strictly host-app code — no emulation primitives, no core API.
+- **Platform** (`src/platform/`) — Host abstractions kept out of binary sources, a sublib per need, since the needs barely overlap:
+  - `platform/cli/` — raw stdin, signal handling, UTF-8 console setup.
+  - `platform/gui/` — file dialogs, font discovery.
+  - `platform/serial/` — a host serial port, raw, 8N1, non-blocking: the window puts one on the machine's keyboard line in place of the MS 7004 model (a keyboard outside the emulator).
+- **CLI** (`src/cli/`) — Text-mode binary (`ms0515-cli.exe`); stdio bridge over the lib layer.  Ctrl+\ brings the two-panel commander (`src/files/`) up over the running machine, NC-style: the machine's prompt is the command line, Ctrl+O hides the panels, mounts made there go into the machine.  `ms0515_cli_core` (mounts applied to the Emulator, the machine's screen as FTXUI rows) is unit-tested in `cli/tests/`.
+- **Frontend** (`src/frontend/`) — C++ SDL2 + ImGui binary (`ms0515.exe`).
+- **Disk** (`src/disk/`) — Offline RT-11 / MS-0515 disk-image library (lib `ms0515_disk`): LBN→byte geometry mirroring the emulator FDC, directory parse, file read, and volume create/init/put/rm/squeeze + per-entry protect/date metadata, and whole bootable diskettes composed from an exemplar and groups of files (`Compose`).  Lib `ms0515_disk_manifest` reads the software collection's `disks.toml` (toml++).  No emulator dependency.
+- **Web** (`src/web/`) — The browser build: the core + lib compiled with Emscripten behind a flat C API (`ms0515_web.cpp`), a static page (`www/`) that runs the machine in the tab (its "Bug report" button saves the snapshot, the ROM and the mounted images as one .zip - `www/bugreport.js`; `?run=URL` opens it at a run card - one program started with no boot by `ms0515-run`'s machine, which the module carries too, the card's words under the screen in the visitor's language; the collection's Pages keep the cards), a Node smoke test.  Configured only under the Emscripten toolchain (`src/profiles/emscripten`); no host layers.
+- **Files** (`src/files/`) — The RT-11 file manager as libraries: `ms0515_files` (the model — a device's volume, the mounts, the panels, the operations between volumes and the host, the viewer; no terminal, unit-tested) and `ms0515_files_ui` (the two panels, dialogs and viewer drawn with FTXUI via Conan).  Used by the commander inside `ms0515-cli`.
+- **Tools** (`src/tools/`) — Standalone offline binaries over the libs.  `tools/disk/` builds `ms0515-disk` (`create/init/put/rm/squeeze/protect/unprotect/setdate/get/dir/boot/system/split/merge/compose`).  Heuristic recovery (consensus/donor) stays out — it is `recovery/` of the software collection (https://github.com/vvv104/ms0515-software).  `tools/run/` builds `ms0515-run [switches] PROGRAM[.SAV] [its command line]`: one RT-11 program run from its folder, with ROM-B, the dec system diskette and a saved state compiled in (`bake/` makes them at build time of `assets/system.dsk`, the dec system diskette kept in the repository with the programs its tests run - their bytes from the software collection, taken anew by `tools/run_assets.py`, so the emulator builds from its own files alone).  The monitor's own `RUN` starts the program (`src/Starter.hpp` says how); no assets, no settings.  A program that prints and ends runs unthrottled with its text on stdout - MACRO, LINK and the compilers are run from the host this way; one a person sits at runs at the machine's pace, in a window once it draws.  `ms0515-run-probe` (build tree only) reports such a run without a terminal or a window.
+
+### What is not here
+
+The programs for the machine and the toolset that builds them (MACRO/LINK
+by ms0515-run, GCC for pdp11-aout, the games' ports, UBIX, the RT-11 kit
+from sources) and the handbook for writing them (`docs/programming.md`)
+live in ms0515-devel (https://github.com/vvv104/ms0515-devel), with their history; it uses this
+repository (`add_subdirectory` of src/, `tools/emu_driver.py`, the
+binaries in package/), never the other way round.  The software
+collection - the diskettes' files, their manuals, disk recovery - is
+ms0515-software (https://github.com/vvv104/ms0515-software).  Nothing here
+reads from either at build or test time; a copy of what the emulator
+needs from them (`src/tools/run/assets/`) is kept here and refreshed by a
+script (`tools/run_assets.py`).
+
 ## Hardware Summary
 
 | Component      | Chip               | Clone of      |
