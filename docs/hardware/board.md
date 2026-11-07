@@ -28,17 +28,19 @@ and interrupt routing.
 ## I/O Register Map
 
 All addresses in octal.  Offsets are relative to 177400 base, in decimal hex.
+The addresses are the technical description's; how the board really
+decodes them - every register also at its address + 020, bit 3 the
+module's - is the next section.
 
 | Address range     | Offset | Device                          |
 |-------------------|--------|---------------------------------|
 | 177400 – 177437   | 0x00   | Memory Dispatcher register      |
-| 177440            | 0x20   | Keyboard RX data (read)         |
-| 177442            | 0x22   | Keyboard status/command         |
-| 177460            | 0x30   | Keyboard TX data (write)        |
-| 177462            | 0x32   | Keyboard command (write)        |
-| 177500 – 177506   | 0x40   | Timer read (ch 0–2, control)    |
+| 177440            | 0x20   | Keyboard USART data: RX (read), TX (write) |
+| 177442            | 0x22   | Keyboard USART status (read) / mode and command (write) |
+| 177460, 177462    | 0x30   | The same two registers, write only (the T-11's read before the write finds no chip here) |
+| 177500 – 177506   | 0x40   | Timer: ch 0–2, control (read and write) |
 | 177510 – 177516   | 0x48   | RAM disk PPI, read side (when fitted - [ramdisk.md](ramdisk.md)) |
-| 177520 – 177526   | 0x50   | Timer write (ch 0–2, control)   |
+| 177520 – 177526   | 0x50   | Timer, write only (the ROM programs the speaker's counter 2 here, the baud clocks at 177500-506) |
 | 177530 – 177536   | 0x58   | RAM disk PPI, write side        |
 | 177540 – 177546   | 0x60   | MS7007 PPI: A rows latch, B the joystick (in), C in |
 | 177550, 177570    | 0x68, 0x78 | RAM disk data port (and the mirror EX.SYS uses) |
@@ -47,11 +49,58 @@ All addresses in octal.  Offsets are relative to 177400 base, in decimal hex.
 | 177604            | 0x84   | System Register C (write)       |
 | 177606            | 0x86   | PPI control word                |
 | 177640 – 177646   | 0xA0   | FDC registers                   |
-| 177700            | 0xC0   | Serial RX data (read)           |
-| 177702            | 0xC2   | Serial status/command           |
-| 177720            | 0xD0   | Serial TX data (write); HDCSR while the paravirtual HD is enabled ([hd.md](hd.md)) |
-| 177722            | 0xD2   | Serial command (write); HDDAT while the HD is enabled |
+| 177700            | 0xC0   | Serial USART data: RX (read), TX (write) |
+| 177702            | 0xC2   | Serial USART status (read) / mode and command (write) |
+| 177720            | 0xD0   | Serial TX data, write only; HDCSR while the paravirtual HD is enabled ([hd.md](hd.md)) |
+| 177722            | 0xD2   | Serial command, write only; HDDAT while the HD is enabled |
 | 177770            | 0xF8   | Halt/timer service address      |
+
+## The register decoding
+
+The technical description lists two addresses for most registers - the
+timer's counters at 177500-506 "for reading" and 177520-526 "for
+writing", the USARTs' data at 177440 and 177460, 177700 and 177720.  The
+schematic (3.858.420 Э3, sheet 2) shows what that is.  The register
+decoder D80 (К555ИД7) takes address bits 5-7 and nothing else: it picks a
+peripheral's 040-byte block (177440 the keyboard USART, 177500 the timer,
+177540 the MS 7007 PPI, 177600 the system registers' PPI, 177640 the FDC,
+177700 the serial USART), and every register of the block is selected at
+its address and at that address with bit 4 set.  The strobes do the rest:
+
+- **WR** on every chip is the bus's write strobe ДЗП.  A write at 177506
+  is a write at 177526.  The ROM relies on it: it programs the keyboard's
+  and the serial port's baud clocks, counters 0 and 1, through 177506,
+  177500 and 177502 (ROM-B at 160070), and the speaker's counter 2 through
+  177526 and 177524.
+- **RD** on the two ВВ51s and the ВИ53 is ЧТ51, the read strobe ДЧТ gated
+  by АД04 (D79.4, К555ЛЛ1): those chips are read with bit 4 *clear* only.
+  The T-11 reads an address before it writes it (a MOV to 177526 reads
+  177526 first), and at the "+020" half that read finds no chip - a write
+  there cannot pop the USART's receive buffer or step the timer's
+  LSB/MSB sequence.  That is why the technical description keeps the
+  writes at +020.
+- **RD** on the two ВВ55s and the ВГ93 is ДЧТ itself: they are read and
+  written at both halves (177620 is Register A, 177660 the FDC status).
+
+The owner's machine - the one the emulator models, memory-expansion
+module and all - had a factory-fitted wire from АД03 (D92.9) into D80's
+G2B in place of the select (the FPGA rebuild, `docs/findings.md`, "The
+green wire on the owner's board"): with it an address with bit 3 set
+selects none of the board's chips.  The board loses nothing (every
+register it has sits at a bit-3-clear address) and the module gets that
+half of the space: its PPI at 177510-516 and 177530-536, its data port at
+177550 and 177570 ([ramdisk.md](ramdisk.md)).  Without the wire counter
+0, the keyboard's baud clock, takes EX.SYS's writes to the module's PPI
+at 177530-536 and the keyboard dies at the prompt - which the rebuilt
+board without the wire does.
+
+The emulator decodes as the wired machine (`io_decode` in `board.c`):
+bit 4 is ignored for every write and for the PPIs' and the FDC's reads,
+the USARTs and the timer are read with bit 4 clear only, and an address
+with bit 3 set is left to the module.  `core/tests/test_io_decode.cpp`
+pins each of these.  (It used to take the technical description's split
+literally - the timer written at 177520-526 only and read at 177500-506
+only - and dropped the ROM's programming of counters 0 and 1.)
 
 ## System Register A (177600) — Output
 

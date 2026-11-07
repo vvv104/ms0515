@@ -15,7 +15,15 @@ keyboard over a serial link at 4800 baud.
 | 177442  | Read   | Status register             |
 | 177442  | Write  | Mode/command instruction     |
 
-Note: address 177462 is also mapped to the command register for writes.
+The chip has two registers, data and control, told apart by address bit
+1.  The board's decoder ignores bit 4 and the chip's WR takes the bus's
+write strobe at any address, so a write at 177440 or 177442 is the same
+write as at 177460 or 177462; its RD is gated by АД04, so the chip is
+read at 177440/442 only - at 177460/462 the T-11's read before every
+write finds no chip and cannot pop the receive buffer.  Addresses with
+bit 3 set (177450-456, 177470-476) are not the board's at all on the
+machine the emulator models ([board.md](board.md), "The register
+decoding").
 
 ## Initialization Sequence
 

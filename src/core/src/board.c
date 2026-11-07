@@ -47,14 +47,37 @@
  *
  * IMPORTANT: PDP-11 addresses are OCTAL.  The offset from 0177400 to
  * 0177500 is 0100 octal = 64 decimal = 0x40, NOT 0x100.
+ *
+ * The decoding (3.858.420 Э3 sheet 2; docs/hardware/board.md, "The
+ * register decoding"): the decoder D80 (К555ИД7) picks a peripheral's
+ * 040-byte block by address bits 5-7 and nothing else, so every register
+ * of the board is at its address and at that address with bit 4 set.
+ * The chips take the bus strobes on their RD and WR pins: WR (ДЗП) at
+ * any address, so a write at 177506 is a write at 177526 - the ROM
+ * programs the baud-clock counters through 177500-506; the RD of the
+ * ВВ51s and the ВИ53 is ЧТ51, ДЧТ gated by АД04 (D79.4), so those three
+ * chips are read with bit 4 clear only, and the T-11's read before every
+ * write - a MOV to 177526 reads 177526 first - finds no chip at the
+ * "+020" write addresses the technical description lists.  The ВВ55s
+ * and the ВГ93 take ДЧТ itself: read and written at both halves.
+ *
+ * The owner's machine carried a factory wire from АД03 into D80's G2B
+ * (the FPGA rebuild's findings.md, "The green wire"): an address with
+ * bit 3 set selects none of the board's chips - that half of each block
+ * is the memory-expansion module's, whose RAM disk (ramdisk.c) answers
+ * at 177510-516, 177530-536 and 177550/570.  Without the wire the
+ * ВИ53's counter 0 would take EX.SYS's writes to the module's PPI at
+ * 177530-536 and the keyboard's baud clock would stop, which is what
+ * the rebuilt board without the wire does.  The emulator is that
+ * machine: bit 4 ignored, bit 3 set is not the board.
+ *
+ * The offsets below are the registers' canonical addresses, bit 4
+ * clear; io_decode() reduces an address to them.
  */
 #define IO_MEM_DISPATCHER   0x00    /* 0177400: Memory dispatcher register   */
-#define IO_KBD_DATA_R       0x20    /* 0177440: Keyboard RX data (read)      */
-#define IO_KBD_STATUS       0x22    /* 0177442: Keyboard status/command      */
-#define IO_KBD_DATA_W       0x30    /* 0177460: Keyboard TX data (write)     */
-#define IO_KBD_CMD          0x32    /* 0177462: Keyboard command (write)     */
-#define IO_TIMER_R_BASE     0x40    /* 0177500: Timer read base              */
-#define IO_TIMER_W_BASE     0x50    /* 0177520: Timer write base             */
+#define IO_KBD_DATA         0x20    /* 0177440 / 0177460: Keyboard data      */
+#define IO_KBD_CTRL         0x22    /* 0177442 / 0177462: status / command   */
+#define IO_TIMER_BASE       0x40    /* 0177500-506 / 0177520-526: the timer  */
 #define IO_PPI2_A           0x60    /* 0177540: MS7007 PPI port A (rows out) */
 #define IO_PPI2_B           0x62    /* 0177542: MS7007 PPI port B (in): the joystick */
 #define IO_PPI2_C           0x64    /* 0177544: MS7007 PPI port C (in)       */
@@ -64,13 +87,31 @@
 #define IO_REG_C            0x84    /* 0177604: System Register C            */
 #define IO_PPI_CTRL         0x86    /* 0177606: PPI control word             */
 #define IO_FDC_BASE         0xA0    /* 0177640: FDC register base            */
-#define IO_SERIAL_DATA_R    0xC0    /* 0177700: Serial RX data (read)        */
-#define IO_SERIAL_STATUS    0xC2    /* 0177702: Serial status/command        */
-#define IO_SERIAL_DATA_W    0xD0    /* 0177720: Serial TX data (write)       */
-#define IO_SERIAL_CMD       0xD2    /* 0177722: Serial command (write)       */
+#define IO_SERIAL_DATA      0xC0    /* 0177700 / 0177720: Serial data        */
+#define IO_SERIAL_CTRL      0xC2    /* 0177702 / 0177722: status / command   */
 #define IO_HALT_TIMER       0xF8    /* 0177770: Halt/timer service address   */
 
+#define IO_MODULE_BIT       0x08    /* АД03: set = the module's, not the board's */
+#define IO_HALF_BIT         0x10    /* АД04: not decoded by D80              */
+
 /* RAM disk I/O is handled by ramdisk.c — offsets defined in ramdisk.h */
+
+/* The board's chip an offset selects, as D80 with the wire decodes it:
+ * the canonical offset (bit 4 clear), or -1 for an address with bit 3
+ * set, which is the module's.  `strobe_51` says whether the USARTs' and
+ * the timer's gated RD would fire at this address. */
+typedef struct {
+    int  reg;
+    bool strobe_51;
+} io_decode_t;
+
+static io_decode_t io_decode(uint16_t offset)
+{
+    io_decode_t d;
+    d.reg       = (offset & IO_MODULE_BIT) ? -1 : (int)(offset & ~IO_HALF_BIT);
+    d.strobe_51 = (offset & IO_HALF_BIT) == 0;
+    return d;
+}
 
 /* ── Internal helpers ────────────────────────────────────────────────────── */
 
@@ -189,31 +230,29 @@ static uint8_t io_read_byte(ms0515_board_t *board, uint16_t offset)
     if (offset <= 0x1F)
         return (uint8_t)(board->mem.dispatcher & 0xFF);
 
-    /* Keyboard */
-    if (offset == IO_KBD_DATA_R)
-        return kbd_read(&board->kbd, 0);
-    if (offset == IO_KBD_STATUS)
-        return kbd_read(&board->kbd, 1);
+    const io_decode_t d = io_decode(offset);
 
-    /* Timer read registers (0177500–0177506) */
-    if (offset >= IO_TIMER_R_BASE && offset <= (IO_TIMER_R_BASE + 6)) {
-        int reg = (offset - IO_TIMER_R_BASE) >> 1;
-        return timer_read(&board->timer, reg);
+    /* Keyboard USART and the timer: read with bit 4 clear only */
+    if (d.strobe_51) {
+        if (d.reg == IO_KBD_DATA)
+            return kbd_read(&board->kbd, 0);
+        if (d.reg == IO_KBD_CTRL)
+            return kbd_read(&board->kbd, 1);
+        if (d.reg >= IO_TIMER_BASE && d.reg <= IO_TIMER_BASE + 6)
+            return timer_read(&board->timer, (d.reg - IO_TIMER_BASE) >> 1);
     }
 
     /* System registers */
-    if (offset == IO_REG_A)
+    if (d.reg == IO_REG_A)
         return board->reg_a;
-    if (offset == IO_REG_B)
+    if (d.reg == IO_REG_B)
         return read_reg_b(board);
-    if (offset == IO_REG_C)
+    if (d.reg == IO_REG_C)
         return board->reg_c;
 
     /* FDC registers */
-    if (offset >= IO_FDC_BASE && offset <= IO_FDC_BASE + 0x06) {
-        int reg = (offset - IO_FDC_BASE) >> 1;
-        return fdc_read(&board->fdc, reg);
-    }
+    if (d.reg >= IO_FDC_BASE && d.reg <= IO_FDC_BASE + 0x06)
+        return fdc_read(&board->fdc, (d.reg - IO_FDC_BASE) >> 1);
 
     /* Paravirtual hard disk (HD:) — shadows the serial addresses while an
      * image is mounted.  The serial port has no read handler, so HD is the
@@ -241,14 +280,15 @@ static uint8_t io_read_byte(ms0515_board_t *board, uint16_t offset)
 
     /* The MS7007 PPI: port A reads its latch, port B the joystick lines
      * (closed switches low, open lines high), port C open lines. */
-    if (offset == IO_PPI2_A)
+    if (d.reg == IO_PPI2_A)
         return board->ppi2_a;
-    if (offset == IO_PPI2_B)
+    if (d.reg == IO_PPI2_B)
         return (uint8_t)(~board->joystick & 0xFF);
-    if (offset == IO_PPI2_C || offset == IO_PPI2_CTRL)
+    if (d.reg == IO_PPI2_C || d.reg == IO_PPI2_CTRL)
         return 0xFF;
 
-    /* Unhandled — return 0 (no bus error emulation yet) */
+    /* No chip answers (a USART or the timer at its +020 half, the
+     * module's half of a block with no module) — 0, no bus error */
     return 0;
 }
 
@@ -291,36 +331,37 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
         return;
     }
 
-    /* Keyboard */
-    if (offset == IO_KBD_DATA_W || offset == IO_KBD_DATA_R) {
+    const io_decode_t d = io_decode(offset);
+
+    /* Keyboard USART: written at either half of its block */
+    if (d.reg == IO_KBD_DATA) {
         kbd_write(&board->kbd, 0, value);
         return;
     }
-    if (offset == IO_KBD_CMD || offset == IO_KBD_STATUS) {
+    if (d.reg == IO_KBD_CTRL) {
         kbd_write(&board->kbd, 1, value);
         return;
     }
 
-    /* Timer write registers (0177520–0177526) */
-    if (offset >= IO_TIMER_W_BASE && offset <= (IO_TIMER_W_BASE + 6)) {
-        int reg = (offset - IO_TIMER_W_BASE) >> 1;
-        timer_write(&board->timer, reg, value);
+    /* Timer: 0177500-506 and 0177520-526 alike */
+    if (d.reg >= IO_TIMER_BASE && d.reg <= IO_TIMER_BASE + 6) {
+        timer_write(&board->timer, (d.reg - IO_TIMER_BASE) >> 1, value);
         return;
     }
 
     /* System registers */
-    if (offset == IO_REG_A) {
+    if (d.reg == IO_REG_A) {
         board->reg_a = value;
         BOARD_EVT(board, MS0515_EVT_REG_A, &value, 1);
         apply_reg_a(board);
         return;
     }
-    if (offset == IO_REG_C) {
+    if (d.reg == IO_REG_C) {
         board->reg_c = value;
         apply_reg_c(board);
         return;
     }
-    if (offset == IO_PPI_CTRL) {
+    if (d.reg == IO_PPI_CTRL) {
         board->ppi_control = value;
         /* PPI bit-set/reset mode: bit 7 = 0 means set/reset single bit */
         if (!(value & 0x80)) {
@@ -337,13 +378,13 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
     /* The MS7007 PPI: the port A latch and the control word are kept
      * (the ROM sets A to 0377 at boot, the monitor writes 0 after a key);
      * ports B and C are inputs. */
-    if (offset == IO_PPI2_A) { board->ppi2_a = value; return; }
-    if (offset == IO_PPI2_CTRL) { board->ppi2_control = value; return; }
-    if (offset == IO_PPI2_B || offset == IO_PPI2_C) return;
+    if (d.reg == IO_PPI2_A) { board->ppi2_a = value; return; }
+    if (d.reg == IO_PPI2_CTRL) { board->ppi2_control = value; return; }
+    if (d.reg == IO_PPI2_B || d.reg == IO_PPI2_C) return;
 
     /* FDC registers */
-    if (offset >= IO_FDC_BASE && offset <= IO_FDC_BASE + 0x06) {
-        int reg = (offset - IO_FDC_BASE) >> 1;
+    if (d.reg >= IO_FDC_BASE && d.reg <= IO_FDC_BASE + 0x06) {
+        int reg = (d.reg - IO_FDC_BASE) >> 1;
         {
             uint8_t payload[2] = { (uint8_t)(reg & 3), value };
             BOARD_EVT(board, MS0515_EVT_FDC, payload, sizeof payload);
@@ -359,13 +400,13 @@ static void io_write_byte(ms0515_board_t *board, uint16_t offset, uint8_t value)
         return;
     }
 
-    /* Serial port — stub: accept and discard */
-    if (offset == IO_SERIAL_DATA_W) {
+    /* Serial port — stub: accept and discard; written at either half */
+    if (d.reg == IO_SERIAL_DATA) {
         if (board->serial_out_cb)
             board->serial_out_cb(board->cb_userdata, value);
         return;
     }
-    if (offset == IO_SERIAL_CMD || offset == IO_SERIAL_STATUS) {
+    if (d.reg == IO_SERIAL_CTRL) {
         /* Serial command — ignore for now */
         return;
     }

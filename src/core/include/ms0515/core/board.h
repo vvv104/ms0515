@@ -12,13 +12,16 @@
  *   - KR580VV55 parallel port (system registers A, B, C)
  *   - KR1818VG93 floppy disk controller
  *
- * I/O register map (from NS4 tech desc, Appendix 1):
+ * I/O register map (from NS4 tech desc, Appendix 1; the board decodes
+ * every register at its address and at that address + 020 for writes,
+ * the USARTs and the timer for writes only - see board.c, io_decode,
+ * and docs/hardware/board.md, "The register decoding"):
  *   0177400–0177437  Memory Dispatcher (bank register)
  *   0177440          Keyboard data (read)
  *   0177442          Keyboard status (read) / command (write)
  *   0177460          Keyboard TX data (write)
  *   0177462          Keyboard command (write)
- *   0177500–0177506  Timer read (channels 0-2, control)
+ *   0177500–0177506  Timer read and write (channels 0-2, control)
  *   0177520–0177526  Timer write (channels 0-2, control)
  *   0177600          System Register A — floppy/ROM control (write)
  *   0177602          System Register B — status input (read)
