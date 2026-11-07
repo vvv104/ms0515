@@ -211,95 +211,17 @@ reproduce, and a game that reprograms the timer's control word
 carelessly would show the same death on the machine.  Worth doing
 together with the serial port if that ever gets a receiver.
 
-## The diskette does not turn
+## The diskette turns (done)
 
-### What the board does
-
-The FPGA rebuild's board runs Saboteur 2's load in 20 s where the
-emulator takes 7 to 8 s (ms0515-fpga `docs/baseline.md`, open list
-item 9; step 6, the games).  Both DZ handlers (the DEC kit's and
-Omega's) begin every request with Read Address (command 300), set the
-track and sector registers from the ID that comes, then give Read Sector
-(200).  The blocks of a file lie two sectors apart (the handlers' 2:1
-interleave) and the next one's ID passes some 21 ms after the last one's
-end - by the time Read Address has returned an ID and Read Sector is
-given, that ID has gone by, and the controller waits a whole turn for it
-to come round: 240 ms a block at 300 rpm, 85 blocks 20.4 s, on typ, min
-and max alike, under both handlers.  (The real machine's time is not in
-the files; the board's is what a WD1793 and a diskette at 300 rpm give,
-if the controller model is right about a Read Sector given just after
-its ID.)
-
-### What the emulator does
-
-`floppy.c` has no angle.  A Type II command finds its sector
-`TYPE2_SEARCH_CYCLES` (37 500 cycles, 5 ms) after it is given, whatever
-sector it is and whenever it is asked; the bytes then come one every
-`BYTE_CYCLES` (240, the 32 us of 250 kbit/s MFM) and the command ends
-`TYPE2_FINISH_CYCLES` later.  Read Address returns an ID chosen without
-regard to position.  Only WRITE TRACK knows a revolution (`TRACK_BYTES`
-6250, index to index).  Step rates and head settle are the datasheet's.
-
-### What a rotation model takes
-
-- *State.*  One angle per drive: `rot_pos`, the byte position in the
-  track, 0..6249, advanced in `fdc_tick` by the cycles run (one byte per
-  `BYTE_CYCLES`, the remainder carried), running while the motor is on -
-  the motor line is System Register A bit 2 (`fdc_select`'s `motor`), so
-  a stopped motor stops the angle, and the first Type II after motor-on
-  waits a spin-up (the FD-55's 500 ms; the ROM and the handlers already
-  wait on READY, `read_reg_b` bit 2).  Saved in the snapshot (the FDC
-  chunk grows by a word per drive: a format version bump).
-- *The track layout.*  A table of where each of the 10 sectors' ID and
-  data fields lie on the turn, from the format `FORMAT` writes (the
-  index gap, then per sector an ID field, a gap, the 512 data bytes, a
-  gap - the IBM System 34 MFM layout, 6250 bytes of which 10 x 512 are
-  data), for the physical order 1..10 the disks are formatted in (the
-  handlers' interleave is logical, in the LBN to sector mapping, not
-  physical).  WRITE TRACK's own field parser (`wt_field`) already knows
-  the fields; the table should be derived from the same numbers.
-- *Type II search.*  Instead of a fixed 5 ms: from the current angle,
-  the distance to the wanted sector's ID in bytes times `BYTE_CYCLES`,
-  plus the ID field itself.  A sector asked for just after its ID has
-  passed costs a turn - the board's 240 ms a block.  A sector not on the
-  track (RECORD NOT FOUND) costs five turns, as the datasheet says (the
-  emulator finishes it in 5 ms today).  Read Address returns the next ID
-  to come, not an arbitrary one, so the handlers' Read Address / Read
-  Sector pair sees exactly the board's sequence.  The data bytes still
-  come one every `BYTE_CYCLES`; the angle advances with them.
-- *Type I.*  Unchanged, but the index pulse (`FDC_ST_INDEX`, bit 1 of a
-  Type I status, driven from DRQ today) becomes the angle passing 0 for
-  a few bytes' worth of time - the one visible consequence of a turning
-  diskette outside Type II.
-- *What it costs the user.*  Every disk operation takes the machine's
-  real time: a boot's 8 to 10 s grows to the real machine's (the board's
-  Omega boot would say how much); MACRO and LINK under `ms0515-run` read
-  their files a block a turn too - `ms0515-run` runs unthrottled, so the
-  host pays in machine cycles, not seconds, but a build that took 2 s of
-  machine time may take 20.  A switch (`fdc->turning`, default on, off
-  for `ms0515-run` and the tests that boot the matrix) keeps the fast
-  controller where fidelity buys nothing; the lib exposes it, and the
-  CLI's `--realtime` keeps its meaning.
-- *Tests.*  `core/tests/test_floppy.cpp`: (1) Read Address then Read
-  Sector of the sector two on, given within the gap: the data starts one
-  turn minus the gap later, 240 ms give or take a few bytes; (2) Read
-  Sector of the sector whose ID is next: no turn; (3) RECORD NOT FOUND
-  after five turns; (4) the angle stands with the motor off and the
-  first Type II after motor-on waits the spin-up; (5) the index bit in a
-  Type I status once a turn.  The lib's boot matrix with the switch off
-  keeps its budgets; one lib test with it on times Saboteur 2's load
-  from `test_omega_games.dsk` against the board's 20 s (85 blocks,
-  240 ms each, within a second).
-- *Size.*  Medium: 150-200 lines in `floppy.c` (the angle, the sector
-  table, the search by distance, the index bit, the spin-up), a word per
-  drive in `snapshot.c`, the switch through `Emulator`, five core tests
-  and one lib test.  Two or three days, with the layout numbers checked
-  against `FORMAT`'s output and the WRITE TRACK parser.
-
-### Priority
-
-Medium-low.  It is the one timing the board measures that the emulator
-is visibly far from (20 s against 7), and a game that paces itself on
-disk reads would feel it; nothing known to work depends on it, and the
-fast controller is what makes `ms0515-run` and the test suite bearable,
-so the model must come with its switch.
+Modelled in `floppy.c` (2026-11-07): each drive's angle on the turn,
+the System 34 layout's sector positions, a Type II search by distance,
+READ ADDRESS ending at the next ID, WRITE TRACK at the index, READY at
+the third index, the index bit in a Type I status - `docs/hardware/
+floppy.md`, "Timing: the turning diskette".  Behind a switch
+(`Emulator::setDisketteTurning`): on in the GUI, the browser page and
+the CLI's `--realtime`, off for `ms0515-run`, scripted runs and the
+tests, whose budgets were the fast controller's.  Nine core tests and
+`test_turning.cpp`, which times Saboteur 2's load against the board's
+measurement.  What the board measured is in ms0515-fpga's
+`docs/baseline.md`, item 9: the game's 23 ms between blocks miss the
+next block's ID by 2 ms, so the machine took its 20 s too.

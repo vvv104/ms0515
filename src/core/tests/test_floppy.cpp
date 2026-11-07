@@ -437,4 +437,175 @@ TEST_CASE("WRITE TRACK left without bytes ends with lost data, not a hang") {
     fs::remove(path, ec);
 }
 
+/* ── The turning diskette ─────────────────────────────────────────────────── */
+
+/* Cycles until `done` says so, ticking 60 at a time (a quarter of a byte);
+ * -1 if it never does within `limit`. */
+template <class Done>
+long cyclesUntil(ms0515_floppy_t *fdc, long limit, Done done)
+{
+    for (long t = 0; t < limit; t += 60) {
+        if (done()) return t;
+        fdc_tick(fdc, 60);
+    }
+    return -1;
+}
+
+/* A drive with the turning diskette, mounted, selected, its motor on and
+ * up to READY. */
+struct TurningDrive {
+    fs::path path = makeImage(FDC_DISK_SIZE);
+    ms0515_floppy_t fdc{};
+    TurningDrive()
+    {
+        fdc_init(&fdc);
+        fdc_set_turning(&fdc, true);
+        REQUIRE(fdc_attach(&fdc, 0, path.string().c_str(), false));
+        fdc_select(&fdc, 0, 0, true);
+        fdc_tick(&fdc, FDC_READY_CYCLES);
+    }
+    ~TurningDrive()
+    {
+        fdc_detach(&fdc, 0);
+        std::error_code ec;
+        fs::remove(path, ec);
+    }
+    long untilDrq()  { return cyclesUntil(&fdc, 10 * FDC_TURN_CYCLES, [this] { return fdc.drq; }); }
+    long untilIdle() { return cyclesUntil(&fdc, 10 * FDC_TURN_CYCLES,
+                                          [this] { return fdc.state == FDC_STATE_IDLE; }); }
+};
+
+constexpr long kByte = FDC_BYTE_CYCLES;
+
+TEST_CASE("The turn: the layout puts ten sectors on 6250 bytes") {
+    CHECK(fdc_id_at(1) == 146);
+    CHECK(fdc_data_at(1) == 146 + 60);
+    CHECK(fdc_id_at(2) - fdc_id_at(1) == 604);
+    CHECK(fdc_data_at(10) + FDC_SECTOR_SIZE + 2 < FDC_TURN_BYTES);
+}
+
+TEST_CASE("The turn: Read Address returns the next ID to come, Read Sector finds its sector where it lies") {
+    TurningDrive d;
+    /* the head just past sector 1's data: the next ID is sector 2's */
+    const int start = fdc_data_at(1) + FDC_SECTOR_SIZE + 2;
+    d.fdc.angle[0] = start;
+    fdc_write(&d.fdc, 0, 0xC0);
+    const long ra = d.untilIdle();
+    CHECK(ra >= (fdc_id_at(2) + 22 - start - 1) * kByte);
+    CHECK(ra <= (fdc_id_at(2) + 22 - start + 1) * kByte + 300);
+    CHECK(d.fdc.sector_reg == 0);                   /* the ID's track byte */
+    /* sector 3, two on, asked for within the gap: no turn lost */
+    const int at = d.fdc.angle[0];
+    fdc_write(&d.fdc, 2, 3);
+    fdc_write(&d.fdc, 0, 0x80);
+    const long rs = d.untilDrq();
+    CHECK(rs >= (fdc_data_at(3) - at - 1) * kByte);
+    CHECK(rs <= (fdc_data_at(3) - at + 1) * kByte);
+    CHECK(d.fdc.data_reg == 0);                     /* side 0 ... */
+    fdc_read(&d.fdc, 3);
+    REQUIRE(d.untilDrq() >= 0);
+    CHECK(d.fdc.data_reg == 0);                     /* track 0 ... */
+    fdc_read(&d.fdc, 3);
+    REQUIRE(d.untilDrq() >= 0);
+    CHECK(d.fdc.data_reg == 3);                     /* sector 3 */
+}
+
+TEST_CASE("The turn: a sector asked for just after its ID has passed costs a turn") {
+    TurningDrive d;
+    d.fdc.angle[0] = fdc_id_at(3) + 5;              /* inside sector 3's ID field */
+    fdc_write(&d.fdc, 2, 3);
+    fdc_write(&d.fdc, 0, 0x80);
+    const long rs = d.untilDrq();
+    const long expect = (FDC_TURN_BYTES - 5 + 60) * kByte;
+    CHECK(rs >= expect - kByte);
+    CHECK(rs <= expect + kByte);
+}
+
+TEST_CASE("The turn: a multi-sector read goes on to the next sector of the track without a turn") {
+    TurningDrive d;
+    d.fdc.angle[0] = 0;
+    fdc_write(&d.fdc, 2, 1);
+    fdc_write(&d.fdc, 0, 0x90);                     /* read, m = 1 */
+    long bytes = 0;
+    for (int i = 0; i < 2 * FDC_SECTOR_SIZE; ++i) {
+        REQUIRE(d.untilDrq() >= 0);
+        fdc_read(&d.fdc, 3);
+        ++bytes;
+    }
+    CHECK(d.fdc.sector_reg == 2);
+    /* the second sector's first byte came a slot after the first's */
+    CHECK(d.fdc.angle[0] < fdc_data_at(3));
+    CHECK(bytes == 2 * FDC_SECTOR_SIZE);
+    fdc_write(&d.fdc, 0, 0xD0);                     /* force interrupt */
+}
+
+TEST_CASE("The turn: a sector not on the track is RECORD NOT FOUND after five turns") {
+    TurningDrive d;
+    fdc_write(&d.fdc, 2, 11);
+    fdc_write(&d.fdc, 0, 0x80);
+    const long t = d.untilIdle();
+    CHECK(t >= 5L * FDC_TURN_CYCLES - kByte);
+    CHECK(t <= 5L * FDC_TURN_CYCLES + 2 * kByte + 300);
+    CHECK((fdc_read(&d.fdc, 0) & FDC_ST_SEEK_ERROR) != 0);
+}
+
+TEST_CASE("The turn: WRITE TRACK begins at the index") {
+    TurningDrive d;
+    d.fdc.angle[0] = 1000;
+    fdc_write(&d.fdc, 0, 0xF0);
+    const long t = d.untilDrq();
+    CHECK(t >= (FDC_TURN_BYTES - 1000 - 1) * kByte);
+    CHECK(t <= (FDC_TURN_BYTES - 1000 + 1) * kByte);
+    CHECK(d.fdc.angle[0] <= 1);
+    fdc_write(&d.fdc, 0, 0xD0);
+}
+
+TEST_CASE("The turn: the angle stands with the motor off, READY comes two turns after it starts") {
+    TurningDrive d;
+    fdc_select(&d.fdc, 0, 0, false);
+    d.fdc.angle[0] = 1234;
+    fdc_tick(&d.fdc, FDC_TURN_CYCLES / 2);
+    CHECK(d.fdc.angle[0] == 1234);
+    fdc_select(&d.fdc, 0, 0, true);
+    CHECK(d.fdc.angle[0] == 0);                     /* the first index as it starts */
+    CHECK((fdc_read(&d.fdc, 0) & FDC_ST_NOT_READY) != 0);
+    fdc_tick(&d.fdc, FDC_READY_CYCLES - 60);
+    CHECK((fdc_read(&d.fdc, 0) & FDC_ST_NOT_READY) != 0);
+    fdc_tick(&d.fdc, 60);
+    CHECK((fdc_read(&d.fdc, 0) & FDC_ST_NOT_READY) == 0);
+    CHECK(d.fdc.angle[0] == 2 * FDC_TURN_BYTES % FDC_TURN_BYTES);
+}
+
+TEST_CASE("The turn: the index shows in a Type I status once a turn, 4 ms long") {
+    TurningDrive d;
+    fdc_write(&d.fdc, 0, 0x00);                     /* restore: idle at track 0 */
+    REQUIRE(d.untilIdle() >= 0);
+    d.fdc.angle[0] = FDC_TURN_BYTES - 10;
+    long high = 0;
+    for (long t = 0; t < FDC_TURN_CYCLES; t += kByte) {
+        if (fdc_read(&d.fdc, 0) & FDC_ST_INDEX) ++high;
+        fdc_tick(&d.fdc, kByte);
+    }
+    CHECK(high == FDC_INDEX_BYTES);
+}
+
+TEST_CASE("The turn: not switched on, a search takes 5 ms wherever the head is and READY is at once") {
+    fs::path path = makeImage(FDC_DISK_SIZE);
+    ms0515_floppy_t fdc;
+    fdc_init(&fdc);
+    REQUIRE(fdc_attach(&fdc, 0, path.string().c_str(), false));
+    fdc_select(&fdc, 0, 0, true);
+    CHECK((fdc_read(&fdc, 0) & FDC_ST_NOT_READY) == 0);
+    fdc.angle[0] = fdc_id_at(3) + 5;
+    fdc_write(&fdc, 2, 3);
+    fdc_write(&fdc, 0, 0x80);
+    const long rs = cyclesUntil(&fdc, FDC_TURN_CYCLES, [&fdc] { return fdc.drq; });
+    CHECK(rs >= 37500 - 60);
+    CHECK(rs <= 37500 + 60);
+    fdc_write(&fdc, 0, 0xD0);
+    fdc_detach(&fdc, 0);
+    std::error_code ec;
+    fs::remove(path, ec);
+}
+
 }  /* TEST_SUITE */

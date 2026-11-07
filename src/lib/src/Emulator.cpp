@@ -497,6 +497,18 @@ bool Emulator::ramDiskEnabled() const noexcept
     return impl_->board.ramdisk.enabled;
 }
 
+/* ── The diskette's turn ────────────────────────────────────────────────── */
+
+void Emulator::setDisketteTurning(bool on)
+{
+    fdc_set_turning(&impl_->board.fdc, on);
+}
+
+bool Emulator::disketteTurning() const noexcept
+{
+    return impl_->board.fdc.turning;
+}
+
 /* ── Paravirtual hard disk (HD:) ────────────────────────────────────────── */
 
 void Emulator::setHdEnabled(bool enabled)

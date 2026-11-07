@@ -63,18 +63,32 @@ static const int step_rate_table[4] = { 45000, 90000, 150000, 225000 };
 /* Head settle when the h flag (bit 2) is set on a Type I command: 15 ms. */
 #define SETTLE_CYCLES        112500
 
-/* Type II command-to-first-DRQ delay.  A real 5.25" drive at 300 RPM has
- * ~100 ms average rotational latency before the requested ID arrives.
- * We use a smaller value to keep boot times tolerable while still letting
- * the CPU run in parallel with the search. */
+/* Type II command-to-first-DRQ delay with the turning diskette switched
+ * off: a sector is found 5 ms after the command, wherever it lies.  With
+ * it on, the search is the distance to the sector on the turn (search_cycles). */
 #define TYPE2_SEARCH_CYCLES  37500   /* ~5 ms */
 
 /* Time per Type II data byte at 250 kbit/s MFM = 32 µs = 240 cycles. */
-#define BYTE_CYCLES          240
+#define BYTE_CYCLES          FDC_BYTE_CYCLES
 
 /* One revolution - 200 ms at 300 rpm - is what WRITE TRACK writes, index
  * to index: 6250 bytes at 250 kbit/s. */
-#define TRACK_BYTES          6250
+#define TRACK_BYTES          FDC_TURN_BYTES
+
+/* The layout on the turn (fdc_id_at, fdc_data_at): the lead-in to the
+ * first ID field, a sector's slot, and from an ID field's first sync byte
+ * to its sector's first data byte: 22 of ID field, 22 of gap, 12 of sync,
+ * 3 A1 and the data mark. */
+#define LAYOUT_LEAD          146
+#define LAYOUT_SLOT          604
+#define LAYOUT_ID_BYTES      22
+#define LAYOUT_ID_TO_DATA    60
+
+/* The E flag of a Type II or III command: 15 ms of head settling first. */
+#define E_DELAY_CYCLES       112500
+
+/* A sector that is not on the track is looked for five turns (DS p.11). */
+#define RNF_TURNS            5
 
 /* WRITE TRACK is the one command that cannot wait for the CPU for ever:
  * it ends at the index, and a formatter that has stopped feeding it would
@@ -91,7 +105,7 @@ static const int step_rate_table[4] = { 45000, 90000, 150000, 225000 };
 #define MIN_CMD_CYCLES       240
 
 static void mech(ms0515_floppy_t *fdc, int event, int arg);
-static void mech_motor(ms0515_floppy_t *fdc, int drive, bool on);
+static void mech_motor(ms0515_floppy_t *fdc, int drive, bool on, bool ran);
 
 /* ── Internal helpers ────────────────────────────────────────────────────── */
 
@@ -125,7 +139,98 @@ static int current_track(const ms0515_floppy_t *fdc)
 static bool drive_ready(const ms0515_floppy_t *fdc)
 {
     const fdc_drive_t *drv = &fdc->drives[fdc->selected];
-    return (drv->image != NULL || drv->backend_read != NULL) && drv->motor_on;
+    const bool up = !fdc->turning || fdc->ready_in[fdc->selected & 1] == 0;
+    return (drv->image != NULL || drv->backend_read != NULL) && drv->motor_on && up;
+}
+
+/* ── The turn ────────────────────────────────────────────────────────────── */
+
+int fdc_id_at(int sector)
+{
+    return LAYOUT_LEAD + (sector - 1) * LAYOUT_SLOT;
+}
+
+int fdc_data_at(int sector)
+{
+    return fdc_id_at(sector) + LAYOUT_ID_TO_DATA;
+}
+
+void fdc_set_turning(ms0515_floppy_t *fdc, bool on)
+{
+    fdc->turning = on;
+}
+
+/* The byte of the turn under the selected drive's head. */
+static int angle(const ms0515_floppy_t *fdc)
+{
+    return fdc->angle[fdc->selected & 1];
+}
+
+/* Bytes from the head to `at` on the turn, going forward. */
+static int bytes_ahead(const ms0515_floppy_t *fdc, int at)
+{
+    return ((at - angle(fdc)) % TRACK_BYTES + TRACK_BYTES) % TRACK_BYTES;
+}
+
+/* Whether physical drive d's motor runs: Register A carries one motor
+ * bit and the drive it selects (mech_motor), both of them in a saved
+ * state. */
+static bool motor_runs(const ms0515_floppy_t *fdc, int d)
+{
+    return (fdc->selected & 1) == d && fdc->drives[fdc->selected].motor_on;
+}
+
+/* The turn moves under the heads of the drives whose motors run, and
+ * READY comes to a drive two turns after its motor started. */
+static void turn(ms0515_floppy_t *fdc, int cycles)
+{
+    for (int d = 0; d < 2; ++d) {
+        if (!motor_runs(fdc, d)) continue;
+        if (fdc->ready_in[d] > cycles) fdc->ready_in[d] -= cycles;
+        else                           fdc->ready_in[d] = 0;
+        fdc->angle_frac[d] += cycles;
+        fdc->angle[d]      += fdc->angle_frac[d] / BYTE_CYCLES;
+        fdc->angle_frac[d] %= BYTE_CYCLES;
+        fdc->angle[d]      %= TRACK_BYTES;
+    }
+}
+
+/* Cycles from now until the Type II command in `fdc->command` has its
+ * sector's first data byte: the E delay if asked, then the sector's ID
+ * must come round and the data field after it; five turns for a sector
+ * that is not on the track.  Without the turning diskette, 5 ms. */
+static int search_cycles(const ms0515_floppy_t *fdc)
+{
+    if (!fdc->turning)
+        return TYPE2_SEARCH_CYCLES;
+    const int settle = (fdc->command & 0x04) ? E_DELAY_CYCLES : 0;
+    if (fdc->sector_reg < 1 || fdc->sector_reg > FDC_SECTORS)
+        return settle + RNF_TURNS * TRACK_BYTES * BYTE_CYCLES;
+    int ahead = bytes_ahead(fdc, fdc_id_at(fdc->sector_reg)) - settle / BYTE_CYCLES;
+    if (ahead < 0)
+        ahead += TRACK_BYTES;
+    return settle + (ahead + LAYOUT_ID_TO_DATA) * BYTE_CYCLES;
+}
+
+/* Cycles until Read Address has read the next ID field to come. */
+static int next_id_cycles(const ms0515_floppy_t *fdc)
+{
+    if (!fdc->turning)
+        return MIN_CMD_CYCLES;
+    int nearest = TRACK_BYTES;
+    for (int s = 1; s <= FDC_SECTORS; ++s) {
+        const int ahead = bytes_ahead(fdc, fdc_id_at(s));
+        if (ahead < nearest) nearest = ahead;
+    }
+    return (nearest + LAYOUT_ID_BYTES) * BYTE_CYCLES;
+}
+
+/* Cycles until the index, where WRITE TRACK begins. */
+static int index_cycles(const ms0515_floppy_t *fdc)
+{
+    if (!fdc->turning)
+        return TYPE2_SEARCH_CYCLES;
+    return bytes_ahead(fdc, 0) * BYTE_CYCLES;
 }
 
 /* Compose a Type I status byte.  Bit 1 (FDC_ST_INDEX) is omitted here —
@@ -270,8 +375,19 @@ static void start_type2(ms0515_floppy_t *fdc, bool writing)
     fdc->buf_len = FDC_SECTOR_SIZE;
 
     fdc->state            = FDC_STATE_TYPE2_SEARCH;
-    fdc->cycles_remaining = TYPE2_SEARCH_CYCLES;
+    fdc->cycles_remaining = search_cycles(fdc);
     fdc->status           = FDC_ST_BUSY;
+}
+
+/* A multi-sector command goes on to the next sector: its ID has to come
+ * round like the first one's - a slot away on the turn, or a turn and a
+ * slot if the CPU was slow with the last bytes. */
+static void next_sector(ms0515_floppy_t *fdc)
+{
+    fdc->sector_reg++;
+    fdc->buf_pos           = 0;
+    fdc->state             = FDC_STATE_TYPE2_SEARCH;
+    fdc->cycles_remaining += search_cycles(fdc);
 }
 
 /* Begin WRITE TRACK.  DRQ comes up when the index does; from then on
@@ -296,7 +412,7 @@ static void start_write_track(ms0515_floppy_t *fdc)
     fdc->next_status   = 0;
 
     fdc->state            = FDC_STATE_TYPE3_TRACK;
-    fdc->cycles_remaining = TYPE2_SEARCH_CYCLES;
+    fdc->cycles_remaining = index_cycles(fdc);
     fdc->status           = FDC_ST_BUSY;
 }
 
@@ -404,12 +520,17 @@ static void mech(ms0515_floppy_t *fdc, int event, int arg)
  * drive alone: selecting another drive with the motor still on moves the
  * sound over, and clearing the bit stops whatever was turning.  Events go
  * out once per change, whichever side the select named. */
-static void mech_motor(ms0515_floppy_t *fdc, int drive, bool on)
+static void mech_motor(ms0515_floppy_t *fdc, int drive, bool on, bool ran)
 {
     for (int d = 0; d < 2; ++d) {
         const bool spin = on && d == drive;
         if (fdc->spinning[d] == spin) continue;
         fdc->spinning[d] = spin;
+        if (spin && !ran) {                 /* the first index as it starts */
+            fdc->angle[d]      = 0;
+            fdc->angle_frac[d] = 0;
+            fdc->ready_in[d]   = FDC_READY_CYCLES;
+        }
         mech(fdc, spin ? FDC_MECH_MOTOR_ON : FDC_MECH_MOTOR_OFF, d);
     }
 }
@@ -419,7 +540,7 @@ void fdc_reset(ms0515_floppy_t *fdc)
     /* Preserve attached disk images. */
     for (int i = 0; i < FDC_LOGICAL_UNITS; i++)
         fdc->drives[i].motor_on = false;
-    mech_motor(fdc, 0, false);              /* every spindle stops */
+    mech_motor(fdc, 0, false, false);       /* every spindle stops */
     fdc->head_track[0] = 0;
     fdc->head_track[1] = 0;
 
@@ -541,9 +662,12 @@ void fdc_select(ms0515_floppy_t *fdc, int drive, int side, bool motor)
     if (unit < 0 || unit >= FDC_LOGICAL_UNITS)
         return;
 
+    /* A motor already running - as a loaded state may have left it, with
+     * the spindle's events unsent - keeps its angle and its READY. */
+    const bool ran = motor_runs(fdc, drive);
     fdc->selected = unit;
     fdc->drives[unit].motor_on = motor;
-    mech_motor(fdc, drive, motor);
+    mech_motor(fdc, drive, motor, ran);
 }
 
 void fdc_set_mech_callback(ms0515_floppy_t *fdc, ms0515_fdc_mech_fn cb,
@@ -628,7 +752,7 @@ void fdc_write(ms0515_floppy_t *fdc, int reg, uint8_t value)
              */
             if (drive_ready(fdc)) {
                 fdc->sector_reg = (uint8_t)current_track(fdc);
-                schedule_finish(fdc, 0, MIN_CMD_CYCLES);
+                schedule_finish(fdc, 0, next_id_cycles(fdc));
             } else {
                 schedule_finish(fdc, FDC_ST_SEEK_ERROR | FDC_ST_NOT_READY,
                                 MIN_CMD_CYCLES);
@@ -691,6 +815,12 @@ uint8_t fdc_read(ms0515_floppy_t *fdc, int reg)
         uint8_t s = fdc->status & ~FDC_ST_INDEX;
         if (fdc->drq)
             s |= FDC_ST_INDEX;
+        /* The index pulse itself, in the status as a Type I command
+         * leaves it (the last command's type says what bit 1 is, DS
+         * Table 6), while the turning diskette has one. */
+        if (fdc->turning && (fdc->command & 0x80) == 0 &&
+            motor_runs(fdc, fdc->selected & 1) && angle(fdc) < FDC_INDEX_BYTES)
+            s |= FDC_ST_INDEX;
         if (drive_ready(fdc))
             s &= ~FDC_ST_NOT_READY;
         else
@@ -743,6 +873,7 @@ void fdc_tick(ms0515_floppy_t *fdc, int cycles)
         if (*t > cycles) *t -= cycles;
         else             *t  = 0;
     }
+    turn(fdc, cycles);
 
     if (fdc->state == FDC_STATE_IDLE)
         return;
@@ -842,18 +973,10 @@ void fdc_tick(ms0515_floppy_t *fdc, int cycles)
                     fdc->drq      = true;
                     fdc->cycles_remaining += BYTE_CYCLES;
                 } else if (fdc->command & 0x10) {
-                    /* Multi-sector — advance and continue. */
-                    fdc->sector_reg++;
-                    if (fdc->sector_reg > FDC_SECTORS) {
-                        schedule_finish(fdc, fdc->status, TYPE2_FINISH_CYCLES);
-                    } else if (!read_sector(fdc)) {
-                        schedule_finish(fdc, fdc->status | FDC_ST_SEEK_ERROR,
-                                        MIN_CMD_CYCLES);
-                    } else {
-                        fdc->data_reg = fdc->buffer[fdc->buf_pos++];
-                        fdc->drq      = true;
-                        fdc->cycles_remaining += BYTE_CYCLES;
-                    }
+                    /* Multi-sector — advance and continue, past the
+                     * last sector of the track with RECORD NOT FOUND
+                     * (DS p.12), which the search gives. */
+                    next_sector(fdc);
                 } else {
                     schedule_finish(fdc, fdc->status, TYPE2_FINISH_CYCLES);
                 }
@@ -870,11 +993,8 @@ void fdc_tick(ms0515_floppy_t *fdc, int cycles)
                         break;
                     }
                     if ((fdc->command & 0x10) && fdc->sector_reg < FDC_SECTORS) {
-                        fdc->sector_reg++;
                         memset(fdc->buffer, 0, FDC_SECTOR_SIZE);
-                        fdc->buf_pos           = 0;
-                        fdc->drq               = true;
-                        fdc->cycles_remaining += BYTE_CYCLES;
+                        next_sector(fdc);
                     } else {
                         schedule_finish(fdc, fdc->status, TYPE2_FINISH_CYCLES);
                     }

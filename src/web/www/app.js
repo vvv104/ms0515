@@ -1258,6 +1258,7 @@ function bindApi() {
     reset:   c("ms_reset", null, ["number"]),
     loadRom: c("ms_load_rom", "number", ["number", "string"]),
     ramdisk: c("ms_ramdisk", "number", ["number", "number"]),   // 1 in, 0 out, -1 asks
+    turning: c("ms_turning", "number", ["number", "number"]),   // 1 the diskette turns, 0 any sector in 5 ms
     mount:   c("ms_mount", "number", ["number", "number", "string"]),
     unmount: c("ms_unmount", null, ["number", "number"]),
     diskActive: c("ms_disk_active", "number", ["number", "number"]),
@@ -1407,6 +1408,7 @@ async function main() {
   $("ver").textContent = "v" + api.version();
   image = ctx.createImageData(canvas.width, canvas.height);
   h = api.create();
+  api.turning(h, 1);                // a person's machine: the diskette turns
   api.history(h, HISTORY_EVENTS);   // the machine's own trail, for a bug report
 
   await loadDiskList();

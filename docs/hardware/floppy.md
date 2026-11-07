@@ -113,7 +113,7 @@ polls the DRQ and INTRQ bits in System Register B during disk operations.
 
 | Command       | Code (hex) | Description                                          |
 |---------------|------------|-------------------------------------------------------|
-| Read Address  | 0xC0–0xCF  | Report the current track (the BIOS head-position self-test) |
+| Read Address  | 0xC0–0xCF  | The next ID field's track into the sector register (the BIOS head-position self-test, the handlers' first step) |
 | Write Track   | 0xF0–0xFF  | Format the track under the head                       |
 
 ### Type IV — Control
@@ -121,6 +121,52 @@ polls the DRQ and INTRQ bits in System Register B during disk operations.
 | Command         | Code (hex) | Description                   |
 |-----------------|------------|-------------------------------|
 | Force Interrupt | 0xD0–0xDF  | Abort current command         |
+
+## Timing: the turning diskette
+
+The controller's commands take the machine's time (`floppy.c`): a
+step is 6/12/20/30 ms by the command's rate bits, a data byte comes
+every 32 µs (250 kbit/s MFM), WRITE TRACK runs from index to index,
+6250 bytes.  Where a sector *is* on the turn is modelled when the
+diskette turns (`Emulator::setDisketteTurning`, on in the GUI, the
+browser page and the CLI's `--realtime`; off by default, for
+`ms0515-run`, scripted runs and the tests, where the time is the
+host's):
+
+- The turn is 200 ms at 300 rpm, 6250 bytes.  Each physical drive has
+  an angle, the byte under its head, which runs while its motor does
+  and restarts at the index when the motor starts.
+- The track's layout is the IBM System 34 double-density one the
+  machine's formatters write, sectors 1..10 in physical order: 146
+  bytes from the index to the first ID field, then 604 a sector (a
+  22-byte ID field, 22 of gap, 16 of sync and data mark, 512 of data,
+  2 of CRC, 30 of gap); `fdc_id_at(s)` and `fdc_data_at(s)` say where
+  a sector's ID and first data byte lie.
+- A Type II command finds its sector where it lies: the data starts
+  when the sector's ID has come round and its data field after it - a
+  sector asked for just after its ID passed costs a turn.  A sector
+  not on the track is RECORD NOT FOUND after five turns.  A
+  multi-sector command goes on to the next sector a slot later.  The E
+  flag's 15 ms of settling come first.
+- READ ADDRESS ends when the next ID field to come has passed under
+  the head; WRITE TRACK begins at the index.
+- READY comes two turns after the motor starts (the МС 5305 raises it
+  at the third index), and the index pulse shows in a Type I status for
+  4 ms once a turn.
+- Without the turn (the default) a Type II command finds any sector 5
+  ms after it is given, READ ADDRESS ends at once and a drive is ready
+  as its motor starts.
+
+What it means for a program: RT-11's DZ handler begins every request
+with READ ADDRESS and gives READ SECTOR after it; a request of many
+blocks reads them two sectors apart, 40 ms a block, within the turn.  A
+program that asks for its blocks one at a time and works between them
+longer than the 21 ms to the next block's ID waits a turn for each -
+Saboteur 2, copying each block through the ROM for 22 ms, loads at 240
+ms a block, 85 blocks in 20 s, as it did on the machine (the FPGA
+rebuild's measurement, `test_turning.cpp`).  The angle is saved in a
+state (snapshot format 4); whether the diskette turns is the
+application's setting, not the machine's.
 
 ## Disk Image Format
 
