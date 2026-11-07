@@ -41,6 +41,30 @@ The BIOS programs the keyboard port as:
 - 8 data bits, 2 stop bits, no parity
 - Mode word: 0xCE (0o316)
 
+## The clock
+
+The USART's TxC and RxC are the timer's counter 0 output (D9 OUT0,
+`СИНХР1`, on the schematic's sheet 1): mode 3 with a divisor of 26 from
+2 MHz gives 76.9 kHz, which the x16 mode makes 4800 baud; the ROM
+programs it through 177506/177500 ([timer.md](timer.md)).  The emulator
+clocks the receiver from it (`kbd_clock_edge` on every rise of OUT0,
+from the board's timer loop): a character from the MS 7004 is 11 bits
+at the keyboard's own 4800 baud, 2.29 ms on the line, and the receiver
+takes it only if its clock gave the character's worth of edges
+meanwhile - 176 at x16, within 5 %.  A counter 0 that stands (mode 0 at
+zero, or stopped) or runs far off (EX.SYS's installation check writes
+the memory module's PPI at 177530-536, which on a board without the
+factory wire is counter 0, and leaves it reloaded with a page number)
+loses every character with a framing error: the keyboard is dead, as
+the FPGA rebuild of the board showed, until the clock is right again.
+The transmitter's side is not clocked: a byte written for the keyboard
+reaches the MS 7004 model at once and TxRDY stays up (the ROM waits on
+it with a timeout and nothing depends on the delay).
+
+A state saved before snapshot format 4 may hold counters 0 and 1
+unprogrammed (the ROM's writes at 177500-506 were dropped until
+2026-11); loading one gives them the ROM's words.
+
 ## Mode Instruction Format
 
 ```

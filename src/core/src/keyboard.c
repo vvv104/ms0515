@@ -219,9 +219,6 @@ uint8_t kbd_read(ms0515_keyboard_t *kbd, int reg)
 
 void kbd_push_scancode(ms0515_keyboard_t *kbd, uint8_t scancode)
 {
-    /* If FIFO was empty, the first byte needs baud-rate delay too */
-    if (fifo_empty(kbd) && !kbd->rx_ready && kbd->rx_delay == 0)
-        kbd->rx_delay = 8;
     fifo_push(kbd, scancode);
 }
 
@@ -234,30 +231,57 @@ void kbd_flush_fifo(ms0515_keyboard_t *kbd)
     update_status(kbd);
 }
 
-/* ── Clock tick ──────────────────────────────────────────────────────────── */
+/* ── The line and the clock ──────────────────────────────────────────────── */
 
-void kbd_tick(ms0515_keyboard_t *kbd)
+/* The RxC edges a character takes at the mode's rate factor: 11 bits at
+ * x1, x16 or x64 (mode bits 1:0 = 01, 10, 11). */
+static int edges_a_character(const ms0515_keyboard_t *kbd)
 {
-    /*
-     * Transfer the next byte from the FIFO into the receiver buffer
-     * when the buffer is empty and RxEN is set.
-     *
-     * In real hardware this happens at the baud rate (4800 baud,
-     * clocked by PIT channel 0).  For emulation we transfer one
-     * byte per tick call — the caller controls the effective rate
-     * by choosing how often to call kbd_tick().
-     */
-    if (!kbd->rx_ready && !fifo_empty(kbd)) {
-        /* Model baud-rate delay: at 4800 baud with 11 bits/frame,
-         * one byte takes ~8 kbd_ticks to arrive over the serial link. */
-        if (kbd->rx_delay > 0) {
-            kbd->rx_delay--;
-        } else {
-            kbd->rx_data  = fifo_pop(kbd);
-            kbd->rx_ready = true;
-            kbd->rx_delay = 8;  /* Next byte will also take 8 ticks */
-        }
+    switch (kbd->mode & 0x03) {
+    case 0x01: return 11;
+    case 0x03: return 11 * 64;
+    default:   return 11 * 16;
     }
+}
 
+void kbd_clock_edge(ms0515_keyboard_t *kbd)
+{
+    if (kbd->rx_flight)
+        kbd->rx_edges++;
+}
+
+void kbd_tick(ms0515_keyboard_t *kbd, int cycles)
+{
+    /* The keyboard sends its next character once the last has been
+     * taken: the FIFO is its own queue, and it waits on the receiver
+     * (the model's choice from before the clock; the MS 7004 itself
+     * cannot see RxRDY, but a character lost to a busy receiver would
+     * be a key lost, which the machine's software never showed). */
+    if (!kbd->rx_flight && !kbd->rx_ready && !fifo_empty(kbd)) {
+        kbd->rx_flight = true;
+        kbd->rx_cycles = 0;
+        kbd->rx_edges  = 0;
+    }
+    if (!kbd->rx_flight)
+        return;
+
+    kbd->rx_cycles += cycles;
+    if (kbd->rx_cycles < KBD_BYTE_CYCLES)
+        return;
+
+    /* The character's last stop bit has passed.  The receiver took it
+     * if its clock ran at the rate the keyboard sends at, within 5 %:
+     * no clock, or a far one, and the character is lost with a framing
+     * error - the keyboard is dead until the clock is right again. */
+    const uint8_t byte     = fifo_pop(kbd);
+    const int     expected = edges_a_character(kbd);
+    const int     slack    = expected / 20;
+    kbd->rx_flight = false;
+    if (kbd->rx_edges >= expected - slack && kbd->rx_edges <= expected + slack) {
+        kbd->rx_data  = byte;
+        kbd->rx_ready = true;
+    } else {
+        kbd->status |= KBD_STATUS_FE;
+    }
     update_status(kbd);
 }

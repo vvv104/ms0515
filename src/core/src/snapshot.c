@@ -959,6 +959,20 @@ snap_error_t snap_load(ms0515_board_t *board,
     if (!got_cpu || !got_mem || !got_brd)
         return SNAP_ERR_CORRUPT;
 
+    /* A state saved before format 4 may have counters 0 and 1 - the
+     * keyboard's and the serial port's baud clocks - unprogrammed: the
+     * ROM's writes to them at 177500-506 were dropped until 2026-11,
+     * and nothing listened to them.  Now the keyboard USART is clocked
+     * by counter 0, so such a state gets the ROM's words (mode 3, 26 from
+     * 2 MHz, 4800 baud) where its counter stands still. */
+    if (version < 4)
+        for (int ch = 0; ch < 2; ch++)
+            if (board->timer.ch[ch].mode != 3) {
+                timer_write(&board->timer, 3, (uint8_t)(0x36 | ch << 6));
+                timer_write(&board->timer, ch, 26);
+                timer_write(&board->timer, ch, 0);
+            }
+
     (void)got_tmr; (void)got_kbd; (void)got_fdc;
     (void)got_rdk; (void)got_7004; (void)got_disk;
 

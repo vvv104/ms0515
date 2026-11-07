@@ -15,6 +15,11 @@ PIT.  It contains three independent 16-bit down-counters, clocked at 2 MHz.
 
 The 2 MHz input clock divided by 26 yields ~76.9 kHz.  The i8251 USART
 divides this by 16 (async mode 1/16) to produce the 4800 baud rate.
+The keyboard USART's receiver is clocked by counter 0's output in the
+emulator too ([keyboard.md](keyboard.md), "The clock"): reprogram the
+counter and the keyboard goes quiet.  Counter 1, the serial port's
+clock, is counted and not listened to - that USART's model has no
+receiver to clock.
 
 ## Register Addresses
 

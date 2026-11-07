@@ -71,12 +71,14 @@ typedef struct ms0515_keyboard {
     int      fifo_tail;
     int      fifo_count;
 
-    /* Serial transfer timing — models the real baud rate delay.
-     * At 4800 baud with 11 bits/frame, one byte takes ~2.3 ms.
-     * kbd_tick is called every KBD_TICK_DIVIDER*TIMER_DIVIDER CPU
-     * cycles (~2048 cycles at 7.5 MHz ≈ 273 µs), so we need ~8 ticks
-     * per byte to match the real serial rate. */
-    int      rx_delay;          /* Ticks remaining before next FIFO→rx      */
+    /* The character on the line.  The MS 7004 sends at its own 4800
+     * baud: a character is KBD_BYTE_CYCLES on the line whatever the
+     * USART does; the USART takes it only if its own clock - the
+     * timer's counter 0 on RxC, x16 - gave the character's worth of
+     * edges meanwhile (kbd_clock_edge), else it is lost. */
+    bool     rx_flight;         /* a character is on the line               */
+    int      rx_cycles;         /* CPU cycles it has been there             */
+    int      rx_edges;          /* RxC rising edges counted meanwhile       */
 
     /* Interrupt request output */
     bool     irq;               /* True when IRQ should be asserted         */
@@ -122,13 +124,24 @@ void    kbd_push_scancode(ms0515_keyboard_t *kbd, uint8_t scancode);
  */
 void    kbd_flush_fifo(ms0515_keyboard_t *kbd);
 
+/* A character on the keyboard's line: 11 bits (start, 8 data, 2 stop)
+ * at 4800 baud, 2.29 ms, in CPU cycles at 7.5 MHz. */
+#define KBD_BYTE_CYCLES     17188
+
 /*
- * kbd_tick — Advance the keyboard UART state.
- *
- * Should be called at the UART clock rate.  Transfers bytes from FIFO
- * to the receiver buffer when the receiver is idle.
+ * kbd_tick — `cycles` CPU cycles of the machine's time have passed: the
+ * character on the line advances, and completes or is lost.
  */
-void    kbd_tick(ms0515_keyboard_t *kbd);
+void    kbd_tick(ms0515_keyboard_t *kbd, int cycles);
+
+/*
+ * kbd_clock_edge — a rising edge of the USART's receive clock, the
+ * timer's counter 0 output on the board.  With the ROM's programming
+ * (mode 3, 26 from 2 MHz) there are 176 of them in a character's time;
+ * a receiver that counts within 5 % of its mode's 11 x 16 takes the
+ * character, one with no clock, or a clock far off, loses it.
+ */
+void    kbd_clock_edge(ms0515_keyboard_t *kbd);
 
 #ifdef __cplusplus
 }

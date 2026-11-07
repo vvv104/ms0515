@@ -124,92 +124,21 @@ Low, but do it before anyone tunes a program's key handling on the
 repeat codes.  Folds into the firmware-emulation item above if that
 ever happens.
 
-## The keyboard USART's clock is the timer's counter 0
+## The keyboard USART's clock is the timer's counter 0 (done)
 
-### What the board does
-
-On the schematic (3.858.420 Э3, sheet 1) the keyboard USART D22
-(КР580ВВ51А) takes its TxC and RxC from the timer D9's OUT0 (`СИНХР1`):
-counter 0 in mode 3 with a divisor of 26 from the 2 MHz clock, 76.9 kHz,
-x16 in the USART, 4800 baud.  The serial USART D38 hangs on OUT1 the
-same way.  A program that reprograms counter 0 - or writes into its
-block by accident - kills the keyboard.  The FPGA rebuild found it with
-EX.SYS's installation check, which writes the module's PPI at
-177530-536, where a board without the owner's green wire has counter 0
-(ms0515-fpga `docs/baseline.md`, open list item 1; `docs/findings.md`,
-"The green wire"; the decoding in `../hardware/board.md`).
-
-### What the emulator does
-
-`keyboard.c` knows no clock: `kbd_tick` is called every
-`KBD_TICK_DIVIDER * TIMER_DIVIDER` = 2048 CPU cycles (273 us) from
-`board_step_frame`, and moves a byte from the FIFO into the receiver
-after 8 such ticks - 2.2 ms a byte, close to the 11 bits at 4800 baud,
-but tied to nothing a program can touch.  Counter 0 is programmed by the
-ROM (since 2026-11-07, when writes at 177500-506 began to reach the
-timer) and counts, and nobody listens to it.  The transmitter side
-(`kbd_write`, reg 0) hands the byte to the MS 7004 model at once.
-
-### How it could depend on counter 0
-
-- *State.*  The USART gets a baud-clock input, `kbd_clock_edge()`,
-  called on every rising edge of OUT0, and the receiver's and
-  transmitter's bit timing counted in those edges: 16 edges a bit in the
-  x16 mode the ROM sets (mode word bits 1:0 = 10), so a character with
-  its start, 8 data and one stop bit is 176 edges, and `rx_delay`'s 8
-  ticks become "176 edges since the last byte was taken".  The
-  transmitter gets the same: TxRDY after a character's worth of edges,
-  not at once.  The `while (board->timer_counter <= 0)` loop in
-  `board_step_frame` already ticks the timer at 2 MHz; the board reads
-  `timer_get_out(0)` after each tick and calls the USART on a 0->1
-  change (one edge every 26 ticks with the ROM's divisor).  `kbd_counter`
-  and `KBD_TICK_DIVIDER` go away.  No clock, no bytes: a counter 0 that
-  is stopped, left in mode 0 at zero, or reloaded with a page number
-  holds OUT0 still and the receiver never completes a character - the
-  keyboard is dead, as on the board.  A wrong divisor gives a wrong baud:
-  the MS 7004 sends at 4800 whatever the USART expects; a model that
-  only counts edges would still take the bytes, a faithful one samples
-  the line at the USART's rate and misreads them (framing error, status
-  bit 5).  Counting edges and refusing a byte when the clock is off by
-  more than a few per cent is enough for every known program.
-- *The MS 7004 side.*  The keyboard's own transmitter runs at its own
-  4800 baud; a byte it sends while the USART has no clock is lost (the
-  receiver never samples it), so the FIFO's pop must be "the character's
-  time has passed at the keyboard's rate" and the USART's acceptance a
-  separate step: a byte that arrives with the clock dead is dropped, not
-  held for a better time.
-- *Interrupts.*  RxRDY, and with it the vector 130 request, follows the
-  USART's own completion; nothing else changes in `board_step_frame`.
-- *Tests.*  `core/tests/test_keyboard.cpp` gains: (1) with the ROM's
-  programming (counter 0 mode 3, 26) a pushed scancode reaches RxRDY
-  after about 176 x 26 timer ticks, 2.3 ms; (2) counter 0 stopped
-  (control word 0x30, no count written) - the scancode never arrives
-  and no interrupt is raised; (3) counter 0 reloaded with 1 (EX.SYS's
-  page number, were the wire absent) - the same death; (4) the clock
-  restored (the ROM's words again) - the next scancode arrives.  The
-  lib's `test_keyboard_emulated.cpp` (the six ROM x disk configurations)
-  and `test_keyclick_timing.cpp` must still pass with the same frame
-  counts: a byte's latency barely changes (2.2 ms to 2.3 ms).
-- *Old states.*  A snapshot saved before 2026-11-07 has counter 0
-  unprogrammed (writes at 177500-506 were dropped), so a loaded old
-  state would come up with a dead keyboard until something programs it:
-  either `snapshot.c` gives such a state the ROM's words when it reads a
-  format older than the change, or the change waits for the next format
-  bump.  The one design decision in the item.
-- *Size.*  Small: some 60 lines in `keyboard.c` / `keyboard.h` (the
-  edge input, the bit counters, the framing check), 15 in `board.c`
-  (the OUT0 edge detection in the timer loop, the old divider gone), the
-  four core tests; the serial USART's stub stays as it is (it has no
-  receiver to clock).  A day's work with the tests.
-
-### Priority
-
-Medium.  Nothing in the collection relies on the clock being
-independent - the one program that touches counter 0 (EX.SYS, on a
-board without the wire) is exactly the case the emulator should
-reproduce, and a game that reprograms the timer's control word
-carelessly would show the same death on the machine.  Worth doing
-together with the serial port if that ever gets a receiver.
+Modelled in `keyboard.c` and `board.c` (2026-11-07): every rise of
+counter 0's output clocks the receiver (`kbd_clock_edge`), a character
+from the MS 7004 is 2.29 ms on the line at the keyboard's own 4800 baud,
+and the receiver takes it only if its clock gave the character's worth
+of edges meanwhile, within 5 % - `docs/hardware/keyboard.md`, "The
+clock".  A counter 0 stopped or reloaded with EX.SYS's page number loses
+every character with a framing error, as the board showed.  The
+transmitter stays unclocked (nothing depends on its delay); the serial
+USART stays as it is.  Four core tests with a timer of their own; the
+lib's keyboard tests pass with their frame counts.  A state saved before
+format 4 with counters 0 and 1 unprogrammed gets the ROM's words when it
+loads (the one design decision of the item, taken with the format bump
+the turning diskette brought).
 
 ## The diskette turns (done)
 

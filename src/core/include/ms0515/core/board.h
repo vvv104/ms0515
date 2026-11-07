@@ -160,6 +160,8 @@ typedef struct ms0515_board {
     /* Timing accumulators (in CPU clock ticks at 7.5 MHz) */
     int      timer_counter;     /* Counts down to next timer tick           */
     int      frame_counter;     /* Counts down to next VBlank               */
+    bool     kbd_clock_was;     /* the timer's OUT0 at the last tick: the
+                                 * keyboard USART's clock, clocked on a rise */
 
     /* Callbacks */
     board_sound_cb_t      sound_cb;

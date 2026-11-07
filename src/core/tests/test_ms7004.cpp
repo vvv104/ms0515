@@ -32,8 +32,10 @@ static int drain_fifo(ms0515_keyboard_t *uart, uint8_t *buf, int max)
 {
     int n = 0;
     while (n < max && uart->fifo_count > 0) {
-        /* Tick enough to transfer one byte from FIFO to rx_data. */
-        for (int i = 0; i < 20; i++) kbd_tick(uart);
+        /* A character's time on the line, with the ROM's clock: 176
+         * edges of RxC, 98 cycles apart. */
+        kbd_tick(uart, 0);
+        for (int i = 0; i < 176; i++) { kbd_clock_edge(uart); kbd_tick(uart, 98); }
         if (uart->rx_ready) {
             buf[n++] = kbd_read(uart, 0);
         } else {

@@ -3,17 +3,63 @@
 
 extern "C" {
 #include <ms0515/core/keyboard.h>
+#include <ms0515/core/timer.h>
 }
 
 TEST_SUITE("Keyboard") {
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
+/* The USART's receive clock is the timer's counter 0, as on the board;
+ * the tests clock the USART from a timer of their own, programmed as the
+ * ROM programs it (mode 3, 26 from 2 MHz) unless a test says otherwise. */
+static ms0515_timer_t g_timer;
+
+static void program_clock(uint8_t control, int divisor)
+{
+    timer_write(&g_timer, 3, control);
+    if (divisor >= 0) {
+        timer_write(&g_timer, 0, static_cast<uint8_t>(divisor & 0xFF));
+        timer_write(&g_timer, 0, static_cast<uint8_t>(divisor >> 8));
+    }
+}
+
 static ms0515_keyboard_t make_kbd()
 {
     ms0515_keyboard_t kbd;
     kbd_init(&kbd);
+    timer_init(&g_timer);
+    program_clock(0x36, 26);
     return kbd;
+}
+
+/* `cycles` CPU cycles of the machine: the timer ticks at 2 MHz (4 ticks
+ * in 15 cycles) and every rise of its OUT0 clocks the USART. */
+static void advance(ms0515_keyboard_t *kbd, long cycles)
+{
+    static bool out_was = false;
+    static long quarters = 0;               /* the fraction of a tick carried between calls */
+    for (long c = 0; c < cycles; ++c) {
+        quarters += 4;
+        while (quarters >= 15) {
+            quarters -= 15;
+            timer_tick(&g_timer);
+            const bool out = timer_get_out(&g_timer, 0);
+            if (out && !out_was) kbd_clock_edge(kbd);
+            out_was = out;
+        }
+        kbd_tick(kbd, 1);
+    }
+}
+
+/* Cycles until RxRDY, ticking 16 at a time; -1 within `limit` if never. */
+static long until_rxrdy(ms0515_keyboard_t *kbd, long limit)
+{
+    for (long t = 0; t < limit; t += 16) {
+        if (kbd_read(kbd, 1) & KBD_STATUS_RXRDY) return t;
+        advance(kbd, 16);
+    }
+    return -1;
 }
 
 /*
@@ -30,10 +76,10 @@ static void init_usart(ms0515_keyboard_t *kbd)
     kbd_write(kbd, 1, 0x37);
 }
 
+/* n of the old 273 us ticks: 20 of them were a character's time and more. */
 static void tick_n(ms0515_keyboard_t *kbd, int n)
 {
-    for (int i = 0; i < n; i++)
-        kbd_tick(kbd);
+    advance(kbd, 2048L * n);
 }
 
 /* ── Init ────────────────────────────────────────────────────────────────── */
@@ -203,6 +249,50 @@ TEST_CASE("TXRDY status bit is independent of TxEN") {
     /* TXRDY status bit must still be set: the transmitter buffer is
      * empty regardless of the enable bits. */
     CHECK((kbd_read(&kbd, 1) & KBD_STATUS_TXRDY) != 0);
+}
+
+/* ── The receive clock: the timer's counter 0 ─────────────────────────────── */
+
+TEST_CASE("clock: with the ROM's counter 0 a scancode arrives in a character's time") {
+    auto kbd = make_kbd();
+    init_usart(&kbd);
+    kbd_push_scancode(&kbd, 0x42);
+    const long t = until_rxrdy(&kbd, 4 * KBD_BYTE_CYCLES);
+    CHECK(t >= KBD_BYTE_CYCLES - 64);
+    CHECK(t <= KBD_BYTE_CYCLES + 64);
+    CHECK(kbd_read(&kbd, 0) == 0x42);
+    CHECK((kbd_read(&kbd, 1) & KBD_STATUS_FE) == 0);
+}
+
+TEST_CASE("clock: counter 0 stopped, the scancode never arrives and no interrupt is raised") {
+    auto kbd = make_kbd();
+    init_usart(&kbd);
+    program_clock(0x30, -1);                /* mode 0, no count: OUT0 stands */
+    kbd_push_scancode(&kbd, 0x42);
+    CHECK(until_rxrdy(&kbd, 10 * KBD_BYTE_CYCLES) == -1);
+    CHECK(!kbd.irq);
+    CHECK(kbd.fifo_count == 0);             /* the character went by, lost */
+}
+
+TEST_CASE("clock: counter 0 reloaded with 1 - EX.SYS's page number on a board without the wire - the same death") {
+    auto kbd = make_kbd();
+    init_usart(&kbd);
+    program_clock(0x36, 1);
+    kbd_push_scancode(&kbd, 0x42);
+    CHECK(until_rxrdy(&kbd, 10 * KBD_BYTE_CYCLES) == -1);
+    CHECK((kbd_read(&kbd, 1) & KBD_STATUS_FE) != 0);
+}
+
+TEST_CASE("clock: the ROM's words again, and the next scancode arrives") {
+    auto kbd = make_kbd();
+    init_usart(&kbd);
+    program_clock(0x30, -1);
+    kbd_push_scancode(&kbd, 0x11);
+    CHECK(until_rxrdy(&kbd, 4 * KBD_BYTE_CYCLES) == -1);
+    program_clock(0x36, 26);
+    kbd_push_scancode(&kbd, 0x22);
+    CHECK(until_rxrdy(&kbd, 4 * KBD_BYTE_CYCLES) >= 0);
+    CHECK(kbd_read(&kbd, 0) == 0x22);
 }
 
 } /* TEST_SUITE */
