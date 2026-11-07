@@ -635,6 +635,23 @@ Noted in passing: `omega-games.dsk` carries a third loader, one byte
 different from the collection's `SABOT2.SAV` (0x297: 002 vs 000).
 
 
+## NOT OURS, not looked into: SABOT2's own kick does not land while a guard is hitting
+
+The owner (2026-11-07), who played the game on his machine and has seen
+the Spectrum original played: while a guard is hitting the saboteur,
+his own kick does not come off - the key or the fire line is taken and
+nothing happens until the exchange is over - so half of one's blows are
+lost and the guards win more than they should; on the Spectrum the kick
+answers the key at once.  It is the same through the keyboard (МС 7004)
+and through the joystick on the МС 7007's port B, which never touches
+the keyboard's path, so the emulator's input is not where it happens:
+it is the port's combat code, as far as anyone has looked, which is not
+far.  A look would set the port's routine beside the original's (the
+blow's timing against the hit animation) and, if it is one of the
+port's own idioms lost in translation like the room that kills the
+machine (above), a repair would go to the collection's
+`software/games/sabot2/fixed/` with the two before it.
+
 ## NOT OURS: SABOT2 draws half a guard at the foot of a ladder
 
 goodboy, the same forum thread (2026-09-10), with a bug report and the
