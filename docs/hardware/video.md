@@ -65,7 +65,7 @@ changes to the colour of the background at 3 Hz".  On the board (schematic
 3.858.420 Э3, sheet 4) the phase comes from D59.2, a К555ИЕ19 counter
 clocked by the frame sync `КСИ Н` with its reset grounded: its Q4 is `ПКЛ Н`
 (the cursor's blink, 16 frames a period) and its Q8 is `ТМ Н`, the flash -
-the phase turns every 8 frames, a full period of 16: 3.75 Hz at 60 frames a
+the phase turns every 8 frames, a full period of 16: 3.1 Hz at 50 frames a
 second, 3.1 Hz at 50 (the "3 Hz").  Read off the board's netlist by the
 FPGA rebuild (ms0515-fpga, `docs/baseline.md`, open list item 11).
 

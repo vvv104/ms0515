@@ -96,12 +96,12 @@ TEST_CASE("Reg B reflects the jumpers E3/E4") {
     ms0515::Emulator emu;
     emu.reset();
 
-    /* As built: E4 fitted, E3 open - 60 Hz, РВК1 = 1 (bits 4:3 = 10),
-     * 125 000 cycles a frame, 16.67 ms. */
+    /* As the machines ran: E3 and E4 fitted - 50 Hz, РВК1 = РВК0 = 0,
+     * 150 000 cycles a frame, 20 ms. */
     uint8_t val = emu.readByte(IO_REG_B);
-    CHECK(((val >> 3) & 0x03) == 2);
-    CHECK(emu.cyclesPerFrame() == 125000u);
-    CHECK(emu.frameMs() == doctest::Approx(16.667).epsilon(0.001));
+    CHECK(((val >> 3) & 0x03) == 0);
+    CHECK(emu.cyclesPerFrame() == 150000u);
+    CHECK(emu.frameMs() == doctest::Approx(20.0).epsilon(0.001));
 
     /* E3 alone: 72 Hz */
     ms0515::internal::board(emu).dip_refresh = 1;

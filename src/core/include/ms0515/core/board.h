@@ -153,8 +153,8 @@ typedef struct ms0515_board {
     int      frame_cycle_pos;   /* CPU cycles elapsed in current frame      */
 
     /* The jumpers E3/E4 as Register B reads them back (bits 4-3):
-     * 0 = 50 Hz (both fitted), 1 = 72 Hz (E3), 2 = 60 Hz (E4, the
-     * factory's setting - board_init's default). */
+     * 0 = 50 Hz (both fitted - the machines', board_init's default),
+     * 1 = 72 Hz (E3), 2 = 60 Hz (E4, the assembly drawing's list). */
     uint8_t  dip_refresh;
 
     /* Timing accumulators (in CPU clock ticks at 7.5 MHz) */
@@ -244,8 +244,8 @@ void board_load_rom(ms0515_board_t *board, const uint8_t *data, uint32_t size);
 
 /*
  * board_frame_cycles — CPU cycles in one video frame at the board's
- * jumper setting (dip_refresh): 7.5 MHz over the frame rate - 125000 at
- * the 60 Hz the boards were built with, 150000 at 50, 104167 at 72.
+ * jumper setting (dip_refresh): 7.5 MHz over the frame rate - 150000 at
+ * the 50 Hz the machines ran at, 125000 at 60, 104167 at 72.
  */
 int board_frame_cycles(const ms0515_board_t *board);
 

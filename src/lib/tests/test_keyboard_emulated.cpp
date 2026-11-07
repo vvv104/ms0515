@@ -91,7 +91,7 @@ constexpr TestConfig kConfigs[] = {
 };
 
 /* Boot is bounded by frames so a stuck OS does not freeze the test
- * suite.  Real-time, 720 frames at 60 Hz = 12 emulated seconds (600 at
+ * suite.  Real-time, 720 frames at 50 Hz = 14.4 emulated seconds (600 at
  * the 50 Hz the board used to run at); the test images comfortably
  * reach the dot prompt well before that. */
 constexpr int kBootFramesMax = 720;
