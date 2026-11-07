@@ -298,12 +298,14 @@ Special scancodes:
   protocol.  Only ВР and СУ are held that way; КМП (261) is sent on the
   press like any other key, and what shows it is on is the machine's
   «Композиция» lamp (Table 3).
-- **254** (auto-repeat) — listed in the ТО as auto-repeat scancode,
-  but the ROM maps it to the `$` character.  The keyboard's firmware
-  sends **264** (0xB4) on every repeat, never the key's scancode again;
-  the emulator's model re-sends the held key's own scancode instead - a
-  known deviation, harmless to every program at hand
-  ([`../kb/TODO.md`](../kb/TODO.md)).
+- **264** (auto-repeat, the LK201's "metronome") — sent on every
+  repeat in place of the key's scancode (the firmware's `L_2B0`), and
+  the model sends it too: both ROMs look for 264 in their keyboard
+  handlers (ROM-B at 175616, ROM-A at 175710) and repeat the last key
+  themselves.  A program that reads the USART itself sees the key's
+  code once and then 264 at the repeat period, as on the machine.  The
+  ТО lists **254** as the auto-repeat scancode; the ROM maps that one to
+  the `$` character.
 
 ### Table 3 — Host → Keyboard Commands
 

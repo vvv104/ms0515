@@ -82,47 +82,25 @@ line, etc.).
 ### Priority
 
 Low.  Our current model is correct against real hardware at the
-OS-visible level, but for the auto-repeat code (below); this would be a quality-of-emulation improvement,
+OS-visible level; this would be a quality-of-emulation improvement,
 not a bug fix.  Worth doing when there is appetite for a
 self-contained subsystem rewrite.
 
-## The MS7004's auto-repeat code is 0xB4, not the key's scancode
+## The MS7004's auto-repeat code is 0xB4, not the key's scancode (done)
 
-### What the firmware does
-
-Alex's disassembly of the MS7004 firmware (his annotated 8035 listing,
-kept in the owner's archive, not in this repository) shows the auto-repeat path at `L_2B0`
-sending the code **0xB4 (0o264)** to the host on every repeat - the
-LK201's "metronome" code - and never the key's own scancode again.
-The model in `core/src/ms7004.c` re-sends the key's scancode instead
-(`SC_REPEAT` is defined as 0254 - not even the firmware's 0264 - and
-unused).  Verified 2026-09-12 while working
-out MANICM's key handling; the same listing shows the release code 0xB3
-comes only from the three register keys (СУ, both ВР, `L_200`..`L_231`),
-the full host command set is A1/23 sound, 99/1B/9F click, A7 bell,
-89/8B data on/off, E1/D9/E3 auto-repeat, AB/FD/D3 probes, 11/13 LEDs -
-no per-division modes and no repeat-rate setting, so a program cannot
-ask for key-up codes or a faster repeat (the 0x99 "game mode" switch
-in the model is our own heuristic; the firmware only turns the click
-off).
-
-### Why it matters
-
-The three Spectrum ports (SABOT2's loader-side handling, FIST's
-`KSCAN`, MANICM's `KEYS`) survive either way - to them a repeat is "a
-code arrived" - but a program that reads the repeats as the key's own
-code (any program that types text with the console driver, and our own
-tests that press keys through the model) sees something a real machine
-never sends.  The console ROM's keyboard routine must interpret 0xB4
-as "the last key again" for auto-repeat to work at all on the iron;
-check the ROM disassembly before changing the model, and add a core
-test that pins the sequence: scancode, then 0xB4 every period.
-
-### Priority
-
-Low, but do it before anyone tunes a program's key handling on the
-repeat codes.  Folds into the firmware-emulation item above if that
-ever happens.
+The model sends 0264 on every repeat since 2026-11-07 (`ms7004.c`,
+`SC_REPEAT`), as the firmware's `L_2B0` does.  The other half the item
+asked for was checked first: both ROMs look for 264 in their keyboard
+handlers - ROM-B at 175616 (`CMP R2,#264`, then `BICB #3,(R1)`), ROM-A
+at 175710 - and repeat the last key themselves, so typing through the
+console is unchanged and a program reading the USART sees the key's
+code once and then 264 at the period, as on the machine.  A core test
+pins the sequence; the lib's keyboard and typist tests pass as they
+were.  The firmware's other findings in that disassembly (the release
+code 0xB3 from the three register keys alone, the command set without
+division modes or a repeat-rate setting) stand in `../hardware/
+keyboard.md`; the model's 0x99 "game mode" repeat-rate heuristic is
+still its own.
 
 ## The keyboard USART's clock is the timer's counter 0 (done)
 
