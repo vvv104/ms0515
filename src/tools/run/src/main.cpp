@@ -60,9 +60,6 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-/* The machine's frame: 50 a second. */
-constexpr std::chrono::milliseconds kFrame{20};
-
 /* Stdin has ended and the program still asks for a key: after this many
  * frames it gets the two Ctrl-C that end a program on RT-11. */
 constexpr int kFramesToInterrupt = 25;
@@ -160,8 +157,11 @@ int run(const std::string &program, const std::vector<std::string> &arguments,
             next = Clock::now();
             continue;
         }
-        /* The machine's pace; a frame that came late is not made up for. */
-        next = std::max(next + kFrame, Clock::now());
+        /* The machine's pace (a frame is 16.67 ms at the board's 60 Hz);
+         * a frame that came late is not made up for. */
+        const auto frame = std::chrono::microseconds(
+            static_cast<long long>(machine.emulator().frameMs() * 1000.0));
+        next = std::max(next + frame, Clock::now());
         std::this_thread::sleep_until(next);
     }
     if (!display.isOpen())

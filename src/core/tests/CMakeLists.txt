@@ -26,6 +26,7 @@ add_executable(ms0515_core_tests
     test_sound.cpp
     test_joystick.cpp
     test_mech_events.cpp
+    test_frame_rate.cpp
 )
 
 target_compile_definitions(ms0515_core_tests PRIVATE

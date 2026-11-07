@@ -660,7 +660,10 @@ void App::tick()
         lastTickMs_ = nowTick;
 
         bool audioEnabled = audioOn_ && (targetSpeed_ == 100.0f);
-        while (emuTimeAccumMs_ >= kFrameMs && running_) {
+        /* One emulated frame per frame's worth of real time: 16.67 ms at
+         * the 60 Hz the board is built for (a loaded state may differ). */
+        const float frameMs = static_cast<float>(emu_.frameMs());
+        while (emuTimeAccumMs_ >= frameMs && running_) {
             bool ok = emu_.stepFrame();
             audio_.endFrame(static_cast<int>(emu_.frameCyclePos()), audioEnabled);
             if (!ok) {
@@ -668,7 +671,7 @@ void App::tick()
                 emuTimeAccumMs_ = 0.0f;
                 break;
             }
-            emuTimeAccumMs_ -= kFrameMs;
+            emuTimeAccumMs_ -= frameMs;
             ++emuFramesSinceReset_;
             ++emuFramesInWindow_;
         }
@@ -683,7 +686,7 @@ void App::tick()
     if (winMs >= 1000) {
         float emuFps = emuFramesInWindow_ * 1000.0f / static_cast<float>(winMs);
         fpsDisplay_   = emuFps;
-        speedDisplay_ = emuFps / 50.0f * 100.0f;
+        speedDisplay_ = emuFps * static_cast<float>(emu_.frameMs()) / 10.0f;  /* % of the machine's rate */
         emuFramesInWindow_ = 0;
         fpsWindowStartMs_  = nowMs;
     }

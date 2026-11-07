@@ -1,8 +1,15 @@
 /*
  * test_clock_time.cpp - a monitor with timer support keeps the machine's
- * time: TIME set, a minute of frames run (the frame is the clock's tick,
- * 50 a second), TIME read back a minute later.  Counted in frames, so the
- * host's speed has no part in it.
+ * time: TIME set, a minute of ticks run, TIME read back a minute later.
+ * Counted in frames, so the host's speed has no part in it.
+ *
+ * The frame is the clock's tick, and the monitor counts 50 of them a
+ * second: the kits are generated for a "50-cycle" clock (CLOCK = 50. in
+ * their SYCDEC.MAC) and nothing in them reads the rate off Register B,
+ * as the technical description asks.  The board's jumpers give 60
+ * frames a second, so on the machine as built - the owner's among them -
+ * a minute of TIME passes in 50 s.  The test keeps the monitor's minute:
+ * 3000 frames.
  *
  * The vvv104 Omega (test_vvv_system.dsk, ROM-B) has SJ timer support.
  */
@@ -25,7 +32,8 @@ namespace {
 
 constexpr const char *kRomB = ASSETS_DIR "/rom/ms0515-romb.rom";
 constexpr const char *kDisk = TESTS_DIR "/disks/originals/test_vvv_system.dsk";
-constexpr int kFramesPerSecond = 50;
+constexpr int kFramesPerSecond = 60;        /* the board's */
+constexpr int kTicksPerSecond  = 50;        /* the monitor's SYSGEN */
 
 void stepFrames(ms0515::Emulator &emu, ms0515::VramMirror &mirror, int n)
 {
@@ -93,7 +101,7 @@ int lastSecondsPastTen(const std::string &screen)
 
 TEST_SUITE("clock") {
 
-TEST_CASE("a minute of frames is a minute of TIME") {
+TEST_CASE("a minute of the monitor's ticks is a minute of TIME") {
     const std::string rom  = kRomB;
     const std::string disk = kDisk;
     REQUIRE(fs::exists(rom));
@@ -110,15 +118,15 @@ TEST_CASE("a minute of frames is a minute of TIME") {
 
     stepFrames(emu, mirror, 30 * kFramesPerSecond);      /* boot, STARTS.COM */
     typeString(emu, mirror, "TIME 10:00:00\r");
-    stepFrames(emu, mirror, 60 * kFramesPerSecond);
+    stepFrames(emu, mirror, 60 * kTicksPerSecond);
     typeString(emu, mirror, "TIME\r");
     stepFrames(emu, mirror, 2 * kFramesPerSecond);
 
     const std::string screen = screenAsText(emu);
     INFO("screen:\n" << screen);
     /* Set when its Return went in; read when the second TIME's Return
-     * did: 60 s of frames and the ten taps of "TIME\r" between. */
-    const int expected = 60 + (5 * 10) / kFramesPerSecond;
+     * did: 60 s of ticks and the ten taps of "TIME\r" between. */
+    const int expected = 60 + (5 * 10) / kTicksPerSecond;
     const int seen = lastSecondsPastTen(screen);
     CHECK(seen >= expected - 1);
     CHECK(seen <= expected + 1);

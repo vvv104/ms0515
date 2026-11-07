@@ -86,7 +86,7 @@ All addresses in octal.  Offsets are relative to 177400 base, in decimal hex.
 | 0   | INTR | FDC INTRQ inverted (0 = ready for command)        |
 | 1   | DRQ  | FDC DRQ (1 = data byte ready)                     |
 | 2   | DRDY | Drive ready inverted (0 = ready)                  |
-| 3-4 | RVK  | DIP switches: frame rate (00=50, 01=72, 10=60 Hz)|
+| 3-4 | RVK  | The jumpers E3/E4: frame rate (00=50, 01=72, 1x=60 Hz) |
 | 7   | CSIN | Cassette input signal                             |
 
 ## System Register C (177604) — Output
@@ -123,15 +123,36 @@ Boot configuration: code 202 (octal) = mode 0, port B input, ports A/C output.
 | CPU              | 7.5 MHz    | 133 ns     |
 | Timer (PIT)      | 2 MHz      | 500 ns     |
 | Video pixel      | 15 MHz     | 66.7 ns    |
-| VBlank (50 Hz)   | 50 Hz      | 20 ms      |
 | VBlank (60 Hz)   | 60 Hz      | 16.7 ms    |
+| VBlank (50 Hz)   | 50 Hz      | 20 ms      |
 | VBlank (72 Hz)   | 72 Hz      | 13.9 ms    |
 
 The timer runs on an exact quarter-cycle accumulator: 15 quarter-cycles a
 tick against 4 quarter-cycles a CPU clock, an average of 3.75 cycles/tick
 with no drift (the "4 CPU cycles" figure is a separate, rounded divisor
 the emulator uses only to pace the keyboard USART, not the timer itself).
-At 50 Hz: 150,000 CPU cycles per frame.
+The frame rate is the jumpers E3 and E4 (NS4 TO Table 6: both fitted
+50 Hz; E4 alone 60 Hz, 260 lines of 64 us; E3 alone 72 Hz), and a program
+reads them back as РВК1/РВК0, Register B bits 4-3 (Table 10), to know
+its timer tick.  Every build on the schematic's sheet 1 (3.858.420 and
+-02 with E4; -01 and -03 with E3, 72 Hz) and the owner's own board had
+E4 fitted and E3 open; 50 Hz needs both, which no build has (the FPGA
+rebuild's `netlist/variants.md`).  So the emulator's board starts at
+**60 Hz, 125,000 CPU cycles per frame** (`dip_refresh` 2 in `board.c`;
+it used to start at 50 Hz, 150,000 cycles, and a saved state keeps the
+rate it was saved with).  The hosts pace the machine by
+`Emulator::frameMs()`, 16.67 ms a frame, never by a constant of their own.
+
+What the rate does to the software: the timer interrupt (vector 100) is
+strobed by the frame, so it is the monitors' clock tick - and the RT-11
+kits for this machine are generated for a "50-cycle" clock and read
+nothing off Register B (ms0515-devel, `projects/rt11/monitor/README.md`,
+"72 ticks a second").  At the 60 Hz the boards were built with their TIME
+runs 20% fast, as it must have on the owner's machine; the emulator at
+50 Hz hid that.  `lib/tests/test_clock_time.cpp` counts the monitor's
+minute in its 3000 ticks.  Tests that wait for a boot or a command wait
+in frames too: a budget written as "600 frames" at 50 Hz is 720 at 60 -
+the same twelve seconds.
 
 ## Interrupt Routing
 

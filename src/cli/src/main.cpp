@@ -99,7 +99,7 @@ options:
   --screenshot-frame <N>  Take the shot at frame N.  Implies --frames N
                           when no cap was given, so the run ends there.
   --realtime              Throttle the emulator to the MS-0515's
-                          original 50 Hz refresh, so OS-side timing
+                          own frame rate (60 Hz), so OS-side timing
                           (sleep-driven UIs, timer-based code)
                           matches the hardware.  Without this flag
                           the loop runs as fast as the host CPU
@@ -284,10 +284,12 @@ int main(int argc, char **argv)
 
     /* Permit keystroke injection once VRAM has been quiet (no
      * substantial paint activity) for a while — that's our "kernel
-     * sits at a prompt" signal.  See VramMirror::framesIdle. */
-    constexpr int kInputReadyIdleFrames = 200;
+     * sits at a prompt" signal.  See VramMirror::framesIdle.  Four
+     * seconds of the machine's time, in its frames: the ROM's self-test
+     * holds the screen still for 3.7 s, and that is not the prompt. */
+    const int kInputReadyIdleFrames = static_cast<int>(4000.0 / emu.frameMs());
 
-    /* --realtime pace: cap the loop at the MS-0515's 50 Hz refresh
+    /* --realtime pace: cap the loop at the MS-0515's own frame rate
      * so OS timing (cursor blink, sleep-driven UIs) matches the
      * hardware.  Without the flag the loop runs flat-out — useful
      * for compile / batch jobs where wall-clock fidelity doesn't
@@ -295,7 +297,6 @@ int main(int argc, char **argv)
      * can.  Floppy operations are unaffected either way (the FDC
      * emulator never simulated real seek/read delays). */
     using Clock = std::chrono::steady_clock;
-    constexpr auto kFramePeriod = std::chrono::microseconds(20'000);  /* 50 Hz */
     auto nextFrameAt = Clock::now();
 
     /* Frame at which --screenshot fires during the run; 0 = only at the
@@ -337,7 +338,9 @@ int main(int argc, char **argv)
         }
 
         if (local.realtime) {
-            nextFrameAt += kFramePeriod;
+            /* The machine's frame: 16.67 ms at the board's 60 Hz. */
+            nextFrameAt += std::chrono::microseconds(
+                static_cast<long long>(emu.frameMs() * 1000.0));
             const auto now = Clock::now();
             if (now < nextFrameAt) {
                 std::this_thread::sleep_until(nextFrameAt);

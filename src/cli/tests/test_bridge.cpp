@@ -149,13 +149,16 @@ TEST_CASE("the booted machine takes a DIR typed with the commander down, and one
     cli::bridge::install(emu);
     cli::bridge::setHostKeySink([&host](const files::HostKey &k) { return host.onKey(k); });
 
-    runUntilQuiet(emu, mirror, host, 200, 4000);   /* the boot, to the prompt */
+    /* The boot, to the prompt: 4 s of a still screen at 60 frames a
+     * second - the ROM's self-test holds the screen for 3.7 s, which
+     * is not the prompt. */
+    runUntilQuiet(emu, mirror, host, 240, 4000);
     cli::bridge::setInputReady(true);
     REQUIRE(screenHas(mirror, "."));
 
     /* down: DIR lists the volume */
     feed("dir\r");
-    runUntilQuiet(emu, mirror, host, 150, 4000);
+    runUntilQuiet(emu, mirror, host, 180, 4000);     /* 3 s: DIR loads from the diskette */
     CHECK(screenHas(mirror, "SAV"));
     CHECK(screenHas(mirror, ".dir"));
 
@@ -163,7 +166,7 @@ TEST_CASE("the booted machine takes a DIR typed with the commander down, and one
     feed("\x1C");
     REQUIRE(host.active());
     feed("dir\r");
-    runUntilQuiet(emu, mirror, host, 150, 4000);
+    runUntilQuiet(emu, mirror, host, 180, 4000);
     CHECK(screenHas(mirror, ".dir"));
     CHECK(screenHas(mirror, "SYS"));
 
@@ -171,7 +174,7 @@ TEST_CASE("the booted machine takes a DIR typed with the commander down, and one
      * that row, right after what was typed, and no shape is ever set -
      * the parent terminal's own is what shows */
     feed("abc");
-    runUntilQuiet(emu, mirror, host, 60, 2000);
+    runUntilQuiet(emu, mirror, host, 72, 2400);
     /* what the host has painted so far */
     CHECK(painted.find(" q") == std::string::npos);
     const size_t show = painted.rfind("\x1B[?25h");

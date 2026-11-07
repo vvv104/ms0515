@@ -228,7 +228,7 @@ void drawStatusBar(const StatusBarState &s)
     ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
 
     uint32_t hostS = (SDL_GetTicks() - s.hostMsAtLastReset) / 1000;
-    uint32_t emuMs = s.emuFramesSinceReset * 20;  /* 50 Hz frame */
+    uint32_t emuMs = static_cast<uint32_t>(s.emuFramesSinceReset * s.emu.frameMs());
     uint32_t emuS  = emuMs / 1000;
     ImGui::Text("host %02u:%02u:%02u  emu %02u:%02u:%02u",
                 hostS / 3600, (hostS / 60) % 60, hostS % 60,

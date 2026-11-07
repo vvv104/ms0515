@@ -34,27 +34,28 @@ void run(ms0515::Emulator &emu, int frames)
 }
 
 /* Boot omega-games (a real date at DATSET, Enter at the start file), R
- * SABOT2, J (Kempston), S (start), through the briefing into the game. */
+ * SABOT2, J (Kempston), S (start), through the briefing into the game.
+ * The waits are the machine's seconds, 60 frames each. */
 void startSabot2WithJoystick(ms0515::Emulator &emu)
 {
     using K = ms0515::Key;
     REQUIRE(emu.loadRomFile(std::string{ASSETS_DIR} + "/rom/ms0515-roma.rom"));
     REQUIRE(emu.mountDisk(0, std::string{TESTS_DIR} + "/disks/originals/test_omega_games.dsk"));
     emu.reset();
-    run(emu, 400);
+    run(emu, 8 * 60);
     for (K k : {K::Digit2, K::Digit2, K::MinusEq, K::Digit0, K::Digit8, K::MinusEq, K::Digit9, K::Digit2, K::Return})
         tap(emu, k);
-    run(emu, 150);
+    run(emu, 3 * 60);
     tap(emu, K::Return);
-    run(emu, 150);
+    run(emu, 3 * 60);
     for (K k : {K::R, K::Space, K::S, K::A, K::B, K::O, K::T, K::Digit2, K::Return})
         tap(emu, k);
-    run(emu, 600);                       /* the game loads: the title menu */
+    run(emu, 12 * 60);                   /* the game loads: the title menu */
     tap(emu, K::J, 3);
     tap(emu, K::S, 3);
-    run(emu, 600);                       /* the mission briefing */
+    run(emu, 12 * 60);                   /* the mission briefing */
     tap(emu, K::Kp5, 3);                 /* any key: into the game */
-    run(emu, 100);
+    run(emu, 2 * 60);
 }
 
 }  // namespace

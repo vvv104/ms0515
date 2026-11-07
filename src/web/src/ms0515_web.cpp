@@ -603,7 +603,15 @@ EMSCRIPTEN_KEEPALIVE void ms_unmount_hd(Handle *h) { h->emu.unmountHd(); }
 
 EMSCRIPTEN_KEEPALIVE int ms_hd_active(Handle *h) { return h->emu.hdActive() ? 1 : 0; }
 
-/* Run one 50 Hz frame.  Returns the CPU cycles it took (0 = halted). */
+/* One frame of the machine in microseconds of real time: 16667 at the
+ * 60 Hz the board is built for; a loaded state may run at another rate.
+ * The page runs a frame every that much of its own time. */
+EMSCRIPTEN_KEEPALIVE int ms_frame_us(Handle *h)
+{
+    return static_cast<int>(h->emu.frameMs() * 1000.0);
+}
+
+/* Run one frame.  Returns the CPU cycles it took (0 = halted). */
 EMSCRIPTEN_KEEPALIVE int ms_frame(Handle *h)
 {
     h->transitions.clear();

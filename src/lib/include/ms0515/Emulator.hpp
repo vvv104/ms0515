@@ -338,6 +338,12 @@ public:
     [[nodiscard]] uint16_t                 pc()            const noexcept;
     [[nodiscard]] uint16_t                 sp()            const noexcept;
     [[nodiscard]] uint32_t                 frameCyclePos() const noexcept;
+    /* One frame of the machine: its CPU cycles and its time, from the
+     * board's jumper setting (60 Hz as built: 125 000 cycles, 16.67 ms;
+     * a loaded state brings its own).  A host that paces the machine
+     * runs a frame every frameMs() of real time. */
+    [[nodiscard]] uint32_t                 cyclesPerFrame() const noexcept;
+    [[nodiscard]] double                   frameMs()       const noexcept;
     [[nodiscard]] bool                     halted()        const noexcept;
     [[nodiscard]] bool                     waiting()       const noexcept;
 
