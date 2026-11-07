@@ -132,3 +132,96 @@ tests, whose budgets were the fast controller's.  Nine core tests and
 measurement.  What the board measured is in ms0515-fpga's
 `docs/baseline.md`, item 9: the game's 23 ms between blocks miss the
 next block's ID by 2 ms, so the machine took its 20 s too.
+
+## The processor waits for the video's reads of the DRAM
+
+### What the board does
+
+The video reads the dynamic RAM for every character cell it draws, and
+while it does the processor's clock is held: D24.1, clocked by ПВАС H
+with ВУ L on D and reset by the video's request ТРВЗУ H, holds ПТС H
+through D23.4 until the video has had the memory.  Measured on the FPGA
+rebuild at a system's prompt (ms0515-fpga `docs/baseline.md`, open list
+item 10): in 20 ms the clock is held 6098 times for 165 752 master
+ticks at the typical delays - 6.9 % of the time, 27 ticks (0.23 us) a
+hold, every 3.3 us - and 11.0 % at the slow corner; READY slips add
+0.6 %.  The same 20 ms stepped in the emulator from its own state agree
+with the board to the T at 113 of the 114 addresses the prompt's loop
+visits once the holds are taken out: the instruction times are right,
+the memory's waits are what is missing.  So a program that runs from
+the DRAM runs some 7 % faster here than on the machine; code in the
+ROM, which the video does not read, runs at the machine's pace.
+
+### What the emulator does
+
+`cpu.c` charges each instruction its microcycle table's cycles and
+nothing for where its operands are; `memory.c` answers a DRAM access
+like a ROM one.  There is no video timing to collide with: the frame is
+a count of cycles, the picture is drawn from the memory's contents when
+the host asks.
+
+### What a model takes
+
+- *The video's cadence.*  A read of one word every character cell of
+  the active lines: 260 lines a frame at 60 Hz (64 us a line), 200 of
+  them active, 40 or 80 cells a line by the mode - the board's own
+  numbers are in ms0515-fpga `docs/timing.md`.  A function of the
+  frame's cycle position saying whether the video holds the memory now,
+  and for how many more cycles.
+- *The processor's accesses.*  A hold costs the processor only when it
+  touches the DRAM while the video does: a hook on `memory.c`'s DRAM
+  reads and writes (the bank's RAM, not the ROM, not the I/O) that adds
+  the remaining hold to a per-instruction wait, which `board_step_frame`
+  adds to the instruction's cycles.  The T-11's microcycle is 0.4 us
+  and a hold releases it at the next 15 MHz edge or two; the board's
+  average of 0.23 us a hold with 7 % of the time is the figure to hit,
+  not the exact edge.
+- *What it changes.*  Every program in RAM slows by about 7 %: the
+  boot budgets of the tests, the keyboard tests' frame counts and
+  `ms0515-run`'s unthrottled builds all move a little; a game that paces
+  itself by the processor (the Spectrum ports) plays as on the machine.
+- *Tests.*  A core test that runs a known loop from RAM and from ROM
+  and sees the RAM one take 7 % more cycles a frame; the honest test
+  itself - the board's 20 ms against the emulator's steps - could be
+  made a lib test if the board's log were a fixture, which it is not.
+- *Size.*  Medium: 60 lines for the cadence and the hook, the tests, a
+  day of re-budgeting whatever counted frames too tightly.
+
+### Priority
+
+Medium-low.  It is the last of the board's timings the emulator lacks
+and the one with the widest reach - everything in RAM - but 7 % is
+below what a person notices, and nothing known depends on it.
+
+## The repeat's delay after the top key is let go
+
+### What the firmware does
+
+The MS 7004 keeps one counter for the delay before auto-repeat (27H,
+set to 0BH when a key is pressed, decremented as the last-pressed key
+is scanned, L_1EF) and does not reset it when a key is released.  So
+when the top key of two is let go and the one under it becomes the
+last pressed (the stack shift at L_237..L_27D), its repeat - the
+metronome code 264 - begins from wherever the counter stood, usually
+at once.
+
+### What the model does
+
+`ms7004.c` restarts the full delay on the fall-back
+(`repeat_next_ms = now + repeat_delay_ms` in the release path): the
+first 264 for the key still held comes a delay later than the
+keyboard's.  Seen in Saboteur 2's jump (`docs/hardware/keyboard.md`,
+264): the kick after landing starts a quarter of a second later here
+than it would on the machine.
+
+### What it takes
+
+Keep the counter the firmware keeps - the delay runs from the last
+press, not from the fall-back - and a core test: press A, press B,
+release B after half the delay, and the first 264 comes when A's delay
+would have, not a whole delay after B's release.  Twenty lines.
+
+### Priority
+
+Low.  A quarter of a second in one corner of one game's handling, but
+it is a known difference from the firmware, and a small one to close.
