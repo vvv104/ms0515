@@ -193,9 +193,7 @@ Medium-low.  It is the last of the board's timings the emulator lacks
 and the one with the widest reach - everything in RAM - but 7 % is
 below what a person notices, and nothing known depends on it.
 
-## The repeat's delay after the top key is let go
-
-### What the firmware does
+## The repeat's delay after the top key is let go (done)
 
 The MS 7004 keeps one counter for the delay before auto-repeat (27H,
 set to 0BH when a key is pressed, decremented as the last-pressed key
@@ -203,25 +201,11 @@ is scanned, L_1EF) and does not reset it when a key is released.  So
 when the top key of two is let go and the one under it becomes the
 last pressed (the stack shift at L_237..L_27D), its repeat - the
 metronome code 264 - begins from wherever the counter stood, usually
-at once.
-
-### What the model does
-
-`ms7004.c` restarts the full delay on the fall-back
-(`repeat_next_ms = now + repeat_delay_ms` in the release path): the
-first 264 for the key still held comes a delay later than the
-keyboard's.  Seen in Saboteur 2's jump (`docs/hardware/keyboard.md`,
-264): the kick after landing starts a quarter of a second later here
-than it would on the machine.
-
-### What it takes
-
-Keep the counter the firmware keeps - the delay runs from the last
-press, not from the fall-back - and a core test: press A, press B,
-release B after half the delay, and the first 264 comes when A's delay
-would have, not a whole delay after B's release.  Twenty lines.
-
-### Priority
-
-Low.  A quarter of a second in one corner of one game's handling, but
-it is a known difference from the firmware, and a small one to close.
+at once.  The model restarted the full delay on the fall-back; since
+2026-11-19 it keeps `repeat_next_ms` as the last press set it
+(`ms7004.c`, the release path): the rest of that delay, or the next
+beat when it has run out.  Two core tests pin it - B let go halfway
+through its delay, and B let go while repeating - and the lib's
+keyboard tests pass as they were.  In Saboteur 2's jump
+(`../hardware/keyboard.md`, 264) the kick after landing no longer starts
+a quarter of a second late.

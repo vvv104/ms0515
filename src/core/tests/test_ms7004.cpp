@@ -487,6 +487,53 @@ TEST_CASE("releasing top key falls back repeat to previous") {
     CHECK(kbd.repeat_key == MS7004_KEY_A);
 }
 
+/* The firmware keeps one delay counter (27H): set when a key is pressed,
+ * counted down while the last-pressed key is scanned (L_1EF), and left as
+ * it stands when the top key is let go and the one under it becomes the
+ * last pressed (L_237..L_27D).  The fall-back's 264 runs on that count. */
+TEST_CASE("the fall-back's repeat runs on the delay the last press started") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+    kbd.repeat_enabled = true;
+    const uint32_t delay = kbd.repeat_delay_ms;
+
+    ms7004_tick(&kbd, 0);
+    ms7004_key(&kbd, MS7004_KEY_A, true);
+    ms7004_tick(&kbd, 10);
+    ms7004_key(&kbd, MS7004_KEY_B, true);           /* the delay from here */
+    ms7004_tick(&kbd, 10 + delay / 2);
+    ms7004_key(&kbd, MS7004_KEY_B, false);          /* A under it again */
+    kbd_flush_fifo(&uart);
+
+    ms7004_tick(&kbd, 10 + delay - 1);
+    CHECK(uart.fifo_count == 0);
+    ms7004_tick(&kbd, 10 + delay);                  /* B's press + the delay */
+    uint8_t buf[4];
+    REQUIRE(drain_fifo(&uart, buf, 4) == 1);
+    CHECK(buf[0] == 0264);
+}
+
+TEST_CASE("a fall-back after the delay ran out goes on at the period") {
+    auto uart = make_uart();
+    auto kbd  = make_kbd(&uart);
+    kbd.repeat_enabled = true;
+    const uint32_t delay = kbd.repeat_delay_ms, period = kbd.repeat_period_ms;
+
+    ms7004_tick(&kbd, 0);
+    ms7004_key(&kbd, MS7004_KEY_A, true);
+    ms7004_key(&kbd, MS7004_KEY_B, true);
+    ms7004_tick(&kbd, delay);                       /* B's first 264 */
+    const uint32_t let_go = delay + period / 2;
+    ms7004_tick(&kbd, let_go);
+    ms7004_key(&kbd, MS7004_KEY_B, false);
+    kbd_flush_fifo(&uart);
+
+    ms7004_tick(&kbd, delay + period);              /* the next beat: A's */
+    uint8_t buf[4];
+    REQUIRE(drain_fifo(&uart, buf, 4) == 1);
+    CHECK(buf[0] == 0264);
+}
+
 /* ── Host commands ───────────────────────────────────────────────────────── */
 
 TEST_CASE("ID probe (0xAB) responds with 0x01, 0x00") {

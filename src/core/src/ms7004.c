@@ -532,10 +532,15 @@ void ms7004_key(ms7004_t *kbd, ms7004_key_t key, bool down)
     }
 
     if (kbd->repeat_key == key) {
-        /* Fall back to the previous still-held regular key. */
+        /* Fall back to the previous still-held regular key.  The firmware
+         * keeps one delay counter (27H), set by a press and counted down
+         * as the last-pressed key is scanned (L_1EF); the stack shift that
+         * makes the key under it the last pressed (L_237..L_27D) leaves it
+         * as it stands.  So the repeat goes on from repeat_next_ms as the
+         * last press set it: the rest of its delay, or at once - at the
+         * next beat - when that delay has run out. */
         if (kbd->key_stack_top > 0) {
-            kbd->repeat_key     = kbd->key_stack[kbd->key_stack_top - 1];
-            kbd->repeat_next_ms = kbd->now_ms + kbd->repeat_delay_ms;
+            kbd->repeat_key = kbd->key_stack[kbd->key_stack_top - 1];
         } else {
             kbd->repeat_key = MS7004_KEY_NONE;
         }
