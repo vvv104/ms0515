@@ -5,12 +5,11 @@
  * The rate is the jumpers E3/E4 (NS4 TO Table 6): both fitted 50 Hz, E4
  * alone 60 Hz (260 lines of 64 us, 16.7 ms), E3 alone 72 Hz.  The
  * software reads them back as РВК1/РВК0, bits 4-3 of System Register B
- * (Table 10: 00 = 50, 01 = 72, 1x = 60).  The machines ran at 50 Hz: the
- * timer interrupt is the frame sync itself (D60.1 is clocked by КСИ), the
- * RT-11 kits of two bureaus count it as a 50-cycle clock, and the
- * machines kept time in banks - at 60 Hz their clocks would have gained
- * 4.8 hours a day.  So the board starts at 50 Hz: a frame of 7 500 000 /
- * 50 = 150 000 CPU cycles (docs/hardware/board.md).
+ * (Table 10: 00 = 50, 01 = 72, 1x = 60).  The timer interrupt is the
+ * frame sync itself (D60.1 is clocked by КСИ), and the RT-11 kits of two
+ * bureaus count it as a 50-cycle clock; the board starts at that rate,
+ * 50 Hz: a frame of 7 500 000 / 50 = 150 000 CPU cycles.  The boards
+ * photographed carry E3 alone, 72 Hz (docs/hardware/board.md).
  */
 
 #include <doctest/doctest.h>

@@ -311,7 +311,9 @@ Special scancodes:
   firmware sends nothing when a regular key is released (`L_237`..
   `L_27D` only shift its stack of held keys; 0xB3 is the register keys'
   alone) and its repeat for the key still held is 264 again (`L_1EF`,
-  `L_29B`, `L_2B0`), and ROM-B's 264 handler (175626) rewinds its
+  `L_29B`, `L_2B0`) - on the delay counter the last press set, which
+  the release leaves as it stands, so it often comes at once - and
+  ROM-B's 264 handler (175626) rewinds its
   type-ahead buffer and hands the game its last character - Up.  The
   model used to re-send the held key's own code on a fall-back, which
   gave the game Left; that was the model's convenience, not the

@@ -569,11 +569,10 @@ void board_init(ms0515_board_t *board)
     /* The frame rate is the jumpers E3/E4 (NS4 TO Table 6), read back as
      * Register B bits 4-3 (Table 10).  The timer interrupt is the frame
      * sync itself (D60.1, clocked by КСИ), so an RT-11 kit's clock runs
-     * at the frame rate: the kits of two bureaus say CLOCK = 50., and the
-     * machines kept time in banks - at 60 Hz they would have gained 4.8
-     * hours a day.  So the machines ran at 50 Hz, both jumpers fitted,
-     * whatever the assembly drawing's standard list says (ms0515-fpga,
-     * netlist/variants.md); 312 lines, 20 ms a frame. */
+     * at the frame rate.  The board starts at 50 Hz, the rate the kits of
+     * two bureaus count (CLOCK = 50.): 312 lines, 20 ms a frame.  The
+     * boards photographed carry E3 alone, 72 Hz (ms0515-fpga,
+     * netlist/variants.md), where those kits' clock runs fast. */
     board->dip_refresh   = 0;  /* 50 Hz */
     board->timer_counter = TIMER_PERIOD_Q;
     board->frame_counter = board_frame_cycles(board);
